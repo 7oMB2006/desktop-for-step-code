@@ -25,6 +25,10 @@ const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent
 const pathKey = (path: string) => resolve(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 async function samePath(a: string, b: string) {
   if (pathKey(a) === pathKey(b)) return true;
+  try {
+    const [left, right] = await Promise.all([stat(a, { bigint: true }), stat(b, { bigint: true })]);
+    if (left.dev === right.dev && left.ino !== 0n && left.ino === right.ino) return true;
+  } catch {}
   try { return pathKey(await realpath(a)) === pathKey(await realpath(b)); }
   catch { return false; }
 }

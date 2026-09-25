@@ -166,7 +166,7 @@ try {
   await page.waitForFunction(() => !document.querySelector('.composer > textarea').disabled);
   const projectState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(projectState.independent, false);
-  assert.equal(projectState.preferences.workspace, workspace);
+  assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   await page.screenshot({ path: 'test-results/desktop-dark-connected.png' });
   await page.getByRole('button', { name: '重命名', exact: true }).click();

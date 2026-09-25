@@ -40,9 +40,10 @@ jobs:
           if ((git -C Step-Code rev-parse HEAD).Trim() -ne '7dd66cb9f11a40ba19285b620084b362892cadea') {
             throw 'Unexpected Step Code revision'
           }
-          git -C Step-Code apply --check ../patches/step-code-desktop.patch
+          $patch = Join-Path $env:GITHUB_WORKSPACE 'patches/step-code-desktop.patch'
+          git -C Step-Code apply --check --3way $patch
           if ($LASTEXITCODE -ne 0) { throw 'Step Code patch does not apply' }
-          git -C Step-Code apply ../patches/step-code-desktop.patch
+          git -C Step-Code apply --3way $patch
           if ($LASTEXITCODE -ne 0) { throw 'Unable to apply Step Code patch' }
 
       - name: Install and build Step Code

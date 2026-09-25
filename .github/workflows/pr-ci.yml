@@ -21,38 +21,54 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check out pinned Step Code
-        uses: actions/checkout@v4
-        with:
-          repository: stepfun-ai/Step-Code
-          ref: 7dd66cb9f11a40ba19285b620084b362892cadea
-          path: Step-Code
-          persist-credentials: false
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24.15.0
 
+      - name: Fetch pinned Step Code outside workspace
+        shell: pwsh
+        run: |
+          $upstream = Join-Path $env:RUNNER_TEMP 'Step-Code'
+          git init $upstream
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize Step Code checkout' }
+          git -C $upstream remote add origin https://github.com/stepfun-ai/Step-Code.git
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code remote' }
+          git -C $upstream fetch --depth 1 --no-tags origin 7dd66cb9f11a40ba19285b620084b362892cadea
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned Step Code revision' }
+          git -C $upstream checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check out pinned Step Code revision' }
+          if ((git -C $upstream rev-parse HEAD).Trim() -ne '7dd66cb9f11a40ba19285b620084b362892cadea') {
+            throw 'Unexpected Step Code revision'
+          }
+
       - name: Apply Desktop integration patch
         shell: pwsh
         run: |
-          if ((git -C Step-Code rev-parse HEAD).Trim() -ne '7dd66cb9f11a40ba19285b620084b362892cadea') {
-            throw 'Unexpected Step Code revision'
-          }
+          $upstream = Join-Path $env:RUNNER_TEMP 'Step-Code'
           $patch = Join-Path $env:GITHUB_WORKSPACE 'patches/step-code-desktop.patch'
-          git -C Step-Code apply --check --recount $patch
+          git -C $upstream apply --check $patch
           if ($LASTEXITCODE -ne 0) { throw 'Step Code patch does not apply' }
-          git -C Step-Code apply --recount $patch
+          git -C $upstream apply $patch
           if ($LASTEXITCODE -ne 0) { throw 'Unable to apply Step Code patch' }
 
       - name: Install and build Step Code
-        working-directory: Step-Code
+        working-directory: ${{ runner.temp }}\Step-Code
         run: |
           corepack pnpm install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { throw 'Step Code install failed' }
           corepack pnpm build
           if ($LASTEXITCODE -ne 0) { throw 'Step Code build failed' }
+
+      - name: Place Step Code beside Desktop
+        shell: pwsh
+        run: |
+          $upstream = Join-Path $env:RUNNER_TEMP 'Step-Code'
+          $destination = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
+          if (Test-Path -LiteralPath $destination) {
+            throw 'Step Code destination already exists'
+          }
+          Move-Item -LiteralPath $upstream -Destination $destination
 
       - name: Install Desktop dependencies
         working-directory: Desktop

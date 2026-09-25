@@ -32,6 +32,8 @@ jobs:
           $upstream = Join-Path $env:RUNNER_TEMP 'Step-Code'
           git init $upstream
           if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize Step Code checkout' }
+          git -C $upstream config core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code line endings' }
           git -C $upstream remote add origin https://github.com/stepfun-ai/Step-Code.git
           if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code remote' }
           git -C $upstream fetch --depth 1 --no-tags origin 7dd66cb9f11a40ba19285b620084b362892cadea

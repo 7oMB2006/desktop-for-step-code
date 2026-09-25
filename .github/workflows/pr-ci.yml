@@ -26,10 +26,10 @@ jobs:
         with:
           node-version: 24.15.0
 
-      - name: Fetch pinned Step Code outside workspace
+      - name: Fetch pinned Step Code
         shell: pwsh
         run: |
-          $upstream = Join-Path $env:RUNNER_TEMP 'Step-Code'
+          $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
           git init $upstream
           if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize Step Code checkout' }
           git -C $upstream config core.autocrlf false
@@ -56,22 +56,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Step Code integration changes contain whitespace errors' }
 
       - name: Install and build Step Code
-        working-directory: ${{ runner.temp }}\Step-Code
+        working-directory: Step-Code
         run: |
           corepack pnpm install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { throw 'Step Code install failed' }
           corepack pnpm build
           if ($LASTEXITCODE -ne 0) { throw 'Step Code build failed' }
-
-      - name: Place Step Code beside Desktop
-        shell: pwsh
-        run: |
-          $upstream = Join-Path $env:RUNNER_TEMP 'Step-Code'
-          $destination = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
-          if (Test-Path -LiteralPath $destination) {
-            throw 'Step Code destination already exists'
-          }
-          Move-Item -LiteralPath $upstream -Destination $destination
 
       - name: Install Desktop dependencies
         working-directory: Desktop

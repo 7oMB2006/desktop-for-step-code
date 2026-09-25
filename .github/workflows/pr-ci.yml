@@ -49,10 +49,11 @@ jobs:
         run: |
           $upstream = Join-Path $env:RUNNER_TEMP 'Step-Code'
           $patch = Join-Path $env:GITHUB_WORKSPACE 'patches/step-code-desktop.patch'
-          git -C $upstream apply --check $patch
-          if ($LASTEXITCODE -ne 0) { throw 'Step Code patch does not apply' }
-          git -C $upstream apply $patch
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to apply Step Code patch' }
+          $applyScript = Join-Path $env:GITHUB_WORKSPACE 'scripts/apply-step-code-desktop-patch.mjs'
+          node $applyScript $upstream $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to apply the pinned Step Code integration changes' }
+          git -C $upstream diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'Step Code integration changes contain whitespace errors' }
 
       - name: Install and build Step Code
         working-directory: ${{ runner.temp }}\Step-Code

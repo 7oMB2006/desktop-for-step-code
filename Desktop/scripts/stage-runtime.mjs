@@ -18,9 +18,24 @@ for (const name of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) await cp(joi
 await cp('electron/admin.mjs', join(runtime, 'admin.mjs'));
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));
 const require = createRequire(join(source, 'package.json'));
+async function resolvePackageDirectory(name) {
+  let directory = dirname(require.resolve(name));
+  while (true) {
+    try {
+      const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'));
+      if (manifest.name === name) return directory;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  throw new Error(`Unable to locate package directory for ${name}`);
+}
 for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
-  const pkg = require.resolve(`${name}/package.json`);
-  await cp(dirname(pkg), join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
+  const packageDirectory = await resolvePackageDirectory(name);
+  await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 const node = await readFile(join(runtime, 'node/node.exe'));

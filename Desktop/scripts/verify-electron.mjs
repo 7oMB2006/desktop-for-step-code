@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -106,7 +106,9 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const startupState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(startupState.independent, true);
-  assert.ok(startupState.preferences.workspace.startsWith(join(profile, 'workspaces', 'independent')));
+  const independentRoot = await realpath(join(profile, 'workspaces', 'independent'));
+  const activeWorkspace = await realpath(startupState.preferences.workspace);
+  assert.ok(activeWorkspace.toLowerCase().startsWith(`${independentRoot.toLowerCase()}\\`), `${activeWorkspace} is outside ${independentRoot}`);
   assert.equal(startupState.preferences.workspaces.length, 2);
   assert.equal(startupState.preferences.workspaces.includes(startupState.preferences.workspace), false);
   assert.equal(startupState.messages.length, 0);
@@ -164,14 +166,14 @@ try {
   await page.waitForFunction(() => !document.querySelector('.composer > textarea').disabled);
   const projectState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(projectState.independent, false);
-  assert.equal(projectState.preferences.workspace, workspace);
+  assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   await page.screenshot({ path: 'test-results/desktop-dark-connected.png' });
   await page.getByRole('button', { name: '重命名', exact: true }).click();
   await page.getByRole('dialog').getByRole('textbox').fill('窗口验证会话');
   await page.getByRole('button', { name: '确认', exact: true }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
-  const firstGroup = page.getByRole('region', { name: workspace, exact: true });
+  const firstGroup = page.getByRole('region', { name: projectState.preferences.workspace, exact: true });
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).waitFor();
   await page.getByRole('button', { name: '在 Second project 新建会话', exact: true }).click();
   await page.waitForFunction(path => document.querySelector('.breadcrumb > span')?.textContent === path, 'Second project');
@@ -179,7 +181,8 @@ try {
   await page.getByRole('dialog').getByRole('textbox').fill('Second session');
   await page.getByRole('button', { name: '确认', exact: true }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
-  const secondGroup = page.getByRole('region', { name: secondWorkspace, exact: true });
+  const secondProjectState = await page.evaluate(() => window.desktop.snapshot());
+  const secondGroup = page.getByRole('region', { name: secondProjectState.preferences.workspace, exact: true });
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
   assert.equal(await firstGroup.getByRole('button', { name: 'Second session', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();

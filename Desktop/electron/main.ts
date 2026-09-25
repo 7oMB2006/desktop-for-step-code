@@ -23,7 +23,25 @@ const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : re
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
 const pathKey = (path: string) => resolve(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+async function samePath(a: string, b: string) {
+  if (pathKey(a) === pathKey(b)) return true;
+  try {
+    const [left, right] = await Promise.all([stat(a, { bigint: true }), stat(b, { bigint: true })]);
+    if (left.dev === right.dev && left.ino !== 0n && left.ino === right.ino) return true;
+  } catch {}
+  try { return pathKey(await realpath(a)) === pathKey(await realpath(b)); }
+  catch { return false; }
+}
 const isIndependentPath = (path: string) => pathKey(path).startsWith(`${pathKey(independentRoot)}/`) || !preferences.workspaces.some(p => pathKey(p) === pathKey(path));
+async function sessionWorkspacePath(path: string): Promise<string | undefined> {
+  if (pathKey(path).startsWith(`${pathKey(independentRoot)}/`)) return undefined;
+  try {
+    const [canonicalPath, canonicalRoot] = await Promise.all([realpath(path), realpath(independentRoot)]);
+    if (pathKey(canonicalPath).startsWith(`${pathKey(canonicalRoot)}/`)) return undefined;
+  } catch {}
+  const matches = await Promise.all(preferences.workspaces.map(async workspace => ({ workspace, same: await samePath(workspace, path) })));
+  return matches.find(match => match.same)?.workspace;
+}
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node/node.exe');
 const env = isolatedEnvironment(dataRoot);
@@ -51,7 +69,10 @@ async function savePreferences() {
 }
 async function listSessions(): Promise<Session[]> {
   const sessions: Session[] = await admin.request('sessions');
-  return sessions.map(s => ({ ...s, independent: isIndependentPath(s.cwd) }));
+  return Promise.all(sessions.map(async s => {
+    const workspacePath = await sessionWorkspacePath(s.cwd);
+    return { ...s, workspacePath, independent: !workspacePath };
+  }));
 }
 async function snapshot(): Promise<Snapshot> {
   let messages = [], models = [];
@@ -73,7 +94,10 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
     if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
     await rpc.stop(); status = 'connecting'; emit({ type: 'desktop_status', status });
     preferences.workspace = canonical;
-    if (rememberProject && !pathKey(canonical).startsWith(`${pathKey(independentRoot)}/`)) preferences.workspaces = [canonical, ...preferences.workspaces.filter(p => pathKey(p) !== pathKey(canonical))];
+    if (rememberProject && !pathKey(canonical).startsWith(`${pathKey(independentRoot)}/`)) {
+      const previous = await Promise.all(preferences.workspaces.map(async path => ({ path, same: await samePath(path, canonical) })));
+      preferences.workspaces = [canonical, ...previous.filter(entry => !entry.same).map(entry => entry.path)];
+    }
     await savePreferences();
     rpc.start(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, env);
     await rpc.request('get_state', {}, 60000);

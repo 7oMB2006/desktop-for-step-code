@@ -1,0 +1,95 @@
+name: PR CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows integration
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Check out Desktop
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+
+      - name: Fetch pinned Step Code
+        shell: pwsh
+        run: |
+          $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
+          git init $upstream
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize Step Code checkout' }
+          git -C $upstream config core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code line endings' }
+          git -C $upstream remote add origin https://github.com/stepfun-ai/Step-Code.git
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code remote' }
+          git -C $upstream fetch --depth 1 --no-tags origin 7dd66cb9f11a40ba19285b620084b362892cadea
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned Step Code revision' }
+          git -C $upstream checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check out pinned Step Code revision' }
+          if ((git -C $upstream rev-parse HEAD).Trim() -ne '7dd66cb9f11a40ba19285b620084b362892cadea') {
+            throw 'Unexpected Step Code revision'
+          }
+
+      - name: Apply Desktop integration patch
+        shell: pwsh
+        run: |
+          $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
+          $patch = Join-Path $env:GITHUB_WORKSPACE 'patches/step-code-desktop.patch'
+          $applyScript = Join-Path $env:GITHUB_WORKSPACE 'scripts/apply-step-code-desktop-patch.mjs'
+          node $applyScript $upstream $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to apply the pinned Step Code integration changes' }
+          git -C $upstream diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'Step Code integration changes contain whitespace errors' }
+
+      - name: Install and build Step Code
+        working-directory: Step-Code
+        run: |
+          corepack pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { throw 'Step Code install failed' }
+          corepack pnpm build
+          if ($LASTEXITCODE -ne 0) { throw 'Step Code build failed' }
+
+      - name: Install Desktop dependencies
+        working-directory: Desktop
+        run: |
+          corepack pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop install failed' }
+          node node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0) { throw 'Electron install failed' }
+
+      - name: Stage runtime and check Desktop
+        working-directory: Desktop
+        run: |
+          corepack pnpm stage:runtime
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime staging failed' }
+          corepack pnpm typecheck
+          if ($LASTEXITCODE -ne 0) { throw 'Typecheck failed' }
+          corepack pnpm test
+          if ($LASTEXITCODE -ne 0) { throw 'Protocol tests failed' }
+          corepack pnpm build
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
+          node scripts/verify-electron.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Electron acceptance failed' }
+
+      - name: Upload Electron failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-failure-screenshots
+          path: Desktop/test-results/*.png
+          if-no-files-found: ignore
+          retention-days: 7

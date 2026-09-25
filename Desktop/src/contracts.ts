@@ -1,4 +1,4 @@
-export interface Session { id: string; path: string; cwd: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
+export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
 export interface Model { id: string; provider: string; name: string; reasoning?: boolean }
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export interface Message { role: string; content: string | Content[]; timestamp?: number; toolCallId?: string; toolName?: string; isError?: boolean }

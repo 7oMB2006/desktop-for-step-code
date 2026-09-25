@@ -29,6 +29,15 @@ async function samePath(a: string, b: string) {
   catch { return false; }
 }
 const isIndependentPath = (path: string) => pathKey(path).startsWith(`${pathKey(independentRoot)}/`) || !preferences.workspaces.some(p => pathKey(p) === pathKey(path));
+async function isIndependentSessionPath(path: string) {
+  if (pathKey(path).startsWith(`${pathKey(independentRoot)}/`)) return true;
+  try {
+    const [canonicalPath, canonicalRoot] = await Promise.all([realpath(path), realpath(independentRoot)]);
+    if (pathKey(canonicalPath).startsWith(`${pathKey(canonicalRoot)}/`)) return true;
+  } catch {}
+  const matchesProject = await Promise.all(preferences.workspaces.map(workspace => samePath(workspace, path)));
+  return !matchesProject.some(Boolean);
+}
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node/node.exe');
 const env = isolatedEnvironment(dataRoot);
@@ -56,7 +65,7 @@ async function savePreferences() {
 }
 async function listSessions(): Promise<Session[]> {
   const sessions: Session[] = await admin.request('sessions');
-  return sessions.map(s => ({ ...s, independent: isIndependentPath(s.cwd) }));
+  return Promise.all(sessions.map(async s => ({ ...s, independent: await isIndependentSessionPath(s.cwd) })));
 }
 async function snapshot(): Promise<Snapshot> {
   let messages = [], models = [];

@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -106,9 +106,9 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const startupState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(startupState.independent, true);
-  const independentRoot = join(profile, 'workspaces', 'independent').replaceAll('/', '\\').toLowerCase();
-  const activeWorkspace = startupState.preferences.workspace.replaceAll('/', '\\').toLowerCase();
-  assert.ok(activeWorkspace.startsWith(`${independentRoot}\\`));
+  const independentRoot = await realpath(join(profile, 'workspaces', 'independent'));
+  const activeWorkspace = await realpath(startupState.preferences.workspace);
+  assert.ok(activeWorkspace.toLowerCase().startsWith(`${independentRoot.toLowerCase()}\\`), `${activeWorkspace} is outside ${independentRoot}`);
   assert.equal(startupState.preferences.workspaces.length, 2);
   assert.equal(startupState.preferences.workspaces.includes(startupState.preferences.workspace), false);
   assert.equal(startupState.messages.length, 0);

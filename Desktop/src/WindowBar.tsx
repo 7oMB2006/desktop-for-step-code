@@ -18,7 +18,7 @@ export function WindowBar({ language }: { language: 'zh' | 'en' }) {
     void bridge?.windowControl(action).then(state => setMaximized(state.maximized)).catch(() => {});
   };
   return <header className={`window-bar ${focused ? '' : 'window-inactive'}`}>
-    <div className="window-identity"><img src="./StepCode.svg" width="22" height="22" alt=""/><span>Desktop for Step Code</span><span className="window-edition">Community</span></div>
+    <div className="window-identity"><img src="./StepCode.svg" width="22" height="22" alt="Desktop for Step Code"/></div>
     <div className="window-drag-space"/>
     <div className="window-controls">
       <button type="button" title={zh ? '最小化' : 'Minimize'} aria-label={zh ? '最小化' : 'Minimize'} onClick={() => control('minimize')}><Minus size={15}/></button>

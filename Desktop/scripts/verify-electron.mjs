@@ -106,7 +106,9 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const startupState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(startupState.independent, true);
-  assert.ok(startupState.preferences.workspace.startsWith(join(profile, 'workspaces', 'independent')));
+  const independentRoot = join(profile, 'workspaces', 'independent').replaceAll('/', '\\').toLowerCase();
+  const activeWorkspace = startupState.preferences.workspace.replaceAll('/', '\\').toLowerCase();
+  assert.ok(activeWorkspace.startsWith(`${independentRoot}\\`));
   assert.equal(startupState.preferences.workspaces.length, 2);
   assert.equal(startupState.preferences.workspaces.includes(startupState.preferences.workspace), false);
   assert.equal(startupState.messages.length, 0);

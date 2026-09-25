@@ -1,7 +1,10 @@
 <p align="center">
   <img src="assets/readme/StepCode.svg" width="88" alt="阶跃星辰标志">
 </p>
-<h1 align="center">Desktop for Step Code</h1>
+<br>
+<p align="center">
+  <img src="assets/readme/desktop-for-step-code-banner.png" width="480" alt="Desktop for Step Code">
+</p>
 <hr>
 <p align="center">让想法阶跃星辰。</p>
 <p align="center">Windows x64 · Electron · React · TypeScript · MIT</p>

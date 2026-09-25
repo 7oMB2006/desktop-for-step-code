@@ -41,16 +41,9 @@ jobs:
             throw 'Unexpected Step Code revision'
           }
           $patch = Join-Path $env:GITHUB_WORKSPACE 'patches/step-code-desktop.patch'
-          foreach ($target in @('packages/coding-agent/src/index.ts', 'scripts/build-coding-agent-bundle.mjs')) {
-            $expectedBlob = (git -C Step-Code rev-parse "HEAD:${target}").Trim()
-            $worktreeBlob = (git -C Step-Code hash-object $target).Trim()
-            $lineEndings = (git -C Step-Code ls-files --eol -- $target).Trim()
-            Write-Output "${target}: index=${expectedBlob} worktree=${worktreeBlob} ${lineEndings}"
-          }
-          Write-Output "Patch blob: $((git hash-object $patch).Trim())"
-          git -C Step-Code apply --check --3way $patch
+          git -C Step-Code apply --check --recount $patch
           if ($LASTEXITCODE -ne 0) { throw 'Step Code patch does not apply' }
-          git -C Step-Code apply --3way $patch
+          git -C Step-Code apply --recount $patch
           if ($LASTEXITCODE -ne 0) { throw 'Unable to apply Step Code patch' }
 
       - name: Install and build Step Code

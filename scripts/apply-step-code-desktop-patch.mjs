@@ -19,7 +19,11 @@ function replaceExactlyOnce(source, before, after, label) {
 	return source.slice(0, first) + after + source.slice(first + before.length);
 }
 
-const patchBytes = await readFile(patchPath);
+const patchText = (await readFile(patchPath, "utf8")).replace(/\r\n/g, "\n");
+if (patchText.includes("\r")) {
+	throw new Error("The Step Code integration patch has unsupported line endings");
+}
+const patchBytes = Buffer.from(patchText, "utf8");
 if (gitBlobHash(patchBytes) !== "6c4701c302b193563d63d43278584b895ce534af") {
 	throw new Error("The Step Code integration patch changed; review and update this applier");
 }

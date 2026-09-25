@@ -1,14 +1,10 @@
 <h1 align="center">Desktop for Step Code</h1>
 <p align="center">Let ideas reach the stars.</p>
-<p align="center"><a href="#en">English</a> · <a href="#zh-cn">简体中文</a></p>
+<p align="center"><a href="#zh-cn">简体中文版本</a></p>
 
 <p align="center">
   <img src="assets/readme/home-zh.png" width="360" alt="Desktop for Step Code home screen in Chinese">
 </p>
-
-<a id="en"></a>
-
-## English
 
 A Windows desktop client for Step Code. It provides desktop workspaces, conversations, and session management; Step Code powers agent execution.
 

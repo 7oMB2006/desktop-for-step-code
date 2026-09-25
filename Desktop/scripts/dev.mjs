@@ -1,0 +1,15 @@
+import { spawn } from 'node:child_process';
+import { build } from 'esbuild';
+import { createServer } from 'vite';
+import electron from 'electron';
+import './icons.mjs';
+await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'] });
+const server = await createServer({ server: { host: '127.0.0.1', port: 5173, strictPort: false } });
+await server.listen();
+const url = server.resolvedUrls.local[0];
+console.log(`Desktop renderer: ${url}`);
+const env = { ...process.env, DESKTOP_DEV_URL: url };
+delete env.ELECTRON_RUN_AS_NODE;
+const child = spawn(electron, ['.'], { env, stdio: 'inherit', windowsHide: true });
+child.on('exit', async code => { await server.close(); process.exit(code ?? 0); });
+process.on('SIGINT', () => child.kill());

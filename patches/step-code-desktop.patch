@@ -1,0 +1,41 @@
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index 5b9a78f..e9fdb29 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -463,7 +463,7 @@ export {
+ 	type StepCronRuntimeOptions,
+ 	stepCronExtensionInline,
+ } from "./features/step-cron.ts";
+-export { createStepProviderConfig, STEP_PROVIDER_ID } from "./features/step-provider/index.ts";
++export { createStepProviderConfig, STEP_PROVIDER_ID, loginStepOAuth } from "./features/step-provider/index.ts";
+ export {
+ 	CreateGoalParams,
+ 	continuationPrompt,
+@@ -603,6 +603,7 @@ export {
+ 	type StepLoginHost,
+ 	type StepLoginOutcome,
+ 	syncStepLoginProfileEndpoint,
++	writeStepLoginCredential,
+ } from "./step/login-flow.ts";
+ export {
+ 	getStepLoginStatus,
+diff --git a/scripts/build-coding-agent-bundle.mjs b/scripts/build-coding-agent-bundle.mjs
+index 59fdc3e..da69d6c 100644
+--- a/scripts/build-coding-agent-bundle.mjs
++++ b/scripts/build-coding-agent-bundle.mjs
+@@ -176,7 +176,14 @@ function outputBytes(metafiles) {
+ // stays self-contained despite the entry now living in the app package. Always
+ // rebuild rather than trusting a pre-existing dist/main.js: a stale app compile
+ // from an earlier checkout would otherwise be baked into the bundle.
+-execFileSync("npm", ["--prefix", appEntryDir, "run", "build"], { stdio: "inherit", cwd: repoRoot });
++const npmCliPath = process.env.npm_execpath;
++if (!npmCliPath) {
++	throw new Error("npm_execpath is required to build the CLI entry.");
++}
++execFileSync(process.execPath, [npmCliPath, "--prefix", appEntryDir, "run", "build"], {
++	stdio: "inherit",
++	cwd: repoRoot,
++});
+ 
+ for (const entry of [
+ 	join(appEntryDistDir, "main.js"),

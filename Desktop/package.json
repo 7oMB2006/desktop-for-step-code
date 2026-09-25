@@ -1,0 +1,79 @@
+{
+  "name": "desktop-for-step-code",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Community Windows desktop client for Step Code",
+  "author": "Desktop for Step Code contributors",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/main.cjs",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "stage:runtime": "node scripts/stage-runtime.mjs",
+    "package": "pnpm build && pnpm stage:runtime && electron-builder --win nsis --x64",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "lucide-react": "1.48.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "rehype-highlight": "7.0.2",
+    "remark-gfm": "4.0.1"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "24.10.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "electron": "44.4.5",
+    "electron-builder": "26.0.12",
+    "esbuild": "0.28.2",
+    "playwright": "1.58.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "8.3.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "@electron/node-gyp": "https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2"
+    }
+  },
+  "build": {
+    "appId": "community.stepcode.desktop",
+    "productName": "Desktop for Step Code",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "build/icon.ico", "to": "icon.ico" },
+      {
+        "from": "runtime",
+        "to": "runtime"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

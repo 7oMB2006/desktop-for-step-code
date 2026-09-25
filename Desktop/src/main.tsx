@@ -138,8 +138,9 @@ function App() {
     const key = workspaceKey(path);
     if (!workspaceGroups.has(key)) workspaceGroups.set(key, { path, sessions: [] });
   }
-  const independentSessions = data.sessions.filter(session => session.independent ?? !workspaceGroups.has(workspaceKey(session.cwd)));
-  for (const session of data.sessions) if (!independentSessions.includes(session)) workspaceGroups.get(workspaceKey(session.cwd))?.sessions.push(session);
+  const sessionWorkspaceKey = (session: typeof data.sessions[number]) => workspaceKey(session.workspacePath ?? session.cwd);
+  const independentSessions = data.sessions.filter(session => session.independent ?? !workspaceGroups.has(sessionWorkspaceKey(session)));
+  for (const session of data.sessions) if (!independentSessions.includes(session)) workspaceGroups.get(sessionWorkspaceKey(session))?.sessions.push(session);
   const toggleWorkspace = (key: string) => setCollapsedWorkspaces(previous => { const next = new Set(previous); next.has(key) ? next.delete(key) : next.add(key); return next; });
   const independentExpanded = !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, sessions: typeof data.sessions) => {

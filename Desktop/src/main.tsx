@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowUp, Square, Plus, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Paperclip, Trash2, Pencil, Cpu, SlidersHorizontal, AlertCircle, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2 } from 'lucide-react';
+import { ArrowUp, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Paperclip, Trash2, Pencil, Cpu, SlidersHorizontal, AlertCircle, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -141,6 +141,7 @@ function App() {
   const independentSessions = data.sessions.filter(session => session.independent ?? !workspaceGroups.has(workspaceKey(session.cwd)));
   for (const session of data.sessions) if (!independentSessions.includes(session)) workspaceGroups.get(workspaceKey(session.cwd))?.sessions.push(session);
   const toggleWorkspace = (key: string) => setCollapsedWorkspaces(previous => { const next = new Set(previous); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  const independentExpanded = !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, sessions: typeof data.sessions) => {
     setCollapsedWorkspaces(previous => { const next = new Set(previous); next.delete(workspaceKey(path)); return next; });
     await applySnapshot(async () => {
@@ -156,21 +157,26 @@ function App() {
     <WindowBar language={data.preferences.language}/>
     {error && (settingsOpen || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
     <aside className="sidebar"><div className="sidebar-dismiss"><IconButton title={t('收起侧栏', 'Collapse sidebar')} onClick={() => setSidebar(false)}><PanelLeft size={17}/></IconButton></div>
+      <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
       <button className="new-chat" disabled={!bridge || busy || loading} onClick={() => void applySnapshot(() => bridge!.newIndependentSession())}><Plus size={17}/>{t('新建会话', 'New session')}</button>
       <nav className="workspace-tree" aria-label={t('工作区与会话', 'Workspaces and sessions')}>
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
-          <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={!collapsedWorkspaces.has('__independent__')} onClick={() => toggleWorkspace('__independent__')}>{collapsedWorkspaces.has('__independent__') ? <ChevronRight size={13}/> : <ChevronDown size={13}/>}<MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
-          {!collapsedWorkspaces.has('__independent__') && <div className="workspace-sessions">{independentSessions.map(s => <div key={s.id} className={`session-row ${s.id === data.state?.sessionId ? 'selected' : ''}`}><button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} title={`${s.name || s.firstMessage || t('新会话', 'New session')}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{s.name || s.firstMessage || t('新会话', 'New session')}</span></button><IconButton title={t('删除会话', 'Delete session')} disabled={busy || loading} onClick={() => void run(async () => { if (await bridge!.deleteSession(s.id)) await refresh(); })}><Trash2 size={13}/></IconButton></div>)}</div>}
+          <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
+          <div className="workspace-disclosure" aria-hidden={!independentExpanded} inert={!independentExpanded}>
+            <div className="workspace-sessions">{independentSessions.map(s => <div key={s.id} className={`session-row ${s.id === data.state?.sessionId ? 'selected' : ''}`}><button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} title={`${s.name || s.firstMessage || t('新会话', 'New session')}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{s.name || s.firstMessage || t('新会话', 'New session')}</span></button><IconButton title={t('删除会话', 'Delete session')} disabled={busy || loading} onClick={() => void run(async () => { if (await bridge!.deleteSession(s.id)) await refresh(); })}><Trash2 size={13}/></IconButton></div>)}</div>
+          </div>
         </section>
         <div className="section-label">{t('项目', 'Projects')}<IconButton title={t('添加工作区', 'Add workspace')} disabled={!bridge || busy || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><Plus size={15}/></IconButton></div>
         {[...workspaceGroups].map(([key, group]) => {
           const expanded = !collapsedWorkspaces.has(key);
           return <section className="workspace-group" key={key} aria-label={group.path}>
             <div className={`workspace-heading ${key === workspaceKey(data.preferences.workspace ?? '') ? 'current' : ''}`}>
-              <button className="workspace-toggle" title={group.path} aria-label={basename(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}>{expanded ? <ChevronDown size={13}/> : <ChevronRight size={13}/>}<FolderOpen size={15}/><span>{basename(group.path)}</span></button>
+              <button className="workspace-toggle" title={group.path} aria-label={basename(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span>{basename(group.path)}</span></button>
               <IconButton title={t(`在 ${basename(group.path)} 新建会话`, `New session in ${basename(group.path)}`)} disabled={!bridge || busy || loading} onClick={() => void createInWorkspace(group.path, group.sessions)}><Plus size={15}/></IconButton>
             </div>
-            {expanded && <div className="workspace-sessions">{group.sessions.map(s => <div key={s.id} className={`session-row ${s.id === data.state?.sessionId ? 'selected' : ''}`}><button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} title={`${s.name || s.firstMessage || t('新会话', 'New session')}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{s.name || s.firstMessage || t('新会话', 'New session')}</span></button><IconButton title={t('删除会话', 'Delete session')} disabled={busy || loading} onClick={() => void run(async () => { if (await bridge!.deleteSession(s.id)) await refresh(); })}><Trash2 size={13}/></IconButton></div>)}{!group.sessions.length && <span className="workspace-empty">{t('暂无会话', 'No sessions yet')}</span>}</div>}
+            <div className="workspace-disclosure" aria-hidden={!expanded} inert={!expanded}>
+              <div className="workspace-sessions">{group.sessions.map(s => <div key={s.id} className={`session-row ${s.id === data.state?.sessionId ? 'selected' : ''}`}><button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} title={`${s.name || s.firstMessage || t('新会话', 'New session')}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{s.name || s.firstMessage || t('新会话', 'New session')}</span></button><IconButton title={t('删除会话', 'Delete session')} disabled={busy || loading} onClick={() => void run(async () => { if (await bridge!.deleteSession(s.id)) await refresh(); })}><Trash2 size={13}/></IconButton></div>)}{!group.sessions.length && <span className="workspace-empty">{t('暂无会话', 'No sessions yet')}</span>}</div>
+            </div>
           </section>;
         })}
         {!workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}

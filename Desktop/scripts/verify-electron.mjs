@@ -29,6 +29,17 @@ try {
   const page = await app.firstWindow();
   page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
+  assert.equal(await page.locator('.window-identity').innerText(), '');
+  assert.equal(await page.locator('.window-identity img').getAttribute('src'), './StepCode.svg');
+  assert.equal(await page.locator('.sidebar-wordmark img:visible').getAttribute('alt'), 'Desktop for Step Code');
+  assert.equal(await page.locator('.sidebar-wordmark img:visible').evaluate(img => img.complete && img.naturalWidth > 0), true);
+  assert.equal(await page.locator('.sidebar-identity > img').getAttribute('src'), './StepCode.svg');
+  await page.getByRole('button', { name: '侧栏', exact: true }).click();
+  assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
+  assert.equal(await page.locator('.window-identity img').isVisible(), true);
+  await page.screenshot({ path: 'test-results/brand-sidebar-hidden.png' });
+  await page.getByRole('button', { name: '侧栏', exact: true }).click();
+  assert.equal(await page.locator('.sidebar-identity').isVisible(), true);
   await page.getByRole('button', { name: '最大化', exact: true }).click();
   await page.getByRole('button', { name: '还原窗口', exact: true }).waitFor();
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()), true);
@@ -41,6 +52,56 @@ try {
   await page.getByRole('button', { name: '中文项目 with spaces', exact: true }).waitFor();
   await page.getByRole('button', { name: '独立会话', exact: true }).waitFor();
   await page.getByRole('button', { name: '独立验证会话', exact: true }).waitFor();
+  const disclosureCases = [
+    {
+      region: page.getByRole('region', { name: '独立会话', exact: true }),
+      toggleName: '独立会话',
+    },
+    {
+      region: page.getByRole('region', { name: workspace, exact: true }),
+      toggleName: '中文项目 with spaces',
+    },
+  ];
+  for (const { region, toggleName } of disclosureCases) {
+    const toggle = region.getByRole('button', { name: toggleName, exact: true });
+    const disclosure = region.locator('.workspace-disclosure');
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await toggle.locator('svg.lucide-chevron-down, svg.lucide-chevron-right').count(), 0);
+    assert.equal(await disclosure.getAttribute('aria-hidden'), 'false');
+    assert.equal(await disclosure.evaluate(element => element.inert), false);
+    await toggle.click();
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await disclosure.getAttribute('aria-hidden'), 'true');
+    assert.equal(await disclosure.evaluate(element => element.inert), true);
+    await toggle.click();
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await disclosure.getAttribute('aria-hidden'), 'false');
+  }
+  const projectToggle = disclosureCases[1].region.getByRole('button', { name: '中文项目 with spaces', exact: true });
+  const projectDisclosure = disclosureCases[1].region.locator('.workspace-disclosure');
+  assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 1);
+  await projectToggle.click();
+  assert.equal(await projectToggle.locator('svg.lucide-folder').count(), 1);
+  assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 0);
+  await projectToggle.click();
+  assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 1);
+  assert.equal(await disclosureCases[0].region.getByRole('button', { name: '独立会话', exact: true }).locator('svg.lucide-message-square').count(), 1);
+  const reduceMotion = await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const transitionStyle = await projectDisclosure.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { duration: style.transitionDuration, timing: style.transitionTimingFunction };
+  });
+  if (!reduceMotion) {
+    assert.match(transitionStyle.timing, /cubic-bezier\(0\.65, 0, 0\.35, 1\)/);
+    assert.ok(transitionStyle.duration.split(',').some(value => parseFloat(value) >= 0.24));
+    const openHeight = await projectDisclosure.evaluate(element => element.getBoundingClientRect().height);
+    await projectToggle.click();
+    await page.waitForTimeout(60);
+    const closingHeight = await projectDisclosure.evaluate(element => element.getBoundingClientRect().height);
+    assert.ok(closingHeight > 0 && closingHeight < openHeight);
+    await projectToggle.click();
+    await page.waitForTimeout(280);
+  }
   assert.equal(await page.getByRole('button', { name: 'Independent cwd', exact: true }).count(), 0);
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const startupState = await page.evaluate(() => window.desktop.snapshot());

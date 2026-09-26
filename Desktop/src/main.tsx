@@ -39,6 +39,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(new Set());
   const [sidebar, setSidebar] = useState(true);
+  const [compactSidebar, setCompactSidebar] = useState(() => window.innerWidth <= 760);
+  const [compactSidebarOpen, setCompactSidebarOpen] = useState(false);
+  const compactSidebarRef = useRef(compactSidebar);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState('account');
@@ -56,6 +59,7 @@ function App() {
   const bottom = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
   const zh = data.preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const connected = data.status === 'connected';
@@ -95,6 +99,21 @@ function App() {
     const update = () => document.documentElement.dataset.theme = data.preferences.theme === 'system' ? query.matches ? 'dark' : 'light' : data.preferences.theme;
     update(); query.addEventListener('change', update); document.documentElement.lang = zh ? 'zh-CN' : 'en'; return () => query.removeEventListener('change', update);
   }, [data.preferences.theme, zh]);
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth <= 760 && !compactSidebarRef.current) {
+        compactSidebarRef.current = true;
+        setCompactSidebar(true);
+        setCompactSidebarOpen(false);
+      } else if (window.innerWidth >= 840 && compactSidebarRef.current) {
+        compactSidebarRef.current = false;
+        setCompactSidebar(false);
+        setCompactSidebarOpen(false);
+      }
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   useEffect(() => { setAnswer(requests[0]?.prefill ?? ''); }, [requests[0]?.id]);
   useEffect(() => {
     if (!settingsOpen && !mcpEdit && !requests.length && !renaming) return;
@@ -154,10 +173,11 @@ function App() {
       return bridge!.snapshot();
     });
   };
-  return <div className={`app ${sidebar ? '' : 'sidebar-hidden'}`}>
+  return <div className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''}`}>
     <WindowBar language={data.preferences.language}/>
     {error && (settingsOpen || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
-    <aside className="sidebar"><div className="sidebar-dismiss"><IconButton title={t('收起侧栏', 'Collapse sidebar')} onClick={() => setSidebar(false)}><PanelLeft size={17}/></IconButton></div>
+    {compactSidebar && compactSidebarOpen && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} onClick={() => setCompactSidebarOpen(false)}/>}
+    <aside className="sidebar"><div className="sidebar-dismiss"><IconButton title={t('收起侧栏', 'Collapse sidebar')} onClick={() => setCompactSidebarOpen(false)}><PanelLeft size={17}/></IconButton></div>
       <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
       <button className="new-chat" disabled={!bridge || busy || loading} onClick={() => void applySnapshot(() => bridge!.newIndependentSession())}><Plus size={17}/>{t('新建会话', 'New session')}</button>
       <nav className="workspace-tree" aria-label={t('工作区与会话', 'Workspaces and sessions')}>
@@ -184,7 +204,7 @@ function App() {
       </nav>
       <div className="sidebar-bottom"><button onClick={() => void openSettings()} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span>0.1.0</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
-    <main><header className="topbar"><IconButton title={t('侧栏', 'Sidebar')} onClick={() => setSidebar(!sidebar)}><PanelLeft size={18}/></IconButton><div className="breadcrumb"><span>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('工作区', 'Workspace')}</span><span>/</span><strong>{current?.name || t('新会话', 'New session')}</strong></div><div className="top-actions"><IconButton title={t('重命名', 'Rename')} disabled={!connected || busy} onClick={() => { setName(current?.name ?? ''); setRenaming(true); }}><Pencil size={15}/></IconButton><IconButton title={t('重启运行时', 'Restart runtime')} disabled={!data.preferences.workspace || busy || loading} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={16}/></IconButton><IconButton title={t('会话统计', 'Session statistics')} disabled={!connected} onClick={() => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats'), null, 2)))}><SlidersHorizontal size={17}/></IconButton></div></header>
+    <main><header className="topbar"><IconButton title={t('侧栏', 'Sidebar')} aria-expanded={sidebarVisible} onClick={() => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open)}><PanelLeft size={18}/></IconButton><div className="breadcrumb"><span>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('工作区', 'Workspace')}</span><span>/</span><strong>{current?.name || t('新会话', 'New session')}</strong></div><div className="top-actions"><IconButton title={t('重命名', 'Rename')} disabled={!connected || busy} onClick={() => { setName(current?.name ?? ''); setRenaming(true); }}><Pencil size={15}/></IconButton><IconButton title={t('重启运行时', 'Restart runtime')} disabled={!data.preferences.workspace || busy || loading} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={16}/></IconButton><IconButton title={t('会话统计', 'Session statistics')} disabled={!connected} onClick={() => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats'), null, 2)))}><SlidersHorizontal size={17}/></IconButton></div></header>
       {error && <div className="error-banner" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title={t('关闭', 'Dismiss')} onClick={() => setError('')}><X size={14}/></IconButton></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation" ref={scroll} onScroll={() => { if (scroll.current) follow.current = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100; }}>

@@ -34,6 +34,14 @@ The renderer incorrectly expected cumulative `message` snapshots on RPC `message
 
 Regression checks include unit coverage and actual Electron renderer delivery of text and tool-start wire events without a `message` field. Updated executable and installer are in `Desktop/release-fixed/`; the desktop shortcut points to that executable. Previous builds did not persist renderer crash logs. This diagnosis was established from the protocol implementation and regression tests, not a recovered crash log.
 
+## Install, Upgrade and Uninstall Residue
+
+Latest build: `Desktop/release/`. `scripts/verify-residue.mjs` snapshots the machine, installs, launches once, uninstalls, snapshots again, and reports what survived; an `upgrade` variant installs v1, launches it so it produces real userData, installs v2 over it, launches again, then uninstalls.
+
+Verified on a development host, not a clean machine: install and uninstall both complete with exit 0; the install directory loses every file (an empty root directory remains, which is NSIS behaviour); both shortcuts, the registry uninstall entry and the registry app key are removed; userData is retained as `deleteAppDataOnUninstall: false` intends and holds no credentials because no login was performed. Across v1 → v2 the userData file set is unchanged (0 missing, 0 emptied, 0 modified) and the install directory matches a fresh v2 install rather than v1 + v2, with one registry uninstall entry rather than two. `~/.stepcode` was compared per-file across the whole window: 248 files, no add, no remove, no change.
+
+The verdict is checked in both directions. In the installed state the rows fail as they should; deleting `userData\preferences.json` before the over-install makes the userData rows fail and names the file. Launch is observed through process liveness rather than a fixed sleep. Note that v2 recreates a deleted `preferences.json` on first run, so survival is judged on the pre-launch snapshot as well.
+
 ## Passed Locally
 
 - TypeScript checks and production renderer/main/preload build.
@@ -50,9 +58,8 @@ Screenshots and ephemeral test output are in `Desktop/test-results/` (ignored by
 
 ## Not Yet Verified
 
-- Real Step Plan browser authorization and Step Platform credentials.
 - Paid model execution, real file-edit/tool approval flows, and cancellation during a real tool task.
-- Clean Windows machine installation, missing-tool onboarding, upgrade, uninstall and 125% scaling. The development host uses 150% display scaling.
+- Clean-machine first installation, missing-tool onboarding and 125% display scaling; the development host uses 150% scaling and has prior installs. Install, upgrade and uninstall residue on a development host is covered by `scripts/verify-residue.mjs`.
 - All upstream extension UI methods. Dialog methods are supported; custom widgets and status surfaces are not fully represented.
 - MCP OAuth management and HTTP secret header editing through UI.
 - Large-history virtualization and full Git diff review.

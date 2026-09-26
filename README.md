@@ -71,7 +71,7 @@ node scripts/checksums.mjs
 
 ### Project Status
 
-This is a community preview and has not completed full public-release acceptance. Step Plan browser login was verified by running `step login` with the pinned Step Code runtime in a non-official build. Paid-model tasks and real tool-approval flows, plus installation, upgrade, and uninstall on a clean Windows environment, still need verification. MCP status currently reflects whether configuration is enabled, not whether a connection is healthy; some advanced extension UI is also not yet covered.
+This is a community preview and has not completed full public-release acceptance. Step Plan browser login was verified by running `step login` with the pinned Step Code runtime in a non-official build. Paid-model tasks and real tool-approval flows still need verification. Installation, upgrade and uninstall now have automated residue verification (`Desktop/scripts/verify-residue.mjs`), including a per-file check that `~/.stepcode` is untouched; clean-machine first install and 125% scaling are still open. MCP status currently reflects whether configuration is enabled, not whether a connection is healthy; some advanced extension UI is also not yet covered.
 
 ### License
 

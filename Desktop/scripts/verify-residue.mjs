@@ -1,0 +1,542 @@
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, relative } from 'node:path';
+
+/**
+ * Install / uninstall residue verification.
+ *
+ * The README lists "installation, upgrade, and uninstall on a clean Windows
+ * environment" as unverified. This script makes that check repeatable: snapshot
+ * the machine, run the cycle, snapshot again, and report what survived.
+ *
+ * Notes that came out of running this against a real installer:
+ *
+ * 1. The NSIS uninstaller is named `Uninstall <productName>.exe`, not
+ *    `Uninstall.exe`. Resolve it by pattern from the install directory.
+ *
+ * 2. The uninstaller returns immediately and deletes asynchronously. Waiting a
+ *    fixed interval catches it mid-flight and reports files that are about to
+ *    disappear. Poll until the install directory is empty instead.
+ *
+ * 3. node's child_process cannot start this NSIS installer at all: it dies
+ *    with 3221225477 (0xC0000005 access violation) whatever stdio mode or
+ *    windowsVerbatimArguments you use. The identical launch through PowerShell
+ *    Start-Process exits 0 and installs all files, so the install and
+ *    uninstall steps go through startProcess() and the app through
+ *    launchAndObserve().
+ *
+ * 4. The uninstaller's /S was observed once to still pop its confirmation
+ *    dialog and wait for a click, but four later runs completed silently in
+ *    2-6s. The loop therefore cannot be assumed fully unattended; keep the
+ *    printed warning when running it in CI. The app is stopped before the
+ *    uninstaller runs so a live process cannot hold files open and fake a
+ *    residue FAIL.
+ *
+ * 5. Launching the packaged app needs ELECTRON_RUN_AS_NODE stripped from the
+ *    environment first. Some CI/harness setups export it, and with it set the
+ *    electron.exe degrades to a bare node REPL: no args means "read stdin to
+ *    EOF" and the process exits 0 in milliseconds, so "launched once" can never
+ *    fail. launchAndObserve() removes it and reports the measured process
+ *    lifetime and exit code instead of a sleep that merely elapsed.
+ *
+ * Design notes beyond those:
+ * - `~/.stepcode` is compared file-by-file rather than by a single tree hash,
+ *   so drift can be attributed instead of merely detected.
+ * - The install directory is judged on its contents, because an empty root
+ *   directory left behind is known NSIS behaviour rather than a leak.
+ * - Registry uninstall entries are matched on DisplayName *values*, obtained
+ *   with `reg query /s /v DisplayName`. A plain `reg query <Uninstall>` lists
+ *   only GUID subkey names, so an app-name filter over those lines can never
+ *   match and the check stays green even while the app is installed.
+ * - Two checks were deleted rather than tuned to pass, because a check on a
+ *   path the program never writes is worse than no check:
+ *     · `HKCU\Software\<app>` — the NSIS template (installer.nsh) only writes
+ *       the `Uninstall\<guid>` key (plus optional `Software\Classes\*` file
+ *       associations, which this app does not configure); the key does not
+ *       exist even while the app is installed, so the row was always PASS.
+ *     · `%LOCALAPPDATA%\<app>` cache — this app keeps its Electron caches
+ *       (Code Cache, GPUCache, ShaderCache, Network, …) under userData, which
+ *       is intentionally preserved (deleteAppDataOnUninstall=false). The
+ *       LocalAppData path never appears, not even after a real 10s app run.
+ *
+ * Usage (run from Desktop/):
+ *   node scripts/verify-residue.mjs snapshot --label before
+ *   node scripts/verify-residue.mjs diff test-results/residue-before.json test-results/residue-after.json
+ *   node scripts/verify-residue.mjs env [target-dir]
+ *   node scripts/verify-residue.mjs verify --installer "release/Desktop for Step Code Setup 0.1.0.exe"
+ *
+ * No third-party dependencies: this has to run on a bare Node install, because
+ * the point is to verify what a user experiences, not what CI has cached.
+ */
+
+const APP_NAME = 'Desktop for Step Code';
+const RESULTS_DIR = 'test-results';
+const PROFILE_DIR = join(homedir(), '.stepcode');
+const POLL_INTERVAL_MS = 500;
+const POLL_TIMEOUT_MS = 120000;
+const LAUNCH_OBSERVE_MS = 10000;
+const LAUNCH_MIN_ALIVE_MS = 3000;
+
+const localAppData = process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local');
+const appData = process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming');
+
+const PATHS = {
+  installDir: join(localAppData, 'Programs', APP_NAME),
+  userData: join(appData, APP_NAME),
+  startMenuShortcut: join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', `${APP_NAME}.lnk`),
+  desktopShortcut: join(homedir(), 'Desktop', `${APP_NAME}.lnk`),
+  profile: PROFILE_DIR,
+};
+
+/** 文件计数与字节数；路径不存在时 exists=false。 */
+function measure(target) {
+  if (!existsSync(target)) return { exists: false };
+  const stat = statSync(target);
+  if (!stat.isDirectory()) return { exists: true, files: 0, bytes: stat.size };
+  let files = 0;
+  let bytes = 0;
+  for (const entry of readdirSync(target, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    files += 1;
+    try {
+      bytes += statSync(join(entry.parentPath ?? entry.path, entry.name)).size;
+    } catch {
+      // 并发删除中的文件：计入文件数但跳过体积，别让测量本身崩掉
+    }
+  }
+  return { exists: true, files, bytes };
+}
+
+/** 整棵目录树逐文件记录：相对路径 → { size, mtimeMs, md5 }。 */
+function treeFiles(root) {
+  const files = {};
+  if (!existsSync(root)) return files;
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      try {
+        const body = readFileSync(full);
+        files[relative(root, full).split('\\').join('/')] = {
+          size: body.length,
+          mtimeMs: statSync(full).mtimeMs,
+          md5: createHash('md5').update(body).digest('hex'),
+        };
+      } catch {
+        // 读取失败的文件记不下来内容，但别让一次权限问题毁掉整轮
+      }
+    }
+  };
+  walk(root);
+  return files;
+}
+
+/**
+ * 本应用的卸载注册表项数量；查询失败返回 null 而不是 0——0 会被判定为
+ * 「已清理」，那会让一次查询失败伪装成 PASS。
+ *
+ * 必须 /s /v DisplayName：不带 /s 的 `reg query <Uninstall>` 只输出 GUID 子键名
+ * （如 4ce36081-0c28-53d2-b28c-ef7f38214c22），应用名只存在于子键内的
+ * DisplayName 值里。老代码用应用名去匹每一行文本，永远不中，于是安装状态下
+ * 这一项也报 0/removed。
+ */
+function uninstallEntryCount() {
+  const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall';
+  let out;
+  try {
+    out = execFileSync('reg', ['query', key, '/s', '/v', 'DisplayName'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return null;
+  }
+  let count = 0;
+  for (const line of out.split(/\r?\n/)) {
+    const match = line.match(/^\s*DisplayName\s+REG_\S+\s+(.+?)\s*$/i);
+    if (match && match[1].includes(APP_NAME)) count += 1;
+  }
+  return count;
+}
+
+function registryState() {
+  return { uninstallEntries: uninstallEntryCount() };
+}
+
+function snapshot() {
+  const profileFiles = treeFiles(PATHS.profile);
+  const profileKeys = Object.keys(profileFiles);
+  const profileBytes = profileKeys.reduce((sum, k) => sum + profileFiles[k].size, 0);
+  return {
+    timestamp: new Date().toISOString(),
+    node: process.version,
+    platform: process.platform,
+    paths: {
+      installDir: measure(PATHS.installDir),
+      userData: measure(PATHS.userData),
+      startMenuShortcut: measure(PATHS.startMenuShortcut),
+      desktopShortcut: measure(PATHS.desktopShortcut),
+      profile: {
+        exists: profileKeys.length > 0,
+        files: profileKeys.length,
+        bytes: profileBytes,
+        md5: profileKeys.length > 0
+          ? createHash('md5').update(JSON.stringify(profileFiles)).digest('hex')
+          : null,
+      },
+    },
+    profileFiles,
+    registry: registryState(),
+  };
+}
+
+/** 两棵 profile 树的逐文件 diff。 */
+function profileDiff(before, after) {
+  const b = before.profileFiles ?? {};
+  const a = after.profileFiles ?? {};
+  const added = Object.keys(a).filter(k => !(k in b));
+  const removed = Object.keys(b).filter(k => !(k in a));
+  const changed = Object.keys(a).filter(k => k in b && b[k].md5 !== a[k].md5);
+  return { added, removed, changed, clean: added.length === 0 && removed.length === 0 && changed.length === 0 };
+}
+
+/** 判定表：每一项都给出 expect / actual，FAIL 时能直接看出差在哪。 */
+function verdict(after, before) {
+  const rows = [];
+  // 快捷方式是单个 .lnk：measure 对文件记 files=0、bytes=大小，
+  // 直接显示 "present (0 files)" 会误导，这里按文件/目录分别描述
+  const describe = (value) => {
+    if (!value.exists) return 'absent';
+    if (value.files > 0) return `present (${value.files} files)`;
+    return value.bytes > 0 ? `present (file, ${value.bytes} bytes)` : 'present (empty)';
+  };
+  const removed = (label, key) => {
+    const value = after.paths[key];
+    rows.push({ item: label, expect: 'removed', actual: value.exists ? describe(value) : 'removed', pass: !value.exists });
+  };
+  const mayRemain = (label, key) => {
+    const value = after.paths[key];
+    rows.push({ item: label, expect: 'may remain', actual: describe(value), pass: true });
+  };
+
+  // 「Cache directory」与「Registry app key」两项已整行删除，原因见文件头
+  // design notes：一个程序从不写的路径，检查它只会得到恒真的 PASS。
+  removed('Start menu shortcut', 'startMenuShortcut');
+  removed('Desktop shortcut', 'desktopShortcut');
+  mayRemain('userData (deleteAppDataOnUninstall=false)', 'userData');
+
+  // 安装目录按内容判定：文件删干净即通过，空目录本身是已知的 NSIS 行为
+  const install = after.paths.installDir;
+  if (!install.exists) {
+    rows.push({ item: 'Install directory', expect: 'removed', actual: 'removed', pass: true });
+  } else if (install.files === 0) {
+    rows.push({ item: 'Install directory', expect: 'files removed', actual: 'empty directory left (NSIS behaviour, cosmetic)', pass: true });
+  } else {
+    rows.push({ item: 'Install directory', expect: 'files removed', actual: `${install.files} files left`, pass: false });
+  }
+
+  const diff = profileDiff(before, after);
+  rows.push({
+    item: '~/.stepcode untouched',
+    expect: 'no file added, removed or changed',
+    actual: diff.clean
+      ? `identical (${after.paths.profile.files} files)`
+      : `${diff.added.length} added, ${diff.removed.length} removed, ${diff.changed.length} changed`,
+    pass: diff.clean,
+    detail: diff.clean ? [] : [...diff.added, ...diff.removed, ...diff.changed].slice(0, 10),
+  });
+
+  // null = reg 查询本身失败：宁可变红也不要把失败读成「已清理」
+  const entries = after.registry.uninstallEntries;
+  rows.push({
+    item: 'Registry uninstall entry',
+    expect: 'removed',
+    actual: entries === null ? 'reg query failed' : entries === 0 ? 'removed' : `${entries} left`,
+    pass: entries === 0,
+  });
+  return rows;
+}
+
+function printVerdict(rows, extraRows = []) {
+  const all = [...rows, ...extraRows];
+  const width = Math.max(...all.map(r => r.item.length)) + 2;
+  console.log('');
+  console.log('  ' + 'item'.padEnd(width) + 'result');
+  console.log('  ' + '-'.repeat(width + 8));
+  for (const row of all) {
+    console.log('  ' + row.item.padEnd(width) + (row.pass ? 'PASS' : 'FAIL') + '   ' + row.actual);
+    if (row.detail && row.detail.length > 0) {
+      for (const path of row.detail) console.log('      · ' + path);
+    }
+  }
+  const failed = all.filter(r => !r.pass);
+  console.log('');
+  if (failed.length === 0) {
+    console.log('  all checks passed');
+  } else {
+    console.log(`  ${failed.length} check(s) failed`);
+    console.log('  if ~/.stepcode drifted, check the timestamps of the listed files: the');
+    console.log('  desktop app redirects its own runtime to %APPDATA% via STEPCODE_*, so drift');
+    console.log('  here usually means the Step CLI ran during the test window, not the app.');
+  }
+  return failed.length;
+}
+
+/**
+ * 容错的文件计数。卸载过程中目录被逐个删除，recursive readdirSync 会在遍历途中
+ * 撞上 ENOENT——那不是错误，是"删得比遍历快"，此时按已空处理。
+ */
+function countFilesQuietly(dir) {
+  try {
+    if (!existsSync(dir)) return 0;
+    return readdirSync(dir, { recursive: true, withFileTypes: true }).filter(e => e.isFile()).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** 轮询到条件满足或超时；NSIS 的安装与卸载都是异步的，固定等待会抓到中间态。 */
+async function waitFor(label, predicate, timeoutMs = POLL_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = predicate();
+    if (last.done) return last;
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+  throw new Error(`timed out waiting for ${label} (last: ${JSON.stringify(last)})`);
+}
+
+/** 卸载器实际名为 "Uninstall <productName>.exe"；按模式匹配。 */
+function findUninstaller() {
+  if (!existsSync(PATHS.installDir)) return null;
+  const match = readdirSync(PATHS.installDir).find(name => /^Uninstall.*\.exe$/i.test(name));
+  return match ? join(PATHS.installDir, match) : null;
+}
+
+/**
+ * 完整隔离一套环境变量，让 runtime 在测试期间不碰真实 ~/.stepcode。
+ * 桌面端自己会用 isolatedEnvironment() 做同样的事；这里给单独跑 runtime 的人复用。
+ */
+function isolatedRuntimeEnv(target) {
+  mkdirSync(target, { recursive: true });
+  return {
+    STEPCODE_STORAGE_ROOT_DIR: target,
+    STEPCODE_AUTH_PATH: join(target, 'auth.json'),
+    STEPCODE_LEGACY_AUTH_PATH: join(target, 'legacy-auth.json'),
+    STEPCODE_CONFIG_PATH: join(target, 'config.toml'),
+    STEP_CODING_AGENT_DIR: join(target, 'agent'),
+    STEP_CODING_AGENT_SESSION_DIR: join(target, 'sessions'),
+  };
+}
+
+/** PowerShell 可执行文件全路径；找不到时退回 PATH 解析。 */
+function powershellExe() {
+  const systemRoot = process.env.SystemRoot ?? 'C:\\Windows';
+  const psPath = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return existsSync(psPath) ? psPath : 'powershell.exe';
+}
+
+/** PowerShell 单引号字符串字面量：路径中的单引号翻倍转义。 */
+function psQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/**
+ * 经 PowerShell Start-Process 调用外部可执行文件，返回其退出码。
+ *
+ * 为什么绕这一圈：node 的 child_process（execFileSync / spawnSync，stdio
+ * ignore / inherit / pipe、windowsVerbatimArguments 均试过）直接启动这个
+ * NSIS 安装器必崩，退出码 3221225477（0xC0000005 访问冲突）；同一条命令
+ * 经 PowerShell Start-Process 发出则退出码 0，安装产物完整。安装器本身
+ * 没有问题，是 node 侧拉起方式的问题。
+ */
+function startProcess(file, { args = [], wait = true } = {}) {
+  const argList = args.length > 0 ? ` -ArgumentList ${args.map(psQuote).join(',')}` : '';
+  const waitFlag = wait ? ' -Wait' : '';
+  const command = `try { $proc = Start-Process -FilePath ${psQuote(file)}${argList}${waitFlag} -PassThru -ErrorAction Stop } catch { Write-Error $_; exit 1 }; if ($null -ne $proc -and $null -ne $proc.ExitCode) { exit $proc.ExitCode }; exit 0`;
+  return execFileSync(powershellExe(), ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], { stdio: 'inherit', windowsHide: true });
+}
+
+/**
+ * 启动一次应用并观测进程存活，返回 { poisoned, aliveMs, exitCode, stillRunning }。
+ *
+ * 两个坑都是实测踩出来的：
+ * 1. 本 harness 环境注入了 ELECTRON_RUN_AS_NODE=1，packaged electron.exe 因此
+ *    退化成纯 node：无参启动就是一个 REPL，stdin 为空时立刻 EOF 退出（exit 0，
+ *    约 50ms）。不剔除这个变量，"启动一次"永远是假成功——机器上四份快照里
+ *    userData 零新写盘就是这么来的。真实用户环境没有它，剔除只是把测试环境
+ *    对齐到用户体验，调用方会把剔除动作打出来。NODE_OPTIONS 同理剔除。
+ * 2. 用 tasklist 轮询进程存活会漏掉 50ms 级窗口（500ms 轮询全都扑空）。
+ *    改用 Start-Process -PassThru + WaitForExit(窗口)：退出与否、退出码、
+ *    存活毫秒数都是确定性返回值，不存在 race。
+ */
+function launchAndObserve(file, { observeMs = LAUNCH_OBSERVE_MS } = {}) {
+  const env = { ...process.env };
+  const poisoned = 'ELECTRON_RUN_AS_NODE' in env;
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+  const command = [
+    `$proc = Start-Process -FilePath ${psQuote(file)} -PassThru -ErrorAction Stop`,
+    '$sw = [System.Diagnostics.Stopwatch]::StartNew()',
+    `$exited = $proc.WaitForExit(${observeMs})`,
+    '$aliveMs = [int]$sw.ElapsedMilliseconds',
+    '$ec = if ($exited) { [string]$proc.ExitCode } else { \'\' }',
+    'Write-Output ("APP_OBSERVED|$aliveMs|$ec")',
+  ].join('; ');
+  const out = execFileSync(powershellExe(), ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], { stdio: ['ignore', 'pipe', 'ignore'], env });
+  const line = String(out).split(/\r?\n/).map(s => s.trim()).find(s => s.startsWith('APP_OBSERVED|'));
+  if (!line) throw new Error(`launch observation produced no output (raw: ${String(out).slice(0, 200)})`);
+  const aliveMs = Number(line.split('|')[1]) || 0;
+  const exitCode = line.split('|')[2];
+  return { poisoned, aliveMs, exitCode: exitCode === '' ? null : Number(exitCode), stillRunning: exitCode === '' };
+}
+
+/** 轮询等到进程退出；tasklist 不可用时直接放行，不把等待变成硬失败。 */
+async function waitForProcessExit(imageName, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let listing = '';
+    try {
+      listing = execFileSync('tasklist', ['/FI', `IMAGENAME eq ${imageName}`, '/NH'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      return true;
+    }
+    if (!listing.toLowerCase().includes(imageName.toLowerCase())) return true;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
+const args = process.argv.slice(2);
+const command = args[0];
+
+if (command === 'snapshot') {
+  const labelIndex = args.indexOf('--label');
+  const label = labelIndex >= 0 ? args[labelIndex + 1] : 'snapshot';
+  mkdirSync(RESULTS_DIR, { recursive: true });
+  const output = join(RESULTS_DIR, `residue-${label}.json`);
+  const data = snapshot();
+  writeFileSync(output, JSON.stringify(data, null, 2));
+  console.log(`  wrote ${output}`);
+  console.log(`  installDir:    ${data.paths.installDir.exists ? `${data.paths.installDir.files} files` : 'absent'}`);
+  console.log(`  userData:      ${data.paths.userData.exists ? `${data.paths.userData.files} files` : 'absent'}`);
+  console.log(`  ~/.stepcode:   ${data.paths.profile.exists ? `${data.paths.profile.files} files, ${data.paths.profile.bytes} bytes` : 'absent'}`);
+} else if (command === 'diff') {
+  const before = args[1];
+  const after = args[2];
+  if (!before || !after) {
+    console.error('  usage: verify-residue.mjs diff <before.json> <after.json>');
+    process.exit(2);
+  }
+  const failed = printVerdict(verdict(JSON.parse(readFileSync(after, 'utf8')), JSON.parse(readFileSync(before, 'utf8'))));
+  process.exit(failed === 0 ? 0 : 1);
+} else if (command === 'env') {
+  const target = args[1] ?? join(process.cwd(), RESULTS_DIR, 'isolated-runtime');
+  for (const [key, value] of Object.entries(isolatedRuntimeEnv(target))) {
+    console.log(`$env:${key} = "${value}"`);
+  }
+} else if (command === 'verify') {
+  const installerIndex = args.indexOf('--installer');
+  const installer = installerIndex >= 0 ? args[installerIndex + 1] : null;
+  if (!installer || !existsSync(installer)) {
+    console.error('  usage: verify-residue.mjs verify --installer <path-to-setup.exe>');
+    process.exit(2);
+  }
+  mkdirSync(RESULTS_DIR, { recursive: true });
+  const step = (label) => {
+    const data = snapshot();
+    const output = join(RESULTS_DIR, `residue-${label}.json`);
+    writeFileSync(output, JSON.stringify(data, null, 2));
+    console.log(`  [${label}] ${output}`);
+    return output;
+  };
+
+  // 环境里已有 STEPCODE_* 时先警告：那会让 ~/.stepcode 的结论不可信
+  const ambient = Object.keys(process.env).filter(k => /^STEPCODE_|^STEP_CODING_AGENT_/.test(k));
+  if (ambient.length > 0) {
+    console.log(`  warning: ambient ${ambient.join(', ')} redirects runtime writes;`);
+    console.log('  the ~/.stepcode comparison may attribute them to the app');
+  }
+
+  console.log('  cleaning any previous install');
+  if (existsSync(PATHS.installDir)) rmSync(PATHS.installDir, { recursive: true, force: true });
+  const before = step('before');
+
+  console.log('  installing (silent, per-user)');
+  startProcess(installer, { args: ['/S'] });
+  await waitFor('install to finish', () => {
+    const exe = join(PATHS.installDir, `${APP_NAME}.exe`);
+    const done = existsSync(exe) && existsSync(findUninstaller() ?? '');
+    return { done, files: done ? 1 : 0 };
+  });
+  const installed = step('installed');
+
+  console.log('  launching once');
+  const exe = join(PATHS.installDir, `${APP_NAME}.exe`);
+  if (!existsSync(exe)) {
+    console.error(`  app exe not found at ${exe}; cannot verify launch`);
+    process.exit(2);
+  }
+  const obs = launchAndObserve(exe);
+  if (obs.poisoned) {
+    console.log('  warning: ELECTRON_RUN_AS_NODE was set in this environment and has been');
+    console.log('  removed for the launch. Left in place it degrades the packaged electron.exe');
+    console.log('  to a bare node REPL that exits 0 on EOF, so the launch could never be observed.');
+  }
+  console.log(`  app process: ${obs.stillRunning ? 'still running' : 'exited'} after ${obs.aliveMs}ms` + (obs.exitCode === null ? '' : ` (exit code ${obs.exitCode})`));
+  // 进程是否真的活过 LAUNCH_MIN_ALIVE_MS，是"启动一次"唯一的自证：
+  // 50ms exit 0 的 REPL 假启动在这里无处遁形，verdict 表里单独一行。
+  const launchRow = {
+    item: 'App process after launch',
+    expect: `alive >= ${LAUNCH_MIN_ALIVE_MS}ms`,
+    actual: obs.stillRunning
+      ? `still running after ${obs.aliveMs}ms`
+      : `exited after ${obs.aliveMs}ms with code ${obs.exitCode}`,
+    pass: obs.aliveMs >= LAUNCH_MIN_ALIVE_MS,
+  };
+  const launched = step('launched');
+
+  console.log('  stopping the app before uninstall');
+  // 启动过的应用如果还活着，卸载器删不掉正在使用的文件，会伪造出 residue FAIL。
+  // 正常用户也是先关应用再卸载，这一步只让循环确定性地走到卸载器。
+  try {
+    execFileSync('taskkill', ['/IM', `${APP_NAME}.exe`, '/T', '/F'], { stdio: 'ignore' });
+  } catch {
+    // 应用已经退出也算达成目标
+  }
+  if (!(await waitForProcessExit(`${APP_NAME}.exe`))) {
+    console.log('  warning: app still running after taskkill; uninstall may see open files');
+  }
+
+  console.log('  uninstalling');
+  const uninstaller = findUninstaller();
+  if (!uninstaller) {
+    console.error(`  uninstaller not found in ${PATHS.installDir}`);
+    process.exit(2);
+  }
+  // 注：此安装包的 /S 曾被观察到仍会弹确认框等人点（后续 4 次又是静默完成）。
+  // 所以 verify 不保证全无人值守——跑 CI 前先确认对话框行为，别让卸载步骤挂住。
+  console.log('  uninstaller started; /S was once seen to still show its confirmation');
+  console.log('  dialog (four later runs were silent), so a window may be waiting for a click');
+  startProcess(uninstaller, { args: ['/S'] });
+  await waitFor('uninstall to finish', () => {
+    const files = countFilesQuietly(PATHS.installDir);
+    return { done: files === 0, files };
+  });
+  const after = step('after');
+
+  console.log('');
+  console.log(`  snapshots: ${before} / ${installed} / ${launched} / ${after}`);
+  const failed = printVerdict(verdict(JSON.parse(readFileSync(after, 'utf8')), JSON.parse(readFileSync(before, 'utf8'))), [launchRow]);
+  process.exit(failed === 0 ? 0 : 1);
+} else {
+  console.log('  usage:');
+  console.log('    node scripts/verify-residue.mjs snapshot --label <name>');
+  console.log('    node scripts/verify-residue.mjs diff <before.json> <after.json>');
+  console.log('    node scripts/verify-residue.mjs env [target-dir]');
+  console.log('    node scripts/verify-residue.mjs verify --installer <setup.exe>');
+  process.exit(2);
+}

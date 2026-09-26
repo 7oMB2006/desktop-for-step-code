@@ -73,6 +73,7 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
+      "include": "build/uninstall-credentials.nsh",
       "deleteAppDataOnUninstall": false
     }
   }

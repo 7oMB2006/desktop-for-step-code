@@ -3,6 +3,7 @@ import { join, resolve, extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
+import { AuthVault } from './auth-vault';
 import type { Preferences, Session, Snapshot, RuntimeState, UIRequest } from '../src/contracts';
 
 app.setName('Desktop for Step Code');
@@ -45,6 +46,22 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node/node.exe');
 const env = isolatedEnvironment(dataRoot);
+const vault = new AuthVault(dataRoot);
+let authData: Record<string, unknown> = {};
+const authEnvironment = () => ({
+  ...env,
+  STEPCODE_DESKTOP_AUTH_PATH: env.STEPCODE_AUTH_PATH,
+  STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(authData),
+});
+async function persistAuth(next: Record<string, unknown>) {
+  try { await vault.save(next); }
+  catch (error) {
+    await admin.stop();
+    admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
+    throw error;
+  }
+  authData = next;
+}
 const emit = (event: unknown) => { if (window && !window.isDestroyed()) window.webContents.send('runtime-event', event); };
 const rpc = new RpcProcess(event => {
   if (event.type === 'agent_start') busy = true;
@@ -99,7 +116,7 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
       preferences.workspaces = [canonical, ...previous.filter(entry => !entry.same).map(entry => entry.path)];
     }
     await savePreferences();
-    rpc.start(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, env);
+    rpc.start(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment());
     await rpc.request('get_state', {}, 60000);
     status = 'connected';
     if (sessionPath) { const result = await rpc.request('switch_session', { sessionPath }); if (result.cancelled) throw new Error('Session switch cancelled'); }
@@ -192,9 +209,21 @@ async function handle(method: string, args: any[]) {
       return rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
     }
     case 'settings': return admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
-    case 'login': await guardIdle(); await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000); return null;
+    case 'login': {
+      await guardIdle();
+      const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
+      await persistAuth(next);
+      if (preferences.workspace) await connect(preferences.workspace, state?.sessionFile, false);
+      return null;
+    }
     case 'cancelLogin': return admin.request('cancel_login');
-    case 'logout': await guardIdle(); await admin.request('logout'); if (preferences.workspace) await connect(preferences.workspace, undefined, false); return null;
+    case 'logout': {
+      await guardIdle();
+      const next = await admin.request('logout');
+      await persistAuth(next);
+      if (preferences.workspace) await connect(preferences.workspace, undefined, false);
+      return null;
+    }
     case 'saveMcp': {
       await guardIdle(); const name = text(args[0], 80);
       if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('Use letters, numbers, underscores or hyphens for the server name');

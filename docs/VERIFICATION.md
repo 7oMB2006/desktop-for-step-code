@@ -1,5 +1,12 @@
 # Verification
 
+## Desktop Credential Storage
+
+Step login previously wrote the access credential into readable `step-runtime/auth.json`. The desktop now loads that file once, stores a Windows `safeStorage` encrypted snapshot as `auth.dpapi`, then removes the plaintext file. The staged Step runtime uses a desktop-only in-memory auth backend; the renderer never receives the credential. If Windows encryption is unavailable, the ciphertext cannot be unlocked, or a nonempty legacy auth file exists, startup fails closed rather than falling back to plaintext. Normal uninstall deletes only the desktop Step credential files; upgrades keep them, and sessions, settings and independent workspaces remain. This does not encrypt MCP secrets in `config.toml` or protect against processes running as the same Windows user.
+
+The isolated fixture test covers ordinary upstream plaintext persistence and desktop child-process memory storage. `scripts/verify-auth-vault.mjs` covers Electron migration, login, logout and relaunch with fixture credentials; no real Step account is used. The disposable Windows VM acceptance record is in `docs/acceptance/issue-5/README.md`. Clean-machine installer/uninstaller behavior, real Step Plan authorization and paid-model execution remain separate acceptance gates.
+For the installer pass, check that a normal uninstall removes the three desktop credential files while preserving sessions and independent workspaces, and that an upgrade preserves the encrypted credential. An empty `%LOCALAPPDATA%\\Programs\\Desktop for Step Code` directory after uninstall is harmless residue, not a credential-cleanup failure; do not add custom recursive removal solely to eliminate that empty directory. Record installer/uninstaller paths and process state before making claims about other residual contents.
+
 ## Independent Home (Current)
 
 Current build: `Desktop/release-home/`. Startup and the global new-session button create an independent session with a unique working folder under Electron userData `workspaces/independent/`. Project buttons create project sessions. Independent history stays independent on restore and runtime restart; restoring history does not add a project. The composer exposes the working folder and an optional project picker. Acceptance covers first-run and repeat launch, fresh empty drafts, independent history restoration, project selection and existing UI regressions; all five protocol tests pass. These checks use temporary profiles and fixture histories, not paid-model acceptance.

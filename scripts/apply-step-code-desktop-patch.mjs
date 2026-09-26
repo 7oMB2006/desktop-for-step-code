@@ -24,7 +24,7 @@ if (patchText.includes("\r")) {
 	throw new Error("The Step Code integration patch has unsupported line endings");
 }
 const patchBytes = Buffer.from(patchText, "utf8");
-if (gitBlobHash(patchBytes) !== "6c4701c302b193563d63d43278584b895ce534af") {
+if (gitBlobHash(patchBytes) !== "94b89dd17a0c70b46233e0fd6a806f592b967b74") {
 	throw new Error("The Step Code integration patch changed; review and update this applier");
 }
 

@@ -41,6 +41,14 @@ import { join, relative } from 'node:path';
  *    fail. launchAndObserve() removes it and reports the measured process
  *    lifetime and exit code instead of a sleep that merely elapsed.
  *
+ * 6. `upgrade` asks the opposite question of `verify`. install/uninstall cares
+ *    whether residue was cleaned; upgrade cares whether what should have
+ *    survived did (v1 userData) and what should not have been duplicated was
+ *    not (install-dir file count versus a *measured* fresh-v2 baseline, and
+ *    exactly one registry uninstall entry). The baseline comes from a real
+ *    fresh install of v2 and is passed in with --baseline-files; it is never
+ *    hard-coded, because a guessed number makes the row meaningless.
+ *
  * Design notes beyond those:
  * - `~/.stepcode` is compared file-by-file rather than by a single tree hash,
  *   so drift can be attributed instead of merely detected.
@@ -66,6 +74,8 @@ import { join, relative } from 'node:path';
  *   node scripts/verify-residue.mjs diff test-results/residue-before.json test-results/residue-after.json
  *   node scripts/verify-residue.mjs env [target-dir]
  *   node scripts/verify-residue.mjs verify --installer "release/Desktop for Step Code Setup 0.1.0.exe"
+ *   node scripts/verify-residue.mjs upgrade --from <v1.exe> --to <v2.exe> --baseline-files N
+ *   node scripts/verify-residue.mjs upgrade-diff before.json after-v1.json after-upgrade.json after-upgrade-launch.json after-uninstall.json --baseline-files N
  *
  * No third-party dependencies: this has to run on a bare Node install, because
  * the point is to verify what a user experiences, not what CI has cached.
@@ -165,7 +175,7 @@ function registryState() {
   return { uninstallEntries: uninstallEntryCount() };
 }
 
-function snapshot() {
+function snapshot(extra = {}) {
   const profileFiles = treeFiles(PATHS.profile);
   const profileKeys = Object.keys(profileFiles);
   const profileBytes = profileKeys.reduce((sum, k) => sum + profileFiles[k].size, 0);
@@ -188,7 +198,11 @@ function snapshot() {
       },
     },
     profileFiles,
+    // 逐文件记录 userData：upgrade 判定要回答「v1 阶段写的文件升级后还在不在、
+    // 有没有被清空」，只有 files 计数是答不出来的
+    userDataFiles: treeFiles(PATHS.userData),
     registry: registryState(),
+    ...extra,
   };
 }
 
@@ -285,6 +299,164 @@ function printVerdict(rows, extraRows = []) {
 }
 
 /**
+ * upgrade 判定表。与 install 判定（verdict）分工：
+ *   verdict      问「卸没卸干净」——东西该消失；
+ *   upgradeVerdict 问「该留的留没留、该清的清没清」——数据该留下，
+ *                 重复的安装产物/注册表项不该留下。
+ * baselineFiles 是「v2 全新安装」的实测文件数，由调用方传入（见 upgrade 命令
+ * 对 --baseline-files 的强制要求）；写成猜的数字，这条判定就失去意义。
+ */
+function upgradeVerdict(snaps, baselineFiles) {
+  const rows = [];
+  const v1Inventory = snaps.afterV1.userDataFiles ?? {};
+  const upgradeInventory = snaps.afterUpgrade.userDataFiles ?? {};
+  const v2Inventory = snaps.afterUpgradeLaunch.userDataFiles ?? {};
+
+  // v1 阶段的用户数据，覆盖安装之后必须原样还在（内容被改写不算失败）
+  const acrossInstall = inventoryDiff(v1Inventory, upgradeInventory);
+  rows.push({
+    item: 'userData kept across v1 -> v2',
+    expect: 'v1 files present, none emptied',
+    actual: `${acrossInstall.missing.length} missing, ${acrossInstall.emptied.length} emptied, ${acrossInstall.modified.length} modified`,
+    pass: acrossInstall.missing.length === 0 && acrossInstall.emptied.length === 0,
+    detail: [...acrossInstall.missing, ...acrossInstall.emptied].slice(0, 10),
+  });
+
+  // 覆盖安装不能叠加：文件数应等于 v2 全新安装，而不是 v1+v2
+  const files = snaps.afterUpgrade.paths.installDir.files;
+  rows.push({
+    item: 'Install directory after upgrade',
+    expect: `${baselineFiles} files (fresh v2 install baseline, not v1+v2)`,
+    actual: files === undefined ? 'absent' : `${files} files`,
+    pass: files === baselineFiles,
+  });
+
+  // 卸载项必须还是 1 个：覆盖安装复用同一个 GUID 键，多一个就是注册表残留
+  const entries = snaps.afterUpgrade.registry.uninstallEntries;
+  rows.push({
+    item: 'Registry uninstall entries after upgrade',
+    expect: '1 (not 2)',
+    actual: entries === null ? 'reg query failed' : String(entries),
+    pass: entries === 1,
+  });
+
+  // 升级后启动：进程真的活过 minima，且 v1 数据没被新版本的第一次运行抹掉。
+  // 「能读到 v1 数据」在这里的可行代理是「v1 文件在 v2 跑完之后仍然完好」——
+  // 进程内部读了什么从外部看不见，这一点在报告里要写明是代理而非直接证明。
+  const acrossLaunch = inventoryDiff(v1Inventory, v2Inventory);
+  const obs = snaps.afterUpgradeLaunch.launch ?? null;
+  rows.push({
+    item: 'v2 launches and v1 data survives it',
+    expect: `process alive >= ${LAUNCH_MIN_ALIVE_MS}ms; v1 files still present`,
+    actual: obs === null
+      ? 'no launch recorded'
+      : `${obs.stillRunning ? 'still running' : 'exited'} after ${obs.aliveMs}ms; ${acrossLaunch.missing.length} missing, ${acrossLaunch.emptied.length} emptied`,
+    pass: obs !== null
+      && obs.aliveMs >= LAUNCH_MIN_ALIVE_MS
+      && acrossLaunch.missing.length === 0
+      && acrossLaunch.emptied.length === 0,
+    detail: [...acrossLaunch.missing, ...acrossLaunch.emptied].slice(0, 10),
+  });
+
+  // 最终卸载残留：与 install 判定用同一个函数、同一把尺子
+  rows.push(...verdict(snaps.afterUninstall, snaps.before));
+  return rows;
+}
+
+/**
+ * 删除本应用的卸载注册表项（按 DisplayName 值定位 GUID 子键后整键删除）。
+ * upgrade 流程要求从「从未安装过」的状态起步：上一个安装留下的卸载项会让
+ * 「升级后仍是 1 个卸载项」这条判定失去意义。
+ * 返回删除的条目数。
+ */
+function removeAppUninstallEntries() {
+  const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall';
+  let out;
+  try {
+    out = execFileSync('reg', ['query', key, '/s', '/v', 'DisplayName'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return 0;
+  }
+  let current = null;
+  let removed = 0;
+  for (const line of out.split(/\r?\n/)) {
+    const keyLine = line.match(/^\s*(HKEY_[A-Za-z0-9_]+(?:\\[^\s]+)*)\s*$/);
+    if (keyLine) {
+      current = keyLine[1];
+      continue;
+    }
+    const name = line.match(/^\s*DisplayName\s+REG_\S+\s+(.+?)\s*$/i);
+    if (current && name && name[1].includes(APP_NAME)) {
+      try {
+        execFileSync('reg', ['delete', current, '/f'], { stdio: 'ignore' });
+        removed += 1;
+      } catch {
+        // 删不掉的键留给后面的计数判定去暴露，不静默
+      }
+      current = null;
+    }
+  }
+  return removed;
+}
+
+/**
+ * 两棵 userData 清单的对比：丢失 / 被清空 / 内容有变。
+ * 「有变」不算失败——新版本启动时改写配置、追加日志都是正常的；只有
+ * 文件没了、或者从有内容变成 0 字节，才说明数据被抹了。
+ */
+function inventoryDiff(before, after) {
+  const missing = [];
+  const emptied = [];
+  const modified = [];
+  for (const [path, entry] of Object.entries(before)) {
+    const next = after[path];
+    if (!next) {
+      missing.push(path);
+      continue;
+    }
+    if (entry.size > 0 && next.size === 0) {
+      emptied.push(path);
+      continue;
+    }
+    if (next.md5 !== entry.md5) modified.push(path);
+  }
+  return { missing, emptied, modified };
+}
+
+/**
+ * 启动观测的统一出口：打印 ELECTRON_RUN_AS_NODE 剔除警告、进程存活事实，
+ * 并生成对应的 verdict 行。label 为空时保持 verify 命令原有的行名。
+ */
+function reportLaunch(label, obs, { suffixItem = true } = {}) {
+  if (obs.poisoned) {
+    console.log('  warning: ELECTRON_RUN_AS_NODE was set in this environment and has been');
+    console.log('  removed for the launch. Left in place it degrades the packaged electron.exe');
+    console.log('  to a bare node REPL that exits 0 on EOF, so the launch could never be observed.');
+  }
+  console.log(`  ${label} process: ${obs.stillRunning ? 'still running' : 'exited'} after ${obs.aliveMs}ms` + (obs.exitCode === null ? '' : ` (exit code ${obs.exitCode})`));
+  return {
+    item: label && suffixItem ? `App process after launch (${label})` : 'App process after launch',
+    expect: `alive >= ${LAUNCH_MIN_ALIVE_MS}ms`,
+    actual: obs.stillRunning
+      ? `still running after ${obs.aliveMs}ms`
+      : `exited after ${obs.aliveMs}ms with code ${obs.exitCode}`,
+    pass: obs.aliveMs >= LAUNCH_MIN_ALIVE_MS,
+  };
+}
+
+/** 停掉应用并等它退出；卸载/升级前调用，避免运行中的进程占文件。 */
+async function stopApp() {
+  try {
+    execFileSync('taskkill', ['/IM', `${APP_NAME}.exe`, '/T', '/F'], { stdio: 'ignore' });
+  } catch {
+    // 已经退出也算达成目标
+  }
+  if (!(await waitForProcessExit(`${APP_NAME}.exe`))) {
+    console.log('  warning: app still running after taskkill; later steps may see open files');
+  }
+}
+
+/**
  * 容错的文件计数。卸载过程中目录被逐个删除，recursive readdirSync 会在遍历途中
  * 撞上 ENOENT——那不是错误，是"删得比遍历快"，此时按已空处理。
  */
@@ -342,6 +514,11 @@ function powershellExe() {
 /** PowerShell 单引号字符串字面量：路径中的单引号翻倍转义。 */
 function psQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/** 文件 SHA256；用来拦住「同一个包装两遍冒充升级」。 */
+function fileSha256(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
 /**
@@ -481,35 +658,15 @@ if (command === 'snapshot') {
     process.exit(2);
   }
   const obs = launchAndObserve(exe);
-  if (obs.poisoned) {
-    console.log('  warning: ELECTRON_RUN_AS_NODE was set in this environment and has been');
-    console.log('  removed for the launch. Left in place it degrades the packaged electron.exe');
-    console.log('  to a bare node REPL that exits 0 on EOF, so the launch could never be observed.');
-  }
-  console.log(`  app process: ${obs.stillRunning ? 'still running' : 'exited'} after ${obs.aliveMs}ms` + (obs.exitCode === null ? '' : ` (exit code ${obs.exitCode})`));
   // 进程是否真的活过 LAUNCH_MIN_ALIVE_MS，是"启动一次"唯一的自证：
   // 50ms exit 0 的 REPL 假启动在这里无处遁形，verdict 表里单独一行。
-  const launchRow = {
-    item: 'App process after launch',
-    expect: `alive >= ${LAUNCH_MIN_ALIVE_MS}ms`,
-    actual: obs.stillRunning
-      ? `still running after ${obs.aliveMs}ms`
-      : `exited after ${obs.aliveMs}ms with code ${obs.exitCode}`,
-    pass: obs.aliveMs >= LAUNCH_MIN_ALIVE_MS,
-  };
+  const launchRow = reportLaunch('app', obs, { suffixItem: false });
   const launched = step('launched');
 
   console.log('  stopping the app before uninstall');
   // 启动过的应用如果还活着，卸载器删不掉正在使用的文件，会伪造出 residue FAIL。
   // 正常用户也是先关应用再卸载，这一步只让循环确定性地走到卸载器。
-  try {
-    execFileSync('taskkill', ['/IM', `${APP_NAME}.exe`, '/T', '/F'], { stdio: 'ignore' });
-  } catch {
-    // 应用已经退出也算达成目标
-  }
-  if (!(await waitForProcessExit(`${APP_NAME}.exe`))) {
-    console.log('  warning: app still running after taskkill; uninstall may see open files');
-  }
+  await stopApp();
 
   console.log('  uninstalling');
   const uninstaller = findUninstaller();
@@ -532,11 +689,141 @@ if (command === 'snapshot') {
   console.log(`  snapshots: ${before} / ${installed} / ${launched} / ${after}`);
   const failed = printVerdict(verdict(JSON.parse(readFileSync(after, 'utf8')), JSON.parse(readFileSync(before, 'utf8'))), [launchRow]);
   process.exit(failed === 0 ? 0 : 1);
+} else if (command === 'upgrade') {
+  const flag = (name) => {
+    const index = args.indexOf(name);
+    return index >= 0 ? args[index + 1] : null;
+  };
+  const from = flag('--from');
+  const to = flag('--to');
+  const baselineFiles = flag('--baseline-files') === null ? null : Number(flag('--baseline-files'));
+  if (!from || !to || !existsSync(from) || !existsSync(to)) {
+    console.error('  usage: verify-residue.mjs upgrade --from <v1-setup.exe> --to <v2-setup.exe> --baseline-files N');
+    process.exit(2);
+  }
+  // 同一个包装两遍不构成升级测试，先拦住
+  if (fileSha256(from) === fileSha256(to)) {
+    console.error('  --from and --to are the same file; an upgrade test needs two different builds');
+    process.exit(2);
+  }
+  // 基准是实测值，不是猜的：单独装一次 v2、数安装目录文件数、把数字带进来
+  if (baselineFiles === null || !Number.isInteger(baselineFiles) || baselineFiles <= 0) {
+    console.error('  --baseline-files N is required: install v2 on a clean state, count the');
+    console.error('  install-directory files, and pass that number. A guessed number would make');
+    console.error('  the "not v1+v2" row meaningless.');
+    process.exit(2);
+  }
+  mkdirSync(RESULTS_DIR, { recursive: true });
+  const step = (label, extra) => {
+    const data = snapshot(extra);
+    const output = join(RESULTS_DIR, `residue-${label}.json`);
+    writeFileSync(output, JSON.stringify(data, null, 2));
+    console.log(`  [${label}] ${output}`);
+    return output;
+  };
+  const installDone = () => {
+    const exe = join(PATHS.installDir, `${APP_NAME}.exe`);
+    const done = existsSync(exe) && existsSync(findUninstaller() ?? '');
+    return { done, files: done ? 1 : 0 };
+  };
+
+  // 从「从未安装过」起步：安装目录、userData、卸载注册表项、快捷方式全清。
+  // userData 也清，这样 after-v1 清单里只有 v1 自己写出来的东西——
+  // 混着上一个安装的残留，「数据有没有保住」就说不清了。
+  console.log('  cleaning any previous install (fresh state for an upgrade test)');
+  if (existsSync(PATHS.installDir)) rmSync(PATHS.installDir, { recursive: true, force: true });
+  if (existsSync(PATHS.userData)) rmSync(PATHS.userData, { recursive: true, force: true });
+  const removedKeys = removeAppUninstallEntries();
+  if (removedKeys > 0) console.log(`  removed ${removedKeys} leftover uninstall registry entr${removedKeys === 1 ? 'y' : 'ies'}`);
+  for (const shortcut of [PATHS.startMenuShortcut, PATHS.desktopShortcut]) {
+    if (existsSync(shortcut)) {
+      rmSync(shortcut, { force: true });
+      console.log(`  removed leftover shortcut ${shortcut}`);
+    }
+  }
+  const before = step('before');
+
+  console.log('  installing v1 (silent, per-user)');
+  startProcess(from, { args: ['/S'] });
+  await waitFor('v1 install to finish', installDone);
+
+  console.log('  launching v1 once; this run is where user data comes from');
+  const exe = join(PATHS.installDir, `${APP_NAME}.exe`);
+  if (!existsSync(exe)) {
+    console.error(`  app exe not found at ${exe}; cannot verify launch`);
+    process.exit(2);
+  }
+  const obsV1 = launchAndObserve(exe);
+  const launchRowV1 = reportLaunch('v1', obsV1);
+  // 先停再快照：运行中的 lockfile 之类的瞬时文件会在退出时消失，
+  // 不停机就快照会把它们算进「v1 数据」，之后对不上就是误报
+  await stopApp();
+  const afterV1 = step('after-v1', { launch: obsV1 });
+
+  console.log('  upgrading: installing v2 over v1 (no uninstall first)');
+  startProcess(to, { args: ['/S'] });
+  await waitFor('v2 install to finish', installDone);
+  const afterUpgrade = step('after-upgrade');
+
+  console.log('  launching v2 once');
+  const obsV2 = launchAndObserve(exe);
+  const launchRowV2 = reportLaunch('v2', obsV2);
+  await stopApp();
+  const afterUpgradeLaunch = step('after-upgrade-launch', { launch: obsV2 });
+
+  console.log('  uninstalling');
+  const uninstaller = findUninstaller();
+  if (!uninstaller) {
+    console.error(`  uninstaller not found in ${PATHS.installDir}`);
+    process.exit(2);
+  }
+  startProcess(uninstaller, { args: ['/S'] });
+  await waitFor('uninstall to finish', () => {
+    const files = countFilesQuietly(PATHS.installDir);
+    return { done: files === 0, files };
+  });
+  const afterUninstall = step('after-uninstall');
+
+  console.log('');
+  console.log(`  snapshots: ${before} / ${afterV1} / ${afterUpgrade} / ${afterUpgradeLaunch} / ${afterUninstall}`);
+  const snaps = {
+    before: JSON.parse(readFileSync(before, 'utf8')),
+    afterV1: JSON.parse(readFileSync(afterV1, 'utf8')),
+    afterUpgrade: JSON.parse(readFileSync(afterUpgrade, 'utf8')),
+    afterUpgradeLaunch: JSON.parse(readFileSync(afterUpgradeLaunch, 'utf8')),
+    afterUninstall: JSON.parse(readFileSync(afterUninstall, 'utf8')),
+  };
+  const failed = printVerdict(upgradeVerdict(snaps, baselineFiles), [launchRowV1, launchRowV2]);
+  process.exit(failed === 0 ? 0 : 1);
+} else if (command === 'upgrade-diff') {
+  // 只重算判定、不碰机器：给「证明检查会 FAIL」用，也方便对已有快照复盘
+  const files = [];
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--baseline-files') {
+      i += 1;
+      continue;
+    }
+    if (args[i - 1] === '--baseline-files') continue;
+    files.push(args[i]);
+  }
+  const baselineIndex = args.indexOf('--baseline-files');
+  const baselineFiles = baselineIndex >= 0 ? Number(args[baselineIndex + 1]) : null;
+  if (files.length !== 5 || baselineFiles === null || !Number.isInteger(baselineFiles) || baselineFiles <= 0) {
+    console.error('  usage: verify-residue.mjs upgrade-diff <before> <after-v1> <after-upgrade> <after-upgrade-launch> <after-uninstall> --baseline-files N');
+    process.exit(2);
+  }
+  const labels = ['before', 'afterV1', 'afterUpgrade', 'afterUpgradeLaunch', 'afterUninstall'];
+  const snaps = {};
+  for (let i = 0; i < labels.length; i++) snaps[labels[i]] = JSON.parse(readFileSync(files[i], 'utf8'));
+  const failed = printVerdict(upgradeVerdict(snaps, baselineFiles));
+  process.exit(failed === 0 ? 0 : 1);
 } else {
   console.log('  usage:');
   console.log('    node scripts/verify-residue.mjs snapshot --label <name>');
   console.log('    node scripts/verify-residue.mjs diff <before.json> <after.json>');
   console.log('    node scripts/verify-residue.mjs env [target-dir]');
   console.log('    node scripts/verify-residue.mjs verify --installer <setup.exe>');
+  console.log('    node scripts/verify-residue.mjs upgrade --from <v1.exe> --to <v2.exe> --baseline-files N');
+  console.log('    node scripts/verify-residue.mjs upgrade-diff <5 snapshots> --baseline-files N');
   process.exit(2);
 }

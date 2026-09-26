@@ -17,7 +17,7 @@ A Windows desktop client for Step Code. It provides desktop workspaces, conversa
 
 ### Why This Project
 
-The original idea was to explore a community-built desktop client for Step Code while no official Step Code desktop app has been released. We also look forward to StepFun's official release. My appreciation for StepFun is also one of the reasons I wanted to build this community project.
+The original idea was to explore a community-built desktop client for Step Code while no official Step Code desktop app has been released. Given my love for StepFun, I also look forward to its official release.
 
 ### Features
 

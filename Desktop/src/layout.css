@@ -151,6 +151,14 @@ select:disabled { cursor: not-allowed; opacity: .45; }
 .composer-tools select:hover:not(:disabled) { background: var(--surface); }
 .composer-tools > .icon-button { width: 28px; height: 28px; }
 .composer-footer { display: none; }
+.performance-bar { margin-top: 9px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.performance-summary { position: relative; min-height: 33px; display: flex; align-items: center; flex-wrap: wrap; gap: 3px 12px; padding: 6px 2px; }
+.performance-summary > span { white-space: nowrap; }
+.performance-summary > span > strong { color: var(--ink); font-weight: 600; }
+.performance-title { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
+.performance-title strong { font-weight: 600; }
+.performance-divider { width: 1px; height: 12px; background: var(--border); }
+.performance-ellipsis { display: none; color: var(--ink); }
 .command-menu { left: var(--conversation-gutter); right: var(--conversation-gutter); }
 .empty-state { padding: 40px 24px 60px; }
 .empty-symbol { margin-bottom: 18px; }
@@ -178,6 +186,15 @@ select:disabled { cursor: not-allowed; opacity: .45; }
   .messages { padding-top: 24px; }
   .composer-wrap { padding-bottom: 12px; }
   .composer-tools select { max-width: 140px; }
+  .performance-summary {
+    line-height: 20px;
+    max-height: 55px;
+    overflow: hidden;
+  }
   .settings-layout > nav { width: 52px; }
   .settings-content { padding: 20px; }
+}
+@media (max-width: 440px) {
+  .performance-divider { display: none; }
+  .performance-summary { column-gap: 9px; }
 }

@@ -112,6 +112,7 @@ try {
   assert.equal(startupState.preferences.workspaces.length, 2);
   assert.equal(startupState.preferences.workspaces.includes(startupState.preferences.workspace), false);
   assert.equal(startupState.messages.length, 0);
+  assert.equal(startupState.stats.tokens.total, 0);
   assert.notEqual(startupState.state.sessionId, 'fixture-0');
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
@@ -254,6 +255,24 @@ try {
   });
   await page.getByText('帮我检查项目的目录结构。', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/layout-conversation-wide.png' });
+  await app.evaluate(({ BrowserWindow }) => {
+    const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
+    send({ type: 'agent_start' });
+    send({ type: 'turn_start' });
+    send({ type: 'message_update', usage: { input: 1000, output: 20, cacheRead: 1000, cacheWrite: 0 }, assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '开始' } });
+    send({ type: 'tool_execution_start', toolCallId: 'perf-tool', toolName: 'read_file' });
+    send({ type: 'tool_execution_end', toolCallId: 'perf-tool', toolName: 'read_file', result: {}, isError: false });
+    send({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: '完成' }], usage: { input: 1000, output: 150, cacheRead: 1000, cacheWrite: 0 } } });
+    send({ type: 'agent_end' });
+  });
+  const performance = page.getByRole('region', { name: '性能信息' });
+  await performance.getByText('输入 2K').waitFor();
+  assert.equal(await performance.getByText('输出 150').count(), 1);
+  assert.equal(await performance.getByText('1 次工具').count(), 1);
+  assert.equal(await performance.getByText('缓存读取 1K').count(), 1);
+  assert.equal(await performance.getByText('缓存命中 50%').count(), 1);
+  assert.equal(await performance.getByText('会话累计 0 tok · 0 次工具').count(), 1);
+  await page.screenshot({ path: 'test-results/performance-wide.png' });
   const geometry = await page.evaluate(() => {
     const transcript = document.querySelector('.messages').getBoundingClientRect();
     const composer = document.querySelector('.composer-wrap').getBoundingClientRect();
@@ -261,6 +280,38 @@ try {
   });
   assert.equal(geometry.aligned, true);
   assert.equal(geometry.overflow, false);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));
+  await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  const narrowPerformance = await performance.locator('.performance-summary').evaluate(element => {
+    const style = getComputedStyle(element);
+    return { height: element.getBoundingClientRect().height, lineHeight: parseFloat(style.lineHeight), overflow: document.documentElement.scrollWidth > innerWidth };
+  });
+  assert.ok(narrowPerformance.height <= narrowPerformance.lineHeight * 2 + 15);
+  assert.equal(narrowPerformance.overflow, false);
+  await performance.locator('.performance-summary').evaluate(element => {
+    for (let i = 0; i < 4; i++) {
+      const extra = document.createElement('span');
+      extra.className = 'overflow-fixture';
+      extra.textContent = `附加指标 ${i + 1}：12345`;
+      element.insertBefore(extra, element.querySelector('.performance-ellipsis'));
+    }
+  });
+  await page.evaluate(() => dispatchEvent(new Event('resize')));
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.performance-ellipsis')).display !== 'none');
+  const truncated = await performance.locator('.performance-summary').evaluate(element => ({
+    height: element.getBoundingClientRect().height,
+    lineHeight: parseFloat(getComputedStyle(element).lineHeight),
+    centers: Array.from(element.children).filter(child => getComputedStyle(child).display !== 'none').map(child => child.offsetTop + child.offsetHeight / 2).sort((a, b) => a - b),
+    ellipsis: element.querySelector('.performance-ellipsis').getBoundingClientRect(),
+    previous: [...element.children].filter(child => getComputedStyle(child).display !== 'none').at(-2).getBoundingClientRect(),
+  }));
+  assert.ok(truncated.height <= truncated.lineHeight * 2 + 15);
+  assert.ok(truncated.centers.reduce((count, center, index) => count + (index === 0 || center - truncated.centers[index - 1] > 8 ? 1 : 0), 0) <= 2);
+  assert.ok(truncated.ellipsis.left >= truncated.previous.right);
+  assert.ok(truncated.ellipsis.left - truncated.previous.right < 20);
+  await page.screenshot({ path: 'test-results/performance-truncated.png' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
+  await page.waitForFunction(() => !document.querySelector('.app')?.classList.contains('sidebar-compact'));
   assert.deepEqual(errors, []);
   console.log('Electron acceptance passed: isolated profile, real RPC, settings, rename, MCP, themes, narrow window, no renderer Node access.');
 } catch (error) {

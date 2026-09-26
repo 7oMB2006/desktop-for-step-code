@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Management lives in a separate process so Step globals never enter Electron.
 const root = dirname(fileURLToPath(import.meta.url));
+const desktopAuth = Boolean(process.env.STEPCODE_DESKTOP_AUTH_PATH);
 const upstream = await import(pathToFileURL(join(root, 'step/dist/bundle/index.js')).href);
 const authPath = process.env.STEPCODE_AUTH_PATH;
 const sessions = process.env.STEP_CODING_AGENT_SESSION_DIR;
@@ -56,11 +57,11 @@ async function dispatch(message) {
         }
         if (typeof apiKey !== 'string' || !apiKey.trim()) throw new Error('API key is required');
         await upstream.writeStepLoginCredential({ authPath, profile: profile.id, apiKey, uid });
-        return null;
+        return desktopAuth ? upstream.readDesktopAuthData() : null;
       } finally { login = undefined; }
     }
     case 'cancel_login': login?.abort(); return null;
-    case 'logout': await upstream.logoutStepCredentials({ nativePath: authPath, legacyPath: process.env.STEPCODE_LEGACY_AUTH_PATH, env: process.env }); return null;
+    case 'logout': await upstream.logoutStepCredentials({ nativePath: authPath, legacyPath: process.env.STEPCODE_LEGACY_AUTH_PATH, env: process.env }); return desktopAuth ? upstream.readDesktopAuthData() : null;
     default: throw new Error('Unsupported management request');
   }
 }

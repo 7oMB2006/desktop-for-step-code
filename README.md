@@ -28,6 +28,7 @@ The original idea was to explore a community-built desktop client for Step Code 
 - Chinese and English UI, with light and dark themes
 
 The app keeps its data in a dedicated directory (`%APPDATA%\Desktop for Step Code`) instead of reusing a personal Step Code CLI profile. Agent execution stays with Step Code; this project does not add another harness.
+Step login credentials are encrypted for the current Windows user in `step-runtime/auth.dpapi`. Existing desktop `auth.json` data is migrated on startup, and the plaintext file is removed after the encrypted copy is saved. Uninstall removes the desktop Step credential files while keeping sessions, settings and independent workspace files; signing out removes the Step credential as well. This protects against casual offline reading of the file, not software running with access to the same Windows account. Other configured MCP secrets are outside this credential migration.
 
 ### Download and Run
 

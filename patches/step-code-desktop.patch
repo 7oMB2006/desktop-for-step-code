@@ -1,7 +1,97 @@
+diff --git a/packages/coding-agent/src/core/auth-storage.ts b/packages/coding-agent/src/core/auth-storage.ts
+index b7d72e8..a25fff1 100644
+--- a/packages/coding-agent/src/core/auth-storage.ts
++++ b/packages/coding-agent/src/core/auth-storage.ts
+@@ -6,7 +6,7 @@
+ import { createHash } from "node:crypto";
+ import type { AuthOperationOptions, Credential, CredentialInfo, CredentialStore } from "@step-harness/providers";
+ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+-import { dirname, join } from "path";
++import { dirname, join, resolve } from "path";
+ import lockfile from "proper-lockfile";
+ import { setTimeout as sleep } from "timers/promises";
+ import { getAgentDir } from "../config.ts";
+@@ -38,6 +38,31 @@ type AuthFileReadState = {
+ };
+ 
+ let sharedAuthFileReadState: { authPath: string; readState: AuthFileReadState } | undefined;
++const desktopAuthPath = process.env.STEPCODE_DESKTOP_AUTH_PATH
++	? resolve(normalizePath(process.env.STEPCODE_DESKTOP_AUTH_PATH)).toLowerCase()
++	: undefined;
++const desktopAuthPayload = process.env.STEPCODE_DESKTOP_AUTH_DATA;
++delete process.env.STEPCODE_DESKTOP_AUTH_PATH;
++delete process.env.STEPCODE_DESKTOP_AUTH_DATA;
++let desktopAuthBackend: InMemoryAuthStorageBackend | undefined;
++
++function desktopStorage(path: string): InMemoryAuthStorageBackend | undefined {
++	if (!desktopAuthPath || resolve(normalizePath(path)).toLowerCase() !== desktopAuthPath) return undefined;
++	if (!desktopAuthBackend) {
++		const data = desktopAuthPayload ? JSON.parse(desktopAuthPayload) as AuthStorageData : {};
++		if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid desktop credential payload");
++		desktopAuthBackend = new InMemoryAuthStorageBackend();
++		desktopAuthBackend.withLock(() => ({ result: undefined, next: JSON.stringify(data) }));
++	}
++	return desktopAuthBackend;
++}
++
++/** Desktop-only snapshot for the parent process to encrypt after management writes. */
++export function readDesktopAuthData(): Record<string, Credential> {
++	if (!desktopAuthPath) throw new Error("Desktop credential storage is not active");
++	const content = desktopStorage(desktopAuthPath)!.withLock(current => ({ result: current }));
++	return content ? JSON.parse(content) as AuthStorageData : {};
++}
+ 
+ /**
+  * auth.json is small and can be edited by another process between reads. A
+@@ -234,7 +259,11 @@ export class ReadOnlyAuthStorage implements CredentialStore {
+ 
+ 		let parsed: unknown;
+ 		try {
+-			parsed = JSON.parse(stripBom(readFileSync(this.authPath, "utf-8")));
++			const memory = desktopStorage(this.authPath);
++			const content = memory
++				? memory.withLock(current => ({ result: current ?? "{}" }))
++				: readFileSync(this.authPath, "utf-8");
++			parsed = JSON.parse(stripBom(content));
+ 		} catch (error) {
+ 			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+ 				this.data = {};
+@@ -367,7 +396,8 @@ export class AuthStorage implements CredentialStore {
+ 
+ 	static create(authPath: string = join(getAgentDir(), "auth.json")): AuthStorage {
+ 		const normalizedAuthPath = normalizePath(authPath);
+-		return new AuthStorage(new FileAuthStorageBackend(normalizedAuthPath), normalizedAuthPath);
++		const memory = desktopStorage(normalizedAuthPath);
++		return new AuthStorage(memory ?? new FileAuthStorageBackend(normalizedAuthPath), memory ? undefined : normalizedAuthPath);
+ 	}
+ 
+ 	static fromStorage(storage: AuthStorageBackend): AuthStorage {
+@@ -519,7 +549,11 @@ export function readStoredCredential(
+ 	authPath: string = join(getAgentDir(), "auth.json"),
+ ): Credential | undefined {
+ 	try {
+-		const data = JSON.parse(stripBom(readFileSync(normalizePath(authPath), "utf-8"))) as AuthStorageData;
++		const memory = desktopStorage(authPath);
++		const content = memory
++			? memory.withLock(current => ({ result: current ?? "{}" }))
++			: readFileSync(normalizePath(authPath), "utf-8");
++		const data = JSON.parse(stripBom(content)) as AuthStorageData;
+ 		return data[providerId];
+ 	} catch {
+ 		return undefined;
 diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
-index 5b9a78f..e9fdb29 100644
+index 5b9a78f..093dc0d 100644
 --- a/packages/coding-agent/src/index.ts
 +++ b/packages/coding-agent/src/index.ts
+@@ -41,7 +41,7 @@ export {
+ 	type SessionStats,
+ } from "./core/agent-session.ts";
+ export { SessionImportFileNotFoundError } from "./core/agent-session-runtime.ts";
+-export { readStoredCredential } from "./core/auth-storage.ts";
++export { readDesktopAuthData, readStoredCredential } from "./core/auth-storage.ts";
+ export {
+ 	CACHE_TTL_MS,
+ 	type CacheMiss,
 @@ -463,7 +463,7 @@ export {
  	type StepCronRuntimeOptions,
  	stepCronExtensionInline,

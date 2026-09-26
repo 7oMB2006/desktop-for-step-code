@@ -9,6 +9,8 @@ import './style.css';
 import './layout.css';
 import { applyMessageEvent } from './message-events';
 import { WindowBar } from './WindowBar';
+import { PerformanceBar } from './PerformanceBar';
+import { updateRunMetrics, type RunMetrics } from './performance';
 
 const bridge = window.desktop;
 const initial: Snapshot = { preferences: { theme: 'system', language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
@@ -36,6 +38,8 @@ function App() {
   const [draft, setDraft] = useState('');
   const [images, setImages] = useState<Content[]>([]);
   const [busy, setBusy] = useState(false);
+  const [runMetrics, setRunMetrics] = useState<RunMetrics | null>(null);
+  const [clock, setClock] = useState(() => performance.now());
   const [loading, setLoading] = useState(true);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(new Set());
   const [sidebar, setSidebar] = useState(true);
@@ -66,15 +70,20 @@ function App() {
   const current = data.sessions.find(s => s.id === data.state?.sessionId) ?? (data.state?.sessionName ? { name: data.state.sessionName } : undefined);
   const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(String(e instanceof Error ? e.message : e)); } };
   const refresh = async () => { if (bridge) { const value = await bridge.snapshot(); setData(value); setBusy(Boolean(value.state?.isStreaming)); } };
-  const applySnapshot = async (action: () => Promise<Snapshot | null>) => { setLoading(true); await run(async () => { const result = await action(); if (result) setData(result); setRequests([]); follow.current = true; }); setLoading(false); };
+  const applySnapshot = async (action: () => Promise<Snapshot | null>) => { setLoading(true); await run(async () => { const result = await action(); if (result) { setData(result); setRunMetrics(null); } setRequests([]); follow.current = true; }); setLoading(false); };
   const command = async (type: string, args?: Record<string, unknown>) => run(async () => { const result = await bridge!.command(type, args); if (!['prompt', 'abort', 'extension_ui_response'].includes(type)) await refresh(); return result; });
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
     return bridge.onEvent(event => {
+      if (['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_end', 'message_update', 'message_end', 'agent_end'].includes(event.type)) {
+        const receivedAt = performance.now();
+        if (event.type === 'agent_start') setClock(receivedAt);
+        setRunMetrics(previous => updateRunMetrics(previous, event, receivedAt));
+      }
       if (event.type === 'agent_start') setBusy(true);
       if (event.type === 'agent_end') { setBusy(false); void run(refresh); }
-      if (event.type === 'desktop_exit') { setBusy(false); setData(d => ({ ...d, status: 'disconnected', state: undefined })); setRequests([]); }
+      if (event.type === 'desktop_exit') { setBusy(false); setRunMetrics(null); setData(d => ({ ...d, status: 'disconnected', state: undefined, stats: undefined })); setRequests([]); }
       if (event.type === 'desktop_status') setData(d => ({ ...d, status: event.status }));
       if (event.type === 'desktop_error') setError(event.message);
       if (['message_start', 'message_update', 'message_end'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
@@ -85,6 +94,11 @@ function App() {
       }
     });
   }, []);
+  useEffect(() => {
+    if (!runMetrics || runMetrics.finishedAt !== undefined) return;
+    const timer = setInterval(() => setClock(performance.now()), 1000);
+    return () => clearInterval(timer);
+  }, [runMetrics?.startedAt, runMetrics?.finishedAt]);
   useEffect(() => {
     if (!connected) return;
     void run(async () => { setLevels((await bridge!.command('get_available_thinking_levels')).levels); setCommands((await bridge!.command('get_commands')).commands); });
@@ -214,7 +228,7 @@ function App() {
         <div className="composer">{images.length > 0 && <div className="attachments">{images.map((im, i) => <div key={i}><img src={`data:${im.mimeType};base64,${im.data}`} alt="Attachment"/><IconButton title="Remove" onClick={() => setImages(v => v.filter((_, n) => n !== i))}><X size={12}/></IconButton></div>)}</div>}
           <textarea aria-label={t('消息', 'Message')} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={draft} disabled={!connected || loading} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/>
           <div className="composer-tools"><IconButton title={t('添加图片', 'Attach images')} disabled={!connected || images.length >= 5} onClick={() => void run(async () => { const added = await bridge!.images(); setImages(v => [...v, ...added].slice(0, 5)); })}><Paperclip size={17}/></IconButton><select aria-label={t('模型', 'Model')} disabled={!connected || busy} value={data.state?.model ? `${data.state.model.provider}/${data.state.model.id}` : ''} onChange={e => { const m = data.models.find(m => `${m.provider}/${m.id}` === e.target.value); if (m) void command('set_model', { provider: m.provider, modelId: m.id }); }}><option value="">{t('选择模型', 'Select model')}</option>{data.models.map(m => <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>{m.name || m.id}</option>)}</select><select aria-label={t('思考等级', 'Thinking level')} disabled={!connected || busy || !levels.length} value={data.state?.thinkingLevel ?? ''} onChange={e => void command('set_thinking_level', { level: e.target.value })}>{!levels.length && <option value="">{t('思考', 'Thinking')}</option>}{levels.map(l => <option key={l}>{l}</option>)}</select><div className="spacer"/>{busy && <IconButton title={t('停止', 'Stop')} className="stop-button" onClick={() => void command('abort')}><Square size={15}/></IconButton>}<IconButton title={busy ? t('加入队列', 'Queue message') : t('发送', 'Send')} className="send-button" disabled={!connected || (!draft.trim() && !images.length) || loading} onClick={() => void send()}><ArrowUp size={18}/></IconButton></div>
-        </div><div className="composer-footer"><span><i className={connected ? 'online' : ''}/>{busy ? t('执行中', 'Running') : connected ? t('就绪', 'Ready') : t('离线', 'Offline')}</span><span>{t('由 Step Code 驱动', 'Powered by Step Code')}</span></div>
+        </div><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>
       </div>
     </main>
     {details && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title="Close" onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}

@@ -76,11 +76,12 @@ async function listSessions(): Promise<Session[]> {
 }
 async function snapshot(): Promise<Snapshot> {
   let messages = [], models = [];
+  let stats;
   if (status === 'connected') {
-    [state, { messages }, { models }] = await Promise.all([rpc.request('get_state'), rpc.request('get_messages'), rpc.request('get_available_models')]);
+    [state, { messages }, { models }, stats] = await Promise.all([rpc.request('get_state'), rpc.request('get_messages'), rpc.request('get_available_models'), rpc.request('get_session_stats')]);
     busy = Boolean(state?.isStreaming);
   }
-  return { preferences, status, state, messages, models, sessions: await listSessions(), independent: !preferences.workspace || isIndependentPath(preferences.workspace) };
+  return { preferences, status, state, messages, models, stats, sessions: await listSessions(), independent: !preferences.workspace || isIndependentPath(preferences.workspace) };
 }
 async function guardIdle() {
   if (transition) throw new Error('Workspace operation in progress');

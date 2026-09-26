@@ -38,5 +38,6 @@ if (gitBlobHash(bundleScriptBytes) !== "59fdc3ebc3f8d9e7a8b0d6d5fb919f0f7cd44d89
 	throw new Error("Unexpected pinned bundle script content");
 }
 
-execFileSync("git", ["-C", upstreamDir, "apply", "--check", resolvedPatchPath], { stdio: "inherit" });
-execFileSync("git", ["-C", upstreamDir, "apply", resolvedPatchPath], { stdio: "inherit" });
+const applyOptions = { input: patchBytes, stdio: ["pipe", "inherit", "inherit"] };
+execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], applyOptions);
+execFileSync("git", ["-C", upstreamDir, "apply", "-"], applyOptions);

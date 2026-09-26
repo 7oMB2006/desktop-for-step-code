@@ -17,7 +17,7 @@
 
 ### 项目初衷
 
-项目最初的想法，是在 StepFun 官方尚未正式推出 Step Code Desktop 的窗口期，尝试开发一个社区版 Desktop；同时也期待 StepFun 早日发布官方版本！
+项目最初的想法，是在 StepFun 官方尚未正式推出 Step Code Desktop 的窗口期，尝试开发一个社区版 Desktop；同时也期待 StepFun 早日发布官方版本。这也是我出于对阶跃星辰的喜爱而做的一次社区尝试。
 
 ### 功能
 

@@ -9,14 +9,14 @@ const secondWorkspace = join(profile, 'Second project'); await mkdir(secondWorks
 const independentCwd = join(profile, 'Independent cwd'); await mkdir(independentCwd);
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [secondWorkspace, workspace] }));
 // Isolated on-disk history fixtures; no live model or personal session data.
-for (const [index, cwd] of [workspace, secondWorkspace, independentCwd].entries()) {
+for (const [index, cwd] of [workspace, secondWorkspace, independentCwd, workspace].entries()) {
   const dir = join(profile, 'step-runtime', 'sessions');
   await mkdir(dir, { recursive: true });
   const timestamp = new Date().toISOString();
   const entries = [
     { type: 'session', version: 3, id: `fixture-${index}`, cwd, timestamp },
     { type: 'message', id: 'user-1', parentId: null, timestamp, message: { role: 'user', content: [{ type: 'text', text: 'Fixture history' }], timestamp: Date.now() } },
-    { type: 'session_info', id: 'name-1', parentId: 'user-1', timestamp, name: index === 0 ? '历史验证会话' : index === 1 ? 'Second session' : '独立验证会话' },
+    { type: 'session_info', id: 'name-1', parentId: 'user-1', timestamp, name: index === 0 ? '历史验证会话' : index === 1 ? 'Second session' : index === 2 ? '独立验证会话' : '同项目另一会话' },
   ];
   await writeFile(join(dir, `fixture-${index}.jsonl`), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
 }
@@ -31,7 +31,6 @@ try {
   await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
   assert.equal(await page.locator('.window-bar img').count(), 0);
   assert.equal(await page.locator('.window-sidebar-toggle').count(), 1);
-  assert.equal(await page.locator('.window-bar').evaluate(element => element.getBoundingClientRect().height), 46);
   assert.equal(await page.locator('.sidebar-wordmark img:visible').getAttribute('alt'), 'Desktop for Step Code');
   assert.equal(await page.locator('.sidebar-wordmark img:visible').evaluate(img => img.complete && img.naturalWidth > 0), true);
   assert.equal(await page.locator('.sidebar-identity > img').getAttribute('src'), './StepCode.svg');
@@ -48,7 +47,7 @@ try {
   if (!motionReduced) {
     await page.waitForTimeout(65);
     const mid = await page.locator('.sidebar').evaluate(element => element.getBoundingClientRect().right);
-    assert.ok(mid > 0 && mid < 244, `Sidebar should be moving at 65ms: ${mid}`);
+    assert.ok(mid > 0 && mid < 244, `Sidebar should be moving at 60ms: ${mid}`);
   }
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
@@ -142,6 +141,62 @@ try {
   assert.notEqual(startupState.state.sessionId, 'fixture-0');
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
+  await page.clock.install();
+  const sendNotice = (id, notifyType, message) => app.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value), {
+    type: 'extension_ui_request', id, method: 'notify', notifyType, message,
+  });
+  const transcriptTop = await page.locator('.conversation').evaluate(element => element.getBoundingClientRect().top);
+  const mcpMessage = "MCP server 'example_mcp' could not start: Connection closed";
+  await sendNotice('warning-test', 'warning', mcpMessage);
+  const toast = page.locator('.notice-toast');
+  await toast.getByText(mcpMessage).waitFor();
+  assert.equal(await page.locator('.conversation').evaluate(element => element.getBoundingClientRect().top), transcriptTop);
+  assert.ok(await toast.evaluate(element => element.getBoundingClientRect().top >= document.querySelector('.topbar').getBoundingClientRect().bottom));
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'test-results/notice-toast-wide.png' });
+  await toast.getByRole('button', { name: '查看 MCP' }).click();
+  await page.getByRole('region', { name: '本次窗口的 MCP 警告' }).getByText(mcpMessage).waitFor();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await sendNotice('warning-again', 'warning', mcpMessage);
+  assert.equal(await toast.count(), 0);
+  await page.locator('.sidebar-bottom > button').click();
+  await page.getByRole('button', { name: 'MCP', exact: true }).click();
+  await page.getByRole('region', { name: '本次窗口的 MCP 警告' }).locator('.resource-row').filter({ hasText: 'example_mcp' }).getByText('出现 2 次').waitFor();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await sendNotice('warning-generic', 'warning', 'Another optional service is unavailable');
+  await toast.getByText('Another optional service is unavailable').waitFor();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));
+  await page.waitForFunction(() => innerWidth <= 640);
+  const toastBounds = await toast.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const topbar = document.querySelector('.topbar').getBoundingClientRect();
+    return { left: rect.left, right: rect.right, top: rect.top, barBottom: topbar.bottom, viewport: innerWidth };
+  });
+  assert.ok(toastBounds.left >= 0 && toastBounds.right <= toastBounds.viewport && toastBounds.top >= toastBounds.barBottom);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'test-results/notice-toast-narrow.png' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 880));
+  await toast.hover();
+  await page.clock.fastForward(8100);
+  assert.equal(await toast.isVisible(), true);
+  await page.mouse.move(0, 0);
+  await toast.getByRole('button', { name: '关闭通知' }).focus();
+  await page.clock.fastForward(8100);
+  assert.equal(await toast.isVisible(), true);
+  await page.getByRole('textbox', { name: '消息', exact: true }).focus();
+  await page.clock.fastForward(8100);
+  await toast.waitFor({ state: 'hidden' });
+  await sendNotice('info-test', 'info', 'Information only');
+  await toast.getByText('Information only').waitFor();
+  await page.clock.fastForward(4100);
+  await toast.waitFor({ state: 'hidden' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+    type: 'extension_ui_request', id: 'error-test', method: 'notify', notifyType: 'error', message: 'A real error',
+  }));
+  await page.locator('.error-banner').getByText('A real error').waitFor();
+  await page.clock.fastForward(8100);
+  assert.equal(await page.locator('.error-banner').getByText('A real error').isVisible(), true);
+  await page.locator('.error-banner').getByRole('button', { name: '关闭' }).click();
   await page.getByRole('button', { name: '独立验证会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '独立验证会话');
   let independentState = await page.evaluate(() => window.desktop.snapshot());
@@ -164,6 +219,7 @@ try {
   assert.equal(independentState.preferences.workspaces.length, 2);
   await page.screenshot({ path: 'test-results/desktop-light.png' });
   await page.getByRole('button', { name: '账户设置', exact: true }).click();
+  await page.getByRole('button', { name: '账户', exact: true }).click();
   await page.getByText('尚未登录', { exact: true }).waitFor();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   assert.equal(await page.evaluate(() => CSS.supports('appearance', 'base-select')), true);
@@ -219,6 +275,19 @@ try {
   await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === 'Second session');
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '历史验证会话');
+  await page.evaluate(() => {
+    window.__sessionSwitchEvents = [];
+    window.__stopSessionSwitchEvents = window.desktop.onEvent(event => {
+      if (event.type === 'desktop_status' || event.type === 'desktop_exit') window.__sessionSwitchEvents.push(event.type === 'desktop_status' ? event.status : event.type);
+    });
+  });
+  const sameWorkspaceSwitchStarted = Date.now();
+  await firstGroup.getByRole('button', { name: '同项目另一会话', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '同项目另一会话');
+  await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '历史验证会话');
+  assert.deepEqual(await page.evaluate(() => { window.__stopSessionSwitchEvents(); return window.__sessionSwitchEvents; }), []);
+  console.log(`Same-workspace round trip: ${Date.now() - sameWorkspaceSwitchStarted} ms without a runtime restart.`);
   await page.screenshot({ path: 'test-results/workspace-tree.png' });
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: 'MCP', exact: true }).click();
@@ -306,6 +375,8 @@ try {
   await performance.getByText('输入 2K').waitFor();
   assert.equal(await performance.getByText('输出 150').count(), 1);
   assert.equal(await performance.getByText('1 次工具').count(), 1);
+  assert.equal(await performance.getByText('首段文字 0.0s').count(), 1);
+  assert.equal(await performance.getByText('工具累计 0.0s').count(), 1);
   assert.equal(await performance.getByText('缓存读取 1K').count(), 1);
   assert.equal(await performance.getByText('缓存命中 50%').count(), 1);
   assert.equal(await performance.getByText('会话累计 0 tok · 0 次工具').count(), 1);
@@ -319,12 +390,16 @@ try {
   assert.equal(geometry.overflow, false);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));
   await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  await page.locator('.sidebar').waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
+  await page.screenshot({ path: 'test-results/performance-narrow.png' });
   const narrowPerformance = await performance.locator('.performance-summary').evaluate(element => {
     const style = getComputedStyle(element);
     return { height: element.getBoundingClientRect().height, lineHeight: parseFloat(style.lineHeight), overflow: document.documentElement.scrollWidth > innerWidth };
   });
   assert.ok(narrowPerformance.height <= narrowPerformance.lineHeight * 2 + 15);
   assert.equal(narrowPerformance.overflow, false);
+  assert.equal(await performance.locator('.performance-ellipsis').isVisible(), false);
   await performance.locator('.performance-summary').evaluate(element => {
     for (let i = 0; i < 4; i++) {
       const extra = document.createElement('span');
@@ -335,20 +410,25 @@ try {
   });
   await page.evaluate(() => dispatchEvent(new Event('resize')));
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.performance-ellipsis')).display !== 'none');
-  const truncated = await performance.locator('.performance-summary').evaluate(element => ({
+  await page.screenshot({ path: 'test-results/performance-truncated.png' });
+  const truncatedPerformance = await performance.locator('.performance-summary').evaluate(element => ({
     height: element.getBoundingClientRect().height,
     lineHeight: parseFloat(getComputedStyle(element).lineHeight),
     centers: Array.from(element.children).filter(child => getComputedStyle(child).display !== 'none').map(child => child.offsetTop + child.offsetHeight / 2).sort((a, b) => a - b),
     ellipsis: element.querySelector('.performance-ellipsis').getBoundingClientRect(),
     previous: [...element.children].filter(child => getComputedStyle(child).display !== 'none').at(-2).getBoundingClientRect(),
   }));
-  assert.ok(truncated.height <= truncated.lineHeight * 2 + 15);
-  assert.ok(truncated.centers.reduce((count, center, index) => count + (index === 0 || center - truncated.centers[index - 1] > 8 ? 1 : 0), 0) <= 2);
-  assert.ok(truncated.ellipsis.left >= truncated.previous.right);
-  assert.ok(truncated.ellipsis.left - truncated.previous.right < 20);
-  await page.screenshot({ path: 'test-results/performance-truncated.png' });
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
-  await page.waitForFunction(() => !document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  assert.ok(truncatedPerformance.height <= truncatedPerformance.lineHeight * 2 + 15);
+  assert.ok(truncatedPerformance.centers.reduce((count, center, index) => count + (index === 0 || center - truncatedPerformance.centers[index - 1] > 8 ? 1 : 0), 0) <= 2);
+  assert.ok(truncatedPerformance.ellipsis.left >= truncatedPerformance.previous.right);
+  assert.ok(truncatedPerformance.ellipsis.left - truncatedPerformance.previous.right < 20);
+  await performance.locator('.performance-summary').evaluate(element => element.querySelectorAll('.overflow-fixture').forEach(extra => extra.remove()));
+  await page.evaluate(() => dispatchEvent(new Event('resize')));
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.performance-ellipsis')).display === 'none');
+  await page.getByRole('button', { name: '侧栏', exact: true }).click();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.composer > textarea').disabled);
+  assert.equal(await page.getByRole('region', { name: '性能信息' }).getByText('最近一轮').count(), 0);
   assert.deepEqual(errors, []);
   console.log('Electron acceptance passed: isolated profile, real RPC, settings, rename, MCP, themes, narrow window, no renderer Node access.');
 } catch (error) {

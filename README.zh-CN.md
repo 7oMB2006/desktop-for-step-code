@@ -29,6 +29,10 @@
 
 桌面端使用单独的应用数据目录（`%APPDATA%\Desktop for Step Code`），不复用个人 Step Code CLI 配置。项目沿用 Step Code 的 Agent 运行时，不额外加入新的 Harness 能力。
 
+Step 登录凭据使用当前 Windows 用户的加密存储机制保存到 `step-runtime/auth.dpapi`。已有桌面端 `auth.json` 会在启动时迁移并移除明文文件；卸载会清除桌面端 Step 凭据，但保留会话、设置和独立工作区文件，退出登录也会清除 Step 凭据。这不能防护同一 Windows 用户身份下运行的其他软件；MCP 配置中的密钥不属于这次迁移范围。
+
+若应用启动失败或 Step Code 运行时意外退出，日志会写入 `%APPDATA%\Desktop for Step Code\logs\crash-<timestamp>-<id>.log`。日志位于应用数据目录，重装不会清除；排查时先查看最新日志。
+
 ### 下载与运行
 
 当前仓库提供源码，GitHub Releases 暂无公开安装包。安装包和发布时间将在完成发布验收后另行确定；本机生成的安装文件不包含在仓库中。
@@ -71,7 +75,7 @@ node scripts/checksums.mjs
 
 ### 当前状态
 
-这是社区预览版，尚未完成完整的公开发布验收。已在非官方构建中使用固定版本的 Step Code runtime 执行 `step login`，并成功完成 Step Plan 浏览器登录。付费模型任务与真实工具审批流程仍需验证。安装、升级与卸载现已具备自动化残留验证（`Desktop/scripts/verify-residue.mjs`），含对 `~/.stepcode` 的逐文件未改动校验；干净机器首次安装与 125% 缩放仍待验证。MCP 状态目前反映配置是否启用，不代表连接健康检查；部分高级扩展界面也尚未覆盖。
+这是社区预览版，完整的公开发布验收仍在进行。一次性 Windows 虚拟机验证了候选包的安装、凭据迁移和卸载；另一次真实 Step Plan 账号验收中，打包客户端使用 `step-5-preview` 完成了一项编程任务及桌面端工具审批。具体验收记录与发布范围见 `docs/VERIFICATION.md`。MCP 状态目前仅表示配置是否启用，不代表连接健康检查。
 
 ### 许可
 

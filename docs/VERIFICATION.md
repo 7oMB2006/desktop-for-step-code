@@ -71,6 +71,14 @@ One coding task ran end to end on the `step-5-preview` model: 11 assistant messa
 
 Three things this pass did not establish. `cost` reads 0 in `get_session_stats` and in each message's usage, so pricing is either unconfigured or unimplemented. The model issued Linux commands (`sudo apt-get`, `python3 -m ensurepip`) on Windows, which the runtime's bash shell accepts but which consumed most of the twelve approvals before the task finished. Cancellation during a real tool task was not exercised.
 
+## Startup and Runtime Crash Log
+
+Latest build: `Desktop/release/`. The main process installs handlers for `uncaughtException`, `unhandledRejection`, `render-process-gone` and `child-process-gone`, and records a startup phase at runtime staged, vault loaded, admin started, rpc started and window created. Each failure writes one file into `%APPDATA%\Desktop for Step Code\logs\` named `crash-<timestamp>-<id>.log`, holding the app version, whether the build is packaged, the phase at failure, the error and its stack, and the userData and logs paths; the write goes through a temp file and rename and stays silent when it fails, because a crash handler that can crash is worse than none. The ready-path failure keeps its existing dialog-and-quit behaviour and only gains a file written first, so no startup outcome changes.
+
+`RpcProcess` now attaches the child exit code and a redacted stderr tail to both the runtime-exit error and its event, so an unexpected Step Code runtime exit is recorded with them; lines that look like credentials or environment values are dropped before anything reaches disk, since upstream stderr can echo them.
+
+Acceptance uses a real failure rather than a mock: `scripts/verify-crash-log.mjs` migrates a fixture credential into `auth.dpapi`, then writes a conflicting plaintext `auth.json` so `vault.load()` refuses to start, and asserts that the crash log names that error and the phase while never echoing credential values. It runs in the Windows integration check after `verify-electron.mjs`.
+
 ## Passed Locally
 
 - TypeScript checks and production renderer/main/preload build.

@@ -30,6 +30,8 @@ The original idea was to explore a community-built desktop client for Step Code 
 The app keeps its data in a dedicated directory (`%APPDATA%\Desktop for Step Code`) instead of reusing a personal Step Code CLI profile. Agent execution stays with Step Code; this project does not add another harness.
 Step login credentials are encrypted for the current Windows user in `step-runtime/auth.dpapi`. Existing desktop `auth.json` data is migrated on startup, and the plaintext file is removed after the encrypted copy is saved. Uninstall removes the desktop Step credential files while keeping sessions, settings and independent workspace files; signing out removes the Step credential as well. This protects against casual offline reading of the file, not software running with access to the same Windows account. Other configured MCP secrets are outside this credential migration.
 
+If the app fails to start or the Step Code runtime exits unexpectedly, a `crash-<timestamp>.log` is written to `%APPDATA%\Desktop for Step Code\logs\` with the app version, the startup phase, and the error. That data lives under `%APPDATA%` rather than the install directory, so reinstalling does not clear it; read the newest crash log before reinstalling.
+
 ### Download and Run
 
 This repository currently provides source code. There is no public installer on GitHub Releases yet. The installer and release timing will be decided after release acceptance; locally generated installers are not included in this repository.

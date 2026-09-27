@@ -29,17 +29,43 @@ try {
   const page = await app.firstWindow();
   page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
-  assert.equal(await page.locator('.window-identity').innerText(), '');
-  assert.equal(await page.locator('.window-identity img').getAttribute('src'), './StepCode.svg');
+  assert.equal(await page.locator('.window-bar img').count(), 0);
+  assert.equal(await page.locator('.window-sidebar-toggle').count(), 1);
+  assert.equal(await page.locator('.window-bar').evaluate(element => element.getBoundingClientRect().height), 46);
   assert.equal(await page.locator('.sidebar-wordmark img:visible').getAttribute('alt'), 'Desktop for Step Code');
   assert.equal(await page.locator('.sidebar-wordmark img:visible').evaluate(img => img.complete && img.naturalWidth > 0), true);
   assert.equal(await page.locator('.sidebar-identity > img').getAttribute('src'), './StepCode.svg');
+  const motionReduced = await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const sidebarMotion = await page.locator('.sidebar').evaluate(element => {
+    const style = getComputedStyle(element);
+    return { duration: style.transitionDuration, timing: style.transitionTimingFunction };
+  });
+  if (!motionReduced) {
+    assert.match(sidebarMotion.timing, /cubic-bezier\(0\.65, 0, 0\.35, 1\)/);
+    assert.ok(parseFloat(sidebarMotion.duration) >= 0.28);
+  }
   await page.getByRole('button', { name: '侧栏', exact: true }).click();
+  if (!motionReduced) {
+    await page.waitForTimeout(65);
+    const mid = await page.locator('.sidebar').evaluate(element => element.getBoundingClientRect().right);
+    assert.ok(mid > 0 && mid < 244, `Sidebar should be moving at 65ms: ${mid}`);
+  }
+  await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
-  assert.equal(await page.locator('.window-identity img').isVisible(), true);
+  assert.equal(await page.locator('.window-sidebar-toggle').isVisible(), true);
   await page.screenshot({ path: 'test-results/brand-sidebar-hidden.png' });
   await page.getByRole('button', { name: '侧栏', exact: true }).click();
-  assert.equal(await page.locator('.sidebar-identity').isVisible(), true);
+  await page.locator('.sidebar').waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: '视图', exact: true }).click();
+  assert.equal(await page.getByRole('menu', { name: '视图' }).isVisible(), true);
+  await page.getByRole('menuitem', { name: '隐藏侧栏' }).click();
+  await page.locator('.sidebar').waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '视图', exact: true }).click();
+  await page.getByRole('menuitem', { name: '显示侧栏' }).click();
+  await page.getByRole('button', { name: '文件', exact: true }).click();
+  assert.equal(await page.getByRole('menuitem', { name: '新建独立会话' }).isVisible(), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('menu', { name: '文件' }).count(), 0);
   await page.getByRole('button', { name: '最大化', exact: true }).click();
   await page.getByRole('button', { name: '还原窗口', exact: true }).waitFor();
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()), true);
@@ -208,27 +234,38 @@ try {
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 620));
   await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  if (!motionReduced) {
+    await page.waitForTimeout(65);
+    const track = await page.locator('.app').evaluate(element => parseFloat(getComputedStyle(element, '::before').width));
+    assert.ok(track > 0 && track < 244, `Sidebar track should animate at compact threshold: ${track}`);
+  }
+  await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
   assert.equal(await page.getByRole('button', { name: '侧栏', exact: true }).getAttribute('aria-expanded'), 'false');
   await page.getByRole('button', { name: '侧栏', exact: true }).click();
+  await page.locator('.sidebar').waitFor({ state: 'visible' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), true);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(790, 620));
   assert.equal(await page.locator('.sidebar-identity').isVisible(), true);
   assert.equal(await page.locator('.app.sidebar-compact').count(), 1);
   await page.getByRole('button', { name: '关闭侧栏', exact: true }).click({ position: { x: 700, y: 200 } });
+  await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 620));
   await page.waitForFunction(() => !document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  await page.locator('.sidebar').waitFor({ state: 'visible' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), true);
   await page.getByRole('button', { name: '侧栏', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 620));
   await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  await page.locator('.sidebar').waitFor({ state: 'hidden' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 620));
   await page.waitForFunction(() => !document.querySelector('.app')?.classList.contains('sidebar-compact'));
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
   await page.getByRole('button', { name: '侧栏', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 620));
   await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
   await page.screenshot({ path: 'test-results/desktop-narrow.png' });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);

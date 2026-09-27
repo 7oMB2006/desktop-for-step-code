@@ -8,7 +8,7 @@ import type { Snapshot, Settings, Message, Content, UIRequest, McpServer } from 
 import './style.css';
 import './layout.css';
 import { applyMessageEvent } from './message-events';
-import { WindowBar } from './WindowBar';
+import { WindowBar, type WindowMenu } from './WindowBar';
 import { PerformanceBar } from './PerformanceBar';
 import { updateRunMetrics, type RunMetrics } from './performance';
 
@@ -187,11 +187,32 @@ function App() {
       return bridge!.snapshot();
     });
   };
+  const toggleSidebar = () => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open);
+  const menus: WindowMenu[] = [
+    { id: 'file', label: t('文件', 'File'), items: [
+      { label: t('新建独立会话', 'New independent session'), disabled: !bridge || busy || loading, action: () => void applySnapshot(() => bridge!.newIndependentSession()) },
+      { label: t('打开项目…', 'Open project...'), disabled: !bridge || busy || loading, action: () => void applySnapshot(() => bridge!.chooseWorkspace()) },
+      { label: t('打开会话文件夹', 'Open session folder'), disabled: !bridge || !data.preferences.workspace || loading, action: () => void run(() => bridge!.openSessionFolder()) },
+    ] },
+    { id: 'edit', label: t('编辑', 'Edit'), items: [
+      { label: t('重命名会话', 'Rename session'), disabled: !connected || busy, action: () => { setName(current?.name ?? ''); setRenaming(true); } },
+      { label: t('停止生成', 'Stop response'), disabled: !busy, action: () => void command('abort') },
+    ] },
+    { id: 'view', label: t('视图', 'View'), items: [
+      { label: sidebarVisible ? t('隐藏侧栏', 'Hide sidebar') : t('显示侧栏', 'Show sidebar'), action: toggleSidebar },
+      { label: t('会话统计', 'Session statistics'), disabled: !connected, action: () => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats'), null, 2))) },
+      { label: t('重启运行时', 'Restart runtime'), disabled: !data.preferences.workspace || busy || loading, action: () => void applySnapshot(() => bridge!.restart()) },
+    ] },
+    { id: 'help', label: t('帮助', 'Help'), items: [
+      { label: t('设置', 'Settings'), disabled: !bridge, action: () => void openSettings() },
+      { label: t('导出脱敏诊断', 'Export redacted diagnostics'), disabled: !bridge, action: () => void run(() => bridge!.diagnostics()) },
+    ] },
+  ];
   return <div className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''}`}>
-    <WindowBar language={data.preferences.language}/>
+    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus}/>
     {error && (settingsOpen || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
-    {compactSidebar && compactSidebarOpen && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} onClick={() => setCompactSidebarOpen(false)}/>}
-    <aside className="sidebar"><div className="sidebar-dismiss"><IconButton title={t('收起侧栏', 'Collapse sidebar')} onClick={() => setCompactSidebarOpen(false)}><PanelLeft size={17}/></IconButton></div>
+    {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
+    <aside className="sidebar" inert={!sidebarVisible}>
       <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
       <button className="new-chat" disabled={!bridge || busy || loading} onClick={() => void applySnapshot(() => bridge!.newIndependentSession())}><Plus size={17}/>{t('新建会话', 'New session')}</button>
       <nav className="workspace-tree" aria-label={t('工作区与会话', 'Workspaces and sessions')}>
@@ -218,7 +239,7 @@ function App() {
       </nav>
       <div className="sidebar-bottom"><button onClick={() => void openSettings()} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span>0.1.0</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
-    <main><header className="topbar"><IconButton title={t('侧栏', 'Sidebar')} aria-expanded={sidebarVisible} onClick={() => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open)}><PanelLeft size={18}/></IconButton><div className="breadcrumb"><span>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('工作区', 'Workspace')}</span><span>/</span><strong>{current?.name || t('新会话', 'New session')}</strong></div><div className="top-actions"><IconButton title={t('重命名', 'Rename')} disabled={!connected || busy} onClick={() => { setName(current?.name ?? ''); setRenaming(true); }}><Pencil size={15}/></IconButton><IconButton title={t('重启运行时', 'Restart runtime')} disabled={!data.preferences.workspace || busy || loading} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={16}/></IconButton><IconButton title={t('会话统计', 'Session statistics')} disabled={!connected} onClick={() => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats'), null, 2)))}><SlidersHorizontal size={17}/></IconButton></div></header>
+    <main><header className="topbar"><div className="breadcrumb"><span>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('工作区', 'Workspace')}</span><span>/</span><strong>{current?.name || t('新会话', 'New session')}</strong></div><div className="top-actions"><IconButton title={t('重命名', 'Rename')} disabled={!connected || busy} onClick={() => { setName(current?.name ?? ''); setRenaming(true); }}><Pencil size={15}/></IconButton><IconButton title={t('重启运行时', 'Restart runtime')} disabled={!data.preferences.workspace || busy || loading} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={16}/></IconButton><IconButton title={t('会话统计', 'Session statistics')} disabled={!connected} onClick={() => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats'), null, 2)))}><SlidersHorizontal size={17}/></IconButton></div></header>
       {error && <div className="error-banner" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title={t('关闭', 'Dismiss')} onClick={() => setError('')}><X size={14}/></IconButton></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation" ref={scroll} onScroll={() => { if (scroll.current) follow.current = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100; }}>
@@ -243,7 +264,7 @@ class RenderBoundary extends React.Component<{ children: React.ReactNode }, { fa
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   render() {
-    if (this.state.failed) return <><WindowBar language="zh"/><div className="empty-state" role="alert"><h1>界面暂时无法显示 / Display error</h1><p>重新加载界面不会重新发送任务。 / Reloading does not resend your task.</p><button onClick={() => location.reload()}>重新加载 / Reload</button></div></>;
+    if (this.state.failed) return <><WindowBar language="zh" sidebarVisible={false} toggleSidebar={() => {}} menus={[]}/><div className="empty-state" role="alert"><h1>界面暂时无法显示 / Display error</h1><p>重新加载界面不会重新发送任务。 / Reloading does not resend your task.</p><button onClick={() => location.reload()}>重新加载 / Reload</button></div></>;
     return this.props.children;
   }
 }

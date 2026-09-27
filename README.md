@@ -28,9 +28,10 @@ The original idea was to explore a community-built desktop client for Step Code 
 - Chinese and English UI, with light and dark themes
 
 The app keeps its data in a dedicated directory (`%APPDATA%\Desktop for Step Code`) instead of reusing a personal Step Code CLI profile. Agent execution stays with Step Code; this project does not add another harness.
+
 Step login credentials are encrypted for the current Windows user in `step-runtime/auth.dpapi`. Existing desktop `auth.json` data is migrated on startup, and the plaintext file is removed after the encrypted copy is saved. Uninstall removes the desktop Step credential files while keeping sessions, settings and independent workspace files; signing out removes the Step credential as well. This protects against casual offline reading of the file, not software running with access to the same Windows account. Other configured MCP secrets are outside this credential migration.
 
-If the app fails to start or the Step Code runtime exits unexpectedly, a `crash-<timestamp>.log` is written to `%APPDATA%\Desktop for Step Code\logs\` with the app version, the startup phase, and the error. That data lives under `%APPDATA%` rather than the install directory, so reinstalling does not clear it; read the newest crash log before reinstalling.
+If the app fails to start or the Step Code runtime exits unexpectedly, a `crash-<timestamp>-<id>.log` is written to `%APPDATA%\Desktop for Step Code\logs\` with the app version, the startup phase, and the error. That data lives under `%APPDATA%` rather than the install directory, so reinstalling does not clear it; read the newest crash log before reinstalling.
 
 ### Download and Run
 
@@ -74,7 +75,7 @@ node scripts/checksums.mjs
 
 ### Project Status
 
-This is a community preview and has not completed full public-release acceptance. Step Plan browser login was verified by running `step login` with the pinned Step Code runtime in a non-official build. Paid-model tasks and real tool-approval flows still need verification. Installation, upgrade and uninstall now have automated residue verification (`Desktop/scripts/verify-residue.mjs`), including a per-file check that `~/.stepcode` is untouched; clean-machine first install and 125% scaling are still open. MCP status currently reflects whether configuration is enabled, not whether a connection is healthy; some advanced extension UI is also not yet covered.
+This is a community preview; full public-release acceptance is still in progress. A disposable Windows VM exercised installation, credential migration and uninstall of a candidate build. Separately, a packaged build completed a `step-5-preview` coding task with desktop tool approvals on a real Step Plan account. See `docs/VERIFICATION.md` for the acceptance record and release scope. MCP status indicates whether configuration is enabled, not connection health.
 
 ### License
 

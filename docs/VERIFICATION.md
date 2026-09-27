@@ -29,7 +29,7 @@ Latest build and desktop shortcut: `Desktop/release-brand/`. The canonical SVG m
 
 ## Custom Window Chrome
 
-Latest build: `Desktop/release-window/`. Windows uses a frameless Electron window with a theme-aware 36px titlebar, native draggable region and explicit minimize/maximize/restore/close controls. The close control delegates to the existing task-aware close flow. Reference implementation inspected: local Oh-DSH `src/main.ts` and `src/client.ts`. Electron checks cover minimize, maximize and restore plus existing layout/streaming regressions. Native drag, edge resize and Windows snap interactions still need manual acceptance.
+Latest build: `Desktop/release-window/`. Windows uses a frameless Electron window with a theme-aware 46px titlebar, native draggable region and explicit minimize/maximize/restore/close controls. The close control delegates to the existing task-aware close flow. The titlebar project icon has since been replaced by a sidebar toggle, and File, Edit, View and Help menus were added alongside it (see Native Menus and Sidebar Motion). Reference implementation inspected: local Oh-DSH `src/main.ts` and `src/client.ts`. Electron checks cover minimize, maximize and restore plus existing layout/streaming regressions. Native drag, edge resize and Windows snap interactions still need manual acceptance.
 
 ## Layout Refinement
 
@@ -49,6 +49,28 @@ Verified on a development host, not a clean machine: install and uninstall both 
 
 The verdict is checked in both directions. In the installed state the rows fail as they should; deleting `userData\preferences.json` before the over-install makes the userData rows fail and names the file. Launch is observed through process liveness rather than a fixed sleep. Note that v2 recreates a deleted `preferences.json` on first run, so survival is judged on the pre-launch snapshot as well.
 
+## Responsive Sidebar
+
+PR #7. The sidebar auto-collapses on narrow windows. Typecheck, five protocol tests, production build and Electron acceptance passed with isolated fixtures; no paid-model execution was used.
+
+## Performance Bar
+
+PR #8. Run timing, tool count, token usage and cache metrics appear beneath the composer, plus session totals from Step Code's existing stats RPC. Typecheck, 7 tests, production build and Electron acceptance passed with isolated fixture data. No paid-model execution was used.
+
+## Native Menus and Sidebar Motion
+
+PR #13. The titlebar project icon is replaced by a sidebar toggle alongside File, Edit, View and Help menus wired to existing actions, the window bar is 46px, and sidebar collapse, expansion and responsive threshold changes animate with cubic easing while respecting reduced-motion preferences. Typecheck, nine tests, production build and Electron acceptance passed.
+
+## Real-Account Acceptance
+
+Everything above this line was verified with isolated fixture profiles, because the Windows integration check runs without credentials. This section records one pass against a real Step Plan account, run by driving the packaged installer through Playwright with the sign-in completed manually in a browser.
+
+Browser authorization completed and the account reported `step_plan · valid`. The credential landed in `step-runtime/auth.dpapi` (284 bytes), and no plaintext `auth.json` was present at any point. A pre-existing 2-byte plaintext `auth.json` was migrated to `auth.dpapi` and removed on the first launch after installing.
+
+One coding task ran end to end on the `step-5-preview` model: 11 assistant messages and 13 tool calls, with 12 tool-approval confirmations answered from the desktop dialog. Token usage agreed between the desktop's own accumulation and the runtime's `get_session_stats`: input 29672, output 1960, cacheRead 66816, cacheWrite 0, total 98448 — so the bar's "In" (input plus cacheRead plus cacheWrite) plus "Out" equals the session total.
+
+Three things this pass did not establish. `cost` reads 0 in `get_session_stats` and in each message's usage, so pricing is either unconfigured or unimplemented. The model issued Linux commands (`sudo apt-get`, `python3 -m ensurepip`) on Windows, which the runtime's bash shell accepts but which consumed most of the twelve approvals before the task finished. Cancellation during a real tool task was not exercised.
+
 ## Passed Locally
 
 - TypeScript checks and production renderer/main/preload build.
@@ -60,6 +82,8 @@ The verdict is checked in both directions. In the installed state the rows fail 
 - The local SSE fixture also requests an actual upstream `write_file` call: Step Code emits its permission confirmation, the test client approves, and the temporary file content is verified.
 - Electron source launch and packaged executable: isolated user directory, account settings, workspace connection, rename, MCP save, theme switching, narrow window, no renderer Node access, no renderer exceptions.
 - Windows x64 NSIS installer generated.
+- Native File, Edit, View and Help menus, and animated sidebar transitions.
+- Real Step Plan sign-in, encrypted credential with no plaintext `auth.json` at any point, one real coding task with tool approvals, and token agreement between the desktop's accumulation and `get_session_stats`.
 
 Screenshots and ephemeral test output are in `Desktop/test-results/` (ignored by Git).
 

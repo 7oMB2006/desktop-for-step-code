@@ -5,7 +5,7 @@ export interface Usage { input: number; output: number; cacheRead: number; cache
 export interface SessionStats { toolCalls: number; assistantMessages: number; tokens: Usage & { total: number }; contextUsage?: { tokens: number; contextWindow: number; percent: number } }
 export interface Message { role: string; content: string | Content[]; timestamp?: number; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage }
 export interface RuntimeState { isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
-export interface UIRequest { type: 'extension_ui_request'; id: string; method: string; title?: string; message?: string; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string }
+export interface UIRequest { type: 'extension_ui_request'; id: string; method: string; title?: string; message?: string; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string }
 export type RuntimeEvent = { type: string; [key: string]: any };
 export interface Preferences { theme: 'system' | 'light' | 'dark'; language: 'zh' | 'en'; workspaces: string[]; workspace?: string }
 export interface Snapshot { preferences: Preferences; status: string; state?: RuntimeState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats }

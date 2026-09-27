@@ -166,7 +166,17 @@ async function handle(method: string, args: any[]) {
     case 'restart': if (preferences.workspace) return connect(preferences.workspace, state?.sessionFile, false); return snapshot();
     case 'switchSession': {
       const target = (await listSessions()).find(s => s.id === text(args[0]));
-      if (!target) throw new Error('Unknown session'); return connect(target.cwd, target.path, false);
+      if (!target) throw new Error('Unknown session');
+      if (status === 'connected' && preferences.workspace && await samePath(preferences.workspace, target.cwd)) {
+        await guardIdle();
+        transition = true;
+        try {
+          const result = await rpc.request('switch_session', { sessionPath: target.path }, 60000);
+          if (result.cancelled) throw new Error('Session switch cancelled');
+          return await snapshot();
+        } finally { transition = false; }
+      }
+      return connect(target.cwd, target.path, false);
     }
     case 'deleteSession': {
       await guardIdle();

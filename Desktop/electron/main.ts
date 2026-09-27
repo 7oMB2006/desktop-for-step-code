@@ -4,11 +4,13 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { AuthVault } from './auth-vault';
+import { installCrashLog } from './crash-log';
 import type { Preferences, Session, Snapshot, RuntimeState, UIRequest } from '../src/contracts';
 
 app.setName('Desktop for Step Code');
 app.setAppUserModelId('community.stepcode.desktop');
 if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
+const crashLog = installCrashLog();
 let window: BrowserWindow;
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
 let state: RuntimeState | undefined;
@@ -45,6 +47,7 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node/node.exe');
+crashLog.setPhase('runtime staged');
 const env = isolatedEnvironment(dataRoot);
 const vault = new AuthVault(dataRoot);
 let authData: Record<string, unknown> = {};
@@ -66,7 +69,7 @@ const emit = (event: unknown) => { if (window && !window.isDestroyed()) window.w
 const rpc = new RpcProcess(event => {
   if (event.type === 'agent_start') busy = true;
   if (event.type === 'agent_end') busy = false;
-  if (event.type === 'desktop_exit') { status = 'disconnected'; busy = false; state = undefined; pendingUI.clear(); }
+  if (event.type === 'desktop_exit') { status = 'disconnected'; busy = false; state = undefined; pendingUI.clear(); void crashLog.record('runtime-exit', new Error('Step Code runtime exited unexpectedly'), (event as { details?: Record<string, unknown> }).details ?? {}); }
   if (event.type === 'extension_ui_request' && ['select', 'confirm', 'input', 'editor'].includes(event.method)) pendingUI.set(event.id, event);
   emit(event);
 });
@@ -118,6 +121,7 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
     }
     await savePreferences();
     rpc.start(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment());
+    crashLog.setPhase('rpc started');
     await rpc.request('get_state', {}, 60000);
     status = 'connected';
     if (sessionPath) { const result = await rpc.request('switch_session', { sessionPath }); if (result.cancelled) throw new Error('Session switch cancelled'); }
@@ -292,12 +296,15 @@ else app.whenReady().then(async () => {
   // vault.load() also migrates and removes a legacy plaintext auth.json. safeStorage
   // requires the ready state, which whenReady provides.
   authData = await vault.load();
+  crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
   try { await writeFile(join(dataRoot, 'config.toml'), 'permissionPreset = "ask"\n[telemetry]\nenabled = false\n', { flag: 'wx' }); } catch (e: any) { if (e.code !== 'EEXIST') throw e; }
   admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
+  crashLog.setPhase('admin started');
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
   window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: '#171717', autoHideMenuBar: true, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  crashLog.setPhase('window created');
   const windowState = () => emit({ type: 'desktop_window_state', maximized: window.isMaximized(), focused: window.isFocused() });
   window.on('maximize', windowState);
   window.on('unmaximize', windowState);
@@ -320,9 +327,13 @@ else app.whenReady().then(async () => {
         status = 'disconnected'; state = undefined;
         await rpc.stop();
         startupError = error instanceof Error ? error.message : 'Could not start an independent session';
+        await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
       }
     })();
   }
   if (process.env.DESKTOP_DEV_URL && !app.isPackaged) await window.loadURL(process.env.DESKTOP_DEV_URL);
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
-}).catch(error => { dialog.showErrorBox('Desktop for Step Code', String(error)); quitting = true; void Promise.all([rpc.stop(), admin.stop()]).finally(() => app.quit()); });
+}).catch(async error => {
+  await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
+  dialog.showErrorBox('Desktop for Step Code', String(error)); quitting = true; void Promise.all([rpc.stop(), admin.stop()]).finally(() => app.quit());
+});

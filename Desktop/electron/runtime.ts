@@ -28,12 +28,26 @@ export function isolatedEnvironment(root: string, parent: NodeJS.ProcessEnv = pr
   return { ...env, STEPCODE_ENTRYPOINT: '1', STEPCODE_STORAGE_ROOT_DIR: root, STEP_CODING_AGENT_DIR: `${root}/agent`, STEP_CODING_AGENT_SESSION_DIR: `${root}/sessions`, STEPCODE_AUTH_PATH: `${root}/auth.json`, STEPCODE_LEGACY_AUTH_PATH: `${root}/legacy-auth.json`, STEPCODE_DISABLE_PI_SERVICES: '1', STEP_CLIENT: 'desktop-for-step-code' };
 }
 
+/**
+ * Stderr tail for diagnostics, with credential-bearing lines removed.
+ * Upstream diagnostics can echo environment values, so nothing that looks like a
+ * secret reaches a file; the tail is bounded so a runaway log cannot bloat it.
+ */
+const SENSITIVE_LINE = /(api[-_.]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|secret|password|passwd|credential|cookie|authorization|bearer\s+[A-Za-z0-9._-]|['"]?(?:token|apiKey|api_key)['"]?\s*[:=]|^\s*(?:STEP|PI|AI_AGENT)[A-Z0-9_]*\s*=)/i;
+function stderrForLog(text: string, lines = 40): string {
+  const safe = text.split(/\r?\n/).filter(line => line.trim().length > 0 && !SENSITIVE_LINE.test(line));
+  const tail = safe.slice(-lines);
+  return tail.length > 0 ? tail.join('\n') : '(no stderr lines passed the redaction filter)';
+}
+
 export class RpcProcess {
   private child?: ChildProcessWithoutNullStreams;
+  private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   constructor(private event: (value: any) => void) {}
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv) {
     if (this.child) throw new Error('Runtime already started');
+    this.stderr = '';
     const child = spawn(node, [entry, '--mode', 'rpc'], { cwd, env, windowsHide: true, stdio: 'pipe' });
     this.child = child;
     const decoder = new JsonLines(value => {
@@ -43,14 +57,20 @@ export class RpcProcess {
       } else this.event(value);
     });
     child.stdout.on('data', chunk => { try { decoder.push(chunk); } catch (e) { this.fail(e as Error); void this.stop(); } });
-    // Never relay raw stderr: upstream diagnostics can contain private environment values.
+    // Raw stderr is never relayed to the UI: upstream diagnostics can contain
+    // private environment values. A bounded copy is kept for the crash log, and
+    // stderrForLog() strips anything credential-shaped before it is written.
+    child.stderr.on('data', chunk => { this.stderr = (this.stderr + chunk.toString()).slice(-16384); });
     child.stderr.resume();
     child.on('error', error => this.fail(error));
     child.on('exit', (code, signal) => {
       if (this.child !== child) return;
       this.child = undefined;
-      this.fail(new Error(`Runtime exited (${code ?? signal ?? 'unknown'})`));
-      this.event({ type: 'desktop_exit', code });
+      const details = { kind: 'runtime-exit', exitCode: code ?? null, signal: signal ?? null, stderrTail: stderrForLog(this.stderr) };
+      const error = new Error(`Runtime exited (${code ?? signal ?? 'unknown'})`) as Error & { details?: Record<string, unknown> };
+      error.details = details;
+      this.fail(error);
+      this.event({ type: 'desktop_exit', code, details });
     });
   }
   request(type: string, args: Record<string, unknown> = {}, timeout = 30000): Promise<any> {

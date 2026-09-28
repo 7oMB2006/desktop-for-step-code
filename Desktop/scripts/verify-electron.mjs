@@ -9,14 +9,14 @@ const secondWorkspace = join(profile, 'Second project'); await mkdir(secondWorks
 const independentCwd = join(profile, 'Independent cwd'); await mkdir(independentCwd);
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [secondWorkspace, workspace] }));
 // Isolated on-disk history fixtures; no live model or personal session data.
-for (const [index, cwd] of [workspace, secondWorkspace, independentCwd, workspace].entries()) {
+for (const [index, cwd] of [workspace, secondWorkspace, independentCwd, workspace, workspace].entries()) {
   const dir = join(profile, 'step-runtime', 'sessions');
   await mkdir(dir, { recursive: true });
   const timestamp = new Date().toISOString();
   const entries = [
     { type: 'session', version: 3, id: `fixture-${index}`, cwd, timestamp },
-    { type: 'message', id: 'user-1', parentId: null, timestamp, message: { role: 'user', content: [{ type: 'text', text: 'Fixture history' }], timestamp: Date.now() } },
-    { type: 'session_info', id: 'name-1', parentId: 'user-1', timestamp, name: index === 0 ? '历史验证会话' : index === 1 ? 'Second session' : index === 2 ? '独立验证会话' : '同项目另一会话' },
+    { type: 'message', id: 'user-1', parentId: null, timestamp, message: { role: 'user', content: [{ type: 'text', text: index === 4 ? '你好！' : 'Fixture history' }], timestamp: Date.now() } },
+    ...(index === 4 ? [] : [{ type: 'session_info', id: 'name-1', parentId: 'user-1', timestamp, name: index === 0 ? '历史验证会话' : index === 1 ? 'Second session' : index === 2 ? '独立验证会话' : '同项目另一会话' }]),
   ];
   await writeFile(join(dir, `fixture-${index}.jsonl`), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
 }
@@ -110,6 +110,20 @@ try {
   assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 0);
   await projectToggle.click();
   assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 1);
+  await projectToggle.click({ button: 'right' });
+  const context = page.locator('.sidebar-context');
+  await context.getByRole('menuitem', { name: '在资源管理器中打开' }).waitFor();
+  await assert.rejects(page.evaluate(() => window.desktop.openWorkspaceFolder('C:\\not-a-remembered-project')), /Unknown workspace/);
+  await context.getByRole('menuitem', { name: '重命名' }).click();
+  await page.getByRole('dialog').getByRole('textbox').fill('临时项目名');
+  await page.getByRole('dialog').getByRole('button', { name: '确认' }).click();
+  await page.getByRole('button', { name: '临时项目名', exact: true }).waitFor();
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaceNames[workspace.toLowerCase().replaceAll('\\', '/')], '临时项目名');
+  await page.getByRole('button', { name: '临时项目名', exact: true }).click({ button: 'right' });
+  await context.getByRole('menuitem', { name: '重命名' }).click();
+  await page.getByRole('dialog').getByRole('textbox').fill('中文项目 with spaces');
+  await page.getByRole('dialog').getByRole('button', { name: '确认' }).click();
+  await projectToggle.waitFor();
   assert.equal(await disclosureCases[0].region.getByRole('button', { name: '独立会话', exact: true }).locator('svg.lucide-message-square').count(), 1);
   const reduceMotion = await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const transitionStyle = await projectDisclosure.evaluate(element => {
@@ -140,6 +154,7 @@ try {
   assert.equal(startupState.stats.tokens.total, 0);
   assert.notEqual(startupState.state.sessionId, 'fixture-0');
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
+  assert.equal(await page.locator('.session-location').count(), 0);
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   await page.clock.install();
   const sendNotice = (id, notifyType, message) => app.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value), {
@@ -269,20 +284,35 @@ try {
   assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   await page.screenshot({ path: 'test-results/desktop-dark-connected.png' });
-  await page.getByRole('button', { name: '重命名', exact: true }).click();
+  assert.equal(await page.locator('.top-actions .lucide-pencil').count(), 0);
+  const firstGroup = page.getByRole('region', { name: projectState.preferences.workspace, exact: true });
+  await firstGroup.getByRole('button', { name: '你好！', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '你好！');
+  await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '历史验证会话');
+  const currentRow = page.locator('.session-row.selected');
+  await currentRow.click({ button: 'right' });
+  assert.equal(await context.getByRole('menuitem', { name: '复制' }).isDisabled(), true);
+  assert.equal(await context.getByRole('menuitem', { name: '分支' }).isDisabled(), true);
+  await context.getByRole('menuitem', { name: '重命名' }).click();
   await page.getByRole('dialog').getByRole('textbox').fill('窗口验证会话');
   await page.getByRole('button', { name: '确认', exact: true }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
-  const firstGroup = page.getByRole('region', { name: projectState.preferences.workspace, exact: true });
+  await firstGroup.getByRole('button', { name: '窗口验证会话', exact: true }).click({ button: 'right' });
+  await context.getByRole('menuitem', { name: '重命名' }).click();
+  await page.getByRole('dialog').getByRole('textbox').fill('历史验证会话');
+  await page.getByRole('button', { name: '确认', exact: true }).click();
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).waitFor();
   await page.getByRole('button', { name: '在 Second project 新建会话', exact: true }).click();
   await page.waitForFunction(path => document.querySelector('.breadcrumb > span')?.textContent === path, 'Second project');
-  await page.getByRole('button', { name: '重命名', exact: true }).click();
-  await page.getByRole('dialog').getByRole('textbox').fill('Second session');
-  await page.getByRole('button', { name: '确认', exact: true }).click();
-  await page.getByRole('dialog').waitFor({ state: 'hidden' });
   const secondProjectState = await page.evaluate(() => window.desktop.snapshot());
   const secondGroup = page.getByRole('region', { name: secondProjectState.preferences.workspace, exact: true });
+  await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
+  await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click({ button: 'right' });
+  await context.getByRole('menuitem', { name: '归档会话' }).click();
+  await page.getByRole('region', { name: secondProjectState.preferences.workspace, exact: true }).getByRole('button', { name: 'Second session', exact: true }).waitFor({ state: 'hidden' });
+  await page.locator('.archived-group').getByRole('button', { name: 'Second session', exact: true }).click({ button: 'right' });
+  await context.getByRole('menuitem', { name: '恢复会话' }).click();
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
   assert.equal(await firstGroup.getByRole('button', { name: 'Second session', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();
@@ -426,6 +456,36 @@ try {
   });
   assert.equal(geometry.aligned, true);
   assert.equal(geometry.overflow, false);
+  const fade = await page.locator('.composer-wrap').evaluate(element => {
+    const style = getComputedStyle(element, '::before');
+    return { image: style.backgroundImage, height: parseFloat(style.height), pointerEvents: style.pointerEvents };
+  });
+  assert.match(fade.image, /linear-gradient/);
+  assert.ok(fade.height >= 60);
+  assert.equal(fade.pointerEvents, 'none');
+  await page.evaluate(() => {
+    const filler = document.createElement('div');
+    filler.className = 'scroll-fixture';
+    filler.style.lineHeight = '28px';
+    filler.style.whiteSpace = 'pre-line';
+    filler.textContent = Array.from({ length: 70 }, (_, index) => `第 ${index + 1} 行对话内容，滚动至底部时逐渐淡出。`).join('\n');
+    document.querySelector('.messages').append(filler);
+    const transcript = document.querySelector('.conversation');
+    transcript.scrollTop = transcript.scrollHeight - transcript.clientHeight - 250;
+    transcript.dispatchEvent(new Event('scroll'));
+  });
+  const jump = page.getByRole('button', { name: '回到底部' });
+  await jump.waitFor();
+  assert.equal(await jump.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const composer = document.querySelector('.composer').getBoundingClientRect();
+    return bounds.width === bounds.height && bounds.bottom < composer.top && bounds.right <= composer.right;
+  }), true);
+  await page.screenshot({ path: 'test-results/composer-scroll-fade.png' });
+  await jump.click();
+  await jump.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.conversation').evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 100), true);
+  await page.evaluate(() => document.querySelector('.scroll-fixture').remove());
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));
   await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
   await page.locator('.sidebar').waitFor({ state: 'hidden' });

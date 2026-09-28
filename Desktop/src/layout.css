@@ -132,10 +132,20 @@ select:disabled { cursor: not-allowed; opacity: .45; }
   transition: grid-template-rows 260ms cubic-bezier(.65, 0, .35, 1), opacity 180ms cubic-bezier(.65, 0, .35, 1);
 }
 .workspace-disclosure[aria-hidden="false"] { grid-template-rows: 1fr; opacity: 1; }
-.session-location { display: flex; align-items: center; gap: 8px; padding: 0 4px 7px; min-width: 0; }
-.session-location button { min-height: 26px; padding: 3px 7px; border: 0; background: transparent; font-size: 11px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-location button:hover:not(:disabled) { color: var(--ink); background: var(--surface); }
 .workspace-heading > .icon-button { width: 26px; height: 26px; flex-shrink: 0; }
+.workspace-heading > .icon-button:last-child, .session-row > .icon-button { opacity: 0; }
+.workspace-heading:hover > .icon-button:last-child, .workspace-heading:focus-within > .icon-button:last-child,
+.session-row:hover > .icon-button, .session-row:focus-within > .icon-button { opacity: 1; }
+.sidebar-context {
+  position: fixed; z-index: 60; width: 200px; padding: 5px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  color: var(--ink); box-shadow: 0 4px 8px oklch(0 0 0 / .16);
+}
+.sidebar-context button { display: flex; width: 100%; min-height: 34px; justify-content: flex-start; padding: 7px 9px; border: 0; background: transparent; font-size: 12px; text-align: left; }
+.sidebar-context button:hover:not(:disabled), .sidebar-context button:focus-visible { background: var(--surface); }
+.sidebar-context button:disabled { opacity: .45; }
+.context-separator { height: 1px; margin: 5px 4px; background: var(--border); }
+.archived-group { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 10px; }
 .workspace-sessions { margin-left: 19px; }
 .workspace-disclosure > .workspace-sessions { min-height: 0; overflow: hidden; }
 .workspace-sessions .session-row > button:first-child { min-height: 34px; padding: 7px 9px; }
@@ -176,7 +186,7 @@ select:disabled { cursor: not-allowed; opacity: .45; }
 .conversation { scrollbar-gutter: auto; }
 .messages {
   width: 100%; max-width: var(--conversation-width);
-  padding: 32px var(--conversation-gutter) 24px;
+  padding: 32px var(--conversation-gutter) 80px;
 }
 .message { margin-bottom: 28px; }
 .message-label { font-size: 11px; margin-bottom: 8px; gap: 9px; }
@@ -191,8 +201,18 @@ select:disabled { cursor: not-allowed; opacity: .45; }
 .thinking summary { width: fit-content; padding: 3px 0; }
 .tool-result,.tool-call { border-color: var(--border); box-shadow: none; }
 .composer-wrap {
-  flex-shrink: 0; width: 100%; max-width: var(--conversation-width);
+  position: relative; flex-shrink: 0; width: 100%; max-width: var(--conversation-width);
   padding: 8px var(--conversation-gutter) 22px;
+}
+.composer-wrap::before {
+  content: ''; position: absolute; left: 0; right: 0; top: -72px; height: 72px;
+  background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none;
+}
+.jump-to-bottom {
+  position: absolute; z-index: 2; top: -43px; right: calc(var(--conversation-gutter) + 4px);
+  width: 34px; height: 34px; min-height: 34px; padding: 0;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  box-shadow: 0 2px 6px oklch(0 0 0 / .12);
 }
 .composer { border-radius: 8px; box-shadow: none; background: var(--side); }
 .composer:focus-within { background: var(--bg); border-color: var(--muted); }
@@ -263,7 +283,7 @@ select:disabled { cursor: not-allowed; opacity: .45; }
 .performance-title strong { font-weight: 600; }
 .performance-divider { width: 1px; height: 12px; background: var(--border); }
 .performance-ellipsis { display: none; color: var(--ink); }
-.command-menu { left: var(--conversation-gutter); right: var(--conversation-gutter); }
+.command-menu { z-index: 3; left: var(--conversation-gutter); right: var(--conversation-gutter); }
 .empty-state { padding: 40px 24px 60px; }
 .empty-symbol { margin-bottom: 18px; }
 .empty-state h1 { font-size: 23px; }

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowUp, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, SlidersHorizontal, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2 } from 'lucide-react';
+import { ArrowUp, ArrowDown, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, SlidersHorizontal, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import type { Snapshot, Settings, Message, Content, UIRequest, McpServer } from './contracts';
+import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session } from './contracts';
 import './style.css';
 import './layout.css';
 import { applyMessageEvent } from './message-events';
@@ -17,6 +17,8 @@ import { updateRunMetrics, type RunMetrics } from './performance';
 const bridge = window.desktop;
 const initial: Snapshot = { preferences: { theme: 'system', language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
 const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
+const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
 function IconButton({ title, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string }) { return <button type="button" className="icon-button" title={title} aria-label={title} {...props}>{children}</button>; }
 function Code({ children, className }: any) {
@@ -48,6 +50,7 @@ function App() {
   const [runMetrics, setRunMetrics] = useState<RunMetrics | null>(null);
   const [clock, setClock] = useState(() => performance.now());
   const [loading, setLoading] = useState(true);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(new Set());
   const [sidebar, setSidebar] = useState(true);
   const [compactSidebar, setCompactSidebar] = useState(() => window.innerWidth <= 760);
@@ -62,6 +65,8 @@ function App() {
   const [levels, setLevels] = useState<string[]>([]);
   const [commands, setCommands] = useState<{ name: string; description?: string; source?: string }[]>([]);
   const [renaming, setRenaming] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<{ type: 'session' | 'workspace'; id: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'workspace'; id: string; x: number; y: number } | null>(null);
   const [name, setName] = useState('');
   const [loginProfile, setLoginProfile] = useState('step_plan');
   const [key, setKey] = useState('');
@@ -74,10 +79,12 @@ function App() {
   const zh = data.preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const connected = data.status === 'connected';
-  const current = data.sessions.find(s => s.id === data.state?.sessionId) ?? (data.state?.sessionName ? { name: data.state.sessionName } : undefined);
+  const current = data.sessions.find(s => s.id === data.state?.sessionId);
+  const activeTitle = sessionTitle(current ?? (data.state?.sessionName ? { name: data.state.sessionName, firstMessage: '' } : undefined), t('新会话', 'New session'));
+  const workspaceTitle = (path: string) => data.preferences.workspaceNames?.[workspaceKey(path)] || basename(path);
   const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(String(e instanceof Error ? e.message : e)); } };
   const refresh = async () => { if (bridge) { const value = await bridge.snapshot(); setData(value); setBusy(Boolean(value.state?.isStreaming)); } };
-  const applySnapshot = async (action: () => Promise<Snapshot | null>) => { setLoading(true); await run(async () => { const result = await action(); if (result) { setData(result); setRunMetrics(null); } setRequests([]); follow.current = true; }); setLoading(false); };
+  const applySnapshot = async (action: () => Promise<Snapshot | null>) => { setLoading(true); await run(async () => { const result = await action(); if (result) { setData(result); setRunMetrics(null); } setRequests([]); follow.current = true; setAwayFromBottom(false); }); setLoading(false); };
   const command = async (type: string, args?: Record<string, unknown>) => run(async () => { const result = await bridge!.command(type, args); if (!['prompt', 'abort', 'extension_ui_response'].includes(type)) await refresh(); return result; });
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
@@ -155,6 +162,15 @@ function App() {
   }, []);
   useEffect(() => { setAnswer(requests[0]?.prefill ?? ''); }, [requests[0]?.id]);
   useEffect(() => {
+    if (!contextMenu) return;
+    const dismiss = () => setContextMenu(null);
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') dismiss(); };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape);
+    window.addEventListener('resize', dismiss);
+    return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape); window.removeEventListener('resize', dismiss); };
+  }, [contextMenu]);
+  useEffect(() => {
     if (!settingsOpen && !mcpEdit && !requests.length && !renaming) return;
     const previous = document.activeElement as HTMLElement | null;
     const dialog = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1);
@@ -180,7 +196,7 @@ function App() {
   const openSettings = async () => { setSettingsOpen(true); await run(async () => setSettings(await bridge!.settings())); };
   const send = async () => {
     if ((!draft.trim() && !images.length) || !connected || loading) return;
-    const message = draft; const attached = images; setDraft(''); setImages([]); follow.current = true;
+    const message = draft; const attached = images; setDraft(''); setImages([]); follow.current = true; setAwayFromBottom(false);
     await run(async () => { try { await bridge!.command('prompt', { message, images: attached }); } catch (e) { setDraft(message); setImages(attached); throw e; } });
   };
   const setPreference = async (patch: any) => run(async () => { const p = await bridge!.preferences(patch); setData(d => ({ ...d, preferences: p })); });
@@ -190,15 +206,55 @@ function App() {
     await bridge!.saveMcp(mcpEdit.name, { ...mcpEdit.config, args: parsed }, secrets);
     setMcpEdit(null); setSettings(await bridge!.settings());
   });
-  const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
   const workspaceGroups = new Map<string, { path: string; sessions: typeof data.sessions }>();
   for (const path of data.preferences.workspaces) {
     const key = workspaceKey(path);
     if (!workspaceGroups.has(key)) workspaceGroups.set(key, { path, sessions: [] });
   }
   const sessionWorkspaceKey = (session: typeof data.sessions[number]) => workspaceKey(session.workspacePath ?? session.cwd);
-  const independentSessions = data.sessions.filter(session => session.independent ?? !workspaceGroups.has(sessionWorkspaceKey(session)));
-  for (const session of data.sessions) if (!independentSessions.includes(session)) workspaceGroups.get(sessionWorkspaceKey(session))?.sessions.push(session);
+  const archived = new Set(data.preferences.archivedSessionIds ?? []);
+  const visibleSessions = data.sessions.filter(session => !archived.has(session.id));
+  const archivedSessions = data.sessions.filter(session => archived.has(session.id));
+  const independentSessions = visibleSessions.filter(session => session.independent ?? !workspaceGroups.has(sessionWorkspaceKey(session)));
+  for (const session of visibleSessions) if (!independentSessions.includes(session)) workspaceGroups.get(sessionWorkspaceKey(session))?.sessions.push(session);
+  const showContext = (event: React.MouseEvent, type: 'session' | 'workspace', id: string) => {
+    event.preventDefault();
+    setContextMenu({ type, id, x: Math.min(event.clientX, window.innerWidth - 206), y: Math.min(event.clientY, window.innerHeight - 190) });
+  };
+  const beginRename = (type: 'session' | 'workspace', id: string) => {
+    const session = data.sessions.find(s => s.id === id);
+    setRenameTarget({ type, id });
+    setName(type === 'session' ? sessionTitle(session, '') : workspaceTitle(id));
+    setRenaming(true);
+    setContextMenu(null);
+  };
+  const updateArchive = async (id: string, restore: boolean) => {
+    const next = restore ? [...archived].filter(value => value !== id) : [...archived, id];
+    const preferences = await bridge!.preferences({ archivedSessionIds: next });
+    setData(previous => ({ ...previous, preferences }));
+    setContextMenu(null);
+  };
+  const saveRename = async () => {
+    if (!renameTarget || !name.trim()) return;
+    if (renameTarget.type === 'workspace') {
+      const names = { ...data.preferences.workspaceNames, [workspaceKey(renameTarget.id)]: name.trim() };
+      const preferences = await bridge!.preferences({ workspaceNames: names });
+      setData(previous => ({ ...previous, preferences }));
+    } else {
+      if (data.state?.sessionId !== renameTarget.id) {
+        const result = await bridge!.switchSession(renameTarget.id);
+        setData(result);
+      }
+      await bridge!.command('set_session_name', { name: name.trim() });
+      await refresh();
+    }
+    setRenaming(false);
+    setRenameTarget(null);
+  };
+  const renderSession = (s: Session) => <div key={s.id} className={`session-row ${s.id === data.state?.sessionId ? 'selected' : ''}`} onContextMenu={e => showContext(e, 'session', s.id)}>
+    <button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} title={`${sessionTitle(s, t('新会话', 'New session'))}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{sessionTitle(s, t('新会话', 'New session'))}</span></button>
+    <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" disabled={busy || loading} onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'session', id: s.id, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
+  </div>;
   const toggleWorkspace = (key: string) => setCollapsedWorkspaces(previous => { const next = new Set(previous); next.has(key) ? next.delete(key) : next.add(key); return next; });
   const independentExpanded = !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, sessions: typeof data.sessions) => {
@@ -220,7 +276,7 @@ function App() {
       { label: t('打开会话文件夹', 'Open session folder'), disabled: !bridge || !data.preferences.workspace || loading, action: () => void run(() => bridge!.openSessionFolder()) },
     ] },
     { id: 'edit', label: t('编辑', 'Edit'), items: [
-      { label: t('重命名会话', 'Rename session'), disabled: !connected || busy, action: () => { setName(current?.name ?? ''); setRenaming(true); } },
+      { label: t('重命名会话', 'Rename session'), disabled: !connected || busy || !data.state?.sessionId, action: () => beginRename('session', data.state!.sessionId!) },
       { label: t('停止生成', 'Stop response'), disabled: !busy, action: () => void command('abort') },
     ] },
     { id: 'view', label: t('视图', 'View'), items: [
@@ -237,6 +293,15 @@ function App() {
     <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus}/>
     <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
       onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
+    {contextMenu && <div className="sidebar-context" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={e => e.stopPropagation()}>
+      <button role="menuitem" onClick={() => beginRename(contextMenu.type, contextMenu.id)} disabled={busy || loading}><Pencil size={15}/>{t('重命名', 'Rename')}</button>
+      {contextMenu.type === 'workspace' ? <button role="menuitem" onClick={() => { const path = contextMenu.id; setContextMenu(null); void run(() => bridge!.openWorkspaceFolder(path)); }}><FolderOpen size={15}/>{t('在资源管理器中打开', 'Open in Explorer')}</button> : <>
+        <button role="menuitem" onClick={() => void updateArchive(contextMenu.id, archived.has(contextMenu.id))}><Archive size={15}/>{archived.has(contextMenu.id) ? t('恢复会话', 'Restore session') : t('归档会话', 'Archive session')}</button>
+        <div className="context-separator"/>
+        <button role="menuitem" disabled><Copy size={15}/>{t('复制', 'Copy')}</button>
+        <button role="menuitem" disabled><GitBranch size={15}/>{t('分支', 'Branch')}</button>
+      </>}
+    </div>}
     {error && (settingsOpen || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
     {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
     <aside className="sidebar" inert={!sidebarVisible}>
@@ -246,33 +311,37 @@ function App() {
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
           <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
           <div className="workspace-disclosure" aria-hidden={!independentExpanded} inert={!independentExpanded}>
-            <div className="workspace-sessions">{independentSessions.map(s => <div key={s.id} className={`session-row ${s.id === data.state?.sessionId ? 'selected' : ''}`}><button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} title={`${s.name || s.firstMessage || t('新会话', 'New session')}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{s.name || s.firstMessage || t('新会话', 'New session')}</span></button><IconButton title={t('删除会话', 'Delete session')} disabled={busy || loading} onClick={() => void run(async () => { if (await bridge!.deleteSession(s.id)) await refresh(); })}><Trash2 size={13}/></IconButton></div>)}</div>
+            <div className="workspace-sessions">{independentSessions.map(renderSession)}</div>
           </div>
         </section>
         <div className="section-label">{t('项目', 'Projects')}<IconButton title={t('添加工作区', 'Add workspace')} disabled={!bridge || busy || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><Plus size={15}/></IconButton></div>
         {[...workspaceGroups].map(([key, group]) => {
           const expanded = !collapsedWorkspaces.has(key);
           return <section className="workspace-group" key={key} aria-label={group.path}>
-            <div className={`workspace-heading ${key === workspaceKey(data.preferences.workspace ?? '') ? 'current' : ''}`}>
-              <button className="workspace-toggle" title={group.path} aria-label={basename(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span>{basename(group.path)}</span></button>
+            <div className={`workspace-heading ${key === workspaceKey(data.preferences.workspace ?? '') ? 'current' : ''}`} onContextMenu={e => showContext(e, 'workspace', group.path)}>
+              <button className="workspace-toggle" title={group.path} aria-label={workspaceTitle(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span>{workspaceTitle(group.path)}</span></button>
               <IconButton title={t(`在 ${basename(group.path)} 新建会话`, `New session in ${basename(group.path)}`)} disabled={!bridge || busy || loading} onClick={() => void createInWorkspace(group.path, group.sessions)}><Plus size={15}/></IconButton>
+              <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'workspace', id: group.path, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
             </div>
             <div className="workspace-disclosure" aria-hidden={!expanded} inert={!expanded}>
-              <div className="workspace-sessions">{group.sessions.map(s => <div key={s.id} className={`session-row ${s.id === data.state?.sessionId ? 'selected' : ''}`}><button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} title={`${s.name || s.firstMessage || t('新会话', 'New session')}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{s.name || s.firstMessage || t('新会话', 'New session')}</span></button><IconButton title={t('删除会话', 'Delete session')} disabled={busy || loading} onClick={() => void run(async () => { if (await bridge!.deleteSession(s.id)) await refresh(); })}><Trash2 size={13}/></IconButton></div>)}{!group.sessions.length && <span className="workspace-empty">{t('暂无会话', 'No sessions yet')}</span>}</div>
+              <div className="workspace-sessions">{group.sessions.map(renderSession)}{!group.sessions.length && <span className="workspace-empty">{t('暂无会话', 'No sessions yet')}</span>}</div>
             </div>
           </section>;
         })}
+        {archivedSessions.length > 0 && <section className="workspace-group archived-group"><div className="section-label">{t('已归档', 'Archived')}</div><div className="workspace-sessions">{archivedSessions.map(renderSession)}</div></section>}
         {!workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
       </nav>
       <div className="sidebar-bottom"><button onClick={() => void openSettings()} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span>0.1.0</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
-    <main><header className="topbar"><div className="breadcrumb"><span>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('工作区', 'Workspace')}</span><span>/</span><strong>{current?.name || t('新会话', 'New session')}</strong></div><div className="top-actions"><IconButton title={t('重命名', 'Rename')} disabled={!connected || busy} onClick={() => { setName(current?.name ?? ''); setRenaming(true); }}><Pencil size={15}/></IconButton><IconButton title={t('重启运行时', 'Restart runtime')} disabled={!data.preferences.workspace || busy || loading} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={16}/></IconButton><IconButton title={t('会话统计', 'Session statistics')} disabled={!connected} onClick={() => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats'), null, 2)))}><SlidersHorizontal size={17}/></IconButton></div></header>
+    <main><header className="topbar"><div className="breadcrumb"><span>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? workspaceTitle(data.preferences.workspace) : t('工作区', 'Workspace')}</span><span>/</span><strong>{activeTitle}</strong></div><div className="top-actions"><IconButton title={t('重启运行时', 'Restart runtime')} disabled={!data.preferences.workspace || busy || loading} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={16}/></IconButton><IconButton title={t('会话统计', 'Session statistics')} disabled={!connected} onClick={() => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats'), null, 2)))}><SlidersHorizontal size={17}/></IconButton></div></header>
       {error && <div className="error-banner" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title={t('关闭', 'Dismiss')} onClick={() => setError('')}><X size={14}/></IconButton></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
-      <div className="conversation" ref={scroll} onScroll={() => { if (scroll.current) follow.current = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100; }}>
+      <div className="conversation" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
         {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages">{data.messages.map((m, i) => <MessageView key={i} message={m} inspect={setDetails}/>)}{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}<div ref={bottom}/></div>}
       </div>
-      <div className="composer-wrap"><div className="session-location"><button title={data.preferences.workspace} disabled={!bridge || !data.preferences.workspace || loading} onClick={() => void run(() => bridge!.openSessionFolder())}><FolderOpen size={14}/>{data.independent ? t('会话文件夹', 'Session folder') : basename(data.preferences.workspace ?? '')}</button>{data.independent && <button disabled={!bridge || busy || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}>{t('选择项目', 'Choose project')}<ChevronDown size={13}/></button>}</div>{draft.startsWith('/') && commands.filter(c => c.name.startsWith(draft.slice(1))).length > 0 && <div className="command-menu">{commands.filter(c => c.name.startsWith(draft.slice(1))).slice(0, 6).map(c => <button key={c.name} onClick={() => setDraft(`/${c.name} `)}><code>/{c.name}</code><span>{c.description}</span></button>)}</div>}
+      <div className="composer-wrap">
+        {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
+        {draft.startsWith('/') && commands.filter(c => c.name.startsWith(draft.slice(1))).length > 0 && <div className="command-menu">{commands.filter(c => c.name.startsWith(draft.slice(1))).slice(0, 6).map(c => <button key={c.name} onClick={() => setDraft(`/${c.name} `)}><code>/{c.name}</code><span>{c.description}</span></button>)}</div>}
         <div className="composer">{images.length > 0 && <div className="attachments">{images.map((im, i) => <div key={i}><img src={`data:${im.mimeType};base64,${im.data}`} alt="Attachment"/><IconButton title="Remove" onClick={() => setImages(v => v.filter((_, n) => n !== i))}><X size={12}/></IconButton></div>)}</div>}
           <textarea aria-label={t('消息', 'Message')} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={draft} disabled={!connected || loading} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/>
           <div className="composer-tools">
@@ -296,7 +365,7 @@ function App() {
       {!settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'account' ? <><h3>{t('Step 账户', 'Step account')}</h3><p className="muted">{settings.account.loggedIn ? `${settings.account.profile} · ${settings.account.validity}` : t('尚未登录', 'Not signed in')}</p><label>{t('登录方式', 'Sign-in method')}<select value={loginProfile} disabled={loggingIn} onChange={e => setLoginProfile(e.target.value)}>{settings.profiles.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>{settings.profiles.find(p => p.id === loginProfile)?.credentialSource === 'apiKey' && <label>API key<input type="password" autoComplete="off" value={key} onChange={e => setKey(e.target.value)}/></label>}<div className="button-row"><button className="primary" disabled={loggingIn || busy} onClick={() => void run(async () => { setLoggingIn(true); try { await bridge!.login(loginProfile, key); setKey(''); setSettings(await bridge!.settings()); if (data.preferences.workspace) await applySnapshot(() => bridge!.restart()); } finally { setLoggingIn(false); } })}><ExternalLink size={15}/>{loggingIn ? t('等待授权…', 'Waiting for sign-in…') : t('登录', 'Sign in')}</button>{loggingIn && <button onClick={() => void run(() => bridge!.cancelLogin())}>{t('取消', 'Cancel')}</button>}{settings.account.loggedIn && <button disabled={busy} onClick={() => void run(async () => { await bridge!.logout(); setSettings(await bridge!.settings()); await refresh(); })}><LogOut size={15}/>{t('退出登录', 'Sign out')}</button>}</div></> : tab === 'mcp' ? <><div className="section-heading"><h3>MCP servers</h3><IconButton title="Add MCP" onClick={() => setMcpEdit({ name: '', config: { command: '', args: [], enabled: true }, args: '[]', secrets: '{}' })}><Plus size={18}/></IconButton></div>{Object.entries(settings.mcp).map(([n, c]) => <div className="resource-row" key={n}><Plug size={18}/><div><strong>{n}</strong><small>{c.url || c.command}</small><small>{c.enabled ? t('已启用，重启后生效', 'Enabled; applies after restart') : t('已停用', 'Disabled')}</small></div><IconButton title="Edit" onClick={() => setMcpEdit({ name: n, original: n, config: c, args: JSON.stringify(c.args ?? []), secrets: '{}' })}><Pencil size={14}/></IconButton><IconButton title="Remove" onClick={() => { if (confirm(t(`移除 ${n}？`, `Remove ${n}?`))) void run(async () => { await bridge!.saveMcp(n, null); setSettings(await bridge!.settings()); }); }}><Trash2 size={14}/></IconButton></div>)}{!Object.keys(settings.mcp).length && <p className="muted">{t('尚未配置服务器', 'No servers configured')}</p>}<button disabled={!connected || busy} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={15}/>{t('重启并应用', 'Restart to apply')}</button></> : tab === 'skills' ? <><h3>{t('Skills 与命令', 'Skills and commands')}</h3>{settings.skills.map(s => <div className="resource-row" key={`${s.source}/${s.name}`}><BookOpen size={17}/><div><strong>{s.name}</strong><small>{s.description}</small><small>{s.source}</small></div></div>)}{commands.map(c => <div className="resource-row" key={c.name}><Terminal size={17}/><div><strong>/{c.name}</strong><small>{c.description}</small><small>{c.source}</small></div></div>)}{!settings.skills.length && !commands.length && <p className="muted">{t('没有已发现的资源', 'No resources discovered')}</p>}</> : <><h3>{t('外观与语言', 'Appearance and language')}</h3><label>{t('主题', 'Theme')}<select value={data.preferences.theme} onChange={e => void setPreference({ theme: e.target.value })}><option value="system">{t('跟随系统', 'System')}</option><option value="light">{t('浅色', 'Light')}</option><option value="dark">{t('深色', 'Dark')}</option></select></label><label>{t('语言', 'Language')}<select value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('关于', 'About')}</h3><p>Desktop for Step Code 0.1.0</p><p className="muted">{t('社区预览版', 'Community preview')}</p><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></>}
     </div></div></section></div>}
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
-    {(requests[0] || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={requests[0]?.title ?? 'Rename'}><h2>{requests[0]?.title ?? t('重命名会话', 'Rename session')}</h2>{requests[0]?.message && <p>{requests[0].message}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)}/> : requests[0].method === 'select' ? requests[0].options?.map(o => <button className="option" key={o} onClick={() => void respond({ value: o })}>{o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row"><button onClick={() => renaming ? setRenaming(false) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>{(renaming || requests[0]?.method !== 'select') && <button className="primary" onClick={() => { if (renaming) void run(async () => { await bridge!.command('set_session_name', { name }); setRenaming(false); await refresh(); }); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
+    {(requests[0] || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={requests[0]?.title ?? 'Rename'}><h2>{requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{requests[0]?.message && <p>{requests[0].message}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map(o => <button className="option" key={o} onClick={() => void respond({ value: o })}>{o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row"><button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
   </div>;
 }
 class RenderBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {

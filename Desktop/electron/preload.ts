@@ -3,7 +3,7 @@ import type { DesktopBridge } from '../src/contracts';
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
   windowControl: action => invoke('windowControl', action),
-  newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'),
+  newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'), openWorkspaceFolder: path => invoke('openWorkspaceFolder', path),
   snapshot: () => invoke('snapshot'), chooseWorkspace: () => invoke('chooseWorkspace'), workspace: path => invoke('workspace', path),
   command: (type, args) => invoke('command', type, args), sessions: () => invoke('sessions'), switchSession: id => invoke('switchSession', id),
   deleteSession: id => invoke('deleteSession', id), restart: () => invoke('restart'), settings: () => invoke('settings'),

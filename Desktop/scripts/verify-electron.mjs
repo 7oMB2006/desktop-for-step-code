@@ -228,21 +228,38 @@ try {
   await page.screenshot({ path: 'test-results/select-light.png' });
   await page.keyboard.press('Escape');
   await page.getByRole('dialog').getByRole('combobox').first().selectOption('dark');
+  await page.getByRole('dialog').getByRole('combobox').nth(1).selectOption('en');
+  await page.getByRole('button', { name: 'Model and thinking level' }).waitFor();
+  assert.equal(await page.locator('.model-effort-level').textContent(), 'off');
+  await page.getByRole('dialog').getByRole('combobox').nth(1).selectOption('zh');
+  await page.getByRole('button', { name: '模型与思考强度' }).waitFor();
+  assert.equal(await page.locator('.model-effort-level').textContent(), '关闭');
   await themePicker.click();
   await page.screenshot({ path: 'test-results/select-dark.png' });
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  const modelPicker = page.getByRole('combobox', { name: '模型', exact: true });
-  await modelPicker.focus();
-  await page.keyboard.press('Space');
-  assert.equal(await modelPicker.evaluate(element => element.matches(':open')), true);
+  const composerTools = page.locator('.composer-tools');
+  assert.equal(await composerTools.getByRole('button', { name: '添加图片' }).locator('svg.lucide-plus').count(), 1);
+  const controlOrder = await composerTools.evaluate(element => [...element.children].map(child => child.getAttribute('aria-label') ?? child.className));
+  assert.deepEqual(controlOrder, ['添加图片', 'spacer', 'model-effort', '发送']);
+  const modelPicker = composerTools.getByRole('button', { name: '模型与思考强度' });
+  await modelPicker.click();
+  const effortPanel = page.getByRole('dialog', { name: '模型与思考强度' });
+  await effortPanel.getByRole('button', { name: '选择模型' }).click();
+  const modelList = effortPanel.getByRole('listbox', { name: '模型' });
+  assert.equal(await modelList.isVisible(), true);
+  await effortPanel.getByRole('button', { name: '选择模型' }).click();
+  if (await effortPanel.getByRole('slider').count()) {
+    assert.equal(await effortPanel.getByRole('slider').getAttribute('aria-valuetext'), await composerTools.locator('.model-effort-level').textContent());
+  }
   await page.screenshot({ path: 'test-results/select-composer.png' });
-  const pickerFits = await modelPicker.locator('option').first().evaluate(element => {
+  const pickerFits = await effortPanel.evaluate(element => {
     const rect = element.getBoundingClientRect();
     return rect.top >= 36 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth;
   });
   assert.equal(pickerFits, true);
   await page.keyboard.press('Escape');
+  assert.equal(await effortPanel.count(), 0);
   assert.equal(await page.getByRole('textbox', { name: '搜索会话' }).count(), 0);
   await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).click();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
@@ -301,7 +318,11 @@ try {
   await page.getByText('disabled-test', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/settings-mcp.png' });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 620));
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (window.isMaximized()) window.unmaximize();
+    window.setSize(700, 620);
+  });
   await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
   if (!motionReduced) {
     await page.waitForTimeout(65);
@@ -339,6 +360,23 @@ try {
   await page.screenshot({ path: 'test-results/desktop-narrow.png' });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
   assert.equal(overflow, false);
+  const composerFits = await page.locator('.composer-tools').evaluate(element => {
+    const attach = element.querySelector('button');
+    const model = element.querySelector('.model-effort');
+    const send = element.querySelector('.send-button');
+    const bounds = element.getBoundingClientRect();
+    return attach && model && send
+      && attach.getBoundingClientRect().right < model.getBoundingClientRect().left
+      && model.getBoundingClientRect().right <= send.getBoundingClientRect().left
+      && send.getBoundingClientRect().right <= bounds.right;
+  });
+  assert.equal(composerFits, true);
+  await composerTools.getByRole('button', { name: '模型与思考强度' }).click();
+  assert.equal(await page.getByRole('dialog', { name: '模型与思考强度' }).evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 36;
+  }), true);
+  await page.keyboard.press('Escape');
   assert.deepEqual(errors, []);
   // Exercise the real renderer subscriber with the upstream JSON wire shape.
   await app.evaluate(({ BrowserWindow }) => {

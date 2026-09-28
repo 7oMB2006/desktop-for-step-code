@@ -1,7 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, session } from 'electron';
 import { join, resolve, extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
@@ -322,6 +324,36 @@ else app.whenReady().then(async () => {
   try { await writeFile(join(dataRoot, 'config.toml'), 'permissionPreset = "ask"\n[telemetry]\nenabled = false\n', { flag: 'wx' }); } catch (e: any) { if (e.code !== 'EEXIST') throw e; }
   admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
   crashLog.setPhase('admin started');
+  // Windows 上内置的 StepPage 插件登记的是 command: steppage-mcp，而官方文档让
+  // 用户填进 MCP 客户端的正是 install.sh 写到 ~/.local/bin 的那个 shell 包装；
+  // MCP 传输不走 shell、直接 spawn，所以在 Windows 上必然失败，上游
+  // provisionBuiltinPlugin 在 win32 上也直接跳过自动安装，安装途径只有 install.sh。
+  // bundle 本体在 Windows 上是健康的，这里在探测到官方安装位置的 bundle 时注册一个
+  // 可用配置：command 用暂存的 runtime node（打包后 process.execPath 是 electron.exe，
+  // 不是 node），args 指向 bundle。
+  // 存在性判断读 settings 返回的解析后配置，不做文件子串匹配：TOML 有等价写法
+  // （带引号的键、inline table），子串认不出来，会把用户自己的 command/args/enabled
+  // 覆盖掉。只有从未配过、或现存项是桌面自己上次写且那时的 runtime node 已不存在
+  // （用户数据在 %APPDATA% 不随安装走，重装到别的目录就会出现这种陈旧项）时才刷新，
+  // 其余一律视为用户配置不动。
+  // 整段静默容错：失败不影响启动，内置插件照旧失败并留在设置里，用户看到真实故障。
+  try {
+    const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim() || join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs');
+    const steppageName = 'steppage';
+    if (existsSync(steppageBundle)) {
+      const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
+      const existing = settings?.mcp?.[steppageName];
+      const staleManaged = Boolean(existing)
+        && /runtime[/\\]node[/\\]node\.exe$/i.test(String(existing?.command ?? ''))
+        && !existsSync(String(existing?.command));
+      if (!existing || staleManaged) {
+        await admin.request('mcp', { name: steppageName, config: { command: nodePath, args: [steppageBundle], enabled: true }, secrets: {} });
+        crashLog.setPhase('steppage registered');
+      }
+    }
+  } catch {
+    // 探测或注册失败不该影响启动
+  }
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
   window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: '#171717', autoHideMenuBar: true, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true } });

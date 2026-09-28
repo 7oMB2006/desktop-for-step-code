@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowUp, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Paperclip, Trash2, Pencil, Cpu, SlidersHorizontal, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2 } from 'lucide-react';
+import { ArrowUp, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, SlidersHorizontal, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -11,6 +11,7 @@ import { applyMessageEvent } from './message-events';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
 import { PerformanceBar } from './PerformanceBar';
+import { ModelEffortPicker } from './ModelEffortPicker';
 import { updateRunMetrics, type RunMetrics } from './performance';
 
 const bridge = window.desktop;
@@ -274,7 +275,13 @@ function App() {
       <div className="composer-wrap"><div className="session-location"><button title={data.preferences.workspace} disabled={!bridge || !data.preferences.workspace || loading} onClick={() => void run(() => bridge!.openSessionFolder())}><FolderOpen size={14}/>{data.independent ? t('会话文件夹', 'Session folder') : basename(data.preferences.workspace ?? '')}</button>{data.independent && <button disabled={!bridge || busy || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}>{t('选择项目', 'Choose project')}<ChevronDown size={13}/></button>}</div>{draft.startsWith('/') && commands.filter(c => c.name.startsWith(draft.slice(1))).length > 0 && <div className="command-menu">{commands.filter(c => c.name.startsWith(draft.slice(1))).slice(0, 6).map(c => <button key={c.name} onClick={() => setDraft(`/${c.name} `)}><code>/{c.name}</code><span>{c.description}</span></button>)}</div>}
         <div className="composer">{images.length > 0 && <div className="attachments">{images.map((im, i) => <div key={i}><img src={`data:${im.mimeType};base64,${im.data}`} alt="Attachment"/><IconButton title="Remove" onClick={() => setImages(v => v.filter((_, n) => n !== i))}><X size={12}/></IconButton></div>)}</div>}
           <textarea aria-label={t('消息', 'Message')} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={draft} disabled={!connected || loading} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/>
-          <div className="composer-tools"><IconButton title={t('添加图片', 'Attach images')} disabled={!connected || images.length >= 5} onClick={() => void run(async () => { const added = await bridge!.images(); setImages(v => [...v, ...added].slice(0, 5)); })}><Paperclip size={17}/></IconButton><select aria-label={t('模型', 'Model')} disabled={!connected || busy} value={data.state?.model ? `${data.state.model.provider}/${data.state.model.id}` : ''} onChange={e => { const m = data.models.find(m => `${m.provider}/${m.id}` === e.target.value); if (m) void command('set_model', { provider: m.provider, modelId: m.id }); }}><option value="">{t('选择模型', 'Select model')}</option>{data.models.map(m => <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>{m.name || m.id}</option>)}</select><select aria-label={t('思考等级', 'Thinking level')} disabled={!connected || busy || !levels.length} value={data.state?.thinkingLevel ?? ''} onChange={e => void command('set_thinking_level', { level: e.target.value })}>{!levels.length && <option value="">{t('思考', 'Thinking')}</option>}{levels.map(l => <option key={l}>{l}</option>)}</select><div className="spacer"/>{busy && <IconButton title={t('停止', 'Stop')} className="stop-button" onClick={() => void command('abort')}><Square size={15}/></IconButton>}<IconButton title={busy ? t('加入队列', 'Queue message') : t('发送', 'Send')} className="send-button" disabled={!connected || (!draft.trim() && !images.length) || loading} onClick={() => void send()}><ArrowUp size={18}/></IconButton></div>
+          <div className="composer-tools">
+            <IconButton title={t('添加图片', 'Attach images')} disabled={!connected || images.length >= 5} onClick={() => void run(async () => { const added = await bridge!.images(); setImages(v => [...v, ...added].slice(0, 5)); })}><Plus size={17}/></IconButton>
+            <div className="spacer"/>
+            {busy && <IconButton title={t('停止', 'Stop')} className="stop-button" onClick={() => void command('abort')}><Square size={15}/></IconButton>}
+            <ModelEffortPicker model={data.state?.model} models={data.models} level={data.state?.thinkingLevel} levels={levels} language={data.preferences.language} disabled={!connected || busy || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })}/>
+            <IconButton title={busy ? t('加入队列', 'Queue message') : t('发送', 'Send')} className="send-button" disabled={!connected || (!draft.trim() && !images.length) || loading} onClick={() => void send()}><ArrowUp size={18}/></IconButton>
+          </div>
         </div><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>
       </div>
     </main>

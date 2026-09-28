@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
+import { permissionFromStatus, permissionPresets } from './permission-status';
 import type { Preferences, Session, Snapshot, RuntimeState, UIRequest } from '../src/contracts';
 
 app.setName('Desktop for Step Code');
@@ -16,6 +17,7 @@ const crashLog = installCrashLog();
 let window: BrowserWindow;
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
 let state: RuntimeState | undefined;
+let permissionPreset: Snapshot['permissionPreset'];
 let status = 'disconnected';
 let busy = false;
 let transition = false;
@@ -71,7 +73,11 @@ const emit = (event: unknown) => { if (window && !window.isDestroyed()) window.w
 const rpc = new RpcProcess(event => {
   if (event.type === 'agent_start') busy = true;
   if (event.type === 'agent_end') busy = false;
-  if (event.type === 'desktop_exit') { status = 'disconnected'; busy = false; state = undefined; pendingUI.clear(); void crashLog.record('runtime-exit', new Error('Step Code runtime exited unexpectedly'), (event as { details?: Record<string, unknown> }).details ?? {}); }
+  if (event.type === 'desktop_exit') { status = 'disconnected'; busy = false; state = undefined; permissionPreset = undefined; pendingUI.clear(); void crashLog.record('runtime-exit', new Error('Step Code runtime exited unexpectedly'), (event as { details?: Record<string, unknown> }).details ?? {}); }
+  if (event.type === 'extension_ui_request') {
+    const preset = permissionFromStatus(event);
+    if (preset) { permissionPreset = preset; emit({ type: 'desktop_permission', preset }); }
+  }
   if (event.type === 'extension_ui_request' && ['select', 'confirm', 'input', 'editor'].includes(event.method)) pendingUI.set(event.id, event);
   emit(event);
 });
@@ -103,7 +109,7 @@ async function snapshot(): Promise<Snapshot> {
     [state, { messages }, { models }, stats] = await Promise.all([rpc.request('get_state'), rpc.request('get_messages'), rpc.request('get_available_models'), rpc.request('get_session_stats')]);
     busy = Boolean(state?.isStreaming);
   }
-  return { preferences, status, state, messages, models, stats, sessions: await listSessions(), independent: !preferences.workspace || isIndependentPath(preferences.workspace) };
+  return { preferences, status, state, permissionPreset, messages, models, stats, sessions: await listSessions(), independent: !preferences.workspace || isIndependentPath(preferences.workspace) };
 }
 async function guardIdle() {
   if (transition) throw new Error('Workspace operation in progress');
@@ -115,7 +121,7 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
   try {
     const canonical = await realpath(cwd);
     if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
-    await rpc.stop(); status = 'connecting'; emit({ type: 'desktop_status', status });
+    await rpc.stop(); permissionPreset = undefined; status = 'connecting'; emit({ type: 'desktop_status', status });
     preferences.workspace = canonical;
     if (rememberProject && !pathKey(canonical).startsWith(`${pathKey(independentRoot)}/`)) {
       const previous = await Promise.all(preferences.workspaces.map(async path => ({ path, same: await samePath(path, canonical) })));
@@ -212,8 +218,18 @@ async function handle(method: string, args: any[]) {
         else { answer.value = text(data.value); if (request.method === 'select' && !request.options?.includes(data.value)) throw new Error('Invalid selection'); }
         pendingUI.delete(request.id); rpc.respond(answer); return null;
       }
-      const allowed = ['prompt', 'abort', 'clear_queue', 'new_session', 'set_model', 'set_thinking_level', 'set_session_name', 'get_commands', 'get_available_thinking_levels', 'get_session_stats', 'compact'];
+      const allowed = ['prompt', 'abort', 'clear_queue', 'new_session', 'set_model', 'set_thinking_level', 'set_session_name', 'set_permission_preset', 'get_commands', 'get_available_thinking_levels', 'get_session_stats', 'compact'];
       if (!allowed.includes(type)) throw new Error('Unsupported command');
+      if (type === 'set_permission_preset') {
+        const preset = text(data.preset, 30);
+        if (!permissionPresets.includes(preset as typeof permissionPresets[number])) throw new Error('Unknown permission preset');
+        await guardIdle();
+        const { commands } = await rpc.request('get_commands');
+        if (!Array.isArray(commands) || !commands.some((command: { name?: string; source?: string }) => command.name === 'permissions' && command.source === 'extension')) {
+          throw new Error('This Step Code runtime does not support permission switching');
+        }
+        return rpc.request('prompt', { message: `/permissions ${preset}` });
+      }
       let payload: Record<string, unknown> = {};
       if (type === 'prompt') {
         payload.message = text(data.message);

@@ -152,6 +152,7 @@ try {
   assert.equal(startupState.preferences.workspaces.includes(startupState.preferences.workspace), false);
   assert.equal(startupState.messages.length, 0);
   assert.equal(startupState.stats.tokens.total, 0);
+  assert.equal(startupState.permissionPreset, 'ask');
   assert.notEqual(startupState.state.sessionId, 'fixture-0');
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   assert.equal(await page.locator('.session-location').count(), 0);
@@ -191,6 +192,8 @@ try {
   await page.waitForTimeout(250);
   await page.screenshot({ path: 'test-results/notice-toast-narrow.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 880));
+  await page.waitForFunction(() => innerWidth >= 840);
+  await page.getByRole('button', { name: '独立验证会话', exact: true }).waitFor();
   await toast.hover();
   await page.clock.fastForward(8100);
   assert.equal(await toast.isVisible(), true);
@@ -245,9 +248,13 @@ try {
   await page.getByRole('dialog').getByRole('combobox').first().selectOption('dark');
   await page.getByRole('dialog').getByRole('combobox').nth(1).selectOption('en');
   await page.getByRole('button', { name: 'Model and thinking level' }).waitFor();
+  await page.getByRole('button', { name: 'Access permissions' }).waitFor();
+  assert.equal(await page.locator('.permission-trigger span').textContent(), 'Ask');
+  assert.equal(await page.getByRole('meter', { name: 'Context usage' }).getAttribute('title'), null);
   assert.equal(await page.locator('.model-effort-level').textContent(), 'off');
   await page.getByRole('dialog').getByRole('combobox').nth(1).selectOption('zh');
   await page.getByRole('button', { name: '模型与思考强度' }).waitFor();
+  assert.equal(await page.locator('.permission-trigger span').textContent(), '请求批准');
   assert.equal(await page.locator('.model-effort-level').textContent(), '关闭');
   await themePicker.click();
   await page.screenshot({ path: 'test-results/select-dark.png' });
@@ -255,8 +262,43 @@ try {
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   const composerTools = page.locator('.composer-tools');
   assert.equal(await composerTools.getByRole('button', { name: '添加图片' }).locator('svg.lucide-plus').count(), 1);
+  const attachButton = composerTools.getByRole('button', { name: '添加图片' });
+  assert.equal(await attachButton.getAttribute('title'), null);
+  await attachButton.hover();
+  const tooltip = page.getByRole('tooltip');
+  await tooltip.getByText('添加图片').waitFor();
+  assert.equal(await tooltip.evaluate(element => parseFloat(getComputedStyle(element).borderTopLeftRadius) >= 8), true);
+  await page.mouse.move(0, 0);
+  await tooltip.waitFor({ state: 'hidden' });
   const controlOrder = await composerTools.evaluate(element => [...element.children].map(child => child.getAttribute('aria-label') ?? child.className));
-  assert.deepEqual(controlOrder, ['添加图片', 'spacer', 'model-effort', '发送']);
+  assert.deepEqual(controlOrder, ['添加图片', 'permission-picker', 'spacer', '上下文用量', 'model-effort', '发送']);
+  const permissionTrigger = composerTools.getByRole('button', { name: '访问权限' });
+  assert.equal(await permissionTrigger.locator('svg.lucide-hand').count(), 1);
+  await permissionTrigger.click();
+  const permissionMenu = page.getByRole('menu', { name: '访问权限' });
+  for (const [preset, icon] of [['ask', 'hand'], ['read-only', 'eye'], ['bypass', 'shield-alert'], ['autopilot', 'refresh-cw']]) {
+    assert.equal(await permissionMenu.locator(`.permission-option-${preset} svg.lucide-${icon}`).count(), 1);
+  }
+  assert.deepEqual(await permissionMenu.getByRole('menuitemradio').allTextContents(), [
+    '请求批准写入与命令执行先确认',
+    '只读只允许读取与查找',
+    '常规免确认常规操作免确认，危险命令仍需批准',
+    '自动驾驶常规免确认，失败后可自动续跑',
+  ]);
+  await permissionMenu.getByRole('menuitemradio', { name: /只读/ }).click();
+  await page.waitForFunction(() => document.querySelector('.permission-trigger span')?.textContent === '只读');
+  assert.equal(await permissionTrigger.locator('svg.lucide-eye').count(), 1);
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).permissionPreset, 'read-only');
+  await page.waitForTimeout(100);
+  assert.equal(await page.getByText('Permission mode: Read Only', { exact: true }).count(), 0);
+  await permissionTrigger.click();
+  await page.keyboard.press('Escape');
+  assert.equal(await permissionMenu.count(), 0);
+  await permissionTrigger.click();
+  await permissionMenu.getByRole('menuitemradio', { name: /请求批准/ }).click();
+  await page.waitForFunction(() => document.querySelector('.permission-trigger span')?.textContent === '请求批准');
+  assert.equal(await permissionTrigger.locator('svg.lucide-hand').count(), 1);
+  await assert.rejects(page.evaluate(() => window.desktop.command('set_permission_preset', { preset: 'unrestricted' })), /Unknown permission preset/);
   const modelPicker = composerTools.getByRole('button', { name: '模型与思考强度' });
   await modelPicker.click();
   const effortPanel = page.getByRole('dialog', { name: '模型与思考强度' });
@@ -275,6 +317,32 @@ try {
   assert.equal(pickerFits, true);
   await page.keyboard.press('Escape');
   assert.equal(await effortPanel.count(), 0);
+  const ring = composerTools.getByRole('meter', { name: '上下文用量' });
+  await ring.evaluate(element => { element.dataset.tooltip = '已用 49%'; });
+  await ring.hover();
+  await tooltip.getByText('已用 49%', { exact: true }).waitFor();
+  assert.equal(await tooltip.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    const anchor = document.querySelector('.context-ring').getBoundingClientRect();
+    return box.bottom < anchor.top && Math.abs((box.left + box.right) / 2 - (anchor.left + anchor.right) / 2) < 2;
+  }), true);
+  await page.waitForTimeout(170);
+  await page.screenshot({ path: 'test-results/context-tooltip.png' });
+  await page.mouse.move(0, 0);
+  await ring.evaluate(element => { delete element.dataset.tooltip; });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 640));
+  await page.waitForFunction(() => innerWidth <= 640);
+  assert.equal(await page.locator('.composer-tools').evaluate(element => element.scrollWidth <= element.clientWidth), true);
+  await permissionTrigger.click();
+  assert.equal(await permissionMenu.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0;
+  }), true);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'test-results/permissions-narrow.png' });
+  await page.keyboard.press('Escape');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 880));
+  await page.waitForFunction(() => innerWidth >= 840);
   assert.equal(await page.getByRole('textbox', { name: '搜索会话' }).count(), 0);
   await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).click();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
@@ -484,6 +552,10 @@ try {
   await page.screenshot({ path: 'test-results/composer-scroll-fade.png' });
   await jump.click();
   await jump.waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => {
+    const element = document.querySelector('.conversation');
+    return element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+  });
   assert.equal(await page.locator('.conversation').evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 100), true);
   await page.evaluate(() => document.querySelector('.scroll-fixture').remove());
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));

@@ -221,6 +221,27 @@ select:disabled { cursor: not-allowed; opacity: .45; }
   resize: none; overflow-y: auto; font-size: 13px; line-height: 1.6;
 }
 .composer-tools { min-height: 40px; gap: 4px; padding: 3px 10px 9px; }
+.permission-picker { position: relative; flex-shrink: 0; }
+.permission-trigger { height: 29px; min-height: 29px; max-width: 160px; gap: 6px; padding: 3px 8px; border: 0; background: transparent; font-size: 12px; }
+.permission-trigger.permission-bypass, .permission-trigger.permission-autopilot { color: oklch(.49 .15 55); }
+:root[data-theme=dark] .permission-trigger.permission-bypass, :root[data-theme=dark] .permission-trigger.permission-autopilot { color: oklch(.78 .13 70); }
+.permission-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.permission-menu { position: absolute; z-index: 6; bottom: calc(100% + 12px); left: 0; width: min(310px, calc(100vw - 48px)); padding: 5px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); box-shadow: var(--shadow); animation: model-effort-in .18s ease-out; }
+.permission-menu button { width: 100%; justify-content: flex-start; text-align: left; gap: 10px; min-width: 0; padding: 8px 9px; border: 0; background: transparent; }
+.permission-menu button[aria-checked="true"] { background: var(--surface); }
+.permission-menu button > svg:last-child:not(:first-child) { margin-left: auto; }
+.permission-option-bypass > svg:first-child, .permission-option-autopilot > svg:first-child { color: oklch(.49 .15 55); }
+:root[data-theme=dark] .permission-option-bypass > svg:first-child, :root[data-theme=dark] .permission-option-autopilot > svg:first-child { color: oklch(.78 .13 70); }
+.permission-option { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.permission-option strong { font-size: 12px; font-weight: 600; }
+.permission-option small { font-size: 11px; line-height: 1.35; white-space: normal; }
+.context-ring { width: 19px; height: 19px; margin: 0 5px; flex-shrink: 0; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(var(--primary) var(--context-percent), var(--border) var(--context-percent)); }
+.context-ring-hole { width: 13px; height: 13px; border-radius: 50%; background: var(--side); }
+.context-ring:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.composer:focus-within .context-ring-hole { background: var(--bg); }
+.context-ring.is-unknown { background: var(--border); }
+.app-tooltip { position: fixed; z-index: 75; max-width: min(300px, calc(100vw - 16px)); padding: 7px 10px; border: 1px solid oklch(.37 0 0); border-radius: 8px; background: oklch(.20 0 0); color: oklch(.96 0 0); box-shadow: 0 5px 18px oklch(0 0 0 / .20); white-space: pre-line; overflow-wrap: anywhere; text-align: center; font-size: 12px; line-height: 1.4; pointer-events: none; animation: app-tooltip-in .14s ease-out; }
+@keyframes app-tooltip-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 .model-effort { position: relative; min-width: 0; max-width: min(280px, 60%); }
 .model-effort-trigger { display: flex; align-items: center; gap: 8px; height: 29px; min-height: 29px; max-width: 100%; padding: 3px 10px; border: 0; border-radius: 6px; background: var(--surface); font-size: 12px; }
 .model-effort-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -316,6 +337,9 @@ select:disabled { cursor: not-allowed; opacity: .45; }
   .settings-content { padding: 20px; }
 }
 @media (max-width: 440px) {
+  .permission-trigger { max-width: 36px; padding: 3px 9px; }
+  .permission-trigger span { display: none; }
+  .context-ring { margin: 0 2px; }
   .performance-divider { display: none; }
   .performance-summary { column-gap: 9px; }
 }

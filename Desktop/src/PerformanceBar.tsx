@@ -51,9 +51,9 @@ export function PerformanceBar({ run, stats, connected, language, now }: {
       {run && <>
         <span>{run.turns} {t('轮', 'turns')}</span>
         <span>{run.tools} {t('次工具', 'tools')}</span>
-        <span title={t('从本轮开始到结束，由桌面端测量', 'Measured locally from run start to finish')}>{t('耗时', 'Elapsed')} <strong>{duration(elapsed!)}</strong></span>
-        <span title={t('从本轮开始到首段可见文字，由桌面端测量', 'Locally measured time to first visible text')}>{t('首段文字', 'First text')} <strong>{run.firstTextAt === undefined ? '—' : duration(run.firstTextAt - run.startedAt)}</strong></span>
-        <span title={t('每次工具执行时长之和，并行工具也分别计入', 'Sum of tool execution durations, including parallel tools')}>{t('工具累计', 'Tool time')} <strong>{run.tools ? duration(run.toolTimeMs) : '—'}</strong></span>
+        <span data-tooltip={t('从本轮开始到结束，由桌面端测量', 'Measured locally from run start to finish')}>{t('耗时', 'Elapsed')} <strong>{duration(elapsed!)}</strong></span>
+        <span data-tooltip={t('从本轮开始到首段可见文字，由桌面端测量', 'Locally measured time to first visible text')}>{t('首段文字', 'First text')} <strong>{run.firstTextAt === undefined ? '—' : duration(run.firstTextAt - run.startedAt)}</strong></span>
+        <span data-tooltip={t('每次工具执行时长之和，并行工具也分别计入', 'Sum of tool execution durations, including parallel tools')}>{t('工具累计', 'Tool time')} <strong>{run.tools ? duration(run.toolTimeMs) : '—'}</strong></span>
       </>}
       {hasUsage ? <>
         <span className="performance-divider" aria-hidden="true"/>
@@ -61,9 +61,9 @@ export function PerformanceBar({ run, stats, connected, language, now }: {
         <span>{t('输出', 'Out')} <strong>{tokenCount(usage.output)}</strong></span>
       </> : <span>{t('尚无用量', 'No usage yet')}</span>}
       <span>{t('缓存读取', 'Cache read')} <strong>{tokenCount(usage.cacheRead)}</strong></span>
-      <span title={t('缓存读取 / (输入 + 缓存读取 + 缓存写入)；未报告缓存用量时不计算', 'Cache read / (input + cache read + cache write); unavailable without reported cache usage')}>{t('缓存命中', 'Cache hit')} <strong>{hitRate === undefined ? '—' : `${Math.round(hitRate * 100)}%`}</strong></span>
+      <span data-tooltip={t('缓存读取 / (输入 + 缓存读取 + 缓存写入)；未报告缓存用量时不计算', 'Cache read / (input + cache read + cache write); unavailable without reported cache usage')}>{t('缓存命中', 'Cache hit')} <strong>{hitRate === undefined ? '—' : `${Math.round(hitRate * 100)}%`}</strong></span>
       <span className="performance-divider" aria-hidden="true"/>
-      <span title={t('当前会话的累计用量，包含已压缩的历史', 'Total usage for this session, including compacted history')}>{t('会话累计', 'Session total')} <strong>{stats ? `${tokenCount(stats.tokens.total)} tok · ${stats.toolCalls} ${t('次工具', 'tools')}` : '—'}</strong></span>
+      <span data-tooltip={t('当前会话的累计用量，包含已压缩的历史', 'Total usage for this session, including compacted history')}>{t('会话累计', 'Session total')} <strong>{stats ? `${tokenCount(stats.tokens.total)} tok · ${stats.toolCalls} ${t('次工具', 'tools')}` : '—'}</strong></span>
       <span className="performance-ellipsis" aria-hidden="true">…</span>
     </div>
   </section>;

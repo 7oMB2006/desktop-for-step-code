@@ -58,6 +58,6 @@ export function NoticeToast({ notice, language, onDismiss, onDetails }: {
     {notice.type === 'warning' ? <TriangleAlert size={17}/> : <Info size={17}/>}
     <span>{notice.message}</span>
     {notice.mcpServer && <button type="button" className="notice-details" onClick={onDetails}>{zh ? '查看 MCP' : 'View MCP'}</button>}
-    <button type="button" className="icon-button" title={zh ? '关闭通知' : 'Dismiss notification'} aria-label={zh ? '关闭通知' : 'Dismiss notification'} onClick={onDismiss}><X size={15}/></button>
+    <button type="button" className="icon-button" data-tooltip={zh ? '关闭通知' : 'Dismiss notification'} aria-label={zh ? '关闭通知' : 'Dismiss notification'} onClick={onDismiss}><X size={15}/></button>
   </div>;
 }

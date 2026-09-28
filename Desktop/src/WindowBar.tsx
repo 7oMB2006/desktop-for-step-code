@@ -34,7 +34,7 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus }: { 
   };
   return <header className={`window-bar ${focused ? '' : 'window-inactive'}`}>
     <div className="window-tools" ref={menuRef}>
-      <button type="button" className="window-sidebar-toggle" title={zh ? '侧栏' : 'Sidebar'} aria-label={zh ? '侧栏' : 'Sidebar'} aria-expanded={sidebarVisible} onClick={() => { setOpenMenu(null); toggleSidebar(); }}><PanelLeft size={18}/></button>
+      <button type="button" className="window-sidebar-toggle" data-tooltip={zh ? '侧栏' : 'Sidebar'} aria-label={zh ? '侧栏' : 'Sidebar'} aria-expanded={sidebarVisible} onClick={() => { setOpenMenu(null); toggleSidebar(); }}><PanelLeft size={18}/></button>
       <nav className="window-menu-list" aria-label={zh ? '应用菜单' : 'Application menu'}>
         {menus.map(menu => <div className="window-menu" key={menu.id}>
           <button type="button" data-menu={menu.id} aria-haspopup="menu" aria-expanded={openMenu === menu.id} className={openMenu === menu.id ? 'active' : ''} onClick={() => setOpenMenu(current => current === menu.id ? null : menu.id)} onMouseEnter={() => { if (openMenu && openMenu !== menu.id) setOpenMenu(menu.id); }}>{menu.label}</button>
@@ -52,9 +52,9 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus }: { 
     </div>
     <div className="window-drag-space"/>
     <div className="window-controls">
-      <button type="button" title={zh ? '最小化' : 'Minimize'} aria-label={zh ? '最小化' : 'Minimize'} onClick={() => control('minimize')}><Minus size={15}/></button>
-      <button type="button" title={maximized ? zh ? '还原窗口' : 'Restore window' : zh ? '最大化' : 'Maximize'} aria-label={maximized ? zh ? '还原窗口' : 'Restore window' : zh ? '最大化' : 'Maximize'} onClick={() => control('toggleMaximize')}>{maximized ? <Copy size={12}/> : <Square size={12}/>}</button>
-      <button type="button" className="window-close" title={zh ? '关闭窗口' : 'Close window'} aria-label={zh ? '关闭窗口' : 'Close window'} onClick={() => control('close')}><X size={16}/></button>
+      <button type="button" data-tooltip={zh ? '最小化' : 'Minimize'} aria-label={zh ? '最小化' : 'Minimize'} onClick={() => control('minimize')}><Minus size={15}/></button>
+      <button type="button" data-tooltip={maximized ? zh ? '还原窗口' : 'Restore window' : zh ? '最大化' : 'Maximize'} aria-label={maximized ? zh ? '还原窗口' : 'Restore window' : zh ? '最大化' : 'Maximize'} onClick={() => control('toggleMaximize')}>{maximized ? <Copy size={12}/> : <Square size={12}/>}</button>
+      <button type="button" className="window-close" data-tooltip={zh ? '关闭窗口' : 'Close window'} aria-label={zh ? '关闭窗口' : 'Close window'} onClick={() => control('close')}><X size={16}/></button>
     </div>
   </header>;
 }

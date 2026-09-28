@@ -12,6 +12,9 @@ import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
 import { PerformanceBar } from './PerformanceBar';
 import { ModelEffortPicker } from './ModelEffortPicker';
+import { PermissionPicker } from './PermissionPicker';
+import { ContextRing } from './ContextRing';
+import { AppTooltip } from './AppTooltip';
 import { updateRunMetrics, type RunMetrics } from './performance';
 
 const bridge = window.desktop;
@@ -20,7 +23,7 @@ const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
-function IconButton({ title, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string }) { return <button type="button" className="icon-button" title={title} aria-label={title} {...props}>{children}</button>; }
+function IconButton({ title, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string }) { return <button type="button" className="icon-button" data-tooltip={title} aria-label={title} {...props}>{children}</button>; }
 function Code({ children, className }: any) {
   const [copied, setCopied] = useState(false);
   if (!className) return <code>{children}</code>;
@@ -97,7 +100,8 @@ function App() {
       }
       if (event.type === 'agent_start') setBusy(true);
       if (event.type === 'agent_end') { setBusy(false); void run(refresh); }
-      if (event.type === 'desktop_exit') { setBusy(false); setRunMetrics(null); setNotice(null); setData(d => ({ ...d, status: 'disconnected', state: undefined, stats: undefined })); setRequests([]); }
+      if (event.type === 'desktop_exit') { setBusy(false); setRunMetrics(null); setNotice(null); setData(d => ({ ...d, status: 'disconnected', state: undefined, stats: undefined, permissionPreset: undefined })); setRequests([]); }
+      if (event.type === 'desktop_permission') setData(d => ({ ...d, permissionPreset: event.preset }));
       if (event.type === 'desktop_status') {
         if (event.status === 'connecting') notifiedMcp.current.clear();
         setData(d => ({ ...d, status: event.status }));
@@ -107,6 +111,7 @@ function App() {
       if (event.type === 'extension_ui_request') {
         if (['select', 'input', 'editor', 'confirm'].includes(event.method)) setRequests(r => [...r.filter(v => v.id !== event.id), event as UIRequest]);
         if (event.method === 'notify' && event.message) {
+          if (event.notifyType === 'info' && /^Permission mode: (Ask|Read Only|Bypass|Autopilot)$/.test(event.message)) return;
           if (event.notifyType === 'warning' || event.notifyType === 'info') {
             const mcpServer = event.notifyType === 'warning' ? mcpFailureName(event.message) : undefined;
             if (mcpServer) {
@@ -252,7 +257,7 @@ function App() {
     setRenameTarget(null);
   };
   const renderSession = (s: Session) => <div key={s.id} className={`session-row ${s.id === data.state?.sessionId ? 'selected' : ''}`} onContextMenu={e => showContext(e, 'session', s.id)}>
-    <button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} title={`${sessionTitle(s, t('新会话', 'New session'))}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{sessionTitle(s, t('新会话', 'New session'))}</span></button>
+    <button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} data-tooltip={`${sessionTitle(s, t('新会话', 'New session'))}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{sessionTitle(s, t('新会话', 'New session'))}</span></button>
     <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" disabled={busy || loading} onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'session', id: s.id, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
   </div>;
   const toggleWorkspace = (key: string) => setCollapsedWorkspaces(previous => { const next = new Set(previous); next.has(key) ? next.delete(key) : next.add(key); return next; });
@@ -290,6 +295,7 @@ function App() {
     ] },
   ];
   return <div className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''}`}>
+    <AppTooltip/>
     <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus}/>
     <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
       onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
@@ -319,7 +325,7 @@ function App() {
           const expanded = !collapsedWorkspaces.has(key);
           return <section className="workspace-group" key={key} aria-label={group.path}>
             <div className={`workspace-heading ${key === workspaceKey(data.preferences.workspace ?? '') ? 'current' : ''}`} onContextMenu={e => showContext(e, 'workspace', group.path)}>
-              <button className="workspace-toggle" title={group.path} aria-label={workspaceTitle(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span>{workspaceTitle(group.path)}</span></button>
+              <button className="workspace-toggle" data-tooltip={group.path} aria-label={workspaceTitle(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span>{workspaceTitle(group.path)}</span></button>
               <IconButton title={t(`在 ${basename(group.path)} 新建会话`, `New session in ${basename(group.path)}`)} disabled={!bridge || busy || loading} onClick={() => void createInWorkspace(group.path, group.sessions)}><Plus size={15}/></IconButton>
               <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'workspace', id: group.path, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
             </div>
@@ -346,8 +352,10 @@ function App() {
           <textarea aria-label={t('消息', 'Message')} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={draft} disabled={!connected || loading} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/>
           <div className="composer-tools">
             <IconButton title={t('添加图片', 'Attach images')} disabled={!connected || images.length >= 5} onClick={() => void run(async () => { const added = await bridge!.images(); setImages(v => [...v, ...added].slice(0, 5)); })}><Plus size={17}/></IconButton>
+            <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || busy || loading} supported={commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}/>
             <div className="spacer"/>
             {busy && <IconButton title={t('停止', 'Stop')} className="stop-button" onClick={() => void command('abort')}><Square size={15}/></IconButton>}
+            <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
             <ModelEffortPicker model={data.state?.model} models={data.models} level={data.state?.thinkingLevel} levels={levels} language={data.preferences.language} disabled={!connected || busy || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })}/>
             <IconButton title={busy ? t('加入队列', 'Queue message') : t('发送', 'Send')} className="send-button" disabled={!connected || (!draft.trim() && !images.length) || loading} onClick={() => void send()}><ArrowUp size={18}/></IconButton>
           </div>

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { JsonLines, RpcProcess, isolatedEnvironment } from '../electron/runtime';
 import { createServer } from 'node:http';
+import { permissionFromStatus } from '../electron/permission-status';
 
 test('JSONL preserves split multibyte characters and CRLF frames', () => {
   const values: any[] = []; const parser = new JsonLines(v => values.push(v));
@@ -77,6 +78,17 @@ test('staged runtime answers RPC and management uses isolated sessions and confi
   try {
     rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), workspace, env);
     const state = await rpc.request('get_state', {}, 60000); assert.equal(state.isStreaming, false); assert.ok(state.sessionId);
+    const commands = (await rpc.request('get_commands')).commands;
+    assert.ok(commands.some((command: { name: string; source: string }) => command.name === 'permissions' && command.source === 'extension'));
+    assert.ok(events.some(event => permissionFromStatus(event)), 'Startup publishes an upstream permission preset');
+    await rpc.request('prompt', { message: '/permissions read-only' });
+    assert.ok(events.some(event => permissionFromStatus(event) === 'read-only'));
+    await rpc.request('prompt', { message: '/permissions bypass' });
+    assert.ok(events.some(event => permissionFromStatus(event) === 'bypass'));
+    await rpc.request('prompt', { message: '/permissions autopilot' });
+    assert.ok(events.some(event => permissionFromStatus(event) === 'autopilot'));
+    await rpc.request('prompt', { message: '/permissions ask' });
+    assert.equal(permissionFromStatus(events.filter(event => permissionFromStatus(event)).at(-1)), 'ask');
     assert.deepEqual((await rpc.request('get_messages')).messages, []);
     const models = await rpc.request('get_available_models'); assert.ok(Array.isArray(models.models));
     await rpc.request('set_session_name', { name: 'Integration test' });

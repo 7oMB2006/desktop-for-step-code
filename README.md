@@ -33,6 +33,8 @@ Step login credentials are encrypted for the current Windows user in `step-runti
 
 If the app fails to start or the Step Code runtime exits unexpectedly, a `crash-<timestamp>-<id>.log` is written to `%APPDATA%\Desktop for Step Code\logs\` with the app version, the startup phase, and the error. That data lives under `%APPDATA%` rather than the install directory, so reinstalling does not clear it; read the newest crash log before reinstalling.
 
+The built-in StepPage MCP server does not start on Windows by default: the command the official docs ask you to register is a shell wrapper, which Windows cannot spawn directly, and the official installer is a shell script as well, which the upstream code explicitly skips on Windows. When the desktop app detects the official bundle under `%USERPROFILE%\.steppage-mcp\bin\`, it registers a working server on your behalf, with the command pointing at the bundled Node runtime and the argument at that bundle; authentication reuses your Step sign-in, so no extra key is needed. Publishing to StepPage has not been acceptance-tested.
+
 ### Download and Run
 
 This repository currently provides source code. There is no public installer on GitHub Releases yet. The installer and release timing will be decided after release acceptance; locally generated installers are not included in this repository.

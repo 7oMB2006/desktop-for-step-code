@@ -7,7 +7,7 @@ export interface Message { role: string; content: string | Content[]; timestamp?
 export interface RuntimeState { isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
 export interface UIRequest { type: 'extension_ui_request'; id: string; method: string; title?: string; message?: string; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string }
 export type RuntimeEvent = { type: string; [key: string]: any };
-export interface Preferences { theme: 'system' | 'light' | 'dark'; language: 'zh' | 'en'; workspaces: string[]; workspace?: string }
+export interface Preferences { theme: 'system' | 'light' | 'dark'; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; archivedSessionIds?: string[] }
 export interface Snapshot { preferences: Preferences; status: string; state?: RuntimeState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string }
@@ -18,6 +18,7 @@ export interface DesktopBridge {
   snapshot(): Promise<Snapshot>;
   newIndependentSession(): Promise<Snapshot>;
   openSessionFolder(): Promise<void>;
+  openWorkspaceFolder(path: string): Promise<void>;
   chooseWorkspace(): Promise<Snapshot | null>;
   workspace(path: string): Promise<Snapshot>;
   command(type: string, args?: Record<string, unknown>): Promise<any>;

@@ -162,6 +162,13 @@ async function handle(method: string, args: any[]) {
       if (error) throw new Error(error);
       return null;
     }
+    case 'openWorkspaceFolder': {
+      const target = text(args[0], 2048);
+      if (!preferences.workspaces.some(path => pathKey(path) === pathKey(target))) throw new Error('Unknown workspace');
+      const error = await shell.openPath(target);
+      if (error) throw new Error(error);
+      return null;
+    }
     case 'chooseWorkspace': {
       const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
       return result.canceled ? null : connect(result.filePaths[0]);
@@ -257,6 +264,20 @@ async function handle(method: string, args: any[]) {
       const patch = args[0] ?? {};
       if (['system', 'light', 'dark'].includes(patch.theme)) preferences.theme = patch.theme;
       if (['zh', 'en'].includes(patch.language)) preferences.language = patch.language;
+      if (patch.workspaceNames !== undefined) {
+        if (!patch.workspaceNames || typeof patch.workspaceNames !== 'object' || Array.isArray(patch.workspaceNames)) throw new Error('Invalid workspace names');
+        const names: Record<string, string> = {};
+        for (const [path, name] of Object.entries(patch.workspaceNames)) {
+          if (!preferences.workspaces.some(workspace => pathKey(workspace) === pathKey(path))) throw new Error('Unknown workspace');
+          names[pathKey(path)] = text(name, 100).trim();
+        }
+        preferences.workspaceNames = names;
+      }
+      if (patch.archivedSessionIds !== undefined) {
+        if (!Array.isArray(patch.archivedSessionIds) || patch.archivedSessionIds.length > 10000) throw new Error('Invalid archive list');
+        const known = new Set((await listSessions()).map(s => s.id));
+        preferences.archivedSessionIds = patch.archivedSessionIds.map((id: unknown) => text(id, 200)).filter((id: string) => known.has(id));
+      }
       await savePreferences(); return preferences;
     }
     case 'images': {

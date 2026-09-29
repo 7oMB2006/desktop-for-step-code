@@ -21,6 +21,11 @@ export function effortLabel(level: string, language: 'zh' | 'en'): string {
   return language === 'zh' ? labels[level] ?? level : level;
 }
 
+export function effortColorForIndex(index: number, count: number): string {
+  const paletteIndex = Math.round(index / Math.max(1, count - 1) * (EFFORT_COLORS.length - 1));
+  return EFFORT_COLORS[paletteIndex];
+}
+
 export function draggedEffortIndex(start: number, distanceInSteps: number, count: number): number {
   if (count < 1) return 0;
   const crossed = Math.max(0, Math.floor(Math.abs(distanceInSteps) + 1 - DRAG_THRESHOLD));
@@ -95,7 +100,7 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
     submitted.current = undefined;
   }, [currentIndex, model?.id, model?.provider]);
   const previewLevel = levels[previewIndex] ?? activeLevel;
-  const effortColor = EFFORT_COLORS[Math.round(previewIndex / Math.max(1, levels.length - 1) * (EFFORT_COLORS.length - 1))];
+  const effortColor = effortColorForIndex(previewIndex, levels.length);
   const position = (index: number) => levels.length > 1 ? index / (levels.length - 1) * 100 : 0;
   const fillHeight = (THUMB_SIZE / 2 + position(previewIndex) / 100 * (FADER_HEIGHT - THUMB_SIZE)) / FADER_HEIGHT * 100;
   const commitEffort = (index: number) => {

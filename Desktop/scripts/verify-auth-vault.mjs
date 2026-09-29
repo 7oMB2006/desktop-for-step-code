@@ -12,7 +12,7 @@ await writeFile(join(dataRoot, 'auth.json'), JSON.stringify({
   step: { type: 'oauth', access: marker, refresh: 'fixture', expires: Number.MAX_SAFE_INTEGER, profile: 'platform_cn' },
 }));
 
-const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile };
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const launch = () => electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });

@@ -17,7 +17,7 @@ const expectedCommand = join(resolve('runtime'), 'node', 'node.exe');
 const userCommand = 'my-own-steppage-command';
 
 const launchCase = async (profile, bundlePath) => {
-  const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_STEPPAGE_BUNDLE: bundlePath };
+  const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', DESKTOP_STEPPAGE_BUNDLE: bundlePath };
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
   try {

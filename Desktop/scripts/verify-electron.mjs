@@ -21,12 +21,13 @@ for (const [index, cwd] of [workspace, secondWorkspace, independentCwd, workspac
   await writeFile(join(dir, `fixture-${index}.jsonl`), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
 }
 await mkdir('test-results', { recursive: true });
-const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE;
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' }; delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
 const errors = [];
 try {
   const page = await app.firstWindow();
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()), false);
   page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
   assert.equal(await page.locator('.window-bar img').count(), 0);
@@ -73,7 +74,8 @@ try {
   await page.getByRole('button', { name: '最小化', exact: true }).click();
   await page.waitForTimeout(250);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized()), true);
-  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.restore(); w.focus(); });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].restore());
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()), false);
   await page.getByRole('button', { name: '中文项目 with spaces', exact: true }).waitFor();
   await page.getByRole('button', { name: '独立会话', exact: true }).waitFor();
   await page.getByRole('button', { name: '独立验证会话', exact: true }).waitFor();
@@ -600,6 +602,7 @@ try {
   await page.waitForFunction(() => !document.querySelector('.composer > textarea').disabled);
   assert.equal(await page.getByRole('region', { name: '性能信息' }).getByText('最近一轮').count(), 0);
   assert.deepEqual(errors, []);
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()), false);
   console.log('Electron acceptance passed: isolated profile, real RPC, settings, rename, MCP, themes, narrow window, no renderer Node access.');
 } catch (error) {
   const pages = app.windows();

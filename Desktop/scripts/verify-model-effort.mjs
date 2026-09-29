@@ -10,13 +10,13 @@ const js = outputs.outputFiles.find(file => file.path.endsWith('.js'))?.text;
 const css = outputs.outputFiles.find(file => file.path.endsWith('.css'))?.text;
 assert.ok(js && css);
 const profile = await mkdtemp(join(tmpdir(), 'step-fader-'));
-const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile };
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ args: [resolve('.')], env });
 try {
   const pagePromise = app.waitForEvent('window');
   await app.evaluate(({ BrowserWindow }) => {
-    const window = new BrowserWindow({ width: 640, height: 520, show: true, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    const window = new BrowserWindow({ width: 640, height: 520, show: false, focusable: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
     void window.loadURL('about:blank');
   });
   const page = await pagePromise;

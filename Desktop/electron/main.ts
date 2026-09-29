@@ -13,6 +13,7 @@ import type { Preferences, Session, Snapshot, RuntimeState, UIRequest } from '..
 app.setName('Desktop for Step Code');
 app.setAppUserModelId('community.stepcode.desktop');
 if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
+const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
 let window: BrowserWindow;
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
@@ -372,7 +373,7 @@ else app.whenReady().then(async () => {
   }
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
-  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: '#171717', autoHideMenuBar: true, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: '#171717', autoHideMenuBar: true, show: !backgroundAcceptance, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
   crashLog.setPhase('window created');
   const windowState = () => emit({ type: 'desktop_window_state', maximized: window.isMaximized(), focused: window.isFocused() });
   window.on('maximize', windowState);
@@ -404,5 +405,6 @@ else app.whenReady().then(async () => {
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
 }).catch(async error => {
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
-  dialog.showErrorBox('Desktop for Step Code', String(error)); quitting = true; void Promise.all([rpc.stop(), admin.stop()]).finally(() => app.quit());
+  if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
+  quitting = true; void Promise.all([rpc.stop(), admin.stop()]).finally(() => app.quit());
 });

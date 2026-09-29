@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { draggedEffortIndex, effortLabel, wheeledEffortIndex } from '../src/ModelEffortPicker';
+import { draggedEffortIndex, effortColorForIndex, effortLabel, wheeledEffortIndex } from '../src/ModelEffortPicker';
 
 test('localized effort labels preserve every upstream level and unknown values', () => {
   const cases = {
@@ -17,6 +17,14 @@ test('localized effort labels preserve every upstream level and unknown values',
     assert.equal(effortLabel(raw, 'en'), raw);
   }
   assert.equal(effortLabel('future-level', 'zh'), 'future-level');
+});
+
+test('effort colors are evenly sampled from the gradient for the available levels', () => {
+  assert.equal(effortColorForIndex(0, 4), '#FFDC62');
+  assert.equal(effortColorForIndex(1, 4), '#FDB3A2');
+  assert.equal(effortColorForIndex(2, 4), '#D58FEF');
+  assert.equal(effortColorForIndex(3, 4), '#9E72FB');
+  assert.equal(effortColorForIndex(1, 3), '#E7A1CF');
 });
 
 test('fader resists clicks and sub-threshold drags, then crosses discrete stops', () => {

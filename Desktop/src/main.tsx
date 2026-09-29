@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowUp, ArrowDown, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, SlidersHorizontal, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal } from 'lucide-react';
+import { ArrowUp, ArrowDown, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -15,6 +15,8 @@ import { ModelEffortPicker } from './ModelEffortPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { ContextRing } from './ContextRing';
 import { AppTooltip } from './AppTooltip';
+import { ConversationMarkers, conversationTurns, scrollToTurn } from './ConversationNavigation';
+import { ConversationScrollThumb } from './ConversationScrollThumb';
 import { updateRunMetrics, type RunMetrics } from './performance';
 
 const bridge = window.desktop;
@@ -29,10 +31,10 @@ function Code({ children, className }: any) {
   if (!className) return <code>{children}</code>;
   return <span className="code-block"><span className="code-header">{className.replace('hljs language-', '').replace('language-', '')}<IconButton title="Copy" onClick={() => { void navigator.clipboard.writeText(String(children)); setCopied(true); setTimeout(() => setCopied(false), 1800); }}>{copied ? <Check size={14}/> : <Copy size={14}/>}</IconButton></span><code className={className}>{children}</code></span>;
 }
-function MessageView({ message, inspect }: { message: Message; inspect: (value: string) => void }) {
+function MessageView({ message, index, inspect }: { message: Message; index: number; inspect: (value: string) => void }) {
   const blocks: Content[] = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content ?? [];
-  if (message.role === 'toolResult') return <details className={`tool-result ${message.isError ? 'failed' : ''}`}><summary><Terminal size={14}/><span>{message.toolName ?? 'Tool'}</span><span className="tool-outcome">{message.isError ? 'Error' : 'Result'}</span><ChevronDown size={14}/></summary><pre>{blocks.filter(b => b.type === 'text').map(b => b.text).join('\n')}</pre>{blocks.filter(b => b.type === 'image').map((b, i) => <img key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Tool output"/>)}</details>;
-  return <article className={`message ${message.role}`}><div className="message-label">{message.role === 'user' ? 'You' : 'Step Code'}<span>{message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span></div><div className="message-body">{blocks.map((b, i) => {
+  if (message.role === 'toolResult') return <details data-message-index={index} className={`tool-result ${message.isError ? 'failed' : ''}`}><summary><Terminal size={14}/><span>{message.toolName ?? 'Tool'}</span><span className="tool-outcome">{message.isError ? 'Error' : 'Result'}</span><ChevronDown size={14}/></summary><pre>{blocks.filter(b => b.type === 'text').map(b => b.text).join('\n')}</pre>{blocks.filter(b => b.type === 'image').map((b, i) => <img key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Tool output"/>)}</details>;
+  return <article data-message-index={index} className={`message ${message.role}`}><div className="message-label">{message.role === 'user' ? 'You' : 'Step Code'}<span>{message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span></div><div className="message-body">{blocks.map((b, i) => {
     if (b.type === 'thinking') return <details className="thinking" key={i}><summary>Thinking</summary><Markdown>{b.thinking ?? ''}</Markdown></details>;
     if (b.type === 'toolCall') return <button className="tool-call" key={i} onClick={() => inspect(JSON.stringify({ tool: b.name, arguments: b.arguments }, null, 2))}><Terminal size={14}/><span>{b.name}</span><code>{JSON.stringify(b.arguments ?? {}).slice(0, 95)}</code><ChevronRight size={14}/></button>;
     if (b.type === 'image') return <img className="attachment" key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Attachment"/>;
@@ -63,6 +65,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
+  const [rightPanel, setRightPanel] = useState<'turns' | 'summary' | null>(null);
   const [requests, setRequests] = useState<UIRequest[]>([]);
   const [answer, setAnswer] = useState('');
   const [levels, setLevels] = useState<string[]>([]);
@@ -84,6 +87,7 @@ function App() {
   const connected = data.status === 'connected';
   const current = data.sessions.find(s => s.id === data.state?.sessionId);
   const activeTitle = sessionTitle(current ?? (data.state?.sessionName ? { name: data.state.sessionName, firstMessage: '' } : undefined), t('新会话', 'New session'));
+  const turns = useMemo(() => conversationTurns(data.messages, data.preferences.language), [data.messages, data.preferences.language]);
   const workspaceTitle = (path: string) => data.preferences.workspaceNames?.[workspaceKey(path)] || basename(path);
   const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(String(e instanceof Error ? e.message : e)); } };
   const refresh = async () => { if (bridge) { const value = await bridge.snapshot(); setData(value); setBusy(Boolean(value.state?.isStreaming)); } };
@@ -296,7 +300,7 @@ function App() {
   ];
   return <div className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''}`}>
     <AppTooltip/>
-    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus}/>
+    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle}/>
     <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
       onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
     {contextMenu && <div className="sidebar-context" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={e => e.stopPropagation()}>
@@ -339,11 +343,14 @@ function App() {
       </nav>
       <div className="sidebar-bottom"><button onClick={() => void openSettings()} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span>0.1.0</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
-    <main><header className="topbar"><div className="breadcrumb"><span>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? workspaceTitle(data.preferences.workspace) : t('工作区', 'Workspace')}</span><span>/</span><strong>{activeTitle}</strong></div><div className="top-actions"><IconButton title={t('重启运行时', 'Restart runtime')} disabled={!data.preferences.workspace || busy || loading} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={16}/></IconButton><IconButton title={t('会话统计', 'Session statistics')} disabled={!connected} onClick={() => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats'), null, 2)))}><SlidersHorizontal size={17}/></IconButton></div></header>
+    <main>
       {error && <div className="error-banner" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title={t('关闭', 'Dismiss')} onClick={() => setError('')}><X size={14}/></IconButton></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
-      <div className="conversation" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-        {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages">{data.messages.map((m, i) => <MessageView key={i} message={m} inspect={setDetails}/>)}{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}<div ref={bottom}/></div>}
+      <div className="conversation-shell">
+        <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
+          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages">{data.messages.map((m, i) => <MessageView key={i} index={i} message={m} inspect={value => { setRightPanel(null); setDetails(value); }} />)}{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}<div ref={bottom}/></div>}
+        </div>
+        <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>
       <div className="composer-wrap">
         {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
@@ -361,8 +368,21 @@ function App() {
           </div>
         </div><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>
       </div>
+      <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
+        sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
     </main>
-    {details && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title="Close" onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
+    {rightPanel && !details && <button type="button" className="right-panel-backdrop" aria-label={t('关闭右侧面板', 'Close right panel')} onClick={() => setRightPanel(null)}/>}
+    {details ? <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside> : rightPanel && <aside className="conversation-nav-panel" aria-label={rightPanel === 'turns' ? t('会话导航', 'Conversation navigation') : t('摘要', 'Summary')}>
+      <header><h2>{rightPanel === 'turns' ? t('会话导航', 'Conversation navigation') : t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={() => setRightPanel(null)}><X size={16}/></IconButton></header>
+      {rightPanel === 'turns' ? <nav aria-label={t('会话轮次', 'Conversation turns')}>
+        {turns.map((turn, number) => <button key={turn.index} onClick={() => { scrollToTurn(scroll.current, turn.index); if (window.innerWidth <= 900) setRightPanel(null); }}><span>{number + 1}</span><span>{turn.preview}</span></button>)}
+        {!turns.length && <p className="panel-empty">{t('暂无会话轮次', 'No turns yet')}</p>}
+      </nav> : <p className="panel-empty">{t('暂无摘要', 'No summary yet')}</p>}
+    </aside>}
+    <nav className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')}>
+      <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-pressed={!details && rightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(value => value === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
+      <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-pressed={!details && rightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(value => value === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
+    </nav>
     {settingsOpen && <div className="modal-backdrop"><section className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={() => { setSettingsOpen(false); setKey(''); }}><X size={19}/></IconButton></header><div className="settings-layout"><nav>{[['account', Cpu, t('账户', 'Account')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')]].map(([id, Icon, title]: any) => <button key={id} className={tab === id ? 'selected' : ''} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div className="settings-content">
       {settings && tab === 'mcp' && Object.keys(mcpFailures).length > 0 && <section className="mcp-failures" aria-label={t('本次窗口的 MCP 警告', 'MCP warnings in this window')}>
         <h3>{t('本次窗口的连接警告', 'Connection warnings')}</h3>

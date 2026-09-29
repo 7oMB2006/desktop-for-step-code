@@ -29,10 +29,13 @@ try {
   const page = await app.firstWindow();
   const windowState = await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
+    window.setOpacity(0);
+    if (window.getOpacity() !== 0) throw new Error('Transparent acceptance window is unavailable');
+    window.setIgnoreMouseEvents(true);
     window.showInactive();
-    return { visible: window.isVisible(), focused: window.isFocused() };
+    return { opacity: window.getOpacity(), visible: window.isVisible(), focused: window.isFocused() };
   });
-  assert.deepEqual(windowState, { visible: true, focused: false });
+  assert.deepEqual(windowState, { opacity: 0, visible: true, focused: false });
   page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
   assert.equal(await page.locator('.window-bar img').count(), 0);

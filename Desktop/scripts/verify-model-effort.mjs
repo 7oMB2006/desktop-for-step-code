@@ -17,6 +17,9 @@ try {
   const pagePromise = app.waitForEvent('window');
   await app.evaluate(async ({ BrowserWindow }) => {
     const window = new BrowserWindow({ width: 640, height: 520, show: false, focusable: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
+    window.setOpacity(0);
+    if (window.getOpacity() !== 0) throw new Error('Transparent acceptance window is unavailable');
+    window.setIgnoreMouseEvents(true);
     await window.loadURL('about:blank');
     window.showInactive();
   });

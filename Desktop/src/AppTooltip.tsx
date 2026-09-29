@@ -50,6 +50,18 @@ export function AppTooltip() {
     if (!active || !tooltip.current || !active.anchor.isConnected) return;
     const anchor = active.anchor.getBoundingClientRect();
     const box = tooltip.current.getBoundingClientRect();
+    if (active.anchor.dataset.tooltipSide === 'left') {
+      const left = Math.max(8, anchor.left - box.width - 9);
+      let top = Math.max(8, Math.min(window.innerHeight - box.height - 8, anchor.top + (anchor.height - box.height) / 2));
+      const close = document.querySelector<HTMLElement>('.conversation-nav-panel header .icon-button, .details-panel header .icon-button')?.getBoundingClientRect();
+      if (close && left < close.right && left + box.width > close.left && top < close.bottom && top + box.height > close.top) {
+        const above = anchor.top - box.height - 9;
+        const titlebarHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--window-bar-height')) || 0;
+        top = above >= titlebarHeight + 8 ? above : Math.min(window.innerHeight - box.height - 8, anchor.bottom + 9);
+      }
+      setPosition({ left, top });
+      return;
+    }
     const left = Math.max(8, Math.min(window.innerWidth - box.width - 8, anchor.left + anchor.width / 2 - box.width / 2));
     const above = anchor.top - box.height - 9;
     const top = above >= 8 ? above : Math.min(window.innerHeight - box.height - 8, anchor.bottom + 9);

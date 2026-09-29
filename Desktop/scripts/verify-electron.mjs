@@ -17,6 +17,12 @@ for (const [index, cwd] of [workspace, secondWorkspace, independentCwd, workspac
     { type: 'session', version: 3, id: `fixture-${index}`, cwd, timestamp },
     { type: 'message', id: 'user-1', parentId: null, timestamp, message: { role: 'user', content: [{ type: 'text', text: index === 4 ? '你好！' : 'Fixture history' }], timestamp: Date.now() } },
     ...(index === 4 ? [] : [{ type: 'session_info', id: 'name-1', parentId: 'user-1', timestamp, name: index === 0 ? '历史验证会话' : index === 1 ? 'Second session' : index === 2 ? '独立验证会话' : '同项目另一会话' }]),
+    ...(index === 0 ? [
+      { type: 'message', id: 'assistant-1', parentId: 'user-1', timestamp, message: { role: 'assistant', content: [{ type: 'text', text: '先检查现有项目结构，再决定这一轮的实现范围。\n\n' + '这段较长的回复用于验证不同高度的会话轮次和原生滚动条。'.repeat(35) }], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }, timestamp: Date.now() } },
+      { type: 'message', id: 'user-2', parentId: 'assistant-1', timestamp, message: { role: 'user', content: [{ type: 'text', text: '接下来查看界面布局与交互。' }], timestamp: Date.now() } },
+      { type: 'message', id: 'assistant-2', parentId: 'user-2', timestamp, message: { role: 'assistant', content: [{ type: 'text', text: '将会话刻度与滚动条分开，同时预留右侧摘要面板。' }], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }, timestamp: Date.now() } },
+      { type: 'message', id: 'user-3', parentId: 'assistant-2', timestamp, message: { role: 'user', content: [{ type: 'text', text: '最后确认窄窗口下不会遮住输入框。' }], timestamp: Date.now() } },
+    ] : []),
   ];
   await writeFile(join(dir, `fixture-${index}.jsonl`), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
 }
@@ -39,6 +45,7 @@ try {
   page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
   assert.equal(await page.locator('.window-bar img').count(), 0);
+  assert.equal(await page.locator('.topbar').count(), 0);
   assert.equal(await page.locator('.window-sidebar-toggle').count(), 1);
   assert.equal(await page.locator('.sidebar-wordmark img:visible').getAttribute('alt'), 'Desktop for Step Code');
   assert.equal(await page.locator('.sidebar-wordmark img:visible').evaluate(img => img.complete && img.naturalWidth > 0), true);
@@ -185,7 +192,7 @@ try {
   const toast = page.locator('.notice-toast');
   await toast.getByText(mcpMessage).waitFor();
   assert.equal(await page.locator('.conversation').evaluate(element => element.getBoundingClientRect().top), transcriptTop);
-  assert.ok(await toast.evaluate(element => element.getBoundingClientRect().top >= document.querySelector('.topbar').getBoundingClientRect().bottom));
+  assert.ok(await toast.evaluate(element => element.getBoundingClientRect().top >= document.querySelector('.window-bar').getBoundingClientRect().bottom));
   await page.waitForTimeout(250);
   await page.screenshot({ path: 'test-results/notice-toast-wide.png' });
   await toast.getByRole('button', { name: '查看 MCP' }).click();
@@ -201,16 +208,45 @@ try {
   await toast.getByText('Another optional service is unavailable').waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));
   await page.waitForFunction(() => innerWidth <= 640);
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
+  const narrowPanel = page.getByRole('complementary', { name: '摘要' });
+  assert.equal(await narrowPanel.evaluate(element => {
+    const panel = element.getBoundingClientRect();
+    const rail = document.querySelector('.right-tool-rail').getBoundingClientRect();
+    return panel.left >= 0 && panel.right <= rail.left && rail.right <= innerWidth;
+  }), true);
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
+  const titleBounds = await page.locator('.window-session-title').evaluate(element => {
+    const originalTitle = element.textContent;
+    element.textContent = '很长的测试会话标题'.repeat(20);
+    const title = element.getBoundingClientRect();
+    const controls = document.querySelector('.window-controls').getBoundingClientRect();
+    const drag = document.querySelector('.window-drag-space').getBoundingClientRect();
+    const result = { width: title.width, right: title.right, dragRight: drag.right, controlsLeft: controls.left, overflow: element.scrollWidth > element.clientWidth };
+    element.textContent = originalTitle;
+    return result;
+  });
+  assert.ok(titleBounds.right <= titleBounds.controlsLeft);
+  assert.ok(titleBounds.width <= 300 && titleBounds.dragRight - titleBounds.right >= 48);
+  assert.equal(titleBounds.overflow, true);
   const toastBounds = await toast.evaluate(element => {
     const rect = element.getBoundingClientRect();
-    const topbar = document.querySelector('.topbar').getBoundingClientRect();
-    return { left: rect.left, right: rect.right, top: rect.top, barBottom: topbar.bottom, viewport: innerWidth };
+    const bar = document.querySelector('.window-bar').getBoundingClientRect();
+    return { left: rect.left, right: rect.right, top: rect.top, barBottom: bar.bottom, viewport: innerWidth };
   });
   assert.ok(toastBounds.left >= 0 && toastBounds.right <= toastBounds.viewport && toastBounds.top >= toastBounds.barBottom);
   await page.waitForTimeout(250);
   await page.screenshot({ path: 'test-results/notice-toast-narrow.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 880));
   await page.waitForFunction(() => innerWidth >= 840);
+  const wideTitleWidth = await page.locator('.window-session-title').evaluate(element => {
+    const originalTitle = element.textContent;
+    element.textContent = '很长的测试会话标题'.repeat(20);
+    const width = element.getBoundingClientRect().width;
+    element.textContent = originalTitle;
+    return width;
+  });
+  assert.ok(wideTitleWidth <= 300 && wideTitleWidth >= 290);
   await page.getByRole('button', { name: '独立验证会话', exact: true }).waitFor();
   await toast.hover();
   await page.clock.fastForward(8100);
@@ -234,13 +270,15 @@ try {
   assert.equal(await page.locator('.error-banner').getByText('A real error').isVisible(), true);
   await page.locator('.error-banner').getByRole('button', { name: '关闭' }).click();
   await page.getByRole('button', { name: '独立验证会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '独立验证会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '独立验证会话');
+  assert.equal(await page.locator('.window-session-title').getAttribute('data-tooltip'), '独立验证会话');
   let independentState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(independentState.independent, true);
   assert.equal(independentState.preferences.workspaces.length, 2);
   assert.equal(independentState.preferences.workspaces.includes(independentCwd), false);
   await page.getByRole('region', { name: '独立会话', exact: true }).getByRole('button', { name: '独立验证会话', exact: true }).waitFor();
-  await page.getByRole('button', { name: '重启运行时', exact: true }).click();
+  await page.getByRole('button', { name: '视图', exact: true }).click();
+  await page.getByRole('menuitem', { name: '重启运行时', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.composer > textarea').disabled);
   independentState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(independentState.independent, true);
@@ -371,12 +409,75 @@ try {
   assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   await page.screenshot({ path: 'test-results/desktop-dark-connected.png' });
-  assert.equal(await page.locator('.top-actions .lucide-pencil').count(), 0);
+  assert.equal(await page.locator('.topbar').count(), 0);
   const firstGroup = page.getByRole('region', { name: projectState.preferences.workspace, exact: true });
   await firstGroup.getByRole('button', { name: '你好！', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '你好！');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '你好！');
+  await page.locator('.conversation-scroll-track.hidden').waitFor();
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '历史验证会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话');
+  await page.locator('.conversation-scroll-track:not(.hidden)').waitFor();
+  await page.locator('.turn-marker').nth(2).waitFor();
+  assert.equal(await page.locator('.turn-marker').count(), 3);
+  const markerTops = await page.locator('.turn-marker').evaluateAll(markers => markers.map(marker => marker.getBoundingClientRect().top));
+  assert.ok(Math.abs(markerTops[1] - markerTops[0] - 18) < 1);
+  assert.ok(Math.abs(markerTops[2] - markerTops[1] - 18) < 1);
+  const scrollTrack = page.getByRole('scrollbar', { name: '会话滚动' });
+  const trackBox = await scrollTrack.boundingBox();
+  const mainBox = await page.locator('main').boundingBox();
+  assert.ok(Math.abs(trackBox.y + trackBox.height - mainBox.y - mainBox.height + 8) < 2);
+  assert.equal(await page.locator('.conversation').evaluate(element => getComputedStyle(element).scrollbarWidth), 'none');
+  await page.locator('.conversation').evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await page.waitForFunction(() => {
+    const track = document.querySelector('.conversation-scroll-track');
+    const thumb = document.querySelector('.conversation-scroll-thumb');
+    return track && thumb && Math.abs(thumb.getBoundingClientRect().bottom - track.getBoundingClientRect().bottom) < 2;
+  });
+  await page.screenshot({ path: 'test-results/conversation-scroll-bottom.png' });
+  const thumbBox = await page.locator('.conversation-scroll-thumb').boundingBox();
+  await page.mouse.move(thumbBox.x + thumbBox.width / 2, thumbBox.y + thumbBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(thumbBox.x + thumbBox.width / 2, trackBox.y + 4, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForFunction(() => document.querySelector('.conversation').scrollTop < 20);
+  await page.locator('.turn-marker').first().hover();
+  await page.locator('.turn-marker-preview').getByText('Fixture history').waitFor();
+  await page.locator('.turn-marker').last().click();
+  await page.waitForFunction(() => document.querySelector('.conversation').scrollTop > 0);
+  await page.getByRole('button', { name: '会话导航', exact: true }).click();
+  const navigation = page.getByRole('complementary', { name: '会话导航' });
+  assert.equal(await navigation.getByRole('button').count(), 4);
+  await navigation.getByRole('button', { name: /Fixture history/ }).click();
+  await page.waitForFunction(() => document.querySelector('.conversation').scrollTop < 60);
+  await page.locator('.turn-marker-preview').waitFor({ state: 'hidden' });
+  if (await page.locator('.notice-toast').count()) await page.locator('.notice-toast').getByRole('button', { name: '关闭通知' }).click();
+  await page.mouse.move(800, 400);
+  await page.screenshot({ path: 'test-results/conversation-navigation.png' });
+  await page.waitForTimeout(350);
+  const railButtons = page.locator('.right-tool-rail .icon-button');
+  assert.deepEqual(await railButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['摘要', '会话导航']);
+  for (const label of ['摘要', '会话导航']) {
+    const button = page.locator('.right-tool-rail').getByRole('button', { name: label, exact: true });
+    await button.hover();
+    await tooltip.getByText(label, { exact: true }).waitFor();
+    await page.waitForFunction(() => {
+      const anchor = document.querySelector('.right-tool-rail .icon-button:hover');
+      const bubble = document.querySelector('.app-tooltip');
+      const close = document.querySelector('.conversation-nav-panel header .icon-button');
+      if (!anchor || !bubble || !close) return false;
+      const tooltipBox = bubble.getBoundingClientRect();
+      const closeBox = close.getBoundingClientRect();
+      return tooltipBox.right < anchor.getBoundingClientRect().left - 4 &&
+        (tooltipBox.bottom <= closeBox.top || tooltipBox.top >= closeBox.bottom || tooltipBox.right <= closeBox.left);
+    });
+    await page.waitForTimeout(180);
+    if (label === '摘要') await page.screenshot({ path: 'test-results/right-rail-tooltip.png' });
+  }
+  await page.mouse.move(800, 400);
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
+  await page.getByRole('complementary', { name: '摘要' }).getByText('暂无摘要').waitFor();
+  await page.screenshot({ path: 'test-results/summary-placeholder.png' });
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
   const currentRow = page.locator('.session-row.selected');
   await currentRow.click({ button: 'right' });
   assert.equal(await context.getByRole('menuitem', { name: '复制' }).isDisabled(), true);
@@ -391,8 +492,12 @@ try {
   await page.getByRole('button', { name: '确认', exact: true }).click();
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).waitFor();
   await page.getByRole('button', { name: '在 Second project 新建会话', exact: true }).click();
-  await page.waitForFunction(path => document.querySelector('.breadcrumb > span')?.textContent === path, 'Second project');
+  await page.waitForFunction(() =>
+    document.querySelector('.window-session-title')?.textContent === '新会话' &&
+    !document.querySelector('.composer > textarea')?.disabled
+  );
   const secondProjectState = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(secondProjectState.independent, false);
   const secondGroup = page.getByRole('region', { name: secondProjectState.preferences.workspace, exact: true });
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click({ button: 'right' });
@@ -406,9 +511,9 @@ try {
   assert.equal(await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === 'Second session');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'Second session');
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '历史验证会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话');
   await page.evaluate(() => {
     window.__sessionSwitchEvents = [];
     window.__stopSessionSwitchEvents = window.desktop.onEvent(event => {
@@ -417,9 +522,9 @@ try {
   });
   const sameWorkspaceSwitchStarted = Date.now();
   await firstGroup.getByRole('button', { name: '同项目另一会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '同项目另一会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '同项目另一会话');
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '历史验证会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话');
   assert.deepEqual(await page.evaluate(() => { window.__stopSessionSwitchEvents(); return window.__sessionSwitchEvents; }), []);
   console.log(`Same-workspace round trip: ${Date.now() - sameWorkspaceSwitchStarted} ms without a runtime restart.`);
   await page.screenshot({ path: 'test-results/workspace-tree.png' });
@@ -474,6 +579,12 @@ try {
   await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
+  if (await page.locator('.notice-toast').count()) await page.locator('.notice-toast').getByRole('button', { name: '关闭通知' }).click();
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
+  await page.mouse.move(380, 320);
+  await page.screenshot({ path: 'test-results/summary-narrow.png' });
+  await page.getByRole('button', { name: '关闭右侧面板' }).click({ position: { x: 50, y: 280 } });
+  await page.getByRole('complementary', { name: '摘要' }).waitFor({ state: 'hidden' });
   await page.screenshot({ path: 'test-results/desktop-narrow.png' });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
   assert.equal(overflow, false);
@@ -642,7 +753,7 @@ for (const userData of [profile, cleanProfile]) {
     assert.equal(home.sessions.some(s => !s.independent && s.cwd.startsWith(join(userData, 'workspaces', 'independent'))), false);
     if (userData === profile) {
       await page.getByRole('button', { name: '独立验证会话', exact: true }).click();
-      await page.waitForFunction(() => document.querySelector('.breadcrumb > strong')?.textContent === '独立验证会话');
+      await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '独立验证会话');
       assert.equal((await page.evaluate(() => window.desktop.snapshot())).independent, true);
     }
     await page.screenshot({ path: `test-results/home-${userData === profile ? 'reopened' : 'first-run'}.png` });

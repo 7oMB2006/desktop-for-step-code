@@ -3,7 +3,7 @@ import { Minus, Square, Copy, X, PanelLeft } from 'lucide-react';
 
 export type WindowMenu = { id: string; label: string; items: { label: string; action: () => void; disabled?: boolean }[] };
 
-export function WindowBar({ language, sidebarVisible, toggleSidebar, menus }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[] }) {
+export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string }) {
   const [maximized, setMaximized] = useState(false);
   const [focused, setFocused] = useState(true);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -50,7 +50,7 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus }: { 
         </div>)}
       </nav>
     </div>
-    <div className="window-drag-space"/>
+    <div className="window-drag-space">{sessionTitle && <span className="window-session-title" data-tooltip={sessionTitle}>{sessionTitle}</span>}</div>
     <div className="window-controls">
       <button type="button" data-tooltip={zh ? '最小化' : 'Minimize'} aria-label={zh ? '最小化' : 'Minimize'} onClick={() => control('minimize')}><Minus size={15}/></button>
       <button type="button" data-tooltip={maximized ? zh ? '还原窗口' : 'Restore window' : zh ? '最大化' : 'Maximize'} aria-label={maximized ? zh ? '还原窗口' : 'Restore window' : zh ? '最大化' : 'Maximize'} onClick={() => control('toggleMaximize')}>{maximized ? <Copy size={12}/> : <Square size={12}/>}</button>

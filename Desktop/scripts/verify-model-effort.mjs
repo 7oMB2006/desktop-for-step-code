@@ -15,11 +15,13 @@ delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ args: [resolve('.')], env });
 try {
   const pagePromise = app.waitForEvent('window');
-  await app.evaluate(({ BrowserWindow }) => {
+  await app.evaluate(async ({ BrowserWindow }) => {
     const window = new BrowserWindow({ width: 640, height: 520, show: false, focusable: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
-    void window.loadURL('about:blank');
+    await window.loadURL('about:blank');
+    window.showInactive();
   });
   const page = await pagePromise;
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.isFocused())), false);
   await page.setContent('<div id="root"></div>');
   await page.addStyleTag({ content: `${css}\nbody { height: 100vh; display: flex; align-items: flex-end; justify-content: center; } .test-composer { width: min(500px, calc(100vw - 36px)); display: flex; justify-content: flex-end; padding-right: 30px; margin-bottom: 45px; }` });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });

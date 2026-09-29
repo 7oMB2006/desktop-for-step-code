@@ -27,7 +27,12 @@ const app = await electron.launch({ ...(executablePath ? { executablePath } : { 
 const errors = [];
 try {
   const page = await app.firstWindow();
-  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()), false);
+  const windowState = await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.showInactive();
+    return { visible: window.isVisible(), focused: window.isFocused() };
+  });
+  assert.deepEqual(windowState, { visible: true, focused: false });
   page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
   assert.equal(await page.locator('.window-bar img').count(), 0);
@@ -44,12 +49,20 @@ try {
     assert.match(sidebarMotion.timing, /cubic-bezier\(0\.65, 0, 0\.35, 1\)/);
     assert.ok(parseFloat(sidebarMotion.duration) >= 0.28);
   }
-  await page.getByRole('button', { name: '侧栏', exact: true }).click();
   if (!motionReduced) {
-    await page.waitForTimeout(65);
-    const mid = await page.locator('.sidebar').evaluate(element => element.getBoundingClientRect().right);
-    assert.ok(mid > 0 && mid < 244, `Sidebar should be moving at 60ms: ${mid}`);
+    await page.evaluate(() => {
+      window.__sidebarTransitionStarted = false;
+      const sidebar = document.querySelector('.sidebar');
+      const onTransition = event => {
+        if (event.propertyName !== 'transform') return;
+        window.__sidebarTransitionStarted = true;
+        sidebar.removeEventListener('transitionrun', onTransition);
+      };
+      sidebar.addEventListener('transitionrun', onTransition);
+    });
   }
+  await page.getByRole('button', { name: '侧栏', exact: true }).click();
+  if (!motionReduced) await page.waitForFunction(() => window.__sidebarTransitionStarted, null, { timeout: 2000 });
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
   assert.equal(await page.locator('.window-sidebar-toggle').isVisible(), true);
@@ -269,7 +282,8 @@ try {
   await attachButton.hover();
   const tooltip = page.getByRole('tooltip');
   await tooltip.getByText('添加图片').waitFor();
-  assert.equal(await tooltip.evaluate(element => parseFloat(getComputedStyle(element).borderTopLeftRadius) >= 8), true);
+  const tooltipStyle = await tooltip.evaluate(element => ({ className: element.className, radius: getComputedStyle(element).borderTopLeftRadius }));
+  assert.ok(parseFloat(tooltipStyle.radius) >= 8, `Tooltip radius: ${JSON.stringify(tooltipStyle)}`);
   await page.mouse.move(0, 0);
   await tooltip.waitFor({ state: 'hidden' });
   const controlOrder = await composerTools.evaluate(element => [...element.children].map(child => child.getAttribute('aria-label') ?? child.className));

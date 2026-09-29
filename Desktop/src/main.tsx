@@ -257,7 +257,7 @@ function App() {
     setRenameTarget(null);
   };
   const renderSession = (s: Session) => <div key={s.id} className={`session-row ${s.id === data.state?.sessionId ? 'selected' : ''}`} onContextMenu={e => showContext(e, 'session', s.id)}>
-    <button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} data-tooltip={`${sessionTitle(s, t('新会话', 'New session'))}\n${new Date(s.modified).toLocaleDateString()} · ${s.messageCount} ${t('条消息', 'messages')}`} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{sessionTitle(s, t('新会话', 'New session'))}</span></button>
+    <button aria-current={s.id === data.state?.sessionId ? 'page' : undefined} disabled={busy || loading} onClick={() => void applySnapshot(() => bridge!.switchSession(s.id))}><span>{sessionTitle(s, t('新会话', 'New session'))}</span></button>
     <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" disabled={busy || loading} onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'session', id: s.id, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
   </div>;
   const toggleWorkspace = (key: string) => setCollapsedWorkspaces(previous => { const next = new Set(previous); next.has(key) ? next.delete(key) : next.add(key); return next; });
@@ -325,7 +325,7 @@ function App() {
           const expanded = !collapsedWorkspaces.has(key);
           return <section className="workspace-group" key={key} aria-label={group.path}>
             <div className={`workspace-heading ${key === workspaceKey(data.preferences.workspace ?? '') ? 'current' : ''}`} onContextMenu={e => showContext(e, 'workspace', group.path)}>
-              <button className="workspace-toggle" data-tooltip={group.path} aria-label={workspaceTitle(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span>{workspaceTitle(group.path)}</span></button>
+              <button className="workspace-toggle" aria-label={workspaceTitle(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span>{workspaceTitle(group.path)}</span></button>
               <IconButton title={t(`在 ${basename(group.path)} 新建会话`, `New session in ${basename(group.path)}`)} disabled={!bridge || busy || loading} onClick={() => void createInWorkspace(group.path, group.sessions)}><Plus size={15}/></IconButton>
               <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'workspace', id: group.path, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
             </div>

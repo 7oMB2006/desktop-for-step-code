@@ -21,12 +21,21 @@ for (const [index, cwd] of [workspace, secondWorkspace, independentCwd, workspac
   await writeFile(join(dir, `fixture-${index}.jsonl`), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
 }
 await mkdir('test-results', { recursive: true });
-const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE;
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' }; delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
 const errors = [];
 try {
   const page = await app.firstWindow();
+  const windowState = await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setOpacity(0);
+    if (window.getOpacity() !== 0) throw new Error('Transparent acceptance window is unavailable');
+    window.setIgnoreMouseEvents(true);
+    window.showInactive();
+    return { opacity: window.getOpacity(), visible: window.isVisible(), focused: window.isFocused() };
+  });
+  assert.deepEqual(windowState, { opacity: 0, visible: true, focused: false });
   page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
   assert.equal(await page.locator('.window-bar img').count(), 0);
@@ -43,12 +52,20 @@ try {
     assert.match(sidebarMotion.timing, /cubic-bezier\(0\.65, 0, 0\.35, 1\)/);
     assert.ok(parseFloat(sidebarMotion.duration) >= 0.28);
   }
-  await page.getByRole('button', { name: '侧栏', exact: true }).click();
   if (!motionReduced) {
-    await page.waitForTimeout(65);
-    const mid = await page.locator('.sidebar').evaluate(element => element.getBoundingClientRect().right);
-    assert.ok(mid > 0 && mid < 244, `Sidebar should be moving at 60ms: ${mid}`);
+    await page.evaluate(() => {
+      window.__sidebarTransitionStarted = false;
+      const sidebar = document.querySelector('.sidebar');
+      const onTransition = event => {
+        if (event.propertyName !== 'transform') return;
+        window.__sidebarTransitionStarted = true;
+        sidebar.removeEventListener('transitionrun', onTransition);
+      };
+      sidebar.addEventListener('transitionrun', onTransition);
+    });
   }
+  await page.getByRole('button', { name: '侧栏', exact: true }).click();
+  if (!motionReduced) await page.waitForFunction(() => window.__sidebarTransitionStarted, null, { timeout: 2000 });
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
   assert.equal(await page.locator('.window-sidebar-toggle').isVisible(), true);
@@ -73,7 +90,8 @@ try {
   await page.getByRole('button', { name: '最小化', exact: true }).click();
   await page.waitForTimeout(250);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized()), true);
-  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.restore(); w.focus(); });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].restore());
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()), false);
   await page.getByRole('button', { name: '中文项目 with spaces', exact: true }).waitFor();
   await page.getByRole('button', { name: '独立会话', exact: true }).waitFor();
   await page.getByRole('button', { name: '独立验证会话', exact: true }).waitFor();
@@ -267,7 +285,8 @@ try {
   await attachButton.hover();
   const tooltip = page.getByRole('tooltip');
   await tooltip.getByText('添加图片').waitFor();
-  assert.equal(await tooltip.evaluate(element => parseFloat(getComputedStyle(element).borderTopLeftRadius) >= 8), true);
+  const tooltipStyle = await tooltip.evaluate(element => ({ className: element.className, radius: getComputedStyle(element).borderTopLeftRadius }));
+  assert.ok(parseFloat(tooltipStyle.radius) >= 8, `Tooltip radius: ${JSON.stringify(tooltipStyle)}`);
   await page.mouse.move(0, 0);
   await tooltip.waitFor({ state: 'hidden' });
   const controlOrder = await composerTools.evaluate(element => [...element.children].map(child => child.getAttribute('aria-label') ?? child.className));
@@ -600,6 +619,7 @@ try {
   await page.waitForFunction(() => !document.querySelector('.composer > textarea').disabled);
   assert.equal(await page.getByRole('region', { name: '性能信息' }).getByText('最近一轮').count(), 0);
   assert.deepEqual(errors, []);
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()), false);
   console.log('Electron acceptance passed: isolated profile, real RPC, settings, rename, MCP, themes, narrow window, no renderer Node access.');
 } catch (error) {
   const pages = app.windows();

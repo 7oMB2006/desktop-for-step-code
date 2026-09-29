@@ -10,16 +10,21 @@ const js = outputs.outputFiles.find(file => file.path.endsWith('.js'))?.text;
 const css = outputs.outputFiles.find(file => file.path.endsWith('.css'))?.text;
 assert.ok(js && css);
 const profile = await mkdtemp(join(tmpdir(), 'step-fader-'));
-const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile };
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ args: [resolve('.')], env });
 try {
   const pagePromise = app.waitForEvent('window');
-  await app.evaluate(({ BrowserWindow }) => {
-    const window = new BrowserWindow({ width: 640, height: 520, show: true, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
-    void window.loadURL('about:blank');
+  await app.evaluate(async ({ BrowserWindow }) => {
+    const window = new BrowserWindow({ width: 640, height: 520, show: false, focusable: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
+    window.setOpacity(0);
+    if (window.getOpacity() !== 0) throw new Error('Transparent acceptance window is unavailable');
+    window.setIgnoreMouseEvents(true);
+    await window.loadURL('about:blank');
+    window.showInactive();
   });
   const page = await pagePromise;
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.isFocused())), false);
   await page.setContent('<div id="root"></div>');
   await page.addStyleTag({ content: `${css}\nbody { height: 100vh; display: flex; align-items: flex-end; justify-content: center; } .test-composer { width: min(500px, calc(100vw - 36px)); display: flex; justify-content: flex-end; padding-right: 30px; margin-bottom: 45px; }` });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });

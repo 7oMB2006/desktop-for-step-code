@@ -14,7 +14,7 @@ const logsDir = join(profile, 'logs');
 const marker = 'fixture-crash-log-key';
 await mkdir(dataRoot, { recursive: true });
 
-const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile };
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const launch = () => electron.launch({ args: [resolve('.')], env, timeout: 60000 });
 

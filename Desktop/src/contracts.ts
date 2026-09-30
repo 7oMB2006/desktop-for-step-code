@@ -17,6 +17,7 @@ export interface McpServer { command?: string; args?: string[]; url?: string; cw
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
 export interface DesktopBridge {
   windowControl(action: 'state' | 'minimize' | 'toggleMaximize' | 'close'): Promise<{ maximized: boolean }>;
+  systemTheme(): Promise<{ systemDark: boolean }>;
   snapshot(): Promise<Snapshot>;
   newIndependentSession(): Promise<Snapshot>;
   openSessionFolder(): Promise<void>;
@@ -42,4 +43,9 @@ export interface DesktopBridge {
   diagnostics(): Promise<boolean>;
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }
-declare global { interface Window { desktop?: DesktopBridge } }
+export interface DesktopTheme {
+  resolved: 'light' | 'dark';
+  systemDark: boolean;
+  firstFrame: () => { theme?: string; readyState: string };
+}
+declare global { interface Window { desktop?: DesktopBridge; desktopTheme?: DesktopTheme } }

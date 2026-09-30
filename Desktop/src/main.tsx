@@ -21,7 +21,10 @@ import { ConversationScrollThumb } from './ConversationScrollThumb';
 import { updateRunMetrics, type RunMetrics } from './performance';
 
 const bridge = window.desktop;
-const initial: Snapshot = { preferences: { theme: 'system', language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
+// Seed the placeholder with the main-process-resolved theme so the first React
+// write matches the bootstrap instead of flipping to a system guess before the
+// real snapshot arrives.
+const initial: Snapshot = { preferences: { theme: window.desktopTheme?.resolved ?? 'system', language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
 const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
@@ -81,6 +84,10 @@ function App() {
   const [compactSidebarOpen, setCompactSidebarOpen] = useState(false);
   const compactSidebarRef = useRef(compactSidebar);
   const [settings, setSettings] = useState<Settings | null>(null);
+  // The renderer cannot read the Windows dark mode itself: prefers-color-scheme
+  // stays light in this packaged renderer, so the main process owns it and
+  // pushes changes here.
+  const [systemDark, setSystemDark] = useState(() => window.desktopTheme?.systemDark ?? false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
@@ -115,7 +122,7 @@ function App() {
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
-    return bridge.onEvent(event => {
+    const unsubscribe = bridge.onEvent(event => {
       if (['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_end', 'message_update', 'message_end', 'agent_end'].includes(event.type)) {
         const receivedAt = performance.now();
         if (event.type === 'agent_start') setClock(receivedAt);
@@ -130,6 +137,7 @@ function App() {
         setData(d => ({ ...d, status: event.status }));
       }
       if (event.type === 'desktop_error') setError(event.message);
+      if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
       if (['message_start', 'message_update', 'message_end'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
       if (event.type === 'extension_ui_request') {
         if (['select', 'input', 'editor', 'confirm'].includes(event.method)) setRequests(r => [...r.filter(v => v.id !== event.id), event as UIRequest]);
@@ -153,6 +161,15 @@ function App() {
         if (event.method === 'set_editor_text') setDraft(event.text);
       }
     });
+    // The preload snapshot can be stale by the time this runs: a system theme
+    // change that landed before the subscription had no listener and was
+    // dropped. Subscribe first, then re-read the authoritative value so the
+    // dropped change is corrected here and later ones arrive as events.
+    void (async () => {
+      try { setSystemDark((await bridge.systemTheme()).systemDark); }
+      catch (error) { /* keep the preload snapshot */ }
+    })();
+    return unsubscribe;
   }, []);
   useEffect(() => {
     if (!runMetrics || runMetrics.finishedAt !== undefined) return;
@@ -221,10 +238,9 @@ function App() {
     return () => { document.removeEventListener('keydown', onKeyDown); previewAnimation.current?.cancel(); previewDrag.current = null; setPreviewDragging(false); if (previewTrigger.current?.isConnected) previewTrigger.current.focus({ preventScroll: true }); };
   }, [preview]);
   useEffect(() => {
-    const query = matchMedia('(prefers-color-scheme: dark)');
-    const update = () => document.documentElement.dataset.theme = data.preferences.theme === 'system' ? query.matches ? 'dark' : 'light' : data.preferences.theme;
-    update(); query.addEventListener('change', update); document.documentElement.lang = zh ? 'zh-CN' : 'en'; return () => query.removeEventListener('change', update);
-  }, [data.preferences.theme, zh]);
+    const update = () => document.documentElement.dataset.theme = data.preferences.theme === 'system' ? (systemDark ? 'dark' : 'light') : data.preferences.theme;
+    update(); document.documentElement.lang = zh ? 'zh-CN' : 'en';
+  }, [data.preferences.theme, systemDark, zh]);
   useEffect(() => {
     const onResize = () => {
       if (window.innerWidth <= 760 && !compactSidebarRef.current) {

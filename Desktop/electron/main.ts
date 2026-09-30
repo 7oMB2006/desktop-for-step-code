@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, session, clipboard, ClipboardItem, nativeImage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, session, clipboard, ClipboardItem, nativeImage, nativeTheme } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -451,8 +451,22 @@ else app.whenReady().then(async () => {
     // 探测或注册失败不该影响启动
   }
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  // The renderer cannot read the Windows dark mode reliably: prefers-color-scheme
+  // stays light inside this packaged renderer even on a dark system, so the main
+  // process owns the resolved theme. The preload asks for it synchronously before
+  // the first paint; the renderer re-resolves on preference and system changes.
+  const resolvedTheme = (): 'light' | 'dark' => preferences.theme === 'system' ? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light') : preferences.theme;
+  ipcMain.on('desktop:resolved-theme', event => { event.returnValue = { theme: resolvedTheme(), systemDark: nativeTheme.shouldUseDarkColors }; });
+  // The authoritative system value, re-read by the renderer after it subscribes
+  // to theme events: a change that lands before that subscription is dropped,
+  // and this query is what corrects the startup snapshot.
+  ipcMain.handle('desktop-system-theme', event => {
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
+    return { systemDark: nativeTheme.shouldUseDarkColors };
+  });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
   window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: '#171717', autoHideMenuBar: true, show: !backgroundAcceptance, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
+  nativeTheme.on('updated', () => { if (window && !window.isDestroyed()) window.webContents.send('runtime-event', { type: 'desktop_system_theme', dark: nativeTheme.shouldUseDarkColors }); });
   crashLog.setPhase('window created');
   const windowState = () => emit({ type: 'desktop_window_state', maximized: window.isMaximized(), focused: window.isFocused() });
   window.on('maximize', windowState);

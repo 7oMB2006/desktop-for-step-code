@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -636,8 +636,12 @@ try {
   await imageMenu.getByRole('menuitem', { name: '在资源管理器中打开', exact: true }).click();
   await page.evaluate(() => window.desktop.snapshot());
   const revealedPath = await app.evaluate(() => globalThis.imageMenuTest.revealed[0]);
-  assert.equal(revealedPath, join(profile, 'image-preview.png'));
+  const imageCache = join(profile, 'cache', 'image-previews');
+  assert.equal(revealedPath, join(imageCache, 'image-preview.png'));
   assert.deepEqual(await readFile(revealedPath), Buffer.from(fixtureImageData.split(',')[1], 'base64'));
+  assert.equal(await page.evaluate(src => window.desktop.imageAction('reveal', src, 'second-image.png'), fixtureImageData), true);
+  assert.deepEqual(await readdir(imageCache), ['image-preview.png'], 'repeated reveal must reuse the image cache');
+  assert.equal((await readdir(profile)).includes('image-preview.png'), false, 'image reveal must not write to the data root');
   await sentImage.click({ button: 'right' });
   await imageMenu.getByRole('menuitem', { name: '添加到聊天', exact: true }).click();
   await page.locator('.attachment-open').waitFor();

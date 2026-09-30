@@ -376,7 +376,9 @@ async function handle(method: string, args: any[]) {
         await writeFile(result.filePath, bytes);
       } else {
         // One reusable cache file per format, rather than an unbounded export archive.
-        const path = join(app.getPath('userData'), imageFileName('image-preview', mimeType));
+        const cacheRoot = join(app.getPath('userData'), 'cache', 'image-previews');
+        await mkdir(cacheRoot, { recursive: true });
+        const path = join(cacheRoot, imageFileName('image-preview', mimeType));
         await writeFile(path, bytes);
         shell.showItemInFolder(path);
       }

@@ -952,6 +952,14 @@ try {
   assert.deepEqual(errors, []);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
   await page.waitForFunction(() => !document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  // The class removal starts the sidebar transition (layout.css: flex-basis 280ms
+  // on .app::before, transform 280ms on .sidebar); it is not the end. Wait for the
+  // animations themselves, never a frame count or a fixed delay: two frames are
+  // 16-33ms at 60Hz, far short of 280ms, and any hardcoded ms value is just as
+  // arbitrary. Awaiting animation.finished keeps the main thread out of the
+  // transition layout before the performance events are injected, so the measured
+  // receipt gap cannot cross the 50ms rounding boundary and render 首段文字 as 0.1s.
+  await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {}))));
   assert.equal(await page.locator('.sidebar-identity').isVisible(), true);
   await app.evaluate(({ BrowserWindow }) => {
     const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
@@ -978,6 +986,9 @@ try {
   assert.equal(await performance.getByText('工具累计 0.0s').count(), 1);
   assert.equal(await performance.getByText('缓存读取 1K').count(), 1);
   assert.equal(await performance.getByText('缓存命中 50%').count(), 1);
+  // stats arrives asynchronously (agent_end triggers a snapshot refresh through the
+  // IPC bridge), so wait for the session total to land before counting it.
+  await performance.getByText('会话累计 0 tok · 0 次工具').waitFor();
   assert.equal(await performance.getByText('会话累计 0 tok · 0 次工具').count(), 1);
   await page.screenshot({ path: 'test-results/performance-wide.png' });
   const geometry = await page.evaluate(() => {

@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowUp, ArrowDown, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3 } from 'lucide-react';
+import { ArrowUp, ArrowDown, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session } from './contracts';
+import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment } from './contracts';
 import './style.css';
 import './layout.css';
 import { applyMessageEvent } from './message-events';
@@ -14,6 +14,7 @@ import { PerformanceBar } from './PerformanceBar';
 import { ModelEffortPicker } from './ModelEffortPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { ContextRing } from './ContextRing';
+import { ImageContextMenu, type ImageMenuTarget, type ImageMenuAction } from './ImageContextMenu';
 import { AppTooltip } from './AppTooltip';
 import { ConversationMarkers, conversationTurns, scrollToTurn } from './ConversationNavigation';
 import { ConversationScrollThumb } from './ConversationScrollThumb';
@@ -25,20 +26,23 @@ const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
-function IconButton({ title, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string }) { return <button type="button" className="icon-button" data-tooltip={title} aria-label={title} {...props}>{children}</button>; }
+function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
 function Code({ children, className }: any) {
   const [copied, setCopied] = useState(false);
   if (!className) return <code>{children}</code>;
   return <span className="code-block"><span className="code-header">{className.replace('hljs language-', '').replace('language-', '')}<IconButton title="Copy" onClick={() => { void navigator.clipboard.writeText(String(children)); setCopied(true); setTimeout(() => setCopied(false), 1800); }}>{copied ? <Check size={14}/> : <Copy size={14}/>}</IconButton></span><code className={className}>{children}</code></span>;
 }
-function MessageView({ message, index, inspect }: { message: Message; index: number; inspect: (value: string) => void }) {
+function PreviewableImage({ src, alt, className, open }: { src: string; alt: string; className?: string; open: (src: string, name: string, anchor: HTMLElement) => void }) {
+  return <img src={src} alt={alt} className={`${className ?? ''} previewable-image`} role="button" tabIndex={0} aria-label={`${document.documentElement.lang === 'zh-CN' ? '预览' : 'Preview'} ${alt}`} onClick={e => open(src, alt, e.currentTarget)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(src, alt, e.currentTarget); } }}/>;
+}
+function MessageView({ message, index, inspect, openImage }: { message: Message; index: number; inspect: (value: string) => void; openImage: (src: string, name: string, anchor: HTMLElement) => void }) {
   const blocks: Content[] = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content ?? [];
-  if (message.role === 'toolResult') return <details data-message-index={index} className={`tool-result ${message.isError ? 'failed' : ''}`}><summary><Terminal size={14}/><span>{message.toolName ?? 'Tool'}</span><span className="tool-outcome">{message.isError ? 'Error' : 'Result'}</span><ChevronDown size={14}/></summary><pre>{blocks.filter(b => b.type === 'text').map(b => b.text).join('\n')}</pre>{blocks.filter(b => b.type === 'image').map((b, i) => <img key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Tool output"/>)}</details>;
+  if (message.role === 'toolResult') return <details data-message-index={index} className={`tool-result ${message.isError ? 'failed' : ''}`}><summary><Terminal size={14}/><span>{message.toolName ?? 'Tool'}</span><span className="tool-outcome">{message.isError ? 'Error' : 'Result'}</span><ChevronDown size={14}/></summary><pre>{blocks.filter(b => b.type === 'text').map(b => b.text).join('\n')}</pre>{blocks.filter(b => b.type === 'image').map((b, i) => <PreviewableImage key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Tool output" open={openImage}/>)}</details>;
   return <article data-message-index={index} className={`message ${message.role}`}><div className="message-label">{message.role === 'user' ? 'You' : 'Step Code'}<span>{message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span></div><div className="message-body">{blocks.map((b, i) => {
     if (b.type === 'thinking') return <details className="thinking" key={i}><summary>Thinking</summary><Markdown>{b.thinking ?? ''}</Markdown></details>;
     if (b.type === 'toolCall') return <button className="tool-call" key={i} onClick={() => inspect(JSON.stringify({ tool: b.name, arguments: b.arguments }, null, 2))}><Terminal size={14}/><span>{b.name}</span><code>{JSON.stringify(b.arguments ?? {}).slice(0, 95)}</code><ChevronRight size={14}/></button>;
-    if (b.type === 'image') return <img className="attachment" key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Attachment"/>;
-    if (b.type === 'text') return <Markdown key={i} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={{ code: Code, a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>, img: ({ src, alt }) => src?.startsWith('data:image/') ? <img src={src} alt={alt}/> : <span>{alt}</span> }}>{b.text ?? ''}</Markdown>;
+    if (b.type === 'image') return <PreviewableImage className="attachment" key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Attachment" open={openImage}/>;
+    if (b.type === 'text') return <Markdown key={i} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={{ code: Code, a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>, img: ({ src, alt }) => src?.startsWith('data:image/') ? <PreviewableImage src={src} alt={alt ?? 'Image'} open={openImage}/> : <span>{alt}</span> }}>{b.text ?? ''}</Markdown>;
     return null;
   })}</div></article>;
 }
@@ -50,7 +54,22 @@ function App() {
   const notifiedMcp = useRef(new Set<string>());
   const nextNoticeId = useRef(0);
   const [draft, setDraft] = useState('');
-  const [images, setImages] = useState<Content[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const attachmentsRef = useRef<ComposerAttachment[]>([]);
+  const [preview, setPreview] = useState<{ name: string; src: string } | null>(null);
+  const [imageMenu, setImageMenu] = useState<ImageMenuTarget | null>(null);
+  const previewPanel = useRef<HTMLDivElement>(null);
+  const previewClosing = useRef(false);
+  const previewAnchorRect = useRef<DOMRect | null>(null);
+  const previewAnimation = useRef<Animation | null>(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const [previewPan, setPreviewPan] = useState({ x: 0, y: 0 });
+  const [previewDragging, setPreviewDragging] = useState(false);
+  const previewTrigger = useRef<HTMLElement | null>(null);
+  const previewViewport = useRef<HTMLDivElement>(null);
+  const previewDrag = useRef<{ pointerId: number; startX: number; startY: number; panX: number; panY: number } | null>(null);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const dragDepth = useRef(0);
   const [busy, setBusy] = useState(false);
   const [runMetrics, setRunMetrics] = useState<RunMetrics | null>(null);
   const [clock, setClock] = useState(() => performance.now());
@@ -149,6 +168,58 @@ function App() {
     const input = document.querySelector<HTMLTextAreaElement>('.composer > textarea');
     if (input) { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; }
   }, [draft]);
+  useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
+  const openImage = (src: string, name: string, anchor: HTMLElement) => {
+    previewTrigger.current = anchor;
+    previewAnchorRect.current = (anchor.querySelector('img') ?? anchor).getBoundingClientRect();
+    previewClosing.current = false;
+    previewDrag.current = null;
+    setPreviewZoom(1); setPreviewPan({ x: 0, y: 0 }); setPreviewDragging(false);
+    setPreview({ src, name });
+  };
+  const anchorTransform = () => {
+    const panel = previewPanel.current;
+    const anchor = previewTrigger.current;
+    if (!panel) return 'none';
+    const rect = anchor?.isConnected ? (anchor.querySelector('img') ?? anchor).getBoundingClientRect() : previewAnchorRect.current;
+    if (!rect || rect.bottom <= 0 || rect.top >= innerHeight || rect.right <= 0 || rect.left >= innerWidth) return 'scale(.96)';
+    // Layout coordinates stay stable even while the panel is mid-animation.
+    return `translate(${rect.left - panel.offsetLeft}px, ${rect.top - panel.offsetTop}px) scale(${rect.width / panel.offsetWidth}, ${rect.height / panel.offsetHeight})`;
+  };
+  const closePreview = () => {
+    const panel = previewPanel.current;
+    if (!panel || previewClosing.current) return;
+    previewClosing.current = true;
+    setImageMenu(null);
+    previewDrag.current = null; setPreviewDragging(false);
+    const from = getComputedStyle(panel).transform;
+    previewAnimation.current?.cancel();
+    const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 260;
+    const animation = panel.animate([{ transform: from, opacity: 1 }, { transform: anchorTransform(), opacity: 0 }], { duration, easing: 'cubic-bezier(.4, 0, .2, 1)', fill: 'forwards' });
+    previewAnimation.current = animation;
+    panel.parentElement?.getAnimations().forEach(value => value.cancel());
+    panel.parentElement?.animate([{ backgroundColor: 'rgba(0,0,0,.8)' }, { backgroundColor: 'rgba(0,0,0,0)' }], { duration, fill: 'forwards' });
+    void animation.finished.then(() => setPreview(null)).catch(() => {});
+  };
+  useEffect(() => {
+    if (!preview) return;
+    const panel = previewPanel.current!;
+    const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 280;
+    previewAnimation.current = panel.animate([{ transform: anchorTransform(), opacity: 0 }, { transform: 'none', opacity: 1 }], { duration, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    panel.parentElement?.animate([{ backgroundColor: 'rgba(0,0,0,0)' }, { backgroundColor: 'rgba(0,0,0,.8)' }], { duration });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (document.querySelector('.image-context')) return;
+      if (event.key === 'Escape') { event.preventDefault(); closePreview(); }
+      if (event.key === 'Tab') {
+        const controls = [...document.querySelectorAll<HTMLButtonElement>('.attachment-preview-toolbar button:not(:disabled)')];
+        if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1)?.focus(); }
+        else if (!event.shiftKey && document.activeElement === controls.at(-1)) { event.preventDefault(); controls[0]?.focus(); }
+      }
+    };
+    document.querySelector<HTMLButtonElement>('.attachment-preview-toolbar button:last-child')?.focus();
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('keydown', onKeyDown); previewAnimation.current?.cancel(); previewDrag.current = null; setPreviewDragging(false); if (previewTrigger.current?.isConnected) previewTrigger.current.focus({ preventScroll: true }); };
+  }, [preview]);
   useEffect(() => {
     const query = matchMedia('(prefers-color-scheme: dark)');
     const update = () => document.documentElement.dataset.theme = data.preferences.theme === 'system' ? query.matches ? 'dark' : 'light' : data.preferences.theme;
@@ -203,10 +274,58 @@ function App() {
     await run(async () => { await bridge!.command('extension_ui_response', { id: r.id, ...value }); setRequests(q => q.filter(v => v.id !== r.id)); });
   };
   const openSettings = async () => { setSettingsOpen(true); await run(async () => setSettings(await bridge!.settings())); };
+  const addAttachments = (added: ComposerAttachment[]) => {
+    const previous = attachmentsRef.current;
+    const next = [...previous, ...added];
+    if (next.length > 10 || next.filter(item => item.kind === 'image').length > 5) throw new Error(t('最多添加 10 个附件，其中图片最多 5 张', 'Maximum 10 attachments, including 5 images'));
+    attachmentsRef.current = next;
+    setAttachments(next);
+  };
+  const importFiles = async (files: File[]) => run(async () => {
+    if (!files.length) return;
+    if (files.length + attachmentsRef.current.length > 10) throw new Error(t('最多添加 10 个附件', 'Maximum 10 attachments'));
+    const added: ComposerAttachment[] = [];
+    for (const file of files) {
+      if (file.size > 50 * 1024 * 1024) throw new Error(t('文件不能超过 50 MiB', 'File exceeds 50 MiB'));
+      try {
+        added.push(await bridge!.importFile(file));
+      } catch (error) {
+        if (!file.type.startsWith('image/') || !String(error).includes('no local path')) throw error;
+        if (file.size > 10 * 1024 * 1024) throw new Error(t('图片不能超过 10 MiB', 'Image exceeds 10 MiB'));
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        added.push(await bridge!.importClipboardImage(btoa(binary), file.type, file.name || 'clipboard.png'));
+      }
+    }
+    addAttachments(added);
+  });
   const send = async () => {
-    if ((!draft.trim() && !images.length) || !connected || loading) return;
-    const message = draft; const attached = images; setDraft(''); setImages([]); follow.current = true; setAwayFromBottom(false);
-    await run(async () => { try { await bridge!.command('prompt', { message, images: attached }); } catch (e) { setDraft(message); setImages(attached); throw e; } });
+    if ((!draft.trim() && !attachments.length) || !connected || loading) return;
+    const message = draft; const attached = attachments;
+    setDraft(''); setAttachments([]); attachmentsRef.current = []; follow.current = true; setAwayFromBottom(false);
+    await run(async () => {
+      try {
+        await bridge!.command('prompt', { message, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) });
+      } catch (e) {
+        setDraft(value => value ? `${message}\n${value}` : message);
+        setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
+        throw e;
+      }
+    });
+  };
+  const changePreviewZoom = (next: number, anchor?: { x: number; y: number }) => {
+    const zoom = Math.max(.5, Math.min(5, next));
+    if (anchor && previewViewport.current) {
+      const rect = previewViewport.current.getBoundingClientRect();
+      const x = anchor.x - rect.left - rect.width / 2;
+      const y = anchor.y - rect.top - rect.height / 2;
+      setPreviewPan(pan => ({
+        x: x - (x - pan.x) * zoom / previewZoom,
+        y: y - (y - pan.y) * zoom / previewZoom,
+      }));
+    }
+    setPreviewZoom(zoom);
   };
   const setPreference = async (patch: any) => run(async () => { const p = await bridge!.preferences(patch); setData(d => ({ ...d, preferences: p })); });
   const saveMcp = async () => run(async () => {
@@ -298,11 +417,39 @@ function App() {
       { label: t('导出脱敏诊断', 'Export redacted diagnostics'), disabled: !bridge, action: () => void run(() => bridge!.diagnostics()) },
     ] },
   ];
-  return <div className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''}`}>
+  const imageAction = (action: ImageMenuAction) => {
+    if (!imageMenu || !bridge) return;
+    const target = imageMenu;
+    setImageMenu(null);
+    void run(async () => {
+      if (action === 'add') {
+        const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(target.src);
+        if (!match) throw new Error(t('不支持的图片', 'Unsupported image'));
+        addAttachments([await bridge.importClipboardImage(match[2], match[1], target.name)]);
+        document.querySelector<HTMLTextAreaElement>('.composer > textarea')?.focus();
+      } else await bridge.imageAction(action, target.src, target.name);
+    });
+  };
+  return <div className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''}`} onContextMenu={e => {
+    const element = e.target as HTMLElement;
+    const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
+    if (!image || !image.closest('.attachment-open, .attachment-preview-image, .messages')) return;
+    const src = image.getAttribute('src') ?? '';
+    if (!/^data:image\/(?:png|jpeg|webp);base64,/.test(src)) return;
+    e.preventDefault(); e.stopPropagation();
+    setContextMenu(null);
+    const rect = image.getBoundingClientRect();
+    setImageMenu({ src, name: image.alt || t('图片', 'Image'), transcript: Boolean(image.closest('.messages')),
+      anchor: image.closest<HTMLButtonElement>('button') ?? image,
+      x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
+  }}>
     <AppTooltip/>
     <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle}/>
     <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
       onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
+    {imageMenu && <ImageContextMenu target={imageMenu} language={data.preferences.language}
+      canAdd={Boolean(bridge) && attachments.length < 10 && attachments.filter(item => item.kind === 'image').length < 5}
+      onAction={imageAction} onClose={() => setImageMenu(null)}/>}
     {contextMenu && <div className="sidebar-context" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={e => e.stopPropagation()}>
       <button role="menuitem" onClick={() => beginRename(contextMenu.type, contextMenu.id)} disabled={busy || loading}><Pencil size={15}/>{t('重命名', 'Rename')}</button>
       {contextMenu.type === 'workspace' ? <button role="menuitem" onClick={() => { const path = contextMenu.id; setContextMenu(null); void run(() => bridge!.openWorkspaceFolder(path)); }}><FolderOpen size={15}/>{t('在资源管理器中打开', 'Open in Explorer')}</button> : <>
@@ -348,23 +495,31 @@ function App() {
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages">{data.messages.map((m, i) => <MessageView key={i} index={i} message={m} inspect={value => { setRightPanel(null); setDetails(value); }} />)}{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}<div ref={bottom}/></div>}
+          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages">{data.messages.map((m, i) => <MessageView key={i} index={i} message={m} openImage={openImage} inspect={value => { setRightPanel(null); setDetails(value); }} />)}{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}<div ref={bottom}/></div>}
         </div>
         <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>
       <div className="composer-wrap">
         {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
         {draft.startsWith('/') && commands.filter(c => c.name.startsWith(draft.slice(1))).length > 0 && <div className="command-menu">{commands.filter(c => c.name.startsWith(draft.slice(1))).slice(0, 6).map(c => <button key={c.name} onClick={() => setDraft(`/${c.name} `)}><code>/{c.name}</code><span>{c.description}</span></button>)}</div>}
-        <div className="composer">{images.length > 0 && <div className="attachments">{images.map((im, i) => <div key={i}><img src={`data:${im.mimeType};base64,${im.data}`} alt="Attachment"/><IconButton title="Remove" onClick={() => setImages(v => v.filter((_, n) => n !== i))}><X size={12}/></IconButton></div>)}</div>}
-          <textarea aria-label={t('消息', 'Message')} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={draft} disabled={!connected || loading} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/>
+        <div className={`composer ${draggingFiles ? 'composer-file-drop' : ''}`}
+          onDragEnter={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); dragDepth.current++; setDraggingFiles(true); } }}
+          onDragOver={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
+          onDragLeave={e => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDraggingFiles(false); }}
+          onDrop={e => { if (!e.dataTransfer.files.length) return; e.preventDefault(); dragDepth.current = 0; setDraggingFiles(false); if (connected && !loading) void importFiles(Array.from(e.dataTransfer.files)); }}>
+          {attachments.length > 0 && <div className="attachments" aria-label={t('待发送附件', 'Pending attachments')}>{attachments.map((item, i) => <div className={`attachment-card ${item.kind}`} key={item.kind === 'file' ? item.id : `${item.name}-${i}`}>
+            {item.kind === 'image' ? <button type="button" className="attachment-open" aria-label={t(`预览 ${item.name}`, `Preview ${item.name}`)} onClick={e => openImage(`data:${item.content.mimeType};base64,${item.content.data}`, item.name, e.currentTarget)}><img src={`data:${item.content.mimeType};base64,${item.content.data}`} alt={item.name}/></button> : <div className="attachment-file"><FileText size={27}/><span>{item.name}</span><small>{t('本地文件引用', 'Local file reference')}</small></div>}
+            <IconButton title={t('移除附件', 'Remove attachment')} tooltip={false} className="attachment-remove" onClick={() => { const next = attachmentsRef.current.filter((_, n) => n !== i); attachmentsRef.current = next; setAttachments(next); }}><X size={13}/></IconButton>
+          </div>)}</div>}
+          <textarea aria-label={t('消息', 'Message')} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={draft} disabled={!connected || loading} onChange={e => setDraft(e.target.value)} onPaste={e => { const files = Array.from(e.clipboardData.files); if (files.length) { e.preventDefault(); void importFiles(files); } }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/>
           <div className="composer-tools">
-            <IconButton title={t('添加图片', 'Attach images')} disabled={!connected || images.length >= 5} onClick={() => void run(async () => { const added = await bridge!.images(); setImages(v => [...v, ...added].slice(0, 5)); })}><Plus size={17}/></IconButton>
+            <IconButton title={t('添加附件', 'Add attachments')} disabled={!connected || attachments.length >= 10} onClick={() => void run(async () => addAttachments(await bridge!.chooseAttachments()))}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || busy || loading} supported={commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}/>
             <div className="spacer"/>
             {busy && <IconButton title={t('停止', 'Stop')} className="stop-button" onClick={() => void command('abort')}><Square size={15}/></IconButton>}
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
             <ModelEffortPicker model={data.state?.model} models={data.models} level={data.state?.thinkingLevel} levels={levels} language={data.preferences.language} disabled={!connected || busy || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })}/>
-            <IconButton title={busy ? t('加入队列', 'Queue message') : t('发送', 'Send')} className="send-button" disabled={!connected || (!draft.trim() && !images.length) || loading} onClick={() => void send()}><ArrowUp size={18}/></IconButton>
+            <IconButton title={busy ? t('加入队列', 'Queue message') : t('发送', 'Send')} className="send-button" disabled={!connected || (!draft.trim() && !attachments.length) || loading} onClick={() => void send()}><ArrowUp size={18}/></IconButton>
           </div>
         </div><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>
       </div>
@@ -383,6 +538,39 @@ function App() {
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-pressed={!details && rightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(value => value === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-pressed={!details && rightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(value => value === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
     </nav>
+    {preview && <div className="attachment-preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>
+      <div className="attachment-preview" ref={previewPanel} role="dialog" aria-modal="true" aria-label={t(`预览 ${preview.name}`, `Preview ${preview.name}`)}>
+        <div className="attachment-preview-toolbar"><span>{preview.name}</span><IconButton title={t('缩小', 'Zoom out')} tooltip={false} disabled={previewZoom <= .5} onClick={() => changePreviewZoom(previewZoom - .25)}><ZoomOut size={17}/></IconButton><span>{Math.round(previewZoom * 100)}%</span><IconButton title={t('放大', 'Zoom in')} tooltip={false} disabled={previewZoom >= 5} onClick={() => changePreviewZoom(previewZoom + .25)}><ZoomIn size={17}/></IconButton><IconButton title={t('关闭预览', 'Close preview')} tooltip={false} onClick={closePreview}><X size={19}/></IconButton></div>
+        <div className={`attachment-preview-image ${previewDragging ? 'dragging' : ''}`} ref={previewViewport}
+          onPointerDown={e => {
+            if (e.button !== 0 || previewClosing.current) return;
+            previewDrag.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, panX: previewPan.x, panY: previewPan.y };
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setPreviewDragging(true);
+            e.preventDefault();
+          }}
+          onPointerMove={e => {
+            const drag = previewDrag.current;
+            if (!drag || drag.pointerId !== e.pointerId) return;
+            setPreviewPan({ x: drag.panX + e.clientX - drag.startX, y: drag.panY + e.clientY - drag.startY });
+          }}
+          onPointerUp={e => {
+            if (previewDrag.current?.pointerId !== e.pointerId) return;
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+            previewDrag.current = null;
+            setPreviewDragging(false);
+          }}
+          onPointerCancel={() => { previewDrag.current = null; setPreviewDragging(false); }}
+          onWheel={e => {
+            if (!e.ctrlKey) return;
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.16 : 1 / 1.16;
+            changePreviewZoom(previewZoom * factor, { x: e.clientX, y: e.clientY });
+          }}>
+          <img draggable={false} src={preview.src} alt={preview.name} style={{ transform: `translate3d(${previewPan.x}px, ${previewPan.y}px, 0) scale(${previewZoom})` }}/>
+        </div>
+      </div>
+    </div>}
     {settingsOpen && <div className="modal-backdrop"><section className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={() => { setSettingsOpen(false); setKey(''); }}><X size={19}/></IconButton></header><div className="settings-layout"><nav>{[['account', Cpu, t('账户', 'Account')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')]].map(([id, Icon, title]: any) => <button key={id} className={tab === id ? 'selected' : ''} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div className="settings-content">
       {settings && tab === 'mcp' && Object.keys(mcpFailures).length > 0 && <section className="mcp-failures" aria-label={t('本次窗口的 MCP 警告', 'MCP warnings in this window')}>
         <h3>{t('本次窗口的连接警告', 'Connection warnings')}</h3>

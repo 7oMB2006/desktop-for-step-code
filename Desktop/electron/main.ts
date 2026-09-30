@@ -1,5 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, session } from 'electron';
-import { join, resolve, extname } from 'node:path';
+import { app, BrowserWindow, dialog, ipcMain, shell, session, clipboard, ClipboardItem, nativeImage } from 'electron';
+import { join, resolve, extname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
@@ -9,6 +9,7 @@ import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
 import { permissionFromStatus, permissionPresets } from './permission-status';
 import type { Preferences, Session, Snapshot, RuntimeState, UIRequest } from '../src/contracts';
+import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
 app.setName('Desktop for Step Code');
 app.setAppUserModelId('community.stepcode.desktop');
@@ -27,6 +28,26 @@ let quitPending = false;
 let startup: Promise<void> = Promise.resolve();
 let startupError: string | undefined;
 const pendingUI = new Map<string, UIRequest>();
+const attachedFiles = new Map<string, string>();
+async function importAttachment(path: string) {
+  const canonical = await realpath(path);
+  const info = await stat(canonical);
+  if (!info.isFile()) throw new Error('Only regular files can be attached');
+  if (info.size > MAX_FILE_BYTES) throw new Error('File exceeds 50 MiB');
+  const extension = extname(canonical).toLowerCase();
+  if (['.png', '.jpg', '.jpeg', '.webp'].includes(extension)) {
+    if (info.size > MAX_IMAGE_BYTES) throw new Error('Image exceeds 10 MiB');
+    const bytes = await readFile(canonical);
+    if (bytes.length > MAX_IMAGE_BYTES) throw new Error('Image exceeds 10 MiB');
+    const mimeType = imageMime(bytes);
+    if (!mimeType) throw new Error('Unsupported image');
+    return { kind: 'image', name: basename(canonical), content: { type: 'image', mimeType, data: bytes.toString('base64') } };
+  }
+  if (attachedFiles.size >= 100) attachedFiles.delete(attachedFiles.keys().next().value!);
+  const id = randomUUID();
+  attachedFiles.set(id, canonical);
+  return { kind: 'file', id, name: basename(canonical), size: info.size };
+}
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
@@ -234,8 +255,19 @@ async function handle(method: string, args: any[]) {
       let payload: Record<string, unknown> = {};
       if (type === 'prompt') {
         payload.message = text(data.message);
+        if (data.files !== undefined) {
+          if (!Array.isArray(data.files) || data.files.length > MAX_ATTACHMENTS || new Set(data.files).size !== data.files.length) throw new Error('Invalid attachments');
+          const paths = await Promise.all(data.files.map(async (id: unknown) => {
+            const path = attachedFiles.get(text(id, 80));
+            if (!path) throw new Error('Attachment has expired; add it again');
+            const info = await stat(path);
+            if (!info.isFile() || info.size > MAX_FILE_BYTES) throw new Error('Attached file is unavailable or too large');
+            return path;
+          }));
+          payload.message = fileReferenceMessage(payload.message as string, paths, preferences.language);
+        }
         if (data.images) {
-          if (!Array.isArray(data.images) || data.images.length > 5) throw new Error('Too many images');
+          if (!Array.isArray(data.images) || data.images.length > MAX_IMAGES || data.images.length + (data.files?.length ?? 0) > MAX_ATTACHMENTS) throw new Error('Too many attachments');
           payload.images = data.images.map((i: any) => {
             if (i.type !== 'image' || !['image/png', 'image/jpeg', 'image/webp'].includes(i.mimeType)) throw new Error('Unsupported image');
             return { type: 'image', mimeType: i.mimeType, data: text(i.data, 14000000) };
@@ -247,7 +279,9 @@ async function handle(method: string, args: any[]) {
       if (type === 'set_thinking_level') payload = { level: text(data.level, 30) };
       if (type === 'set_session_name') payload = { name: text(data.name, 200) };
       if (['new_session', 'set_model', 'set_thinking_level', 'compact'].includes(type)) await guardIdle();
-      return rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
+      const response = await rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
+      if (type === 'prompt' && Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
+      return response;
     }
     case 'settings': return admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
     case 'login': {
@@ -304,6 +338,49 @@ async function handle(method: string, args: any[]) {
       if (result.canceled) return [];
       if (result.filePaths.length > 5) throw new Error('Maximum 5 images');
       return Promise.all(result.filePaths.map(async path => { if ((await stat(path)).size > 10 * 1024 * 1024) throw new Error('Image exceeds 10 MiB'); return { type: 'image', mimeType: extname(path).toLowerCase() === '.png' ? 'image/png' : extname(path).toLowerCase() === '.webp' ? 'image/webp' : 'image/jpeg', data: (await readFile(path)).toString('base64') }; }));
+    }
+    case 'chooseAttachments': {
+      const result = await dialog.showOpenDialog(window, { properties: ['openFile', 'multiSelections'] });
+      if (result.canceled) return [];
+      if (result.filePaths.length > MAX_ATTACHMENTS) throw new Error('Maximum 10 attachments');
+      return Promise.all(result.filePaths.map(importAttachment));
+    }
+    case 'importFile': return importAttachment(text(args[0], 4096));
+    case 'importClipboardImage': {
+      const data = text(args[0], 14000000);
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw new Error('Invalid image');
+      const bytes = Buffer.from(data, 'base64');
+      if (bytes.length > MAX_IMAGE_BYTES) throw new Error('Image exceeds 10 MiB');
+      const mimeType = imageMime(bytes);
+      if (!mimeType || mimeType !== args[1]) throw new Error('Unsupported image');
+      return { kind: 'image', name: text(args[2], 255), content: { type: 'image', mimeType, data } };
+    }
+    case 'imageAction': {
+      const action = args[0];
+      if (!['copy', 'save', 'reveal'].includes(action)) throw new Error('Invalid image action');
+      const { bytes, mimeType } = decodeImageUrl(args[1]);
+      const image = nativeImage.createFromBuffer(bytes);
+      if (image.isEmpty()) throw new Error('Invalid image');
+      const name = imageFileName(text(args[2], 255), mimeType);
+      if (action === 'copy') {
+        await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }) })]);
+        return true;
+      }
+      if (action === 'save') {
+        const result = await dialog.showSaveDialog(window, {
+          title: preferences.language === 'zh' ? '另存为' : 'Save As',
+          defaultPath: name,
+          filters: [{ name: preferences.language === 'zh' ? '图片' : 'Image', extensions: [mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png'] }],
+        });
+        if (result.canceled || !result.filePath) return false;
+        await writeFile(result.filePath, bytes);
+      } else {
+        // One reusable cache file per format, rather than an unbounded export archive.
+        const path = join(app.getPath('userData'), imageFileName('image-preview', mimeType));
+        await writeFile(path, bytes);
+        shell.showItemInFolder(path);
+      }
+      return true;
     }
     case 'diagnostics': {
       const result = await dialog.showSaveDialog(window, { defaultPath: 'step-desktop-diagnostics.json' });

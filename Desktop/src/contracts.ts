@@ -1,6 +1,7 @@
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
 export interface Model { id: string; provider: string; name: string; reasoning?: boolean }
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
+export type ComposerAttachment = { kind: 'image'; name: string; content: Content } | { kind: 'file'; id: string; name: string; size: number };
 export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number }
 export interface SessionStats { toolCalls: number; assistantMessages: number; tokens: Usage & { total: number }; contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null } }
 export type PermissionPreset = 'ask' | 'read-only' | 'bypass' | 'autopilot';
@@ -34,6 +35,10 @@ export interface DesktopBridge {
   saveMcp(name: string, config: McpServer | null, secrets?: Record<string, string>): Promise<void>;
   preferences(patch: Partial<Preferences>): Promise<Preferences>;
   images(): Promise<Content[]>;
+  chooseAttachments(): Promise<ComposerAttachment[]>;
+  importFile(file: File): Promise<ComposerAttachment>;
+  importClipboardImage(data: string, mimeType: string, name: string): Promise<ComposerAttachment>;
+  imageAction(action: 'copy' | 'save' | 'reveal', src: string, name: string): Promise<boolean>;
   diagnostics(): Promise<boolean>;
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }

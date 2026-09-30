@@ -248,6 +248,11 @@ main { position: relative; }
 .message-label span { opacity: .75; }
 .message-body { line-height: 1.75; }
 .message-body p { margin-bottom: 12px; }
+.message-body > p:has(.katex-display) { max-width: none; }
+.message-body .katex { font-size: 1.15em; }
+.message-body .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; margin: 14px 0; padding: 5px 0; text-align: center; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.message-body .katex-display > .katex { width: max-content; min-width: 100%; text-align: center; }
+.message-body .katex-error { color: var(--muted) !important; font-family: "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-body ul,.message-body ol { padding-left: 23px; margin: 10px 0 16px; }
 .message.user { display: flex; flex-direction: column; align-items: flex-end; margin: 0 0 30px 12%; }
 .user .message-label { padding-right: 2px; }

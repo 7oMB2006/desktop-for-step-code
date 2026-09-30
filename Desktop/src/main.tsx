@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowUp, ArrowDown, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut } from 'lucide-react';
 import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
+import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment } from './contracts';
+import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
 import { applyMessageEvent } from './message-events';
@@ -39,10 +39,10 @@ function MessageView({ message, index, inspect, openImage }: { message: Message;
   const blocks: Content[] = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content ?? [];
   if (message.role === 'toolResult') return <details data-message-index={index} className={`tool-result ${message.isError ? 'failed' : ''}`}><summary><Terminal size={14}/><span>{message.toolName ?? 'Tool'}</span><span className="tool-outcome">{message.isError ? 'Error' : 'Result'}</span><ChevronDown size={14}/></summary><pre>{blocks.filter(b => b.type === 'text').map(b => b.text).join('\n')}</pre>{blocks.filter(b => b.type === 'image').map((b, i) => <PreviewableImage key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Tool output" open={openImage}/>)}</details>;
   return <article data-message-index={index} className={`message ${message.role}`}><div className="message-label">{message.role === 'user' ? 'You' : 'Step Code'}<span>{message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span></div><div className="message-body">{blocks.map((b, i) => {
-    if (b.type === 'thinking') return <details className="thinking" key={i}><summary>Thinking</summary><Markdown>{b.thinking ?? ''}</Markdown></details>;
+    if (b.type === 'thinking') return <details className="thinking" key={i}><summary>Thinking</summary><Markdown skipHtml remarkPlugins={messageRemarkPlugins} rehypePlugins={messageRehypePlugins}>{b.thinking ?? ''}</Markdown></details>;
     if (b.type === 'toolCall') return <button className="tool-call" key={i} onClick={() => inspect(JSON.stringify({ tool: b.name, arguments: b.arguments }, null, 2))}><Terminal size={14}/><span>{b.name}</span><code>{JSON.stringify(b.arguments ?? {}).slice(0, 95)}</code><ChevronRight size={14}/></button>;
     if (b.type === 'image') return <PreviewableImage className="attachment" key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Attachment" open={openImage}/>;
-    if (b.type === 'text') return <Markdown key={i} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={{ code: Code, a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>, img: ({ src, alt }) => src?.startsWith('data:image/') ? <PreviewableImage src={src} alt={alt ?? 'Image'} open={openImage}/> : <span>{alt}</span> }}>{b.text ?? ''}</Markdown>;
+    if (b.type === 'text') return <Markdown key={i} skipHtml remarkPlugins={messageRemarkPlugins} rehypePlugins={messageRehypePlugins} components={{ code: Code, a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>, img: ({ src, alt }) => src?.startsWith('data:image/') ? <PreviewableImage src={src} alt={alt ?? 'Image'} open={openImage}/> : <span>{alt}</span> }}>{b.text ?? ''}</Markdown>;
     return null;
   })}</div></article>;
 }

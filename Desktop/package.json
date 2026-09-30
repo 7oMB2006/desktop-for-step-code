@@ -18,15 +18,19 @@
     "start": "electron ."
   },
   "dependencies": {
+    "katex": "0.16.47",
     "lucide-react": "1.48.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",
     "rehype-highlight": "7.0.2",
-    "remark-gfm": "4.0.1"
+    "rehype-katex": "7.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
+    "@types/mdast": "4.0.4",
     "@types/node": "24.10.0",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

@@ -2,6 +2,12 @@
 
 This file combines historical feature checks with the current release gates. Named `Desktop/release-*` directories below identify local outputs used for those checks; they are not required retained artifacts or current download locations. Current packaging writes to `Desktop/release/`.
 
+## Mathematical Notation
+
+The 2026-09-30 source build passed type checking, 28 tests and background Electron acceptance. The local preview at `Desktop/release/math-preview/` was also packaged and passed the same acceptance against its unpacked executable. Fixtures cover inline and display math, same-line double-dollar notation, fractions, roots, sums, integrals, limits, matrices, cases, preserved code and prices, incomplete stream completion, malformed and oversized formulas, and disabled untrusted commands. Electron screenshots cover light/dark themes and a narrow window; the acceptance checks local font loading, thinking-block math, centered display formulas, horizontal scrolling confined to the formula with both ends accessible, and continued rendering after an invalid formula.
+
+These are isolated renderer/protocol checks, not new real-model or installer lifecycle acceptance. Installation, upgrade and uninstall gates were not rerun for this frontend change. Screenshots are local evidence under `Desktop/test-results/math-*.png`. The first implementation supports dollar delimiters, not `\(...\)` or `\[...\]`; it is not a full LaTeX document compiler.
+
 ## Composer Attachments and Image Preview
 
 The 2026-09-30 local preview was packaged at `Desktop/release/attachments-anchored-preview/`. Type checking, 22 tests, the production build and packaged Electron acceptance passed. Isolated fixtures cover file import through preload, document drop, synthetic clipboard image paste, image panning and Ctrl+wheel zoom, anchored expansion, close-during-drag reset, keyboard/focus return, reduced motion, localized image menus and adding transcript images back to the composer.

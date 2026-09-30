@@ -851,6 +851,105 @@ try {
   await page.getByText('流式白屏回归验证', { exact: true }).waitFor();
   await page.getByRole('button', { name: /read_file/ }).waitFor();
   await page.screenshot({ path: 'test-results/layout-conversation-narrow.png' });
+  // Formula rendering uses isolated wire messages, not a live account or model.
+  await app.evaluate(({ BrowserWindow }) => {
+    const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
+    send({ type: 'message_start', message: { role: 'assistant', content: [] } });
+    send({ type: 'message_update', assistantMessageEvent: { type: 'text_start', contentIndex: 0 } });
+    send({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '流式公式：\n\n$$\n\\frac{1}{2}' } });
+  });
+  await page.getByText('流式公式：', { exact: false }).waitFor();
+  const mathMessage = page.locator('.message.assistant').last();
+  assert.equal(await mathMessage.locator('.katex').count(), 0, 'an unclosed block must stay source');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+    type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '\n$$' },
+  }));
+  await mathMessage.locator('.katex-display').waitFor();
+  const mathFixture = [
+    '### 数学排版',
+    String.raw`能量 $E=mc^2$，下标与希腊字母 $a_i+\alpha+\beta=\gamma$。`,
+    '',
+    '**分数与根号**',
+    '$$', String.raw`\frac{a}{b}+\sqrt{x^2+y^2}`, '$$',
+    '',
+    String.raw`**求和、积分与极限** $$\sum_{i=1}^{n}i=\frac{n(n+1)}{2},\quad\int_a^b f(x)\,dx,\quad\lim_{x\to0}\frac{\sin x}{x}=1$$`,
+    '',
+    String.raw`**矩阵** $$A=\begin{pmatrix}1&2\\3&4\end{pmatrix}$$`,
+    '',
+    String.raw`**分段函数** $$f(x)=\begin{cases}x^2&x\ge0\\-x&x<0\end{cases}$$`,
+    '',
+    '**长公式**',
+    '$$', Array.from({ length: 50 }, (_, i) => `x_{${i + 1}}^2`).join('+'), '$$',
+    '',
+    '价格 $20 和 $30；代码 `$x^2$` 保持原样。',
+    '',
+    '```latex', String.raw`\frac{a}{b}`, '```',
+    '',
+    '$$', String.raw`\frac{1}{`, '$$',
+    '',
+    '**错误公式之后的正文仍可阅读。**',
+  ].join('\n');
+  await app.evaluate(({ BrowserWindow }, text) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+    type: 'message_start', message: { role: 'assistant', content: [
+      { type: 'thinking', thinking: '先确认公式 $x^2$ 的表达。' },
+      { type: 'text', text },
+    ] },
+  }), mathFixture);
+  await mathMessage.getByText('数学排版', { exact: true }).waitFor();
+  assert.equal(await mathMessage.locator('.katex-display').count(), 5);
+  assert.equal(await mathMessage.locator('.katex-error').count(), 1);
+  assert.equal(await mathMessage.locator('pre code').count(), 1);
+  await mathMessage.getByText('错误公式之后的正文仍可阅读。', { exact: true }).waitFor();
+  await mathMessage.locator('.thinking summary').click();
+  assert.equal(await mathMessage.locator('.thinking .katex').count(), 1);
+  await mathMessage.locator('.thinking summary').click();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 1100));
+  const assertCenteredFormula = async () => {
+    const offsets = await mathMessage.locator('.katex-display').evaluateAll(elements => {
+      return elements.slice(0, 4).filter(element => element.scrollWidth <= element.clientWidth).map(element => {
+        const container = element.closest('.message-body').getBoundingClientRect();
+        const parts = [...element.querySelectorAll('.katex-html > .base')].map(part => part.getBoundingClientRect());
+        const left = Math.min(...parts.map(part => part.left));
+        const right = Math.max(...parts.map(part => part.right));
+        return Math.abs((left + right) / 2 - (container.left + container.right) / 2);
+      });
+    });
+    assert.ok(offsets.length > 0, 'at least one short display formula must fit');
+    for (const offset of offsets) assert.ok(offset < 2, `display formula must center in the reading column (offset ${offset}px)`);
+  };
+  for (const theme of ['light', 'dark']) {
+    await page.locator('.sidebar-bottom > button').click();
+    await page.getByRole('button', { name: '通用', exact: true }).click();
+    await page.getByRole('dialog').getByRole('combobox').first().selectOption(theme);
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await mathMessage.getByText('数学排版', { exact: true }).scrollIntoViewIfNeeded();
+    await page.evaluate(() => document.fonts.ready);
+    assert.equal(await page.evaluate(() => document.fonts.check('16px KaTeX_Main')), true);
+    await assertCenteredFormula();
+    await page.screenshot({ path: `test-results/math-${theme}.png` });
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 880));
+  const longFormula = mathMessage.locator('.katex-display').last();
+  await longFormula.scrollIntoViewIfNeeded();
+  await assertCenteredFormula();
+  const formulaLayout = await longFormula.evaluate(element => ({
+    scrolls: element.scrollWidth > element.clientWidth,
+    left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right,
+    pageFits: document.documentElement.scrollWidth <= innerWidth,
+    startOffset: element.querySelector('.katex-html .base').getBoundingClientRect().left - element.getBoundingClientRect().left,
+  }));
+  assert.equal(formulaLayout.scrolls, true);
+  assert.equal(formulaLayout.pageFits, true);
+  assert.ok(formulaLayout.left >= 0 && formulaLayout.right <= 640);
+  assert.ok(Math.abs(formulaLayout.startOffset) < 2, 'overflow formula must have an accessible left edge');
+  await longFormula.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  assert.ok(await longFormula.evaluate(element => element.scrollLeft) > 0);
+  assert.ok(await longFormula.evaluate(element => {
+    const content = element.querySelector('.katex-html').getBoundingClientRect();
+    return Math.abs(content.right - element.getBoundingClientRect().right) < 2;
+  }), 'overflow formula must have an accessible right edge');
+  await page.screenshot({ path: 'test-results/math-narrow.png' });
+  assert.deepEqual(errors, []);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
   await page.waitForFunction(() => !document.querySelector('.app')?.classList.contains('sidebar-compact'));
   assert.equal(await page.locator('.sidebar-identity').isVisible(), true);

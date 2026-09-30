@@ -15,6 +15,12 @@ Use neutral white and charcoal surfaces, a restrained rose primary for active co
 Reference: https://github.com/openchamber/openchamber (MIT), README chat screenshot and workspace organization. No OpenChamber branding or runtime copied.
 
 Layout refinement: sidebar 244px (224px compact, 260px wide), matched 62px navigation/header rhythm. Workspace and session groups form a continuous navigation stack. Transcript and composer share a 920px outer column with identical 32px gutters (1000px/36px on wide windows). User messages are right-aligned and content-sized; assistant output uses the reading column. Composer starts compact and grows to 180px with text. Runtime connection status appears only in the sidebar. Asset redesign is intentionally deferred.
+## Mathematical Notation
+
+Conversation text and thinking blocks render `$...$` inline math and `$$...$$` display math using remark-math and KaTeX. Same-line double-dollar expressions also use display layout. KaTeX CSS and fonts ship locally for offline use. Display formulas center within the reading column; oversized formulas start at the left and scroll horizontally without expanding the conversation width. Inline code and fenced code remain source, including fences labeled `math`.
+
+Unclosed streaming display formulas remain source until their closing fence arrives. Invalid formulas retain readable source without breaking surrounding Markdown. Single-dollar price pairs such as `$20 and $30` remain text; ambiguous dollar signs can be escaped as `\$`. Formula inputs and macro expansion are bounded, and trusted HTML, external image and link commands are disabled. This is mathematical notation rendering, not full LaTeX document compilation.
+
 ## Composer Attachments
 
 The composer accepts file selection, pasted images and file drops. PNG/JPEG/WebP images are inline model inputs; other regular files are explicit local path references for runtime tools, not natively parsed document inputs. The limit is ten attachments including five images, with 10 MiB per image and 50 MiB per other file. File paths remain behind opaque IDs in the main process.

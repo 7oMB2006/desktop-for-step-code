@@ -15,6 +15,12 @@ Use neutral white and charcoal surfaces, a restrained rose primary for active co
 Reference: https://github.com/openchamber/openchamber (MIT), README chat screenshot and workspace organization. No OpenChamber branding or runtime copied.
 
 Layout refinement: sidebar 244px (224px compact, 260px wide), matched 62px navigation/header rhythm. Workspace and session groups form a continuous navigation stack. Transcript and composer share a 920px outer column with identical 32px gutters (1000px/36px on wide windows). User messages are right-aligned and content-sized; assistant output uses the reading column. Composer starts compact and grows to 180px with text. Runtime connection status appears only in the sidebar. Asset redesign is intentionally deferred.
+## Composer Attachments
+
+The composer accepts file selection, pasted images and file drops. PNG/JPEG/WebP images are inline model inputs; other regular files are explicit local path references for runtime tools, not natively parsed document inputs. The limit is ten attachments including five images, with 10 MiB per image and 50 MiB per other file. File paths remain behind opaque IDs in the main process.
+
+Composer thumbnails and transcript images share an anchored image preview: cubic expansion from the thumbnail and return on close, drag panning, cursor-centered Ctrl+wheel zoom, keyboard focus return and reduced-motion support. Obvious preview controls and hover-only removal buttons have no tooltip. Image context menus follow the client language: Copy/Save As in the preview and composer; Add to chat/Copy image/Open in Explorer/Download a copy in the transcript. Explorer uses a reusable desktop-owned image cache under userData `cache/image-previews/`, with one replaceable file per image format, separate from configuration and runtime data. The cache is rebuildable, not a permanent image archive; explicit save actions use a native save dialog.
+
 # Product Icon
 
 The canonical product icon is `Desktop/public/StepCode.svg`, copied unchanged from the user's StepCode.svg artwork. Use it for all product identity surfaces. `Desktop/scripts/icons.mjs` generates the Windows ICO from this asset during build/dev. Do not replace it with a terminal glyph or the default Electron icon. The sidebar begins with navigation, without a duplicate brand header.

@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -15,7 +15,7 @@ for (const [index, cwd] of [workspace, secondWorkspace, independentCwd, workspac
   const timestamp = new Date().toISOString();
   const entries = [
     { type: 'session', version: 3, id: `fixture-${index}`, cwd, timestamp },
-    { type: 'message', id: 'user-1', parentId: null, timestamp, message: { role: 'user', content: [{ type: 'text', text: index === 4 ? '你好！' : 'Fixture history' }], timestamp: Date.now() } },
+    { type: 'message', id: 'user-1', parentId: null, timestamp, message: { role: 'user', content: [{ type: 'text', text: index === 4 ? '你好！' : 'Fixture history' }, ...(index === 0 ? [{ type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==' }] : [])], timestamp: Date.now() } },
     ...(index === 4 ? [] : [{ type: 'session_info', id: 'name-1', parentId: 'user-1', timestamp, name: index === 0 ? '历史验证会话' : index === 1 ? 'Second session' : index === 2 ? '独立验证会话' : '同项目另一会话' }]),
     ...(index === 0 ? [
       { type: 'message', id: 'assistant-1', parentId: 'user-1', timestamp, message: { role: 'assistant', content: [{ type: 'text', text: '先检查现有项目结构，再决定这一轮的实现范围。\n\n' + '这段较长的回复用于验证不同高度的会话轮次和原生滚动条。'.repeat(35) }], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }, timestamp: Date.now() } },
@@ -44,6 +44,173 @@ try {
   assert.deepEqual(windowState, { opacity: 0, visible: true, focused: false });
   page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
+  const documentPath = join(profile, 'attachment sample.md');
+  await writeFile(documentPath, '# Attachment acceptance\n');
+  await page.evaluate(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'attachment-acceptance-input';
+    document.body.append(input);
+  });
+  await page.locator('#attachment-acceptance-input').setInputFiles(documentPath);
+  const importedDocument = await page.evaluate(async () => {
+    const file = document.querySelector('#attachment-acceptance-input').files[0];
+    return window.desktop.importFile(file);
+  });
+  assert.equal(importedDocument.kind, 'file');
+  assert.equal(importedDocument.name, 'attachment sample.md');
+  const screenshotBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==', 'base64');
+  const clipboardImage = await page.evaluate(async data => window.desktop.importClipboardImage(data, 'image/png', 'clipboard.png'), screenshotBytes.toString('base64'));
+  assert.equal(clipboardImage.kind, 'image');
+  assert.equal(clipboardImage.content.mimeType, 'image/png');
+  const imageSavePath = join(profile, 'saved-image.png');
+  // Exercise the real image handlers without changing the user's clipboard or opening Explorer/dialogs.
+  await app.evaluate(({ clipboard, dialog, shell }, savePath) => {
+    globalThis.imageMenuTest = { write: clipboard.write, save: dialog.showSaveDialog, reveal: shell.showItemInFolder, canceled: false, copies: [], revealed: [] };
+    clipboard.write = async items => {
+      const blob = await items[0].getType('image/png');
+      globalThis.imageMenuTest.copies.push(Buffer.from(await blob.arrayBuffer()));
+    };
+    dialog.showSaveDialog = async (_window, options) => {
+      globalThis.imageMenuTest.saveOptions = options;
+      return { canceled: globalThis.imageMenuTest.canceled, filePath: globalThis.imageMenuTest.canceled ? undefined : savePath };
+    };
+    shell.showItemInFolder = path => globalThis.imageMenuTest.revealed.push(path);
+  }, imageSavePath);
+  await assert.rejects(page.evaluate(() => window.desktop.imageAction('copy', 'file:///C:/secret.png', 'image')), /Unsupported/);
+  await assert.rejects(page.evaluate(() => window.desktop.imageAction('invalid', '', 'image')), /Invalid image action/);
+  await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await assert.rejects(
+    page.evaluate(() => window.desktop.command('prompt', { message: '', files: ['invalid-attachment-id'] })),
+    /expired/,
+  );
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(document.querySelector('#attachment-acceptance-input').files[0]);
+    document.querySelector('.composer').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await page.getByText('attachment sample.md', { exact: true }).waitFor();
+  await page.locator('#attachment-acceptance-input').evaluate(element => element.remove());
+  await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640; canvas.height = 360;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#efb5a1'; context.fillRect(0, 0, 640, 360);
+    context.fillStyle = '#5a315f'; context.fillRect(80, 70, 480, 220);
+    context.fillStyle = '#ffffff'; context.font = '40px sans-serif'; context.fillText('Image preview', 160, 200);
+    const bytes = Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]), char => char.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], 'clipboard.png', { type: 'image/png' }));
+    document.querySelector('.composer > textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+  });
+  await page.getByRole('button', { name: '预览 clipboard.png' }).waitFor();
+  const fixtureImageData = await page.locator('.attachment-open img').getAttribute('src');
+  const historyPath = join(profile, 'step-runtime', 'sessions', 'fixture-0.jsonl');
+  const historyEntries = (await readFile(historyPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  historyEntries.find(entry => entry.id === 'user-1').message.content.find(block => block.type === 'image').data = fixtureImageData.split(',')[1];
+  await writeFile(historyPath, historyEntries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
+  await page.screenshot({ path: 'test-results/attachment-composer.png' });
+  await page.getByRole('button', { name: '预览 clipboard.png' }).click();
+  const previewDialog = page.getByRole('dialog', { name: '预览 clipboard.png' });
+  await previewDialog.waitFor();
+  if (!await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+    const sourceRect = await page.locator('.attachment-open img').boundingBox();
+    const anchoredRect = await previewDialog.evaluate(element => {
+      const animation = element.getAnimations()[0];
+      animation.pause(); animation.currentTime = 0;
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    });
+    for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(anchoredRect[key] - sourceRect[key]) < 2, `preview origin ${key} must match thumbnail`);
+    await previewDialog.evaluate(element => { const animation = element.getAnimations()[0]; animation.currentTime = 100; });
+    await page.screenshot({ path: 'test-results/image-preview-anchor-transition.png' });
+    await previewDialog.evaluate(element => element.getAnimations()[0].play());
+  }
+  await previewDialog.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
+  await page.locator('.attachment-preview-image').click({ button: 'right' });
+  const imageMenu = page.getByRole('menu', { name: '图片操作', exact: true });
+  await imageMenu.waitFor();
+  assert.deepEqual(await imageMenu.getByRole('menuitem').allTextContents(), ['复制', '另存为']);
+  await page.screenshot({ path: 'test-results/preview-image-menu.png' });
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), '另存为');
+  await page.keyboard.press('Home');
+  await imageMenu.getByRole('menuitem', { name: '复制', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.image-context'));
+  const copiedSize = await app.evaluate(({ nativeImage }) => nativeImage.createFromBuffer(globalThis.imageMenuTest.copies[0]).getSize());
+  assert.deepEqual(copiedSize, { width: 640, height: 360 });
+  await page.locator('.attachment-preview-image').click({ button: 'right' });
+  await imageMenu.getByRole('menuitem', { name: '另存为', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.image-context'));
+  // Wait for the asynchronous file write through a benign IPC barrier.
+  await page.evaluate(() => window.desktop.snapshot());
+  assert.deepEqual(await readFile(imageSavePath), Buffer.from(fixtureImageData.split(',')[1], 'base64'));
+  await app.evaluate(() => { globalThis.imageMenuTest.canceled = true; });
+  assert.equal(await page.evaluate(src => window.desktop.imageAction('save', src, 'clipboard.png'), fixtureImageData), false);
+  await app.evaluate(() => { globalThis.imageMenuTest.canceled = false; });
+  await page.locator('.attachment-preview-image').click({ button: 'right' });
+  await page.keyboard.press('Escape');
+  await imageMenu.waitFor({ state: 'hidden' });
+  assert.equal(await previewDialog.count(), 1, 'menu Escape must not close image preview');
+  assert.equal(await previewDialog.locator('[data-tooltip]').count(), 0);
+  const previewViewport = page.locator('.attachment-preview-image');
+  assert.equal(await previewViewport.evaluate(element => getComputedStyle(element).overflow), 'hidden');
+  const previewBounds = await previewViewport.boundingBox();
+  const startX = previewBounds.x + previewBounds.width / 2;
+  const startY = previewBounds.y + previewBounds.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 52, startY + 28);
+  await page.mouse.up();
+  const panX = await previewViewport.locator('img').evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41);
+  assert.ok(panX > 40, `expected dragged image to pan, got ${panX}`);
+  await page.keyboard.down('Control');
+  await page.mouse.move(startX + 60, startY + 30);
+  await page.mouse.wheel(0, -120);
+  await page.keyboard.up('Control');
+  await page.getByText('116%', { exact: true }).waitFor();
+  await page.screenshot({ path: 'test-results/attachment-preview.png' });
+  await page.keyboard.press('Escape');
+  await previewDialog.waitFor({ state: 'hidden' });
+  assert.equal(await page.getByRole('dialog', { name: '预览 clipboard.png' }).count(), 0);
+  assert.equal(await page.locator('.attachment-open').evaluate(element => document.activeElement === element), true);
+  await page.getByRole('button', { name: '预览 clipboard.png' }).click();
+  await previewDialog.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 20, startY + 10);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await previewDialog.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '预览 clipboard.png' }).click();
+  assert.equal(await previewViewport.evaluate(element => getComputedStyle(element).cursor), 'grab');
+  assert.equal(await previewViewport.locator('img').evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41), 0);
+  await page.getByText('100%', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await previewDialog.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.composer > textarea').evaluate(input => {
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', 'plain text');
+    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer });
+    input.dispatchEvent(event);
+    return event.defaultPrevented;
+  }), false);
+  const attachmentCards = page.locator('.attachment-card');
+  const removeButtons = page.getByRole('button', { name: '移除附件' });
+  assert.equal(await removeButtons.first().getAttribute('data-tooltip'), null);
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.mouse.move(10, 10);
+  const removeState = await removeButtons.first().evaluate(element => ({
+    opacity: getComputedStyle(element).opacity,
+    cardHovered: element.closest('.attachment-card').matches(':hover'),
+    cardFocused: element.closest('.attachment-card').matches(':focus-within'),
+    activeElement: document.activeElement?.className,
+  }));
+  assert.equal(removeState.opacity, '0', JSON.stringify(removeState));
+  await attachmentCards.first().hover();
+  await removeButtons.first().click();
+  await attachmentCards.first().hover();
+  await removeButtons.first().click();
   assert.equal(await page.locator('.window-bar img').count(), 0);
   assert.equal(await page.locator('.topbar').count(), 0);
   assert.equal(await page.locator('.window-sidebar-toggle').count(), 1);
@@ -308,6 +475,27 @@ try {
   assert.equal(await page.locator('.permission-trigger span').textContent(), 'Ask');
   assert.equal(await page.getByRole('meter', { name: 'Context usage' }).getAttribute('title'), null);
   assert.equal(await page.locator('.model-effort-level').textContent(), 'off');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(data => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([Uint8Array.from(atob(data), char => char.charCodeAt(0))], 'locale.png', { type: 'image/png' }));
+    document.querySelector('.composer > textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+  }, screenshotBytes.toString('base64'));
+  const localeAttachment = page.getByRole('button', { name: 'Preview locale.png', exact: true });
+  await localeAttachment.click({ button: 'right' });
+  const englishImageMenu = page.getByRole('menu', { name: 'Image actions', exact: true });
+  assert.deepEqual(await englishImageMenu.getByRole('menuitem').allTextContents(), ['Copy', 'Save As']);
+  await page.keyboard.press('Escape');
+  await localeAttachment.click();
+  await page.locator('.attachment-preview-image').click({ button: 'right' });
+  assert.deepEqual(await englishImageMenu.getByRole('menuitem').allTextContents(), ['Copy', 'Save As']);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'Preview locale.png', exact: true }).waitFor({ state: 'hidden' });
+  await page.locator('.attachment-card').hover();
+  await page.getByRole('button', { name: 'Remove attachment', exact: true }).click();
+  await page.getByRole('button', { name: 'Account settings', exact: true }).click();
+  await page.getByRole('button', { name: 'General', exact: true }).click();
   await page.getByRole('dialog').getByRole('combobox').nth(1).selectOption('zh');
   await page.getByRole('button', { name: '模型与思考强度' }).waitFor();
   assert.equal(await page.locator('.permission-trigger span').textContent(), '请求批准');
@@ -317,18 +505,18 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   const composerTools = page.locator('.composer-tools');
-  assert.equal(await composerTools.getByRole('button', { name: '添加图片' }).locator('svg.lucide-plus').count(), 1);
-  const attachButton = composerTools.getByRole('button', { name: '添加图片' });
+  assert.equal(await composerTools.getByRole('button', { name: '添加附件' }).locator('svg.lucide-plus').count(), 1);
+  const attachButton = composerTools.getByRole('button', { name: '添加附件' });
   assert.equal(await attachButton.getAttribute('title'), null);
   await attachButton.hover();
   const tooltip = page.getByRole('tooltip');
-  await tooltip.getByText('添加图片').waitFor();
+  await tooltip.getByText('添加附件').waitFor();
   const tooltipStyle = await tooltip.evaluate(element => ({ className: element.className, radius: getComputedStyle(element).borderTopLeftRadius }));
   assert.ok(parseFloat(tooltipStyle.radius) >= 8, `Tooltip radius: ${JSON.stringify(tooltipStyle)}`);
   await page.mouse.move(0, 0);
   await tooltip.waitFor({ state: 'hidden' });
   const controlOrder = await composerTools.evaluate(element => [...element.children].map(child => child.getAttribute('aria-label') ?? child.className));
-  assert.deepEqual(controlOrder, ['添加图片', 'permission-picker', 'spacer', '上下文用量', 'model-effort', '发送']);
+  assert.deepEqual(controlOrder, ['添加附件', 'permission-picker', 'spacer', '上下文用量', 'model-effort', '发送']);
   const permissionTrigger = composerTools.getByRole('button', { name: '访问权限' });
   assert.equal(await permissionTrigger.locator('svg.lucide-hand').count(), 1);
   await permissionTrigger.click();
@@ -440,6 +628,52 @@ try {
   await page.mouse.move(thumbBox.x + thumbBox.width / 2, trackBox.y + 4, { steps: 6 });
   await page.mouse.up();
   await page.waitForFunction(() => document.querySelector('.conversation').scrollTop < 20);
+  const sentImage = page.locator('.message.user .previewable-image').first();
+  await sentImage.click({ button: 'right' });
+  await imageMenu.waitFor();
+  assert.deepEqual(await imageMenu.getByRole('menuitem').allTextContents(), ['添加到聊天', '复制图像', '在资源管理器中打开', '下载副本']);
+  await page.screenshot({ path: 'test-results/transcript-image-menu.png' });
+  await imageMenu.getByRole('menuitem', { name: '在资源管理器中打开', exact: true }).click();
+  await page.evaluate(() => window.desktop.snapshot());
+  const revealedPath = await app.evaluate(() => globalThis.imageMenuTest.revealed[0]);
+  const imageCache = join(profile, 'cache', 'image-previews');
+  assert.equal(revealedPath, join(imageCache, 'image-preview.png'));
+  assert.deepEqual(await readFile(revealedPath), Buffer.from(fixtureImageData.split(',')[1], 'base64'));
+  assert.equal(await page.evaluate(src => window.desktop.imageAction('reveal', src, 'second-image.png'), fixtureImageData), true);
+  assert.deepEqual(await readdir(imageCache), ['image-preview.png'], 'repeated reveal must reuse the image cache');
+  assert.equal((await readdir(profile)).includes('image-preview.png'), false, 'image reveal must not write to the data root');
+  await sentImage.click({ button: 'right' });
+  await imageMenu.getByRole('menuitem', { name: '添加到聊天', exact: true }).click();
+  await page.locator('.attachment-open').waitFor();
+  assert.equal(await page.locator('.composer > textarea').evaluate(element => document.activeElement === element), true);
+  await page.locator('.attachment-card').hover();
+  await page.getByRole('button', { name: '移除附件', exact: true }).click();
+  await sentImage.click();
+  const sentPreview = page.getByRole('dialog', { name: '预览 Attachment', exact: true });
+  await sentPreview.waitFor();
+  await sentPreview.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
+  await page.screenshot({ path: 'test-results/sent-image-preview.png' });
+  await page.keyboard.press('Escape');
+  await sentPreview.waitFor({ state: 'hidden' });
+  assert.equal(await sentImage.evaluate(element => document.activeElement === element), true);
+  await sentImage.press('Enter');
+  await sentPreview.waitFor();
+  // An immediate close must cancel the opening animation without leaving a layer.
+  await page.keyboard.press('Escape');
+  await sentPreview.waitFor({ state: 'hidden' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await sentImage.press('Space');
+  await sentPreview.waitFor();
+  assert.equal(await sentPreview.evaluate(element => element.getAnimations().some(animation => Number(animation.effect.getTiming().duration) > 0)), false);
+  await page.keyboard.press('Escape');
+  await sentPreview.waitFor({ state: 'hidden' });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await app.evaluate(({ clipboard, dialog, shell }) => {
+    clipboard.write = globalThis.imageMenuTest.write;
+    dialog.showSaveDialog = globalThis.imageMenuTest.save;
+    shell.showItemInFolder = globalThis.imageMenuTest.reveal;
+    delete globalThis.imageMenuTest;
+  });
   await page.locator('.turn-marker').first().hover();
   await page.locator('.turn-marker-preview').getByText('Fixture history').waitFor();
   await page.locator('.turn-marker').last().click();

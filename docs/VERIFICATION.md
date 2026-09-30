@@ -2,6 +2,14 @@
 
 This file combines historical feature checks with the current release gates. Named `Desktop/release-*` directories below identify local outputs used for those checks; they are not required retained artifacts or current download locations. Current packaging writes to `Desktop/release/`.
 
+## Composer Attachments and Image Preview
+
+The 2026-09-30 local preview was packaged at `Desktop/release/attachments-anchored-preview/`. Type checking, 22 tests, the production build and packaged Electron acceptance passed. Isolated fixtures cover file import through preload, document drop, synthetic clipboard image paste, image panning and Ctrl+wheel zoom, anchored expansion, close-during-drag reset, keyboard/focus return, reduced motion, localized image menus and adding transcript images back to the composer.
+
+Image action acceptance substitutes clipboard writes, save dialogs and Explorer launch to avoid touching the user's clipboard or opening foreground windows. It validates the clipboard image payload and saved/cache bytes; it is not unattended OS clipboard round-trip or real-model acceptance. Other documents are local path references for agent tools, not native Word/PPT parsing. No installer, upgrade or uninstall gate was rerun for this frontend change.
+
+Explorer image copies now live in userData `cache/image-previews/`, separate from the application data root. Acceptance verifies lazy directory creation, repeated reveals reusing the same format-specific cache file, and no image cache write to the data root. Existing root-level copies from earlier preview builds are not automatically deleted.
+
 ## Desktop Credential Storage
 
 Step login previously wrote the access credential into readable `step-runtime/auth.json`. The desktop now loads that file once, stores a Windows `safeStorage` encrypted snapshot as `auth.dpapi`, then removes the plaintext file. The staged Step runtime uses a desktop-only in-memory auth backend; the renderer never receives the credential. If Windows encryption is unavailable, the ciphertext cannot be unlocked, or a nonempty legacy auth file exists, startup fails closed rather than falling back to plaintext. Normal uninstall removes the desktop Step credential files; upgrades retain them, and the app is configured to retain its user data. This does not encrypt MCP secrets in `config.toml` or protect against processes running as the same Windows user.

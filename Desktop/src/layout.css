@@ -1,4 +1,71 @@
 /* Navigation, transcript and composer share a compact, consistent layout grid. */
+.message-body::selection, .message-body ::selection, .composer > textarea::selection {
+  background: oklch(.86 0 0); color: oklch(.22 0 0);
+}
+:root[data-theme=dark] .message-body::selection,
+:root[data-theme=dark] .message-body ::selection,
+:root[data-theme=dark] .composer > textarea::selection {
+  background: oklch(.42 0 0); color: oklch(.97 0 0);
+}
+.selection-toolbar {
+  position: fixed; z-index: 15; display: flex; align-items: center; gap: 3px;
+  padding: 4px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--ink); box-shadow: var(--shadow);
+  user-select: none; -webkit-app-region: no-drag; animation: selection-enter 120ms ease-out;
+}
+.selection-toolbar button {
+  border: 0; background: transparent; min-height: 30px; gap: 6px; padding: 5px 9px; font-size: 12px;
+}
+.selection-toolbar button:hover { background: var(--surface); }
+.selection-toolbar-divider { width: 1px; height: 17px; background: var(--border); margin: 0 2px; }
+.composer-context-bar { display: flex; align-items: center; gap: 8px; height: 34px; margin-bottom: 8px; }
+.composer-quotes { min-width: 0; }
+.quote-chip {
+  display: inline-flex; align-items: center; max-width: 100%; border: 1px solid var(--border);
+  border-radius: 6px; background: transparent; height: 30px;
+}
+.quote-chip > button {
+  border: 0; background: transparent; font-size: 12px; min-height: 28px; padding: 4px 8px;
+}
+.quote-chip > button:first-child { color: var(--muted); white-space: nowrap; }
+.quote-chip > button[aria-expanded=true] { color: var(--ink); }
+.quote-chip .quote-clear { width: 24px; padding: 0; margin-right: 2px; }
+.quote-popover {
+  position: fixed; inset: auto; margin: 0; padding: 10px 12px; width: min(400px, calc(100vw - 24px));
+  max-height: min(320px, calc(100dvh - 140px)); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow); transform-origin: bottom left;
+}
+.quote-popover:popover-open { display: flex; flex-direction: column; gap: 12px; animation: selection-enter 120ms ease-out; }
+.quote-popover::backdrop { background: transparent; }
+.quote-popover::-webkit-scrollbar { width: 4px; }
+.quote-popover::-webkit-scrollbar-track { background: transparent; }
+.quote-popover::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
+.quote-popover::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.composer-quote {
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) 24px; align-items: start; gap: 9px; padding: 2px 0;
+  min-width: 0; flex-shrink: 0;
+}
+.quote-number {
+  color: var(--muted); font-size: 12px; line-height: 1.55; min-width: 16px; min-height: 0;
+  padding: 0; border: 0; background: transparent; justify-content: flex-start;
+}
+.composer-quote + .composer-quote { padding-top: 12px; border-top: 1px solid var(--border); }
+.quote-excerpt {
+  font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; min-width: 0;
+  white-space: pre-wrap; max-height: 156px; overflow-y: auto;
+  scrollbar-width: none; overscroll-behavior: contain;
+}
+.quote-excerpt::-webkit-scrollbar { display: none; }
+.quote-controls { align-self: stretch; display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 24px; }
+.quote-controls .quote-scroll-track {
+  position: relative; inset: auto; width: 24px; min-height: 0; flex: 1;
+}
+.quote-scroll-track .conversation-scroll-thumb { right: 10px; width: 4px; }
+.composer-quote .icon-button { width: 24px; height: 24px; min-height: 24px; padding: 0; flex-shrink: 0; border: 0; background: transparent; }
+@keyframes selection-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .selection-toolbar { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .quote-popover:popover-open { animation: none; } }
 /* Chromium's customizable select keeps native keyboard behavior in the top layer. */
 select, select::picker(select) { appearance: base-select; }
 select { align-items: center; gap: 10px; cursor: pointer; }
@@ -321,8 +388,8 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
   background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none;
 }
 .jump-to-bottom {
-  position: absolute; z-index: 2; top: -43px; right: calc(var(--conversation-gutter) + 4px);
-  width: 34px; height: 34px; min-height: 34px; padding: 0;
+  position: static; flex-shrink: 0;
+  width: 30px; height: 30px; min-height: 30px; padding: 0;
   border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
   box-shadow: 0 2px 6px oklch(0 0 0 / .12);
 }

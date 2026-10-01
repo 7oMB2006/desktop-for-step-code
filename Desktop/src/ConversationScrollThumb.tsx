@@ -2,16 +2,18 @@ import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } 
 
 type ScrollMetrics = { top: number; height: number; maxScroll: number };
 
-export function thumbMetrics(scrollTop: number, clientHeight: number, scrollHeight: number, trackHeight: number): ScrollMetrics {
+export function thumbMetrics(scrollTop: number, clientHeight: number, scrollHeight: number, trackHeight: number, compact = false): ScrollMetrics {
   const maxScroll = Math.max(0, scrollHeight - clientHeight);
   if (!maxScroll || !trackHeight) return { top: 0, height: 0, maxScroll };
-  const height = Math.min(trackHeight, Math.max(44, Math.min(72, trackHeight * clientHeight / scrollHeight)));
+  const height = Math.min(trackHeight, Math.max(compact ? 20 : 44, Math.min(compact ? 44 : 72, trackHeight * clientHeight / scrollHeight)));
   return { top: (trackHeight - height) * scrollTop / maxScroll, height, maxScroll };
 }
 
-export function ConversationScrollThumb({ scrollRef, language, sessionId, messageCount }: {
+export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scrollId = 'conversation-scroll',
+  label, className = '', contentSelector = '.messages', compact = false }: {
   scrollRef: RefObject<HTMLDivElement | null>; language: 'zh' | 'en';
   sessionId?: string; messageCount: number;
+  scrollId?: string; label?: string; className?: string; contentSelector?: string; compact?: boolean;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef<number | null>(null);
@@ -21,16 +23,22 @@ export function ConversationScrollThumb({ scrollRef, language, sessionId, messag
     const scroll = scrollRef.current;
     const track = trackRef.current;
     if (!scroll || !track) return;
-    const update = () => setMetrics(thumbMetrics(scroll.scrollTop, scroll.clientHeight, scroll.scrollHeight, track.clientHeight));
+    const update = () => setMetrics(thumbMetrics(scroll.scrollTop, scroll.clientHeight, scroll.scrollHeight, track.clientHeight, compact));
     const observer = new ResizeObserver(update);
     observer.observe(scroll);
     observer.observe(track);
-    const content = scroll.querySelector('.messages');
+    const content = scroll.querySelector(contentSelector);
     if (content) observer.observe(content);
     scroll.addEventListener('scroll', update, { passive: true });
+    const wheel = (event: WheelEvent) => {
+      if (!compact || scroll.scrollHeight <= scroll.clientHeight) return;
+      event.preventDefault();
+      scroll.scrollTop += event.deltaY * (event.deltaMode === 1 ? 20 : event.deltaMode === 2 ? scroll.clientHeight : 1);
+    };
+    track.addEventListener('wheel', wheel, { passive: false });
     update();
-    return () => { observer.disconnect(); scroll.removeEventListener('scroll', update); };
-  }, [scrollRef, sessionId, messageCount]);
+    return () => { observer.disconnect(); scroll.removeEventListener('scroll', update); track.removeEventListener('wheel', wheel); };
+  }, [scrollRef, sessionId, messageCount, contentSelector, compact]);
 
   const setFromPointer = (clientY: number, offset: number) => {
     const scroll = scrollRef.current;
@@ -49,10 +57,10 @@ export function ConversationScrollThumb({ scrollRef, language, sessionId, messag
     setFromPointer(event.clientY, dragOffset.current);
   };
 
-  return <div ref={trackRef} className={`conversation-scroll-track${metrics.maxScroll ? '' : ' hidden'}`}
-    role="scrollbar" aria-label={language === 'zh' ? '会话滚动' : 'Conversation scroll'}
+  return <div ref={trackRef} className={`conversation-scroll-track ${className}${metrics.maxScroll ? '' : ' hidden'}`}
+    role="scrollbar" aria-label={label ?? (language === 'zh' ? '会话滚动' : 'Conversation scroll')}
     aria-hidden={!metrics.maxScroll}
-    aria-controls="conversation-scroll" aria-orientation="vertical"
+    aria-controls={scrollId} aria-orientation="vertical"
     aria-valuemin={0} aria-valuemax={100}
     aria-valuenow={metrics.maxScroll ? Math.round(scrollRef.current!.scrollTop / metrics.maxScroll * 100) : 0}
     tabIndex={metrics.maxScroll ? 0 : -1}
@@ -73,3 +81,5 @@ export function ConversationScrollThumb({ scrollRef, language, sessionId, messag
     {metrics.maxScroll > 0 && <span className="conversation-scroll-thumb" style={{ top: metrics.top, height: metrics.height }}/>}
   </div>;
 }
+
+export { ScrollThumb as ConversationScrollThumb };

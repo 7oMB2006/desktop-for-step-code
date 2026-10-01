@@ -26,6 +26,12 @@ test('scroll thumb reaches both ends of the full-height overlay track', () => {
   assert.deepEqual(thumbMetrics(0, 500, 500, 1000), { top: 0, height: 0, maxScroll: 0 });
 });
 
+test('compact quote thumb preserves both ends and remains bounded on a short rail', () => {
+  assert.deepEqual(thumbMetrics(0, 156, 2000, 126, true), { top: 0, height: 20, maxScroll: 1844 });
+  assert.deepEqual(thumbMetrics(1844, 156, 2000, 126, true), { top: 106, height: 20, maxScroll: 1844 });
+  assert.deepEqual(thumbMetrics(1844, 156, 2000, 12, true), { top: 0, height: 12, maxScroll: 1844 });
+});
+
 test('ruler keeps turns evenly spaced while interpolating the reading position', () => {
   assert.equal(RULER_STEP, 18);
   assert.equal(turnCursor([100, 300, 900], 0), 0);

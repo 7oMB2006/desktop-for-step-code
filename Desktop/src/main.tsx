@@ -21,6 +21,9 @@ import { ConversationMessages } from './ConversationMessages';
 import { messageBlocks, messageText } from './conversation-presentation';
 import { ComposerActionIcon } from './ComposerActionIcon';
 import { composerAction } from './composer-action';
+import { SelectionToolbar } from './SelectionToolbar';
+import { QuotePreview } from './QuotePreview';
+import { MAX_QUOTES, MAX_PROMPT_LENGTH, quotePrompt, restoreQuotes, type ChatQuote } from './chat-quotes';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -40,6 +43,13 @@ function App() {
   const notifiedMcp = useRef(new Set<string>());
   const nextNoticeId = useRef(0);
   const [draft, setDraft] = useState('');
+  const [quotes, setQuotes] = useState<ChatQuote[]>([]);
+  const quoteScope = `${data.preferences.workspace ?? ''}:${data.state?.sessionId ?? ''}`;
+  const quoteScopeRef = useRef(quoteScope);
+  useLayoutEffect(() => {
+    quoteScopeRef.current = quoteScope;
+    setQuotes([]);
+  }, [quoteScope]);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const [preview, setPreview] = useState<{ name: string; src: string } | null>(null);
@@ -101,7 +111,7 @@ function App() {
   const zh = data.preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const connected = data.status === 'connected';
-  const action = composerAction(busy, draft, attachments.length);
+  const action = composerAction(busy, draft, attachments.length + quotes.length);
   const current = data.sessions.find(s => s.id === data.state?.sessionId);
   const activeTitle = sessionTitle(current ?? (data.state?.sessionName ? { name: data.state.sessionName, firstMessage: '' } : undefined), t('新会话', 'New session'));
   const turns = useMemo(() => conversationTurns(data.messages, data.preferences.language), [data.messages, data.preferences.language]);
@@ -328,21 +338,28 @@ function App() {
     });
   };
   const send = async () => {
-    if ((!draft.trim() && !attachments.length) || !connected || loading) return;
-    const message = draft; const attached = attachments;
-    setDraft(''); setAttachments([]); attachmentsRef.current = []; follow.current = true; setAwayFromBottom(false);
+    if ((!draft.trim() && !attachments.length && !quotes.length) || !connected || loading) return;
+    const message = draft; const attached = attachments; const sentQuotes = quotes; const scope = quoteScope;
+    const prompt = quotePrompt(message, sentQuotes, data.preferences.language);
+    if (prompt.length > MAX_PROMPT_LENGTH) {
+      setError(t('消息与引用合计过长，请减少引用或分次发送', 'Message and quotes are too long; remove quotes or send in smaller parts'));
+      return;
+    }
+    setDraft(''); setQuotes([]); setAttachments([]); attachmentsRef.current = []; follow.current = true; setAwayFromBottom(false);
     await run(async () => {
       try {
-        await bridge!.command('prompt', { message, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) });
+        await bridge!.command('prompt', { message: prompt, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) });
       } catch (e) {
+        if (quoteScopeRef.current !== scope) throw e;
         setDraft(value => value ? `${message}\n${value}` : message);
+        setQuotes(value => restoreQuotes(sentQuotes, value));
         setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
         throw e;
       }
     });
   };
   const editMessage = (message: Message) => {
-    if (draft.trim() || attachmentsRef.current.length) {
+    if (draft.trim() || attachmentsRef.current.length || quotes.length) {
       setError(t('输入框已有草稿，请先发送或清空', 'Send or clear the current draft first'));
       return;
     }
@@ -544,8 +561,21 @@ function App() {
         <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>
       <div className="composer-wrap">
-        {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
         {draft.startsWith('/') && commands.filter(c => c.name.startsWith(draft.slice(1))).length > 0 && <div className="command-menu">{commands.filter(c => c.name.startsWith(draft.slice(1))).slice(0, 6).map(c => <button key={c.name} onClick={() => setDraft(`/${c.name} `)}><code>/{c.name}</code><span>{c.description}</span></button>)}</div>}
+        <div className="composer-context-bar" role="group" aria-label={t('消息辅助操作', 'Message context actions')}>
+        <QuotePreview quotes={quotes} language={data.preferences.language}
+          clear={() => setQuotes([])}
+          remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}
+          reveal={quote => {
+            const source = transcript.current?.querySelector<HTMLElement>(`[data-message-index="${quote.messageIndex}"]`);
+            if (source) {
+              follow.current = false; setAwayFromBottom(true);
+              source.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+            }
+          }}/>
+        <div className="spacer"/>
+        {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
+        </div>
         <div className={`composer ${draggingFiles ? 'composer-file-drop' : ''}`}
           onDragEnter={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); dragDepth.current++; setDraggingFiles(true); } }}
           onDragOver={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
@@ -572,6 +602,14 @@ function App() {
       <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
         sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
     </main>
+    <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
+      enabled={connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
+      onError={setError} onQuote={quote => {
+        if (quotes.some(item => item.messageIndex === quote.messageIndex && item.text === quote.text)) return true;
+        if (quotes.length >= MAX_QUOTES) { setError(t('最多添加 8 段引用', 'Maximum 8 quotes')); return false; }
+        follow.current = false;
+        setQuotes(value => [...value, quote]); return true;
+      }}/>
     {rightPanel && !details && <button type="button" className="right-panel-backdrop" aria-label={t('关闭右侧面板', 'Close right panel')} onClick={() => setRightPanel(null)}/>}
     {details ? <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside> : rightPanel && <aside className="conversation-nav-panel" aria-label={rightPanel === 'turns' ? t('会话导航', 'Conversation navigation') : t('摘要', 'Summary')}>
       <header><h2>{rightPanel === 'turns' ? t('会话导航', 'Conversation navigation') : t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={() => setRightPanel(null)}><X size={16}/></IconButton></header>

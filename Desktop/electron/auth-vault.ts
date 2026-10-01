@@ -2,6 +2,7 @@ import type { safeStorage as safeStorageType } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 type AuthData = Record<string, unknown>;
 type SafeStorageLike = Pick<typeof safeStorageType, 'isEncryptionAvailable' | 'encryptString' | 'decryptString'>;
@@ -89,7 +90,7 @@ export class AuthVault {
         // process, not a competing credential set: remove it and keep the
         // vault. Real plaintext credentials that disagree with the vault
         // still fail closed.
-        if (!legacy.empty && JSON.stringify(legacy.data) !== JSON.stringify(data)) {
+        if (!legacy.empty && !isDeepStrictEqual(legacy.data, data)) {
           throw new Error('Conflicting desktop credential files; migration requires manual review');
         }
         await unlink(this.legacyPath);

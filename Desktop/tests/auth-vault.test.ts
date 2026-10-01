@@ -42,6 +42,18 @@ test('dpapi credentials with different real plaintext credentials still fail clo
   await assert.rejects(vault(root).load(), /Conflicting desktop credential files/);
 });
 
+test('equivalent credentials with reordered keys preserve the vault and remove redundant plaintext', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auth-vault-reordered-'));
+  const encrypted = safeStorageMock.encryptString(JSON.stringify(credentials));
+  await writeFile(join(root, 'auth.dpapi'), encrypted);
+  await writeFile(join(root, 'auth.json'), JSON.stringify({
+    step: { profile: 'platform_cn', expires: Number.MAX_SAFE_INTEGER, refresh: 'fixture', access: marker, type: 'oauth' },
+  }));
+  assert.deepEqual(await vault(root).load(), credentials);
+  assert.deepEqual(await readFile(join(root, 'auth.dpapi')), encrypted, 'the encrypted vault must not be rewritten');
+  await assert.rejects(readFile(join(root, 'auth.json')), { code: 'ENOENT' });
+});
+
 test('plaintext credentials without a vault migrate into the vault and drop the plaintext', async () => {
   const root = await mkdtemp(join(tmpdir(), 'auth-vault-migrate-'));
   await writeFile(join(root, 'auth.json'), JSON.stringify(credentials));

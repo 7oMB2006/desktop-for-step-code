@@ -8,26 +8,56 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const serverName = 'steppage';
 const expectedCommand = join(resolve('runtime'), 'node', 'node.exe');
 const userCommand = 'my-own-steppage-command';
+let launchNumber = 0;
+let phase = 'initializing';
+process.on('exit', code => {
+  if (code !== 0) console.error(`StepPage acceptance exited (${code}) during ${phase}`);
+});
+
+const reportFailure = async (profile) => {
+  const logs = join(profile, 'logs');
+  for (const name of await readdir(logs).catch(() => [])) {
+    if (!/^crash-.*\.log$/.test(name)) continue;
+    const content = await readFile(join(logs, name), 'utf8');
+    // Report lifecycle metadata only, never credential content or runtime stderr.
+    console.error(content.split(/\r?\n/).filter(line => /^(time|kind|phase): /.test(line)).join('\n'));
+  }
+};
 
 const launchCase = async (profile, bundlePath) => {
+  phase = `launch ${++launchNumber}`;
+  console.log(`StepPage acceptance: ${phase}`);
   const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', DESKTOP_STEPPAGE_BUNDLE: bundlePath };
   delete env.ELECTRON_RUN_AS_NODE;
-  const app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
+  let app;
+  let closing = false;
   try {
+    app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
+    app.process().on('exit', (code, signal) => {
+      if (!closing) console.error(`Unexpected Electron exit during ${phase}: code=${code}, signal=${signal}`);
+    });
+    phase = `launch ${launchNumber}: window ready`;
     const page = await app.firstWindow();
     await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
+    phase = `launch ${launchNumber}: runtime snapshot`;
     await page.evaluate(() => window.desktop.snapshot());
+    phase = `launch ${launchNumber}: settings`;
     const settings = await page.evaluate(() => window.desktop.settings());
     return settings.mcp ?? {};
+  } catch (error) {
+    console.error(`StepPage acceptance failed during ${phase}`);
+    await reportFailure(profile);
+    throw error;
   } finally {
-    await app.close();
+    closing = true;
+    if (app) await app.close();
   }
 };
 
@@ -46,6 +76,7 @@ const cleanup = async (profiles) => { for (const profile of profiles) await rm(p
 
 const profiles = [];
 
+const runCases = async () => {
 // 1. Bundle present on a clean profile: the server is registered with the
 //    staged runtime node as the command and the bundle as the argument.
 {
@@ -121,5 +152,12 @@ const profiles = [];
   console.log('case 6 ok: stale managed entry refreshed');
 }
 
-await cleanup(profiles);
+};
+
+try {
+  await runCases();
+} finally {
+  await cleanup(profiles);
+}
+phase = 'complete';
 console.log('StepPage registration acceptance passed.');

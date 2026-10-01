@@ -2,6 +2,22 @@
 
 This file combines historical feature checks with the current release gates. Named `Desktop/release-*` directories below identify local outputs used for those checks; they are not required retained artifacts or current download locations. Current packaging writes to `Desktop/release/`.
 
+## Conversation Presentation
+
+The 2026-10-01 PR-scoped source, rebased onto main after PRs #30 and #31 and excluding the separate composer send/stop-button work, passed type checking, all 42 tests, the production build and background Electron acceptance. Narration and tool summaries remain visible in source order. Acceptance verifies localized action labels, details-only raw commands, pending-only left-to-right shimmer, independent sibling completion, upright/red failures, reduced-motion handling and missing-result states. Screenshots are under `Desktop/test-results/tool-summary-*.png` and `transcript-tool-*.png`. The earlier 2026-09-30 packaged preview also passed acceptance, but was built before this main-branch sync.
+
+Fixtures cover user turn anchors, tool-ID pairing with out-of-order results, failed and missing results, retained intermediate narration, thinking and images, copy of all response prose excluding thinking/tool payloads, hover/focus controls without layout shifts, draft-preserving edit-to-composer, nested disclosure and visible narration/tool summaries after runtime disconnect. Light/dark and narrow-window screenshots are local evidence under `Desktop/test-results/transcript-*.png`; math and image-preview regression checks remain included.
+
+Clipboard text writes are replaced by an in-page fixture, not performed against the user's clipboard. Editing restores a message copy to the composer; it is not runtime history editing. Branch remains disabled. This renderer change has no new real-model or installer lifecycle acceptance.
+
+Thinking folds when the first subsequent nonempty text delta arrives, while the response and pending tools remain active. Empty text-start events do not fold it; a manual reopen survives later deltas. `Desktop/test-results/thinking-folded-on-prose.png` captures that verified streaming state. Layout acceptance waits for finite transitions rather than looping tool animations.
+
+## Credential Migration Comparison
+
+PR #30 already handles empty legacy credential stores. This change builds on that recovery logic and compares nonempty credentials structurally: identical values with different object key order no longer falsely conflict. Different nonempty credentials still block startup and remain untouched.
+
+On 2026-10-01, the post-sync source passed type checking, all 42 tests, the production build and `verify-electron.mjs`, `verify-auth-vault.mjs`, `verify-crash-log.mjs`, `verify-steppage-registration.mjs` and `verify-theme-bootstrap.mjs`. The vault unit test and real DPAPI migration acceptance cover reordered equivalent credentials, unchanged encrypted bytes and rejection of real conflicts. These checks use isolated fixture profiles, not the user's account.
+
 ## Mathematical Notation
 
 The 2026-09-30 source build passed type checking, 28 tests and background Electron acceptance. The local preview at `Desktop/release/math-preview/` was also packaged and passed the same acceptance against its unpacked executable. Fixtures cover inline and display math, same-line double-dollar notation, fractions, roots, sums, integrals, limits, matrices, cases, preserved code and prices, incomplete stream completion, malformed and oversized formulas, and disabled untrusted commands. Electron screenshots cover light/dark themes and a narrow window; the acceptance checks local font loading, thinking-block math, centered display formulas, horizontal scrolling confined to the formula with both ends accessible, and continued rendering after an invalid formula.

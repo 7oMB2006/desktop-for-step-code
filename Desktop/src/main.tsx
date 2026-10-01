@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowUp, ArrowDown, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut } from 'lucide-react';
-import Markdown from 'react-markdown';
-import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment } from './contracts';
 import 'katex/dist/katex.min.css';
 import './style.css';
@@ -19,6 +17,8 @@ import { AppTooltip } from './AppTooltip';
 import { ConversationMarkers, conversationTurns, scrollToTurn } from './ConversationNavigation';
 import { ConversationScrollThumb } from './ConversationScrollThumb';
 import { updateRunMetrics, type RunMetrics } from './performance';
+import { ConversationMessages } from './ConversationMessages';
+import { messageBlocks, messageText } from './conversation-presentation';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -30,25 +30,6 @@ const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, 
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
-function Code({ children, className }: any) {
-  const [copied, setCopied] = useState(false);
-  if (!className) return <code>{children}</code>;
-  return <span className="code-block"><span className="code-header">{className.replace('hljs language-', '').replace('language-', '')}<IconButton title="Copy" onClick={() => { void navigator.clipboard.writeText(String(children)); setCopied(true); setTimeout(() => setCopied(false), 1800); }}>{copied ? <Check size={14}/> : <Copy size={14}/>}</IconButton></span><code className={className}>{children}</code></span>;
-}
-function PreviewableImage({ src, alt, className, open }: { src: string; alt: string; className?: string; open: (src: string, name: string, anchor: HTMLElement) => void }) {
-  return <img src={src} alt={alt} className={`${className ?? ''} previewable-image`} role="button" tabIndex={0} aria-label={`${document.documentElement.lang === 'zh-CN' ? '预览' : 'Preview'} ${alt}`} onClick={e => open(src, alt, e.currentTarget)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(src, alt, e.currentTarget); } }}/>;
-}
-function MessageView({ message, index, inspect, openImage }: { message: Message; index: number; inspect: (value: string) => void; openImage: (src: string, name: string, anchor: HTMLElement) => void }) {
-  const blocks: Content[] = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content ?? [];
-  if (message.role === 'toolResult') return <details data-message-index={index} className={`tool-result ${message.isError ? 'failed' : ''}`}><summary><Terminal size={14}/><span>{message.toolName ?? 'Tool'}</span><span className="tool-outcome">{message.isError ? 'Error' : 'Result'}</span><ChevronDown size={14}/></summary><pre>{blocks.filter(b => b.type === 'text').map(b => b.text).join('\n')}</pre>{blocks.filter(b => b.type === 'image').map((b, i) => <PreviewableImage key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Tool output" open={openImage}/>)}</details>;
-  return <article data-message-index={index} className={`message ${message.role}`}><div className="message-label">{message.role === 'user' ? 'You' : 'Step Code'}<span>{message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span></div><div className="message-body">{blocks.map((b, i) => {
-    if (b.type === 'thinking') return <details className="thinking" key={i}><summary>Thinking</summary><Markdown skipHtml remarkPlugins={messageRemarkPlugins} rehypePlugins={messageRehypePlugins}>{b.thinking ?? ''}</Markdown></details>;
-    if (b.type === 'toolCall') return <button className="tool-call" key={i} onClick={() => inspect(JSON.stringify({ tool: b.name, arguments: b.arguments }, null, 2))}><Terminal size={14}/><span>{b.name}</span><code>{JSON.stringify(b.arguments ?? {}).slice(0, 95)}</code><ChevronRight size={14}/></button>;
-    if (b.type === 'image') return <PreviewableImage className="attachment" key={i} src={`data:${b.mimeType};base64,${b.data}`} alt="Attachment" open={openImage}/>;
-    if (b.type === 'text') return <Markdown key={i} skipHtml remarkPlugins={messageRemarkPlugins} rehypePlugins={messageRehypePlugins} components={{ code: Code, a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>, img: ({ src, alt }) => src?.startsWith('data:image/') ? <PreviewableImage src={src} alt={alt ?? 'Image'} open={openImage}/> : <span>{alt}</span> }}>{b.text ?? ''}</Markdown>;
-    return null;
-  })}</div></article>;
-}
 function App() {
   const [data, setData] = useState(initial);
   const [error, setError] = useState('');
@@ -330,6 +311,23 @@ function App() {
       }
     });
   };
+  const editMessage = (message: Message) => {
+    if (draft.trim() || attachmentsRef.current.length) {
+      setError(t('输入框已有草稿，请先发送或清空', 'Send or clear the current draft first'));
+      return;
+    }
+    const images: ComposerAttachment[] = messageBlocks(message).filter(block => block.type === 'image')
+      .map((content, index) => ({ kind: 'image', name: `${t('图片', 'Image')} ${index + 1}`, content }));
+    if (images.length > 5) {
+      setError(t('这条消息包含超过 5 张图片，无法放回输入框', 'This message has more than 5 images'));
+      return;
+    }
+    setError('');
+    setDraft(messageText(message));
+    attachmentsRef.current = images;
+    setAttachments(images);
+    document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus();
+  };
   const changePreviewZoom = (next: number, anchor?: { x: number; y: number }) => {
     const zoom = Math.max(.5, Math.min(5, next));
     if (anchor && previewViewport.current) {
@@ -511,7 +509,7 @@ function App() {
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages">{data.messages.map((m, i) => <MessageView key={i} index={i} message={m} openImage={openImage} inspect={value => { setRightPanel(null); setDetails(value); }} />)}{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}<div ref={bottom}/></div>}
+          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages"><ConversationMessages messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} onError={setError}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}<div ref={bottom}/></div>}
         </div>
         <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>

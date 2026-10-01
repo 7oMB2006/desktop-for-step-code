@@ -6,13 +6,16 @@ import type { Content, Message } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject } from './conversation-presentation';
 import type { ResponseItem } from './conversation-presentation';
+import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
+import { ThinkingDisclosure } from './ThinkingDisclosure';
 
 type Props = {
   messages: Message[]; language: 'zh' | 'en'; busy: boolean; canEdit: boolean;
   openImage: (src: string, name: string, anchor: HTMLElement) => void;
   edit: (message: Message) => void; onError: (message: string) => void;
+  onLayoutChange?: () => void;
 };
-type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError'>;
+type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange'>;
 
 function CopyButton({ text, getText, language, onError }: { text: string; getText?: () => string } & Pick<Props, 'language' | 'onError'>) {
   const [copied, setCopied] = useState(false);
@@ -53,8 +56,20 @@ function Code({ children, className, language, onError }: Omit<ComponentProps<'c
     <CopyButton text={String(children)} getText={() => code.current?.textContent ?? ''} language={language} onError={onError}/>
   </span><code ref={code} className={className}>{children}</code></span>;
 }
-function Text({ text, ...props }: { text: string } & BodyProps) {
-  return <Markdown skipHtml remarkPlugins={messageRemarkPlugins} rehypePlugins={messageRehypePlugins}
+function Text({ text, streaming = false, ...props }: { text: string; streaming?: boolean } & BodyProps) {
+  const [reveal, setReveal] = useState<RevealState>({ text: '', active: false, nextId: 0, batches: [] });
+  if (text !== reveal.text || streaming !== reveal.active) {
+    setReveal(updateReveal(reveal, text, streaming, performance.now()));
+  }
+  useEffect(() => {
+    if (!reveal.batches.length) return;
+    const timer = setTimeout(() => setReveal(previous => updateReveal(previous, previous.text, previous.active, performance.now())), REVEAL_DURATION);
+    return () => clearTimeout(timer);
+  }, [reveal.batches]);
+  const plugins = useMemo<ComponentProps<typeof Markdown>['rehypePlugins']>(() => reveal.batches.length
+    ? [...messageRehypePlugins!, [rehypeStreamReveal, { batches: reveal.batches }]]
+    : messageRehypePlugins, [reveal.batches]);
+  return <Markdown skipHtml remarkPlugins={messageRemarkPlugins} rehypePlugins={plugins}
     components={{
       code: ({ children, className }) => <Code className={className} language={props.language} onError={props.onError}>{children}</Code>,
       a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
@@ -108,12 +123,12 @@ function Response({ items, active, ...props }: {
   return <article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
     <div className="response-content message-body">{content.map((item, position) =>
         item.type === 'tool' ? <Tool key={item.key} item={item} active={active} {...props}/>
-          : item.type === 'thinking' ? <details className="thinking" key={item.key} data-message-index={item.index} open={active && position > lastTextIndex}>
-            <summary><ChevronRight size={13} className="disclosure-chevron"/>{zh ? '思考' : 'Thinking'}</summary>
-            <Text text={item.block.thinking ?? ''} {...props}/>
-          </details>
+          : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
+            autoOpen={active && position > lastTextIndex} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
+            <Text text={item.block.thinking ?? ''} streaming={active && position > lastTextIndex} {...props}/>
+          </ThinkingDisclosure>
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
-              : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} {...props}/></div>
+              : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>
       )}</div>
     {!active && content.length > 0 && <footer className="message-actions assistant-actions">
       <CopyButton text={text} {...props}/>

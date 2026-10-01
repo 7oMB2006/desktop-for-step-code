@@ -825,7 +825,7 @@ try {
   const composerFits = await page.locator('.composer-tools').evaluate(element => {
     const attach = element.querySelector('button');
     const model = element.querySelector('.model-effort');
-    const send = element.querySelector('.send-button');
+    const send = element.querySelector('.composer-action-button');
     const bounds = element.getBoundingClientRect();
     return attach && model && send
       && attach.getBoundingClientRect().right < model.getBoundingClientRect().left

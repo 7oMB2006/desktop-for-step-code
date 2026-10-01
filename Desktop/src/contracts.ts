@@ -40,6 +40,7 @@ export interface DesktopBridge {
   importFile(file: File): Promise<ComposerAttachment>;
   importClipboardImage(data: string, mimeType: string, name: string): Promise<ComposerAttachment>;
   imageAction(action: 'copy' | 'save' | 'reveal', src: string, name: string): Promise<boolean>;
+  copyText(text: string): Promise<void>;
   diagnostics(): Promise<boolean>;
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }

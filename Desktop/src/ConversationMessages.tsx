@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 import Markdown from 'react-markdown';
 import { Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, Pencil, Search, Terminal, Wrench } from 'lucide-react';
@@ -14,6 +14,7 @@ type Props = {
   openImage: (src: string, name: string, anchor: HTMLElement) => void;
   edit: (message: Message) => void; onError: (message: string) => void;
   onLayoutChange?: () => void;
+  arrivingUser?: Message | null;
 };
 type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange'>;
 
@@ -23,11 +24,16 @@ function CopyButton({ text, getText, language, onError }: { text: string; getTex
   useEffect(() => () => clearTimeout(timer.current), []);
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(getText ? getText() : text);
+      if (!window.desktop) throw new Error('Desktop clipboard unavailable');
+      await window.desktop.copyText(getText ? getText() : text);
       setCopied(true);
       clearTimeout(timer.current);
       timer.current = setTimeout(() => setCopied(false), 1600);
-    } catch (error) { onError(String(error instanceof Error ? error.message : error)); }
+    } catch (error) {
+      clearTimeout(timer.current);
+      setCopied(false);
+      onError(String(error instanceof Error ? error.message : error));
+    }
   };
   return <button type="button" className="icon-button" aria-label={language === 'zh' ? '复制' : 'Copy'}
     disabled={!text} onClick={() => void copy()}>{copied ? <Check size={15}/> : <Copy size={15}/>}</button>;
@@ -137,17 +143,35 @@ function Response({ items, active, ...props }: {
     </footer>}
   </article>;
 }
+function UserMessage({ message, index, arriving, ...props }: {
+  message: Message; index: number; arriving: boolean;
+} & Props) {
+  const article = useRef<HTMLElement>(null);
+  const played = useRef(false);
+  useLayoutEffect(() => {
+    if (!arriving || played.current) return;
+    played.current = true;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const animation = article.current!.animate(
+      [{ opacity: .45, transform: 'translateY(4px)' }, { opacity: 1, transform: 'translateY(0)' }],
+      { duration: 160, easing: 'cubic-bezier(.215, .61, .355, 1)' },
+    );
+    return () => animation.cancel();
+  }, [arriving]);
+  return <article ref={article} className="message user" data-message-index={index}>
+    <Body blocks={messageBlocks(message)} {...props}/>
+    <footer className="message-actions user-actions">
+      <Timestamp value={message.timestamp} language={props.language}/>
+      <CopyButton text={messageText(message)} {...props}/>
+      <button type="button" className="icon-button" aria-label={props.language === 'zh' ? '编辑' : 'Edit'}
+        disabled={!props.canEdit || !messageText(message)} onClick={() => props.edit(message)}><Pencil size={15}/></button>
+    </footer>
+  </article>;
+}
 export function ConversationMessages(props: Props) {
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
   return <>{entries.map((entry, index) => entry.type === 'user'
-    ? <article className="message user" data-message-index={entry.item.index} key={entry.item.index}>
-      <Body blocks={messageBlocks(entry.item.message)} {...props}/>
-      <footer className="message-actions user-actions">
-        <Timestamp value={entry.item.message.timestamp} language={props.language}/>
-        <CopyButton text={messageText(entry.item.message)} {...props}/>
-        <button type="button" className="icon-button" aria-label={props.language === 'zh' ? '编辑' : 'Edit'}
-          disabled={!props.canEdit || !messageText(entry.item.message)} onClick={() => props.edit(entry.item.message)}><Pencil size={15}/></button>
-      </footer>
-    </article>
+    ? <UserMessage key={entry.item.index} message={entry.item.message} index={entry.item.index}
+      arriving={entry.item.message === props.arrivingUser} {...props}/>
     : <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1} {...props}/>)}</>;
 }

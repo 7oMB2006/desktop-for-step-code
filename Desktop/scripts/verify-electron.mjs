@@ -968,10 +968,10 @@ try {
   });
   await page.getByText('帮我检查项目的目录结构。', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/layout-conversation-wide.png' });
-  // Transcript controls and process disclosure use synthetic messages and an in-page clipboard stub.
-  await page.evaluate(() => {
-    globalThis.messageCopyTest = { original: navigator.clipboard.writeText, values: [] };
-    navigator.clipboard.writeText = async text => { globalThis.messageCopyTest.values.push(text); };
+  // Keep the real preload/IPC path; substitute only the OS write in this isolated process.
+  await app.evaluate(({ clipboard }) => {
+    globalThis.messageCopyTest = { original: clipboard.writeText, values: [] };
+    clipboard.writeText = async text => { globalThis.messageCopyTest.values.push(text); };
   });
   await app.evaluate(({ BrowserWindow }) => {
     const send = message => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'message_start', message });
@@ -1010,7 +1010,7 @@ try {
   const userAfter = await presentationUser.boundingBox();
   assert.equal(userBefore.height, userAfter.height, 'hover actions must not shift transcript layout');
   await presentationUser.getByRole('button', { name: '复制', exact: true }).click();
-  assert.equal(await page.evaluate(() => globalThis.messageCopyTest.values.at(-1)), '检查项目入口，说明这次做了哪些改动。');
+  assert.equal(await app.evaluate(() => globalThis.messageCopyTest.values.at(-1)), '检查项目入口，说明这次做了哪些改动。');
   await page.locator('.composer > textarea').fill('');
   await presentationUser.getByRole('button', { name: '编辑', exact: true }).click();
   assert.equal(await page.locator('.composer > textarea').inputValue(), '检查项目入口，说明这次做了哪些改动。');
@@ -1021,7 +1021,7 @@ try {
   await page.locator('.error-banner').getByRole('button', { name: '关闭', exact: true }).click();
   await page.locator('.composer > textarea').fill('');
   await presentationResponse.locator('.assistant-actions').getByRole('button', { name: '复制', exact: true }).click();
-  const copiedAnswer = await page.evaluate(() => globalThis.messageCopyTest.values.at(-1));
+  const copiedAnswer = await app.evaluate(() => globalThis.messageCopyTest.values.at(-1));
   assert.ok(copiedAnswer.startsWith('先查看入口与验证脚本。'));
   assert.ok(copiedAnswer.includes('已整理会话展示。'));
   assert.equal(copiedAnswer.includes('先检查入口'), false, 'answer copy must exclude private reasoning and tool data');
@@ -1031,7 +1031,7 @@ try {
   await presentationUser.getByRole('button', { name: '复制', exact: true }).focus();
   await page.waitForFunction(() => getComputedStyle([...document.querySelectorAll('.user-actions')].at(-1)).opacity === '1');
   await presentationUser.getByRole('button', { name: '复制', exact: true }).press('Enter');
-  assert.equal(await page.evaluate(() => globalThis.messageCopyTest.values.at(-1)), '检查项目入口，说明这次做了哪些改动。');
+  assert.equal(await app.evaluate(() => globalThis.messageCopyTest.values.at(-1)), '检查项目入口，说明这次做了哪些改动。');
   await presentationResponse.scrollIntoViewIfNeeded();
   for (const theme of ['light', 'dark']) {
     await page.locator('.sidebar-bottom > button').click();
@@ -1056,7 +1056,7 @@ try {
   await page.screenshot({ path: 'test-results/transcript-narrow.png' });
   await content.locator('.process-tool > summary').first().click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
-  await page.evaluate(() => { navigator.clipboard.writeText = globalThis.messageCopyTest.original; });
+  await app.evaluate(({ clipboard }) => { clipboard.writeText = globalThis.messageCopyTest.original; });
   await app.evaluate(({ BrowserWindow }) => {
     const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
     send({ type: 'agent_start' });

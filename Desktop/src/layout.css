@@ -358,6 +358,8 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .composer > textarea {
   min-height: 58px; max-height: 180px; padding: 14px 16px 8px;
   resize: none; overflow-y: auto; font-size: 13px; line-height: 1.6;
+  scrollbar-width: thin; scrollbar-color: var(--muted) transparent;
+  scrollbar-gutter: stable;
 }
 .composer-tools { min-height: 40px; gap: 4px; padding: 3px 10px 9px; }
 .permission-picker { position: relative; flex-shrink: 0; }

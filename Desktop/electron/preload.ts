@@ -45,6 +45,7 @@ const bridge: DesktopBridge = {
   },
   importClipboardImage: (data, mimeType, name) => invoke('importClipboardImage', data, mimeType, name),
   imageAction: (action, src, name) => invoke('imageAction', action, src, name),
+  copyText: text => invoke('copyText', text),
   onEvent: callback => { const handler = (_: unknown, event: any) => callback(event); ipcRenderer.on('runtime-event', handler); return () => ipcRenderer.removeListener('runtime-event', handler); },
 };
 contextBridge.exposeInMainWorld('desktop', bridge);

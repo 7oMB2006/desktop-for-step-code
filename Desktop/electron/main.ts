@@ -333,6 +333,10 @@ async function handle(method: string, args: any[]) {
       }
       await savePreferences(); return preferences;
     }
+    case 'copyText': {
+      await clipboard.writeText(text(args[0], 2000000));
+      return null;
+    }
     case 'images': {
       const result = await dialog.showOpenDialog(window, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
       if (result.canceled) return [];

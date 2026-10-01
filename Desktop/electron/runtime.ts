@@ -45,18 +45,27 @@ export class RpcProcess {
   private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   constructor(private event: (value: any) => void) {}
-  start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv) {
+  start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) {
     if (this.child) throw new Error('Runtime already started');
     this.stderr = '';
-    const child = spawn(node, [entry, '--mode', 'rpc'], { cwd, env, windowsHide: true, stdio: 'pipe' });
+    const child = spawn(node, [entry, '--mode', 'rpc', ...args], { cwd, env, windowsHide: true, stdio: 'pipe' });
     this.child = child;
     const decoder = new JsonLines(value => {
+      if (this.child !== child) return;
       if (value.type === 'response' && value.id && this.pending.has(value.id)) {
         const request = this.pending.get(value.id)!; this.pending.delete(value.id); clearTimeout(request.timer);
         value.success ? request.resolve(value.data) : request.reject(new Error(value.error || 'Runtime command failed'));
       } else this.event(value);
     });
-    child.stdout.on('data', chunk => { try { decoder.push(chunk); } catch (e) { this.fail(e as Error); void this.stop(); } });
+    child.stdout.on('data', chunk => {
+      try { decoder.push(chunk); }
+      catch (e) {
+        if (this.child !== child) return;
+        this.fail(e as Error);
+        this.event({ type: 'desktop_exit', details: { kind: 'rpc-protocol', message: (e as Error).message } });
+        void this.stop();
+      }
+    });
     // Raw stderr is never relayed to the UI: upstream diagnostics can contain
     // private environment values. A bounded copy is kept for the crash log, and
     // stderrForLog() strips anything credential-shaped before it is written.

@@ -1299,6 +1299,10 @@ for (const userData of [profile, cleanProfile]) {
   const relaunched = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env: { ...env, DESKTOP_TEST_USER_DATA: userData }, timeout: 60000 });
   try {
     const page = await relaunched.firstWindow();
+    await relaunched.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
+    });
     await page.waitForFunction(() => { const input = document.querySelector('.composer > textarea'); return input && !input.disabled; }, { timeout: 60000 });
     const home = await page.evaluate(() => window.desktop.snapshot());
     assert.equal(home.independent, true);

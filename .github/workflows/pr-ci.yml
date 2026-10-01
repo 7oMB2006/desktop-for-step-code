@@ -84,12 +84,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
           node scripts/verify-electron.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Electron acceptance failed' }
+          node scripts/verify-session-concurrency.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Session concurrency acceptance failed' }
           node scripts/verify-auth-vault.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Auth vault acceptance failed' }
           node scripts/verify-crash-log.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Crash log acceptance failed' }
           node scripts/verify-steppage-registration.mjs
           if ($LASTEXITCODE -ne 0) { throw 'StepPage registration acceptance failed' }
+
+      - name: Check theme bootstrap
+        working-directory: Desktop
+        timeout-minutes: 5
+        run: |
           node scripts/verify-theme-bootstrap.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Theme bootstrap acceptance failed' }
 

@@ -32,7 +32,7 @@ const bridge: DesktopBridge = {
   systemTheme: () => ipcRenderer.invoke('desktop-system-theme'),
   newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'), openWorkspaceFolder: path => invoke('openWorkspaceFolder', path),
   snapshot: () => invoke('snapshot'), chooseWorkspace: () => invoke('chooseWorkspace'), workspace: path => invoke('workspace', path),
-  command: (type, args) => invoke('command', type, args), sessions: () => invoke('sessions'), switchSession: id => invoke('switchSession', id),
+  command: (type, args, runtimeId) => invoke('command', type, args, runtimeId), sessions: () => invoke('sessions'), switchSession: id => invoke('switchSession', id),
   deleteSession: id => invoke('deleteSession', id), restart: () => invoke('restart'), settings: () => invoke('settings'),
   login: (profile, key) => invoke('login', profile, key), cancelLogin: () => invoke('cancelLogin'), logout: () => invoke('logout'),
   saveMcp: (name, config, secrets) => invoke('saveMcp', name, config, secrets), preferences: patch => invoke('preferences', patch),

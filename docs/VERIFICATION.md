@@ -4,15 +4,19 @@ This file combines historical feature checks with the current release gates. Nam
 
 ## Conversation Presentation
 
-The revised 2026-09-30 preview at `Desktop/release/conversation-preview/` keeps all assistant narration and tool summaries visible in source order, with only thinking and individual tool payloads folded. It passed type checking, all 33 tests, the production build and background Electron acceptance against both the local build and the rebuilt packaged executable. The preview replaces the initial package's now-superseded global process disclosure.
-
-Subsequent 2026-09-30 changes add localized action summaries and per-tool running/completed/failed animations. Type checking, all 35 tests, the production build and background Electron acceptance passed against both the local build and the rebuilt packaged executable at the same preview path. Acceptance verifies raw commands remain inside details, left-to-right shimmer runs only for pending calls, a completed sibling stops its own animation while another tool remains pending, failed labels are upright/red, reduced-motion disables shimmer, and interrupted missing results never appear successful. Screenshots are under `Desktop/test-results/tool-summary-*.png` and `transcript-tool-*.png`.
+The 2026-10-01 PR-scoped source, rebased onto main after PRs #30 and #31 and excluding the separate composer send/stop-button work, passed type checking, all 42 tests, the production build and background Electron acceptance. Narration and tool summaries remain visible in source order. Acceptance verifies localized action labels, details-only raw commands, pending-only left-to-right shimmer, independent sibling completion, upright/red failures, reduced-motion handling and missing-result states. Screenshots are under `Desktop/test-results/tool-summary-*.png` and `transcript-tool-*.png`. The earlier 2026-09-30 packaged preview also passed acceptance, but was built before this main-branch sync.
 
 Fixtures cover user turn anchors, tool-ID pairing with out-of-order results, failed and missing results, retained intermediate narration, thinking and images, copy of all response prose excluding thinking/tool payloads, hover/focus controls without layout shifts, draft-preserving edit-to-composer, nested disclosure and visible narration/tool summaries after runtime disconnect. Light/dark and narrow-window screenshots are local evidence under `Desktop/test-results/transcript-*.png`; math and image-preview regression checks remain included.
 
 Clipboard text writes are replaced by an in-page fixture, not performed against the user's clipboard. Editing restores a message copy to the composer; it is not runtime history editing. Branch remains disabled. This renderer change has no new real-model or installer lifecycle acceptance.
 
-The subsequent thinking-disclosure adjustment passed type checking, all 36 tests, the production build and background Electron acceptance against both the local build and the rebuilt executable in `Desktop/release/conversation-preview/`. Thinking now folds when the first subsequent nonempty text delta arrives, while the response and pending tools remain active. Empty text-start events do not fold it; a manual reopen survives later deltas. `Desktop/test-results/thinking-folded-on-prose.png` captures that streaming state. The packaged credential-migration regression also passed again.
+Thinking folds when the first subsequent nonempty text delta arrives, while the response and pending tools remain active. Empty text-start events do not fold it; a manual reopen survives later deltas. `Desktop/test-results/thinking-folded-on-prose.png` captures that verified streaming state. Layout acceptance waits for finite transitions rather than looping tool animations.
+
+## Credential Migration Comparison
+
+PR #30 already handles empty legacy credential stores. This change builds on that recovery logic and compares nonempty credentials structurally: identical values with different object key order no longer falsely conflict. Different nonempty credentials still block startup and remain untouched.
+
+On 2026-10-01, the post-sync source passed type checking, all 42 tests, the production build and `verify-electron.mjs`, `verify-auth-vault.mjs`, `verify-crash-log.mjs`, `verify-steppage-registration.mjs` and `verify-theme-bootstrap.mjs`. The vault unit test and real DPAPI migration acceptance cover reordered equivalent credentials, unchanged encrypted bytes and rejection of real conflicts. These checks use isolated fixture profiles, not the user's account.
 
 ## Mathematical Notation
 

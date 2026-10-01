@@ -16,7 +16,8 @@ await mkdir(dataRoot, { recursive: true });
 
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
-const launch = () => electron.launch({ args: [resolve('.')], env, timeout: 60000 });
+const executablePath = process.env.DESKTOP_VERIFY_EXE;
+const launch = () => electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
 
 // 1. A real encrypted vault: start once with a plaintext legacy file, which the
 //    app migrates to auth.dpapi and removes. (Fixture credential only.)
@@ -34,6 +35,24 @@ try {
 const encrypted = await readFile(join(dataRoot, 'auth.dpapi'));
 assert.equal(encrypted.includes(Buffer.from(marker)), false, 'vault content must be encrypted');
 await assert.rejects(readFile(join(dataRoot, 'auth.json')), { code: 'ENOENT' }, 'legacy plaintext must be gone');
+
+// Empty runtime placeholders and reordered equivalent credentials must not
+// conflict with or rewrite the already encrypted vault.
+for (const legacy of [
+  {},
+  { step: { profile: 'platform_cn', expires: Number.MAX_SAFE_INTEGER, refresh: 'fixture', access: marker, type: 'oauth' } },
+]) {
+  await writeFile(join(dataRoot, 'auth.json'), JSON.stringify(legacy));
+  app = await launch();
+  try {
+    const page = await app.firstWindow();
+    await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
+    await page.evaluate(() => window.desktop.snapshot());
+  } finally { await app.close(); }
+  assert.deepEqual(await readFile(join(dataRoot, 'auth.dpapi')), encrypted, 'migration must preserve the encrypted vault bytes');
+  await assert.rejects(readFile(join(dataRoot, 'auth.json')), { code: 'ENOENT' }, 'redundant plaintext must be removed');
+}
+console.log('Credential migration passed: empty placeholder and reordered equivalent data; encrypted vault unchanged.');
 
 // 2. Conflict: a different plaintext credential beside the encrypted vault.
 //    vault.load() refuses this state instead of guessing, which is the failure
@@ -55,10 +74,8 @@ while (Date.now() < deadline) {
   if (logs.some(name => name.startsWith('crash-') && name.endsWith('.log'))) break;
   await sleep(500);
 }
-// 4. Tear the failed launch down. The startup failure ends in a modal error
-//    box, so app.quit() never runs unattended and a graceful close would wait
-//    forever; kill the process tree instead. process() throws once the app has
-//    already exited, which is the other valid outcome of this path.
+// 4. Background acceptance suppresses the native error dialog and exits.
+//    If a failed fixture is still alive, only tear down that test process tree.
 if (app) {
   try {
     const pid = app.process().pid;

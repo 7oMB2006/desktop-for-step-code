@@ -57,6 +57,7 @@ function App() {
   const [draggingFiles, setDraggingFiles] = useState(false);
   const dragDepth = useRef(0);
   const [busy, setBusy] = useState(false);
+  const [arrivingUser, setArrivingUser] = useState<Message | null>(null);
   const [stopping, setStopping] = useState(false);
   const stoppingRef = useRef(false);
   const [runMetrics, setRunMetrics] = useState<RunMetrics | null>(null);
@@ -128,6 +129,7 @@ function App() {
       }
       if (event.type === 'desktop_error') setError(event.message);
       if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
+      if (['message_start', 'message_end'].includes(event.type) && event.message?.role === 'user') setArrivingUser(event.message);
       if (['message_start', 'message_update', 'message_end'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
       if (event.type === 'extension_ui_request') {
         if (['select', 'input', 'editor', 'confirm'].includes(event.method)) setRequests(r => [...r.filter(v => v.id !== event.id), event as UIRequest]);
@@ -537,7 +539,7 @@ function App() {
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} onError={setError} onLayoutChange={followLayout}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
+          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
         </div>
         <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>

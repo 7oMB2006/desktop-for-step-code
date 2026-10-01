@@ -272,7 +272,13 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .response-content > .thinking { font-size: 13px; margin: 0 0 12px; color: var(--muted); }
 .response-content > .thinking > summary { display: flex; align-items: center; gap: 6px; width: fit-content; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
 .response-content > .thinking > summary:hover { color: var(--ink); }
-.response-content > .thinking > p { padding: 5px 0; }
+.thinking-body > p { padding: 5px 0; }
+.thinking[data-expanded="false"] > summary > .disclosure-chevron { transform: rotate(0); }
+.stream-reveal { animation: stream-text-in .18s ease-out both; }
+@keyframes stream-text-in { from { opacity: .3; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .stream-reveal { animation: none; }
+}
 .response-text { margin: 0 0 16px; }
 .response-text:last-child { margin-bottom: 0; }
 .response-text p:last-child { margin-bottom: 0; }
@@ -430,6 +436,21 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .model-effort-list button[aria-selected="true"] { background: var(--surface); }
 .model-effort-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-tools > .icon-button { width: 28px; height: 28px; }
+.composer-tools > .composer-action-button {
+  width: 32px; height: 32px; min-height: 32px; flex: 0 0 32px;
+  padding: 6px; border: 1px solid transparent; border-radius: 6px;
+  background: var(--primary); color: oklch(1 0 0);
+}
+.composer-action-button:hover:not(:disabled) { background: var(--primary); filter: brightness(1.08); }
+.composer-action-button:active:not(:disabled) { background: var(--primary); filter: brightness(.95); }
+.composer-action-icon { display: block; width: 18px; height: 18px; }
+.action-pixel { transition: opacity 140ms ease-out; }
+.action-pixel-p { opacity: 0; }
+.action-pixel-shared { opacity: 1; }
+.composer-action-icon[data-mode="stop"] .action-pixel-p { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .composer-action-icon .action-pixel { transition: none; }
+}
 .composer-footer { display: none; }
 .performance-bar { margin-top: 9px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 .performance-summary { position: relative; min-height: 33px; display: flex; align-items: center; flex-wrap: wrap; gap: 3px 12px; padding: 6px 2px; }

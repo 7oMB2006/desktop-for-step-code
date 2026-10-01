@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowUp, ArrowDown, Square, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment } from './contracts';
 import 'katex/dist/katex.min.css';
 import './style.css';
@@ -19,6 +19,8 @@ import { ConversationScrollThumb } from './ConversationScrollThumb';
 import { updateRunMetrics, type RunMetrics } from './performance';
 import { ConversationMessages } from './ConversationMessages';
 import { messageBlocks, messageText } from './conversation-presentation';
+import { ComposerActionIcon } from './ComposerActionIcon';
+import { composerAction } from './composer-action';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -55,6 +57,8 @@ function App() {
   const [draggingFiles, setDraggingFiles] = useState(false);
   const dragDepth = useRef(0);
   const [busy, setBusy] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const stoppingRef = useRef(false);
   const [runMetrics, setRunMetrics] = useState<RunMetrics | null>(null);
   const [clock, setClock] = useState(() => performance.now());
   const [loading, setLoading] = useState(true);
@@ -85,13 +89,18 @@ function App() {
   const [key, setKey] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [mcpEdit, setMcpEdit] = useState<{ name: string; original?: string; config: McpServer; args: string; secrets: string } | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
+  const transcript = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const followLayout = useCallback(() => {
+    const viewport = scroll.current;
+    if (follow.current && viewport) viewport.scrollTop = viewport.scrollHeight;
+  }, []);
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
   const zh = data.preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const connected = data.status === 'connected';
+  const action = composerAction(busy, draft, attachments.length);
   const current = data.sessions.find(s => s.id === data.state?.sessionId);
   const activeTitle = sessionTitle(current ?? (data.state?.sessionName ? { name: data.state.sessionName, firstMessage: '' } : undefined), t('新会话', 'New session'));
   const turns = useMemo(() => conversationTurns(data.messages, data.preferences.language), [data.messages, data.preferences.language]);
@@ -110,8 +119,8 @@ function App() {
         setRunMetrics(previous => updateRunMetrics(previous, event, receivedAt));
       }
       if (event.type === 'agent_start') setBusy(true);
-      if (event.type === 'agent_end') { setBusy(false); void run(refresh); }
-      if (event.type === 'desktop_exit') { setBusy(false); setRunMetrics(null); setNotice(null); setData(d => ({ ...d, status: 'disconnected', state: undefined, stats: undefined, permissionPreset: undefined })); setRequests([]); }
+      if (event.type === 'agent_end') { setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh); }
+      if (event.type === 'desktop_exit') { setBusy(false); stoppingRef.current = false; setStopping(false); setRunMetrics(null); setNotice(null); setData(d => ({ ...d, status: 'disconnected', state: undefined, stats: undefined, permissionPreset: undefined })); setRequests([]); }
       if (event.type === 'desktop_permission') setData(d => ({ ...d, permissionPreset: event.preset }));
       if (event.type === 'desktop_status') {
         if (event.status === 'connecting') notifiedMcp.current.clear();
@@ -161,7 +170,17 @@ function App() {
     if (!connected) return;
     void run(async () => { setLevels((await bridge!.command('get_available_thinking_levels')).levels); setCommands((await bridge!.command('get_commands')).commands); });
   }, [connected, data.state?.model?.id]);
-  useEffect(() => { if (follow.current) bottom.current?.scrollIntoView({ behavior: 'instant' }); }, [data.messages, busy]);
+  useLayoutEffect(followLayout, [data.messages, busy, followLayout]);
+  useLayoutEffect(() => {
+    const viewport = scroll.current;
+    const content = transcript.current;
+    if (!viewport || !content) return;
+    // ResizeObserver runs before paint, including disclosure and Markdown reflows.
+    const observer = new ResizeObserver(followLayout);
+    observer.observe(content);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [data.messages.length > 0, followLayout]);
   useEffect(() => {
     const input = document.querySelector<HTMLTextAreaElement>('.composer > textarea');
     if (input) { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; }
@@ -297,6 +316,15 @@ function App() {
     }
     addAttachments(added);
   });
+  const stop = async () => {
+    if (!busy || !connected || stoppingRef.current) return;
+    stoppingRef.current = true;
+    setStopping(true);
+    await run(async () => {
+      try { await bridge!.command('abort'); }
+      catch (error) { stoppingRef.current = false; setStopping(false); throw error; }
+    });
+  };
   const send = async () => {
     if ((!draft.trim() && !attachments.length) || !connected || loading) return;
     const message = draft; const attached = attachments;
@@ -419,7 +447,7 @@ function App() {
     ] },
     { id: 'edit', label: t('编辑', 'Edit'), items: [
       { label: t('重命名会话', 'Rename session'), disabled: !connected || busy || !data.state?.sessionId, action: () => beginRename('session', data.state!.sessionId!) },
-      { label: t('停止生成', 'Stop response'), disabled: !busy, action: () => void command('abort') },
+      { label: t('停止生成', 'Stop response'), disabled: !busy || stopping, action: () => void stop() },
     ] },
     { id: 'view', label: t('视图', 'View'), items: [
       { label: sidebarVisible ? t('隐藏侧栏', 'Hide sidebar') : t('显示侧栏', 'Show sidebar'), action: toggleSidebar },
@@ -509,7 +537,7 @@ function App() {
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages"><ConversationMessages messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} onError={setError}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}<div ref={bottom}/></div>}
+          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} onError={setError} onLayoutChange={followLayout}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
         </div>
         <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>
@@ -530,10 +558,12 @@ function App() {
             <IconButton title={t('添加附件', 'Add attachments')} disabled={!connected || attachments.length >= 10} onClick={() => void run(async () => addAttachments(await bridge!.chooseAttachments()))}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || busy || loading} supported={commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}/>
             <div className="spacer"/>
-            {busy && <IconButton title={t('停止', 'Stop')} className="stop-button" onClick={() => void command('abort')}><Square size={15}/></IconButton>}
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
             <ModelEffortPicker model={data.state?.model} models={data.models} level={data.state?.thinkingLevel} levels={levels} language={data.preferences.language} disabled={!connected || busy || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })}/>
-            <IconButton title={busy ? t('加入队列', 'Queue message') : t('发送', 'Send')} className="send-button" disabled={!connected || (!draft.trim() && !attachments.length) || loading} onClick={() => void send()}><ArrowUp size={18}/></IconButton>
+            <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : busy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
+              className="composer-action-button" data-action={action.mode}
+              disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}
+              onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
         </div><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>
       </div>

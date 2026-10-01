@@ -22,6 +22,37 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+const closeApp = async (app, label) => {
+  console.log(`${label}: closing Electron`);
+  let timer;
+  try {
+    await Promise.race([
+      (async () => {
+        // Teardown may run during initial worker startup. The isolated test has
+        // no user to accept the normal running-task quit confirmation.
+        await app.evaluate(({ dialog }) => {
+          dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+        });
+        await app.close();
+      })(),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label}: Electron close timed out`)), 15000); }),
+    ]);
+  } catch (error) {
+    const child = app.process();
+    if (child?.pid && child.exitCode === null) {
+      if (process.platform === 'win32') {
+        await execFileAsync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 10000 });
+      } else child.kill('SIGKILL');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 const runCase = async (preference) => {
   const profile = await mkdtemp(join(tmpdir(), 'desktop-theme-bootstrap-'));
@@ -46,7 +77,7 @@ const runCase = async (preference) => {
     const native = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
     return { preference, observed, mainProcessSystemDark: native };
   } finally {
-    await app.close();
+    await closeApp(app, `first frame ${preference}`);
     await rm(profile, { recursive: true, force: true });
   }
 };
@@ -109,7 +140,7 @@ try {
     await page.waitForFunction(expected => document.documentElement.dataset.theme === expected, hostDark ? 'dark' : 'light', { timeout: 15000 });
     console.log(`runtime system change: follow to light, follow back to ${hostDark ? 'dark' : 'light'}`);
   } finally {
-    await app.close();
+    await closeApp(app, 'runtime system change');
     await rm(profile, { recursive: true, force: true });
   }
 }
@@ -132,16 +163,23 @@ try {
   let releaseModules = null;
   const gate = new Promise(resolve => { releaseModules = resolve; });
   let moduleHeld = false;
+  console.log('startup system race: launching Electron');
   const app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
   try {
-    await app.context().route('**/assets/*.js', async route => { moduleHeld = true; await gate; await route.continue(); });
     const page = await app.firstWindow();
+    await page.waitForSelector('.app', { timeout: 60000 });
+    // The initial load can beat route installation on a fast runner. Reload
+    // after installing the route to test a fresh preload and renderer reliably.
+    await app.context().route('**/assets/*.js', async route => { moduleHeld = true; await gate; await route.continue(); });
+    console.log('startup system race: reloading with module gate installed');
+    await page.reload({ waitUntil: 'commit', timeout: 30000 });
     // Deterministic wait for the module request to be intercepted. If the
     // build stops emitting a script under assets, this fails loudly instead of
     // passing for the wrong reason.
     const heldDeadline = Date.now() + 30000;
     while (!moduleHeld && Date.now() < heldDeadline) await page.waitForTimeout(50);
     assert.equal(moduleHeld, true, 'the module script request must be intercepted');
+    console.log('startup system race: module request held');
     assert.equal(await page.evaluate(() => Boolean(document.querySelector('.app'))).catch(() => false), false, 'React must not have run while the module is held');
     const hostDark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
     const stale = hostDark ? 'dark' : 'light';
@@ -155,6 +193,7 @@ try {
       BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_system_theme', dark });
     }, !hostDark);
     releaseModules();
+    console.log('startup system race: module request released');
     await page.waitForSelector('.app', { timeout: 60000 });
     await page.waitForFunction(async () => (await window.desktop.snapshot()).preferences.theme === 'system', null, { timeout: 30000 });
     await page.waitForFunction(expected => document.documentElement.dataset.theme === expected, corrected, { timeout: 15000 });
@@ -164,7 +203,10 @@ try {
     assert.equal(observed.systemDark, hostDark, 'the preload snapshot must stay the startup value; the correction must come from the query');
     console.log(`startup system race: host ${stale}, first frame ${observed.firstFrame.theme} (stale snapshot), settled ${observed.settled} from the main process`);
   } finally {
-    await app.close();
+    // A failed assertion before release must not leave an intercepted request
+    // pending while Playwright waits for the browser context to close.
+    releaseModules();
+    await closeApp(app, 'startup system race');
     await rm(profile, { recursive: true, force: true });
   }
 }

@@ -649,7 +649,7 @@ try {
   await page.locator('.attachment-card').hover();
   await page.getByRole('button', { name: '移除附件', exact: true }).click();
   await sentImage.click();
-  const sentPreview = page.getByRole('dialog', { name: '预览 Attachment', exact: true });
+  const sentPreview = page.getByRole('dialog', { name: '预览 图片', exact: true });
   await sentPreview.waitFor();
   await sentPreview.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
   await page.screenshot({ path: 'test-results/sent-image-preview.png' });
@@ -843,17 +843,19 @@ try {
   // Exercise the real renderer subscriber with the upstream JSON wire shape.
   await app.evaluate(({ BrowserWindow }) => {
     const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
+    send({ type: 'message_start', message: { role: 'user', content: '检查流式过程' } });
     send({ type: 'message_start', message: { role: 'assistant', content: [] } });
     send({ type: 'message_update', assistantMessageEvent: { type: 'text_start', contentIndex: 0 } });
     send({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '流式白屏回归验证' } });
     send({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_start', contentIndex: 1, id: 'fixture', toolName: 'read_file' } });
   });
   await page.getByText('流式白屏回归验证', { exact: true }).waitFor();
-  await page.getByRole('button', { name: /read_file/ }).waitFor();
+  await page.locator('.message.assistant').last().locator('.process-tool > summary').waitFor();
   await page.screenshot({ path: 'test-results/layout-conversation-narrow.png' });
   // Formula rendering uses isolated wire messages, not a live account or model.
   await app.evaluate(({ BrowserWindow }) => {
     const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
+    send({ type: 'message_start', message: { role: 'user', content: '测试流式数学' } });
     send({ type: 'message_start', message: { role: 'assistant', content: [] } });
     send({ type: 'message_update', assistantMessageEvent: { type: 'text_start', contentIndex: 0 } });
     send({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '流式公式：\n\n$$\n\\frac{1}{2}' } });
@@ -889,12 +891,14 @@ try {
     '',
     '**错误公式之后的正文仍可阅读。**',
   ].join('\n');
-  await app.evaluate(({ BrowserWindow }, text) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
-    type: 'message_start', message: { role: 'assistant', content: [
+  await app.evaluate(({ BrowserWindow }, text) => {
+    const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
+    send({ type: 'message_start', message: { role: 'user', content: '展示数学排版' } });
+    send({ type: 'message_start', message: { role: 'assistant', content: [
       { type: 'thinking', thinking: '先确认公式 $x^2$ 的表达。' },
       { type: 'text', text },
-    ] },
-  }), mathFixture);
+    ] } });
+  }, mathFixture);
   await mathMessage.getByText('数学排版', { exact: true }).waitFor();
   assert.equal(await mathMessage.locator('.katex-display').count(), 5);
   assert.equal(await mathMessage.locator('.katex-error').count(), 1);
@@ -952,14 +956,10 @@ try {
   assert.deepEqual(errors, []);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
   await page.waitForFunction(() => !document.querySelector('.app')?.classList.contains('sidebar-compact'));
-  // The class removal starts the sidebar transition (layout.css: flex-basis 280ms
-  // on .app::before, transform 280ms on .sidebar); it is not the end. Wait for the
-  // animations themselves, never a frame count or a fixed delay: two frames are
-  // 16-33ms at 60Hz, far short of 280ms, and any hardcoded ms value is just as
-  // arbitrary. Awaiting animation.finished keeps the main thread out of the
-  // transition layout before the performance events are injected, so the measured
-  // receipt gap cannot cross the 50ms rounding boundary and render 首段文字 as 0.1s.
-  await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {}))));
+  // Wait for finite layout transitions, not looping tool shimmer animations.
+  await page.evaluate(() => Promise.all(document.getAnimations()
+    .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+    .map(animation => animation.finished.catch(() => {}))));
   assert.equal(await page.locator('.sidebar-identity').isVisible(), true);
   await app.evaluate(({ BrowserWindow }) => {
     const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
@@ -968,6 +968,217 @@ try {
   });
   await page.getByText('帮我检查项目的目录结构。', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/layout-conversation-wide.png' });
+  // Transcript controls and process disclosure use synthetic messages and an in-page clipboard stub.
+  await page.evaluate(() => {
+    globalThis.messageCopyTest = { original: navigator.clipboard.writeText, values: [] };
+    navigator.clipboard.writeText = async text => { globalThis.messageCopyTest.values.push(text); };
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    const send = message => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'message_start', message });
+    send({ role: 'user', timestamp: Date.now(), content: '检查项目入口，说明这次做了哪些改动。' });
+    send({ role: 'assistant', timestamp: Date.now(), content: [
+      { type: 'thinking', thinking: '先检查入口文件，再确认测试覆盖。公式 $E=mc^2$ 仍可以阅读。' },
+      { type: 'text', text: '先查看入口与验证脚本。' },
+      { type: 'toolCall', id: 'presentation-read', name: 'read_file', arguments: { path: 'Desktop/src/main.tsx' } },
+      { type: 'toolCall', id: 'presentation-test', name: 'bash', arguments: { command: 'corepack pnpm test' } },
+    ] });
+    send({ role: 'toolResult', toolCallId: 'presentation-test', toolName: 'bash', content: '36 tests passed', timestamp: Date.now() });
+    send({ role: 'toolResult', toolCallId: 'presentation-read', toolName: 'read_file', content: 'export function App() { /* application entry */ }', timestamp: Date.now() });
+    send({ role: 'assistant', timestamp: Date.now(), content: [{ type: 'text', text: '已整理会话展示。\n\n正文不再显示角色抬头，中间说明与工具状态按顺序保留，不会在完成后隐藏。\n\n- 用户消息支持复制与编辑回填。\n- 回复尾栏保留复制和分支占位。\n- 思考与工具详情可以逐级展开。' }] });
+  });
+  const presentationUser = page.locator('.message.user').last();
+  const presentationResponse = page.locator('.message.assistant').last();
+  const content = presentationResponse.locator('.response-content');
+  await presentationResponse.getByText('已整理会话展示。', { exact: true }).waitFor();
+  assert.equal(await page.locator('.message-label').count(), 0);
+  assert.equal(await presentationResponse.locator('.response-process').count(), 0);
+  assert.equal(await content.getByText('先查看入口与验证脚本。', { exact: true }).isVisible(), true);
+  assert.equal(await content.locator('.process-tool').count(), 2);
+  assert.equal(await content.locator('.process-tool.done').count(), 2);
+  assert.equal(await content.locator('.process-tool > summary').getByText('读取了文件', { exact: true }).count(), 1);
+  assert.equal(await content.locator('.process-tool > summary').getByText('运行了命令', { exact: true }).count(), 1);
+  assert.equal(await content.locator('.process-tool > summary').getByText('corepack pnpm test', { exact: true }).count(), 0);
+  assert.equal(await content.locator('.process-tool > summary .process-tool-status').count(), 0);
+  assert.equal(await presentationResponse.locator('.assistant-actions button').count(), 2);
+  assert.equal(await presentationResponse.locator('.branch-placeholder').isDisabled(), true);
+  await presentationUser.scrollIntoViewIfNeeded();
+  await page.mouse.move(10, 10);
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.message.user:last-of-type .user-actions') ?? [...document.querySelectorAll('.user-actions')].at(-1)).opacity === '0');
+  const userBefore = await presentationUser.boundingBox();
+  await presentationUser.hover();
+  await page.waitForFunction(() => getComputedStyle([...document.querySelectorAll('.user-actions')].at(-1)).opacity === '1');
+  const userAfter = await presentationUser.boundingBox();
+  assert.equal(userBefore.height, userAfter.height, 'hover actions must not shift transcript layout');
+  await presentationUser.getByRole('button', { name: '复制', exact: true }).click();
+  assert.equal(await page.evaluate(() => globalThis.messageCopyTest.values.at(-1)), '检查项目入口，说明这次做了哪些改动。');
+  await page.locator('.composer > textarea').fill('');
+  await presentationUser.getByRole('button', { name: '编辑', exact: true }).click();
+  assert.equal(await page.locator('.composer > textarea').inputValue(), '检查项目入口，说明这次做了哪些改动。');
+  assert.equal(await page.locator('.composer > textarea').evaluate(element => document.activeElement === element), true);
+  await presentationUser.hover();
+  await presentationUser.getByRole('button', { name: '编辑', exact: true }).click();
+  assert.equal(await page.locator('.composer > textarea').inputValue(), '检查项目入口，说明这次做了哪些改动。');
+  await page.locator('.error-banner').getByRole('button', { name: '关闭', exact: true }).click();
+  await page.locator('.composer > textarea').fill('');
+  await presentationResponse.locator('.assistant-actions').getByRole('button', { name: '复制', exact: true }).click();
+  const copiedAnswer = await page.evaluate(() => globalThis.messageCopyTest.values.at(-1));
+  assert.ok(copiedAnswer.startsWith('先查看入口与验证脚本。'));
+  assert.ok(copiedAnswer.includes('已整理会话展示。'));
+  assert.equal(copiedAnswer.includes('先检查入口'), false, 'answer copy must exclude private reasoning and tool data');
+  assert.equal(copiedAnswer.includes('export function App'), false);
+  assert.equal(copiedAnswer.includes('36 tests passed'), false);
+  await page.mouse.move(10, 10);
+  await presentationUser.getByRole('button', { name: '复制', exact: true }).focus();
+  await page.waitForFunction(() => getComputedStyle([...document.querySelectorAll('.user-actions')].at(-1)).opacity === '1');
+  await presentationUser.getByRole('button', { name: '复制', exact: true }).press('Enter');
+  assert.equal(await page.evaluate(() => globalThis.messageCopyTest.values.at(-1)), '检查项目入口，说明这次做了哪些改动。');
+  await presentationResponse.scrollIntoViewIfNeeded();
+  for (const theme of ['light', 'dark']) {
+    await page.locator('.sidebar-bottom > button').click();
+    await page.getByRole('button', { name: '通用', exact: true }).click();
+    await page.getByRole('dialog').getByRole('combobox').first().selectOption(theme);
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await presentationUser.scrollIntoViewIfNeeded();
+    await page.mouse.move(10, 10);
+    await page.screenshot({ path: `test-results/transcript-${theme}-overview.png` });
+    await content.locator('.thinking > summary').click();
+    await content.locator('.process-tool > summary').first().click();
+    await content.getByText('export function App() { /* application entry */ }', { exact: true }).waitFor();
+    assert.equal(await content.locator('.thinking .katex').count(), 1);
+    await page.screenshot({ path: `test-results/transcript-${theme}-expanded.png` });
+    await content.locator('.thinking > summary').click();
+    await content.locator('.process-tool > summary').first().click();
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 880));
+  await content.locator('.process-tool > summary').first().click();
+  await presentationUser.scrollIntoViewIfNeeded();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: 'test-results/transcript-narrow.png' });
+  await content.locator('.process-tool > summary').first().click();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
+  await page.evaluate(() => { navigator.clipboard.writeText = globalThis.messageCopyTest.original; });
+  await app.evaluate(({ BrowserWindow }) => {
+    const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
+    send({ type: 'agent_start' });
+    send({ type: 'message_start', message: { role: 'user', content: '检查运行中的工具', timestamp: Date.now() } });
+    send({ type: 'message_start', message: { role: 'assistant', content: [
+      { type: 'thinking', thinking: '检查命令的返回值。' },
+      { type: 'toolCall', id: 'presentation-pending', name: 'bash', arguments: { command: 'fixture-command' } },
+      { type: 'toolCall', id: 'presentation-write', name: 'write_file', arguments: { path: 'fixture.md', content: 'Fixture document' } },
+    ] } });
+  });
+  const liveResponse = page.locator('.message.assistant').last();
+  const liveCommand = liveResponse.locator('.process-tool').first();
+  const liveWrite = liveResponse.locator('.process-tool').nth(1);
+  await liveCommand.locator('summary').getByText('正在运行命令', { exact: true }).waitFor();
+  assert.equal(await liveResponse.locator('.assistant-actions').count(), 0);
+  assert.notEqual(await liveResponse.locator('.thinking').getAttribute('open'), null);
+  assert.equal(await liveResponse.locator('.response-process').count(), 0);
+  assert.equal(await liveCommand.getAttribute('data-tool-state'), 'running');
+  assert.equal(await liveCommand.locator('summary').getByText('fixture-command', { exact: true }).count(), 0);
+  const shimmer = liveCommand.locator('.tool-summary-shimmer');
+  assert.equal(await shimmer.evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'running');
+  await liveResponse.scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => {
+    const label = document.querySelector('.message.assistant:last-of-type .process-tool-label');
+    return label && getComputedStyle(label).transform !== 'matrix(1, 0, 0, 1, 0, 0)';
+  });
+  const initialPosition = await shimmer.evaluate(element => getComputedStyle(element, '::before').backgroundPosition);
+  await page.waitForFunction(position => {
+    const element = document.querySelector('.message.assistant:last-of-type .tool-summary-shimmer');
+    return getComputedStyle(element, '::before').backgroundPosition !== position;
+  }, initialPosition);
+  await page.screenshot({ path: 'test-results/transcript-tool-running.png' });
+  await liveResponse.locator('.response-content').screenshot({ path: 'test-results/tool-summary-running.png' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await shimmer.evaluate(element => getComputedStyle(element, '::before').animationName), 'none');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'message_start', message: { role: 'toolResult', toolCallId: 'presentation-write', toolName: 'write_file', content: '' },
+    });
+  });
+  await liveWrite.locator('summary').getByText('写入了文件', { exact: true }).waitFor();
+  assert.equal(await liveWrite.getAttribute('data-tool-state'), 'done');
+  assert.equal(await liveWrite.locator('.tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused');
+  assert.equal(await liveCommand.getAttribute('data-tool-state'), 'running', 'a completed sibling must not stop a pending call');
+  await page.waitForFunction(() => {
+    const label = document.querySelectorAll('.message.assistant:last-of-type .process-tool-label')[1];
+    return getComputedStyle(label).transform === 'matrix(1, 0, 0, 1, 0, 0)';
+  });
+  await liveWrite.locator(':scope > summary').click();
+  await liveWrite.getByText('无输出', { exact: true }).waitFor();
+  await liveWrite.locator('.process-tool-status').getByText('完成', { exact: true }).waitFor();
+  await liveWrite.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/transcript-tool-completed.png' });
+  await liveWrite.screenshot({ path: 'test-results/tool-summary-completed.png' });
+  await liveWrite.locator(':scope > summary').click();
+  await app.evaluate(({ BrowserWindow }) => {
+    const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
+    send({ type: 'message_start', message: { role: 'assistant', content: [] } });
+    send({ type: 'message_update', assistantMessageEvent: { type: 'text_start', contentIndex: 0 } });
+  });
+  assert.notEqual(await liveResponse.locator('.thinking').getAttribute('open'), null, 'an empty text_start must not hide thinking');
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '先记录检查进度。' },
+    });
+  });
+  await liveResponse.getByText('先记录检查进度。', { exact: true }).waitFor();
+  await page.waitForFunction(() => !document.querySelector('.message.assistant:last-of-type .thinking')?.open);
+  assert.equal(await liveResponse.locator('.assistant-actions').count(), 0, 'thinking must fold while the response is still running');
+  assert.equal(await liveCommand.getAttribute('data-tool-state'), 'running', 'prose must not hide a running tool');
+  await liveResponse.locator('.response-content').screenshot({ path: 'test-results/thinking-folded-on-prose.png' });
+  await liveResponse.locator('.thinking > summary').click();
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '命令仍在执行。' },
+    });
+  });
+  await liveResponse.getByText('先记录检查进度。命令仍在执行。', { exact: true }).waitFor();
+  assert.notEqual(await liveResponse.locator('.thinking').getAttribute('open'), null, 'later deltas must respect a manual reopen');
+  await liveResponse.locator('.thinking > summary').click();
+  await app.evaluate(({ BrowserWindow }) => {
+    const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
+    send({ type: 'message_start', message: { role: 'toolResult', toolCallId: 'presentation-pending', toolName: 'bash', isError: true, content: 'fixture command failed' } });
+    send({ type: 'message_start', message: { role: 'assistant', content: [{ type: 'text', text: '命令未成功，已经保留失败详情。' }], timestamp: Date.now() } });
+  });
+  await liveResponse.getByText('命令未成功，已经保留失败详情。', { exact: true }).waitFor();
+  await liveCommand.locator(':scope > summary').getByText('运行命令失败', { exact: true }).waitFor();
+  assert.equal(await liveCommand.getAttribute('data-tool-state'), 'failed');
+  assert.equal(await shimmer.evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused');
+  await page.waitForFunction(() => {
+    const label = document.querySelector('.message.assistant:last-of-type .process-tool-label');
+    return getComputedStyle(label).transform === 'matrix(1, 0, 0, 1, 0, 0)';
+  });
+  assert.equal(await liveCommand.locator(':scope > summary').evaluate(element => getComputedStyle(element).color),
+    await liveCommand.locator('.process-tool-status').evaluate(element => getComputedStyle(element).color));
+  assert.equal(await liveResponse.locator('.thinking').getAttribute('open'), null);
+  await liveResponse.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/transcript-live.png' });
+  await liveCommand.screenshot({ path: 'test-results/tool-summary-failed.png' });
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'message_start', message: { role: 'assistant', content: [
+        { type: 'toolCall', id: 'presentation-missing', name: 'read_file', arguments: { path: 'missing.md' } },
+      ] },
+    });
+  });
+  // Runtime disconnect is another real path out of streaming; history must remain inspectable.
+  await app.evaluate(({ BrowserWindow }) => {
+    const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
+    send({ type: 'desktop_exit' });
+    send({ type: 'desktop_status', status: 'connected' });
+  });
+  await page.waitForFunction(() => !document.querySelector('.message.assistant:last-of-type .thinking')?.open);
+  assert.equal(await liveResponse.locator('.assistant-actions').count(), 1);
+  assert.equal(await liveResponse.getByText('命令未成功，已经保留失败详情。', { exact: true }).isVisible(), true);
+  assert.equal(await liveCommand.locator(':scope > summary').getByText('运行命令失败', { exact: true }).isVisible(), true);
+  await liveResponse.getByText('读取文件（未返回）', { exact: true }).waitFor();
+  assert.equal(await liveResponse.locator('.process-tool.running').count(), 0);
+  await liveCommand.locator(':scope > summary').click();
+  await liveCommand.getByText('fixture-command', { exact: true }).waitFor();
+  await liveResponse.getByText('fixture command failed', { exact: true }).waitFor();
   await app.evaluate(({ BrowserWindow }) => {
     const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);
     send({ type: 'agent_start' });
@@ -982,8 +1193,8 @@ try {
   await performance.getByText('输入 2K').waitFor();
   assert.equal(await performance.getByText('输出 150').count(), 1);
   assert.equal(await performance.getByText('1 次工具').count(), 1);
-  assert.equal(await performance.getByText('首段文字 0.0s').count(), 1);
-  assert.equal(await performance.getByText('工具累计 0.0s').count(), 1);
+  assert.equal(await performance.getByText(/^首段文字 \d+\.\ds$/).count(), 1);
+  assert.equal(await performance.getByText(/^工具累计 \d+\.\ds$/).count(), 1);
   assert.equal(await performance.getByText('缓存读取 1K').count(), 1);
   assert.equal(await performance.getByText('缓存命中 50%').count(), 1);
   // stats arrives asynchronously (agent_end triggers a snapshot refresh through the

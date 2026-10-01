@@ -244,8 +244,6 @@ main { position: relative; }
   padding: 32px var(--conversation-gutter) 80px;
 }
 .message { margin-bottom: 28px; }
-.message-label { font-size: 11px; margin-bottom: 8px; gap: 9px; }
-.message-label span { opacity: .75; }
 .message-body { line-height: 1.75; }
 .message-body p { margin-bottom: 12px; }
 .message-body > p:has(.katex-display) { max-width: none; }
@@ -255,11 +253,59 @@ main { position: relative; }
 .message-body .katex-error { color: var(--muted) !important; font-family: "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-body ul,.message-body ol { padding-left: 23px; margin: 10px 0 16px; }
 .message.user { display: flex; flex-direction: column; align-items: flex-end; margin: 0 0 30px 12%; }
-.user .message-label { padding-right: 2px; }
 .user .message-body { max-width: 100%; width: fit-content; padding: 10px 15px; text-align: left; }
-.thinking { margin: 0 0 12px; }
-.thinking summary { width: fit-content; padding: 3px 0; }
-.tool-result,.tool-call { border-color: var(--border); box-shadow: none; }
+.message-actions { display: flex; align-items: center; gap: 3px; height: 30px; margin-top: 7px; color: var(--muted); }
+.message-actions .icon-button { width: 28px; height: 28px; min-height: 28px; border-radius: 5px; color: var(--muted); }
+.message-actions .icon-button:hover:not(:disabled) { color: var(--ink); background: var(--surface); }
+.message-time { font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .15s ease; }
+.user-actions { justify-content: flex-end; opacity: 0; transition: opacity .15s ease; }
+.user-actions .icon-button { pointer-events: none; }
+.user-actions .message-time { margin-right: 5px; }
+.assistant-actions .message-time { margin-left: 8px; }
+.message:hover > .message-actions, .message:focus-within > .message-actions { opacity: 1; }
+.message:hover > .message-actions .message-time, .message:focus-within > .message-actions .message-time { opacity: 1; }
+.message.user:hover .user-actions .icon-button, .message.user:focus-within .user-actions .icon-button { pointer-events: auto; }
+.response-content { min-width: 0; }
+.response-content summary::-webkit-details-marker { display: none; }
+.disclosure-chevron { flex-shrink: 0; transition: transform .18s cubic-bezier(.22, 1, .36, 1); }
+details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
+.response-content > .thinking { font-size: 13px; margin: 0 0 12px; color: var(--muted); }
+.response-content > .thinking > summary { display: flex; align-items: center; gap: 6px; width: fit-content; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
+.response-content > .thinking > summary:hover { color: var(--ink); }
+.response-content > .thinking > p { padding: 5px 0; }
+.response-text { margin: 0 0 16px; }
+.response-text:last-child { margin-bottom: 0; }
+.response-text p:last-child { margin-bottom: 0; }
+.response-text > p:has(.katex-display) { max-width: none; }
+.process-tool { margin: 4px 0; min-width: 0; }
+.process-tool > summary { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; list-style: none; min-height: 34px; cursor: pointer; font-size: 13px; color: var(--muted); }
+.process-tool > summary:hover { color: var(--ink); }
+.process-tool > summary > svg { flex-shrink: 0; }
+.process-tool-label { position: relative; min-width: 0; overflow-wrap: anywhere; transform: skewX(0deg); transform-origin: bottom left; transition: transform .32s cubic-bezier(.22, 1, .36, 1), color .32s ease; }
+.process-tool.running .process-tool-label { transform: skewX(-8deg); }
+.tool-summary-shimmer { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .32s ease; }
+.tool-summary-shimmer::before { content: attr(data-label); display: block; color: transparent; background: linear-gradient(100deg, transparent 35%, var(--ink) 50%, transparent 65%); background-size: 260% 100%; background-clip: text; -webkit-background-clip: text; animation: tool-summary-flow 1.9s linear infinite; animation-play-state: paused; }
+.process-tool.running .tool-summary-shimmer { opacity: .8; }
+.process-tool.running .tool-summary-shimmer::before { animation-play-state: running; }
+.process-tool.failed > summary, .process-tool.failed > summary:hover { color: var(--danger); }
+.process-tool-meta { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 5px 0; color: var(--muted); font-size: 11px; }
+.process-tool-meta > code { flex-shrink: 0; }
+.process-tool-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.process-tool-status { display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding: 6px 0; color: var(--muted); font-size: 11px; }
+.process-tool.failed .process-tool-status { color: var(--danger); }
+.process-tool-content { margin: 2px 0 12px 19px; padding-left: 13px; border-left: 1px solid var(--border); min-width: 0; }
+.process-tool-content > details > summary { list-style: none; width: fit-content; padding: 5px 0; cursor: pointer; font-size: 11px; color: var(--muted); }
+.process-tool-content > details > summary:hover { color: var(--ink); }
+.process-tool-content pre { max-height: 280px; overflow: auto; margin: 3px 0 10px; padding: 10px 12px; border-radius: 4px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.process-pending { color: var(--muted); font-size: 11px; margin: 5px 0; }
+@keyframes tool-summary-flow { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .process-tool-label, .tool-summary-shimmer { transition: none; }
+  .tool-summary-shimmer::before { animation: none; }
+  .process-tool.running .tool-summary-shimmer { opacity: 0; }
+}
+@media (hover: none) { .user-actions, .message-time { opacity: 1; } .user-actions .icon-button { pointer-events: auto; } }
+@media (prefers-reduced-motion: reduce) { .message-time, .user-actions, .disclosure-chevron { transition: none; } }
 .composer-wrap {
   position: relative; flex-shrink: 0; width: 100%; max-width: var(--conversation-width);
   padding: 8px var(--conversation-gutter) 22px;

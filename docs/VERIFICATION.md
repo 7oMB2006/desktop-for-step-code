@@ -2,6 +2,18 @@
 
 This file combines historical feature checks with the current release gates. Named `Desktop/release-*` directories below identify local outputs used for those checks; they are not required retained artifacts or current download locations. Current packaging writes to `Desktop/release/`.
 
+## Conversation Presentation
+
+The revised 2026-09-30 preview at `Desktop/release/conversation-preview/` keeps all assistant narration and tool summaries visible in source order, with only thinking and individual tool payloads folded. It passed type checking, all 33 tests, the production build and background Electron acceptance against both the local build and the rebuilt packaged executable. The preview replaces the initial package's now-superseded global process disclosure.
+
+Subsequent 2026-09-30 changes add localized action summaries and per-tool running/completed/failed animations. Type checking, all 35 tests, the production build and background Electron acceptance passed against both the local build and the rebuilt packaged executable at the same preview path. Acceptance verifies raw commands remain inside details, left-to-right shimmer runs only for pending calls, a completed sibling stops its own animation while another tool remains pending, failed labels are upright/red, reduced-motion disables shimmer, and interrupted missing results never appear successful. Screenshots are under `Desktop/test-results/tool-summary-*.png` and `transcript-tool-*.png`.
+
+Fixtures cover user turn anchors, tool-ID pairing with out-of-order results, failed and missing results, retained intermediate narration, thinking and images, copy of all response prose excluding thinking/tool payloads, hover/focus controls without layout shifts, draft-preserving edit-to-composer, nested disclosure and visible narration/tool summaries after runtime disconnect. Light/dark and narrow-window screenshots are local evidence under `Desktop/test-results/transcript-*.png`; math and image-preview regression checks remain included.
+
+Clipboard text writes are replaced by an in-page fixture, not performed against the user's clipboard. Editing restores a message copy to the composer; it is not runtime history editing. Branch remains disabled. This renderer change has no new real-model or installer lifecycle acceptance.
+
+The subsequent thinking-disclosure adjustment passed type checking, all 36 tests, the production build and background Electron acceptance against both the local build and the rebuilt executable in `Desktop/release/conversation-preview/`. Thinking now folds when the first subsequent nonempty text delta arrives, while the response and pending tools remain active. Empty text-start events do not fold it; a manual reopen survives later deltas. `Desktop/test-results/thinking-folded-on-prose.png` captures that streaming state. The packaged credential-migration regression also passed again.
+
 ## Mathematical Notation
 
 The 2026-09-30 source build passed type checking, 28 tests and background Electron acceptance. The local preview at `Desktop/release/math-preview/` was also packaged and passed the same acceptance against its unpacked executable. Fixtures cover inline and display math, same-line double-dollar notation, fractions, roots, sums, integrals, limits, matrices, cases, preserved code and prices, incomplete stream completion, malformed and oversized formulas, and disabled untrusted commands. Electron screenshots cover light/dark themes and a narrow window; the acceptance checks local font loading, thinking-block math, centered display formulas, horizontal scrolling confined to the formula with both ends accessible, and continued rendering after an invalid formula.

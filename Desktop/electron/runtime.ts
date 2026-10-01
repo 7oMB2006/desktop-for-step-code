@@ -45,10 +45,10 @@ export class RpcProcess {
   private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   constructor(private event: (value: any) => void) {}
-  start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv) {
+  start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) {
     if (this.child) throw new Error('Runtime already started');
     this.stderr = '';
-    const child = spawn(node, [entry, '--mode', 'rpc'], { cwd, env, windowsHide: true, stdio: 'pipe' });
+    const child = spawn(node, [entry, '--mode', 'rpc', ...args], { cwd, env, windowsHide: true, stdio: 'pipe' });
     this.child = child;
     const decoder = new JsonLines(value => {
       if (this.child !== child) return;

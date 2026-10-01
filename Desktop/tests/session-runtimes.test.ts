@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionRuntimes, taskOutcome, type WorkerTransport } from '../electron/session-runtimes';
+import { WORKSPACE_POLICY } from '../electron/workspace-policy';
 import type { RuntimeEvent } from '../src/contracts';
 
 class Transport implements WorkerTransport {
   stopped = false;
   calls: string[] = [];
   answers: Record<string, unknown>[] = [];
+  startArgs: string[] = [];
   constructor(readonly receive: (event: RuntimeEvent) => void, readonly sessionId: string) {}
-  start() {}
+  start(_node: string, _entry: string, _cwd: string, _env: NodeJS.ProcessEnv, args: string[] = []) { this.startArgs = args; }
   async request(type: string) {
     this.calls.push(type);
     if (type === 'get_state') return { sessionId: this.sessionId, sessionFile: `${this.sessionId}.jsonl`, isStreaming: false };
@@ -30,6 +32,16 @@ function fixture() {
   const open = (cwd = 'workspace') => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+
+test('session workers append shared-workspace rules without replacing project or product instructions', async () => {
+  const { pool, transports, open } = fixture();
+  await open();
+  assert.deepEqual(transports[0].startArgs, ['--append-system-prompt', WORKSPACE_POLICY]);
+  assert.ok(WORKSPACE_POLICY.includes('Re-read the current file'));
+  assert.ok(WORKSPACE_POLICY.includes('paths or hunks'));
+  assert.ok(WORKSPACE_POLICY.includes('do not assume'));
+  await pool.stopAll();
+});
 
 test('workers keep separate histories and approvals across navigation and targeted stop', async () => {
   const { pool, transports, events, open } = fixture();

@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { RpcProcess } from './runtime';
 import { permissionFromStatus } from './permission-status';
+import { WORKSPACE_POLICY } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import type { Message, Model, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
 
 export interface WorkerTransport {
-  start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv): void;
+  start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
   request(type: string, args?: Record<string, unknown>, timeout?: number): Promise<any>;
   respond(value: Record<string, unknown>): void;
   stop(): Promise<void>;
@@ -127,7 +128,7 @@ export class SessionRuntimes {
     });
     this.workers.set(worker.id, worker);
     try {
-      worker.rpc.start(node, entry, cwd, env);
+      worker.rpc.start(node, entry, cwd, env, ['--append-system-prompt', WORKSPACE_POLICY]);
       await worker.rpc.request('get_state', {}, 60000);
       const result = await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath } : {}, 60000);
       if (result.cancelled) throw new Error('Session operation cancelled');

@@ -320,18 +320,6 @@ async function handle(method: string, args: any[]) {
             });
           }
           if (wasStreaming) payload.streamingBehavior = 'followUp';
-          else {
-            const siblings = [];
-            for (const other of runtimes.workers.values()) if (other !== worker && runtimes.isBusy(other) && await samePath(other.cwd, worker.cwd)) siblings.push(other);
-            if (siblings.length) {
-              const result = await dialog.showMessageBox(window, {
-                type: 'warning',
-                message: preferences.language === 'zh' ? '此目录已有会话在运行。并发任务可能修改同一文件，仍然发送？' : 'Another session is running in this directory. Concurrent tasks may edit the same files. Send anyway?',
-                buttons: preferences.language === 'zh' ? ['取消', '仍然发送'] : ['Cancel', 'Send anyway'], defaultId: 0, cancelId: 0,
-              });
-              if (result.response !== 1) throw new Error(preferences.language === 'zh' ? '已取消发送，草稿已保留' : 'Send cancelled; draft retained');
-            }
-          }
         }
         if (type === 'set_model') payload = { provider: text(data.provider, 200), modelId: text(data.modelId, 300) };
         if (type === 'set_thinking_level') payload = { level: text(data.level, 30) };

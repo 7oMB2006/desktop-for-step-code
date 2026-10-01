@@ -7,6 +7,8 @@ import assert from 'node:assert/strict';
 
 const streams = new Map();
 const stopped = new Set();
+const systemPrompts = new Map();
+const userPrompts = new Map();
 const chunk = (delta, finish_reason = null, usage) => `data: ${JSON.stringify({
   id: 'concurrency-fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture',
   choices: [{ index: 0, delta, finish_reason }], ...(usage ? { usage } : {}),
@@ -24,6 +26,8 @@ const server = createServer(async (req, res) => {
   const lastUser = payload.messages.filter(message => message.role === 'user').at(-1);
   const content = typeof lastUser?.content === 'string' ? lastUser.content : JSON.stringify(lastUser?.content);
   const label = /RUN-[A-Z]/.exec(content)?.[0] ?? 'RUN-X';
+  systemPrompts.set(label, payload.messages.filter(message => ['system', 'developer'].includes(message.role)).map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).join('\n'));
+  userPrompts.set(label, typeof lastUser?.content === 'string' ? lastUser.content : lastUser?.content?.filter(block => block.type === 'text').map(block => block.text).join('\n'));
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   if (payload.messages.at(-1)?.role === 'tool') {
     res.end(chunk({ role: 'assistant', content: 'Approval completed.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
@@ -206,7 +210,7 @@ try {
   assert.ok(decodedSound.duration > 0 && decodedSound.channels > 0);
   assert.equal(decodedSound.playing, true);
 
-  // Shared-directory concurrency needs explicit confirmation and cancel restores the composer.
+  // Shared-directory concurrency must send directly, with collaboration rules in system context.
   await input.fill('RUN-C');
   await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('RUN-C output'));
@@ -222,32 +226,23 @@ try {
     globalThis.sharedWarnings = 0;
     globalThis.originalMessageBox = dialog.showMessageBox;
     dialog.showMessageBox = async (_window, options) => {
-      if (options.type === 'warning') { globalThis.sharedWarnings++; return { response: 0, checkboxChecked: false }; }
+      if (options.type === 'warning') { globalThis.sharedWarnings++; return { response: 1, checkboxChecked: false }; }
       return globalThis.originalMessageBox(_window, options);
     };
   });
   await input.fill('RUN-D');
   await input.press('Enter');
-  await page.locator('.error-banner > span').filter({ hasText: '已取消发送，草稿已保留' }).waitFor().catch(async error => {
-    console.log('Shared-directory fixture:', {
-      warnings: await app.evaluate(() => globalThis.sharedWarnings),
-      view: await page.evaluate(async () => ({ draft: document.querySelector('.composer > textarea')?.value, error: document.querySelector('.error-banner')?.textContent, runtimes: (await window.desktop.snapshot()).runtimes })),
-    });
-    throw error;
-  });
-  assert.equal(await input.inputValue(), 'RUN-D');
-  assert.equal(await app.evaluate(() => globalThis.sharedWarnings), 1);
-  await app.evaluate(({ dialog }) => {
-    dialog.showMessageBox = async (_window, options) => {
-      if (options.type === 'warning') { globalThis.sharedWarnings++; return { response: 1, checkboxChecked: false }; }
-      return globalThis.originalMessageBox(_window, options);
-    };
-  });
-  await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('RUN-D output'));
   const parallelSameDirectory = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(parallelSameDirectory.runtimes.filter(runtime => runtime.status === 'running').length, 2);
-  assert.equal(await app.evaluate(() => globalThis.sharedWarnings), 2);
+  assert.equal(await app.evaluate(() => globalThis.sharedWarnings), 0, 'Shared-directory sends must not display a generic confirmation');
+  for (const label of ['RUN-A', 'RUN-B', 'RUN-C', 'RUN-D']) {
+    assert.ok(systemPrompts.get(label)?.includes('# Shared workspace collaboration'), label);
+    assert.ok(systemPrompts.get(label)?.includes('Stage only your task'), label);
+    assert.ok(systemPrompts.get(label)?.includes('You are'), 'The base system prompt remains present');
+    assert.equal(userPrompts.get(label), label, 'System guidance must not contaminate user prompts');
+  }
+  await page.screenshot({ path: 'test-results/concurrent-shared-directory-direct.png' });
   finish('RUN-D');
   await page.getByRole('button', { name: '发送', exact: true }).waitFor();
   finish('RUN-C');
@@ -289,7 +284,7 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.screenshot({ path: 'test-results/concurrent-narrow.png' });
   assert.deepEqual(errors, []);
-  console.log('Concurrent real RPC/SSE passed: background streams, targeted abort, scoped approvals, drafts across recycling, shared-directory cancel/confirm, statistics, themes, narrow layout, left status dots and decoded completion audio (playback intercepted).');
+  console.log('Concurrent real RPC/SSE passed: background streams, targeted abort, scoped approvals, drafts across recycling, direct shared-directory sends with system collaboration rules, statistics, themes, narrow layout, left status dots and decoded completion audio (playback intercepted).');
 } finally {
   for (const stream of streams.values()) { clearInterval(stream.timer); stream.res.destroy(); }
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); }).catch(() => {});

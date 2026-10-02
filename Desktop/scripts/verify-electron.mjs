@@ -714,7 +714,7 @@ try {
   await page.getByRole('button', { name: '摘要', exact: true }).click();
   const currentRow = page.locator('.session-row.selected');
   await currentRow.click({ button: 'right' });
-  assert.equal(await context.getByRole('menuitem', { name: '复制' }).isDisabled(), true);
+  assert.equal(await context.getByRole('menuitem', { name: '复制会话引用', exact: true }).isEnabled(), true);
   assert.equal(await context.getByRole('menuitem', { name: '分支' }).isDisabled(), true);
   await context.getByRole('menuitem', { name: '重命名' }).click();
   await page.getByRole('dialog').getByRole('textbox').fill('窗口验证会话');

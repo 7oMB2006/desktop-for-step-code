@@ -11,7 +11,7 @@ export function thumbMetrics(scrollTop: number, clientHeight: number, scrollHeig
 
 export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scrollId = 'conversation-scroll',
   label, className = '', contentSelector = '.messages', compact = false }: {
-  scrollRef: RefObject<HTMLDivElement | null>; language: 'zh' | 'en';
+  scrollRef: RefObject<HTMLElement | null>; language: 'zh' | 'en';
   sessionId?: string; messageCount: number;
   scrollId?: string; label?: string; className?: string; contentSelector?: string; compact?: boolean;
 }) {

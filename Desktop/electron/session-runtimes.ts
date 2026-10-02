@@ -3,6 +3,7 @@ import { RpcProcess } from './runtime';
 import { permissionFromStatus } from './permission-status';
 import { WORKSPACE_POLICY } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
+import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
 import type { Message, Model, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
 
 export interface WorkerTransport {
@@ -21,6 +22,7 @@ export interface SessionRuntime {
   operations: number;
   mutating: boolean;
   state?: RuntimeState;
+  leafId?: string;
   permissionPreset?: PermissionPreset;
   messages: Message[];
   models: Model[];
@@ -45,7 +47,7 @@ export function taskOutcome(messages: Message[]) {
   return 'idle' as const;
 }
 
-// A worker never switches history: its identity remains stable until disposal.
+// A worker owns one session identity until disposal; edits move its history leaf.
 export class SessionRuntimes {
   readonly workers = new Map<string, SessionRuntime>();
   readonly unreadSessionIds = new Set<string>();
@@ -78,7 +80,7 @@ export class SessionRuntimes {
     if (!worker || worker.status !== 'connected') throw new Error('This session runtime is not connected');
     return worker;
   }
-  async open(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string) {
+  async open(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
     const worker: SessionRuntime = {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
@@ -107,6 +109,11 @@ export class SessionRuntimes {
         for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
       }
       if (event.type === 'extension_ui_request') {
+        // Preparing a branch is not an active chat. Decline hidden extension prompts.
+        if (branch && worker.status === 'connecting' && ['select', 'confirm', 'input', 'editor'].includes(event.method)) {
+          worker.rpc.respond({ id: event.id, cancelled: true });
+          return;
+        }
         const preset = permissionFromStatus({ method: event.method, statusKey: event.statusKey, statusText: event.statusText });
         if (preset) {
           worker.permissionPreset = preset;
@@ -134,6 +141,23 @@ export class SessionRuntimes {
       await worker.rpc.request('get_state', {}, 60000);
       const result = await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath } : {}, 60000);
       if (result.cancelled) throw new Error('Session operation cancelled');
+      if (branch) {
+        const sourceState = await worker.rpc.request('get_state');
+        const history = await worker.rpc.request('get_entries');
+        if (history.leafId !== branch.leafId) throw new Error('Session history changed; reopen it and try again');
+        const selected = activeHistory(history.entries, history.leafId).find(item => item.id === branch.entryId);
+        if (selected?.type !== 'message' || selected.message?.role !== (branch.kind === 'fork' ? 'user' : 'assistant')) throw new Error('Invalid branch point');
+        const response = await worker.rpc.request(branch.kind, branch.kind === 'fork' ? { entryId: branch.entryId } : {}, 60000);
+        if (response.cancelled) throw new Error('Session operation cancelled');
+        const nextState = await worker.rpc.request('get_state');
+        if (!nextState.sessionId || nextState.sessionId === sourceState.sessionId) throw new Error('Runtime did not create a new session');
+        if (branch.permissionPreset) {
+          const { commands } = await worker.rpc.request('get_commands');
+          if (!commands?.some((command: { name: string; source: string }) => command.name === 'permissions' && command.source === 'extension')) throw new Error('Cannot preserve session permissions');
+          await worker.rpc.request('prompt', { message: `/permissions ${branch.permissionPreset}` });
+        }
+        if (branch.name) await worker.rpc.request('set_session_name', { name: branch.name });
+      }
       worker.status = 'connected';
       worker.state = await worker.rpc.request('get_state');
       await this.read(worker);
@@ -151,15 +175,19 @@ export class SessionRuntimes {
     worker.operations++;
     const revision = worker.revision;
     try {
-      const [state, { messages }, { models }, stats] = await Promise.all([
+      const [state, { messages }, { models }, stats, history] = await Promise.all([
         worker.rpc.request('get_state'), worker.rpc.request('get_messages'),
         worker.rpc.request('get_available_models'), worker.rpc.request('get_session_stats'),
+        worker.rpc.request('get_entries'),
       ]);
       // Never replace newly received deltas with an older asynchronous snapshot.
       if (revision === worker.revision) {
         worker.state = state;
         // get_messages contains committed history, not the in-flight assistant.
-        if (!state.isStreaming) worker.messages = messages;
+        if (!state.isStreaming) {
+          worker.messages = messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null);
+          worker.leafId = history.leafId ?? undefined;
+        }
         worker.busy = Boolean(state.isStreaming);
       }
       worker.models = models; worker.stats = stats; worker.touched = Date.now();
@@ -171,6 +199,49 @@ export class SessionRuntimes {
       const state = await worker.rpc.request('get_state');
       if (state.isStreaming || state.isCompacting || state.pendingMessageCount) throw new Error('Stop this session task first');
     }
+  }
+  async retryLatest(worker: SessionRuntime, entryId: string, message: string) {
+    await this.assertIdle(worker);
+    await this.read(worker);
+    const latest = [...worker.messages].reverse().find(item => item.role === 'user');
+    if (!latest?.entryId || latest.entryId !== entryId) throw new Error('Only the most recent saved message can be edited');
+    const images = typeof latest.content === 'string' ? [] : latest.content.filter(block => block.type === 'image');
+    if (!message.trim() && !images.length) throw new Error('Message is empty');
+    const { commands } = await worker.rpc.request('get_commands');
+    if (!commands?.some((command: { name: string; source: string }) => command.name === '_desktop_retry' && command.source === 'extension')) {
+      throw new Error('This runtime does not support editing messages');
+    }
+    const history = await worker.rpc.request('get_entries');
+    if (history.leafId !== worker.leafId) throw new Error('Session history changed; try again');
+    const selected = activeHistory(history.entries, history.leafId).find(item => item.id === entryId);
+    if (!selected || selected.type !== 'message' || selected.message?.role !== 'user') throw new Error('Invalid edit point');
+    const sessionId = worker.state?.sessionId;
+    const sessionFile = worker.state?.sessionFile;
+    const permissionPreset = worker.permissionPreset;
+    await worker.rpc.request('prompt', { message: `/_desktop_retry ${entryId}` }, 60000);
+    await this.read(worker);
+    if (worker.state?.sessionId !== sessionId || (worker.leafId ?? null) !== selected.parentId) {
+      throw new Error('Runtime did not restore the edit point');
+    }
+    this.emit({ type: 'desktop_history', runtimeId: worker.id, sessionId, messages: worker.messages });
+    worker.submissions++;
+    this.publish();
+    try {
+      await worker.rpc.request('prompt', { message, ...(images.length ? { images } : {}) }, 600000);
+    } catch (error) {
+      const current = await worker.rpc.request('get_entries');
+      // A rejected submission may not append anything. Restore the saved leaf
+      // so the original question remains editable instead of stranding its draft.
+      if ((current.leafId ?? null) === selected.parentId && sessionFile) {
+        const restored = await worker.rpc.request('switch_session', { sessionPath: sessionFile }, 60000);
+        if (restored.cancelled) throw new Error('Submission failed and history restoration was cancelled');
+        if (permissionPreset) await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
+        await this.read(worker);
+        if (worker.state?.sessionId !== sessionId || worker.leafId !== history.leafId) throw new Error('Submission failed and history could not be restored');
+        this.emit({ type: 'desktop_history', runtimeId: worker.id, sessionId, messages: worker.messages });
+      }
+      throw error;
+    } finally { worker.submissions--; this.publish(); }
   }
   async assertAllIdle() {
     for (const worker of this.workers.values()) {

@@ -5,7 +5,7 @@ export type ComposerAttachment = { kind: 'image'; name: string; content: Content
 export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number }
 export interface SessionStats { toolCalls: number; assistantMessages: number; tokens: Usage & { total: number }; contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null } }
 export type PermissionPreset = 'ask' | 'read-only' | 'bypass' | 'autopilot';
-export interface Message { role: string; content: string | Content[]; timestamp?: number; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string }
+export interface Message { role: string; content: string | Content[]; timestamp?: number; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string; entryId?: string }
 export interface RuntimeState { isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
 export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string }
 export type RuntimeEvent = { type: string; [key: string]: any };
@@ -28,6 +28,8 @@ export interface DesktopBridge {
   command(type: string, args?: Record<string, unknown>, runtimeId?: string): Promise<any>;
   sessions(): Promise<Session[]>;
   switchSession(id: string): Promise<Snapshot>;
+  branchSession(kind: 'clone' | 'fork', entryId: string, runtimeId: string): Promise<Snapshot>;
+  retryMessage(entryId: string, message: string, runtimeId: string): Promise<void>;
   deleteSession(id: string): Promise<boolean>;
   restart(): Promise<Snapshot>;
   settings(): Promise<Settings>;

@@ -2,6 +2,17 @@ export default function registerDesktopSessions(pi) {
   const url = process.env.DESKTOP_SESSION_URL;
   const token = process.env.DESKTOP_SESSION_TOKEN;
   if (!url || !token || process.env.STEPCODE_SUBAGENT_CHILD === '1') return;
+  pi.registerCommand('_desktop_retry', {
+    description: 'Desktop internal message edit',
+    handler: async (args, ctx) => {
+      const entryId = args.trim();
+      const branch = ctx.sessionManager.getBranch();
+      const latest = branch.findLast(entry => entry.type === 'message' && entry.message.role === 'user');
+      if (!latest || latest.id !== entryId) throw new Error('Only the most recent message can be edited');
+      const result = await ctx.navigateTree(entryId, { summarize: false });
+      if (result.cancelled) throw new Error('Message edit cancelled');
+    },
+  });
   const object = properties => ({ type: 'object', properties, additionalProperties: false });
   const result = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
   const call = async (action, args, signal) => {

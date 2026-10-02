@@ -333,6 +333,13 @@ main { position: relative; }
 .message-body ul,.message-body ol { padding-left: 23px; margin: 10px 0 16px; }
 .message.user { display: flex; flex-direction: column; align-items: flex-end; margin: 0 0 30px 12%; }
 .user .message-body { max-width: 100%; width: fit-content; padding: 10px 15px; text-align: left; }
+.user-message-editor { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.user-edit-input { display: grid; grid-template-columns: minmax(0, 1fr) 24px; min-width: 0; }
+.user-message-editor textarea { display: block; width: 100%; min-height: 72px; max-height: 280px; resize: none; padding: 4px 2px; border: 0; background: transparent; line-height: 1.6; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain; }
+.user-message-editor textarea::-webkit-scrollbar { display: none; }
+.user-edit-input .user-edit-scroll-track { position: relative; inset: auto; width: 24px; min-height: 0; }
+.user-message-editor .attachment { max-height: 80px; margin-top: 8px; }
+.user-edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .sent-quote-message { min-width: 0; max-width: 100%; }
 .sent-quotes { display: grid; gap: 8px; }
 .message-body .sent-quote { margin: 0; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }

@@ -11,7 +11,7 @@ class Transport implements WorkerTransport {
   startArgs: string[] = [];
   constructor(readonly receive: (event: RuntimeEvent) => void, readonly sessionId: string) {}
   start(_node: string, _entry: string, _cwd: string, _env: NodeJS.ProcessEnv, args: string[] = []) { this.startArgs = args; }
-  async request(type: string) {
+  async request(type: string, _args?: Record<string, unknown>): Promise<any> {
     this.calls.push(type);
     if (type === 'get_state') return { sessionId: this.sessionId, sessionFile: `${this.sessionId}.jsonl`, isStreaming: false };
     if (type === 'get_messages') return { messages: [] };
@@ -32,6 +32,159 @@ function fixture() {
   const open = (cwd = 'workspace') => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+
+function branchFixture(outcome: 'success' | 'cancelled' | 'changed' = 'success') {
+  const transports: Transport[] = [];
+  const events: RuntimeEvent[] = [];
+  const history = [{ id: 'u1', parentId: null, type: 'message', message: { role: 'user', content: 'question', timestamp: 1 } },
+    { id: 'a1', parentId: 'u1', type: 'message', message: { role: 'assistant', content: 'answer', timestamp: 2 } }];
+  const pool = new SessionRuntimes(event => events.push(event), receive => {
+    const transport = new Transport(receive, 'source');
+    let branched = false;
+    transport.request = async (type, args) => {
+      transport.calls.push(type);
+      if (type === 'get_state') return { sessionId: branched ? 'branch' : 'source', sessionFile: 'source.jsonl', isStreaming: false };
+      if (type === 'get_messages') return { messages: branched && transport.calls.includes('fork') ? [] : history.map(entry => entry.message) };
+      if (type === 'get_entries') return { entries: history, leafId: outcome === 'changed' && transports.length > 1 ? 'u1' : 'a1' };
+      if (type === 'get_available_models') return { models: [] };
+      if (type === 'get_commands') return { commands: [{ name: 'permissions', source: 'extension' }] };
+      if (type === 'prompt') assert.equal(args?.message, '/permissions read-only');
+      if (type === 'clone' || type === 'fork') {
+        branched = outcome !== 'cancelled';
+        return { cancelled: outcome === 'cancelled' };
+      }
+      return {};
+    };
+    transports.push(transport);
+    return transport;
+  });
+  return { pool, transports, events };
+}
+
+function retryFixture(outcome: 'success' | 'cancelled' | 'unsupported' | 'rejected' = 'success') {
+  const events: RuntimeEvent[] = [];
+  const image = { type: 'image', mimeType: 'image/png', data: 'fixture' };
+  const entries = [
+    { id: 'u1', parentId: null, type: 'message', message: { role: 'user', content: 'same', timestamp: 1 } },
+    { id: 'a1', parentId: 'u1', type: 'message', message: { role: 'assistant', content: 'earlier', timestamp: 2 } },
+    { id: 'u2', parentId: 'a1', type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'same' }, image], timestamp: 3 } },
+    { id: 'a2', parentId: 'u2', type: 'message', message: { role: 'assistant', content: 'discarded', timestamp: 4 } },
+  ];
+  let leafId = 'a2';
+  const submitted: Record<string, unknown>[] = [];
+  const pool = new SessionRuntimes(event => events.push(event), receive => {
+    const transport = new Transport(receive, 'source');
+    transport.request = async (type, args) => {
+      if (type === 'get_state') return { sessionId: 'source', sessionFile: 'source.jsonl', isStreaming: false };
+      if (type === 'get_entries') return { entries, leafId };
+      if (type === 'get_messages') return { messages: leafId === 'a1' ? entries.slice(0, 2).map(entry => entry.message) : entries.map(entry => entry.message) };
+      if (type === 'get_available_models') return { models: [] };
+      if (type === 'get_commands') return { commands: outcome === 'unsupported' ? [] : [{ name: '_desktop_retry', source: 'extension' }] };
+      if (type === 'switch_session') { leafId = 'a2'; return {}; }
+      if (type === 'prompt') {
+        if (args?.message === '/_desktop_retry u2') {
+          if (outcome !== 'cancelled') leafId = 'a1';
+        } else if (args?.message !== '/permissions read-only') {
+          submitted.push(args!);
+          if (outcome === 'rejected') throw new Error('Submission rejected');
+          assert.equal(events.some(event => event.type === 'desktop_history'), true);
+        }
+      }
+      return {};
+    };
+    return transport;
+  });
+  return { pool, events, submitted, image };
+}
+
+test('retry stays in the same worker/session, excludes the old turn and retains images', async () => {
+  const { pool, events, submitted, image } = retryFixture();
+  const worker = await pool.open('node', 'step', 'cwd', {});
+  worker.permissionPreset = 'read-only';
+  await pool.retryLatest(worker, 'u2', 'edited');
+  assert.equal(pool.active, worker);
+  assert.equal(pool.workers.size, 1);
+  assert.equal(worker.state?.sessionId, 'source');
+  assert.equal(worker.permissionPreset, 'read-only');
+  assert.deepEqual(events.find(event => event.type === 'desktop_history')?.messages.map((message: { content: unknown }) => message.content), ['same', 'earlier']);
+  assert.deepEqual(submitted, [{ message: 'edited', images: [image] }]);
+  assert.equal(worker.submissions, 0);
+});
+test('retry rejects old and forged entries before navigating', async () => {
+  const { pool, events, submitted } = retryFixture();
+  const worker = await pool.open('node', 'step', 'cwd', {});
+  await assert.rejects(pool.retryLatest(worker, 'u1', 'edited'), /most recent/);
+  await assert.rejects(pool.retryLatest(worker, 'forged', 'edited'), /most recent/);
+  assert.equal(events.some(event => event.type === 'desktop_history'), false);
+  assert.deepEqual(submitted, []);
+});
+test('cancelled navigation never submits an edited prompt', async () => {
+  const { pool, submitted } = retryFixture('cancelled');
+  const worker = await pool.open('node', 'step', 'cwd', {});
+  await assert.rejects(pool.retryLatest(worker, 'u2', 'edited'), /restore the edit point/);
+  assert.equal(worker.messages.length, 4);
+  assert.deepEqual(submitted, []);
+});
+test('missing edit extension and busy workers fail before history changes', async () => {
+  const { pool, submitted } = retryFixture('unsupported');
+  const worker = await pool.open('node', 'step', 'cwd', {});
+  await assert.rejects(pool.retryLatest(worker, 'u2', 'edited'), /does not support/);
+  worker.busy = true;
+  await assert.rejects(pool.retryLatest(worker, 'u2', 'edited'), /Stop/);
+  assert.equal(worker.messages.length, 4);
+  assert.deepEqual(submitted, []);
+});
+test('rejected submission without a persisted user turn restores history and permissions', async () => {
+  const { pool, events } = retryFixture('rejected');
+  const worker = await pool.open('node', 'step', 'cwd', {});
+  worker.permissionPreset = 'read-only';
+  await assert.rejects(pool.retryLatest(worker, 'u2', 'edited'), /Submission rejected/);
+  assert.equal(worker.leafId, 'a2');
+  assert.equal(worker.messages.length, 4);
+  assert.equal(events.filter(event => event.type === 'desktop_history').length, 2);
+  assert.equal(worker.submissions, 0);
+});
+
+test('clone is prepared in a different worker and preserves the source and permissions', async () => {
+  const { pool, transports } = branchFixture();
+  const source = await pool.open('node', 'step', 'cwd', {});
+  const originalMessages = source.messages;
+  const branch = await pool.open('node', 'step', 'cwd', {}, 'source.jsonl',
+    { kind: 'clone', entryId: 'a1', leafId: 'a1', permissionPreset: 'read-only' });
+  assert.notEqual(branch.id, source.id);
+  assert.equal(pool.active, branch);
+  assert.equal(source.state?.sessionId, 'source');
+  assert.equal(source.messages, originalMessages);
+  assert.equal(transports[0].calls.includes('clone'), false);
+  assert.equal(transports[1].calls.includes('clone'), true);
+  assert.equal(transports[1].calls.includes('prompt'), true);
+  assert.equal(transports[0].stopped, false);
+  await pool.stopAll();
+});
+
+test('fork prepares a new empty route without the selected question or answer', async () => {
+  const { pool, transports } = branchFixture();
+  const source = await pool.open('node', 'step', 'cwd', {});
+  const branch = await pool.open('node', 'step', 'cwd', {}, 'source.jsonl', { kind: 'fork', entryId: 'u1', leafId: 'a1' });
+  assert.deepEqual(branch.messages, []);
+  assert.equal(source.messages.length, 2);
+  assert.equal(transports[0].calls.includes('fork'), false);
+  await pool.stopAll();
+});
+
+test('cancelled or stale branches dispose the new worker and leave the source active', async () => {
+  for (const outcome of ['cancelled', 'changed'] as const) {
+    const { pool, transports } = branchFixture(outcome);
+    const source = await pool.open('node', 'step', 'cwd', {});
+    await assert.rejects(pool.open('node', 'step', 'cwd', {}, 'source.jsonl',
+      { kind: 'clone', entryId: 'a1', leafId: 'a1' }), /cancelled|changed/);
+    assert.equal(pool.active, source);
+    assert.equal(pool.workers.size, 1);
+    assert.equal(transports[1].stopped, true);
+    assert.equal(transports[0].stopped, false);
+    await pool.stopAll();
+  }
+});
 
 test('session workers append shared-workspace rules without replacing project or product instructions', async () => {
   const { pool, transports, open } = fixture();

@@ -1000,7 +1000,7 @@ try {
   assert.equal(await content.locator('.process-tool > summary').getByText('corepack pnpm test', { exact: true }).count(), 0);
   assert.equal(await content.locator('.process-tool > summary .process-tool-status').count(), 0);
   assert.equal(await presentationResponse.locator('.assistant-actions button').count(), 2);
-  assert.equal(await presentationResponse.locator('.branch-placeholder').isDisabled(), true);
+  assert.equal(await presentationResponse.locator('.branch-action').isDisabled(), true);
   await presentationUser.scrollIntoViewIfNeeded();
   await page.mouse.move(10, 10);
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.message.user:last-of-type .user-actions') ?? [...document.querySelectorAll('.user-actions')].at(-1)).opacity === '0');
@@ -1012,13 +1012,8 @@ try {
   await presentationUser.getByRole('button', { name: '复制', exact: true }).click();
   assert.equal(await app.evaluate(() => globalThis.messageCopyTest.values.at(-1)), '检查项目入口，说明这次做了哪些改动。');
   await page.locator('.composer > textarea').fill('');
-  await presentationUser.getByRole('button', { name: '编辑', exact: true }).click();
-  assert.equal(await page.locator('.composer > textarea').inputValue(), '检查项目入口，说明这次做了哪些改动。');
-  assert.equal(await page.locator('.composer > textarea').evaluate(element => document.activeElement === element), true);
-  await presentationUser.hover();
-  await presentationUser.getByRole('button', { name: '编辑', exact: true }).click();
-  assert.equal(await page.locator('.composer > textarea').inputValue(), '检查项目入口，说明这次做了哪些改动。');
-  await page.locator('.error-banner').getByRole('button', { name: '关闭', exact: true }).click();
+  assert.equal(await presentationUser.getByRole('button', { name: '编辑并重做', exact: true }).isDisabled(), true,
+    'Synthetic messages have no saved entry ID and cannot edit real history');
   await page.locator('.composer > textarea').fill('');
   await presentationResponse.locator('.assistant-actions').getByRole('button', { name: '复制', exact: true }).click();
   const copiedAnswer = await app.evaluate(() => globalThis.messageCopyTest.values.at(-1));

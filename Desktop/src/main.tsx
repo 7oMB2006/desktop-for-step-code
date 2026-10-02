@@ -159,10 +159,11 @@ function App() {
   const applySnapshot = async (action: () => Promise<Snapshot | null>) => {
     if (switching.current) return;
     switching.current = true; setLoading(true);
-    await run(async () => { const result = await action(); if (result) installSnapshot(result); });
+    let succeeded = false;
+    await run(async () => { const result = await action(); if (result) installSnapshot(result); succeeded = true; });
     switching.current = false; setLoading(false);
     // Include events that arrived between the navigation snapshot and its paint.
-    void run(refresh);
+    if (succeeded) void run(refresh);
   };
   const command = async (type: string, args?: Record<string, unknown>) => run(async () => {
     const id = viewId.current;
@@ -208,6 +209,7 @@ function App() {
         return;
       }
       if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current)) return;
+      if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
       if (event.type === 'agent_start') setBusy(true);
       if (event.type === 'agent_end') { setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh); }
@@ -262,7 +264,7 @@ function App() {
     const id = data.runtimeId;
     void run(async () => {
       const [effort, available] = await Promise.all([bridge!.command('get_available_thinking_levels', undefined, id), bridge!.command('get_commands', undefined, id)]);
-      if (viewId.current === id) { setLevels(effort.levels); setCommands(available.commands); }
+      if (viewId.current === id) { setLevels(effort.levels); setCommands(available.commands.filter((c: { name: string }) => c.name !== '_desktop_retry')); }
     });
   }, [connected, data.runtimeId, data.state?.model?.id]);
   useLayoutEffect(followLayout, [data.messages, busy, followLayout]);
@@ -459,22 +461,17 @@ function App() {
       }
     });
   };
-  const editMessage = (message: Message) => {
-    if (draft.trim() || attachmentsRef.current.length || quotes.length) {
-      setError(t('输入框已有草稿，请先发送或清空', 'Send or clear the current draft first'));
-      return;
-    }
-    const images: ComposerAttachment[] = messageBlocks(message).filter(block => block.type === 'image')
-      .map((content, index) => ({ kind: 'image', name: `${t('图片', 'Image')} ${index + 1}`, content }));
-    if (images.length > 5) {
-      setError(t('这条消息包含超过 5 张图片，无法放回输入框', 'This message has more than 5 images'));
-      return;
-    }
+  const branchMessage = async (message: Message) => {
+    if (!bridge || !message.entryId || !viewId.current || !connected || busy || loading) return;
+    const id = viewId.current;
+    await applySnapshot(() => bridge.branchSession('clone', message.entryId!, id));
+  };
+  const editMessage = async (message: Message, text: string) => {
+    if (!bridge || !message.entryId || !viewId.current || !connected || busy || loading) throw new Error(t('会话暂时无法编辑', 'This conversation cannot be edited right now'));
+    const id = viewId.current;
     setError('');
-    setDraft(messageText(message));
-    attachmentsRef.current = images;
-    setAttachments(images);
-    document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus();
+    await bridge.retryMessage(message.entryId, text, id);
+    if (viewId.current === id) await refresh();
   };
   const changePreviewZoom = (next: number, anchor?: { x: number; y: number }) => {
     const zoom = Math.max(.5, Math.min(5, next));
@@ -669,7 +666,7 @@ function App() {
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages key={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
+          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages key={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
         </div>
         <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>

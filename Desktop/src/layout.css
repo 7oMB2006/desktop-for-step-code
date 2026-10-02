@@ -333,6 +333,14 @@ main { position: relative; }
 .message-body ul,.message-body ol { padding-left: 23px; margin: 10px 0 16px; }
 .message.user { display: flex; flex-direction: column; align-items: flex-end; margin: 0 0 30px 12%; }
 .user .message-body { max-width: 100%; width: fit-content; padding: 10px 15px; text-align: left; }
+.sent-quote-message { min-width: 0; max-width: 100%; }
+.sent-quotes { display: grid; gap: 8px; }
+.message-body .sent-quote { margin: 0; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.sent-quote-source { margin-bottom: 4px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.sent-quote-content { max-height: 220px; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; font-size: 13px; }
+.sent-quote-content > :first-child { margin-top: 0; }
+.sent-quote-content > :last-child { margin-bottom: 0; }
+.sent-quote-reply { margin-top: 12px; }
 .message-actions { display: flex; align-items: center; gap: 3px; height: 30px; margin-top: 7px; color: var(--muted); }
 .message-actions .icon-button { width: 28px; height: 28px; min-height: 28px; border-radius: 5px; color: var(--muted); }
 .message-actions .icon-button:hover:not(:disabled) { color: var(--ink); background: var(--surface); }
@@ -479,8 +487,7 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .model-effort-heading { font-size: 18px; }
 .model-effort-heading-level { font-size: 16px; font-weight: 700; }
 .model-effort-heading-level-stage { display: grid; place-items: center; min-width: 7ch; min-height: 1.5em; }
-.model-effort-heading-level-item { grid-area: 1 / 1; white-space: nowrap; color: oklch(from var(--effort-color) .56 c h); }
-:root[data-theme=dark] .model-effort-heading-level-item { color: var(--effort-color); }
+.model-effort-heading-level-item { grid-area: 1 / 1; white-space: nowrap; color: var(--effort-color); }
 .model-effort-heading-level-outgoing { animation: model-effort-level-out .38s both; }
 .model-effort-heading-level-entering { animation: model-effort-level-in .38s both; }
 @keyframes model-effort-level-out { 0% { opacity: 1; transform: translateX(0); animation-timing-function: cubic-bezier(.65, 0, .35, 1); } 48% { opacity: .45; transform: translateX(var(--effort-travel)); animation-timing-function: cubic-bezier(.22, 1, .36, 1); } 70% { opacity: 0; transform: translateX(var(--effort-settle)); } 100% { opacity: 0; transform: translateX(0); } }
@@ -508,7 +515,7 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .model-effort-fader-tick { position: absolute; left: 50%; width: 18px; height: 2px; transform: translate(-50%, 50%); border-radius: 2px; background: var(--muted); opacity: .7; pointer-events: none; }
 .model-effort-fader-thumb { position: absolute; left: 50%; width: 78px; height: 38px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--ink); box-shadow: 0 2px 7px oklch(0 0 0/.28), inset 0 1px oklch(1 0 0/.18); transform: translate(-50%, calc(50% + var(--pressure))) scale(calc(1 - var(--squeeze)), calc(1 + var(--stretch))); transition: bottom .2s cubic-bezier(.2,.75,.2,1), transform .14s ease-out; pointer-events: none; }
 .model-effort-fader-grip { width: 20px; height: 2px; border-radius: 2px; background: var(--bg); box-shadow: 0 -5px var(--bg), 0 5px var(--bg); opacity: .7; }
-:root:not([data-theme=dark]) .model-effort-fader-thumb { background: oklch(.78 0 0); box-shadow: 0 2px 6px oklch(0 0 0/.14), inset 0 1px oklch(1 0 0/.7); }
+:root:not([data-theme=dark]) .model-effort-fader-thumb { background: #fff; box-shadow: 0 1px 4px oklch(0 0 0/.09), inset 0 1px #fff; }
 :root:not([data-theme=dark]) .model-effort-fader-grip { background: oklch(.46 0 0); box-shadow: 0 -5px oklch(.46 0 0), 0 5px oklch(.46 0 0); opacity: .68; }
 .model-effort-single { display: block; margin-top: 12px; color: var(--muted); font-size: 12px; }
 .model-effort-back { justify-content: flex-start; width: 100%; border: 0; background: transparent; color: var(--muted); }

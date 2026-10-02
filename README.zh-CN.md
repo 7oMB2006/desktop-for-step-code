@@ -49,7 +49,7 @@ Step 登录凭据使用当前 Windows 用户的加密存储机制保存到 `step
 
 ```powershell
 git clone https://github.com/stepfun-ai/Step-Code.git Step-Code
-git -C Step-Code checkout 7dd66cb9f11a40ba19285b620084b362892cadea
+git -C Step-Code checkout 519e4de4ed2162d3667be1821cb92ada6b884e5a
 git -C Step-Code apply ../patches/step-code-desktop.patch
 
 Push-Location Step-Code

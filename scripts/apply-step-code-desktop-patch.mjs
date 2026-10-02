@@ -31,7 +31,7 @@ const bundleScriptBytes = await readFile(bundleScriptPath);
 if (gitBlobHash(authStorageBytes) !== "b7d72e885b80c53e17920a405ec7ce9612a3e2e7") {
 	throw new Error("Unexpected pinned auth storage source content");
 }
-if (gitBlobHash(codingAgentBytes) !== "5b9a78f41c0fd3a6c5556be0623ac2d7f5ffe7e5") {
+if (gitBlobHash(codingAgentBytes) !== "8e933536e3d6a0ac15017121a25e88e3d6a142e3") {
 	throw new Error("Unexpected pinned coding-agent source content");
 }
 if (gitBlobHash(bundleScriptBytes) !== "59fdc3ebc3f8d9e7a8b0d6d5fb919f0f7cd44d89") {

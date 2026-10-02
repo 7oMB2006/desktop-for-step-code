@@ -151,6 +151,16 @@ Reads include only bounded user/assistant prose from resident sessions, not reas
 
 Screenshots are in `Desktop/test-results/cross-session-{read,approval,narrow,english}.png` and `Desktop/test-results/session-reference-menu.png`. Session references are identifiers for these tools, not registered Windows deep links in this preview. This pass did not use a paid model or a real account and did not test installer lifecycle. Fixture success establishes the transport and approval behavior, not autonomous collaboration quality.
 
+## Session Branching Preview
+
+The corrected 2026-10-02 preview at `Desktop/release/session-edit-preview/win-unpacked/` passed type checking, 89 unit tests, production build, source and packaged Electron acceptance, and source and packaged `scripts/verify-session-branching.mjs`. Source concurrency and cross-session tool regressions also passed.
+
+The latest saved Agent reply clones the full current history into a new conversation. The latest saved user message's pencil opens an inline editor with Cancel and Send; opening or cancelling does not change history. Sending navigates before that question and resubmits the edited text with the original images in the same session and worker. Earlier user messages cannot be edited. Stable active-history entry IDs identify branch and edit points; stale, ambiguous, forged and busy-source requests are rejected. Explicit branches use a separate worker, retain the original worker and conversation, and inherit permissions. Editing preserves the ordinary composer draft and permissions; a rejected submission that appended no user turn restores the original saved history. Neither operation rolls back workspace files or isolates the working directory.
+
+Acceptance covers duplicate questions, first-question retry without old context, unchanged clone source history, inline focus/cancel/send, same-session and worker identity, background runs remaining active, read-only permission inheritance, distinct branch names, persisted edited history after worker restart, images, ordinary draft preservation, narrow/dark layouts and English controls. Evidence is in `Desktop/test-results/branch-{latest-reply,edit-inline,edit-dark-narrow,reopened-dark-narrow}.png`. These checks use real staged Step Code RPC with an isolated deterministic local SSE fixture, not a paid model or installer lifecycle acceptance.
+
+The inline editor reuses the quote preview's compact 4px trackless scrollbar; checks cover hidden native scrollbars, keyboard limits and wheel scrolling. The quote interaction regression also passed. Submission recovery is covered by transport unit tests, while edited-draft retention across temporary history removal and restoration uses an injected IPC failure fixture; neither establishes recovery from every possible runtime or provider failure.
+
 ## Release Boundary
 
 ### Quote Presentation Polish

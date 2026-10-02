@@ -33,6 +33,8 @@ const bridge: DesktopBridge = {
   newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'), openWorkspaceFolder: path => invoke('openWorkspaceFolder', path),
   snapshot: () => invoke('snapshot'), chooseWorkspace: () => invoke('chooseWorkspace'), workspace: path => invoke('workspace', path),
   command: (type, args, runtimeId) => invoke('command', type, args, runtimeId), sessions: () => invoke('sessions'), switchSession: id => invoke('switchSession', id),
+  branchSession: (kind, entryId, runtimeId) => invoke('branchSession', kind, entryId, runtimeId),
+  retryMessage: (entryId, message, runtimeId) => invoke('retryMessage', entryId, message, runtimeId),
   deleteSession: id => invoke('deleteSession', id), restart: () => invoke('restart'), settings: () => invoke('settings'),
   login: (profile, key) => invoke('login', profile, key), cancelLogin: () => invoke('cancelLogin'), logout: () => invoke('logout'),
   saveMcp: (name, config, secrets) => invoke('saveMcp', name, config, secrets), preferences: patch => invoke('preferences', patch),

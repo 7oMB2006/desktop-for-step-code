@@ -258,6 +258,44 @@ async function handle(method: string, args: any[]) {
       if (!target.path) throw new Error('This empty session runtime is unavailable');
       return connect(target.cwd, target.path, false);
     }
+    case 'branchSession': {
+      const kind = text(args[0], 20);
+      if (kind !== 'clone' && kind !== 'fork') throw new Error('Unsupported branch operation');
+      if (transition) throw new Error('Workspace operation in progress');
+      const source = runtimes.require(text(args[2], 80));
+      if (source.id !== runtimes.activeId || source.mutating || source.operations) throw new Error('Session operation in progress');
+      const entryId = text(args[1], 80);
+      transition = true; source.mutating = true;
+      try {
+        await runtimes.assertIdle(source);
+        await runtimes.read(source);
+        const selected = source.messages.find(message => message.entryId === entryId);
+        if (!selected || selected.role !== (kind === 'fork' ? 'user' : 'assistant')) throw new Error('This message is no longer a branch point');
+        if (kind === 'clone' && source.messages.at(-1)?.entryId !== entryId) throw new Error('Only the latest reply can be branched');
+        const sessionPath = source.state?.sessionFile;
+        if (!sessionPath || !existsSync(sessionPath) || !source.leafId) throw new Error('Wait for this session to be saved before branching');
+        const stem = `${(source.state?.sessionName || firstUserText(source.messages) || (preferences.language === 'zh' ? '新会话' : 'New session')).slice(0, 180)} · ${preferences.language === 'zh' ? '分支' : 'branch'}`;
+        const names = new Set(cachedSessions().map(session => session.name));
+        let name = stem;
+        for (let number = 2; names.has(name); number++) name = `${stem} ${number}`;
+        const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), source.cwd, authEnvironment(),
+          sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
+            name });
+        return await snapshot(worker);
+      } finally { source.mutating = false; transition = false; }
+    }
+    case 'retryMessage': {
+      if (transition) throw new Error('Workspace operation in progress');
+      const worker = runtimes.require(text(args[2], 80));
+      if (worker.id !== runtimes.activeId || worker.mutating || worker.operations) throw new Error('Session operation in progress');
+      const entryId = text(args[0], 80);
+      const message = text(args[1]);
+      if (/^\s*\/_desktop_retry\b/.test(message)) throw new Error('Reserved Desktop command');
+      worker.mutating = true;
+      try { await runtimes.retryLatest(worker, entryId, message); }
+      finally { worker.mutating = false; }
+      return null;
+    }
     case 'deleteSession': {
       const target = (await listSessions()).find(s => s.id === text(args[0]));
       if (!target) throw new Error('Unknown session');
@@ -306,6 +344,7 @@ async function handle(method: string, args: any[]) {
         let payload: Record<string, unknown> = {};
         if (type === 'prompt') {
           payload.message = text(data.message);
+          if (/^\s*\/_desktop_retry\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
           if (data.files !== undefined) {
             if (!Array.isArray(data.files) || data.files.length > MAX_ATTACHMENTS || new Set(data.files).size !== data.files.length) throw new Error('Invalid attachments');
             const paths = await Promise.all(data.files.map(async (id: unknown) => {
@@ -554,7 +593,7 @@ else app.whenReady().then(async () => {
   ipcMain.handle('desktop', async (event, method, ...args) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
     const shared = ['login', 'logout', 'saveMcp'].includes(method);
-    if (settingsMutation && ['command', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['command', 'branchSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp'].includes(method)) throw new Error('Shared settings operation in progress');
     if (shared) settingsMutation = true;
     try { return await handle(method, args); }
     catch (error) { throw new Error(error instanceof Error ? error.message : 'Desktop operation failed'); }

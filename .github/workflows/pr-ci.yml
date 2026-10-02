@@ -36,11 +36,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code line endings' }
           git -C $upstream remote add origin https://github.com/stepfun-ai/Step-Code.git
           if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code remote' }
-          git -C $upstream fetch --depth 1 --no-tags origin 7dd66cb9f11a40ba19285b620084b362892cadea
+          git -C $upstream fetch --depth 1 --no-tags origin 519e4de4ed2162d3667be1821cb92ada6b884e5a
           if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned Step Code revision' }
           git -C $upstream checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Unable to check out pinned Step Code revision' }
-          if ((git -C $upstream rev-parse HEAD).Trim() -ne '7dd66cb9f11a40ba19285b620084b362892cadea') {
+          if ((git -C $upstream rev-parse HEAD).Trim() -ne '519e4de4ed2162d3667be1821cb92ada6b884e5a') {
             throw 'Unexpected Step Code revision'
           }
 

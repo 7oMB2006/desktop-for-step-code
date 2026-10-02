@@ -1056,6 +1056,29 @@ try {
   await page.screenshot({ path: 'test-results/transcript-narrow.png' });
   await content.locator('.process-tool > summary').first().click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
+  const sentQuotePrompt = '以下是用户选取的对话原文，作为本轮回复的参考资料：\n\n引用 1，来自此前的助手消息：\n> 并发不会自动隔离文件，提交前仍需检查自己的改动。\n> \n> ```ts\n> const session = "A";\n> ```\n\n引用 2，来自此前的用户消息：\n> 我希望保留当前的工作目录。\n\n用户本轮消息：\n这段我理解了，我们先完善引用的显示。';
+  await app.evaluate(({ BrowserWindow }, prompt) =>
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event',
+      { type: 'message_start', message: { role: 'user', content: prompt, timestamp: Date.now() } }), sentQuotePrompt);
+  const quoteUser = page.locator('.message.user').last();
+  await quoteUser.locator('.sent-quote').first().waitFor();
+  assert.equal(await quoteUser.locator('.sent-quote').count(), 2);
+  assert.equal(await quoteUser.locator('.sent-quote pre code').textContent(), 'const session = "A";\n');
+  assert.equal(await quoteUser.locator('.sent-quote-reply').textContent(), '这段我理解了，我们先完善引用的显示。');
+  assert.equal((await quoteUser.textContent()).includes('以下是用户选取'), false);
+  await quoteUser.hover();
+  await quoteUser.locator('.user-actions').getByRole('button', { name: '复制', exact: true }).click();
+  assert.equal(await app.evaluate(() => globalThis.messageCopyTest.values.at(-1)), sentQuotePrompt);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => document.documentElement.setAttribute('data-theme', theme), theme);
+    await quoteUser.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `test-results/sent-quotes-${theme}.png` });
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 880));
+  await quoteUser.scrollIntoViewIfNeeded();
+  assert.equal(await quoteUser.evaluate(element => element.scrollWidth <= element.clientWidth), true);
+  await page.screenshot({ path: 'test-results/sent-quotes-narrow.png' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
   await app.evaluate(({ clipboard }) => { clipboard.writeText = globalThis.messageCopyTest.original; });
   await app.evaluate(({ BrowserWindow }) => {
     const send = value => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', value);

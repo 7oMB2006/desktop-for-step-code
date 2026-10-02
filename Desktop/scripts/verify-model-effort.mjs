@@ -45,8 +45,15 @@ try {
   assert.equal(await dialog.locator('.model-effort-details-space').textContent(), '', 'Model details area is reserved');
   assert.match(await dialog.locator('.model-effort-fader-fill').evaluate(element => getComputedStyle(element).backgroundImage), /linear-gradient/);
   assert.equal(await dialog.locator('.model-effort-fader-thumb').textContent(), '');
+  const darkLabelColor = await dialog.locator('.model-effort-heading-level-current')
+    .evaluate(element => getComputedStyle(element).color);
+  assert.equal(darkLabelColor, 'rgb(253, 179, 162)');
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await page.waitForTimeout(220);
+  assert.equal(await dialog.locator('.model-effort-heading-level-current')
+    .evaluate(element => getComputedStyle(element).color), darkLabelColor);
+  assert.equal(await dialog.locator('.model-effort-fader-thumb')
+    .evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(255, 255, 255)');
   await page.screenshot({ path: 'test-results/model-effort-light.png' });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await page.waitForTimeout(220);

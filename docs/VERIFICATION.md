@@ -153,4 +153,10 @@ Screenshots are in `Desktop/test-results/cross-session-{read,approval,narrow,eng
 
 ## Release Boundary
 
+### Quote Presentation Polish
+
+The 2026-10-02 local preview at `Desktop/release/quote-presentation-preview/win-unpacked/` passed type checking, 77 unit tests, production build, source and packaged Electron acceptance, quote interaction acceptance and the dedicated effort-picker fixture. Sent user messages unwrap only the exact Desktop quote-prompt format into framed excerpts plus the current reply; malformed or ordinary Markdown falls back unchanged. The model payload, message history, editing and full-message copy remain unchanged. Tests cover both languages, multiple and quote-only excerpts, nested Markdown, code fences, marker-like text and reply whitespace. Screenshots cover light/dark and narrow transcript layouts; clipboard writes are intercepted in the isolated process.
+
+Effort labels now use the existing dark-theme palette in both themes. The light thumb is white with a softer shadow; dark styling is unchanged. The effort fixture verifies computed colors and white thumb fill alongside drag, wheel, keyboard and reduced-motion behavior. Evidence is in `Desktop/test-results/sent-quotes-{light,dark,narrow}.png` and `Desktop/test-results/model-effort-light.png`. No paid-model, installer lifecycle or public-release qualification was added.
+
 The local preview can be tried now. The Issue #5 candidate install, build-to-build credential migration and normal uninstall passed in a disposable Windows VM; independent-workspace survival was not tested. Broader public-release qualification remains incomplete, so do not describe this as fully release-qualified. No release was published.

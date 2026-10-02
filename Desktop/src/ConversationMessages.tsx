@@ -8,6 +8,7 @@ import { conversationEntries, messageBlocks, messageText, responsePresentation, 
 import type { ResponseItem } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
+import { quotePresentation } from './chat-quotes';
 
 type Props = {
   messages: Message[]; language: 'zh' | 'en'; busy: boolean; canEdit: boolean;
@@ -85,8 +86,22 @@ function Text({ text, streaming = false, ...props }: { text: string; streaming?:
 }
 function Body({ blocks, ...props }: { blocks: Content[] } & BodyProps) {
   return <div className="message-body">{blocks.map((block, index) =>
-    block.type === 'text' ? <Text key={index} text={block.text ?? ''} {...props}/>
+    block.type === 'text' ? <UserText key={index} text={block.text ?? ''} {...props}/>
       : block.type === 'image' ? <Image key={index} block={block} {...props}/> : null)}</div>;
+}
+function UserText({ text, ...props }: { text: string } & BodyProps) {
+  const presentation = useMemo(() => quotePresentation(text), [text]);
+  if (!presentation) return <Text text={text} {...props}/>;
+  const zh = props.language === 'zh';
+  return <div className="sent-quote-message">
+    <div className="sent-quotes">{presentation.quotes.map(quote =>
+      <blockquote className="sent-quote" key={quote.id}>
+        <div className="sent-quote-source">{quote.role === 'assistant'
+          ? (zh ? '助手' : 'Assistant') : (zh ? '用户' : 'User')}</div>
+        <div className="sent-quote-content"><Text text={quote.markdown} {...props}/></div>
+      </blockquote>)}</div>
+    {presentation.draft && <div className="sent-quote-reply"><Text text={presentation.draft} {...props}/></div>}
+  </div>;
 }
 function Timestamp({ value, language }: { value?: number; language: 'zh' | 'en' }) {
   if (!value || !Number.isFinite(value) || Number.isNaN(new Date(value).getTime())) return null;

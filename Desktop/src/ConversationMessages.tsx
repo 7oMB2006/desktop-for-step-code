@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 import Markdown from 'react-markdown';
-import { Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, Pencil, Search, Terminal, Wrench } from 'lucide-react';
+import { Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Wrench } from 'lucide-react';
 import type { Content, Message } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject } from './conversation-presentation';
@@ -102,7 +102,7 @@ function Tool({ item, active, ...props }: {
   const subject = toolSubject(item.call);
   const { state, kind, label, status } = toolPresentation(name, item.result, active, props.language);
   const Icon = { command: Terminal, read: FileText, write: FilePenLine, edit: FilePenLine,
-    search: Search, folder: FolderSearch, web: Globe, other: Wrench }[kind];
+    search: Search, folder: FolderSearch, web: Globe, sessions: MessagesSquare, 'session-read': MessageSquare, 'session-send': Send, other: Wrench }[kind];
   return <details className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state}>
     <summary><Icon size={14}/>
       <span className="process-tool-label">{label}<span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/></span>

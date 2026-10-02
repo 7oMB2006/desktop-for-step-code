@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import type { Message } from '../src/contracts';
 import { conversationEntries, messageText, responsePresentation, toolPresentation, toolSubject } from '../src/conversation-presentation';
 
+test('cross-session tools have task-specific labels without claiming cancelled messages were sent', () => {
+  assert.equal(toolPresentation('desktop_sessions', undefined, true, 'zh').label, '正在查看会话');
+  assert.equal(toolPresentation('desktop_read_session', undefined, true, 'en').label, 'Reading session');
+  assert.equal(toolPresentation('desktop_send_message', { role: 'toolResult', content: '{"delivered":false}' }, false, 'zh').label, '处理了会话传话请求');
+});
+
 const user = (text: string): Message => ({ role: 'user', content: text });
 const text = (value: string): Message => ({ role: 'assistant', content: [{ type: 'text', text: value }] });
 const call = (id: string): Message => ({ role: 'assistant', content: [

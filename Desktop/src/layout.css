@@ -600,3 +600,11 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
   .model-effort-fader-pixel { display: none; }
   .model-effort-models-panel, .model-effort-popover.models-view .model-effort-models-panel { transition: none; }
 }
+.small-dialog > .request-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 45dvh;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.6;
+}

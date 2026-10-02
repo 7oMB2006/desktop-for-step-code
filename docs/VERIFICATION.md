@@ -141,6 +141,16 @@ Acceptance uses a real failure rather than a mock: `scripts/verify-crash-log.mjs
 
 Screenshots and ephemeral test output are in `Desktop/test-results/` (ignored by Git).
 
+## Cross-Session Tools Preview
+
+Recorded local builds: initial `Desktop/release/cross-session-preview/win-unpacked/`, then `Desktop/release/session-reference-preview/win-unpacked/` with sidebar reference copying. Desktop supplies three extension tools for listing resident sessions, reading another resident session's recent prose, and delivering one user-approved message. The Electron main process owns the loopback broker and per-worker bearer tokens; renderer access and upstream source changes are not required.
+
+Typecheck, 74 unit tests and the production build passed after adding session references. Source concurrency, Electron, theme-bootstrap and isolated auth-vault checks passed for the initial preview, along with packaged Electron acceptance. The reference preview passed source and unpacked `scripts/verify-cross-session.mjs` against real Step Code RPC workers and a deterministic local SSE fixture. Cross-session coverage includes tool registration, reads without navigation or unread-state changes, source-scoped deferred approval, cancellation, idle delivery, busy-session queueing, read-only rejection, peer provenance, aborted confirmation cleanup, narrow layout and English confirmation. Reference coverage includes Chinese/English context-menu labels, copying a background session without navigation or unread changes, and passing the copied reference directly to read/send tools. Clipboard writes are intercepted in the isolated test process so acceptance does not replace the user's real clipboard.
+
+Reads include only bounded user/assistant prose from resident sessions, not reasoning or tool payloads. Recycled history must first be opened in Desktop. Each send requires separate approval even in bypass mode; approval grants delivery, not authority to obey peer instructions or continue an automatic conversation. These tools do not lock files or guarantee conflict-free shared-workspace edits.
+
+Screenshots are in `Desktop/test-results/cross-session-{read,approval,narrow,english}.png` and `Desktop/test-results/session-reference-menu.png`. Session references are identifiers for these tools, not registered Windows deep links in this preview. This pass did not use a paid model or a real account and did not test installer lifecycle. Fixture success establishes the transport and approval behavior, not autonomous collaboration quality.
+
 ## Release Boundary
 
 The local preview can be tried now. The Issue #5 candidate install, build-to-build credential migration and normal uninstall passed in a disposable Windows VM; independent-workspace survival was not tested. Broader public-release qualification remains incomplete, so do not describe this as fully release-qualified. No release was published.

@@ -50,9 +50,11 @@ export class SessionRuntimes {
   readonly workers = new Map<string, SessionRuntime>();
   readonly unreadSessionIds = new Set<string>();
   activeId?: string;
+  private confirmations = new Map<string, { worker: SessionRuntime; resolve: (approved: boolean) => void }>();
   constructor(
     private emit: (event: RuntimeEvent) => void,
     private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive => new RpcProcess(receive),
+    private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
   get running() { return [...this.workers.values()].some(worker => this.isBusy(worker)); }
@@ -99,11 +101,10 @@ export class SessionRuntimes {
       if (['message_start', 'message_update', 'message_end'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
       if (event.type === 'message_end' && event.message?.stopReason === 'error') worker.failed = true;
       if (event.type === 'desktop_exit') {
+        this.hooks.dispose?.(worker);
         worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
         if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
-        for (const timer of worker.uiTimers.values()) clearTimeout(timer);
-        worker.uiTimers.clear();
-        worker.pendingUI.clear();
+        for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
       }
       if (event.type === 'extension_ui_request') {
         const preset = permissionFromStatus({ method: event.method, statusKey: event.statusKey, statusText: event.statusText });
@@ -128,7 +129,8 @@ export class SessionRuntimes {
     });
     this.workers.set(worker.id, worker);
     try {
-      worker.rpc.start(node, entry, cwd, env, ['--append-system-prompt', WORKSPACE_POLICY]);
+      const launch = this.hooks.launch?.(worker);
+      worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env }, ['--append-system-prompt', WORKSPACE_POLICY, ...(launch?.args ?? [])]);
       await worker.rpc.request('get_state', {}, 60000);
       const result = await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath } : {}, 60000);
       if (result.cancelled) throw new Error('Session operation cancelled');
@@ -138,6 +140,7 @@ export class SessionRuntimes {
       this.activate(worker);
       return worker;
     } catch (error) {
+      this.hooks.dispose?.(worker);
       this.workers.delete(worker.id);
       await worker.rpc.stop();
       throw error;
@@ -176,13 +179,45 @@ export class SessionRuntimes {
     }
   }
   clearRequest(worker: SessionRuntime, id: string) {
+    const confirmation = this.confirmations.get(id);
+    if (confirmation?.worker === worker) { this.confirmations.delete(id); confirmation.resolve(false); }
     clearTimeout(worker.uiTimers.get(id));
     worker.uiTimers.delete(id); worker.pendingUI.delete(id);
   }
+  confirm(worker: SessionRuntime, title: string, message: string, signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted || this.workers.get(worker.id) !== worker) return Promise.resolve(false);
+    const id = randomUUID();
+    return new Promise(resolve => {
+      const cancel = () => {
+        this.clearRequest(worker, id);
+        this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id });
+        this.publish();
+      };
+      this.confirmations.set(id, { worker, resolve: approved => { signal?.removeEventListener('abort', cancel); resolve(approved); } });
+      const request: UIRequest = { type: 'extension_ui_request', method: 'confirm', id, runtimeId: worker.id, title, message, messageStyle: 'preformatted', timeout: 120000 };
+      worker.pendingUI.set(id, request);
+      worker.uiTimers.set(id, setTimeout(cancel, 120000).unref());
+      signal?.addEventListener('abort', cancel, { once: true });
+      this.emit({ ...request, sessionId: worker.state?.sessionId });
+      this.publish();
+    });
+  }
+  respondToRequest(worker: SessionRuntime, answer: Record<string, unknown>) {
+    const id = String(answer.id);
+    if (!worker.pendingUI.has(id)) throw new Error('This request has expired');
+    const confirmation = this.confirmations.get(id);
+    if (confirmation?.worker === worker) {
+      this.confirmations.delete(id);
+      confirmation.resolve(answer.confirmed === true && answer.cancelled !== true);
+    } else worker.rpc.respond(answer);
+    this.clearRequest(worker, id);
+    this.publish();
+  }
   async remove(worker: SessionRuntime) {
+    this.hooks.dispose?.(worker);
     this.workers.delete(worker.id);
     if (this.activeId === worker.id) this.activeId = undefined;
-    for (const timer of worker.uiTimers.values()) clearTimeout(timer);
+    for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
     await worker.rpc.stop();
     this.publish();
   }
@@ -194,7 +229,10 @@ export class SessionRuntimes {
   async stopAll() {
     const workers = [...this.workers.values()];
     this.workers.clear(); this.activeId = undefined;
-    for (const worker of workers) for (const timer of worker.uiTimers.values()) clearTimeout(timer);
+    for (const worker of workers) {
+      this.hooks.dispose?.(worker);
+      for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
+    }
     await Promise.all(workers.map(worker => worker.rpc.stop()));
   }
 }

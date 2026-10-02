@@ -26,6 +26,7 @@ await cp(join(source, 'dist'), join(runtime, 'step/dist'), { recursive: true });
 for (const name of ['package.json', 'README.md']) await cp(join(source, name), join(runtime, 'step', name));
 for (const name of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) await cp(join(upstream, name), join(runtime, name));
 await cp('electron/admin.mjs', join(runtime, 'admin.mjs'));
+await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));
 const require = createRequire(join(source, 'package.json'));
 async function resolvePackageDirectory(name) {

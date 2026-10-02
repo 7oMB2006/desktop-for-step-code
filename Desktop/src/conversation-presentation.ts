@@ -69,7 +69,7 @@ export function toolSubject(call: Content | undefined): string {
 }
 
 export type ToolState = 'running' | 'done' | 'failed' | 'missing';
-type ToolKind = 'command' | 'read' | 'write' | 'edit' | 'search' | 'folder' | 'web' | 'other';
+type ToolKind = 'command' | 'read' | 'write' | 'edit' | 'search' | 'folder' | 'web' | 'sessions' | 'session-read' | 'session-send' | 'other';
 const toolKinds: Record<string, ToolKind> = {
   bash: 'command', powershell: 'command', run_command: 'command', exec_command: 'command',
   read: 'read', read_file: 'read',
@@ -78,6 +78,7 @@ const toolKinds: Record<string, ToolKind> = {
   grep: 'search', search: 'search', search_files: 'search',
   ls: 'folder', list_directory: 'folder', find: 'folder',
   fetch: 'web', fetch_url: 'web', web_fetch: 'web',
+  desktop_sessions: 'sessions', desktop_read_session: 'session-read', desktop_send_message: 'session-send',
 };
 const toolLabels: Record<ToolKind, [string, string, string, string, string, string]> = {
   command: ['运行命令', '运行了命令', '运行命令失败', 'Running command', 'Ran command', 'Command failed'],
@@ -87,6 +88,9 @@ const toolLabels: Record<ToolKind, [string, string, string, string, string, stri
   search: ['搜索内容', '搜索了内容', '搜索内容失败', 'Searching content', 'Searched content', 'Search failed'],
   folder: ['查看目录', '查看了目录', '查看目录失败', 'Inspecting directory', 'Inspected directory', 'Directory inspection failed'],
   web: ['获取网页', '获取了网页', '获取网页失败', 'Fetching page', 'Fetched page', 'Fetch failed'],
+  sessions: ['查看会话', '查看了会话', '查看会话失败', 'Listing sessions', 'Listed sessions', 'Session listing failed'],
+  'session-read': ['读取会话', '读取了会话', '读取会话失败', 'Reading session', 'Read session', 'Session read failed'],
+  'session-send': ['请求会话传话', '处理了会话传话请求', '会话传话失败', 'Requesting peer delivery', 'Processed peer delivery request', 'Peer delivery failed'],
   other: ['', '', '', '', '', ''],
 };
 

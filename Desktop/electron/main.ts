@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/prom
 import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
+import { SessionCollaboration } from './session-collaboration';
 import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
@@ -90,10 +91,14 @@ async function persistAuth(next: Record<string, unknown>) {
   authData = next;
 }
 const emit = (event: unknown) => { if (window && !window.isDestroyed()) window.webContents.send('runtime-event', event); };
-const runtimes = new SessionRuntimes(event => {
+const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (event.type === 'desktop_exit') void crashLog.record('runtime-exit', new Error('Step Code runtime exited unexpectedly'), event.details ?? {});
   emit(event);
+}, undefined, {
+  launch: worker => collaboration.attach(worker),
+  dispose: worker => collaboration.detach(worker),
 });
+const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language);
 setInterval(() => { if (!transition) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error)); }, 60000).unref();
 const admin = new RpcProcess(event => {
   if (event.type === 'auth_url') {
@@ -284,7 +289,7 @@ async function handle(method: string, args: any[]) {
           if (data.cancelled === true) answer.cancelled = true;
           else if (request.method === 'confirm') { if (typeof data.confirmed !== 'boolean') throw new Error('Confirmation required'); answer.confirmed = data.confirmed; }
           else { answer.value = text(data.value); if (request.method === 'select' && !request.options?.includes(data.value)) throw new Error('Invalid selection'); }
-          rpc.respond(answer); runtimes.clearRequest(worker, request.id); runtimes.publish(); return null;
+          runtimes.respondToRequest(worker, answer); return null;
         }
         const allowed = ['prompt', 'abort', 'clear_queue', 'new_session', 'set_model', 'set_thinking_level', 'set_session_name', 'set_permission_preset', 'get_commands', 'get_available_thinking_levels', 'get_session_stats', 'compact'];
         if (!allowed.includes(type)) throw new Error('Unsupported command');
@@ -472,7 +477,7 @@ app.on('before-quit', event => {
       const r = await dialog.showMessageBox(window, { message: preferences.language === 'zh' ? '仍有会话在运行。停止所有任务并退出？' : 'Sessions are still running. Stop all tasks and quit?', buttons: ['Cancel', 'Stop and quit'], cancelId: 0 });
       if (r.response !== 1) { quitPending = false; return; }
     }
-    quitting = true; await Promise.all([runtimes.stopAll(), admin.stop()]); app.quit();
+    quitting = true; await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]); app.quit();
   })();
 });
 app.on('window-all-closed', () => app.quit());
@@ -480,6 +485,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else app.whenReady().then(async () => {
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
+  await collaboration.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;
   // vault.load() also migrates and removes a legacy plaintext auth.json. safeStorage
   // requires the ready state, which whenReady provides.
@@ -572,5 +578,5 @@ else app.whenReady().then(async () => {
 }).catch(async error => {
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([runtimes.stopAll(), admin.stop()]).finally(() => app.quit());
+  quitting = true; void Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]).finally(() => app.quit());
 });

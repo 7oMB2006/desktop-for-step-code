@@ -86,6 +86,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Electron acceptance failed' }
           node scripts/verify-session-concurrency.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Session concurrency acceptance failed' }
+          node scripts/verify-cross-session.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Cross-session tool acceptance failed' }
           node scripts/verify-auth-vault.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Auth vault acceptance failed' }
           node scripts/verify-crash-log.mjs

@@ -1,6 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -42,9 +42,11 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const profile = await mkdtemp(join(tmpdir(), 'desktop-concurrent-'));
 const root = join(profile, 'step-runtime');
-const projectA = join(profile, 'project-a');
+const projectADirectory = join(profile, 'project-a');
+const projectA = join(profile, 'project-a-alias');
 const projectB = join(profile, 'project-b');
-await mkdir(projectA); await mkdir(projectB);
+await mkdir(projectADirectory); await mkdir(projectB);
+await symlink(projectADirectory, projectA, process.platform === 'win32' ? 'junction' : 'dir');
 await mkdir(join(root, 'sessions'), { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [projectA, projectB] }));
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
@@ -299,9 +301,11 @@ try {
   // Exercise project creation too: different directories keep independent
   // empty workers, returning to one reuses its original session identity.
   const emptyA = await page.evaluate(path => window.desktop.workspace(path), projectA);
+  assert.notEqual(emptyA.preferences.workspace, projectA, 'Opening the directory alias must return its canonical workspace path');
+  assert.ok(emptyA.preferences.workspaces.includes(emptyA.preferences.workspace));
   const emptyB = await page.evaluate(path => window.desktop.workspace(path), projectB);
   assert.notEqual(emptyA.runtimeId, emptyB.runtimeId);
-  const returnedA = await page.evaluate(path => window.desktop.workspace(path), projectA);
+  const returnedA = await page.evaluate(path => window.desktop.workspace(path), emptyA.preferences.workspace);
   assert.equal(returnedA.runtimeId, emptyA.runtimeId);
   assert.equal(returnedA.state.sessionId, emptyA.state.sessionId);
   for (let i = 0; i < 5; i++) {
@@ -310,7 +314,7 @@ try {
     assert.equal(reused.sessions.length, returnedA.sessions.length);
     assert.equal(reused.runtimes.length, returnedA.runtimes.length);
   }
-  console.log('Empty-session reuse passed: repeated creation preserves worker/session identity and draft; separate projects stay independent.');
+  console.log('Empty-session reuse passed: repeated creation preserves worker/session identity and draft; separate projects stay independent, including a canonicalized directory alias.');
   assert.deepEqual(errors, []);
   console.log('Concurrent real RPC/SSE passed: background streams, targeted abort, scoped approvals, drafts across recycling, direct shared-directory sends with system collaboration rules, statistics, themes, narrow layout, left status dots and decoded completion audio (playback intercepted).');
 } finally {

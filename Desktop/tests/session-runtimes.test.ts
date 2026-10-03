@@ -56,6 +56,117 @@ test('concurrent new-session requests share the startup worker', async () => {
   await pool.stopAll();
 });
 
+test('new-session requests wait for all ordinary snapshot reads and then reuse the empty worker', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  const original = transports[0].request.bind(transports[0]);
+  const releases: Array<() => void> = [];
+  transports[0].request = async type => {
+    if (type === 'get_messages') await new Promise<void>(resolve => releases.push(resolve));
+    return original(type);
+  };
+  const reads = [pool.read(empty), pool.read(empty)];
+  let opened = false;
+  const openings = Promise.all(Array.from({ length: 5 }, () => open('workspace'))).then(workers => {
+    opened = true;
+    return workers;
+  });
+  try {
+    await Promise.resolve();
+    assert.equal(transports.length, 1, 'Snapshot refresh must not cause another worker to start');
+    releases[0]();
+    await reads[0];
+    assert.equal(opened, false, 'The second refresh must also finish before reuse');
+    releases[1]();
+    await reads[1];
+    const workers = await openings;
+    assert.ok(workers.every(worker => worker === empty));
+    assert.equal(transports.length, 1);
+    assert.equal(empty.operations, 0);
+  } finally {
+    for (const release of releases) release();
+    await Promise.allSettled([...reads, openings]);
+    await pool.stopAll();
+  }
+});
+
+test('waiting for a snapshot rechecks history, activity, operations and worker membership', async () => {
+  for (const change of ['history', 'running', 'approval', 'mutating', 'operation', 'failed', 'removed']) {
+    const { pool, transports, open } = fixture();
+    const empty = await open('workspace');
+    const original = transports[0].request.bind(transports[0]);
+    let release!: () => void;
+    transports[0].request = async type => {
+      if (type === 'get_messages') await new Promise<void>(resolve => { release = resolve; });
+      return original(type);
+    };
+    const read = pool.read(empty);
+    const opening = open('workspace');
+    try {
+      await Promise.resolve();
+      assert.equal(transports.length, 1, change);
+      if (change === 'history') transports[0].receive({ type: 'message_start', message: { role: 'user', content: 'new message' } });
+      if (change === 'running') transports[0].receive({ type: 'agent_start' });
+      if (change === 'approval') transports[0].receive({ type: 'extension_ui_request', method: 'confirm', id: 'approval' });
+      if (change === 'mutating') empty.mutating = true;
+      if (change === 'operation') empty.operations++;
+      if (change === 'failed') empty.failed = true;
+      if (change === 'removed') await pool.remove(empty);
+      release();
+      await read;
+      assert.notEqual(await opening, empty, change);
+      assert.equal(transports.length, 2, change);
+    } finally {
+      release();
+      await Promise.allSettled([read, opening]);
+      await pool.stopAll();
+    }
+  }
+});
+
+test('a non-snapshot operation alongside a read is not treated as a reusable empty worker', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  const original = transports[0].request.bind(transports[0]);
+  let release!: () => void;
+  transports[0].request = async type => {
+    if (type === 'get_messages') await new Promise<void>(resolve => { release = resolve; });
+    return original(type);
+  };
+  const read = pool.read(empty);
+  empty.operations++;
+  try {
+    assert.notEqual(await open('workspace'), empty);
+    assert.equal(transports.length, 2);
+  } finally {
+    release();
+    await read;
+    await pool.stopAll();
+  }
+});
+
+test('failed snapshot reads reject waiting opens without spawning and release their bookkeeping', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  const original = transports[0].request.bind(transports[0]);
+  let fail!: (error: Error) => void;
+  transports[0].request = async type => {
+    if (type === 'get_messages') await new Promise<void>((_resolve, reject) => { fail = reject; });
+    return original(type);
+  };
+  const read = pool.read(empty);
+  const reading = assert.rejects(read, /Snapshot failed/);
+  const opening = assert.rejects(open('workspace'), /Snapshot failed/);
+  fail(new Error('Snapshot failed'));
+  await Promise.all([reading, opening]);
+  assert.equal(transports.length, 1);
+  assert.equal(empty.operations, 0);
+  transports[0].request = original;
+  await pool.read(empty);
+  assert.equal(await open('workspace'), empty);
+  await pool.stopAll();
+});
+
 test('new sessions reuse background empties only in the same workspace', async () => {
   const { pool, transports, open } = fixture();
   const a = await open('workspace-a');

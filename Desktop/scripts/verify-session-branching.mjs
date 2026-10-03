@@ -68,10 +68,18 @@ await writeFile(coldFile, [
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
+let page;
+let phase = 'launch';
+const checkpoint = name => {
+  phase = name;
+  console.log(`Branching acceptance: ${phase}`);
+};
 try {
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE
     ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
-  const page = await app.firstWindow();
+  page = await app.firstWindow();
+  page.setDefaultTimeout(30000);
+  page.setDefaultNavigationTimeout(30000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -79,6 +87,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1200, 850);
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  checkpoint('cold sidebar copy');
   const initialView = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(!initialView.runtimes.some(runtime => runtime.sessionId === 'sidebar-cold-source'));
   const coldBytes = await readFile(coldFile);
@@ -107,6 +116,7 @@ try {
   await page.screenshot({ path: 'test-results/branch-sidebar-created.png' });
   await page.locator(`[data-reorder-kind="session"][data-reorder-id="${initialView.state.sessionId}"]`).locator('button').first().click();
   await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === '保留当前会话的草稿');
+  checkpoint('latest reply clone and permission inheritance');
   const originalRow = () => page.locator('.session-row').filter({ hasText: /^分支原会话$/ }).locator('button').first();
   await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   await originalRow().click();
@@ -153,6 +163,7 @@ try {
   await page.evaluate(id => window.desktop.switchSession(id), cloned.state.sessionId);
   await page.reload();
   await page.getByText('最新一轮旧回复。', { exact: true }).waitFor();
+  checkpoint('inline edit cancel and retry');
   const editLatest = page.getByRole('button', { name: '编辑并重做', exact: true }).last();
   assert.equal(await page.getByRole('button', { name: '编辑并重做', exact: true }).first().isDisabled(), true);
   await assert.rejects(page.evaluate(id => window.desktop.retryMessage('m0', 'invalid', id), cloned.runtimeId), /most recent/);
@@ -180,6 +191,7 @@ try {
   await page.screenshot({ path: 'test-results/branch-edit-inline.png' });
   await page.locator('.user-message-editor').getByRole('button', { name: '发送', exact: true }).click();
   await page.getByText('分支的新回复。', { exact: true }).waitFor();
+  checkpoint('busy target guards and background isolation');
   const forked = await snapshot();
   assert.equal(forked.state.sessionId, cloned.state.sessionId, 'editing must not create a new conversation');
   assert.equal(forked.runtimeId, cloned.runtimeId, 'editing must retain the worker');
@@ -213,6 +225,7 @@ try {
   await page.getByText('最新一轮旧回复。', { exact: true }).waitFor();
   assert.ok(sourceBytes.equals(await readFile(sourceFile)));
   assert.equal(await readFile(join(workspace, 'already-changed.txt'), 'utf8'), 'Do not roll this back');
+  checkpoint('explicit fork and first-message retry');
   await page.evaluate(({ entryId, runtimeId }) => window.desktop.branchSession('fork', entryId, runtimeId),
     { entryId: 'm2', runtimeId: source.runtimeId });
   await page.reload();
@@ -228,6 +241,7 @@ try {
   assert.ok(!JSON.stringify(prompts[1]).includes('重复的问题'));
   streams[1].end(chunk({}, 'stop') + 'data: [DONE]\n\n');
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  checkpoint('dark narrow layout and reopen');
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('dark');
@@ -271,6 +285,7 @@ try {
   assert.equal(await englishEditor.count(), 0);
   assert.equal(prompts.length, 2);
   assert.equal((await snapshot()).state.sessionId, forked.state.sessionId);
+  checkpoint('failed edit draft restoration');
   const restoredSnapshot = await snapshot();
   await app.evaluate(({ ipcMain, BrowserWindow }, saved) => {
     ipcMain.removeHandler('desktop');
@@ -302,9 +317,19 @@ try {
   await englishEditor.press('Escape');
   assert.deepEqual(errors, []);
   console.log('Session branching passed: sidebar cold/resident copies, busy-target guards, permissions, explicit clone/fork, inline cancel/send, same-session retry, unchanged source/files, drafts/images and background isolation.');
+} catch (error) {
+  console.error(`Branching acceptance failed during ${phase}:`, error);
+  if (page && !page.isClosed()) await page.screenshot({ path: 'test-results/branch-failed.png', timeout: 5000 }).catch(() => {});
+  throw error;
 } finally {
   for (const stream of streams) stream.destroy();
-  if (app) await app.close();
+  if (app) {
+    // Isolated fixtures must not wait for a user to confirm stopping a failed test's task.
+    await app.evaluate(({ dialog }) => {
+      dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+    }).catch(() => {});
+    await app.close();
+  }
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
 }

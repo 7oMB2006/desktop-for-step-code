@@ -13,7 +13,7 @@
   <img src="assets/readme/home-zh.png" width="360" alt="Desktop for Step Code 简体中文独立会话首页">
 </p>
 
-一个面向 Windows 的 Step Code 桌面客户端。它提供桌面工作区、对话和会话管理，Agent 执行由 Step Code 提供。
+一个面向 Windows 的 [Step Code](https://github.com/stepfun-ai/Step-Code) 桌面客户端。它提供桌面工作区、对话和会话管理，Agent 执行由 Step Code 提供。
 
 ### 项目初衷
 

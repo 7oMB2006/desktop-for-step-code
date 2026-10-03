@@ -174,18 +174,23 @@ export class SessionRuntimes {
       if (result.cancelled) throw new Error('Session operation cancelled');
       if (branch) {
         const sourceState = await worker.rpc.request('get_state');
-        const history = await worker.rpc.request('get_entries');
-        if (history.leafId !== branch.leafId) throw new Error('Session history changed; reopen it and try again');
-        const selected = activeHistory(history.entries, history.leafId).find(item => item.id === branch.entryId);
-        if (selected?.type !== 'message' || selected.message?.role !== (branch.kind === 'fork' ? 'user' : 'assistant')) throw new Error('Invalid branch point');
-        const response = await worker.rpc.request(branch.kind, branch.kind === 'fork' ? { entryId: branch.entryId } : {}, 60000);
-        if (response.cancelled) throw new Error('Session operation cancelled');
-        const nextState = await worker.rpc.request('get_state');
-        if (!nextState.sessionId || nextState.sessionId === sourceState.sessionId) throw new Error('Runtime did not create a new session');
-        if (branch.permissionPreset) {
+        if (branch.kind === 'open-copy') {
+          if (sourceState.sessionId !== branch.sessionId) throw new Error('Copied session identity changed');
+        } else {
+          const history = await worker.rpc.request('get_entries');
+          if (history.leafId !== branch.leafId) throw new Error('Session history changed; reopen it and try again');
+          const selected = activeHistory(history.entries, history.leafId).find(item => item.id === branch.entryId);
+          if (selected?.type !== 'message' || selected.message?.role !== (branch.kind === 'fork' ? 'user' : 'assistant')) throw new Error('Invalid branch point');
+          const response = await worker.rpc.request(branch.kind, branch.kind === 'fork' ? { entryId: branch.entryId } : {}, 60000);
+          if (response.cancelled) throw new Error('Session operation cancelled');
+          const nextState = await worker.rpc.request('get_state');
+          if (!nextState.sessionId || nextState.sessionId === sourceState.sessionId) throw new Error('Runtime did not create a new session');
+        }
+        const permissionPreset = branch.permissionPreset ?? worker.permissionPreset;
+        if (permissionPreset) {
           const { commands } = await worker.rpc.request('get_commands');
           if (!commands?.some((command: { name: string; source: string }) => command.name === 'permissions' && command.source === 'extension')) throw new Error('Cannot preserve session permissions');
-          await worker.rpc.request('prompt', { message: `/permissions ${branch.permissionPreset}` });
+          await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
         }
         if (branch.name) await worker.rpc.request('set_session_name', { name: branch.name });
       }

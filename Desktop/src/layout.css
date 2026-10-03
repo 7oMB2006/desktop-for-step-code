@@ -331,8 +331,10 @@ main { position: relative; }
   padding: 9px 8px; border: 0; background: transparent; text-align: left; font-size: 12px;
 }
 .conversation-nav-panel nav button:hover { background: var(--surface); }
-.conversation-nav-panel nav button span:first-child { flex: 0 0 24px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.conversation-nav-panel nav button span:last-child { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.nav-turn-number { flex: 0 0 24px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nav-turn-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.nav-turn-preview { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.nav-turn-time { align-self: flex-end; white-space: nowrap; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .panel-empty { margin: 24px 16px; color: var(--muted); font-size: 12px; }
 .details-panel { min-width: 0; }
 .messages {
@@ -581,6 +583,43 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .settings-dialog { height: min(620px, 86dvh); }
 .settings-layout > nav { width: 160px; }
 .settings-content { padding: 26px 32px; }
+.archive-settings-dialog { width: min(960px, 100%); height: min(720px, 86dvh); }
+.settings-layout > nav .archive-tab { margin-top: 22px; }
+.archive-heading { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.archive-heading h3 { margin: 0; font-size: 18px; }
+.archive-delete-all { color: var(--danger); border-color: transparent; background: color-mix(in oklch, var(--danger) 7%, var(--bg)); font-size: 12px; flex-shrink: 0; }
+.archive-filters { display: flex; gap: 10px; margin-bottom: 26px; }
+.archive-search { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; padding: 0 10px; border: 1px solid var(--border); border-radius: 5px; color: var(--muted); }
+.archive-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.archive-search input { width: 100%; padding: 8px 0; border: 0; background: transparent; font-size: 12px; outline: none; }
+.archive-filters select { width: 160px; max-width: 45%; font-size: 12px; }
+.archive-project { margin-bottom: 22px; }
+.archive-project > header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; min-width: 0; }
+.archive-project h4 { flex: 1; min-width: 0; margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.archive-project > header > span { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.archive-list { list-style: none; padding: 0 14px; margin: 0; border: 1px solid var(--border); border-radius: 6px; }
+.archive-list li { display: flex; gap: 8px; align-items: center; padding: 14px 0; min-width: 0; }
+.archive-list li + li { border-top: 1px solid var(--border); }
+.archive-session-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
+.archive-session-title { justify-content: flex-start; max-width: 100%; min-height: 0; border: 0; padding: 0; width: fit-content; background: transparent; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; text-align: left; }
+.archive-session-title:hover:not(:disabled) { background: transparent; text-decoration: underline; }
+.archive-session-text time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.archive-delete { color: var(--muted); }
+.archive-delete:hover:not(:disabled) { color: var(--danger); }
+.archive-restore { flex-shrink: 0; border-color: transparent; background: var(--surface); font-size: 12px; min-height: 30px; padding: 5px 8px; }
+.archive-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 50px 12px; color: var(--muted); }
+.archive-empty p { margin: 0; font-size: 13px; }
+@media (max-width: 740px) {
+  .archive-heading { flex-wrap: wrap; margin-bottom: 18px; }
+  .archive-heading h3 { font-size: 16px; }
+  .archive-filters { flex-wrap: wrap; }
+  .archive-search { flex-basis: 100%; }
+  .archive-filters select { width: 100%; max-width: 100%; }
+  .archive-list { padding: 0 10px; }
+  .archive-list li { gap: 4px; flex-wrap: wrap; }
+  .archive-session-text { flex-basis: calc(100% - 40px); }
+  .archive-restore { margin-left: auto; }
+}
 .details-panel header { height: 62px; }
 @media (min-width: 1600px) {
   .app { --conversation-width: 1000px; --conversation-gutter: 36px; }

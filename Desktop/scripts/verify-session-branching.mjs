@@ -58,6 +58,12 @@ await writeFile(sourceFile, [
       : message,
   })),
 ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+const coldFile = join(root, 'sessions', 'sidebar-cold-source.jsonl');
+await writeFile(coldFile, [
+  { type: 'session', version: 3, id: 'sidebar-cold-source', cwd: workspace, timestamp: new Date().toISOString() },
+  { type: 'message', id: 'cold-user', parentId: null, timestamp: new Date().toISOString(), message: messages[0] },
+  { type: 'session_info', id: 'cold-name', parentId: 'cold-user', timestamp: new Date().toISOString(), name: '冷历史会话' },
+].map(entry => JSON.stringify(entry)).join('\n') + '\n');
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
@@ -72,6 +78,34 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1200, 850);
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  const initialView = await page.evaluate(() => window.desktop.snapshot());
+  assert.ok(!initialView.runtimes.some(runtime => runtime.sessionId === 'sidebar-cold-source'));
+  const coldBytes = await readFile(coldFile);
+  const composer = page.getByRole('textbox', { name: '消息', exact: true });
+  await composer.fill('保留当前会话的草稿');
+  await assert.rejects(page.evaluate(() => window.desktop.cloneSession('unknown-session')), /saved/);
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, initialView.runtimeId);
+  const coldRow = () => page.locator('[data-reorder-kind="session"][data-reorder-id="sidebar-cold-source"]').locator('button').first();
+  await coldRow().click({ button: 'right' });
+  const sidebarBranch = page.getByRole('menuitem', { name: '分支', exact: true });
+  assert.equal(await sidebarBranch.isEnabled(), true);
+  await page.mouse.move(10, 10);
+  await page.screenshot({ path: 'test-results/branch-sidebar-menu.png' });
+  await sidebarBranch.click();
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '冷历史会话 · 分支');
+  const coldClone = await page.evaluate(() => window.desktop.snapshot());
+  assert.notEqual(coldClone.state.sessionId, 'sidebar-cold-source');
+  assert.equal(coldClone.messages.length, 1, 'whole-session branch supports a latest user message and metadata leaf');
+  assert.deepEqual(coldClone.messages[0].content, messages[0].content);
+  assert.equal(coldClone.permissionPreset, 'ask');
+  const coldHeader = JSON.parse((await readFile(coldClone.state.sessionFile, 'utf8')).split('\n')[0]);
+  assert.equal(coldHeader.parentSession, coldFile);
+  assert.ok(coldBytes.equals(await readFile(coldFile)));
+  assert.ok(!coldClone.runtimes.some(runtime => runtime.sessionId === 'sidebar-cold-source'), 'cold source must not be activated');
+  assert.equal(await composer.inputValue(), '');
+  await page.screenshot({ path: 'test-results/branch-sidebar-created.png' });
+  await page.locator(`[data-reorder-kind="session"][data-reorder-id="${initialView.state.sessionId}"]`).locator('button').first().click();
+  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === '保留当前会话的草稿');
   const originalRow = () => page.locator('.session-row').filter({ hasText: /^分支原会话$/ }).locator('button').first();
   await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   await originalRow().click();
@@ -160,10 +194,16 @@ try {
   await assert.rejects(page.evaluate(id => window.desktop.retryMessage('m2', 'busy', id), forked.runtimeId), /Stop/);
   await assert.rejects(page.evaluate(({ entryId, runtimeId }) => window.desktop.branchSession('fork', entryId, runtimeId),
     { entryId: 'm0', runtimeId: forked.runtimeId }), /Stop/);
-  await originalRow().click();
-  await page.getByText('最新一轮旧回复。', { exact: true }).waitFor();
-  await branchButtons.last().click();
+  await assert.rejects(page.evaluate(id => window.desktop.cloneSession(id), forked.state.sessionId), /Stop/);
+  assert.equal((await snapshot()).runtimeId, forked.runtimeId);
+  await page.locator(`[data-reorder-id="${forked.state.sessionId}"]`).locator('button').first().click({ button: 'right' });
+  assert.equal(await sidebarBranch.isDisabled(), true);
+  await page.keyboard.press('Escape');
+  await originalRow().click({ button: 'right' });
+  assert.equal(await sidebarBranch.isEnabled(), true, 'an idle target can be copied while the viewed task runs');
+  await sidebarBranch.click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '分支原会话 · 分支 2');
+  assert.equal((await snapshot()).permissionPreset, 'read-only');
   assert.equal((await snapshot()).runtimes.find(runtime => runtime.runtimeId === forked.runtimeId).status, 'running',
     'branching an idle chat must not stop another task');
   streams[0].end(chunk({}, 'stop') + 'data: [DONE]\n\n');
@@ -260,7 +300,7 @@ try {
   assert.equal(await page.locator('.user-message-editor').getByRole('button', { name: 'Send', exact: true }).isEnabled(), true);
   await englishEditor.press('Escape');
   assert.deepEqual(errors, []);
-  console.log('Session branching passed: explicit clone/fork, inline cancel/send, same-session retry, latest-only validation, unchanged source/files, drafts/images, first-message retry and background isolation.');
+  console.log('Session branching passed: sidebar cold/resident copies, busy-target guards, permissions, explicit clone/fork, inline cancel/send, same-session retry, unchanged source/files, drafts/images and background isolation.');
 } finally {
   for (const stream of streams) stream.destroy();
   if (app) await app.close();

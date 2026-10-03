@@ -18,6 +18,11 @@ const safeMcp = servers => Object.fromEntries(Object.entries(servers).map(([name
 async function dispatch(message) {
   switch (message.type) {
     case 'sessions': return (await upstream.SessionManager.listAll(sessions)).map(({ allMessagesText, ...s }) => s);
+    case 'copy_session': {
+      // Copy before starting an agent: restoring a cold original can append runtime metadata.
+      const copy = upstream.SessionManager.forkFrom(message.sessionPath, message.cwd, sessions);
+      return { path: copy.getSessionFile(), id: copy.getSessionId(), leafId: copy.getLeafId() };
+    }
     case 'settings': {
       const config = upstream.readGlobalStepConfig();
       return {

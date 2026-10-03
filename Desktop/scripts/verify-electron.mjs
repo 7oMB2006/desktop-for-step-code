@@ -729,7 +729,7 @@ try {
   const currentRow = page.locator('.session-row.selected');
   await currentRow.click({ button: 'right' });
   assert.equal(await context.getByRole('menuitem', { name: '复制会话引用', exact: true }).isEnabled(), true);
-  assert.equal(await context.getByRole('menuitem', { name: '分支' }).isDisabled(), true);
+  assert.equal(await context.getByRole('menuitem', { name: '分支', exact: true }).isEnabled(), true);
   await context.getByRole('menuitem', { name: '重命名' }).click();
   await page.getByRole('dialog').getByRole('textbox').fill('窗口验证会话');
   await page.getByRole('button', { name: '确认', exact: true }).click();
@@ -751,8 +751,11 @@ try {
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click({ button: 'right' });
   await context.getByRole('menuitem', { name: '归档会话' }).click();
   await page.getByRole('region', { name: secondProjectState.preferences.workspace, exact: true }).getByRole('button', { name: 'Second session', exact: true }).waitFor({ state: 'hidden' });
-  await page.locator('.archived-group').getByRole('button', { name: 'Second session', exact: true }).click({ button: 'right' });
-  await context.getByRole('menuitem', { name: '恢复会话' }).click();
+  assert.equal(await page.locator('.archived-group').count(), 0);
+  await page.locator('.sidebar-bottom > button').click();
+  await page.getByRole('button', { name: '已归档', exact: true }).click();
+  await page.locator('[data-archived-session-id="fixture-1"]').getByRole('button', { name: '取消归档', exact: true }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
   assert.equal(await firstGroup.getByRole('button', { name: 'Second session', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();

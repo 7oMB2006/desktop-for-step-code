@@ -12,6 +12,7 @@ import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
 import type { Preferences, Session, Snapshot } from '../src/contracts';
 import { reconcileSessionOrder, validateSidebarPreferences } from '../src/sidebar-order';
+import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
 app.setName('Desktop for Step Code');
@@ -24,6 +25,7 @@ let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: []
 let status = 'disconnected';
 let transition = false;
 let settingsMutation = false;
+let deletingArchived = false;
 let quitting = false;
 let quitPending = false;
 let startup: Promise<void> = Promise.resolve();
@@ -258,7 +260,7 @@ async function handle(method: string, args: any[]) {
       return connect(cwd, state?.sessionFile && existsSync(state.sessionFile) ? state.sessionFile : undefined, false);
     }
     case 'switchSession': {
-      if (transition) throw new Error('Workspace operation in progress');
+      if (transition || deletingArchived) throw new Error('Workspace operation in progress');
       const resident = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === text(args[0]));
       if (resident) {
         runtimes.activate(resident);
@@ -270,6 +272,45 @@ async function handle(method: string, args: any[]) {
       if (!target) throw new Error('Unknown session');
       if (!target.path) throw new Error('This empty session runtime is unavailable');
       return connect(target.cwd, target.path, false);
+    }
+    case 'cloneSession': {
+      if (transition || deletingArchived) throw new Error('Workspace operation in progress');
+      const sessionId = text(args[0], 200);
+      transition = true;
+      let source: typeof runtimes.active;
+      let sourceLocked = false;
+      let copyPath: string | undefined;
+      let copyOpened = false;
+      try {
+        const target = (await listSessions()).find(session => session.id === sessionId);
+        if (!target?.path || !target.messageCount) throw new Error('Only saved, nonempty sessions can be branched');
+        source = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === sessionId);
+        if (source) {
+          if (source.mutating || source.operations) throw new Error('Session operation in progress');
+          source.mutating = true;
+          sourceLocked = true;
+          await runtimes.assertIdle(source);
+          await runtimes.read(source);
+        }
+        const path = await managedSessionFile(join(dataRoot, 'sessions'), target.path);
+        const stem = `${(source?.state?.sessionName || target.name || target.firstMessage || (preferences.language === 'zh' ? '新会话' : 'New session')).slice(0, 180)} · ${preferences.language === 'zh' ? '分支' : 'branch'}`;
+        const names = new Set(cachedSessions().map(session => session.name));
+        let name = stem;
+        for (let number = 2; names.has(name); number++) name = `${stem} ${number}`;
+        const cwd = source?.cwd ?? await realpath(target.cwd);
+        const copy = await admin.request('copy_session', { sessionPath: path, cwd });
+        copyPath = await managedSessionFile(join(dataRoot, 'sessions'), copy.path);
+        if (!copy.id || copy.id === target.id || source?.leafId && copy.leafId !== source.leafId) throw new Error('Session history changed; try again');
+        const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd, authEnvironment(),
+          copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
+        copyOpened = true;
+        preferences.workspace = worker.cwd;
+        await savePreferences();
+        return await snapshot(worker);
+      } catch (error) {
+        if (copyPath && !copyOpened) await deleteManagedSessionFile(join(dataRoot, 'sessions'), copyPath);
+        throw error;
+      } finally { if (source && sourceLocked) source.mutating = false; transition = false; }
     }
     case 'branchSession': {
       const kind = text(args[0], 20);
@@ -309,7 +350,69 @@ async function handle(method: string, args: any[]) {
       finally { worker.mutating = false; }
       return null;
     }
+    case 'deleteArchivedSessions': {
+      if (transition || settingsMutation || deletingArchived) throw new Error('Session operation in progress');
+      deletingArchived = true;
+      const locked: NonNullable<typeof runtimes.active>[] = [];
+      try {
+        const targets = archivedDeletionTargets(args[0], await listSessions(), preferences.archivedSessionIds ?? []);
+        const assertTargetsIdle = () => {
+          for (const target of targets) {
+            if (target.id === runtimes.active?.state?.sessionId) throw new Error(preferences.language === 'zh' ? '请先切换到其他会话，再删除当前会话' : 'Open a different session before deleting this one');
+            const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
+            if (worker && (runtimes.isBusy(worker) || worker.operations || worker.mutating && !locked.includes(worker))) {
+              throw new Error(preferences.language === 'zh' ? '请先停止要删除的会话任务' : 'Stop the selected session tasks first');
+            }
+          }
+        };
+        assertTargetsIdle();
+        for (const target of targets) {
+          const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
+          if (worker) { worker.mutating = true; locked.push(worker); }
+        }
+        for (const target of targets) {
+          const worker = locked.find(worker => worker.state?.sessionId === target.id);
+          if (worker) await runtimes.assertIdle(worker);
+          await managedSessionFile(join(dataRoot, 'sessions'), target.path);
+        }
+        const zh = preferences.language === 'zh';
+        const response = await dialog.showMessageBox(window, {
+          type: 'warning',
+          message: targets.length === 1
+            ? zh ? '永久删除此归档会话？' : 'Permanently delete this archived session?'
+            : zh ? `永久删除这 ${targets.length} 个归档会话？` : `Permanently delete these ${targets.length} archived sessions?`,
+          detail: (targets.length === 1 ? `${targets[0].name || targets[0].firstMessage || (zh ? '新会话' : 'New session')}\n\n` : '') +
+            (zh ? '会话记录将永久删除，无法恢复。项目文件不会被删除。' : 'Conversation history will be permanently deleted and cannot be restored. Project files will not be deleted.'),
+          buttons: zh ? ['取消', '永久删除'] : ['Cancel', 'Delete permanently'],
+          defaultId: 0, cancelId: 0, noLink: true,
+        });
+        if (response.response !== 1) return false;
+        archivedDeletionTargets(args[0], await listSessions(), preferences.archivedSessionIds ?? []);
+        assertTargetsIdle();
+        if (transition || settingsMutation) throw new Error('Session operation in progress');
+        transition = true;
+        try {
+          for (const target of targets) {
+            const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
+            if (worker) await runtimes.remove(worker);
+            await deleteManagedSessionFile(join(dataRoot, 'sessions'), target.path);
+            sessionCatalog = sessionCatalog.filter(session => session.id !== target.id);
+            runtimes.unreadSessionIds.delete(target.id);
+            preferences.archivedSessionIds = preferences.archivedSessionIds?.filter(id => id !== target.id);
+            preferences.sessionOrder = preferences.sessionOrder?.filter(id => id !== target.id);
+            await savePreferences();
+          }
+        } finally { transition = false; }
+        return true;
+      } finally {
+        for (const worker of locked) if (worker) worker.mutating = false;
+        deletingArchived = false;
+        // Also refresh the catalog if a later file in a batch could not be deleted.
+        emit({ type: 'desktop_sessions_changed' });
+      }
+    }
     case 'deleteSession': {
+      if (transition || deletingArchived) throw new Error('Session operation in progress');
       const target = (await listSessions()).find(s => s.id === text(args[0]));
       if (!target) throw new Error('Unknown session');
       if (target.id === runtimes.active?.state?.sessionId) throw new Error('Open a different session before deleting this one');
@@ -609,7 +712,7 @@ else app.whenReady().then(async () => {
   ipcMain.handle('desktop', async (event, method, ...args) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
     const shared = ['login', 'logout', 'saveMcp'].includes(method);
-    if (settingsMutation && ['command', 'branchSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp'].includes(method)) throw new Error('Shared settings operation in progress');
     if (shared) settingsMutation = true;
     try { return await handle(method, args); }
     catch (error) { throw new Error(error instanceof Error ? error.message : 'Desktop operation failed'); }

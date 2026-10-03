@@ -40,9 +40,13 @@ export function messagesWithEntryIds(messages: Message[], entries: HistoryEntry[
 }
 
 export type BranchOperation = {
+  permissionPreset?: import('../src/contracts').PermissionPreset;
+  name?: string;
+} & ({
   kind: 'clone' | 'fork';
   entryId: string;
   leafId: string;
-  permissionPreset?: import('../src/contracts').PermissionPreset;
-  name?: string;
-};
+} | {
+  kind: 'open-copy';
+  sessionId: string;
+});

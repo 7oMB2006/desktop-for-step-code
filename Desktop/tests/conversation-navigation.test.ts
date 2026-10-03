@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { conversationTurns, RULER_STEP, rulerOpacity, turnCursor } from '../src/ConversationNavigation';
+import { conversationTurns, RULER_STEP, rulerOpacity, turnCursor, turnTime } from '../src/ConversationNavigation';
 import { thumbMetrics } from '../src/ConversationScrollThumb';
 import type { Message } from '../src/contracts';
 
@@ -24,6 +24,15 @@ test('scroll thumb reaches both ends of the full-height overlay track', () => {
   assert.deepEqual(thumbMetrics(0, 500, 2000, 1000), { top: 0, height: 72, maxScroll: 1500 });
   assert.deepEqual(thumbMetrics(1500, 500, 2000, 1000), { top: 928, height: 72, maxScroll: 1500 });
   assert.deepEqual(thumbMetrics(0, 500, 500, 1000), { top: 0, height: 0, maxScroll: 0 });
+});
+
+test('turn dates use the original user timestamp and local month/day/time, never the current clock', () => {
+  const timestamp = new Date(2026, 9, 3, 14, 7).getTime();
+  assert.equal(conversationTurns([{ role: 'user', content: 'Question', timestamp }], 'zh')[0].timestamp, timestamp);
+  assert.equal(turnTime(timestamp, 'zh'), '10月03日 14:07');
+  assert.equal(turnTime(timestamp, 'en'), '10/03 14:07');
+  for (const missing of [undefined, NaN, Infinity, 1e20]) assert.equal(turnTime(missing, 'zh'), '');
+  assert.equal(conversationTurns([{ role: 'user', content: 'Undated' }], 'zh')[0].timestamp, undefined);
 });
 
 test('compact quote thumb preserves both ends and remains bounded on a short rail', () => {

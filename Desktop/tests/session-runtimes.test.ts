@@ -362,6 +362,33 @@ test('clone is prepared in a different worker and preserves the source and permi
   await pool.stopAll();
 });
 
+test('prepared copies open without cloning or clearing the source unread state', async () => {
+  const { pool, transports, open } = fixture();
+  const source = await open();
+  pool.unreadSessionIds.add(source.state!.sessionId!);
+  const copy = await pool.open('node', 'step', 'cwd', {}, 'copy.jsonl',
+    { kind: 'open-copy', sessionId: 'session-1', name: 'Copied session' });
+  assert.notEqual(copy.id, source.id);
+  assert.equal(pool.active, copy);
+  assert.equal(pool.unreadSessionIds.has(source.state!.sessionId!), true);
+  assert.equal(transports[0].calls.includes('clone'), false);
+  assert.equal(transports[1].calls.includes('clone'), false);
+  assert.equal(transports[1].calls.includes('switch_session'), true);
+  assert.equal(transports[0].stopped, false);
+  await pool.stopAll();
+});
+
+test('prepared copies reject a mismatched saved identity without replacing the active worker', async () => {
+  const { pool, transports, open } = fixture();
+  const source = await open();
+  await assert.rejects(pool.open('node', 'step', 'cwd', {}, 'copy.jsonl',
+    { kind: 'open-copy', sessionId: 'forged' }), /identity changed/);
+  assert.equal(pool.active, source);
+  assert.equal(pool.workers.size, 1);
+  assert.equal(transports[1].stopped, true);
+  await pool.stopAll();
+});
+
 test('fork prepares a new empty route without the selected question or answer', async () => {
   const { pool, transports } = branchFixture();
   const source = await pool.open('node', 'step', 'cwd', {});

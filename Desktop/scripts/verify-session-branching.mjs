@@ -1,6 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -21,7 +21,8 @@ const server = createServer(async (req, res) => {
   streams.push(res);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const profile = await mkdtemp(join(tmpdir(), 'desktop-branch-'));
+// Windows TEMP can use an 8.3 alias; compare session links in the canonical profile.
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-branch-')));
 const workspace = join(profile, 'workspace');
 const root = join(profile, 'step-runtime');
 await mkdir(workspace);
@@ -58,13 +59,27 @@ await writeFile(sourceFile, [
       : message,
   })),
 ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+const coldFile = join(root, 'sessions', 'sidebar-cold-source.jsonl');
+await writeFile(coldFile, [
+  { type: 'session', version: 3, id: 'sidebar-cold-source', cwd: workspace, timestamp: new Date().toISOString() },
+  { type: 'message', id: 'cold-user', parentId: null, timestamp: new Date().toISOString(), message: messages[0] },
+  { type: 'session_info', id: 'cold-name', parentId: 'cold-user', timestamp: new Date().toISOString(), name: '冷历史会话' },
+].map(entry => JSON.stringify(entry)).join('\n') + '\n');
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
+let page;
+let phase = 'launch';
+const checkpoint = name => {
+  phase = name;
+  console.log(`Branching acceptance: ${phase}`);
+};
 try {
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE
     ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
-  const page = await app.firstWindow();
+  page = await app.firstWindow();
+  page.setDefaultTimeout(30000);
+  page.setDefaultNavigationTimeout(30000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -72,6 +87,36 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1200, 850);
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  checkpoint('cold sidebar copy');
+  const initialView = await page.evaluate(() => window.desktop.snapshot());
+  assert.ok(!initialView.runtimes.some(runtime => runtime.sessionId === 'sidebar-cold-source'));
+  const coldBytes = await readFile(coldFile);
+  const composer = page.getByRole('textbox', { name: '消息', exact: true });
+  await composer.fill('保留当前会话的草稿');
+  await assert.rejects(page.evaluate(() => window.desktop.cloneSession('unknown-session')), /saved/);
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, initialView.runtimeId);
+  const coldRow = () => page.locator('[data-reorder-kind="session"][data-reorder-id="sidebar-cold-source"]').locator('button').first();
+  await coldRow().click({ button: 'right' });
+  const sidebarBranch = page.getByRole('menuitem', { name: '分支', exact: true });
+  assert.equal(await sidebarBranch.isEnabled(), true);
+  await page.mouse.move(10, 10);
+  await page.screenshot({ path: 'test-results/branch-sidebar-menu.png' });
+  await sidebarBranch.click();
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '冷历史会话 · 分支');
+  const coldClone = await page.evaluate(() => window.desktop.snapshot());
+  assert.notEqual(coldClone.state.sessionId, 'sidebar-cold-source');
+  assert.equal(coldClone.messages.length, 1, 'whole-session branch supports a latest user message and metadata leaf');
+  assert.deepEqual(coldClone.messages[0].content, messages[0].content);
+  assert.equal(coldClone.permissionPreset, 'ask');
+  const coldHeader = JSON.parse((await readFile(coldClone.state.sessionFile, 'utf8')).split('\n')[0]);
+  assert.equal(coldHeader.parentSession, coldFile);
+  assert.ok(coldBytes.equals(await readFile(coldFile)));
+  assert.ok(!coldClone.runtimes.some(runtime => runtime.sessionId === 'sidebar-cold-source'), 'cold source must not be activated');
+  assert.equal(await composer.inputValue(), '');
+  await page.screenshot({ path: 'test-results/branch-sidebar-created.png' });
+  await page.locator(`[data-reorder-kind="session"][data-reorder-id="${initialView.state.sessionId}"]`).locator('button').first().click();
+  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === '保留当前会话的草稿');
+  checkpoint('latest reply clone and permission inheritance');
   const originalRow = () => page.locator('.session-row').filter({ hasText: /^分支原会话$/ }).locator('button').first();
   await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   await originalRow().click();
@@ -118,6 +163,7 @@ try {
   await page.evaluate(id => window.desktop.switchSession(id), cloned.state.sessionId);
   await page.reload();
   await page.getByText('最新一轮旧回复。', { exact: true }).waitFor();
+  checkpoint('inline edit cancel and retry');
   const editLatest = page.getByRole('button', { name: '编辑并重做', exact: true }).last();
   assert.equal(await page.getByRole('button', { name: '编辑并重做', exact: true }).first().isDisabled(), true);
   await assert.rejects(page.evaluate(id => window.desktop.retryMessage('m0', 'invalid', id), cloned.runtimeId), /most recent/);
@@ -145,6 +191,7 @@ try {
   await page.screenshot({ path: 'test-results/branch-edit-inline.png' });
   await page.locator('.user-message-editor').getByRole('button', { name: '发送', exact: true }).click();
   await page.getByText('分支的新回复。', { exact: true }).waitFor();
+  checkpoint('busy target guards and background isolation');
   const forked = await snapshot();
   assert.equal(forked.state.sessionId, cloned.state.sessionId, 'editing must not create a new conversation');
   assert.equal(forked.runtimeId, cloned.runtimeId, 'editing must retain the worker');
@@ -160,10 +207,16 @@ try {
   await assert.rejects(page.evaluate(id => window.desktop.retryMessage('m2', 'busy', id), forked.runtimeId), /Stop/);
   await assert.rejects(page.evaluate(({ entryId, runtimeId }) => window.desktop.branchSession('fork', entryId, runtimeId),
     { entryId: 'm0', runtimeId: forked.runtimeId }), /Stop/);
-  await originalRow().click();
-  await page.getByText('最新一轮旧回复。', { exact: true }).waitFor();
-  await branchButtons.last().click();
+  await assert.rejects(page.evaluate(id => window.desktop.cloneSession(id), forked.state.sessionId), /Stop/);
+  assert.equal((await snapshot()).runtimeId, forked.runtimeId);
+  await page.locator(`[data-reorder-id="${forked.state.sessionId}"]`).locator('button').first().click({ button: 'right' });
+  assert.equal(await sidebarBranch.isDisabled(), true);
+  await page.keyboard.press('Escape');
+  await originalRow().click({ button: 'right' });
+  assert.equal(await sidebarBranch.isEnabled(), true, 'an idle target can be copied while the viewed task runs');
+  await sidebarBranch.click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '分支原会话 · 分支 2');
+  assert.equal((await snapshot()).permissionPreset, 'read-only');
   assert.equal((await snapshot()).runtimes.find(runtime => runtime.runtimeId === forked.runtimeId).status, 'running',
     'branching an idle chat must not stop another task');
   streams[0].end(chunk({}, 'stop') + 'data: [DONE]\n\n');
@@ -172,6 +225,7 @@ try {
   await page.getByText('最新一轮旧回复。', { exact: true }).waitFor();
   assert.ok(sourceBytes.equals(await readFile(sourceFile)));
   assert.equal(await readFile(join(workspace, 'already-changed.txt'), 'utf8'), 'Do not roll this back');
+  checkpoint('explicit fork and first-message retry');
   await page.evaluate(({ entryId, runtimeId }) => window.desktop.branchSession('fork', entryId, runtimeId),
     { entryId: 'm2', runtimeId: source.runtimeId });
   await page.reload();
@@ -187,6 +241,7 @@ try {
   assert.ok(!JSON.stringify(prompts[1]).includes('重复的问题'));
   streams[1].end(chunk({}, 'stop') + 'data: [DONE]\n\n');
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  checkpoint('dark narrow layout and reopen');
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('dark');
@@ -230,6 +285,7 @@ try {
   assert.equal(await englishEditor.count(), 0);
   assert.equal(prompts.length, 2);
   assert.equal((await snapshot()).state.sessionId, forked.state.sessionId);
+  checkpoint('failed edit draft restoration');
   const restoredSnapshot = await snapshot();
   await app.evaluate(({ ipcMain, BrowserWindow }, saved) => {
     ipcMain.removeHandler('desktop');
@@ -260,10 +316,20 @@ try {
   assert.equal(await page.locator('.user-message-editor').getByRole('button', { name: 'Send', exact: true }).isEnabled(), true);
   await englishEditor.press('Escape');
   assert.deepEqual(errors, []);
-  console.log('Session branching passed: explicit clone/fork, inline cancel/send, same-session retry, latest-only validation, unchanged source/files, drafts/images, first-message retry and background isolation.');
+  console.log('Session branching passed: sidebar cold/resident copies, busy-target guards, permissions, explicit clone/fork, inline cancel/send, same-session retry, unchanged source/files, drafts/images and background isolation.');
+} catch (error) {
+  console.error(`Branching acceptance failed during ${phase}:`, error);
+  if (page && !page.isClosed()) await page.screenshot({ path: 'test-results/branch-failed.png', timeout: 5000 }).catch(() => {});
+  throw error;
 } finally {
   for (const stream of streams) stream.destroy();
-  if (app) await app.close();
+  if (app) {
+    // Isolated fixtures must not wait for a user to confirm stopping a failed test's task.
+    await app.evaluate(({ dialog }) => {
+      dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+    }).catch(() => {});
+    await app.close();
+  }
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
 }

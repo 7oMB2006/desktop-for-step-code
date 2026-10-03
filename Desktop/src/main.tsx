@@ -14,7 +14,8 @@ import { PermissionPicker } from './PermissionPicker';
 import { ContextRing } from './ContextRing';
 import { ImageContextMenu, type ImageMenuTarget, type ImageMenuAction } from './ImageContextMenu';
 import { AppTooltip } from './AppTooltip';
-import { ConversationMarkers, conversationTurns, scrollToTurn } from './ConversationNavigation';
+import { ConversationMarkers, conversationTurns, scrollToTurn, turnTime } from './ConversationNavigation';
+import { ArchivedSessions } from './ArchivedSessions';
 import { ConversationScrollThumb } from './ConversationScrollThumb';
 import { updateRunMetrics, type RunMetrics } from './performance';
 import { ConversationMessages } from './ConversationMessages';
@@ -195,6 +196,7 @@ function App() {
     if (!bridge) return;
     const unsubscribe = bridge.onEvent(event => {
       if (event.type === 'desktop_task_completed') { playCompletionSound(); return; }
+      if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
       if (event.type === 'desktop_runtimes') {
         const runtimes: RuntimeSummary[] = event.runtimes;
         for (const runtime of runtimes) sessionActivity.current.set(runtime.sessionId, runtime.status);
@@ -539,6 +541,18 @@ function App() {
     setData(previous => ({ ...previous, preferences }));
     setContextMenu(null);
   };
+  const deleteArchived = async (ids: string[]) => {
+    await run(async () => {
+      if (!await bridge!.deleteArchivedSessions(ids)) return;
+      for (const id of ids) {
+        composerBySession.current.delete(id);
+        errorsBySession.current.delete(id);
+        metricsBySession.current.delete(id);
+        sessionActivity.current.delete(id);
+      }
+      await refresh();
+    });
+  };
   const saveRename = async () => {
     if (!renameTarget || !name.trim()) return;
     if (renameTarget.type === 'workspace') {
@@ -685,7 +699,11 @@ function App() {
             setNotice({ id: ++nextNoticeId.current, message: t('已复制会话引用', 'Session reference copied'), type: 'info' });
           });
         }}><Copy size={15}/>{t('复制会话引用', 'Copy session reference')}</button>
-        <button role="menuitem" disabled><GitBranch size={15}/>{t('分支', 'Branch')}</button>
+        <button role="menuitem" disabled={!bridge || loading || !data.sessions.some(session => session.id === contextMenu.id && session.path && session.messageCount > 0) ||
+          data.runtimes?.some(runtime => runtime.sessionId === contextMenu.id && ['running', 'waiting'].includes(runtime.status))}
+          onClick={() => { const id = contextMenu.id; setContextMenu(null); void applySnapshot(() => bridge!.cloneSession(id)); }}>
+          <GitBranch size={15}/>{t('分支', 'Branch')}
+        </button>
       </>}
     </div>}
     {error && (settingsOpen || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
@@ -706,7 +724,6 @@ function App() {
         </div>}
         <div className="section-label">{t('项目', 'Projects')}<IconButton title={t('添加工作区', 'Add workspace')} disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><Plus size={15}/></IconButton></div>
         {[...workspaceGroups].filter(([key]) => !pinnedWorkspaces.has(key)).map(renderWorkspace)}
-        {archivedSessions.length > 0 && <section className="workspace-group archived-group"><div className="section-label">{t('已归档', 'Archived')}</div><div className="workspace-sessions">{archivedSessions.map(s => renderSession(s, '__archived__'))}</div></section>}
         {!workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
       </nav>
       <div className="sidebar-bottom"><button onClick={() => void openSettings()} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span>0.1.0</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
@@ -776,7 +793,11 @@ function App() {
     {details ? <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside> : rightPanel && <aside className="conversation-nav-panel" aria-label={rightPanel === 'turns' ? t('会话导航', 'Conversation navigation') : t('摘要', 'Summary')}>
       <header><h2>{rightPanel === 'turns' ? t('会话导航', 'Conversation navigation') : t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={() => setRightPanel(null)}><X size={16}/></IconButton></header>
       {rightPanel === 'turns' ? <nav aria-label={t('会话轮次', 'Conversation turns')}>
-        {turns.map((turn, number) => <button key={turn.index} onClick={() => { scrollToTurn(scroll.current, turn.index); if (window.innerWidth <= 900) setRightPanel(null); }}><span>{number + 1}</span><span>{turn.preview}</span></button>)}
+        {turns.map((turn, number) => <button key={turn.index} onClick={() => { scrollToTurn(scroll.current, turn.index); if (window.innerWidth <= 900) setRightPanel(null); }}>
+          <span className="nav-turn-number">{number + 1}</span><span className="nav-turn-content"><span className="nav-turn-preview">{turn.preview}</span>
+            {turnTime(turn.timestamp, data.preferences.language) && <time className="nav-turn-time" dateTime={new Date(turn.timestamp!).toISOString()}>{turnTime(turn.timestamp, data.preferences.language)}</time>}
+          </span>
+        </button>)}
         {!turns.length && <p className="panel-empty">{t('暂无会话轮次', 'No turns yet')}</p>}
       </nav> : <p className="panel-empty">{t('暂无摘要', 'No summary yet')}</p>}
     </aside>}
@@ -817,7 +838,11 @@ function App() {
         </div>
       </div>
     </div>}
-    {settingsOpen && <div className="modal-backdrop"><section className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={() => { setSettingsOpen(false); setKey(''); }}><X size={19}/></IconButton></header><div className="settings-layout"><nav>{[['account', Cpu, t('账户', 'Account')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')]].map(([id, Icon, title]: any) => <button key={id} className={tab === id ? 'selected' : ''} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div className="settings-content">
+    {settingsOpen && <div className="modal-backdrop"><section className={`settings-dialog${tab === 'archived' ? ' archive-settings-dialog' : ''}`} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={() => { setSettingsOpen(false); setKey(''); }}><X size={19}/></IconButton></header><div className="settings-layout"><nav>{[['account', Cpu, t('账户', 'Account')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} className={`${tab === id ? 'selected' : ''}${id === 'archived' ? ' archive-tab' : ''}`} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div className="settings-content">
+      {tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
+        runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
+        onOpen={id => { setSettingsOpen(false); void applySnapshot(() => bridge!.switchSession(id)); }}
+        onRestore={id => run(() => updateArchive(id, true)).then(() => {})} onDelete={deleteArchived}/> : <>
       {settings && tab === 'mcp' && Object.keys(mcpFailures).length > 0 && <section className="mcp-failures" aria-label={t('本次窗口的 MCP 警告', 'MCP warnings in this window')}>
         <h3>{t('本次窗口的连接警告', 'Connection warnings')}</h3>
         {Object.entries(mcpFailures).map(([name, failure]) => <div className="resource-row" key={name}>
@@ -834,6 +859,7 @@ function App() {
         </label>
       </>}
       {!settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'account' ? <><h3>{t('Step 账户', 'Step account')}</h3><p className="muted">{settings.account.loggedIn ? `${settings.account.profile} · ${settings.account.validity}` : t('尚未登录', 'Not signed in')}</p><label>{t('登录方式', 'Sign-in method')}<select value={loginProfile} disabled={loggingIn} onChange={e => setLoginProfile(e.target.value)}>{settings.profiles.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>{settings.profiles.find(p => p.id === loginProfile)?.credentialSource === 'apiKey' && <label>API key<input type="password" autoComplete="off" value={key} onChange={e => setKey(e.target.value)}/></label>}<div className="button-row"><button className="primary" disabled={loggingIn || anyBusy} onClick={() => void run(async () => { setLoggingIn(true); try { await bridge!.login(loginProfile, key); setKey(''); setSettings(await bridge!.settings()); if (data.preferences.workspace) await applySnapshot(() => bridge!.restart()); } finally { setLoggingIn(false); } })}><ExternalLink size={15}/>{loggingIn ? t('等待授权…', 'Waiting for sign-in…') : t('登录', 'Sign in')}</button>{loggingIn && <button onClick={() => void run(() => bridge!.cancelLogin())}>{t('取消', 'Cancel')}</button>}{settings.account.loggedIn && <button disabled={anyBusy} onClick={() => void run(async () => { await bridge!.logout(); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); })}><LogOut size={15}/>{t('退出登录', 'Sign out')}</button>}</div></> : tab === 'mcp' ? <><div className="section-heading"><h3>MCP servers</h3><IconButton title="Add MCP" onClick={() => setMcpEdit({ name: '', config: { command: '', args: [], enabled: true }, args: '[]', secrets: '{}' })}><Plus size={18}/></IconButton></div>{Object.entries(settings.mcp).map(([n, c]) => <div className="resource-row" key={n}><Plug size={18}/><div><strong>{n}</strong><small>{c.url || c.command}</small><small>{c.enabled ? t('已启用，重启后生效', 'Enabled; applies after restart') : t('已停用', 'Disabled')}</small></div><IconButton title="Edit" onClick={() => setMcpEdit({ name: n, original: n, config: c, args: JSON.stringify(c.args ?? []), secrets: '{}' })}><Pencil size={14}/></IconButton><IconButton title="Remove" onClick={() => { if (confirm(t(`移除 ${n}？`, `Remove ${n}?`))) void run(async () => { await bridge!.saveMcp(n, null); setSettings(await bridge!.settings()); }); }}><Trash2 size={14}/></IconButton></div>)}{!Object.keys(settings.mcp).length && <p className="muted">{t('尚未配置服务器', 'No servers configured')}</p>}<button disabled={!connected || busy} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={15}/>{t('重启并应用', 'Restart to apply')}</button></> : tab === 'skills' ? <><h3>{t('Skills 与命令', 'Skills and commands')}</h3>{settings.skills.map(s => <div className="resource-row" key={`${s.source}/${s.name}`}><BookOpen size={17}/><div><strong>{s.name}</strong><small>{s.description}</small><small>{s.source}</small></div></div>)}{commands.map(c => <div className="resource-row" key={c.name}><Terminal size={17}/><div><strong>/{c.name}</strong><small>{c.description}</small><small>{c.source}</small></div></div>)}{!settings.skills.length && !commands.length && <p className="muted">{t('没有已发现的资源', 'No resources discovered')}</p>}</> : <><h3>{t('外观与语言', 'Appearance and language')}</h3><label>{t('主题', 'Theme')}<select value={data.preferences.theme} onChange={e => void setPreference({ theme: e.target.value })}><option value="system">{t('跟随系统', 'System')}</option><option value="light">{t('浅色', 'Light')}</option><option value="dark">{t('深色', 'Dark')}</option></select></label><label>{t('语言', 'Language')}<select value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('关于', 'About')}</h3><p>Desktop for Step Code 0.1.0</p><p className="muted">{t('社区预览版', 'Community preview')}</p><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></>}
+      </>}
     </div></div></section></div>}
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
     {((requests[0] && approvalOpen) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={requests[0]?.title ?? 'Rename'}><h2>{requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map(o => <button className="option" key={o} onClick={() => void respond({ value: o })}>{o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}<button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}

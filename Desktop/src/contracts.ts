@@ -29,8 +29,10 @@ export interface DesktopBridge {
   sessions(): Promise<Session[]>;
   switchSession(id: string): Promise<Snapshot>;
   branchSession(kind: 'clone' | 'fork', entryId: string, runtimeId: string): Promise<Snapshot>;
+  cloneSession(id: string): Promise<Snapshot>;
   retryMessage(entryId: string, message: string, runtimeId: string): Promise<void>;
   deleteSession(id: string): Promise<boolean>;
+  deleteArchivedSessions(ids: string[]): Promise<boolean>;
   restart(): Promise<Snapshot>;
   settings(): Promise<Settings>;
   login(profile: string, key?: string): Promise<void>;

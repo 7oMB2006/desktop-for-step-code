@@ -1,7 +1,16 @@
 import { useLayoutEffect, useState, type RefObject } from 'react';
 import type { Message } from './contracts';
 
-export type ConversationTurn = { index: number; preview: string };
+export type ConversationTurn = { index: number; preview: string; timestamp?: number };
+
+export function turnTime(timestamp: number | undefined, language: 'zh' | 'en'): string {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return '';
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return '';
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const day = language === 'zh' ? `${pad(date.getMonth() + 1)}月${pad(date.getDate())}日` : `${pad(date.getMonth() + 1)}/${pad(date.getDate())}`;
+  return `${day} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 export function conversationTurns(messages: Message[], language: 'zh' | 'en'): ConversationTurn[] {
   return messages.flatMap((message, index) => {
@@ -9,7 +18,8 @@ export function conversationTurns(messages: Message[], language: 'zh' | 'en'): C
     const text = typeof message.content === 'string'
       ? message.content
       : message.content?.filter(part => part.type === 'text').map(part => part.text ?? '').join(' ') ?? '';
-    return [{ index, preview: text.replace(/\s+/gu, ' ').trim() || (language === 'zh' ? '图片消息' : 'Image message') }];
+    return [{ index, preview: text.replace(/\s+/gu, ' ').trim() || (language === 'zh' ? '图片消息' : 'Image message'),
+      ...(message.timestamp !== undefined ? { timestamp: message.timestamp } : {}) }];
   });
 }
 

@@ -464,12 +464,12 @@ try {
   await page.getByText('尚未登录', { exact: true }).waitFor();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   assert.equal(await page.evaluate(() => CSS.supports('appearance', 'base-select')), true);
-  const themePicker = page.getByRole('dialog').getByRole('combobox').first();
+  const themePicker = page.getByRole('dialog').getByLabel(/主题|Theme/);
   await themePicker.click();
   await page.screenshot({ path: 'test-results/select-light.png' });
   await page.keyboard.press('Escape');
-  await page.getByRole('dialog').getByRole('combobox').first().selectOption('dark');
-  await page.getByRole('dialog').getByRole('combobox').nth(1).selectOption('en');
+  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('dark');
+  await page.getByRole('dialog').getByLabel(/语言|Language/).selectOption('en');
   await page.getByRole('button', { name: 'Model and thinking level' }).waitFor();
   await page.getByRole('button', { name: 'Access permissions' }).waitFor();
   assert.equal(await page.locator('.permission-trigger span').textContent(), 'Ask');
@@ -496,7 +496,7 @@ try {
   await page.getByRole('button', { name: 'Remove attachment', exact: true }).click();
   await page.getByRole('button', { name: 'Account settings', exact: true }).click();
   await page.getByRole('button', { name: 'General', exact: true }).click();
-  await page.getByRole('dialog').getByRole('combobox').nth(1).selectOption('zh');
+  await page.getByRole('dialog').getByLabel(/语言|Language/).selectOption('zh');
   await page.getByRole('button', { name: '模型与思考强度' }).waitFor();
   assert.equal(await page.locator('.permission-trigger span').textContent(), '请求批准');
   assert.equal(await page.locator('.model-effort-level').textContent(), '关闭');
@@ -938,7 +938,7 @@ try {
   for (const theme of ['light', 'dark']) {
     await page.locator('.sidebar-bottom > button').click();
     await page.getByRole('button', { name: '通用', exact: true }).click();
-    await page.getByRole('dialog').getByRole('combobox').first().selectOption(theme);
+    await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption(theme);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await mathMessage.getByText('数学排版', { exact: true }).scrollIntoViewIfNeeded();
     await page.evaluate(() => document.fonts.ready);
@@ -1045,7 +1045,7 @@ try {
   for (const theme of ['light', 'dark']) {
     await page.locator('.sidebar-bottom > button').click();
     await page.getByRole('button', { name: '通用', exact: true }).click();
-    await page.getByRole('dialog').getByRole('combobox').first().selectOption(theme);
+    await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption(theme);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await presentationUser.scrollIntoViewIfNeeded();
     await page.mouse.move(10, 10);

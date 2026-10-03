@@ -73,7 +73,7 @@ try {
     await page.locator('.sidebar-bottom > button').click();
     const settings = page.getByRole('dialog', { name: from === 'zh' ? '设置' : 'Settings', exact: true });
     await settings.getByRole('button', { name: from === 'zh' ? '通用' : 'General', exact: true }).click();
-    await settings.getByRole('combobox').nth(1).selectOption(to);
+    await settings.getByLabel(/语言|Language/).selectOption(to);
     await page.getByRole('dialog', { name: to === 'zh' ? '设置' : 'Settings', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
   };
   await send('TARGET-SEED');

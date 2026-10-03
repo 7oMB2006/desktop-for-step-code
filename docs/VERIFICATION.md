@@ -14,6 +14,16 @@ Thinking folds when the first subsequent nonempty text delta arrives, while the 
 
 ## Concurrent Sessions
 
+### Sidebar Ordering and Project Pins
+
+The 2026-10-03 sidebar change defaults sessions to a persisted manual order, with a General setting for recently updated first. Switching modes preserves the manual order. Projects always retain a manual order; reopening an existing directory does not promote it. Both session and project rows support primary-button long-press dragging, insertion indicators, edge scrolling, Escape cancellation and keyboard reordering. Session moves stay inside their group. Pinned and ordinary projects retain separate orders, and pin/unpin remains an explicit project-context-menu action.
+
+The section order is fixed: independent sessions, pinned projects, ordinary projects, archived sessions. The pinned section has no add-project action; individual project rows retain their new-session controls. Preferences are persisted under the isolated Desktop profile and validated in the main process; the renderer cannot authorize new workspace paths by submitting an order.
+
+The source passed type checking, 106 unit tests, production build, Electron acceptance and local real-RPC concurrency, branching and cross-session regressions. `verify-sidebar-order.mjs` checks manual drags without navigation/collapse, Escape and cross-group rejection, pin/unpin, persisted order after renderer reload and app relaunch, both sorting modes, always-manual projects, narrow windows and reduced motion. Screenshots use isolated fixture sessions under `Desktop/test-results/sidebar-order-*.png`. These checks do not establish paid-model or installer-lifecycle acceptance.
+
+The local preview at `Desktop/release/sidebar-order-preview/` was packaged on 2026-10-03 with the pinned `519e4de4ed2162d3667be1821cb92ada6b884e5a` runtime from the separate prepared checkout. The unpacked executable passed Electron, sidebar ordering and real-RPC concurrency acceptance with isolated profiles. The desktop shortcut now targets this unpacked executable; the installer was not run. The installer is about 144 MiB and the unpacked application about 537 MiB; installer SHA-256 is `43f6ffe93b681a810d236a08b1a8d53edc6a15704dcf84f5f5d2a4697b1fef75`. Existing preview packages were not deleted, and no installer-lifecycle or new real-account model acceptance was performed.
+
 ### Empty Session Creation
 
 The 2026-10-03 Issue #44 change reuses a connected, idle, message-free worker in the same canonical workspace when requesting a new session. Startup requests in the same directory are coalesced. Ordinary snapshot reads are awaited before rechecking eligibility. Workers with submissions, streaming, compaction, queued messages, approvals, non-snapshot operations, mutations, failure or interruption are not reused. Loading saved history and explicit clone/fork operations still create their own workers. Different workspace directories remain independent.

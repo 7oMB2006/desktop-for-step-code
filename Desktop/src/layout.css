@@ -222,6 +222,23 @@ select:disabled { cursor: not-allowed; opacity: .45; }
 .workspace-sessions .session-row > button:first-child > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .workspace-empty { display: block; padding: 7px 9px 7px 28px; color: var(--muted); font-size: 11px; }
 .workspace-sessions .session-row:focus-within > .icon-button { opacity: 1; }
+.pinned-projects { margin-bottom: 12px; }
+.workspace-tree.is-reordering, .workspace-tree.is-reordering * { cursor: grabbing; user-select: none; }
+.session-dragging { opacity: .35; }
+.workspace-group { position: relative; }
+.session-row.drop-before::before, .session-row.drop-after::after,
+.workspace-group.drop-before::before, .workspace-group.drop-after::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px;
+  background: var(--primary); border-radius: 1px; pointer-events: none;
+}
+.session-row.drop-before::before, .workspace-group.drop-before::before { top: -2px; }
+.session-row.drop-after::after, .workspace-group.drop-after::after { bottom: -2px; }
+.session-drag-preview {
+  position: fixed; z-index: 65; pointer-events: none; max-width: 220px;
+  padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--bg); color: var(--ink); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 @media (max-width: 600px) {
   .window-tools { gap: 3px; padding-left: 6px; }
   .window-menu > button { padding: 4px 6px; font-size: 12px; }

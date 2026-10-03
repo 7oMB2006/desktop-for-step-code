@@ -11,6 +11,7 @@ import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
 import type { Preferences, Session, Snapshot } from '../src/contracts';
+import { reconcileSessionOrder, validateSidebarPreferences } from '../src/sidebar-order';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
 app.setName('Desktop for Step Code');
@@ -157,6 +158,11 @@ function cachedSessions(): Session[] {
 async function snapshot(worker = runtimes.active, refresh = true): Promise<Snapshot> {
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
+  const sessionOrder = reconcileSessionOrder(preferences.sessionOrder ?? [], sessions);
+  if (JSON.stringify(sessionOrder) !== JSON.stringify(preferences.sessionOrder)) {
+    preferences.sessionOrder = sessionOrder;
+    await savePreferences();
+  }
   return {
     preferences: { ...preferences, workspace: worker?.cwd ?? preferences.workspace },
     status: worker?.status ?? status, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
@@ -181,7 +187,14 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
     preferences.workspace = canonical;
     if (rememberProject && !pathKey(canonical).startsWith(`${pathKey(independentRoot)}/`)) {
       const previous = await Promise.all(preferences.workspaces.map(async path => ({ path, same: await samePath(path, canonical) })));
-      preferences.workspaces = [canonical, ...previous.filter(entry => !entry.same).map(entry => entry.path)];
+      const existingIndex = previous.findIndex(entry => entry.same);
+      preferences.workspaces = existingIndex >= 0
+        ? previous.filter((entry, index) => !entry.same || index === existingIndex).map(entry => entry.same ? canonical : entry.path)
+        : [canonical, ...preferences.workspaces];
+      if (preferences.pinnedWorkspaces) {
+        const aliases = new Set(previous.filter(entry => entry.same).map(entry => pathKey(entry.path)));
+        preferences.pinnedWorkspaces = [...new Set(preferences.pinnedWorkspaces.map(path => aliases.has(pathKey(path)) ? pathKey(canonical) : pathKey(path)))];
+      }
     }
     await savePreferences();
     crashLog.setPhase('rpc started');
@@ -425,6 +438,7 @@ async function handle(method: string, args: any[]) {
     }
     case 'preferences': {
       const patch = args[0] ?? {};
+      const sidebarPatch = validateSidebarPreferences(patch, cachedSessions(), preferences.workspaces, pathKey);
       if (['system', 'light', 'dark'].includes(patch.theme)) preferences.theme = patch.theme;
       if (['zh', 'en'].includes(patch.language)) preferences.language = patch.language;
       if (patch.workspaceNames !== undefined) {
@@ -441,6 +455,7 @@ async function handle(method: string, args: any[]) {
         const known = new Set((await listSessions()).map(s => s.id));
         preferences.archivedSessionIds = patch.archivedSessionIds.map((id: unknown) => text(id, 200)).filter((id: string) => known.has(id));
       }
+      Object.assign(preferences, sidebarPatch);
       await savePreferences(); return preferences;
     }
     case 'copyText': {

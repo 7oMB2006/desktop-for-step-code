@@ -29,9 +29,209 @@ function fixture() {
     transports.push(transport);
     return transport;
   });
-  const open = (cwd = 'workspace') => pool.open('node', 'step', cwd, {});
+  const open = (cwd = `workspace-${transports.length}`) => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+
+test('repeated new-session requests reuse one empty worker without resetting it', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  empty.permissionPreset = 'read-only';
+  const calls = transports[0].calls.length;
+  for (let i = 0; i < 5; i++) assert.equal(await open('workspace'), empty);
+  assert.equal(pool.active, empty);
+  assert.equal(pool.workers.size, 1);
+  assert.equal(transports.length, 1);
+  assert.equal(transports[0].calls.length, calls);
+  assert.equal(empty.permissionPreset, 'read-only');
+  await pool.stopAll();
+});
+
+test('concurrent new-session requests share the startup worker', async () => {
+  const { pool, transports, open } = fixture();
+  const workers = await Promise.all(Array.from({ length: 5 }, () => open('workspace')));
+  assert.ok(workers.every(worker => worker === workers[0]));
+  assert.equal(transports.length, 1);
+  assert.equal(transports[0].calls.filter(type => type === 'new_session').length, 1);
+  await pool.stopAll();
+});
+
+test('new-session requests wait for all ordinary snapshot reads and then reuse the empty worker', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  const original = transports[0].request.bind(transports[0]);
+  const releases: Array<() => void> = [];
+  transports[0].request = async type => {
+    if (type === 'get_messages') await new Promise<void>(resolve => releases.push(resolve));
+    return original(type);
+  };
+  const reads = [pool.read(empty), pool.read(empty)];
+  let opened = false;
+  const openings = Promise.all(Array.from({ length: 5 }, () => open('workspace'))).then(workers => {
+    opened = true;
+    return workers;
+  });
+  try {
+    await Promise.resolve();
+    assert.equal(transports.length, 1, 'Snapshot refresh must not cause another worker to start');
+    releases[0]();
+    await reads[0];
+    assert.equal(opened, false, 'The second refresh must also finish before reuse');
+    releases[1]();
+    await reads[1];
+    const workers = await openings;
+    assert.ok(workers.every(worker => worker === empty));
+    assert.equal(transports.length, 1);
+    assert.equal(empty.operations, 0);
+  } finally {
+    for (const release of releases) release();
+    await Promise.allSettled([...reads, openings]);
+    await pool.stopAll();
+  }
+});
+
+test('waiting for a snapshot rechecks history, activity, operations and worker membership', async () => {
+  for (const change of ['history', 'running', 'approval', 'mutating', 'operation', 'failed', 'removed']) {
+    const { pool, transports, open } = fixture();
+    const empty = await open('workspace');
+    const original = transports[0].request.bind(transports[0]);
+    let release!: () => void;
+    transports[0].request = async type => {
+      if (type === 'get_messages') await new Promise<void>(resolve => { release = resolve; });
+      return original(type);
+    };
+    const read = pool.read(empty);
+    const opening = open('workspace');
+    try {
+      await Promise.resolve();
+      assert.equal(transports.length, 1, change);
+      if (change === 'history') transports[0].receive({ type: 'message_start', message: { role: 'user', content: 'new message' } });
+      if (change === 'running') transports[0].receive({ type: 'agent_start' });
+      if (change === 'approval') transports[0].receive({ type: 'extension_ui_request', method: 'confirm', id: 'approval' });
+      if (change === 'mutating') empty.mutating = true;
+      if (change === 'operation') empty.operations++;
+      if (change === 'failed') empty.failed = true;
+      if (change === 'removed') await pool.remove(empty);
+      release();
+      await read;
+      assert.notEqual(await opening, empty, change);
+      assert.equal(transports.length, 2, change);
+    } finally {
+      release();
+      await Promise.allSettled([read, opening]);
+      await pool.stopAll();
+    }
+  }
+});
+
+test('a non-snapshot operation alongside a read is not treated as a reusable empty worker', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  const original = transports[0].request.bind(transports[0]);
+  let release!: () => void;
+  transports[0].request = async type => {
+    if (type === 'get_messages') await new Promise<void>(resolve => { release = resolve; });
+    return original(type);
+  };
+  const read = pool.read(empty);
+  empty.operations++;
+  try {
+    assert.notEqual(await open('workspace'), empty);
+    assert.equal(transports.length, 2);
+  } finally {
+    release();
+    await read;
+    await pool.stopAll();
+  }
+});
+
+test('failed snapshot reads reject waiting opens without spawning and release their bookkeeping', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  const original = transports[0].request.bind(transports[0]);
+  let fail!: (error: Error) => void;
+  transports[0].request = async type => {
+    if (type === 'get_messages') await new Promise<void>((_resolve, reject) => { fail = reject; });
+    return original(type);
+  };
+  const read = pool.read(empty);
+  const reading = assert.rejects(read, /Snapshot failed/);
+  const opening = assert.rejects(open('workspace'), /Snapshot failed/);
+  fail(new Error('Snapshot failed'));
+  await Promise.all([reading, opening]);
+  assert.equal(transports.length, 1);
+  assert.equal(empty.operations, 0);
+  transports[0].request = original;
+  await pool.read(empty);
+  assert.equal(await open('workspace'), empty);
+  await pool.stopAll();
+});
+
+test('new sessions reuse background empties only in the same workspace', async () => {
+  const { pool, transports, open } = fixture();
+  const a = await open('workspace-a');
+  const b = await open('workspace-b');
+  assert.notEqual(a, b);
+  assert.equal(await open('workspace-a'), a);
+  assert.equal(pool.active, a);
+  assert.equal(transports.length, 2);
+  a.messages = [{ role: 'user', content: 'saved' }];
+  const next = await open('workspace-a');
+  assert.notEqual(next, a);
+  assert.equal(await open('workspace-a'), next);
+  assert.equal(transports.length, 3);
+  await pool.stopAll();
+});
+
+test('restoring a saved session never reuses an unrelated empty worker', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  const restored = await pool.open('node', 'step', 'workspace', {}, 'saved.jsonl');
+  assert.notEqual(restored, empty);
+  assert.ok(transports[1].calls.includes('switch_session'));
+  await pool.stopAll();
+});
+
+test('busy, modifying, failed and disconnected empty workers are not reused', async () => {
+  const states = [
+    { busy: true }, { submissions: 1 }, { operations: 1 }, { mutating: true },
+    { failed: true }, { interrupted: true }, { status: 'disconnected' },
+  ];
+  for (const state of states) {
+    const { pool, transports, open } = fixture();
+    const old = await open('workspace');
+    Object.assign(old, state);
+    assert.notEqual(await open('workspace'), old, JSON.stringify(state));
+    assert.equal(transports[0].stopped, false);
+    await pool.stopAll();
+  }
+  for (const state of [{ isCompacting: true }, { pendingMessageCount: 1 }, { isStreaming: true }]) {
+    const { pool, open } = fixture();
+    const old = await open('workspace');
+    Object.assign(old.state!, state);
+    assert.notEqual(await open('workspace'), old);
+    await pool.stopAll();
+  }
+  const { pool, transports, open } = fixture();
+  const old = await open('workspace');
+  transports[0].receive({ type: 'extension_ui_request', method: 'confirm', id: 'approval' });
+  assert.notEqual(await open('workspace'), old);
+  assert.equal(old.pendingUI.size, 1);
+  await pool.stopAll();
+});
+
+test('failed empty-worker startup is released so a later new session can retry', async () => {
+  const { pool, transports, open } = fixture();
+  const first = open('workspace');
+  transports[0].request = async () => { throw new Error('Startup failed'); };
+  await assert.rejects(first, /Startup failed/);
+  assert.equal(pool.workers.size, 0);
+  assert.equal(transports[0].stopped, true);
+  const next = await open('workspace');
+  assert.equal(pool.active, next);
+  assert.equal(transports.length, 2);
+  await pool.stopAll();
+});
 
 function branchFixture(outcome: 'success' | 'cancelled' | 'changed' = 'success') {
   const transports: Transport[] = [];

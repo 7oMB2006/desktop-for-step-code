@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { RpcProcess } from './runtime';
 import { permissionFromStatus } from './permission-status';
 import { WORKSPACE_POLICY } from './workspace-policy';
@@ -46,12 +47,18 @@ export function taskOutcome(messages: Message[]) {
   if (['error', 'aborted', 'length'].includes(last.stopReason ?? '')) return 'interrupted' as const;
   return 'idle' as const;
 }
+function workspaceKey(cwd: string) {
+  const path = resolve(cwd);
+  return process.platform === 'win32' ? path.toLowerCase() : path;
+}
 
 // A worker owns one session identity until disposal; edits move its history leaf.
 export class SessionRuntimes {
   readonly workers = new Map<string, SessionRuntime>();
   readonly unreadSessionIds = new Set<string>();
   activeId?: string;
+  private openingEmpty = new Map<string, Promise<SessionRuntime>>();
+  private reads = new Map<SessionRuntime, Set<Promise<void>>>();
   private confirmations = new Map<string, { worker: SessionRuntime; resolve: (approved: boolean) => void }>();
   constructor(
     private emit: (event: RuntimeEvent) => void,
@@ -81,6 +88,30 @@ export class SessionRuntimes {
     return worker;
   }
   async open(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
+    if (sessionPath || branch) return this.openWorker(node, entry, cwd, env, sessionPath, branch);
+    const key = workspaceKey(cwd);
+    for (;;) {
+      // Wait only for startup or snapshot reads, then recheck all live state.
+      while (this.openingEmpty.has(key)) await this.openingEmpty.get(key);
+      const candidates = [...this.workers.values()].filter(worker =>
+        workspaceKey(worker.cwd) === key && worker.status === 'connected' && worker.state?.sessionId &&
+        !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !worker.mutating &&
+        !worker.failed && !worker.interrupted);
+      const empty = candidates.find(worker => !worker.operations);
+      if (empty) {
+        this.activate(empty);
+        return empty;
+      }
+      const refreshing = candidates.find(worker => worker.operations === this.reads.get(worker)?.size);
+      if (!refreshing) break;
+      await Promise.all(this.reads.get(refreshing)!);
+    }
+    const opening = this.openWorker(node, entry, cwd, env);
+    this.openingEmpty.set(key, opening);
+    try { return await opening; }
+    finally { if (this.openingEmpty.get(key) === opening) this.openingEmpty.delete(key); }
+  }
+  private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
     const worker: SessionRuntime = {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
@@ -170,28 +201,37 @@ export class SessionRuntimes {
       throw error;
     }
   }
-  async read(worker: SessionRuntime) {
-    if (worker.status !== 'connected') return;
+  read(worker: SessionRuntime): Promise<void> {
+    if (worker.status !== 'connected') return Promise.resolve();
+    const reads = this.reads.get(worker) ?? new Set<Promise<void>>();
+    this.reads.set(worker, reads);
     worker.operations++;
+    const reading = this.readSnapshot(worker).finally(() => {
+      worker.operations--;
+      reads.delete(reading);
+      if (!reads.size) this.reads.delete(worker);
+    });
+    reads.add(reading);
+    return reading;
+  }
+  private async readSnapshot(worker: SessionRuntime) {
     const revision = worker.revision;
-    try {
-      const [state, { messages }, { models }, stats, history] = await Promise.all([
-        worker.rpc.request('get_state'), worker.rpc.request('get_messages'),
-        worker.rpc.request('get_available_models'), worker.rpc.request('get_session_stats'),
-        worker.rpc.request('get_entries'),
-      ]);
-      // Never replace newly received deltas with an older asynchronous snapshot.
-      if (revision === worker.revision) {
-        worker.state = state;
-        // get_messages contains committed history, not the in-flight assistant.
-        if (!state.isStreaming) {
-          worker.messages = messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null);
-          worker.leafId = history.leafId ?? undefined;
-        }
-        worker.busy = Boolean(state.isStreaming);
+    const [state, { messages }, { models }, stats, history] = await Promise.all([
+      worker.rpc.request('get_state'), worker.rpc.request('get_messages'),
+      worker.rpc.request('get_available_models'), worker.rpc.request('get_session_stats'),
+      worker.rpc.request('get_entries'),
+    ]);
+    // Never replace newly received deltas with an older asynchronous snapshot.
+    if (revision === worker.revision) {
+      worker.state = state;
+      // get_messages contains committed history, not the in-flight assistant.
+      if (!state.isStreaming) {
+        worker.messages = messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null);
+        worker.leafId = history.leafId ?? undefined;
       }
-      worker.models = models; worker.stats = stats; worker.touched = Date.now();
-    } finally { worker.operations--; }
+      worker.busy = Boolean(state.isStreaming);
+    }
+    worker.models = models; worker.stats = stats; worker.touched = Date.now();
   }
   async assertIdle(worker: SessionRuntime) {
     if (this.isBusy(worker)) throw new Error('Stop this session task first');

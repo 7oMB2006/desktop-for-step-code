@@ -427,6 +427,32 @@ try {
   await toast.waitFor({ state: 'hidden' });
   await sendNotice('info-test', 'info', 'Information only');
   await toast.getByText('Information only').waitFor();
+  const compactNotice = await toast.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const main = document.querySelector('main').getBoundingClientRect();
+    return { width: rect.width, center: rect.left + rect.width / 2, mainCenter: main.left + main.width / 2,
+      top: rect.top, barBottom: document.querySelector('.window-bar').getBoundingClientRect().bottom,
+      easing: getComputedStyle(element).animationTimingFunction };
+  });
+  assert.ok(compactNotice.width < 300);
+  assert.ok(Math.abs(compactNotice.center - compactNotice.mainCenter) < 1);
+  assert.ok(compactNotice.top - compactNotice.barBottom <= 10);
+  assert.equal(compactNotice.easing, 'cubic-bezier(0.215, 0.61, 0.355, 1)');
+  const assertNoticeCentered = async () => assert.ok(await toast.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const main = document.querySelector('main').getBoundingClientRect();
+    return Math.abs(rect.left + rect.width / 2 - main.left - main.width / 2) < 1;
+  }));
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
+  await assertNoticeCentered();
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
+  await page.locator('.window-sidebar-toggle').click();
+  await page.clock.runFor(300);
+  await assertNoticeCentered();
+  await page.locator('.window-sidebar-toggle').click();
+  await page.clock.runFor(300);
+  await assertNoticeCentered();
+  await page.screenshot({ path: 'test-results/notice-compact-info.png' });
   await page.clock.fastForward(4100);
   await toast.waitFor({ state: 'hidden' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
@@ -751,9 +777,59 @@ try {
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click({ button: 'right' });
   await context.getByRole('menuitem', { name: '归档会话' }).click();
   await page.getByRole('region', { name: secondProjectState.preferences.workspace, exact: true }).getByRole('button', { name: 'Second session', exact: true }).waitFor({ state: 'hidden' });
+  await toast.getByText('已归档会话', { exact: true }).waitFor();
+  await page.mouse.move(10, 10);
+  await page.clock.runFor(300);
+  const noticeTheme = await page.evaluate(() => document.documentElement.dataset.theme);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await page.screenshot({ path: `test-results/notice-archive-${theme}.png`, animations: 'disabled' });
+  }
+  const archiveWindowSize = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));
+  await page.waitForFunction(() => innerWidth <= 640);
+  const actionBounds = await toast.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, viewport: innerWidth,
+      fits: element.scrollWidth <= element.clientWidth };
+  });
+  assert.ok(actionBounds.left >= 0 && actionBounds.right <= actionBounds.viewport && actionBounds.fits);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await toast.evaluate(element => getComputedStyle(element).animationName), 'none');
+  await page.screenshot({ path: 'test-results/notice-archive-narrow.png', animations: 'disabled' });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), archiveWindowSize);
+  await page.waitForFunction(() => innerWidth > 1000);
+  await page.evaluate(theme => document.documentElement.dataset.theme = theme, noticeTheme);
+  const archiveWidth = await toast.evaluate(element => {
+    element.dataset.identity = 'archive-feedback';
+    return element.getBoundingClientRect().width;
+  });
+  await toast.getByRole('button', { name: '撤销', exact: true }).click();
+  await toast.getByText('会话已恢复', { exact: true }).waitFor();
+  assert.equal(await toast.getAttribute('data-identity'), 'archive-feedback', 'undo replaces the same bubble in place');
+  assert.equal(await toast.locator('.notice-actions').count(), 0);
+  assert.equal(await toast.evaluate(element => getComputedStyle(element).animationName), 'none');
+  await page.mouse.move(10, 10);
+  await page.clock.runFor(300);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await page.screenshot({ path: `test-results/notice-restored-${theme}.png`, animations: 'disabled' });
+    const rect = await toast.boundingBox();
+    await page.screenshot({ path: `test-results/notice-restored-${theme}-detail.png`, animations: 'disabled',
+      clip: { x: rect.x - 16, y: rect.y - 8, width: rect.width + 32, height: rect.height + 24 } });
+  }
+  assert.ok(await toast.evaluate((element, oldWidth) => element.getBoundingClientRect().width < oldWidth, archiveWidth));
+  await page.evaluate(theme => document.documentElement.dataset.theme = theme, noticeTheme);
+  await page.clock.fastForward(3100);
+  await toast.waitFor({ state: 'hidden' });
+  await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.archivedSessionIds.includes('fixture-1'), false);
+  await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click({ button: 'right' });
+  await context.getByRole('menuitem', { name: '归档会话' }).click();
+  await toast.getByText('已归档会话', { exact: true }).waitFor();
   assert.equal(await page.locator('.archived-group').count(), 0);
-  await page.locator('.sidebar-bottom > button').click();
-  await page.getByRole('button', { name: '已归档', exact: true }).click();
+  await toast.getByRole('button', { name: '查看', exact: true }).click();
   await page.locator('[data-archived-session-id="fixture-1"]').getByRole('button', { name: '取消归档', exact: true }).click();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();

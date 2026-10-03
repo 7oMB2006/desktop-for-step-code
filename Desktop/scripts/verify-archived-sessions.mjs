@@ -67,10 +67,9 @@ async function launch() {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
     window.setSize(1360, 900);
     globalThis.archiveDialogs = [];
-    globalThis.archiveResponse = 0;
     dialog.showMessageBox = async (_window, options) => {
       globalThis.archiveDialogs.push(options);
-      return { response: globalThis.archiveResponse };
+      throw new Error('Archived deletion must not show a confirmation dialog');
     };
   });
   await page.waitForFunction(async () => (await window.desktop?.snapshot())?.status === 'connected', undefined, { timeout: 60000 });
@@ -130,51 +129,15 @@ try {
   await row(page, 8).waitFor({ state: 'detached' });
   assert.ok(!(await persistedIds()).includes('archive-8'));
   assert.ok(await readFile(join(sessionDir, 'archive-8.jsonl'), 'utf8'));
-  // Cancel is the native dialog default, and leaves both file and archive metadata intact.
-  await row(page, 0).getByRole('button', { name: '永久删除 主线 · 左栏整理', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.archive-delete-all').disabled);
-  assert.ok((await persistedIds()).includes('archive-0'));
-  assert.ok(await readFile(join(sessionDir, 'archive-0.jsonl'), 'utf8'));
-  const dialog = await app.evaluate(() => globalThis.archiveDialogs.at(-1));
-  assert.equal(dialog.defaultId, 0);
-  assert.match(dialog.detail, /无法恢复/);
+  // Direct deletion keeps IPC authorization and path guards, without a second confirmation.
   await assert.rejects(page.evaluate(() => window.desktop.deleteArchivedSessions(['current'])), /Only known archived/);
   await assert.rejects(page.evaluate(() => window.desktop.deleteArchivedSessions(['unknown'])), /Only known archived/);
   await assert.rejects(page.evaluate(() => window.desktop.deleteArchivedSessions(['archive-0', 'archive-0'])), /Invalid/);
-  // A restore while a confirmation is pending revokes deletion authorization.
-  await app.evaluate(({ dialog }) => {
-    globalThis.defaultArchiveDialog = dialog.showMessageBox;
-    dialog.showMessageBox = async () => new Promise(resolve => { globalThis.resolveArchiveConfirmation = resolve; });
-  });
-  await page.evaluate(() => {
-    window.archivePendingDelete = window.desktop.deleteArchivedSessions(['archive-0']).then(() => '', error => error.message);
-  });
-  await app.evaluate(async () => {
-    for (let attempt = 0; attempt < 200 && !globalThis.resolveArchiveConfirmation; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
-    if (!globalThis.resolveArchiveConfirmation) throw new Error('Deletion confirmation did not open');
-  });
-  const pendingSnapshot = await page.evaluate(() => window.desktop.snapshot());
-  const lockedRuntime = pendingSnapshot.runtimes.find(runtime => runtime.sessionId === 'archive-0');
-  assert.ok(lockedRuntime);
-  await assert.rejects(page.evaluate(id => window.desktop.command('prompt', { message: 'Must not run' }, id), lockedRuntime.runtimeId), /Session operation/);
-  const beforeRestore = await persistedIds();
-  await page.evaluate(ids => window.desktop.preferences({ archivedSessionIds: ids.filter(id => id !== 'archive-0') }), beforeRestore);
-  await app.evaluate(({ dialog }) => {
-    globalThis.resolveArchiveConfirmation({ response: 1 });
-    dialog.showMessageBox = globalThis.defaultArchiveDialog;
-  });
-  assert.match(await page.evaluate(() => window.archivePendingDelete), /Only known archived/);
-  assert.ok(await readFile(join(sessionDir, 'archive-0.jsonl'), 'utf8'));
-  await page.evaluate(ids => window.desktop.preferences({ archivedSessionIds: ids }), beforeRestore);
-  await page.reload();
-  await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
-  await page.getByRole('button', { name: '会话导航', exact: true }).click();
-  await archives(page);
-  await app.evaluate(() => { globalThis.archiveResponse = 1; });
   await row(page, 0).getByRole('button', { name: '永久删除 主线 · 左栏整理', exact: true }).click();
   await row(page, 0).waitFor({ state: 'detached' });
   await assert.rejects(readFile(join(sessionDir, 'archive-0.jsonl')), /ENOENT/);
   assert.ok(!(await persistedIds()).includes('archive-0'));
+  assert.deepEqual(await app.evaluate(() => globalThis.archiveDialogs), []);
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByLabel('主题').selectOption('dark');
   await page.getByRole('button', { name: '已归档', exact: true }).click();
@@ -221,12 +184,13 @@ try {
   assert.ok(await readFile(join(sessionDir, 'current.jsonl'), 'utf8'));
   assert.ok(await readFile(join(sessionDir, 'archive-8.jsonl'), 'utf8'));
   assert.equal(await readFile(sentinel, 'utf8'), 'Project files must survive deleting conversation history.');
+  assert.deepEqual(await app.evaluate(() => globalThis.archiveDialogs), []);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await app.close(); app = null;
   page = await launch();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).sessions.some(session => session.id === 'archive-0'), false);
   assert.deepEqual(errors, []);
-  console.log('Archives: settings-only grouping/search/filter/read, restore, cancel/single/bulk permanent delete, IPC guards, project preservation, reload/relaunch, light/dark/narrow/bilingual dates passed.');
+  console.log('Archives: settings-only grouping/search/filter/read, restore, direct single/bulk permanent delete without confirmation, IPC guards, project preservation, reload/relaunch, light/dark/narrow/bilingual dates passed.');
 } finally {
   if (app) await app.close();
 }

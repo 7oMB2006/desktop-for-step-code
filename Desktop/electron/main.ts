@@ -375,18 +375,6 @@ async function handle(method: string, args: any[]) {
           if (worker) await runtimes.assertIdle(worker);
           await managedSessionFile(join(dataRoot, 'sessions'), target.path);
         }
-        const zh = preferences.language === 'zh';
-        const response = await dialog.showMessageBox(window, {
-          type: 'warning',
-          message: targets.length === 1
-            ? zh ? '永久删除此归档会话？' : 'Permanently delete this archived session?'
-            : zh ? `永久删除这 ${targets.length} 个归档会话？` : `Permanently delete these ${targets.length} archived sessions?`,
-          detail: (targets.length === 1 ? `${targets[0].name || targets[0].firstMessage || (zh ? '新会话' : 'New session')}\n\n` : '') +
-            (zh ? '会话记录将永久删除，无法恢复。项目文件不会被删除。' : 'Conversation history will be permanently deleted and cannot be restored. Project files will not be deleted.'),
-          buttons: zh ? ['取消', '永久删除'] : ['Cancel', 'Delete permanently'],
-          defaultId: 0, cancelId: 0, noLink: true,
-        });
-        if (response.response !== 1) return false;
         archivedDeletionTargets(args[0], await listSessions(), preferences.archivedSessionIds ?? []);
         assertTargetsIdle();
         if (transition || settingsMutation) throw new Error('Session operation in progress');

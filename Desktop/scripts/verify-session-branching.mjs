@@ -103,6 +103,7 @@ try {
   await page.screenshot({ path: 'test-results/branch-sidebar-menu.png' });
   await sidebarBranch.click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '冷历史会话 · 分支');
+  await page.locator('.notice-toast').getByText('已创建分支会话', { exact: true }).waitFor();
   const coldClone = await page.evaluate(() => window.desktop.snapshot());
   assert.notEqual(coldClone.state.sessionId, 'sidebar-cold-source');
   assert.equal(coldClone.messages.length, 1, 'whole-session branch supports a latest user message and metadata leaf');
@@ -144,6 +145,7 @@ try {
   await input.fill('保留原会话草稿');
   await branchButtons.last().click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '分支原会话 · 分支');
+  await page.locator('.notice-toast').getByText('已创建分支会话', { exact: true }).waitFor();
   const cloned = await snapshot();
   assert.notEqual(cloned.runtimeId, source.runtimeId);
   assert.notEqual(cloned.state.sessionId, source.state.sessionId);

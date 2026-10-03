@@ -42,6 +42,8 @@ const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not sta
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
 function App() {
   const [data, setData] = useState(initial);
+  const latestData = useRef(data);
+  latestData.current = data;
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<NoticeToastItem | null>(null);
   const [mcpFailures, setMcpFailures] = useState<Record<string, { message: string; count: number }>>({});
@@ -157,7 +159,7 @@ function App() {
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
       setDraft(saved?.draft ?? ''); setQuotes(saved?.quotes ?? []);
       setAttachments(saved?.attachments ?? []); attachmentsRef.current = saved?.attachments ?? [];
-      setArrivingUser(null); setError(value.state?.sessionId ? errorsBySession.current.get(value.state.sessionId) ?? '' : ''); setNotice(null); setDetails('');
+      setArrivingUser(null); setError(value.state?.sessionId ? errorsBySession.current.get(value.state.sessionId) ?? '' : ''); setNotice(value => value?.icon ? value : null); setDetails('');
       if (value.state?.sessionId) errorsBySession.current.delete(value.state.sessionId);
       stoppingRef.current = false; setStopping(false);
       follow.current = saved?.follow ?? true;
@@ -484,7 +486,14 @@ function App() {
   const branchMessage = async (message: Message) => {
     if (!bridge || !message.entryId || !viewId.current || !connected || busy || loading) return;
     const id = viewId.current;
-    await applySnapshot(() => bridge.branchSession('clone', message.entryId!, id));
+    await createBranch(() => bridge.branchSession('clone', message.entryId!, id));
+  };
+  const createBranch = async (action: () => Promise<Snapshot | null>) => {
+    await applySnapshot(async () => {
+      const result = await action();
+      if (result) setNotice({ id: ++nextNoticeId.current, message: t('已创建分支会话', 'Branch session created'), type: 'info', icon: 'branch' });
+      return result;
+    });
   };
   const editMessage = async (message: Message, text: string) => {
     if (!bridge || !message.entryId || !viewId.current || !connected || busy || loading) throw new Error(t('会话暂时无法编辑', 'This conversation cannot be edited right now'));
@@ -535,11 +544,24 @@ function App() {
     setRenaming(true);
     setContextMenu(null);
   };
-  const updateArchive = async (id: string, restore: boolean) => {
-    const next = restore ? [...archived].filter(value => value !== id) : [...archived, id];
-    const preferences = await bridge!.preferences({ archivedSessionIds: next });
-    setData(previous => ({ ...previous, preferences }));
+  const updateArchive = async (id: string, restore: boolean, transitionFrom?: number) => {
     setContextMenu(null);
+    await run(async () => {
+      const ids = latestData.current.preferences.archivedSessionIds ?? [];
+      const next = restore ? ids.filter(value => value !== id) : [...new Set([...ids, id])];
+      const preferences = await bridge!.preferences({ archivedSessionIds: next });
+      latestData.current = { ...latestData.current, preferences };
+      setData(previous => ({ ...previous, preferences }));
+      const noticeId = ++nextNoticeId.current;
+      setNotice({
+        id: noticeId, message: restore ? t('会话已恢复', 'Session restored') : t('已归档会话', 'Session archived'),
+        type: restore ? 'success' : 'info', icon: restore ? 'restored' : 'archive', transitionFrom,
+        actions: restore ? undefined : [
+          { label: t('查看', 'View'), onClick: () => { setNotice(null); setTab('archived'); return openSettings(); } },
+          { label: t('撤销', 'Undo'), primary: true, onClick: () => updateArchive(id, true, noticeId) },
+        ],
+      });
+    });
   };
   const deleteArchived = async (ids: string[]) => {
     await run(async () => {
@@ -673,8 +695,6 @@ function App() {
   }}>
     <AppTooltip/>
     <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle}/>
-    <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
-      onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
     {imageMenu && <ImageContextMenu target={imageMenu} language={data.preferences.language}
       canAdd={Boolean(bridge) && attachments.length < 10 && attachments.filter(item => item.kind === 'image').length < 5}
       onAction={imageAction} onClose={() => setImageMenu(null)}/>}
@@ -696,12 +716,12 @@ function App() {
           setContextMenu(null);
           void run(async () => {
             await bridge!.copyText(sessionReference(id));
-            setNotice({ id: ++nextNoticeId.current, message: t('已复制会话引用', 'Session reference copied'), type: 'info' });
+            setNotice({ id: ++nextNoticeId.current, message: t('已复制会话引用', 'Session reference copied'), type: 'info', icon: 'copy' });
           });
         }}><Copy size={15}/>{t('复制会话引用', 'Copy session reference')}</button>
         <button role="menuitem" disabled={!bridge || loading || !data.sessions.some(session => session.id === contextMenu.id && session.path && session.messageCount > 0) ||
           data.runtimes?.some(runtime => runtime.sessionId === contextMenu.id && ['running', 'waiting'].includes(runtime.status))}
-          onClick={() => { const id = contextMenu.id; setContextMenu(null); void applySnapshot(() => bridge!.cloneSession(id)); }}>
+          onClick={() => { const id = contextMenu.id; setContextMenu(null); void createBranch(() => bridge!.cloneSession(id)); }}>
           <GitBranch size={15}/>{t('分支', 'Branch')}
         </button>
       </>}
@@ -730,6 +750,8 @@ function App() {
     </aside>
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
     <main>
+      <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
+        onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
       {!!requests.length && !approvalOpen && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
       {error && <div className="error-banner" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title={t('关闭', 'Dismiss')} onClick={() => setError('')}><X size={14}/></IconButton></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}

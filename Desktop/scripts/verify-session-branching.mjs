@@ -189,8 +189,8 @@ try {
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByRole('combobox').first().selectOption('dark');
-  await page.getByRole('dialog').getByRole('combobox').nth(1).selectOption('en');
+  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('dark');
+  await page.getByRole('dialog').getByLabel(/语言|Language/).selectOption('en');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 880));
   await page.screenshot({ path: 'test-results/branch-empty-narrow.png' });

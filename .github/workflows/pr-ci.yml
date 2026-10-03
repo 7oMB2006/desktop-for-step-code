@@ -84,6 +84,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
           node scripts/verify-electron.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Electron acceptance failed' }
+          node scripts/verify-sidebar-order.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Sidebar ordering acceptance failed' }
           node scripts/verify-session-concurrency.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Session concurrency acceptance failed' }
           node scripts/verify-session-branching.mjs

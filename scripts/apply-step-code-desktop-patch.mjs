@@ -18,13 +18,14 @@ if (patchText.includes("\r")) {
 	throw new Error("The Step Code integration patch has unsupported line endings");
 }
 const patchBytes = Buffer.from(patchText, "utf8");
-if (gitBlobHash(patchBytes) !== "94b89dd17a0c70b46233e0fd6a806f592b967b74") {
+if (gitBlobHash(patchBytes) !== "cde715e4d7dae4daf87ebfff0050e18e246db59a") {
 	throw new Error("The Step Code integration patch changed; review and update this applier");
 }
 
 const codingAgentPath = path.join(upstreamDir, "packages/coding-agent/src/index.ts");
 const authStoragePath = path.join(upstreamDir, "packages/coding-agent/src/core/auth-storage.ts");
 const bundleScriptPath = path.join(upstreamDir, "scripts/build-coding-agent-bundle.mjs");
+const subagentRpcAdapterPath = path.join(upstreamDir, "packages/coding-agent/src/features/subagent/rpc-adapter.ts");
 const authStorageBytes = await readFile(authStoragePath);
 const codingAgentBytes = await readFile(codingAgentPath);
 const bundleScriptBytes = await readFile(bundleScriptPath);
@@ -36,6 +37,10 @@ if (gitBlobHash(codingAgentBytes) !== "8e933536e3d6a0ac15017121a25e88e3d6a142e3"
 }
 if (gitBlobHash(bundleScriptBytes) !== "59fdc3ebc3f8d9e7a8b0d6d5fb919f0f7cd44d89") {
 	throw new Error("Unexpected pinned bundle script content");
+}
+const subagentRpcAdapterBytes = await readFile(subagentRpcAdapterPath);
+if (gitBlobHash(subagentRpcAdapterBytes) !== "9010d79a8f74ad026f805e2706b29a774ba5818d") {
+	throw new Error("Unexpected pinned subagent rpc adapter source content");
 }
 
 const applyOptions = { input: patchBytes, stdio: ["pipe", "inherit", "inherit"] };

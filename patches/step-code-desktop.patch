@@ -129,3 +129,52 @@ index 59fdc3e..da69d6c 100644
  
  for (const entry of [
  	join(appEntryDistDir, "main.js"),
+diff --git a/packages/coding-agent/src/features/subagent/rpc-adapter.ts b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+index 9010d79..3ddc850 100644
+--- a/packages/coding-agent/src/features/subagent/rpc-adapter.ts
++++ b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
+ import { mkdtemp, rm, writeFile } from "node:fs/promises";
+ import os from "node:os";
+ import path from "node:path";
++import { readDesktopAuthData } from "../../core/auth-storage.ts";
+ import {
+ 	CHILD_MARKER,
+ 	cloneUsage,
+@@ -142,6 +143,28 @@ export function resolveSubagentTurnIdleTimeoutMs(
+ 	return Math.floor(parsed);
+ }
+ 
++/**
++ * Re-exports the desktop credential snapshot to the child.
++ *
++ * Desktop credentials live only in this process: auth-storage.ts consumes
++ * STEPCODE_DESKTOP_AUTH_PATH / STEPCODE_DESKTOP_AUTH_DATA at module load and
++ * deletes both from process.env, so a spread of process.env strips them again
++ * and the child's ModelRuntime finds no credentials and no models. Outside a
++ * desktop runtime (no STEPCODE_AUTH_PATH, or no desktop backend behind it)
++ * this is a no-op.
++ */
++function desktopAuthChildEnv(): NodeJS.ProcessEnv {
++	try {
++		const authPath = process.env.STEPCODE_AUTH_PATH;
++		if (!authPath) return {};
++		const data = readDesktopAuthData();
++		if (!data || typeof data !== "object") return {};
++		return { STEPCODE_DESKTOP_AUTH_PATH: authPath, STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(data) };
++	} catch {
++		return {};
++	}
++}
++
+ /**
+  * Environment for one rpc child.
+  *
+@@ -170,6 +193,7 @@ export function resolveSubagentTurnIdleTimeoutMs(
+ export function buildSubagentChildEnv(input: StepSubagentRunInput): NodeJS.ProcessEnv {
+ 	return {
+ 		...process.env,
++		...desktopAuthChildEnv(),
+ 		[CHILD_MARKER]: "1",
+ 		STEP_DISABLE_WORKFLOW: "1",
+ 		STEP_DISABLE_CRON: "1",

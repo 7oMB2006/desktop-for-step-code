@@ -13,7 +13,7 @@
   <img src="assets/readme/home-zh.png" width="360" alt="Desktop for Step Code home screen in Chinese">
 </p>
 
-A Windows desktop client for Step Code. It provides desktop workspaces, conversations, and session management; Step Code powers agent execution.
+A Windows desktop client for [Step Code](https://github.com/stepfun-ai/Step-Code). It provides desktop workspaces, conversations, and session management; Step Code powers agent execution.
 
 ### Why This Project
 

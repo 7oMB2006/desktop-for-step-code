@@ -334,7 +334,8 @@ async function handle(method: string, args: any[]) {
         if (type === 'set_permission_preset') {
           const preset = text(data.preset, 30);
           if (!permissionPresets.includes(preset as typeof permissionPresets[number])) throw new Error('Unknown permission preset');
-          await runtimes.assertIdle(worker);
+          // Preset switching stays allowed while a turn runs: it only governs
+          // later approvals, so it must not assert an idle session.
           const { commands } = await rpc.request('get_commands');
           if (!Array.isArray(commands) || !commands.some((command: { name?: string; source?: string }) => command.name === 'permissions' && command.source === 'extension')) {
             throw new Error('This Step Code runtime does not support permission switching');

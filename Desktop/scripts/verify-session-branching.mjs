@@ -1,6 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -21,7 +21,8 @@ const server = createServer(async (req, res) => {
   streams.push(res);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const profile = await mkdtemp(join(tmpdir(), 'desktop-branch-'));
+// Windows TEMP can use an 8.3 alias; compare session links in the canonical profile.
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-branch-')));
 const workspace = join(profile, 'workspace');
 const root = join(profile, 'step-runtime');
 await mkdir(workspace);

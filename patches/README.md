@@ -15,5 +15,13 @@ git apply ../patches/step-code-desktop.patch
 
 Do not apply again to the existing prepared checkout. Do not reset an upstream checkout with unrelated local changes. Rebuild upstream before staging the desktop runtime.
 
+If the existing `Step-Code/` checkout must be preserved, build a separate checkout of the pinned commit with the integration patch applied, then stage it from `Desktop/`:
+
+```powershell
+corepack pnpm stage:runtime 'D:\path\to\prepared-step-code'
+```
+
+`DESKTOP_STEP_CODE_SOURCE` can supply the same source directory when using `pnpm package`. The explicit argument takes precedence, and the default remains `../Step-Code`. Staging refuses a different upstream commit before modifying the runtime. Updating the pinned baseline requires updating the staging check as well as CI and the integration patch applier.
+
 Management operations use upstream SessionManager, configuration locking, skills discovery, and login/logout helpers in a separate process. Agent execution uses the upstream JSONL RPC entry.
 Electron encrypts the desktop auth snapshot with Windows `safeStorage` before writing it under userData. The runtime and management children receive the decrypted snapshot at launch and do not write `auth.json`. Any future upstream auth write path must be checked against this boundary before updating the pinned patch.

@@ -3,9 +3,13 @@ import { createRequire } from 'node:module';
 import { resolve, dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-const upstream = resolve('../Step-Code');
+const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
 if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('Build this Windows x64 preview on Windows x64');
+const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
+if (commit !== '519e4de4ed2162d3667be1821cb92ada6b884e5a') {
+  throw new Error('Step Code source does not match the pinned Desktop baseline; build the pinned checkout and pass its path to stage:runtime');
+}
 const source = join(upstream, 'packages/coding-agent');
 const currentNode = await readFile(process.execPath);
 const nodeSha256 = createHash('sha256').update(currentNode).digest('hex');
@@ -48,6 +52,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth'] }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

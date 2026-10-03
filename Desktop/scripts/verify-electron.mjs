@@ -596,6 +596,20 @@ try {
   assert.equal(projectState.independent, false);
   assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
+  await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained empty project draft');
+  const projectRows = await page.getByRole('region', { name: projectState.preferences.workspace, exact: true }).locator('.session-row').count();
+  for (let i = 0; i < 5; i++) {
+    await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector('.composer > textarea').disabled);
+    const reused = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(reused.runtimeId, projectState.runtimeId);
+    assert.equal(reused.state.sessionId, projectState.state.sessionId);
+    assert.equal(reused.runtimes.length, projectState.runtimes.length);
+    assert.equal(await page.getByRole('region', { name: projectState.preferences.workspace, exact: true }).locator('.session-row').count(), projectRows);
+    assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), 'Retained empty project draft');
+  }
+  await page.getByRole('textbox', { name: '消息', exact: true }).fill('');
+  console.log('Project new-session clicks reuse one empty runtime and retain the composer draft without extra sidebar rows.');
   await page.screenshot({ path: 'test-results/desktop-dark-connected.png' });
   assert.equal(await page.locator('.topbar').count(), 0);
   const firstGroup = page.getByRole('region', { name: projectState.preferences.workspace, exact: true });

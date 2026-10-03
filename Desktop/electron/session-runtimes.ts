@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { RpcProcess } from './runtime';
 import { permissionFromStatus } from './permission-status';
 import { WORKSPACE_POLICY } from './workspace-policy';
@@ -46,12 +47,17 @@ export function taskOutcome(messages: Message[]) {
   if (['error', 'aborted', 'length'].includes(last.stopReason ?? '')) return 'interrupted' as const;
   return 'idle' as const;
 }
+function workspaceKey(cwd: string) {
+  const path = resolve(cwd);
+  return process.platform === 'win32' ? path.toLowerCase() : path;
+}
 
 // A worker owns one session identity until disposal; edits move its history leaf.
 export class SessionRuntimes {
   readonly workers = new Map<string, SessionRuntime>();
   readonly unreadSessionIds = new Set<string>();
   activeId?: string;
+  private openingEmpty = new Map<string, Promise<SessionRuntime>>();
   private confirmations = new Map<string, { worker: SessionRuntime; resolve: (approved: boolean) => void }>();
   constructor(
     private emit: (event: RuntimeEvent) => void,
@@ -81,6 +87,24 @@ export class SessionRuntimes {
     return worker;
   }
   async open(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
+    if (sessionPath || branch) return this.openWorker(node, entry, cwd, env, sessionPath, branch);
+    const key = workspaceKey(cwd);
+    // Coalesce requests even while the first worker is still starting.
+    while (this.openingEmpty.has(key)) await this.openingEmpty.get(key);
+    const empty = [...this.workers.values()].find(worker =>
+      workspaceKey(worker.cwd) === key && worker.status === 'connected' && worker.state?.sessionId &&
+      !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !worker.operations && !worker.mutating &&
+      !worker.failed && !worker.interrupted);
+    if (empty) {
+      this.activate(empty);
+      return empty;
+    }
+    const opening = this.openWorker(node, entry, cwd, env);
+    this.openingEmpty.set(key, opening);
+    try { return await opening; }
+    finally { if (this.openingEmpty.get(key) === opening) this.openingEmpty.delete(key); }
+  }
+  private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
     const worker: SessionRuntime = {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),

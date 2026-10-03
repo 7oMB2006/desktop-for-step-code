@@ -29,9 +29,98 @@ function fixture() {
     transports.push(transport);
     return transport;
   });
-  const open = (cwd = 'workspace') => pool.open('node', 'step', cwd, {});
+  const open = (cwd = `workspace-${transports.length}`) => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+
+test('repeated new-session requests reuse one empty worker without resetting it', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  empty.permissionPreset = 'read-only';
+  const calls = transports[0].calls.length;
+  for (let i = 0; i < 5; i++) assert.equal(await open('workspace'), empty);
+  assert.equal(pool.active, empty);
+  assert.equal(pool.workers.size, 1);
+  assert.equal(transports.length, 1);
+  assert.equal(transports[0].calls.length, calls);
+  assert.equal(empty.permissionPreset, 'read-only');
+  await pool.stopAll();
+});
+
+test('concurrent new-session requests share the startup worker', async () => {
+  const { pool, transports, open } = fixture();
+  const workers = await Promise.all(Array.from({ length: 5 }, () => open('workspace')));
+  assert.ok(workers.every(worker => worker === workers[0]));
+  assert.equal(transports.length, 1);
+  assert.equal(transports[0].calls.filter(type => type === 'new_session').length, 1);
+  await pool.stopAll();
+});
+
+test('new sessions reuse background empties only in the same workspace', async () => {
+  const { pool, transports, open } = fixture();
+  const a = await open('workspace-a');
+  const b = await open('workspace-b');
+  assert.notEqual(a, b);
+  assert.equal(await open('workspace-a'), a);
+  assert.equal(pool.active, a);
+  assert.equal(transports.length, 2);
+  a.messages = [{ role: 'user', content: 'saved' }];
+  const next = await open('workspace-a');
+  assert.notEqual(next, a);
+  assert.equal(await open('workspace-a'), next);
+  assert.equal(transports.length, 3);
+  await pool.stopAll();
+});
+
+test('restoring a saved session never reuses an unrelated empty worker', async () => {
+  const { pool, transports, open } = fixture();
+  const empty = await open('workspace');
+  const restored = await pool.open('node', 'step', 'workspace', {}, 'saved.jsonl');
+  assert.notEqual(restored, empty);
+  assert.ok(transports[1].calls.includes('switch_session'));
+  await pool.stopAll();
+});
+
+test('busy, modifying, failed and disconnected empty workers are not reused', async () => {
+  const states = [
+    { busy: true }, { submissions: 1 }, { operations: 1 }, { mutating: true },
+    { failed: true }, { interrupted: true }, { status: 'disconnected' },
+  ];
+  for (const state of states) {
+    const { pool, transports, open } = fixture();
+    const old = await open('workspace');
+    Object.assign(old, state);
+    assert.notEqual(await open('workspace'), old, JSON.stringify(state));
+    assert.equal(transports[0].stopped, false);
+    await pool.stopAll();
+  }
+  for (const state of [{ isCompacting: true }, { pendingMessageCount: 1 }, { isStreaming: true }]) {
+    const { pool, open } = fixture();
+    const old = await open('workspace');
+    Object.assign(old.state!, state);
+    assert.notEqual(await open('workspace'), old);
+    await pool.stopAll();
+  }
+  const { pool, transports, open } = fixture();
+  const old = await open('workspace');
+  transports[0].receive({ type: 'extension_ui_request', method: 'confirm', id: 'approval' });
+  assert.notEqual(await open('workspace'), old);
+  assert.equal(old.pendingUI.size, 1);
+  await pool.stopAll();
+});
+
+test('failed empty-worker startup is released so a later new session can retry', async () => {
+  const { pool, transports, open } = fixture();
+  const first = open('workspace');
+  transports[0].request = async () => { throw new Error('Startup failed'); };
+  await assert.rejects(first, /Startup failed/);
+  assert.equal(pool.workers.size, 0);
+  assert.equal(transports[0].stopped, true);
+  const next = await open('workspace');
+  assert.equal(pool.active, next);
+  assert.equal(transports.length, 2);
+  await pool.stopAll();
+});
 
 function branchFixture(outcome: 'success' | 'cancelled' | 'changed' = 'success') {
   const transports: Transport[] = [];

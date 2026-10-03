@@ -1,10 +1,11 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, mkdtemp, readFile, writeFile, utimes } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 
-const profile = await mkdtemp(join(tmpdir(), 'step-desktop-sidebar-'));
+// Windows runner TEMP can use an 8.3 alias; match the main process's canonical paths.
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-desktop-sidebar-')));
 const projects = ['Desktop For Step Code', 'Frontend', 'Research'].map(name => join(profile, name));
 for (const path of projects) await mkdir(path);
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: projects, sessionOrder: Array.from({ length: 5 }, (_, i) => `sidebar-${i}`) }));

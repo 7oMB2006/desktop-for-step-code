@@ -2,10 +2,10 @@ export interface Session { id: string; path: string; cwd: string; workspacePath?
 export interface Model { id: string; provider: string; name: string; reasoning?: boolean }
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export type ComposerAttachment = { kind: 'image'; name: string; content: Content } | { kind: 'file'; id: string; name: string; size: number };
-export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number }
-export interface SessionStats { toolCalls: number; assistantMessages: number; tokens: Usage & { total: number }; contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null } }
+export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number; totalTokens?: number; cost?: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number } }
+export interface SessionStats { toolCalls: number; assistantMessages: number; userMessages?: number; toolResults?: number; totalMessages?: number; cost?: number; tokens: Usage & { total: number }; contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null } }
 export type PermissionPreset = 'ask' | 'read-only' | 'bypass' | 'autopilot';
-export interface Message { role: string; content: string | Content[]; timestamp?: number; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string; entryId?: string }
+export interface Message { role: string; content: string | Content[]; timestamp?: number; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string; entryId?: string; provider?: string; model?: string; errorMessage?: string; summary?: string; command?: string; output?: string; excludeFromContext?: boolean; details?: { patch?: string; diff?: string } }
 export interface RuntimeState { isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
 export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string }
 export type RuntimeEvent = { type: string; [key: string]: any };
@@ -17,6 +17,7 @@ export interface Account { loggedIn: boolean; validity: string; profile?: string
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
 export interface DesktopBridge {
+  turnUndo(runtimeId: string, toolIds: string[], action: 'status' | 'prepare' | 'undo', token?: string): Promise<TurnUndoState>;
   windowControl(action: 'state' | 'minimize' | 'toggleMaximize' | 'close'): Promise<{ maximized: boolean }>;
   systemTheme(): Promise<{ systemDark: boolean }>;
   snapshot(): Promise<Snapshot>;
@@ -49,6 +50,7 @@ export interface DesktopBridge {
   diagnostics(): Promise<boolean>;
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }
+export interface TurnUndoState { state: 'available' | 'unavailable' | 'conflict' | 'undone' | 'failed'; token?: string }
 export interface DesktopTheme {
   resolved: 'light' | 'dark';
   systemDark: boolean;

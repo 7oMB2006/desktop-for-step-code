@@ -28,6 +28,7 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  turnUndo: (runtimeId, toolIds, action, token) => invoke('turnUndo', runtimeId, toolIds, action, token),
   windowControl: action => invoke('windowControl', action),
   systemTheme: () => ipcRenderer.invoke('desktop-system-theme'),
   newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'), openWorkspaceFolder: path => invoke('openWorkspaceFolder', path),

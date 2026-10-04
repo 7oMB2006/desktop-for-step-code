@@ -1,0 +1,66 @@
+.turn-changes {
+  --diff-add: oklch(.43 .11 155);
+  --diff-remove: oklch(.48 .14 25);
+  --diff-add-bg: oklch(.965 .025 155);
+  --diff-remove-bg: oklch(.965 .025 25);
+  margin: 24px 0 12px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+:root[data-theme=dark] .turn-changes {
+  --diff-add: oklch(.78 .13 155); --diff-remove: oklch(.78 .13 25);
+  --diff-add-bg: oklch(.25 .035 155); --diff-remove-bg: oklch(.25 .035 25);
+}
+.turn-changes-header { display: flex; align-items: baseline; gap: 10px; padding: 14px 0 2px; }
+.turn-changes-header h3 { margin: 0; font-size: 12px; font-weight: 600; }
+.turn-changes-header > span { font-size: 11px; color: var(--muted); }
+.turn-change-totals { display: flex; gap: 10px; font-variant-numeric: tabular-nums; }
+.turn-undo-action { margin-left: auto; border: 0; background: transparent; color: var(--muted); padding: 2px 4px; font-size: 11px; }
+.turn-undo-action:hover:not(:disabled) { color: var(--ink); background: var(--surface); }
+.turn-undo-action:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.turn-undo-action:disabled { color: var(--muted); opacity: .6; }
+.turn-undo-dialog { max-width: min(420px, calc(100vw - 32px)); animation: turn-diff-enter 200ms cubic-bezier(.22, 1, .36, 1) both; }
+.turn-undo-dialog p { line-height: 1.7; overflow-wrap: anywhere; }
+.turn-undo-note { color: var(--muted); font-size: 11px; }
+.turn-undo-dialog .turn-undo-confirm { color: oklch(.48 .14 25); border-color: currentColor; }
+.turn-undo-dialog .turn-undo-confirm:hover:not(:disabled) { background: oklch(.965 .025 25); }
+:root[data-theme=dark] .turn-undo-dialog .turn-undo-confirm { color: oklch(.78 .13 25); }
+:root[data-theme=dark] .turn-undo-dialog .turn-undo-confirm:hover:not(:disabled) { background: oklch(.25 .035 25); }
+.turn-change-totals b { font-size: 12px; font-weight: 500; }
+.turn-changes-provenance { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); padding-bottom: 8px; }
+.diff-added { color: var(--diff-add); }
+.diff-removed { color: var(--diff-remove); }
+.turn-change-file + .turn-change-file { border-top: 1px solid var(--border); }
+.turn-change-row {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  width: 100%; padding: 11px 10px; min-height: 54px; border: 0; border-radius: 0;
+  background: transparent; text-align: left; color: var(--ink);
+}
+.turn-change-row:hover, .turn-change-row[aria-expanded=true] { background: var(--surface); }
+.turn-change-row:focus-visible, .turn-changes-more:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.turn-file-order { font: 10px "Cascadia Code", Consolas, monospace; color: var(--muted); }
+.turn-file-name { display: grid; min-width: 0; gap: 2px; }
+.turn-file-name b { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.turn-file-name small { font-size: 10px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.turn-file-stats { display: flex; gap: 8px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.turn-changes-more { border: 0; background: transparent; color: var(--muted); font-size: 11px; padding: 8px 0 10px; gap: 6px; }
+.turn-changes-more:hover { color: var(--ink); }
+.turn-diff { margin: 0 10px 12px 44px; border-left: 2px solid var(--border); background: var(--side); animation: turn-diff-enter 200ms cubic-bezier(.22, 1, .36, 1) both; }
+.turn-diff-toolbar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border-bottom: 1px solid var(--border); font-size: 10px; color: var(--muted); }
+.turn-diff-toolbar select { padding: 2px 4px; min-width: 0; max-width: 60%; font-size: 10px; border: 0; background: transparent; }
+.turn-diff-legend { margin-left: auto; display: flex; gap: 7px; font-variant-numeric: tabular-nums; }
+.turn-diff-toolbar .icon-button { width: 24px; min-height: 24px; height: 24px; color: var(--muted); }
+.turn-diff-scroll { max-height: 340px; overflow: auto; overscroll-behavior: contain; }
+.turn-changes .turn-diff-table { display: table; width: 100%; margin: 0; border-collapse: collapse; font: 11px/1.8 "Cascadia Code", Consolas, monospace; }
+.turn-changes .turn-diff-table td { padding: 0; border: 0; vertical-align: top; }
+.turn-changes .turn-diff-table .diff-line-number { width: 34px; min-width: 34px; padding: 0 6px; text-align: right; color: var(--muted); user-select: none; font-size: 10px; }
+.turn-changes .turn-diff-table .diff-line-sign { width: 18px; min-width: 18px; text-align: center; user-select: none; }
+.turn-changes .turn-diff-table .diff-line-text { padding-right: 10px; }
+.turn-changes .turn-diff-table code { font-size: inherit; padding: 0; border-radius: 0; background: transparent; white-space: pre; }
+.diff-line-add { background: var(--diff-add-bg); }
+.diff-line-remove { background: var(--diff-remove-bg); }
+.diff-line-add .diff-line-sign { color: var(--diff-add); }
+.diff-line-remove .diff-line-sign { color: var(--diff-remove); }
+.diff-line-hunk, .diff-line-note { color: var(--muted); font-size: 10px; }
+.diff-line-hunk { background: var(--surface); }
+@keyframes turn-diff-enter { from { opacity: .4; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (max-width: 650px) { .turn-change-row { gap: 6px; padding-inline: 8px; grid-template-columns: 18px minmax(0, 1fr) auto; } .turn-diff { margin-inline: 8px; } }
+@media (prefers-reduced-motion: reduce) { .turn-diff, .turn-undo-dialog { animation: none; } }

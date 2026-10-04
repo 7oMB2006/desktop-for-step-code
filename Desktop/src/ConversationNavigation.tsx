@@ -1,4 +1,5 @@
-import { useLayoutEffect, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
+import { X } from 'lucide-react';
 import type { Message } from './contracts';
 
 export type ConversationTurn = { index: number; preview: string; timestamp?: number };
@@ -28,6 +29,40 @@ export function scrollToTurn(scroll: HTMLDivElement | null, index: number) {
   if (!scroll || !message) return;
   const top = message.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
   scroll.scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+}
+
+export function ConversationNavigationPanel({ open, replaced, turns, language, onClose, onSelect }: {
+  open: boolean; replaced: boolean; turns: ConversationTurn[]; language: 'zh' | 'en';
+  onClose: () => void; onSelect: (index: number) => void;
+}) {
+  const [present, setPresent] = useState(open);
+  if (open && !present) setPresent(true);
+  useLayoutEffect(() => {
+    if (!open && matchMedia('(prefers-reduced-motion: reduce)').matches) setPresent(false);
+  }, [open]);
+  useEffect(() => {
+    if (open || !present) return;
+    const timer = setTimeout(() => setPresent(false), 260);
+    return () => clearTimeout(timer);
+  }, [open, present]);
+  if (!present) return null;
+  const zh = language === 'zh';
+  return <div className={`conversation-nav-track${open ? ' is-open' : ''}${replaced ? ' is-replaced' : ''}`}>
+    <aside className={`conversation-nav-panel${open ? '' : ' is-closing'}`} id="conversation-navigation-panel"
+      aria-label={zh ? '会话导航' : 'Conversation navigation'} aria-hidden={!open} inert={!open}>
+      <header><h2>{zh ? '会话导航' : 'Conversation navigation'}</h2>
+        <button type="button" className="icon-button" aria-label={zh ? '关闭侧栏' : 'Close panel'}
+          data-tooltip={zh ? '关闭侧栏' : 'Close panel'} onClick={onClose}><X size={16}/></button></header>
+      <nav aria-label={zh ? '会话轮次' : 'Conversation turns'}>
+        {turns.map((turn, number) => <button key={turn.index} onClick={() => onSelect(turn.index)}>
+          <span className="nav-turn-number">{number + 1}</span><span className="nav-turn-content"><span className="nav-turn-preview">{turn.preview}</span>
+            {turnTime(turn.timestamp, language) && <time className="nav-turn-time" dateTime={new Date(turn.timestamp!).toISOString()}>{turnTime(turn.timestamp, language)}</time>}
+          </span>
+        </button>)}
+        {!turns.length && <p className="panel-empty">{zh ? '暂无会话轮次' : 'No turns yet'}</p>}
+      </nav>
+    </aside>
+  </div>;
 }
 
 export const RULER_STEP = 18;

@@ -10,6 +10,9 @@ import { SessionCollaboration } from './session-collaboration';
 import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
+import { TurnUndoStore } from './turn-undo';
+import { conversationEntries } from '../src/conversation-presentation';
+import { turnChanges } from '../src/turn-changes';
 import type { Preferences, Session, Snapshot } from '../src/contracts';
 import { reconcileSessionOrder, validateSidebarPreferences } from '../src/sidebar-order';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
@@ -30,6 +33,9 @@ let quitting = false;
 let quitPending = false;
 let startup: Promise<void> = Promise.resolve();
 let startupError: string | undefined;
+let undoBusy = false;
+const undoStore = new TurnUndoStore(join(app.getPath('userData'), 'turn-undo'));
+const undoCaptures = new Map<string, Promise<void>>();
 const attachedFiles = new Map<string, string>();
 async function importAttachment(path: string) {
   const canonical = await realpath(path);
@@ -95,6 +101,19 @@ async function persistAuth(next: Record<string, unknown>) {
 }
 const emit = (event: unknown) => { if (window && !window.isDestroyed()) window.webContents.send('runtime-event', event); };
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
+  if (event.type === 'agent_end') {
+    const worker = runtimes.workers.get(event.runtimeId);
+    const entry = worker && conversationEntries(worker.messages).at(-1);
+    if (worker?.state?.sessionId && entry?.type === 'response' && !worker.failed && !worker.interrupted) {
+      const sessionId = worker.state.sessionId;
+      const capture = undoStore.capture(sessionId, worker.cwd, entry.items).catch(() => {});
+      undoCaptures.set(worker.id, capture);
+      void capture.finally(() => {
+        if (undoCaptures.get(worker.id) === capture) undoCaptures.delete(worker.id);
+        emit({ type: 'desktop_undo_ready', runtimeId: worker.id });
+      });
+    }
+  }
   if (event.type === 'desktop_exit') void crashLog.record('runtime-exit', new Error('Step Code runtime exited unexpectedly'), event.details ?? {});
   emit(event);
 }, undefined, {
@@ -214,6 +233,38 @@ async function newIndependentSession() {
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[]) {
   switch (method) {
+    case 'turnUndo': {
+      if (transition || undoBusy) throw new Error('Workspace operation in progress');
+      const worker = runtimes.require(text(args[0], 80));
+      if (!Array.isArray(args[1]) || !args[1].length || args[1].length > 100 ||
+        args[1].some((id: unknown) => typeof id !== 'string' || id.length > 200)) throw new Error('Invalid edit identifiers');
+      const action = args[2];
+      if (!['status', 'prepare', 'undo'].includes(action)) throw new Error('Invalid undo action');
+      await undoCaptures.get(worker.id);
+      const entry = conversationEntries(worker.messages).find(entry => entry.type === 'response' &&
+        JSON.stringify(turnChanges(entry.items).files.flatMap(file => file.edits.map(edit => edit.id))) === JSON.stringify(args[1]));
+      if (entry?.type !== 'response' || !worker.state?.sessionId) throw new Error('Turn not found');
+      const sessionId = worker.state.sessionId;
+      if (action === 'status') return undoStore.status(sessionId, worker.cwd, entry.items);
+      if (worker.permissionPreset === 'read-only') throw new Error('Read-only session cannot undo files');
+      if (action === 'prepare') return undoStore.prepare(sessionId, worker.cwd, entry.items);
+      const token = text(args[3], 80);
+      undoBusy = true;
+      const lockedPeers: import('./session-runtimes').SessionRuntime[] = [];
+      try {
+        // Prevent Desktop workers sharing this directory from racing the write.
+        for (const peer of runtimes.workers.values()) {
+          if (!(await samePath(peer.cwd, worker.cwd))) continue;
+          if (peer.mutating || runtimes.isBusy(peer)) throw new Error('Stop tasks using this workspace before undo');
+          peer.mutating = true;
+          lockedPeers.push(peer);
+          await runtimes.assertIdle(peer);
+        }
+        const result = await undoStore.undo(sessionId, worker.cwd, entry.items, token);
+        emit({ type: 'desktop_undo_ready', runtimeId: worker.id });
+        return result;
+      } finally { for (const peer of lockedPeers) peer.mutating = false; undoBusy = false; }
+    }
     case 'windowControl': {
       switch (args[0]) {
         case 'state': break;
@@ -700,6 +751,9 @@ else app.whenReady().then(async () => {
   ipcMain.handle('desktop', async (event, method, ...args) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
     const shared = ['login', 'logout', 'saveMcp'].includes(method);
+    if (undoBusy && ['command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
+      'switchSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp'].includes(method))
+      throw new Error('Undo in progress');
     if (settingsMutation && ['command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp'].includes(method)) throw new Error('Shared settings operation in progress');
     if (shared) settingsMutation = true;
     try { return await handle(method, args); }

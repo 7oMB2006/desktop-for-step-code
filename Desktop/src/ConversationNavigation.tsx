@@ -31,8 +31,8 @@ export function scrollToTurn(scroll: HTMLDivElement | null, index: number) {
   scroll.scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
 }
 
-export function ConversationNavigationPanel({ open, replaced, turns, language, onClose, onSelect }: {
-  open: boolean; replaced: boolean; turns: ConversationTurn[]; language: 'zh' | 'en';
+export function ConversationNavigationPanel({ open, replaced, overlay, turns, language, onClose, onSelect }: {
+  open: boolean; replaced: boolean; overlay: boolean; turns: ConversationTurn[]; language: 'zh' | 'en';
   onClose: () => void; onSelect: (index: number) => void;
 }) {
   const [present, setPresent] = useState(open);
@@ -47,10 +47,11 @@ export function ConversationNavigationPanel({ open, replaced, turns, language, o
   }, [open, present]);
   if (!present) return null;
   const zh = language === 'zh';
-  return <div className={`conversation-nav-track${open ? ' is-open' : ''}${replaced ? ' is-replaced' : ''}`}>
+  return <div className={`conversation-nav-track${open ? ' is-open' : ''}${overlay ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}`}>
     <aside className={`conversation-nav-panel${open ? '' : ' is-closing'}`} id="conversation-navigation-panel"
       aria-label={zh ? '会话导航' : 'Conversation navigation'} aria-hidden={!open} inert={!open}>
-      <header><h2>{zh ? '会话导航' : 'Conversation navigation'}</h2>
+      <header className="right-panel-header"><h2>{zh ? '会话导航' : 'Conversation navigation'}</h2>
+        <span className="nav-turn-count">{turns.length} {zh ? '轮' : 'turns'}</span>
         <button type="button" className="icon-button" aria-label={zh ? '关闭侧栏' : 'Close panel'}
           data-tooltip={zh ? '关闭侧栏' : 'Close panel'} onClick={onClose}><X size={16}/></button></header>
       <nav aria-label={zh ? '会话轮次' : 'Conversation turns'}>

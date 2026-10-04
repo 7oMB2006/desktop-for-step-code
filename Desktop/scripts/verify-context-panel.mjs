@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { verifyInspectorExpansion } from './verify-inspector-expansion.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-context-panel-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
@@ -159,6 +160,9 @@ try {
   await panel.locator('.context-json pre').waitFor();
   await verifyTrackless(panel.locator('.context-json pre'));
   assert.ok((await panel.locator('.context-json pre').innerText()).includes('step-5-preview'));
+  const openJson = await panel.locator('.context-json pre').innerText();
+  await verifyInspectorExpansion(page, panel, 'context-expanded-light');
+  assert.equal(await panel.locator('.context-json pre').innerText(), openJson);
   await panel.getByRole('button', { name: '复制消息 JSON', exact: true }).click();
   assert.ok(await app.evaluate(() => globalThis.contextCopies.at(-1).includes('step-5-preview')));
   await panel.getByRole('tab', { name: /工具/ }).click();
@@ -183,6 +187,7 @@ try {
   await page.mouse.move(700, 25);
   await page.screenshot({ path: 'test-results/context-panel-json-dark.png' });
   await panel.screenshot({ path: 'test-results/context-panel-detail-dark.png' });
+  await verifyInspectorExpansion(page, panel, 'context-expanded-dark');
   await panel.locator('.context-message[open] summary').click();
   await panel.locator('.context-panel-scroll').evaluate(element => { element.scrollTop = 0; });
   await page.mouse.move(700, 25);
@@ -206,6 +211,7 @@ try {
   assert.ok(small.x >= 0 && small.x + small.width <= 640 - 44 + 1);
   assert.ok(await panel.evaluate(element => element.scrollWidth <= element.clientWidth));
   await page.screenshot({ path: 'test-results/context-panel-small.png' });
+  await verifyInspectorExpansion(page, panel, 'context-expanded-narrow');
   await app.evaluate(({ ipcMain }) => { globalThis.contextFixture.stats.contextUsage.tokens = null; globalThis.contextFixture.stats.contextUsage.percent = null; });
   await panel.getByRole('button', { name: '刷新上下文', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.context-capacity-strip').getAttribute('aria-valuetext') === '未知');
@@ -215,6 +221,10 @@ try {
   assert.equal(await toggle.evaluate(element => document.activeElement === element), true);
   await toggle.click();
   assert.equal(await panel.evaluate(element => getComputedStyle(element).animationName), 'none');
+  await panel.getByRole('button', { name: '全屏查看', exact: true }).click();
+  assert.equal(await panel.evaluate(element => getComputedStyle(element.closest('.right-inspector-surface')).transitionDuration), '0s');
+  await page.keyboard.press('Escape');
+  assert.equal(await panel.getByRole('button', { name: '全屏查看', exact: true }).count(), 1);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await app.evaluate(() => {
     globalThis.contextFixture.messages = Array.from({ length: 36 }, (_, index) => ({
@@ -223,16 +233,56 @@ try {
     }));
   });
   await panel.getByRole('button', { name: '刷新上下文', exact: true }).click();
+  const contextShell = await panel.evaluate(element => ({
+    width: element.getBoundingClientRect().width, background: getComputedStyle(element).backgroundColor,
+    headerHeight: element.querySelector('header').getBoundingClientRect().height,
+    headerPadding: getComputedStyle(element.querySelector('header')).paddingLeft,
+  }));
+  await panel.getByRole('button', { name: '全屏查看', exact: true }).click();
+  await page.waitForTimeout(300);
   await page.locator('.right-tool-rail').getByRole('button', { name: '会话导航', exact: true }).click();
   const navigation = page.getByRole('complementary', { name: '会话导航', exact: true });
   await navigation.waitFor();
+  assert.equal(await page.locator('main').evaluate(element => element.inert), false);
   assert.deepEqual(await navigation.evaluate(element => {
     const style = getComputedStyle(element);
     return { properties: style.transitionProperty, ease: style.transitionTimingFunction, duration: style.transitionDuration };
   }), { properties: 'opacity, transform', ease: `${motion.ease}, ${motion.ease}`, duration: '0.26s, 0.26s' });
   const turnList = navigation.getByRole('navigation');
+  assert.equal(await navigation.getByRole('button', { name: '全屏查看', exact: true }).count(), 0);
   await verifyTrackless(turnList);
   await page.waitForTimeout(350);
+  assert.ok(await turnList.evaluate(element => {
+    const row = element.querySelector('button');
+    const outer = element.getBoundingClientRect();
+    const inner = row.getBoundingClientRect();
+    const right = inner.right - 8;
+    return Math.abs(inner.x - outer.x) < 1 && inner.right >= outer.right - 5 &&
+      document.elementFromPoint(inner.x + 8, inner.y + 10)?.closest('button') === row &&
+      document.elementFromPoint(right, inner.y + 10)?.closest('button') === row;
+  }), 'navigation interaction rows must reach both edges');
+  assert.deepEqual(await navigation.evaluate(element => ({
+    width: element.getBoundingClientRect().width, background: getComputedStyle(element).backgroundColor,
+    headerHeight: element.querySelector('header').getBoundingClientRect().height,
+    headerPadding: getComputedStyle(element.querySelector('header')).paddingLeft,
+  })), contextShell);
+  assert.equal(await page.locator('.right-panel-backdrop').count(), 0);
+  await conversation.evaluate(element => { element.scrollTop = 0; });
+  const navConversation = await conversation.boundingBox();
+  await page.mouse.move(navConversation.x + 30, navConversation.y + 120);
+  await page.mouse.wheel(0, 260);
+  await page.waitForFunction(() => document.querySelector('#conversation-scroll').scrollTop > 100);
+  const input = page.locator('.composer > textarea');
+  const inputBounds = await input.boundingBox();
+  await page.mouse.click(inputBounds.x + 12, inputBounds.y + 12);
+  assert.equal(await input.evaluate(element => element === document.activeElement), true);
+  await input.fill('会话导航非模态输入验收');
+  assert.equal(await navigation.isVisible(), true);
+  await input.fill('');
+  await navigation.screenshot({ path: 'test-results/navigation-unified-detail-dark.png' });
+  await turnList.getByRole('button').first().hover({ position: { x: 8, y: 10 } });
+  await navigation.screenshot({ path: 'test-results/navigation-full-row-hover.png' });
+  await page.screenshot({ path: 'test-results/navigation-unified-narrow.png' });
   const navBounds = await turnList.boundingBox();
   await page.mouse.move(navBounds.x + 60, navBounds.y + 120);
   await page.mouse.wheel(0, 280);
@@ -261,8 +311,9 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1706, 1066));
   await page.locator('.right-tool-rail').getByRole('button', { name: '会话导航', exact: true }).click();
   await page.waitForTimeout(350);
+  await page.screenshot({ path: 'test-results/navigation-unified-dark.png' });
   const dockedClosing = await verifyClose();
-  assert.ok(dockedClosing.filter(Boolean).some(frame => frame.width > 1 && frame.width < 299));
+  assert.ok(dockedClosing.filter(Boolean).some(frame => frame.width > 1 && frame.width < 344));
   await page.locator('.right-tool-rail').getByRole('button', { name: '会话导航', exact: true }).click();
   await page.waitForTimeout(300);
   await page.evaluate(async () => {
@@ -279,6 +330,15 @@ try {
   assert.equal(await page.locator('.conversation-nav-panel').count(), 0);
   await page.locator('.right-tool-rail').getByRole('button', { name: '会话导航', exact: true }).click();
   assert.equal(await navigation.evaluate(element => getComputedStyle(element).transitionDuration), '0s');
+  await page.locator('.sidebar-bottom > button').click();
+  await page.getByRole('button', { name: '通用', exact: true }).click();
+  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('light');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+  await navigation.getByRole('navigation').evaluate(element => { element.scrollTop = 0; });
+  await page.mouse.move(700, 25);
+  await navigation.screenshot({ path: 'test-results/navigation-unified-detail-light.png' });
+  await page.screenshot({ path: 'test-results/navigation-unified-light.png' });
   assert.deepEqual(errors, []);
   console.log('Context inspector presentation passed: roles, usage, cost, unknown occupancy, JSON/copy/redaction, themes, native wheel under overlay, focus and reduced motion. Data is an isolated presentation fixture, not real-provider acceptance.');
 } finally {

@@ -729,8 +729,8 @@ try {
   await page.screenshot({ path: 'test-results/conversation-navigation.png' });
   await page.waitForTimeout(350);
   const railButtons = page.locator('.right-tool-rail .icon-button');
-  assert.deepEqual(await railButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['摘要', '上下文', '会话导航']);
-  for (const label of ['摘要', '上下文', '会话导航']) {
+  assert.deepEqual(await railButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['摘要', '上下文', '变更', '会话导航']);
+  for (const label of ['摘要', '上下文', '变更', '会话导航']) {
     const button = page.locator('.right-tool-rail').getByRole('button', { name: label, exact: true });
     await button.hover();
     await tooltip.getByText(label, { exact: true }).waitFor();

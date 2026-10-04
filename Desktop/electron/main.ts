@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, session, clipboard, ClipboardItem, nativeImage, nativeTheme } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, session, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -11,6 +11,7 @@ import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
 import { TurnUndoStore } from './turn-undo';
+import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Preferences, Session, Snapshot } from '../src/contracts';
@@ -233,6 +234,38 @@ async function newIndependentSession() {
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[]) {
   switch (method) {
+    case 'reviewMenu': {
+      const kind = text(args[1], 10);
+      const selected = text(args[2], 512);
+      const position = args[3];
+      if (!window || !['source', 'base'].includes(kind) ||
+        !Number.isFinite(position?.x) || !Number.isFinite(position?.y)) throw new Error('Invalid review menu');
+      const worker = args[0] === undefined ? undefined : runtimes.require(text(args[0], 80));
+      const options = kind === 'source'
+        ? [{ value: 'turn', label: preferences.language === 'zh' ? '上一轮' : 'Last turn' },
+          { value: 'branch', label: preferences.language === 'zh' ? '分支' : 'Branch' }]
+        : worker ? (await repositoryDiff(worker.cwd)).bases.map(value => ({ value, label: value })) : [];
+      if (!options.length || !options.some(option => option.value === selected)) throw new Error('Invalid review selection');
+      const [width, height] = window.getContentSize();
+      return new Promise<string | undefined>(resolve => {
+        let choice: string | undefined;
+        const menu = Menu.buildFromTemplate(options.map(option => ({
+          label: option.label, type: 'radio' as const, checked: option.value === selected,
+          click: () => { choice = option.value; },
+        })));
+        menu.popup({ window, x: Math.max(0, Math.min(width - 1, Math.round(position.x))),
+          y: Math.max(0, Math.min(height - 1, Math.round(position.y))), callback: () => resolve(choice) });
+      });
+    }
+    case 'repositoryDiff': {
+      const worker = runtimes.require(text(args[0], 80));
+      const base = args[1] === undefined ? undefined : text(args[1], 512);
+      return repositoryDiff(worker.cwd, base);
+    }
+    case 'repositoryFileDiff': {
+      const worker = runtimes.require(text(args[0], 80));
+      return repositoryFileDiff(worker.cwd, text(args[1], 512), text(args[2], 4096));
+    }
     case 'turnUndo': {
       if (transition || undoBusy) throw new Error('Workspace operation in progress');
       const worker = runtimes.require(text(args[0], 80));

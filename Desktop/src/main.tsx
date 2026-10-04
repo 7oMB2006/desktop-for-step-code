@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine } from 'lucide-react';
+import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, Diff } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
 import 'katex/dist/katex.min.css';
 import './style.css';
@@ -32,6 +32,7 @@ import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-ord
 import { useSidebarReorder } from './use-sidebar-reorder';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
+import { ReviewPanel } from './ReviewPanel';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -94,7 +95,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
-  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | null>('auto');
+  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | null>('auto');
+  const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | null>(null);
   const [summarySpace, setSummarySpace] = useState(false);
   const appLayout = useRef<HTMLDivElement>(null);
   const rightRail = useRef<HTMLElement>(null);
@@ -148,6 +150,11 @@ function App() {
   const visibleRightPanel = rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
+  const inspectorExpanded = expandedRightPanel === visibleRightPanel && !details &&
+    (visibleRightPanel === 'context' || visibleRightPanel === 'review');
+  useEffect(() => {
+    if (expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
+  }, [expandedRightPanel, visibleRightPanel, details]);
   useLayoutEffect(() => {
     const app = appLayout.current;
     if (!app) return;
@@ -196,17 +203,25 @@ function App() {
     };
   }, [sidebarVisible, compactSidebar]);
   const closeRightPanel = useCallback(() => {
+    setExpandedRightPanel(null);
     setRightPanel(null);
     rightRail.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
   }, []);
   useEffect(() => {
     if (!visibleRightPanel || details || settingsOpen || preview || requests.length || renaming) return;
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented) closeRightPanel();
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        if (inspectorExpanded) {
+          event.preventDefault();
+          setExpandedRightPanel(null);
+          document.getElementById(visibleRightPanel === 'context' ? 'context-panel' : 'review-panel')
+            ?.querySelector<HTMLButtonElement>('.right-panel-header button[aria-pressed]')?.focus();
+        } else closeRightPanel();
+      }
     };
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
-  }, [visibleRightPanel, details, settingsOpen, preview, requests.length, renaming, closeRightPanel]);
+  }, [visibleRightPanel, details, settingsOpen, preview, requests.length, renaming, closeRightPanel, inspectorExpanded]);
   const zh = data.preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const connected = data.status === 'connected';
@@ -748,7 +763,7 @@ function App() {
       } else await bridge.imageAction(action, target.src, target.name);
     });
   };
-  return <div ref={appLayout} className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''}`} onContextMenu={e => {
+  return <div ref={appLayout} className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
     if (!image || !image.closest('.attachment-open, .attachment-preview-image, .messages')) return;
@@ -817,7 +832,7 @@ function App() {
       <div className="sidebar-bottom"><button onClick={() => void openSettings()} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span>0.1.0</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
-    <main>
+    <main inert={inspectorExpanded}>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
       {!!requests.length && !approvalOpen && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
@@ -879,28 +894,34 @@ function App() {
         follow.current = false;
         setQuotes(value => [...value, quote]); return true;
       }}/>
-    {visibleRightPanel === 'turns' && !details && <button type="button" className="right-panel-backdrop" aria-label={t('关闭右侧面板', 'Close right panel')} onClick={closeRightPanel}/>}
     {details && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
-    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || Boolean(details)}
-      turns={turns} language={data.preferences.language} onClose={closeRightPanel}
+    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || Boolean(details)}
+      overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
-    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || details ? 'is-replaced' : ''}`}>
+    <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || Boolean(details)}
+      expanded={inspectorExpanded && visibleRightPanel === 'review'}
+      onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'review')}
+      overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}
+      onClose={closeRightPanel} onError={setError}/>
+    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <header><h2>{t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={closeRightPanel}><X size={16}/></IconButton></header>
           <div className="summary-content"><p className="panel-empty">{t('暂无摘要', 'No summary yet')}</p></div>
         </aside>
       </div>}
-      {visibleRightPanel === 'context' && !details && <div className="summary-region context-region">
+      {visibleRightPanel === 'context' && !details && <div className={`summary-region context-region right-inspector-surface${inspectorExpanded ? ' is-expanded' : ''}`}>
         <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} messages={data.messages} stats={data.stats} state={data.state}
           title={activeTitle} language={data.preferences.language} busy={busy} connected={connected} onClose={closeRightPanel}
+          expanded={inspectorExpanded} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'context')}
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
     <nav ref={rightRail} className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
-      <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
+      <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><Diff size={18}/></IconButton>
+      <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-controls="conversation-navigation-panel" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
     </nav>
     {preview && <div className="attachment-preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>
       <div className="attachment-preview" ref={previewPanel} role="dialog" aria-modal="true" aria-label={t(`预览 ${preview.name}`, `Preview ${preview.name}`)}>

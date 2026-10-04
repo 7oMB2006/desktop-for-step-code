@@ -4,6 +4,7 @@ import { ArrowUpRight, Check, ChevronRight, Copy, RefreshCw, X } from 'lucide-re
 import type { Message, RuntimeState, SessionStats } from './contracts';
 import { contextCapacityColors, contextMessageCounts, contextMessageJson, contextMessagePreview, finiteAmount, type MessageFilter } from './context-inspector';
 import './context-panel.css';
+import { RightPanelExpandButton } from './RightPanelExpandButton';
 
 function JsonCode({ json }: { json: string }) {
   const nodes: ReactNode[] = [];
@@ -38,9 +39,10 @@ function MessageJson({ message, language, onError }: { message: Message; languag
   </div>;
 }
 
-export function ContextPanel({ messages, stats, state, title, language, busy, connected, onClose, onRefresh, onError }: {
+export function ContextPanel({ messages, stats, state, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError }: {
   messages: Message[]; stats?: SessionStats; state?: RuntimeState; title: string; language: 'zh' | 'en'; busy: boolean; connected: boolean;
   onClose: () => void; onRefresh: () => Promise<void>; onError: (error: string) => void;
+  expanded: boolean; onToggleExpanded: () => void;
 }) {
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
   const [filter, setFilter] = useState<MessageFilter>('all');
@@ -70,14 +72,16 @@ export function ContextPanel({ messages, stats, state, title, language, busy, co
     setRefreshing(true);
     try { await onRefresh(); } catch (error) { onError(String(error)); } finally { setRefreshing(false); }
   };
-  return <aside className="context-panel" aria-label={t('上下文', 'Context')} id="context-panel">
-    <header className="context-panel-header"><h2>{t('上下文', 'Context')}</h2>
+  return <aside className={`context-panel${fullView ? ' is-expanded' : ''}`} aria-label={t('上下文', 'Context')} id="context-panel">
+    <header className="context-panel-header right-panel-header"><h2>{t('上下文', 'Context')}</h2>
       <span className={`context-status${busy && connected ? ' is-running' : ''}`}>{!connected ? t('未连接', 'Offline') : busy ? t('运行中', 'Running') : t('就绪', 'Ready')}</span>
+      <RightPanelExpandButton expanded={fullView} language={language} onToggle={onToggleExpanded}/>
       <button type="button" className={`icon-button${refreshing ? ' is-refreshing' : ''}`} disabled={refreshing || !connected}
         aria-label={t('刷新上下文', 'Refresh context')} data-tooltip={t('刷新上下文', 'Refresh context')} onClick={() => void refresh()}><RefreshCw size={15}/></button>
       <button type="button" className="icon-button" aria-label={t('关闭上下文', 'Close context')} onClick={onClose}><X size={16}/></button>
     </header>
     <div className="context-panel-scroll">
+      <div className="context-content">
       <div className="context-identity"><strong>{title}</strong><span>{state?.model?.name ?? last?.model ?? '--'}</span>
         <small>{state?.model?.provider ?? last?.provider ?? '--'}</small></div>
       <section className="context-capacity" aria-label={t('当前上下文', 'Current context')}
@@ -132,6 +136,7 @@ export function ContextPanel({ messages, stats, state, title, language, busy, co
           {!rows.length && <p className="context-message-empty">{t('暂无消息', 'No messages')}</p>}
         </div>
       </section>
+      </div>
     </div>
   </aside>;
 }

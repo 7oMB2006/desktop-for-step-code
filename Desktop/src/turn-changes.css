@@ -1,11 +1,11 @@
-.turn-changes {
+.turn-changes, .review-panel {
   --diff-add: oklch(.43 .11 155);
   --diff-remove: oklch(.48 .14 25);
   --diff-add-bg: oklch(.965 .025 155);
   --diff-remove-bg: oklch(.965 .025 25);
   margin: 24px 0 12px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
 }
-:root[data-theme=dark] .turn-changes {
+:root[data-theme=dark] .turn-changes, :root[data-theme=dark] .review-panel {
   --diff-add: oklch(.78 .13 155); --diff-remove: oklch(.78 .13 25);
   --diff-add-bg: oklch(.25 .035 155); --diff-remove-bg: oklch(.25 .035 25);
 }
@@ -49,12 +49,12 @@
 .turn-diff-legend { margin-left: auto; display: flex; gap: 7px; font-variant-numeric: tabular-nums; }
 .turn-diff-toolbar .icon-button { width: 24px; min-height: 24px; height: 24px; color: var(--muted); }
 .turn-diff-scroll { max-height: 340px; overflow: auto; overscroll-behavior: contain; }
-.turn-changes .turn-diff-table { display: table; width: 100%; margin: 0; border-collapse: collapse; font: 11px/1.8 "Cascadia Code", Consolas, monospace; }
-.turn-changes .turn-diff-table td { padding: 0; border: 0; vertical-align: top; }
-.turn-changes .turn-diff-table .diff-line-number { width: 34px; min-width: 34px; padding: 0 6px; text-align: right; color: var(--muted); user-select: none; font-size: 10px; }
-.turn-changes .turn-diff-table .diff-line-sign { width: 18px; min-width: 18px; text-align: center; user-select: none; }
-.turn-changes .turn-diff-table .diff-line-text { padding-right: 10px; }
-.turn-changes .turn-diff-table code { font-size: inherit; padding: 0; border-radius: 0; background: transparent; white-space: pre; }
+:is(.turn-changes, .review-panel) .turn-diff-table { display: table; width: 100%; margin: 0; border-collapse: collapse; font: 11px/1.8 "Cascadia Code", Consolas, monospace; }
+:is(.turn-changes, .review-panel) .turn-diff-table td { padding: 0; border: 0; vertical-align: top; }
+:is(.turn-changes, .review-panel) .turn-diff-table .diff-line-number { width: 34px; min-width: 34px; padding: 0 6px; text-align: right; color: var(--muted); user-select: none; font-size: 10px; }
+:is(.turn-changes, .review-panel) .turn-diff-table .diff-line-sign { width: 18px; min-width: 18px; text-align: center; user-select: none; }
+:is(.turn-changes, .review-panel) .turn-diff-table .diff-line-text { padding-right: 10px; }
+:is(.turn-changes, .review-panel) .turn-diff-table code { font-size: inherit; padding: 0; border-radius: 0; background: transparent; white-space: pre; }
 .diff-line-add { background: var(--diff-add-bg); }
 .diff-line-remove { background: var(--diff-remove-bg); }
 .diff-line-add .diff-line-sign { color: var(--diff-add); }

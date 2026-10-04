@@ -305,6 +305,10 @@ The staged and packaged runtime remain at `519e4de4ed2162d3667be1821cb92ada6b884
 
 ## Release Boundary
 
+### Deferred Approval Scroll-Hit Regression
+
+The 2026-10-04 PR #53 CI follow-up fixes a real pointer-hit overlap: the full-height transcript scroll handle could cover the deferred-approval notice's Review button. The notice now owns a background and a layer above that handle, preserving the approved full-height scrollbar geometry. Cross-session acceptance checks pointer hits across the Review button and reopens the actual approval through ordinary clicks at 1320, 700 and 1600 pixels. Type checking, 129 unit tests, the production build, cross-session acceptance and general Electron acceptance passed locally after the fix. The regression uses isolated profiles and the local RPC/SSE fixture, not a paid model.
+
 ### Quote Presentation Polish
 
 The 2026-10-02 local preview at `Desktop/release/quote-presentation-preview/win-unpacked/` passed type checking, 77 unit tests, production build, source and packaged Electron acceptance, quote interaction acceptance and the dedicated effort-picker fixture. Sent user messages unwrap only the exact Desktop quote-prompt format into framed excerpts plus the current reply; malformed or ordinary Markdown falls back unchanged. The model payload, message history, editing and full-message copy remain unchanged. Tests cover both languages, multiple and quote-only excerpts, nested Markdown, code fences, marker-like text and reply whitespace. Screenshots cover light/dark and narrow transcript layouts; clipboard writes are intercepted in the isolated process.

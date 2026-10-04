@@ -22,8 +22,10 @@ const patchedFiles = [
 ];
 const patchedSourceHashes = {};
 for (const [name, relative, expected] of patchedFiles) {
-  const bytes = await readFile(join(upstream, relative));
-  const hash = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+  // hash-object applies the repository's own attribute filters (upstream pins
+  // `* text=auto eol=lf`), so the check tolerates any line ending a checkout
+  // produced instead of rejecting a correctly patched tree.
+  const hash = execFileSync('git', ['hash-object', relative], { cwd: upstream, encoding: 'utf8' }).trim();
   if (hash !== expected) {
     throw new Error(`Patched source ${relative} does not match the expected content; apply scripts/apply-step-code-desktop-patch.mjs to the pinned checkout before staging`);
   }

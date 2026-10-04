@@ -17,6 +17,9 @@ export interface Account { loggedIn: boolean; validity: string; profile?: string
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
 export interface DesktopBridge {
+  reviewMenu(runtimeId: string | undefined, kind: 'source' | 'base', selected: string, position: { x: number; y: number }): Promise<string | undefined>;
+  repositoryDiff(runtimeId: string, base?: string): Promise<RepositoryDiff>;
+  repositoryFileDiff(runtimeId: string, base: string, path: string): Promise<RepositoryFileDiff>;
   turnUndo(runtimeId: string, toolIds: string[], action: 'status' | 'prepare' | 'undo', token?: string): Promise<TurnUndoState>;
   windowControl(action: 'state' | 'minimize' | 'toggleMaximize' | 'close'): Promise<{ maximized: boolean }>;
   systemTheme(): Promise<{ systemDark: boolean }>;
@@ -51,6 +54,19 @@ export interface DesktopBridge {
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }
 export interface TurnUndoState { state: 'available' | 'unavailable' | 'conflict' | 'undone' | 'failed'; token?: string }
+export interface RepositoryFile {
+  path: string; status: 'M' | 'A' | 'D' | '?'; added: number; removed: number; binary: boolean; unavailable?: boolean;
+}
+export interface RepositoryDiff {
+  state: 'ready' | 'not-git' | 'unborn' | 'unavailable';
+  root?: string; branch?: string; bases: string[]; base?: string; revision?: string;
+  files: RepositoryFile[]; added: number; removed: number; truncated: boolean;
+}
+export interface RepositoryFileDiff {
+  path: string; added: number; removed: number;
+  rows: import('./turn-changes').DiffRow[];
+  reason?: 'binary' | 'too-large' | 'unsupported' | 'no-text-change' | 'changed' | 'sensitive';
+}
 export interface DesktopTheme {
   resolved: 'light' | 'dark';
   systemDark: boolean;

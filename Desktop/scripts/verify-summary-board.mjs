@@ -284,7 +284,8 @@ try {
   await page.getByRole('button', { name: '会话导航', exact: true }).click();
   await page.getByRole('complementary', { name: '会话导航', exact: true }).waitFor();
   assert.equal(await board.count(), 0);
-  await page.getByRole('button', { name: '关闭右侧面板' }).click({ position: { x: 10, y: 250 } });
+  assert.equal(await page.locator('.right-panel-backdrop').count(), 0);
+  await page.getByRole('complementary', { name: '会话导航', exact: true }).getByRole('button', { name: '关闭侧栏', exact: true }).click();
   await page.getByRole('complementary', { name: '会话导航', exact: true }).waitFor({ state: 'hidden' });
   assert.deepEqual(errors, []);
   console.log('Summary board acceptance passed: automatic sizing, manual override, layout, focus, nonmodal overlay wheel/click/input, navigation dismissal, themes and reduced motion.');

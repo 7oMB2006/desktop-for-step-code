@@ -28,6 +28,9 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  reviewMenu: (runtimeId, kind, selected, position) => invoke('reviewMenu', runtimeId, kind, selected, position),
+  repositoryDiff: (runtimeId, base) => invoke('repositoryDiff', runtimeId, base),
+  repositoryFileDiff: (runtimeId, base, path) => invoke('repositoryFileDiff', runtimeId, base, path),
   turnUndo: (runtimeId, toolIds, action, token) => invoke('turnUndo', runtimeId, toolIds, action, token),
   windowControl: action => invoke('windowControl', action),
   systemTheme: () => ipcRenderer.invoke('desktop-system-theme'),

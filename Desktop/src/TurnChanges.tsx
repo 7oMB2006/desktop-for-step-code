@@ -16,7 +16,7 @@ for (const [name, grammar] of Object.entries({ javascript, typescript, css, json
 const languages: Record<string, string> = { js: 'javascript', jsx: 'javascript', mjs: 'javascript', ts: 'typescript', tsx: 'typescript',
   css: 'css', json: 'json', py: 'python', html: 'xml', svg: 'xml', xml: 'xml' };
 
-function FilePreview({ file, language, onError }: { file: TurnFile; language: 'zh' | 'en'; onError: (error: string) => void }) {
+export function FilePreview({ file, language, onError }: { file: TurnFile; language: 'zh' | 'en'; onError: (error: string) => void }) {
   const [operation, setOperation] = useState(file.edits.length - 1);
   const [copied, setCopied] = useState(false);
   useEffect(() => {

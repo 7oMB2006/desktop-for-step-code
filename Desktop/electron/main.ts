@@ -713,7 +713,9 @@ else app.whenReady().then(async () => {
       const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
       const existing = settings?.mcp?.[steppageName];
       const looksDesktopWritten = /runtime[/\\]node[/\\]node\.exe$/i.test(String(existing?.command ?? ''));
-      const staleManaged = Boolean(existing) && looksDesktopWritten && existing.command !== nodePath;
+      const staleManaged = Boolean(existing) && looksDesktopWritten
+        && typeof existing.command === 'string'
+        && !(await samePath(existing.command, nodePath));
       if (!existing || staleManaged) {
         await admin.request('mcp', { name: steppageName, config: { command: nodePath, args: [steppageBundle], enabled: true }, secrets: {} });
         crashLog.setPhase('steppage registered');

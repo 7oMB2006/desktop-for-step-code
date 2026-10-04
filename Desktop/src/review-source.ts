@@ -21,6 +21,6 @@ export function sensitiveDiffPath(path: string) {
 export function redactDiffText(text: string) {
   return text.replace(/\b(?:sk-|ghp_|github_pat_)[A-Za-z0-9_-]{16,}\b/g, '[redacted]')
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
-    .replace(/(["']?(?:api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|authorization|cookie)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+    .replace(/(?<![A-Za-z0-9_$-])(["']?[A-Za-z0-9_$-]*(?:api[-_]?key|access[-_]?key[-_]?id|secret[-_]?access[-_]?key|secret[-_]?key|access[-_]?token|refresh[-_]?token|session[-_]?token|security[-_]?token|password|client[-_]?secret|account[-_]?key|secret|authorization|cookie)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
       '$1"[redacted]"');
 }

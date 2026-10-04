@@ -30,8 +30,9 @@ function DiffFile({ file, repository, source, runtimeId, base, revision, languag
     if (!open || source !== 'branch' || !runtimeId || !base || !window.desktop) return;
     let live = true;
     setFailed(false);
+    setPatch(undefined);
     void window.desktop.repositoryFileDiff(runtimeId, base, file.path).then(value => { if (live) setPatch(value); })
-      .catch(() => { if (live) setFailed(true); });
+      .catch(() => { if (live) { setPatch(undefined); setFailed(true); } });
     return () => { live = false; };
   }, [open, source, runtimeId, base, file.path, revision]);
   const zh = language === 'zh';
@@ -98,7 +99,7 @@ function ReviewContent({ runtimeId, messages, busy, active, language, expanded, 
     void window.desktop.repositoryDiff(runtimeId, base || undefined).then(value => {
       if (!live) return;
       setRepository(value);
-    }).catch(() => { if (live) setFailed(true); }).finally(() => { if (live) setLoading(false); });
+    }).catch(() => { if (live) { setRepository(undefined); setFailed(true); } }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [active, runtimeId, base, revision, busy, toolResults]);
   const files: ReviewFile[] = source === 'turn' ? changes.files.map(file => ({ file })) : (repository?.files ?? []).map(repo => ({

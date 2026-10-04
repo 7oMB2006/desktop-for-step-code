@@ -331,6 +331,12 @@ The desktop shortcut now targets this package; the prior running application was
 
 ## Release Boundary
 
+### PR #56 Review Follow-Up
+
+The source-only review fix expands shared Diff redaction to common compound cloud credential assignments, including AWS access keys/session tokens and Azure client secrets/account keys in snake-case and camel-case. Both added and removed rows use the same redactor; ordinary fields remain unchanged. This remains bounded recognizable-credential redaction, not exhaustive arbitrary-secret detection.
+
+Repository refresh failure clears the stored comparison, removing old files, totals, base metadata and open previews. File-preview requests clear their previous patch before loading and on failure. Dedicated Diff acceptance covers a previously opened file disappearing, recovery after restoring it, a selected temporary Git base disappearing, removal of stale UI and successful refresh after restoring the base. Unit coverage verifies cloud credentials in both sides of real Git patches. Type checking, 139 unit tests, production build, dedicated Diff acceptance and general Electron acceptance passed. This follow-up is not included in the desktop shortcut's existing fullscreen preview package.
+
 ### Main-View Inspector Expansion
 
 The 2026-10-04 source-only follow-up adds a shared expand/restore header control to Context and Changes. The inspector expands leftward across the main view, retaining the sidebar, window bar and right rail. Both directions use cubic width transitions; reduced motion and native window resizing skip them. Content stays mounted, including selected source, message filters, JSON disclosures and diff previews. Covered transcript/composer controls are inert; Escape restores before closing. Switching tools clears expansion. Conversation navigation has no fullscreen control and now uses full-width row hit areas.

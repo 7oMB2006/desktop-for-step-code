@@ -90,11 +90,20 @@ test('worktree links and large untracked files are never read as normal previews
   assert.equal((await repositoryFileDiff(root, 'main', 'large.txt')).reason, 'too-large');
 });
 test('credential files and inline credential values never reach the diff preview', async () => {
-  const { root } = await fixture();
+  const { root, git } = await fixture();
+  await writeFile(join(root, 'cloud-config.ts'), 'const AWS_SECRET_ACCESS_KEY = "fixture-old-cloud-value";\n');
+  await git('add', '--', 'cloud-config.ts');
+  await git('commit', '-m', 'cloud fixture baseline');
+  await writeFile(join(root, 'cloud-config.ts'), 'const awsSecretAccessKey = "fixture-new-cloud-value";\n');
   await writeFile(join(root, '.env'), 'API_KEY=fixture-sensitive-value\n');
   await writeFile(join(root, 'config.ts'), 'const apiKey = "fixture-sensitive-value";\n');
   assert.equal((await repositoryFileDiff(root, 'main', '.env')).reason, 'sensitive');
   const file = await repositoryFileDiff(root, 'main', 'config.ts');
   assert.ok(file.rows.some(row => row.text.includes('[redacted]')));
   assert.ok(!JSON.stringify(file).includes('fixture-sensitive-value'));
+  const cloud = await repositoryFileDiff(root, 'HEAD', 'cloud-config.ts');
+  assert.ok(cloud.rows.some(row => row.kind === 'add' && row.text.includes('[redacted]')));
+  assert.ok(cloud.rows.some(row => row.kind === 'remove' && row.text.includes('[redacted]')));
+  assert.ok(!JSON.stringify(cloud).includes('fixture-old-cloud-value'));
+  assert.ok(!JSON.stringify(cloud).includes('fixture-new-cloud-value'));
 });

@@ -701,8 +701,9 @@ else app.whenReady().then(async () => {
   // 不是 node），args 指向 bundle。
   // 存在性判断读 settings 返回的解析后配置，不做文件子串匹配：TOML 有等价写法
   // （带引号的键、inline table），子串认不出来，会把用户自己的 command/args/enabled
-  // 覆盖掉。只有从未配过、或现存项是桌面自己上次写且那时的 runtime node 已不存在
-  // （用户数据在 %APPDATA% 不随安装走，重装到别的目录就会出现这种陈旧项）时才刷新，
+  // 覆盖掉。只有从未配过、或现存项是桌面自己上次写且它的 command 不是当前 runtime 的
+  // node 时才刷新。判据用是不是当前这个 node，而不是那个路径还在不在——开发机上
+  // 源码模式写进去的路径恰好存在，用它判会漏，换到用户机器上反倒会被刷新。
   // 其余一律视为用户配置不动。
   // 整段静默容错：失败不影响启动，内置插件照旧失败并留在设置里，用户看到真实故障。
   try {
@@ -711,9 +712,8 @@ else app.whenReady().then(async () => {
     if (existsSync(steppageBundle)) {
       const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
       const existing = settings?.mcp?.[steppageName];
-      const staleManaged = Boolean(existing)
-        && /runtime[/\\]node[/\\]node\.exe$/i.test(String(existing?.command ?? ''))
-        && !existsSync(String(existing?.command));
+      const looksDesktopWritten = /runtime[/\\]node[/\\]node\.exe$/i.test(String(existing?.command ?? ''));
+      const staleManaged = Boolean(existing) && looksDesktopWritten && existing.command !== nodePath;
       if (!existing || staleManaged) {
         await admin.request('mcp', { name: steppageName, config: { command: nodePath, args: [steppageBundle], enabled: true }, secrets: {} });
         crashLog.setPhase('steppage registered');

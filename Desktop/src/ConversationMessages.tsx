@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps, Dispatch, SetStateAction } from 'react';
 import Markdown from 'react-markdown';
 import { Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Wrench } from 'lucide-react';
@@ -10,8 +10,11 @@ import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } f
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { quotePresentation } from './chat-quotes';
 import { ScrollThumb } from './ConversationScrollThumb';
+import { TurnChanges } from './TurnChanges';
+import { turnChanges } from './turn-changes';
 
 type Props = {
+  runtimeId?: string;
   messages: Message[]; language: 'zh' | 'en'; busy: boolean; canEdit: boolean;
   openImage: (src: string, name: string, anchor: HTMLElement) => void;
   edit: (message: Message, text: string) => Promise<void>; onError: (message: string) => void;
@@ -79,14 +82,20 @@ function Text({ text, streaming = false, ...props }: { text: string; streaming?:
   const plugins = useMemo<ComponentProps<typeof Markdown>['rehypePlugins']>(() => reveal.batches.length
     ? [...messageRehypePlugins!, [rehypeStreamReveal, { batches: reveal.batches }]]
     : messageRehypePlugins, [reveal.batches]);
+  return <MarkdownText text={text} language={props.language} openImage={props.openImage} onError={props.onError} plugins={plugins}/>;
+}
+// Layout-only parent updates must not parse the entire saved Markdown history.
+const MarkdownText = memo(function MarkdownText({ text, language, openImage, onError, plugins }: {
+  text: string; plugins: ComponentProps<typeof Markdown>['rehypePlugins'];
+} & Pick<BodyProps, 'language' | 'openImage' | 'onError'>) {
   return <Markdown skipHtml remarkPlugins={messageRemarkPlugins} rehypePlugins={plugins}
     components={{
-      code: ({ children, className }) => <Code className={className} language={props.language} onError={props.onError}>{children}</Code>,
+      code: ({ children, className }) => <Code className={className} language={language} onError={onError}>{children}</Code>,
       a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
       img: ({ src, alt }) => src?.startsWith('data:image/')
-        ? <PreviewImage src={src} alt={alt ?? 'Image'} {...props}/> : <span>{alt}</span>,
+        ? <PreviewImage src={src} alt={alt ?? 'Image'} language={language} openImage={openImage}/> : <span>{alt}</span>,
     }}>{text}</Markdown>;
-}
+});
 function Body({ blocks, ...props }: { blocks: Content[] } & BodyProps) {
   return <div className="message-body">{blocks.map((block, index) =>
     block.type === 'text' ? <UserText key={index} text={block.text ?? ''} {...props}/>
@@ -138,11 +147,13 @@ function Tool({ item, active, ...props }: {
     </div>
   </details>;
 }
-function Response({ items, active, canBranch, branch, ...props }: {
+function Response({ items, active, canBranch, branch, runtimeId, ...props }: {
   items: { message: Message; index: number }[]; active: boolean;
   canBranch: boolean; branch: Props['branch'];
+  runtimeId?: string;
 } & BodyProps) {
   const { content, text, lastTextIndex } = responsePresentation(items);
+  const changes = useMemo(() => turnChanges(active ? [] : items), [items, active]);
   const zh = props.language === 'zh';
   const stamp = [...items].reverse().find(item => item.message.timestamp)?.message.timestamp;
   return <article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
@@ -155,6 +166,7 @@ function Response({ items, active, canBranch, branch, ...props }: {
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
               : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>
       )}</div>
+    {!active && <TurnChanges changes={changes} runtimeId={runtimeId} language={props.language} onError={props.onError}/>}
     {!active && content.length > 0 && <footer className="message-actions assistant-actions">
       <CopyButton text={text} {...props}/>
       <button type="button" className="icon-button branch-action" aria-label={zh ? '从这里分支' : 'Branch from here'}

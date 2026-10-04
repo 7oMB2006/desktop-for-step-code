@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff } from 'lucide-react';
+import { flushSync } from 'react-dom';
+import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
 import 'katex/dist/katex.min.css';
 import './style.css';
@@ -14,7 +15,7 @@ import { PermissionPicker } from './PermissionPicker';
 import { ContextRing } from './ContextRing';
 import { ImageContextMenu, type ImageMenuTarget, type ImageMenuAction } from './ImageContextMenu';
 import { AppTooltip } from './AppTooltip';
-import { ConversationMarkers, conversationTurns, scrollToTurn, turnTime } from './ConversationNavigation';
+import { ConversationMarkers, ConversationNavigationPanel, conversationTurns, scrollToTurn } from './ConversationNavigation';
 import { ArchivedSessions } from './ArchivedSessions';
 import { ConversationScrollThumb } from './ConversationScrollThumb';
 import { updateRunMetrics, type RunMetrics } from './performance';
@@ -29,6 +30,8 @@ import { playCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
 import { useSidebarReorder } from './use-sidebar-reorder';
+import { ContextPanel } from './ContextPanel';
+import { LiveTurnChanges } from './LiveTurnChanges';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -91,7 +94,10 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
-  const [rightPanel, setRightPanel] = useState<'turns' | 'summary' | null>(null);
+  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | null>('auto');
+  const [summarySpace, setSummarySpace] = useState(false);
+  const appLayout = useRef<HTMLDivElement>(null);
+  const rightRail = useRef<HTMLElement>(null);
   const [requests, setRequests] = useState<UIRequest[]>([]);
   const [approvalOpen, setApprovalOpen] = useState(true);
   const [answer, setAnswer] = useState('');
@@ -139,6 +145,68 @@ function App() {
     if (follow.current && viewport) viewport.scrollTop = viewport.scrollHeight;
   }, []);
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
+  const visibleRightPanel = rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+  const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
+  const summaryOverlay = inspectionOpen && !summarySpace;
+  useLayoutEffect(() => {
+    const app = appLayout.current;
+    if (!app) return;
+    const measure = () => {
+      const sidebarTrack = parseFloat(getComputedStyle(app).getPropertyValue('--sidebar-track')) || 0;
+      // Leave a readable conversation column beside the board and its open gutter.
+      setSummarySpace(app.clientWidth - sidebarTrack - 44 >= 1120);
+    };
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    let motions: Animation[] = [];
+    const resize = () => {
+      const elements = [...app.querySelectorAll<HTMLElement>('.conversation-shell, .composer-wrap, main > .conversation-scroll-track')];
+      const centers = elements.map(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.x + rect.width / 2;
+      });
+      motions.forEach(animation => animation.cancel());
+      motions = [];
+      // Native resizing already changes the viewport. Rewrap once, then animate
+      // only the reading column's displacement instead of its layout width.
+      app.dataset.nativeResize = '';
+      flushSync(measure);
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const offsets = elements.map((element, index) => {
+          const rect = element.getBoundingClientRect();
+          return centers[index] - rect.x - rect.width / 2;
+        });
+        motions = elements.flatMap((element, index) => Math.abs(offsets[index]) < .5 ? [] : [
+          element.animate([{ transform: `translateX(${offsets[index]}px)` }, { transform: 'translateX(0px)' }],
+            { duration: 320, easing: 'cubic-bezier(.25, .46, .45, .94)' }),
+        ]);
+      }
+      clearTimeout(quiet);
+      quiet = setTimeout(() => { delete app.dataset.nativeResize; }, 180);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(app);
+    window.addEventListener('resize', resize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', resize);
+      clearTimeout(quiet);
+      motions.forEach(animation => animation.cancel());
+      delete app.dataset.nativeResize;
+    };
+  }, [sidebarVisible, compactSidebar]);
+  const closeRightPanel = useCallback(() => {
+    setRightPanel(null);
+    rightRail.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
+  }, []);
+  useEffect(() => {
+    if (!visibleRightPanel || details || settingsOpen || preview || requests.length || renaming) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) closeRightPanel();
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [visibleRightPanel, details, settingsOpen, preview, requests.length, renaming, closeRightPanel]);
   const zh = data.preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const connected = data.status === 'connected';
@@ -305,14 +373,14 @@ function App() {
     if (input) { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; }
   }, [draft]);
   useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
-  const openImage = (src: string, name: string, anchor: HTMLElement) => {
+  const openImage = useCallback((src: string, name: string, anchor: HTMLElement) => {
     previewTrigger.current = anchor;
     previewAnchorRect.current = (anchor.querySelector('img') ?? anchor).getBoundingClientRect();
     previewClosing.current = false;
     previewDrag.current = null;
     setPreviewZoom(1); setPreviewPan({ x: 0, y: 0 }); setPreviewDragging(false);
     setPreview({ src, name });
-  };
+  }, []);
   const anchorTransform = () => {
     const panel = previewPanel.current;
     const anchor = previewTrigger.current;
@@ -680,7 +748,7 @@ function App() {
       } else await bridge.imageAction(action, target.src, target.name);
     });
   };
-  return <div className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''}`} onContextMenu={e => {
+  return <div ref={appLayout} className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
     if (!image || !image.closest('.attachment-open, .attachment-preview-image, .messages')) return;
@@ -757,7 +825,7 @@ function App() {
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages key={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
+          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages key={data.runtimeId} runtimeId={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
         </div>
         <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>
@@ -774,7 +842,7 @@ function App() {
               source.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
             }
           }}/>
-        <div className="spacer"/>
+        <LiveTurnChanges key={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}/>
         {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
         </div>
         <div className={`composer ${draggingFiles ? 'composer-file-drop' : ''}`}
@@ -811,21 +879,28 @@ function App() {
         follow.current = false;
         setQuotes(value => [...value, quote]); return true;
       }}/>
-    {rightPanel && !details && <button type="button" className="right-panel-backdrop" aria-label={t('关闭右侧面板', 'Close right panel')} onClick={() => setRightPanel(null)}/>}
-    {details ? <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside> : rightPanel && <aside className="conversation-nav-panel" aria-label={rightPanel === 'turns' ? t('会话导航', 'Conversation navigation') : t('摘要', 'Summary')}>
-      <header><h2>{rightPanel === 'turns' ? t('会话导航', 'Conversation navigation') : t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={() => setRightPanel(null)}><X size={16}/></IconButton></header>
-      {rightPanel === 'turns' ? <nav aria-label={t('会话轮次', 'Conversation turns')}>
-        {turns.map((turn, number) => <button key={turn.index} onClick={() => { scrollToTurn(scroll.current, turn.index); if (window.innerWidth <= 900) setRightPanel(null); }}>
-          <span className="nav-turn-number">{number + 1}</span><span className="nav-turn-content"><span className="nav-turn-preview">{turn.preview}</span>
-            {turnTime(turn.timestamp, data.preferences.language) && <time className="nav-turn-time" dateTime={new Date(turn.timestamp!).toISOString()}>{turnTime(turn.timestamp, data.preferences.language)}</time>}
-          </span>
-        </button>)}
-        {!turns.length && <p className="panel-empty">{t('暂无会话轮次', 'No turns yet')}</p>}
-      </nav> : <p className="panel-empty">{t('暂无摘要', 'No summary yet')}</p>}
-    </aside>}
-    <nav className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')}>
-      <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-pressed={!details && rightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(value => value === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
-      <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-pressed={!details && rightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(value => value === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
+    {visibleRightPanel === 'turns' && !details && <button type="button" className="right-panel-backdrop" aria-label={t('关闭右侧面板', 'Close right panel')} onClick={closeRightPanel}/>}
+    {details && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
+    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || Boolean(details)}
+      turns={turns} language={data.preferences.language} onClose={closeRightPanel}
+      onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
+    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || details ? 'is-replaced' : ''}`}>
+      {visibleRightPanel === 'summary' && !details && <div className="summary-region">
+        <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
+          <header><h2>{t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={closeRightPanel}><X size={16}/></IconButton></header>
+          <div className="summary-content"><p className="panel-empty">{t('暂无摘要', 'No summary yet')}</p></div>
+        </aside>
+      </div>}
+      {visibleRightPanel === 'context' && !details && <div className="summary-region context-region">
+        <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} messages={data.messages} stats={data.stats} state={data.state}
+          title={activeTitle} language={data.preferences.language} busy={busy} connected={connected} onClose={closeRightPanel}
+          onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
+      </div>}
+    </div>
+    <nav ref={rightRail} className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')}>
+      <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
+      <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
+      <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
     </nav>
     {preview && <div className="attachment-preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>
       <div className="attachment-preview" ref={previewPanel} role="dialog" aria-modal="true" aria-label={t(`预览 ${preview.name}`, `Preview ${preview.name}`)}>

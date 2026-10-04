@@ -143,8 +143,26 @@ try {
   await approval.waitFor();
   await approval.getByRole('button', { name: '稍后处理', exact: true }).click();
   await page.getByText('此会话有待确认的操作', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '查看', exact: true }).click();
+  for (const width of [1320, 700, 1600]) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 880), width);
+    const review = page.getByRole('button', { name: '查看', exact: true });
+    await review.waitFor();
+    await page.locator('main > .conversation-scroll-track:not(.hidden)').waitFor();
+    await review.click({ trial: true });
+    assert.ok(await review.evaluate(button => {
+      const bounds = button.getBoundingClientRect();
+      return [.15, .5, .85].every(fraction => {
+        const target = document.elementFromPoint(bounds.x + bounds.width * fraction, bounds.y + bounds.height / 2);
+        return target && button.contains(target);
+      });
+    }), `Approval review must receive pointer input above the scroll handle at ${width}px`);
+    await review.click();
+    await approval.waitFor();
+    if (width !== 1600) await approval.getByRole('button', { name: '稍后处理', exact: true }).click();
+  }
+  await page.screenshot({ path: 'test-results/cross-session-review-scroll-guard.png' });
   await approval.getByRole('button', { name: '确认', exact: true }).click();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 880));
   await page.getByText('PROBE-SEND-IDLE COMPLETE', { exact: true }).waitFor();
   assert.ok(replies.find(reply => reply.label === 'PROBE-SEND-IDLE').text.includes('"delivered":true'));
   await page.waitForFunction(async id => {

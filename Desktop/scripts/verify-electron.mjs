@@ -729,8 +729,8 @@ try {
   await page.screenshot({ path: 'test-results/conversation-navigation.png' });
   await page.waitForTimeout(350);
   const railButtons = page.locator('.right-tool-rail .icon-button');
-  assert.deepEqual(await railButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['摘要', '会话导航']);
-  for (const label of ['摘要', '会话导航']) {
+  assert.deepEqual(await railButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['摘要', '上下文', '会话导航']);
+  for (const label of ['摘要', '上下文', '会话导航']) {
     const button = page.locator('.right-tool-rail').getByRole('button', { name: label, exact: true });
     await button.hover();
     await tooltip.getByText(label, { exact: true }).waitFor();
@@ -910,7 +910,8 @@ try {
   await page.getByRole('button', { name: '摘要', exact: true }).click();
   await page.mouse.move(380, 320);
   await page.screenshot({ path: 'test-results/summary-narrow.png' });
-  await page.getByRole('button', { name: '关闭右侧面板' }).click({ position: { x: 50, y: 280 } });
+  assert.equal(await page.locator('.right-panel-backdrop').count(), 0);
+  await page.getByRole('complementary', { name: '摘要', exact: true }).getByRole('button', { name: '关闭侧栏', exact: true }).click();
   await page.getByRole('complementary', { name: '摘要' }).waitFor({ state: 'hidden' });
   await page.screenshot({ path: 'test-results/desktop-narrow.png' });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);

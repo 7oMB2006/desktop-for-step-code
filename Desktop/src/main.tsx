@@ -33,6 +33,7 @@ import { useSidebarReorder } from './use-sidebar-reorder';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
 import { ReviewPanel } from './ReviewPanel';
+import { TerminalPanel } from './TerminalPanel';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -95,8 +96,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
-  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | null>('auto');
-  const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | null>(null);
+  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | null>('auto');
+  const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | null>(null);
   const [summarySpace, setSummarySpace] = useState(false);
   const appLayout = useRef<HTMLDivElement>(null);
   const rightRail = useRef<HTMLElement>(null);
@@ -151,7 +152,7 @@ function App() {
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = expandedRightPanel === visibleRightPanel && !details &&
-    (visibleRightPanel === 'context' || visibleRightPanel === 'review');
+    (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal');
   useEffect(() => {
     if (expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
   }, [expandedRightPanel, visibleRightPanel, details]);
@@ -210,11 +211,12 @@ function App() {
   useEffect(() => {
     if (!visibleRightPanel || details || settingsOpen || preview || requests.length || renaming) return;
     const escape = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest('.xterm')) return;
       if (event.key === 'Escape' && !event.defaultPrevented) {
         if (inspectorExpanded) {
           event.preventDefault();
           setExpandedRightPanel(null);
-          document.getElementById(visibleRightPanel === 'context' ? 'context-panel' : 'review-panel')
+          document.getElementById(`${visibleRightPanel}-panel`)
             ?.querySelector<HTMLButtonElement>('.right-panel-header button[aria-pressed]')?.focus();
         } else closeRightPanel();
       }
@@ -895,15 +897,19 @@ function App() {
         setQuotes(value => [...value, quote]); return true;
       }}/>
     {details && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
-    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || Boolean(details)}
+    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || Boolean(details)}
       overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
-    <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || Boolean(details)}
+    <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'review'}
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'review')}
       overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
-    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || details ? 'is-replaced' : ''}`}>
+    <TerminalPanel open={visibleRightPanel === 'terminal' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || Boolean(details)}
+      expanded={inspectorExpanded && visibleRightPanel === 'terminal'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'terminal')}
+      overlay={!summarySpace} runtimeId={data.runtimeId} cwd={data.preferences.workspace} language={data.preferences.language}
+      onClose={closeRightPanel} onError={setError}/>
+    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <header><h2>{t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={closeRightPanel}><X size={16}/></IconButton></header>
@@ -921,6 +927,7 @@ function App() {
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><Diff size={18}/></IconButton>
+      <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
       <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-controls="conversation-navigation-panel" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
     </nav>
     {preview && <div className="attachment-preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>

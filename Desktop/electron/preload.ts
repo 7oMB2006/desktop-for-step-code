@@ -28,6 +28,18 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  terminalList: runtimeId => invoke('terminalList', runtimeId),
+  terminalCreate: runtimeId => invoke('terminalCreate', runtimeId),
+  terminalWrite: (id, data) => invoke('terminalWrite', id, data),
+  terminalResize: (id, cols, rows) => invoke('terminalResize', id, cols, rows),
+  terminalAck: (id, seq) => invoke('terminalAck', id, seq),
+  terminalClose: id => invoke('terminalClose', id),
+  terminalPasteText: () => invoke('terminalPasteText'),
+  onTerminalEvent: callback => {
+    const listener = (_: unknown, event: import('../src/contracts').TerminalEvent) => callback(event);
+    ipcRenderer.on('terminal-event', listener);
+    return () => ipcRenderer.removeListener('terminal-event', listener);
+  },
   reviewMenu: (runtimeId, kind, selected, position) => invoke('reviewMenu', runtimeId, kind, selected, position),
   repositoryDiff: (runtimeId, base) => invoke('repositoryDiff', runtimeId, base),
   repositoryFileDiff: (runtimeId, base, path) => invoke('repositoryFileDiff', runtimeId, base, path),

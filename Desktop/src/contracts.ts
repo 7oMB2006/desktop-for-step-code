@@ -17,6 +17,14 @@ export interface Account { loggedIn: boolean; validity: string; profile?: string
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
 export interface DesktopBridge {
+  terminalList(runtimeId?: string): Promise<TerminalSnapshot[]>;
+  terminalCreate(runtimeId: string): Promise<TerminalSnapshot>;
+  terminalWrite(id: string, data: string): Promise<void>;
+  terminalResize(id: string, cols: number, rows: number): Promise<void>;
+  terminalAck(id: string, seq: number): Promise<void>;
+  terminalClose(id: string): Promise<void>;
+  terminalPasteText(): Promise<string>;
+  onTerminalEvent(callback: (event: TerminalEvent) => void): () => void;
   reviewMenu(runtimeId: string | undefined, kind: 'source' | 'base', selected: string, position: { x: number; y: number }): Promise<string | undefined>;
   repositoryDiff(runtimeId: string, base?: string): Promise<RepositoryDiff>;
   repositoryFileDiff(runtimeId: string, base: string, path: string): Promise<RepositoryFileDiff>;
@@ -54,6 +62,12 @@ export interface DesktopBridge {
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }
 export interface TurnUndoState { state: 'available' | 'unavailable' | 'conflict' | 'undone' | 'failed'; token?: string }
+export interface TerminalInfo {
+  id: string; cwd: string; title: string; status: 'starting' | 'running' | 'exited' | 'failed';
+  cols: number; rows: number; exitCode?: number;
+}
+export interface TerminalSnapshot extends TerminalInfo { chunks: { seq: number; data: string }[] }
+export type TerminalEvent = { type: 'state'; terminal: TerminalInfo } | { type: 'data'; id: string; seq: number; data: string } | { type: 'closed'; id: string };
 export interface RepositoryFile {
   path: string; status: 'M' | 'A' | 'D' | '?'; added: number; removed: number; binary: boolean; unavailable?: boolean;
 }

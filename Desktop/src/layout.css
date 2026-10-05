@@ -502,6 +502,19 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .response-text p:last-child { margin-bottom: 0; }
 .response-text > p:has(.katex-display) { max-width: none; }
 .process-tool { margin: 4px 0; min-width: 0; }
+.subagent-lanes { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; min-width: 0; }
+.lane-row {
+  display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%;
+  min-height: 30px; padding: 3px 0; border: 0; background: transparent; cursor: pointer;
+  font-size: 13px; color: var(--muted); text-align: left;
+}
+.lane-row:hover { color: var(--ink); }
+.lane-row > svg { flex-shrink: 0; }
+.lane-row[data-tool-state="failed"], .lane-row[data-tool-state="failed"]:hover { color: var(--danger); }
+.lane-type { flex-shrink: 0; padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.lane-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane-text { margin: 6px 0; font-size: 13px; }
+.lane-text > .message-body { display: block; }
 .process-tool > summary { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; list-style: none; min-height: 34px; cursor: pointer; font-size: 13px; color: var(--muted); }
 .process-tool > summary:hover { color: var(--ink); }
 .process-tool > summary > svg { flex-shrink: 0; }

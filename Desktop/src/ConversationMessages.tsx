@@ -1,11 +1,11 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps, Dispatch, SetStateAction } from 'react';
 import Markdown from 'react-markdown';
-import { Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Wrench } from 'lucide-react';
+import { Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Wrench } from 'lucide-react';
 import type { Content, Message } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
-import { conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject } from './conversation-presentation';
-import type { ResponseItem } from './conversation-presentation';
+import { conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
+import type { ResponseItem, SubagentTask } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { quotePresentation } from './chat-quotes';
@@ -20,6 +20,7 @@ type Props = {
   edit: (message: Message, text: string) => Promise<void>; onError: (message: string) => void;
   branch: (message: Message) => void;
   onLayoutChange?: () => void;
+  onOpenSubagent: (task: SubagentTask) => void;
   arrivingUser?: Message | null;
 };
 type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange'>;
@@ -69,7 +70,7 @@ function Code({ children, className, language, onError }: Omit<ComponentProps<'c
     <CopyButton text={String(children)} getText={() => code.current?.textContent ?? ''} language={language} onError={onError}/>
   </span><code ref={code} className={className}>{children}</code></span>;
 }
-function Text({ text, streaming = false, ...props }: { text: string; streaming?: boolean } & BodyProps) {
+export function Text({ text, streaming = false, ...props }: { text: string; streaming?: boolean } & BodyProps) {
   const [reveal, setReveal] = useState<RevealState>({ text: '', active: false, nextId: 0, batches: [] });
   if (text !== reveal.text || streaming !== reveal.active) {
     setReveal(updateReveal(reveal, text, streaming, performance.now()));
@@ -121,7 +122,7 @@ function Timestamp({ value, language }: { value?: number; language: 'zh' | 'en' 
     {new Date(value).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}
   </time>;
 }
-function Tool({ item, active, ...props }: {
+export function Tool({ item, active, ...props }: {
   item: Extract<ResponseItem, { type: 'tool' }>; active: boolean;
 } & BodyProps) {
   const zh = props.language === 'zh';
@@ -147,18 +148,53 @@ function Tool({ item, active, ...props }: {
     </div>
   </details>;
 }
-function Response({ items, active, canBranch, branch, runtimeId, ...props }: {
-  items: { message: Message; index: number }[]; active: boolean;
-  canBranch: boolean; branch: Props['branch'];
-  runtimeId?: string;
+function SubagentTaskRow({ task, onOpen, language }: {
+  task: SubagentTask; onOpen: (task: SubagentTask) => void; language: 'zh' | 'en';
+}) {
+  const zh = language === 'zh';
+  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : 'failed';
+  const summary = task.task.replace(/\s+/gu, ' ').trim();
+  const label = zh ? (state === 'running' ? '进行中' : state === 'done' ? '已完成' : '已失败')
+    : (state === 'running' ? 'Running' : state === 'done' ? 'Completed' : 'Failed');
+  return <button type="button" className="lane-row" data-tool-state={state} data-lane-agent={task.agent}
+    title={summary}
+    aria-label={language === 'zh' ? `查看子代理记录: ${summary}` : `Open subagent record: ${summary}`}
+    onClick={() => onOpen(task)}>
+    <Bot size={14}/>
+    <span className="process-tool-label">{label}<span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/></span>
+    <span className="lane-type">{task.agent || (zh ? '子代理' : 'Subagent')}</span>
+    <span className="lane-summary-text">{summary.slice(0, 80) || (zh ? '无任务描述' : 'No task')}</span>
+    <ChevronRight size={13} className="disclosure-chevron"/>
+  </button>;
+}
+
+function SubagentLane({ item, active, onOpen, ...props }: {
+  item: Extract<ResponseItem, { type: 'tool' }>; active: boolean;
+  onOpen: (task: SubagentTask) => void;
 } & BodyProps) {
-  const { content, text, lastTextIndex } = responsePresentation(items);
-  const changes = useMemo(() => turnChanges(active ? [] : items), [items, active]);
-  const zh = props.language === 'zh';
-  const stamp = [...items].reverse().find(item => item.message.timestamp)?.message.timestamp;
-  return <article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
-    <div className="response-content message-body">{content.map((item, position) =>
-        item.type === 'tool' ? <Tool key={item.key} item={item} active={active} {...props}/>
+  const tasks = useMemo(() => subagentTasks(item.call, item.result), [item.call, item.result]);
+  if (!tasks.length) return <Tool item={item} active={active} {...props}/>;
+  return <div className="subagent-lanes" data-message-index={item.index}>
+    {tasks.map((task, position) => <SubagentTaskRow key={`${item.key}:${position}`} task={task} onOpen={onOpen} language={props.language}/>)}
+  </div>;
+}
+
+  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, ...props }: {
+    items: { message: Message; index: number }[]; active: boolean;
+    canBranch: boolean; branch: Props['branch'];
+    runtimeId?: string;
+    onOpenSubagent: (task: SubagentTask) => void;
+  } & BodyProps) {
+    const { content, text, lastTextIndex } = responsePresentation(items);
+    const changes = useMemo(() => turnChanges(active ? [] : items), [items, active]);
+    const zh = props.language === 'zh';
+    const stamp = [...items].reverse().find(item => item.message.timestamp)?.message.timestamp;
+    return <article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
+      <div className="response-content message-body">{content.map((item, position) =>
+          item.type === 'tool'
+            ? item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
+              ? <SubagentLane key={item.key} item={item} active={active} onOpen={onOpenSubagent} {...props}/>
+              : <Tool key={item.key} item={item} active={active} {...props}/>
           : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
             autoOpen={active && position > lastTextIndex} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
             <Text text={item.block.thinking ?? ''} streaming={active && position > lastTextIndex} {...props}/>
@@ -166,7 +202,7 @@ function Response({ items, active, canBranch, branch, runtimeId, ...props }: {
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
               : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>
       )}</div>
-    {!active && <TurnChanges changes={changes} runtimeId={runtimeId} language={props.language} onError={props.onError}/>}
+      {!active && <TurnChanges changes={changes} runtimeId={runtimeId} language={props.language} onError={props.onError}/>}
     {!active && content.length > 0 && <footer className="message-actions assistant-actions">
       <CopyButton text={text} {...props}/>
       <button type="button" className="icon-button branch-action" aria-label={zh ? '从这里分支' : 'Branch from here'}

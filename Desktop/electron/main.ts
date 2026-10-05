@@ -151,8 +151,14 @@ function savePreferences() {
   return write;
 }
 let sessionCatalog: Session[] = [];
+// Upstream spawns one real session per subagent so it can resume the child transcript.
+// Those are an implementation detail of the subagent feature, not sessions the user opened,
+// so they are kept out of the Desktop session list. The files stay on disk.
+const SUBAGENT_SESSION_PREFIX = 'subagent-';
 async function listSessions(): Promise<Session[]> {
-  const sessions: Session[] = await admin.request('sessions');
+  const upstream: Session[] = await admin.request('sessions');
+  const sessions: Session[] = upstream
+    .filter(session => !String(session.id ?? '').startsWith(SUBAGENT_SESSION_PREFIX));
   // Empty upstream sessions are persisted lazily, but must remain navigable.
   for (const worker of runtimes.workers.values()) {
     const id = worker.state?.sessionId;

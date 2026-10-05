@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, Diff, Globe } from 'lucide-react';
+import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, Diff, Globe, Bot } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
 import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
-import { applyMessageEvent } from './message-events';
+import { applyMessageEvent, applyToolResult } from './message-events';
 import { MessageRevision } from './message-revision';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
@@ -36,6 +36,8 @@ import { LiveTurnChanges } from './LiveTurnChanges';
 import { ReviewPanel } from './ReviewPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { BrowserPanel } from './BrowserPanel';
+import { SubagentPanel } from './SubagentPanel';
+import type { SubagentTask } from './conversation-presentation';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -100,8 +102,14 @@ function App() {
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
-  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | null>('auto');
-  const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | null>(null);
+  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>('auto');
+  const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>(null);
+  const [selectedSubagent, setSelectedSubagent] = useState<SubagentTask | null>(null);
+  const openSubagent = useCallback((task: SubagentTask) => {
+    setSelectedSubagent(task);
+    setDetails('');
+    setRightPanel('subagent');
+  }, []);
   const [summarySpace, setSummarySpace] = useState(false);
   const appLayout = useRef<HTMLDivElement>(null);
   const rightRail = useRef<HTMLElement>(null);
@@ -156,7 +164,7 @@ function App() {
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = expandedRightPanel === visibleRightPanel && !details &&
-    (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser');
+    (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent');
   useEffect(() => {
     if (expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
   }, [expandedRightPanel, visibleRightPanel, details]);
@@ -268,6 +276,8 @@ function App() {
     if (!switching.current && id === viewId.current && (!id || value.runtimeId === id)) installSnapshot(value);
   };
   const applySnapshot = async (action: () => Promise<Snapshot | null>) => {
+    // A subagent record belongs to the session that spawned it; switching must not leave it open.
+    setSelectedSubagent(null);
     if (switching.current) return;
     switching.current = true; setLoading(true);
     let succeeded = false;
@@ -321,7 +331,7 @@ function App() {
         return;
       }
       if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current)) return;
-      if (['desktop_history', 'message_start', 'message_update', 'message_end'].includes(event.type)
+      if (['desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
         && !messageRevision.current.acceptEvent(event)) return;
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
@@ -337,6 +347,9 @@ function App() {
       if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
       if (['message_start', 'message_end'].includes(event.type) && event.message?.role === 'user') setArrivingUser(event.message);
       if (['message_start', 'message_update', 'message_end'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
+      if (event.type === 'tool_execution_update' || event.type === 'tool_execution_end') {
+        setData(d => ({ ...d, messages: applyToolResult(d.messages, event) }));
+      }
       if (event.type === 'extension_ui_request') {
         if (['select', 'input', 'editor', 'confirm'].includes(event.method)) setRequests(r => [...r.filter(v => v.id !== event.id), event as UIRequest]);
         if (event.method === 'notify' && event.message) {
@@ -849,7 +862,7 @@ function App() {
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages key={data.runtimeId} runtimeId={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
+          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages key={data.runtimeId} runtimeId={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
         </div>
         <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>
@@ -904,24 +917,29 @@ function App() {
         setQuotes(value => [...value, quote]); return true;
       }}/>
     {details && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
-    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || Boolean(details)}
+    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || Boolean(details)}
       overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
-    <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || Boolean(details)}
+    <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'review'}
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'review')}
       overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
-    <TerminalPanel open={visibleRightPanel === 'terminal' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'browser' || Boolean(details)}
+    <TerminalPanel open={visibleRightPanel === 'terminal' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'terminal'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'terminal')}
       overlay={!summarySpace} runtimeId={data.runtimeId} cwd={data.preferences.workspace} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
     <BrowserPanel open={visibleRightPanel === 'browser' && !details}
-      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || Boolean(details)}
+      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
       blocked={windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
-    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || details ? 'is-replaced' : ''}`}>
+    <SubagentPanel open={visibleRightPanel === 'subagent' && !details}
+      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || Boolean(details)}
+      expanded={inspectorExpanded && visibleRightPanel === 'subagent'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'subagent')}
+      overlay={!summarySpace} task={selectedSubagent} language={data.preferences.language}
+      openImage={openImage} onClose={closeRightPanel} onError={setError}/>
+    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <header><h2>{t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={closeRightPanel}><X size={16}/></IconButton></header>
@@ -941,6 +959,7 @@ function App() {
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><Diff size={18}/></IconButton>
       <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>
+        <IconButton title={t('子代理', 'Subagents')} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'subagent' ? null : 'subagent'); }}><Bot size={18}/></IconButton>
       <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-controls="conversation-navigation-panel" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
     </nav>
     {preview && <div className="attachment-preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>

@@ -1,0 +1,35 @@
+.subagent-track {
+  --subagent-width: 440px;
+  --inspector-width: 440px;
+  flex: 0 0 0px; min-width: 0;
+  transition: flex-basis var(--right-panel-duration) var(--right-panel-ease);
+}
+.subagent-track.is-open:not(.is-overlay) {
+  flex-basis: clamp(0px, calc(var(--conversation-width) + 28px + 1000px - 100vw + var(--sidebar-track) + 44px), var(--subagent-width));
+}
+.subagent-track.is-replaced { flex-basis: 0 !important; transition: none; }
+.subagent-panel {
+  position: fixed; z-index: 12; top: var(--window-bar-height); right: 44px; bottom: 0;
+  display: flex; flex-direction: column; width: min(var(--subagent-width), calc(100vw - 60px));
+  min-width: 0; margin: 0; border: 0; border-left: 1px solid var(--border);
+  background: var(--bg); color: var(--ink); opacity: 1; transform: translateX(0);
+  transition: opacity var(--right-panel-duration) var(--right-panel-ease), transform var(--right-panel-duration) var(--right-panel-ease);
+}
+.app .subagent-panel.right-inspector-surface {
+  transition: opacity var(--right-panel-duration) var(--right-panel-ease), transform var(--right-panel-duration) var(--right-panel-ease),
+    width var(--right-panel-duration) var(--right-panel-ease);
+}
+.subagent-panel.is-closing { opacity: 0; transform: translateX(8px); pointer-events: none; }
+@starting-style { .subagent-panel { opacity: 0; transform: translateX(8px); } }
+@starting-style { .subagent-track.is-open:not(.is-overlay) { flex-basis: 0px; } }
+.subagent-track.is-overlay .subagent-panel { box-shadow: -8px 0 20px oklch(0 0 0 / .06); }
+
+.subagent-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 18px; }
+.subagent-head { display: flex; align-items: center; gap: 10px; padding: 8px 0 6px; }
+.subagent-status { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
+.subagent-status[data-lane-state="completed"] { color: var(--ok, var(--ink)); }
+.subagent-status[data-lane-state="failed"], .subagent-status[data-lane-state="aborted"] { color: var(--danger); }
+.subagent-task { margin: 0 0 4px; font-size: 13px; line-height: 1.6; color: var(--ink); }
+.subagent-note { margin: 0 0 10px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 5px; font-size: 11px; line-height: 1.6; color: var(--muted); }
+.subagent-head .subagent-meta { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.subagent-transcript { padding-top: 4px; }

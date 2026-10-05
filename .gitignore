@@ -5,6 +5,7 @@
 /Desktop/.env.local
 /Desktop/*.log
 /Desktop/runtime/
+/Desktop/terminal-runtime/
 /Desktop/release/
 /Desktop/release-fixed/
 /Desktop/release-layout/

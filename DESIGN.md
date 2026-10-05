@@ -53,6 +53,14 @@ The composer accepts file selection, pasted images and file drops. PNG/JPEG/WebP
 
 Composer thumbnails and transcript images share an anchored image preview: cubic expansion from the thumbnail and return on close, drag panning, cursor-centered Ctrl+wheel zoom, keyboard focus return and reduced-motion support. Obvious preview controls and hover-only removal buttons have no tooltip. Image context menus follow the client language: Copy/Save As in the preview and composer; Add to chat/Copy image/Open in Explorer/Download a copy in the transcript. Explorer uses a reusable desktop-owned image cache under userData `cache/image-previews/`, with one replaceable file per image format, separate from configuration and runtime data. The cache is rebuildable, not a permanent image archive; explicit save actions use a native save dialog.
 
+## Embedded Terminal
+
+The right rail provides a user-operated Windows terminal using xterm.js and a real PowerShell PTY. It is separate from Agent shell tools, messages, approvals and credentials. Terminal output is not sent to the model. The shell runs with ordinary current-user filesystem permissions, without PowerShell profiles, persisted personal command history or history predictions. Desktop/runtime overrides and credential-shaped environment variables are removed from its inherited environment.
+
+Terminal tabs belong to their initial working directory. Conversations in the same project share those tabs; independent conversations have distinct directories. Changing the shell's directory does not reassign a tab. Collapsing the panel or switching conversations leaves commands running. Explicit tab close and application exit terminate the terminal process tree. Exited tabs keep their output until closed; closing the last tab does not create another automatically. Tabs and processes do not persist across application restarts.
+
+The terminal uses the shared right-panel header, main-view fullscreen/restore, cubic enter/exit transitions and a trackless scrollbar. Clipboard actions cross the preload bridge. Ctrl+C copies a selection, otherwise interrupts the shell; Ctrl+Shift+C/V and Ctrl+V use explicit clipboard actions. Escape inside terminal input is reserved for the shell. Terminal-generated clipboard writes and hyperlink activation are disabled.
+
 # Product Icon
 
 The canonical product icon is `Desktop/public/StepCode.svg`, copied unchanged from the user's StepCode.svg artwork. Use it for all product identity surfaces. `Desktop/scripts/icons.mjs` generates the Windows ICO from this asset during build/dev. Do not replace it with a terminal glyph or the default Electron icon. The sidebar begins with navigation, without a duplicate brand header.

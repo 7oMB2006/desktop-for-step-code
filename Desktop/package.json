@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@number-flow/react": "0.6.2",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "diff": "8.0.2",
     "highlight.js": "11.11.2",
     "katex": "0.16.47",
@@ -40,6 +42,7 @@
     "electron": "44.4.5",
     "electron-builder": "26.0.12",
     "esbuild": "0.28.2",
+    "node-pty": "1.1.0",
     "playwright": "1.58.2",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
@@ -61,10 +64,30 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "build/icon.ico", "to": "icon.ico" },
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
       {
         "from": "runtime",
         "to": "runtime"
+      },
+      {
+        "from": "terminal-runtime/host.cjs",
+        "to": "terminal-runtime/host.cjs"
+      },
+      {
+        "from": "terminal-runtime/node_modules/node-pty",
+        "to": "terminal-runtime/node_modules/node-pty",
+        "filter": [
+          "package.json",
+          "LICENSE",
+          "lib/**",
+          "prebuilds/win32-x64/**",
+          "!**/*.pdb",
+          "!**/*.test.js",
+          "!**/*.map"
+        ]
       }
     ],
     "win": {

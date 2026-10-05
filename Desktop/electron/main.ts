@@ -12,6 +12,7 @@ import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
 import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
+import { TerminalSessions } from './terminal-sessions';
 import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Preferences, Session, Snapshot } from '../src/contracts';
@@ -82,6 +83,9 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node/node.exe');
+const terminals = new TerminalSessions(nodePath,
+  app.isPackaged ? join(process.resourcesPath, 'terminal-runtime/host.cjs') : resolve('terminal-runtime/host.cjs'),
+  event => { if (window && !window.isDestroyed()) window.webContents.send('terminal-event', event); });
 crashLog.setPhase('runtime staged');
 const env = isolatedEnvironment(dataRoot);
 const vault = new AuthVault(dataRoot);
@@ -234,6 +238,13 @@ async function newIndependentSession() {
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[]) {
   switch (method) {
+    case 'terminalList': return args[0] === undefined ? terminals.list() : terminals.list(runtimes.require(text(args[0], 80)).cwd);
+    case 'terminalCreate': return terminals.create(runtimes.require(text(args[0], 80)).cwd);
+    case 'terminalWrite': terminals.write(text(args[0], 80), args[1]); return;
+    case 'terminalResize': terminals.resize(text(args[0], 80), args[1], args[2]); return;
+    case 'terminalAck': terminals.ack(text(args[0], 80), args[1]); return;
+    case 'terminalClose': return terminals.close(text(args[0], 80));
+    case 'terminalPasteText': return (await clipboard.readText()).slice(0, 65536);
     case 'reviewMenu': {
       const kind = text(args[1], 10);
       const selected = text(args[2], 512);
@@ -707,7 +718,7 @@ app.on('before-quit', event => {
       const r = await dialog.showMessageBox(window, { message: preferences.language === 'zh' ? '仍有会话在运行。停止所有任务并退出？' : 'Sessions are still running. Stop all tasks and quit?', buttons: ['Cancel', 'Stop and quit'], cancelId: 0 });
       if (r.response !== 1) { quitPending = false; return; }
     }
-    quitting = true; await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]); app.quit();
+    quitting = true; await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop(), terminals.stopAll()]); app.quit();
   })();
 });
 app.on('window-all-closed', () => app.quit());
@@ -813,5 +824,5 @@ else app.whenReady().then(async () => {
 }).catch(async error => {
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]).finally(() => app.quit());
+  quitting = true; void Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
 });

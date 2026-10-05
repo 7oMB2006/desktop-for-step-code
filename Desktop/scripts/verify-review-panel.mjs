@@ -265,6 +265,7 @@ try {
   assert.equal(await panel.getByLabel('变更来源').innerText(), '分支');
   await page.screenshot({ path: 'test-results/review-no-git.png' });
   await choose('变更来源', '上一轮');
+  await page.waitForFunction(() => document.querySelector('[aria-label="变更来源"]')?.textContent.trim() === '上一轮');
   assert.equal(await panel.getByLabel('变更来源').innerText(), '上一轮');
   const menus = await app.evaluate(() => globalThis.reviewMenuFixture.menus);
   assert.ok(menus.every(menu => menu.every(item => item.enabled && item.type === 'radio')));

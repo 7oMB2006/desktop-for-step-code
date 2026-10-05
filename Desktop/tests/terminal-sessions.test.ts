@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { TerminalSessions } from '../electron/terminal-sessions';
+import { TerminalSessions, terminateTerminalHost } from '../electron/terminal-sessions';
 import type { TerminalEvent } from '../src/contracts';
 
 const waitFor = async (predicate: () => boolean) => {
@@ -66,4 +66,37 @@ test('terminal count is bounded per directory and failures do not cross director
     assert.equal(sessions.list(other).length, 1);
     assert.equal(sessions.list(cwd).length, 8);
   } finally { await sessions.stopAll(); await rm(cwd, { recursive: true, force: true }); }
+});
+test('unsuccessful termination retains ownership and supports a confirmed retry', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'terminal-kill-failure-'));
+  const events: TerminalEvent[] = [];
+  let deny = true;
+  const sessions = new TerminalSessions(process.execPath, resolve('tests/fixtures/terminal-host.cjs'),
+    event => events.push(event), child => terminateTerminalHost(child, deny ? async () => false : undefined, deny ? 50 : 3000));
+  try {
+    const terminal = await sessions.create(cwd);
+    await assert.rejects(sessions.close(terminal.id), /Could not terminate/);
+    assert.equal(sessions.list(cwd)[0].status, 'failed');
+    assert.equal(events.some(event => event.type === 'closed'), false);
+    await assert.rejects(sessions.stopAll(), /Could not terminate/);
+    assert.equal(sessions.list(cwd).length, 1);
+    deny = false;
+    await sessions.close(terminal.id);
+    assert.equal(sessions.list(cwd).length, 0);
+    assert.equal(events.filter(event => event.type === 'closed').length, 1);
+  } finally { deny = false; await sessions.stopAll(); await rm(cwd, { recursive: true, force: true }); }
+});
+test('a reported taskkill success still requires host exit confirmation', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'terminal-kill-confirm-'));
+  let fakeSuccess = true;
+  const sessions = new TerminalSessions(process.execPath, resolve('tests/fixtures/terminal-host.cjs'), () => {},
+    child => terminateTerminalHost(child, fakeSuccess ? async () => true : undefined, fakeSuccess ? 50 : 3000));
+  try {
+    const terminal = await sessions.create(cwd);
+    await assert.rejects(sessions.close(terminal.id), /did not exit/);
+    assert.equal(sessions.list(cwd).length, 1);
+    fakeSuccess = false;
+    await Promise.all([sessions.close(terminal.id), sessions.close(terminal.id)]);
+    assert.equal(sessions.list(cwd).length, 0);
+  } finally { fakeSuccess = false; await sessions.stopAll(); await rm(cwd, { recursive: true, force: true }); }
 });

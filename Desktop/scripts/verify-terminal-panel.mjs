@@ -13,7 +13,9 @@ await writeFile(join(profile, 'waiting-child.cjs'), 'setInterval(() => {}, 1000)
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [workspace] }));
 await mkdir('test-results', { recursive: true });
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1',
-  DESKTOP_TERMINAL_SECRET: 'not-for-shell' };
+  DESKTOP_TERMINAL_SECRET: 'not-for-shell', SSH_PRIVATE_KEY: 'isolated-private-key',
+  GITHUB_PAT: 'isolated-pat', DOCKER_AUTH_CONFIG: 'isolated-docker-auth',
+  CUSTOM_UNCLASSIFIED_VALUE: 'isolated-unclassified' };
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const app = await electron.launch({ ...(executablePath ? { executablePath } : {}),
@@ -33,7 +35,8 @@ try {
     clipboard.readText = async () => "Write-Output 'PASTE_OK'\r";
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
-  await page.evaluate(cwd => window.desktop.workspace(cwd), workspace);
+  const workspaceAlias = `${workspace.toUpperCase().replace(/\\/g, '/')}/.`;
+  await page.evaluate(cwd => window.desktop.workspace(cwd), workspaceAlias);
   await page.reload();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
@@ -63,8 +66,10 @@ try {
   await write("Write-Output ('REAL_' + 'PTY_OK'); Write-Output ('中文' + '正常'); Get-ChildItem\r");
   await waitOutput('REAL_PTY_OK');
   await waitOutput('中文正常');
-  await write("if (Test-Path Env:DESKTOP_TERMINAL_SECRET) { Write-Output 'LEAK' } else { Write-Output ('ENV_' + 'CLEAN') }\r");
+  await write("if (@('DESKTOP_TERMINAL_SECRET','SSH_PRIVATE_KEY','GITHUB_PAT','DOCKER_AUTH_CONFIG','CUSTOM_UNCLASSIFIED_VALUE').Where({ Test-Path ('Env:' + $_) }).Count) { Write-Output 'LEAK' } else { Write-Output ('ENV_' + 'CLEAN') }\r");
   await waitOutput('ENV_CLEAN');
+  const environmentOutput = await output();
+  assert.ok(!['isolated-private-key', 'isolated-pat', 'isolated-docker-auth', 'isolated-unclassified'].some(value => environmentOutput.includes(value)));
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   await assert.rejects(page.evaluate(() => window.desktop.terminalWrite('unknown', 'test')), /Unknown terminal/);
   await assert.rejects(page.evaluate(id => window.desktop.terminalResize(id, 10000, 0), id), /dimensions/);
@@ -189,7 +194,8 @@ try {
     await page.waitForTimeout(100);
   }
   assert.ok(independentPid);
-  await page.evaluate(cwd => window.desktop.workspace(cwd), workspace);
+  await assert.rejects(page.evaluate(cwd => window.desktop.workspace(cwd), profile), /Unknown workspace/);
+  await page.evaluate(cwd => window.desktop.workspace(cwd), workspaceAlias);
   await page.reload(); await rail.click();
   await page.waitForFunction(() => document.querySelectorAll('.terminal-tab').length === 2);
   await panel.getByRole('button', { name: '结束 PowerShell 2', exact: true }).click();

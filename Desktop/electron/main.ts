@@ -343,7 +343,13 @@ async function handle(method: string, args: any[]) {
       const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
       return result.canceled ? null : connect(result.filePaths[0]);
     }
-    case 'workspace': { const cwd = text(args[0]); if (!preferences.workspaces.includes(cwd)) throw new Error('Unknown workspace'); return connect(cwd); }
+    case 'workspace': {
+      const cwd = text(args[0]);
+      for (const registered of preferences.workspaces) {
+        if (await samePath(registered, cwd)) return connect(registered);
+      }
+      throw new Error('Unknown workspace');
+    }
     case 'restart': {
       if (transition) throw new Error('Workspace operation in progress');
       const worker = runtimes.active;
@@ -718,7 +724,15 @@ app.on('before-quit', event => {
       const r = await dialog.showMessageBox(window, { message: preferences.language === 'zh' ? '仍有会话在运行。停止所有任务并退出？' : 'Sessions are still running. Stop all tasks and quit?', buttons: ['Cancel', 'Stop and quit'], cancelId: 0 });
       if (r.response !== 1) { quitPending = false; return; }
     }
-    quitting = true; await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop(), terminals.stopAll()]); app.quit();
+    try {
+      await terminals.stopAll();
+      await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
+      quitting = true;
+      app.quit();
+    } catch {
+      quitPending = false;
+      emit({ type: 'desktop_error', message: preferences.language === 'zh' ? '无法结束终端，请关闭终端后重试退出。' : 'Could not stop terminals. Close them and try exiting again.' });
+    }
   })();
 });
 app.on('window-all-closed', () => app.quit());

@@ -7,8 +7,15 @@ test('terminal environment retains OS paths but not desktop settings or secrets'
     DESKTOP_TEST_USER_DATA: 'profile', STEPCODE_HOME: 'private', STEP_CODING_API_KEY: 'private',
     ELECTRON_RUN_AS_NODE: '1', NODE_OPTIONS: '--inspect', NODE_PATH: 'private',
     GITHUB_ACCESS_TOKEN: 'private', GH_TOKEN: 'private', AWS_ACCESS_KEY_ID: 'private',
-    OPENAI_API_KEY: 'private', PASSWORD: 'private', unset: undefined });
+    OPENAI_API_KEY: 'private', PASSWORD: 'private', SSH_PRIVATE_KEY: 'private', GITHUB_PAT: 'private',
+    DOCKER_AUTH_CONFIG: 'private', CUSTOM_UNCLASSIFIED_VALUE: 'private', HTTP_PROXY: 'private',
+    unset: undefined });
   assert.deepEqual(env, { PATH: 'bin', SystemRoot: 'C:\\Windows', TEMP: 'temp', TERM: 'xterm' });
+});
+test('terminal environment matches explicit system variables case-insensitively', () => {
+  assert.deepEqual(terminalEnvironment({ Path: 'bin', SystemRoot: 'windows', UserProfile: 'home',
+    PSModulePath: 'modules', NODE_OPTIONS: 'private', PAT: 'private' }),
+  { Path: 'bin', SystemRoot: 'windows', UserProfile: 'home', PSModulePath: 'modules' });
 });
 test('terminal resize and input have finite bounded shapes', () => {
   assert.deepEqual(terminalSize(80, 24), { cols: 80, rows: 24 });

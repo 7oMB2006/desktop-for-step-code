@@ -18,6 +18,16 @@ Packaged Node, Step Code bundle and both Desktop helpers match the staged runtim
 
 PowerShell 7 was exercised; the configured Windows PowerShell fallback was not separately exercised. No installer execution, WSL support, paid-model call, upstream Step-Code change, commit, PR or public-release qualification was performed.
 
+### PR #57 Review And CI Follow-Up
+
+The source-only follow-up replaces environment-name denylisting with an explicit case-insensitive allowlist. Regression fixtures include `SSH_PRIVATE_KEY`, `GITHUB_PAT`, `DOCKER_AUTH_CONFIG`, proxy variables and an unclassified custom variable, while retaining system paths and user directories. Real PowerShell acceptance injects isolated synthetic credentials and verifies that their variable names are absent from its environment and their values do not enter replay output. This does not sandbox the shell's normal current-user filesystem access.
+
+Terminal closure checks the taskkill outcome and waits for host exit before removing the tab, replay and registry entry. Unsuccessful termination and reported success without actual host exit both retain ownership and reject closure; a later confirmed retry removes the entry. Concurrent closes share the same operation. Shutdown waits for outstanding attempts, propagates failures and allows retry; the application does not quit silently after a failed terminal stop. Unit fixtures cover these failure/retry paths, while real terminal acceptance covers ordinary process-tree termination and application exit.
+
+The failed CI step reported `Unknown workspace` when returning from an independent terminal to a project whose saved path had been canonicalized. Workspace selection now checks remembered directories with the existing `samePath` helper and connects through the remembered path rather than raw string equality. Real terminal acceptance explicitly uses uppercase, alternate separators and a trailing dot, and rejects an existing but unregistered directory.
+
+Typecheck, all 147 unit/protocol tests, production build, source real-terminal acceptance and general Electron acceptance passed after these changes. The previous terminal package and desktop shortcut have not been replaced by this source-only follow-up.
+
 ## Conversation Presentation
 
 ### Hanging Summary Board

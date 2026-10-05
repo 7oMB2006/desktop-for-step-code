@@ -1,7 +1,17 @@
+const terminalVariables = new Set([
+  'PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'OS',
+  'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMW6432', 'PROGRAMDATA',
+  'COMMONPROGRAMFILES', 'COMMONPROGRAMFILES(X86)', 'COMMONPROGRAMW6432',
+  'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'HOME', 'APPDATA', 'LOCALAPPDATA',
+  'TEMP', 'TMP', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'PSMODULEPATH',
+  'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432',
+  'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION',
+  'TERM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE',
+]);
+
 export function terminalEnvironment(source: NodeJS.ProcessEnv) {
   return Object.fromEntries(Object.entries(source).filter(([key, value]) => value !== undefined &&
-    !/^(?:DESKTOP_|STEPCODE_|STEP_CODING_|STEP_CLIENT$|ELECTRON_|NODE_OPTIONS$|NODE_PATH$)/i.test(key) &&
-    !/(?:API_?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION|COOKIE|^AWS_ACCESS_KEY_ID$)/i.test(key))) as NodeJS.ProcessEnv;
+    terminalVariables.has(key.toUpperCase()))) as NodeJS.ProcessEnv;
 }
 
 export function terminalSize(cols: unknown, rows: unknown) {

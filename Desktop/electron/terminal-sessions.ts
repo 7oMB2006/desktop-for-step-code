@@ -5,14 +5,44 @@ import { join } from 'node:path';
 import type { TerminalEvent, TerminalInfo, TerminalSnapshot } from '../src/contracts';
 import { terminalEnvironment, terminalInput, terminalSize } from './terminal-policy';
 
-type Entry = { info: TerminalInfo; chunks: { seq: number; data: string }[]; bytes: number; seq: number; child?: ChildProcess; cancel?: () => void };
+type Entry = { info: TerminalInfo; chunks: { seq: number; data: string }[]; bytes: number; seq: number; child?: ChildProcess; cancel?: () => void; closing?: Promise<void> };
 const key = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+
+function taskkill(pid: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const executable = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
+    const killer = spawn(executable, ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+    const finish = (success: boolean) => { clearTimeout(timer); resolve(success); };
+    const timer = setTimeout(() => { killer.kill(); finish(false); }, 3000);
+    killer.once('error', () => finish(false));
+    killer.once('exit', code => finish(code === 0));
+  });
+}
+
+export async function terminateTerminalHost(child: ChildProcess, killTree = taskkill, timeout = 3000) {
+  const exited = () => child.exitCode !== null || child.signalCode !== null;
+  if (!child.pid || exited()) return;
+  // A successful taskkill invocation is not itself confirmation that the host exited.
+  const stopped = new Promise<boolean>(resolve => {
+    const finish = (success: boolean) => {
+      clearTimeout(timer); child.removeListener('exit', onExit); resolve(success);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(exited()), timeout);
+    child.once('exit', onExit);
+  });
+  let killed = false;
+  try { killed = await killTree(child.pid); } catch {}
+  if (!(await stopped) && !exited()) throw new Error(killed ? 'Terminal did not exit after termination' : 'Could not terminate the terminal process tree');
+}
+
 export class TerminalSessions {
   private entries = new Map<string, Entry>();
   private numbers = new Map<string, number>();
   private stopping = false;
   private closing = new Set<Promise<void>>();
-  constructor(private node: string, private host: string, private emit: (event: TerminalEvent) => void) {}
+  constructor(private node: string, private host: string, private emit: (event: TerminalEvent) => void,
+    private terminate = terminateTerminalHost) {}
   list(cwd?: string): TerminalSnapshot[] {
     return [...this.entries.values()].filter(entry => cwd === undefined || key(entry.info.cwd) === key(cwd))
       .map(entry => ({ ...entry.info, chunks: [...entry.chunks] }));
@@ -40,13 +70,13 @@ export class TerminalSessions {
         this.emit({ type: 'state', terminal: { ...entry.info } });
         if (!settled) { settled = true; clearTimeout(timer); reject(new Error('Could not start the terminal')); }
       };
-      const timer = setTimeout(() => { fail(); void this.kill(entry); }, 15000);
+      const timer = setTimeout(() => { fail(); void this.kill(entry).catch(() => {}); }, 15000);
       entry.cancel = () => {
         clearTimeout(timer);
         if (!settled) { settled = true; reject(new Error('Terminal was closed')); }
       };
       child.on('message', (message: any) => {
-        if (entry.child !== child) return;
+        if (entry.child !== child || entry.closing) return;
         if (message.type === 'ready') {
           entry.info.status = 'running';
           child.send({ type: 'resize', cols: entry.info.cols, rows: entry.info.rows });
@@ -68,7 +98,7 @@ export class TerminalSessions {
       child.on('exit', () => {
         if (entry.child !== child) return;
         clearTimeout(timer);
-        if (entry.info.status !== 'exited') fail();
+        if (!entry.closing && entry.info.status !== 'exited') fail();
         entry.child = undefined;
       });
       child.send({ type: 'start', shell, cwd, cols, rows });
@@ -97,28 +127,36 @@ export class TerminalSessions {
   }
   async close(id: string) {
     const entry = this.require(id);
-    this.entries.delete(id);
-    this.emit({ type: 'closed', id });
-    const operation = this.kill(entry);
+    if (entry.closing) return entry.closing;
+    const operation = this.kill(entry).then(() => {
+      this.entries.delete(id);
+      this.emit({ type: 'closed', id });
+    }).catch(error => {
+      entry.info.status = 'failed';
+      this.emit({ type: 'state', terminal: { ...entry.info } });
+      throw error;
+    }).finally(() => { this.closing.delete(operation); entry.closing = undefined; });
+    entry.closing = operation;
     this.closing.add(operation);
-    try { await operation; } finally { this.closing.delete(operation); }
+    return operation;
   }
   private async kill(entry: Entry) {
     entry.cancel?.();
     entry.cancel = undefined;
     const child = entry.child;
+    if (!child) return;
+    await this.terminate(child);
     entry.child = undefined;
-    if (!child?.pid || child.exitCode !== null) return;
-    await new Promise<void>(resolve => {
-      const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-      const timer = setTimeout(() => { child.kill(); resolve(); }, 3000);
-      killer.once('error', () => { clearTimeout(timer); child.kill(); resolve(); });
-      killer.once('exit', () => { clearTimeout(timer); resolve(); });
-    });
   }
   async stopAll() {
     this.stopping = true;
-    await Promise.all([...this.entries.keys()].map(id => this.close(id)));
-    await Promise.all([...this.closing]);
+    try {
+      await Promise.all([...this.entries.keys()].map(id => this.close(id)));
+      await Promise.all([...this.closing]);
+    } catch (error) {
+      await Promise.allSettled([...this.closing]);
+      this.stopping = false;
+      throw error;
+    }
   }
 }

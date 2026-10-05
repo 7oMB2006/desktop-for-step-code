@@ -162,7 +162,7 @@ export class SessionRuntimes {
           }, Math.min(event.timeout, 2147483647)).unref());
         }
       }
-      this.emit({ ...event, runtimeId: worker.id, sessionId: worker.state?.sessionId });
+      this.emit({ ...event, runtimeId: worker.id, runtimeRevision: worker.revision, sessionId: worker.state?.sessionId });
       if (['agent_start', 'agent_end', 'desktop_exit', 'extension_ui_request'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
     });
     this.workers.set(worker.id, worker);
@@ -268,7 +268,7 @@ export class SessionRuntimes {
     if (worker.state?.sessionId !== sessionId || (worker.leafId ?? null) !== selected.parentId) {
       throw new Error('Runtime did not restore the edit point');
     }
-    this.emit({ type: 'desktop_history', runtimeId: worker.id, sessionId, messages: worker.messages });
+    this.emit({ type: 'desktop_history', runtimeId: worker.id, runtimeRevision: ++worker.revision, sessionId, messages: worker.messages });
     worker.submissions++;
     this.publish();
     try {
@@ -283,7 +283,7 @@ export class SessionRuntimes {
         if (permissionPreset) await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
         await this.read(worker);
         if (worker.state?.sessionId !== sessionId || worker.leafId !== history.leafId) throw new Error('Submission failed and history could not be restored');
-        this.emit({ type: 'desktop_history', runtimeId: worker.id, sessionId, messages: worker.messages });
+        this.emit({ type: 'desktop_history', runtimeId: worker.id, runtimeRevision: ++worker.revision, sessionId, messages: worker.messages });
       }
       throw error;
     } finally { worker.submissions--; this.publish(); }

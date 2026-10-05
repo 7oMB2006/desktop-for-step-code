@@ -195,7 +195,7 @@ async function snapshot(worker = runtimes.active, refresh = true): Promise<Snaps
   return {
     preferences: { ...preferences, workspace: worker?.cwd ?? preferences.workspace },
     status: worker?.status ?? status, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
-    state: worker?.state, permissionPreset: worker?.permissionPreset,
+    state: worker?.state, permissionPreset: worker?.permissionPreset, runtimeRevision: worker?.revision,
     messages: worker?.messages ?? [], models: worker?.models ?? [], stats: worker?.stats,
     requests: worker ? [...worker.pendingUI.values()] : [],
     sessions, independent: !worker || isIndependentPath(worker.cwd),

@@ -7,6 +7,7 @@ import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
 import { applyMessageEvent } from './message-events';
+import { MessageRevision } from './message-revision';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
 import { PerformanceBar } from './PerformanceBar';
@@ -48,6 +49,7 @@ const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not sta
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
 function App() {
   const [data, setData] = useState(initial);
+  const messageRevision = useRef(new MessageRevision());
   const latestData = useRef(data);
   latestData.current = data;
   const [error, setError] = useState('');
@@ -237,6 +239,7 @@ function App() {
   const workspaceTitle = (path: string) => data.preferences.workspaceNames?.[workspaceKey(path)] || basename(path);
   const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(String(e instanceof Error ? e.message : e)); } };
   const installSnapshot = (value: Snapshot) => {
+    if (!messageRevision.current.acceptSnapshot(value)) return;
     const previous = view.current;
     if (previous.runtimeId !== value.runtimeId) {
       if (previous.sessionId) composerBySession.current.set(previous.sessionId, {
@@ -318,6 +321,8 @@ function App() {
         return;
       }
       if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current)) return;
+      if (['desktop_history', 'message_start', 'message_update', 'message_end'].includes(event.type)
+        && !messageRevision.current.acceptEvent(event)) return;
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
       if (event.type === 'agent_start') setBusy(true);

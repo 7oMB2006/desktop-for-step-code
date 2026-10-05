@@ -173,7 +173,11 @@ function SubagentLane({ item, active, onOpen, ...props }: {
   onOpen: (task: SubagentTask) => void;
 } & BodyProps) {
   const tasks = useMemo(() => subagentTasks(item.call, item.result), [item.call, item.result]);
-  if (!tasks.length) return <Tool item={item} active={active} {...props}/>;
+  // A failed dispatch carries no per-task records. Falling back to the planned list here would
+  // show that error as lanes stuck on running and hide its output, so the plain failed view wins.
+  if (!tasks.length || (item.result?.isError && !tasks.some(task => task.status !== 'running'))) {
+    return <Tool item={item} active={active} {...props}/>;
+  }
   return <div className="subagent-lanes" data-message-index={item.index}>
     {tasks.map((task, position) => <SubagentTaskRow key={`${item.key}:${position}`} task={task} onOpen={onOpen} language={props.language}/>)}
   </div>;

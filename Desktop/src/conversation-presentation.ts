@@ -59,6 +59,27 @@ export function responsePresentation(items: IndexedMessage[]) {
   };
 }
 
+export type SubagentTaskKey = { agent: string; task: string };
+
+/** Finds the live record for a selected subagent, so an open panel tracks later tool events. */
+export function findSubagentTask(messages: Message[], key: SubagentTaskKey | null): SubagentTask | null {
+  if (!key) return null;
+  for (const message of messages) {
+    if (message.role !== 'toolResult' || message.toolName !== 'subagent') continue;
+    const match = subagentTasks(undefined, message).find(task => task.agent === key.agent && task.task === key.task);
+    if (match) return match;
+  }
+  // Still running with no result yet: recover the planned entry from the matching call.
+  for (const message of messages) {
+    for (const block of messageBlocks(message)) {
+      if (block.type !== 'toolCall' || block.name !== 'subagent') continue;
+      const match = subagentTasks(block, undefined).find(task => task.agent === key.agent && task.task === key.task);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
 export function toolSubject(call: Content | undefined): string {
   const args = call?.arguments;
   if (!args || typeof args !== 'object' || Array.isArray(args)) return '';

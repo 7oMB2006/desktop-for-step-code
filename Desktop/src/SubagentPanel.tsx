@@ -1,20 +1,30 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Check, ChevronRight, X } from 'lucide-react';
+import type { Message } from './contracts';
 import type { SubagentTask } from './conversation-presentation';
 import { responsePresentation } from './conversation-presentation';
 import { Tool, Text } from './ConversationMessages';
+import { redactSubagentMessages } from './subagent-redact';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
 import './subagent-panel.css';
 
 function SubagentTranscript({ task, ...props }: { task: SubagentTask } & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
+  // A child call's arguments and result text are new surfaces here, so credentials, cookies and
+  // raw child environment values are filtered before the shared Tool renderer sees them.
+  const redacted = useMemo(() => redactSubagentMessages(task.messages), [task.messages]);
   // The dispatched task is shown in the head, so the subagent's own copy of it is skipped here.
-  const nested = responsePresentation(task.messages
-    .map((message, index) => ({ message, index }))
+  const nested = responsePresentation(redacted.messages
+    .map((message: Message, index: number) => ({ message, index }))
     .filter(entry => entry.message.role !== 'user'));
-  return <>{nested.content.map(item => item.type === 'tool'
-    ? <Tool key={item.key} item={item} active={false} {...props}/>
-    : item.type === 'image' ? null
-      : <div className="lane-text" key={item.key}><Text text={item.block.text ?? ''} {...props}/></div>)}</>;
+  return <>
+    {redacted.redacted > 0 && <p className="subagent-note">{props.language === 'zh'
+      ? `已隐去 ${redacted.redacted} 行疑似凭据内容。`
+      : `${redacted.redacted} line(s) that looked like credentials were hidden.`}</p>}
+    {nested.content.map(item => item.type === 'tool'
+      ? <Tool key={item.key} item={item} active={false} {...props}/>
+      : item.type === 'image' ? null
+        : <div className="lane-text" key={item.key}><Text text={item.block.text ?? ''} {...props}/></div>)}
+  </>;
 }
 
 function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {

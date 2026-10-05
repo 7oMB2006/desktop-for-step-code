@@ -37,7 +37,8 @@ import { ReviewPanel } from './ReviewPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { BrowserPanel } from './BrowserPanel';
 import { SubagentPanel } from './SubagentPanel';
-import type { SubagentTask } from './conversation-presentation';
+import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
+import { findSubagentTask } from './conversation-presentation';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -104,9 +105,12 @@ function App() {
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>('auto');
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>(null);
-  const [selectedSubagent, setSelectedSubagent] = useState<SubagentTask | null>(null);
+  const [selectedSubagent, setSelectedSubagent] = useState<SubagentTaskKey | null>(null);
+  // The panel reads from live messages, so a subagent that finishes while it stays open keeps
+  // updating instead of freezing on the status captured when the row was clicked.
+  const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent), [data.messages, selectedSubagent]);
   const openSubagent = useCallback((task: SubagentTask) => {
-    setSelectedSubagent(task);
+    setSelectedSubagent({ agent: task.agent, task: task.task });
     setDetails('');
     setRightPanel('subagent');
   }, []);
@@ -937,7 +941,7 @@ function App() {
     <SubagentPanel open={visibleRightPanel === 'subagent' && !details}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'subagent'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'subagent')}
-      overlay={!summarySpace} task={selectedSubagent} language={data.preferences.language}
+      overlay={!summarySpace} task={openSubagentTask} language={data.preferences.language}
       openImage={openImage} onClose={closeRightPanel} onError={setError}/>
     <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">

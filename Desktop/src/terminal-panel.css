@@ -6,6 +6,10 @@
 .terminal-track.is-open:not(.is-overlay) {
   flex-basis: clamp(0px, calc(var(--conversation-width) + 28px + 1000px - 100vw + var(--sidebar-track) + 44px), 500px);
 }
+.terminal-track.is-wide:not(.is-overlay) {
+  --inspector-width: max(620px, min(calc((100vw - var(--sidebar-track) - 44px) * .6), calc(100vw - var(--sidebar-track) - 44px - 480px)));
+}
+.terminal-track.is-wide.is-open:not(.is-overlay) { flex-basis: var(--inspector-width); }
 .terminal-track.is-replaced { flex-basis: 0 !important; transition: none; }
 .terminal-panel {
   position: fixed; z-index: 12; top: var(--window-bar-height); right: 44px; bottom: 0;

@@ -70,6 +70,10 @@ try {
   await page.keyboard.press('Enter');
   await page.waitForFunction(async () => (await window.desktop.browserList()).tabs[0].title === '项目预览');
   await page.waitForTimeout(300);
+  const standardPageBounds = await panel.locator('.browser-page').boundingBox();
+  const conversationBounds = await page.locator('.composer').boundingBox();
+  assert.ok(conversationBounds && conversationBounds.x + conversationBounds.width <= standardPageBounds.x + 1,
+    'the standard native browser does not overlap the conversation composer');
   const webPage = app.windows().find(value => value.url().startsWith(url));
   assert.ok(webPage, 'native WebContentsView exposes a real page');
   const isolation = await webPage.evaluate(() => ({
@@ -196,22 +200,22 @@ try {
       globalThis.browserWidthMenuFixture.hold = false;
     }, { standard: '标准', wide: '宽幅', fullscreen: '全屏' }[value]);
     await widthControl.click();
-    await page.waitForFunction(() => document.querySelector('.browser-width-control').getAttribute('aria-expanded') === 'false');
+    await page.waitForFunction(() => document.querySelector('#browser-panel .right-panel-width-control').getAttribute('aria-expanded') === 'false');
   };
   const controlBounds = await widthControl.boundingBox();
   const expandBounds = await panel.getByRole('button', { name: '全屏查看', exact: true }).boundingBox();
   assert.ok(Math.abs(controlBounds.y + controlBounds.height / 2 - expandBounds.y - expandBounds.height / 2) < 2,
     'width selector aligns with the header icon buttons');
   assert.equal(await widthControl.getAttribute('data-width'), 'standard');
-  assert.equal(await panel.locator('.browser-width-chevron svg path').getAttribute('d'), 'M3.5 5.25 7 8.75 10.5 5.25');
-  const layoutIcon = await panel.locator('.browser-width-icon').boundingBox();
+  assert.equal(await panel.locator('.right-panel-width-chevron svg path').getAttribute('d'), 'M3.5 5.25 7 8.75 10.5 5.25');
+  const layoutIcon = await panel.locator('.right-panel-width-icon').boundingBox();
   assert.ok(layoutIcon.x >= controlBounds.x && layoutIcon.x + layoutIcon.width <= controlBounds.x + controlBounds.width,
     'layout icon is inside the same menu-button hit area');
   assert.ok(controlBounds.width <= 84, 'Chinese labels use a compact control');
   await webPage.getByRole('textbox').fill('宽度交互保留输入');
   await app.evaluate(() => { globalThis.browserWidthMenuFixture.hold = true; });
   await page.mouse.click(layoutIcon.x + layoutIcon.width / 2, layoutIcon.y + layoutIcon.height / 2);
-  await page.waitForFunction(() => document.querySelector('.browser-width-control').getAttribute('aria-expanded') === 'true');
+  await page.waitForFunction(() => document.querySelector('#browser-panel .right-panel-width-control').getAttribute('aria-expanded') === 'true');
   for (let index = 0; index < 5; index++) {
     await page.waitForTimeout(60);
     assert.ok((await viewState()).some(view => view.visible && view.url === url),
@@ -230,8 +234,8 @@ try {
     { label: '宽幅', checked: false, type: 'radio' },
     { label: '全屏', checked: false, type: 'radio' },
   ]);
-  await assert.rejects(page.evaluate(() => window.desktop.browserWidthMenu('invalid', { x: 0, y: 0 })));
-  await assert.rejects(page.evaluate(() => window.desktop.browserWidthMenu('standard', { x: null, y: 0 })));
+  await assert.rejects(page.evaluate(() => window.desktop.rightPanelWidthMenu('invalid', { x: 0, y: 0 })));
+  await assert.rejects(page.evaluate(() => window.desktop.rightPanelWidthMenu('standard', { x: null, y: 0 })));
   await chooseWidth('wide');
   const wideFrames = await panel.evaluate(async element => {
     const values = [];
@@ -290,11 +294,36 @@ try {
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 1);
   await page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true }).click();
   await page.waitForTimeout(300);
-  assert.equal(await page.locator('.context-region .browser-width-control').count(), 0, 'browser width controls do not affect other panels');
+  assert.equal(await page.locator('.context-region .right-panel-width-control').count(), 0, 'browser width controls do not affect other panels');
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0);
   await rail.click();
   await page.waitForTimeout(300);
   assert.equal(await widthControl.getAttribute('data-width'), 'wide', 'browser width survives panel switching');
+  assert.ok((await viewState()).some(view => view.visible && view.url === url));
+  await rail.click();
+  assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0,
+    'closing hides the opaque native page at the start of the shell fade');
+  const closeFrames = await page.evaluate(async () => {
+    const track = document.querySelector('.browser-track');
+    const frames = [];
+    const start = performance.now();
+    while (performance.now() - start < 180) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const style = getComputedStyle(track);
+      frames.push({ basis: parseFloat(style.flexBasis), duration: style.transitionDuration,
+        opacity: getComputedStyle(document.querySelector('.browser-panel')).opacity });
+    }
+    return frames;
+  });
+  assert.ok(closeFrames.length > 2 && closeFrames.every(frame => frame.basis < 1 && frame.duration === '0s'),
+    'closing releases the conversation layout in one reflow');
+  assert.ok(closeFrames.some(frame => Number(frame.opacity) > 0 && Number(frame.opacity) < 1),
+    'the browser shell keeps its fade while the content layout is stable');
+  await page.waitForTimeout(150);
+  assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0,
+    'the native page stays hidden after the shell exits');
+  await rail.click();
+  await page.waitForTimeout(300);
   assert.ok((await viewState()).some(view => view.visible && view.url === url));
   await page.locator('.sidebar-bottom button').click();
   await page.waitForTimeout(100);

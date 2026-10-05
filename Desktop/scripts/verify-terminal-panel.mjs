@@ -34,6 +34,15 @@ try {
     clipboard.writeText = async text => { globalThis.terminalCopies.push(text); };
     clipboard.readText = async () => "Write-Output 'PASTE_OK'\r";
   });
+  await app.evaluate(({ Menu }) => {
+    globalThis.rightPanelWidthMenuFixture = { choice: undefined, menus: [] };
+    Menu.prototype.popup = function (options) {
+      const fixture = globalThis.rightPanelWidthMenuFixture;
+      fixture.menus.push(this.items.map(item => ({ label: item.label, checked: item.checked, type: item.type })));
+      this.items.find(item => item.label === fixture.choice)?.click();
+      options.callback?.();
+    };
+  });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
   const workspaceAlias = `${workspace.toUpperCase().replace(/\\/g, '/')}/.`;
   await page.evaluate(cwd => window.desktop.workspace(cwd), workspaceAlias);
@@ -95,6 +104,43 @@ try {
   await page.screenshot({ path: 'test-results/terminal-panel-light.png' });
   const ease = await panel.evaluate(element => getComputedStyle(element).transitionTimingFunction);
   assert.ok(ease.includes('cubic-bezier(0.22, 1, 0.36, 1)'));
+  const widthControl = panel.getByRole('button', { name: '终端宽度', exact: true });
+  const initialWidth = (await panel.boundingBox()).width;
+  const chooseWidth = async value => {
+    await app.evaluate((_, choice) => { globalThis.rightPanelWidthMenuFixture.choice = choice; },
+      { standard: '标准', wide: '宽幅', fullscreen: '全屏' }[value]);
+    await widthControl.click();
+    await page.waitForFunction(() => document.querySelector('#terminal-panel .right-panel-width-control').getAttribute('aria-expanded') === 'false');
+  };
+  await chooseWidth('wide');
+  assert.deepEqual(await app.evaluate(() => globalThis.rightPanelWidthMenuFixture.menus[0]), [
+    { label: '标准', checked: true, type: 'radio' },
+    { label: '宽幅', checked: false, type: 'radio' },
+    { label: '全屏', checked: false, type: 'radio' },
+  ]);
+  const wideFrames = await panel.evaluate(async element => {
+    const widths = [];
+    const start = performance.now();
+    while (performance.now() - start < 350) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      widths.push(element.getBoundingClientRect().width);
+    }
+    return widths;
+  });
+  const wideWidth = (await panel.boundingBox()).width;
+  assert.ok(wideWidth > initialWidth + 30 && wideFrames.some(width => width > initialWidth + 1 && width < wideWidth - 1),
+    'terminal wide mode animates and adds useful output space');
+  assert.ok((await page.locator('main').boundingBox()).width >= 480, 'wide mode keeps a readable conversation column');
+  assert.ok((await list())[0].cols > normalCols, 'wide mode increases the real PTY width');
+  await chooseWidth('standard');
+  await page.waitForTimeout(300);
+  assert.ok(Math.abs((await panel.boundingBox()).width - initialWidth) < 2, 'standard mode restores the normal width');
+  await chooseWidth('fullscreen');
+  assert.equal(await widthControl.getAttribute('data-width'), 'fullscreen');
+  assert.equal(await page.locator('main').evaluate(element => element.inert), true);
+  await panel.getByRole('button', { name: '还原侧栏', exact: true }).click();
+  await page.waitForTimeout(350);
+  assert.equal(await widthControl.getAttribute('data-width'), 'standard', 'fullscreen menu restores the selected width mode');
   const beforeWidth = (await panel.boundingBox()).width;
   await panel.getByRole('button', { name: '全屏查看', exact: true }).click();
   const expansion = await panel.evaluate(async element => {

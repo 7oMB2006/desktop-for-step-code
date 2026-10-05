@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Columns2, ExternalLink, Globe, LockKeyhole, Plus, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import type { BrowserAction, BrowserSnapshot } from './contracts';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
-import { DisclosureChevron } from './DisclosureChevron';
+import { RightPanelWidthControl } from './RightPanelWidthControl';
 import './browser-panel.css';
 
 const empty: BrowserSnapshot = { revision: -1, tabs: [] };
@@ -17,7 +17,6 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
   const [present, setPresent] = useState(open);
   const [pending, setPending] = useState(false);
   const [width, setWidth] = useState<'standard' | 'wide'>('standard');
-  const [widthMenuOpen, setWidthMenuOpen] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const initialized = useRef(false);
@@ -73,10 +72,11 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
     setAddress(selected?.url === 'about:blank' ? '' : selected?.url ?? '');
     if (open && selected?.url === 'about:blank') focusAddress();
   }, [selected?.id, open]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const bridge = window.desktop;
     if (!bridge) return;
-    if ((!open && !present) || replaced || blocked) { void bridge.browserLayout(null).catch(() => {}); return; }
+    // Native web content cannot follow the shell's CSS opacity on exit.
+    if (!open || replaced || blocked) { void bridge.browserLayout(null).catch(() => {}); return; }
     let frame = 0;
     let previous = '';
     const measure = () => {
@@ -92,7 +92,7 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
     };
     measure();
     return () => { cancelAnimationFrame(frame); void bridge.browserLayout(null).catch(() => {}); };
-  }, [open, present, replaced, blocked]);
+  }, [open, replaced, blocked]);
   useEffect(() => {
     if (open || !present) return;
     const timer = setTimeout(() => setPresent(false), matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 260);
@@ -109,29 +109,17 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
     return () => window.removeEventListener('keydown', keyboard);
   }, [open, blocked, snapshot.tabs.length, pending]);
   const label = (title: string, en: string) => ({ 'aria-label': t(title, en), 'data-tooltip': t(title, en) });
-  const chooseWidth = async (button: HTMLButtonElement) => {
-    if (!window.desktop || widthMenuOpen) return;
-    const box = button.getBoundingClientRect();
-    setWidthMenuOpen(true);
-    try {
-      const value = await window.desktop.browserWidthMenu(expanded ? 'fullscreen' : width, { x: box.left, y: box.bottom });
-      if (!value || !latest.current.open || latest.current.blocked) return;
-      if (value === 'standard' || value === 'wide') setWidth(value);
-      if ((value === 'fullscreen') !== expanded) onToggleExpanded();
-    } catch { setError(t('无法打开宽度菜单，请重试', 'Could not open width menu. Retry.')); }
-    finally { setWidthMenuOpen(false); }
+  const chooseWidth = (value: 'standard' | 'wide' | 'fullscreen') => {
+    if (!latest.current.open || latest.current.blocked) return;
+    if (value === 'standard' || value === 'wide') setWidth(value);
+    if ((value === 'fullscreen') !== expanded) onToggleExpanded();
   };
-  return <div className={`browser-track${open ? ' is-open' : ''}${width === 'wide' ? ' is-wide' : ''}${overlay ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}`}>
+  return <div className={`browser-track${open ? ' is-open' : ''}${!open && present ? ' is-closing' : ''}${width === 'wide' ? ' is-wide' : ''}${overlay ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}`}>
     <aside id="browser-panel" className={`browser-panel right-inspector-surface${expanded ? ' is-expanded' : ''}${open ? '' : ' is-closing'}`}
       style={{ visibility: present && !replaced ? undefined : 'hidden' }} aria-label={t('浏览器', 'Browser')} aria-hidden={!open} inert={!open}>
       <header className="right-panel-header"><h2>{t('浏览器', 'Browser')}</h2>
-        <button type="button" className={`browser-width-control${zh ? ' is-zh' : ''}`}
-          aria-label={t('浏览器宽度', 'Browser width')} aria-haspopup="menu" aria-expanded={widthMenuOpen}
-          data-width={expanded ? 'fullscreen' : width} onClick={event => void chooseWidth(event.currentTarget)}>
-          <Columns2 className="browser-width-icon" size={14} aria-hidden="true"/>
-          <span>{expanded ? t('全屏', 'Fullscreen') : width === 'wide' ? t('宽幅', 'Wide') : t('标准', 'Standard')}</span>
-          <span className="browser-width-chevron"><DisclosureChevron/></span>
-        </button>
+        <RightPanelWidthControl panel="browser" language={language} value={expanded ? 'fullscreen' : width} onChange={chooseWidth}
+          onError={setError}/>
         <RightPanelExpandButton expanded={expanded} language={language} onToggle={onToggleExpanded}/>
         <button className="icon-button" aria-label={t('关闭浏览器面板', 'Close browser panel')} onClick={onClose}><X size={16}/></button>
       </header>

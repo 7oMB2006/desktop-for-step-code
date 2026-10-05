@@ -28,7 +28,7 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
-  browserWidthMenu: (selected, position) => invoke('browserWidthMenu', selected, position),
+  rightPanelWidthMenu: (selected, position) => invoke('rightPanelWidthMenu', selected, position),
   browserList: () => invoke('browserList'),
   browserCreate: address => invoke('browserCreate', address),
   browserSelect: id => invoke('browserSelect', id),

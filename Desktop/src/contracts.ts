@@ -17,7 +17,7 @@ export interface Account { loggedIn: boolean; validity: string; profile?: string
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
 export interface DesktopBridge {
-  browserWidthMenu(selected: 'standard' | 'wide' | 'fullscreen', position: { x: number; y: number }): Promise<'standard' | 'wide' | 'fullscreen' | undefined>;
+  rightPanelWidthMenu(selected: 'standard' | 'wide' | 'fullscreen', position: { x: number; y: number }): Promise<'standard' | 'wide' | 'fullscreen' | undefined>;
   browserList(): Promise<BrowserSnapshot>;
   browserCreate(address?: string): Promise<BrowserSnapshot>;
   browserSelect(id: string): Promise<BrowserSnapshot>;

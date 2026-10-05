@@ -255,12 +255,12 @@ async function handle(method: string, args: any[]) {
     case 'terminalAck': terminals.ack(text(args[0], 80), args[1]); return;
     case 'terminalClose': return terminals.close(text(args[0], 80));
     case 'terminalPasteText': return (await clipboard.readText()).slice(0, 65536);
-    case 'browserWidthMenu': {
+    case 'rightPanelWidthMenu': {
       const selected = text(args[0], 16);
       const position = args[1];
       if (!window || !['standard', 'wide', 'fullscreen'].includes(selected) ||
         ![position?.x, position?.y].every(value => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) < 100000))
-        throw new Error('Invalid browser width menu');
+        throw new Error('Invalid right panel width menu');
       const options = [
         { value: 'standard', label: preferences.language === 'zh' ? '标准' : 'Standard' },
         { value: 'wide', label: preferences.language === 'zh' ? '宽幅' : 'Wide' },

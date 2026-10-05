@@ -30,3 +30,35 @@ export function applyMessageEvent(messages: Message[], event: RuntimeEvent): Mes
   }
   return [...messages.slice(0, -1), { ...last, content }];
 }
+
+/**
+ * A tool's result arrives as its own runtime event, not as a message delta, so without this the
+ * caller sees the tool as unfinished until the turn ends and the whole history is refetched.
+ * Partial results are attached too and replaced by the final one, which is what lets a long
+ * subagent run show progress instead of a frozen running state.
+ */
+export function applyToolResult(messages: Message[], event: RuntimeEvent): Message[] {
+  if (event.type !== 'tool_execution_end' && event.type !== 'tool_execution_update') return messages;
+  const toolCallId = typeof event.toolCallId === 'string' ? event.toolCallId : '';
+  if (!toolCallId) return messages;
+  const source = event.type === 'tool_execution_end' ? event.result : event.partialResult;
+  if (!source || typeof source !== 'object') return messages;
+  const result: Message = {
+    role: 'toolResult',
+    toolCallId,
+    toolName: typeof event.toolName === 'string' ? event.toolName : undefined,
+    content: Array.isArray(source.content) ? source.content : typeof source.content === 'string' ? source.content : '',
+    isError: event.type === 'tool_execution_end' ? Boolean(event.isError) : false,
+    timestamp: Date.now(),
+    ...(source.details && typeof source.details === 'object' ? { details: source.details as Message['details'] } : {}),
+  };
+  // Replace the result already attached to this call, otherwise a repeat event orphans the old one.
+  // The final event is authoritative, so a result without details clears whatever a partial left.
+  const existing = messages.findIndex(message => message.role === 'toolResult' && message.toolCallId === toolCallId);
+  if (existing >= 0) {
+    const next = [...messages];
+    next[existing] = { ...next[existing], ...result, details: result.details };
+    return next;
+  }
+  return [...messages, result];
+}

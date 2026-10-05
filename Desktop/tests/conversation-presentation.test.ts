@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Message } from '../src/contracts';
-import { conversationEntries, messageText, responsePresentation, toolPresentation, toolSubject } from '../src/conversation-presentation';
+import type { Content, Message } from '../src/contracts';
+import { conversationEntries, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from '../src/conversation-presentation';
 
 test('cross-session tools have task-specific labels without claiming cancelled messages were sent', () => {
   assert.equal(toolPresentation('desktop_sessions', undefined, true, 'zh').label, '正在查看会话');
@@ -96,3 +96,44 @@ test('thinking disclosure advances on actual prose, not an empty streaming block
   assert.equal(response.lastTextIndex, 1);
   assert.equal(response.content[2].type, 'thinking', 'later reasoning remains independently expandable during a new phase');
 });
+
+const subagentCall = (arguments_: Record<string, unknown>): Content => ({ type: 'toolCall', id: 's1', name: 'subagent', arguments: arguments_ });
+const subagentResult = (details: unknown, isError = false): Message => ({
+  role: 'toolResult', toolCallId: 's1', toolName: 'subagent', isError, content: 'Parallel: 2/2 succeeded',
+  ...(details === undefined ? {} : { details: details as { patch?: string; diff?: string } }),
+});
+
+test('subagent tasks come from the result records, falling back to the planned call args', () => {
+  const call = subagentCall({ tasks: [{ agent: 'explore', task: 'List dirs' }, { agent: 'general', task: 'Answer' }] });
+  const planned = subagentTasks(call, undefined);
+  assert.deepEqual(planned.map(task => [task.agent, task.task, task.status]), [['explore', 'List dirs', 'running'], ['general', 'Answer', 'running']]);
+  const running = subagentTasks(call, subagentResult({ results: [
+    { agent: 'explore', task: 'List dirs', status: 'running', messages: [] },
+    { agent: 'general', task: 'Answer', status: 'completed', messages: [{ role: 'assistant', content: [{ type: 'text', text: '34' }] }] },
+  ] }));
+  assert.deepEqual(running.map(task => [task.agent, task.status]), [['explore', 'running'], ['general', 'completed']]);
+  assert.deepEqual(running[1].messages.map(message => messageText(message)), ['34']);
+});
+
+test('subagent failure and aborted states are not reported as completion', () => {
+  const call = subagentCall({ agent: 'explore', task: 'Scan' });
+  for (const [status, expected] of [['failed', 'failed'], ['aborted', 'aborted'], ['running', 'running'], ['completed', 'completed']] as const) {
+    const [task] = subagentTasks(call, subagentResult({ results: [{ agent: 'explore', task: 'Scan', status, messages: [] }] }));
+    assert.equal(task.status, expected);
+    if (status !== 'completed') assert.notEqual(task.status, 'completed', `${status} must not read as done`);
+  }
+  const [errored] = subagentTasks(call, subagentResult({ results: [{ agent: 'explore', task: 'Scan', status: 'completed', messages: [] }] }, true));
+  assert.equal(errored.status, 'completed', 'the record status decides rendering; isError stays on the message');
+});
+
+test('subagent records tolerate missing fields and non-object junk', () => {
+  const call = subagentCall({ tasks: [{ agent: 'explore', task: 'A' }] });
+  assert.deepEqual(subagentTasks(call, subagentResult({ results: [null, 'x', 3] })).map(t => [t.agent, t.status]), [['explore', 'running']]);
+  assert.deepEqual(subagentTasks(call, subagentResult({})).map(t => t.agent), ['explore']);
+  assert.deepEqual(subagentTasks(call, subagentResult({ results: [{ status: 'weird' }] })).map(t => t.status), ['running']);
+  const [withUsage] = subagentTasks(call, subagentResult({ results: [{ agent: 'explore', task: 'A', status: 'completed', messages: [{ role: 'user', content: 'go' }, 'junk'], model: 'step-5', usage: { turns: 2 } }] }));
+  assert.equal(withUsage.model, 'step-5');
+  assert.equal(withUsage.turns, 2);
+  assert.deepEqual(withUsage.messages.map(message => message.role), ['user']);
+});
+

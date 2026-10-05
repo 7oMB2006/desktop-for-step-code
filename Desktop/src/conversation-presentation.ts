@@ -59,6 +59,27 @@ export function responsePresentation(items: IndexedMessage[]) {
   };
 }
 
+export type SubagentTaskKey = { agent: string; task: string };
+
+/** Finds the live record for a selected subagent, so an open panel tracks later tool events. */
+export function findSubagentTask(messages: Message[], key: SubagentTaskKey | null): SubagentTask | null {
+  if (!key) return null;
+  for (const message of messages) {
+    if (message.role !== 'toolResult' || message.toolName !== 'subagent') continue;
+    const match = subagentTasks(undefined, message).find(task => task.agent === key.agent && task.task === key.task);
+    if (match) return match;
+  }
+  // Still running with no result yet: recover the planned entry from the matching call.
+  for (const message of messages) {
+    for (const block of messageBlocks(message)) {
+      if (block.type !== 'toolCall' || block.name !== 'subagent') continue;
+      const match = subagentTasks(block, undefined).find(task => task.agent === key.agent && task.task === key.task);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
 export function toolSubject(call: Content | undefined): string {
   const args = call?.arguments;
   if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
@@ -66,6 +87,50 @@ export function toolSubject(call: Content | undefined): string {
   const value = ['path', 'file_path', 'filePath', 'command', 'cmd', 'query', 'url']
     .map(key => values[key]).find(value => typeof value === 'string');
   return typeof value === 'string' ? value.replace(/\s+/gu, ' ').slice(0, 160) : '';
+}
+
+const SUBAGENT_STATUSES = ['running', 'completed', 'failed', 'aborted'] as const;
+export type SubagentTask = {
+  agent: string;
+  task: string;
+  status: typeof SUBAGENT_STATUSES[number];
+  messages: Message[];
+  model?: string;
+  turns?: number;
+};
+
+/** One subagent call carries a task list in its call args and per-task records in its result details. */
+export function subagentTasks(call: Content | undefined, result: Message | undefined): SubagentTask[] {
+  const details = (result as { details?: { results?: unknown } } | undefined)?.details;
+  const records = Array.isArray(details?.results) ? details.results.filter(record => record && typeof record === 'object') : [];
+  const tasks: SubagentTask[] = records.map(record => {
+    const value = record as Record<string, unknown>;
+    const usage = value.usage as { turns?: unknown } | undefined;
+    return {
+      agent: typeof value.agent === 'string' ? value.agent : '',
+      task: typeof value.task === 'string' ? value.task : '',
+      status: SUBAGENT_STATUSES.includes(value.status as typeof SUBAGENT_STATUSES[number]) ? value.status as SubagentTask['status'] : 'running',
+      messages: Array.isArray(value.messages) ? value.messages.filter(message => message && typeof message === 'object') as Message[] : [],
+      model: typeof value.model === 'string' ? value.model : undefined,
+      turns: typeof usage?.turns === 'number' ? usage.turns : undefined,
+    };
+  });
+  if (tasks.length) return tasks;
+  // No record yet: the first update has not landed, so show the planned list from the call args.
+  const args = call?.arguments as { tasks?: unknown; chain?: unknown; agent?: unknown; task?: unknown } | undefined;
+  const planned: { agent: string; task: string }[] = [];
+  for (const list of [args?.tasks, args?.chain]) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (!item || typeof item !== 'object') continue;
+      const value = item as { agent?: unknown; task?: unknown };
+      planned.push({ agent: typeof value.agent === 'string' ? value.agent : '', task: typeof value.task === 'string' ? value.task : '' });
+    }
+  }
+  if (!planned.length && (typeof args?.agent === 'string' || typeof args?.task === 'string')) {
+    planned.push({ agent: String(args.agent ?? ''), task: String(args.task ?? '') });
+  }
+  return planned.map(entry => ({ ...entry, status: 'running' as const, messages: [] }));
 }
 
 export type ToolState = 'running' | 'done' | 'failed' | 'missing';

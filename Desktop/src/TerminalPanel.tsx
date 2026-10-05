@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { ClipboardPaste, Copy, Eraser, Plus, X } from 'lucide-react';
 import type { TerminalInfo, TerminalSnapshot } from './contracts';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
+import { RightPanelWidthControl } from './RightPanelWidthControl';
 import '@xterm/xterm/css/xterm.css';
 import './terminal-panel.css';
 
@@ -26,6 +27,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
   const [active, setActive] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [present, setPresent] = useState(open);
+  const [width, setWidth] = useState<'standard' | 'wide'>('standard');
   const latest = useRef({ language, onError });
   latest.current = { language, onError };
   const scope = directoryKey(cwd ?? '');
@@ -211,10 +213,15 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     return () => clearTimeout(timer);
   }, [open, present]);
   const controller = selected && controllers.current.get(selected.id);
-  return <div className={`terminal-track${open ? ' is-open' : ''}${overlay ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}`}>
+  return <div className={`terminal-track${open ? ' is-open' : ''}${width === 'wide' ? ' is-wide' : ''}${overlay ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}`}>
     <aside id="terminal-panel" className={`terminal-panel right-inspector-surface${expanded ? ' is-expanded' : ''}${open ? '' : ' is-closing'}`}
       style={{ visibility: present && !replaced ? undefined : 'hidden' }} aria-label={t('终端', 'Terminal')} aria-hidden={!open} inert={!open}>
       <header className="right-panel-header"><h2>{t('终端', 'Terminal')}</h2>
+        <RightPanelWidthControl panel="terminal" language={language} value={expanded ? 'fullscreen' : width}
+          onChange={value => {
+            if (value === 'standard' || value === 'wide') setWidth(value);
+            if ((value === 'fullscreen') !== expanded) onToggleExpanded();
+          }} onError={onError}/>
         <RightPanelExpandButton expanded={expanded} language={language} onToggle={onToggleExpanded}/>
         <button className="icon-button" aria-label={t('关闭终端面板', 'Close terminal panel')} onClick={onClose}><X size={16}/></button>
       </header>

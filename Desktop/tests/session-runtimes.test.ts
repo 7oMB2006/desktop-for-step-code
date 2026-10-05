@@ -33,6 +33,22 @@ function fixture() {
   return { pool, transports, events, open };
 }
 
+test('wire message revisions increase per worker and match its snapshot revision', async () => {
+  const { pool, transports, events, open } = fixture();
+  const worker = await open();
+  try {
+    for (const event of [
+      { type: 'message_start', message: { role: 'assistant', content: [] } },
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Alpha' } },
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Alpha' } },
+    ]) transports[0].receive(event);
+    const messages = events.filter(event => event.type.startsWith('message_'));
+    assert.deepEqual(messages.map(event => event.runtimeRevision), [1, 2, 3]);
+    assert.equal(worker.revision, 3);
+    assert.deepEqual(worker.messages[0].content, [{ type: 'text', text: 'AlphaAlpha' }]);
+  } finally { await pool.stopAll(); }
+});
+
 test('repeated new-session requests reuse one empty worker without resetting it', async () => {
   const { pool, transports, open } = fixture();
   const empty = await open('workspace');

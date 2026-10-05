@@ -3,13 +3,14 @@ import { Minus, Square, Copy, X, PanelLeft } from 'lucide-react';
 
 export type WindowMenu = { id: string; label: string; items: { label: string; action: () => void; disabled?: boolean }[] };
 
-export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string }) {
+export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle, onMenuOpenChange }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string; onMenuOpenChange?: (open: boolean) => void }) {
   const [maximized, setMaximized] = useState(false);
   const [focused, setFocused] = useState(true);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const zh = language === 'zh';
   const bridge = window.desktop;
+  useEffect(() => { onMenuOpenChange?.(Boolean(openMenu)); }, [openMenu, onMenuOpenChange]);
   useEffect(() => {
     let active = true;
     void bridge?.windowControl('state').then(state => { if (active) setMaximized(state.maximized); }).catch(() => {});
@@ -22,7 +23,7 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
     if (!openMenu) return;
     const outside = (event: PointerEvent) => { if (!menuRef.current?.contains(event.target as Node)) setOpenMenu(null); };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setOpenMenu(null); menuRef.current?.querySelector<HTMLButtonElement>(`[data-menu="${openMenu}"]`)?.focus(); }
+      if (event.key === 'Escape') { event.preventDefault(); setOpenMenu(null); menuRef.current?.querySelector<HTMLButtonElement>(`[data-menu="${openMenu}"]`)?.focus(); }
     };
     document.addEventListener('pointerdown', outside);
     document.addEventListener('keydown', escape);

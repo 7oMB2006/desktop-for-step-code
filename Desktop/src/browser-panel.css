@@ -1,0 +1,49 @@
+.browser-track {
+  --inspector-width: 620px;
+  flex: 0 0 0px; min-width: 0;
+  transition: flex-basis var(--right-panel-duration) var(--right-panel-ease);
+}
+.browser-track.is-open:not(.is-overlay) {
+  flex-basis: clamp(0px, calc(var(--conversation-width) + 28px + 1240px - 100vw + var(--sidebar-track) + 44px), 620px);
+}
+.browser-track.is-closing:not(.is-overlay) { flex-basis: 0 !important; transition: none; }
+.browser-track.is-wide:not(.is-overlay) {
+  --inspector-width: max(620px, min(calc((100vw - var(--sidebar-track) - 44px) * .6), calc(100vw - var(--sidebar-track) - 44px - 480px)));
+}
+.browser-track.is-wide.is-open:not(.is-overlay) { flex-basis: var(--inspector-width); }
+.browser-track.is-replaced { flex-basis: 0 !important; transition: none; }
+.browser-panel { display: flex; flex-direction: column; min-width: 0; border-left: 1px solid var(--border); background: var(--bg); color: var(--ink); }
+.app .browser-panel.right-inspector-surface {
+  transition: opacity var(--right-panel-duration) var(--right-panel-ease), transform var(--right-panel-duration) var(--right-panel-ease),
+    width var(--right-panel-duration) var(--right-panel-ease);
+}
+.browser-panel.is-closing { opacity: 0; transform: translateX(8px); pointer-events: none; }
+.browser-track.is-overlay .browser-panel { box-shadow: -8px 0 20px oklch(0 0 0 / .06); }
+.browser-tabs { display: flex; align-items: center; gap: 4px; padding: 0 10px; min-height: 39px; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.browser-tab { display: flex; align-items: center; flex-shrink: 0; border-bottom: 2px solid transparent; min-height: 38px; }
+.browser-tab.is-active { border-bottom-color: var(--primary); }
+.browser-tab > button[role="tab"] { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; border-radius: 0; font-size: 11px; padding: 8px; color: var(--muted); }
+.browser-tab.is-active > button[role="tab"] { color: var(--ink); }
+.browser-tab > button[role="tab"] > span { max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-tab .icon-button { width: 20px; height: 22px; }
+.browser-addressbar { position: relative; display: flex; align-items: center; gap: 3px; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+.browser-addressbar.is-loading::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--primary); }
+.browser-addressbar .icon-button { width: 26px; height: 28px; flex: 0 0 26px; }
+.browser-address-field { display: flex; flex: 1; align-items: center; min-width: 0; gap: 7px; padding: 0 9px; height: 30px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
+.browser-address-field > svg { flex-shrink: 0; color: var(--muted); }
+.browser-address-field:focus-within { border-color: var(--primary); }
+.browser-address-field input { width: 100%; min-width: 0; border: 0; outline: none; padding: 0; font-size: 11px; background: transparent; color: var(--ink); }
+.browser-action-error { margin: 0; padding: 8px 12px; color: var(--danger); font-size: 11px; }
+.browser-page { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.browser-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); }
+.browser-empty p { color: var(--ink); font-size: 13px; margin: 0; }
+.browser-empty span { font-size: 11px; }
+.browser-empty button { margin-top: 6px; font-size: 12px; }
+.browser-footer { display: flex; align-items: center; gap: 3px; padding: 5px 12px; border-top: 1px solid var(--border); font-size: 10px; color: var(--muted); min-height: 33px; }
+.browser-footer > span { flex: 1; min-width: 0; }
+.browser-footer .icon-button { width: 23px; height: 22px; min-height: 22px; }
+.browser-zoom { border: 0; background: transparent; font-size: 10px; padding: 0 2px; min-width: 40px; color: var(--muted); }
+.app[data-native-resize] .browser-track, .app[data-native-resize] .browser-panel.right-inspector-surface { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .browser-track, .app .browser-panel.right-inspector-surface { transition: none; }
+}

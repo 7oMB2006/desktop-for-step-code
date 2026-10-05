@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, Diff } from 'lucide-react';
+import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, Diff, Globe } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
 import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
 import { applyMessageEvent } from './message-events';
+import { MessageRevision } from './message-revision';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
 import { PerformanceBar } from './PerformanceBar';
@@ -34,6 +35,7 @@ import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
 import { ReviewPanel } from './ReviewPanel';
 import { TerminalPanel } from './TerminalPanel';
+import { BrowserPanel } from './BrowserPanel';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -47,6 +49,7 @@ const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not sta
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
 function App() {
   const [data, setData] = useState(initial);
+  const messageRevision = useRef(new MessageRevision());
   const latestData = useRef(data);
   latestData.current = data;
   const [error, setError] = useState('');
@@ -96,8 +99,9 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
-  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | null>('auto');
-  const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | null>(null);
+  const [windowMenuOpen, setWindowMenuOpen] = useState(false);
+  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | null>('auto');
+  const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | null>(null);
   const [summarySpace, setSummarySpace] = useState(false);
   const appLayout = useRef<HTMLDivElement>(null);
   const rightRail = useRef<HTMLElement>(null);
@@ -152,7 +156,7 @@ function App() {
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = expandedRightPanel === visibleRightPanel && !details &&
-    (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal');
+    (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser');
   useEffect(() => {
     if (expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
   }, [expandedRightPanel, visibleRightPanel, details]);
@@ -235,6 +239,7 @@ function App() {
   const workspaceTitle = (path: string) => data.preferences.workspaceNames?.[workspaceKey(path)] || basename(path);
   const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(String(e instanceof Error ? e.message : e)); } };
   const installSnapshot = (value: Snapshot) => {
+    if (!messageRevision.current.acceptSnapshot(value)) return;
     const previous = view.current;
     if (previous.runtimeId !== value.runtimeId) {
       if (previous.sessionId) composerBySession.current.set(previous.sessionId, {
@@ -316,6 +321,8 @@ function App() {
         return;
       }
       if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current)) return;
+      if (['desktop_history', 'message_start', 'message_update', 'message_end'].includes(event.type)
+        && !messageRevision.current.acceptEvent(event)) return;
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
       if (event.type === 'agent_start') setBusy(true);
@@ -779,7 +786,7 @@ function App() {
       x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
   }}>
     <AppTooltip/>
-    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle}/>
+    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen}/>
     {imageMenu && <ImageContextMenu target={imageMenu} language={data.preferences.language}
       canAdd={Boolean(bridge) && attachments.length < 10 && attachments.filter(item => item.kind === 'image').length < 5}
       onAction={imageAction} onClose={() => setImageMenu(null)}/>}
@@ -897,19 +904,24 @@ function App() {
         setQuotes(value => [...value, quote]); return true;
       }}/>
     {details && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
-    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || Boolean(details)}
+    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || Boolean(details)}
       overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
-    <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || Boolean(details)}
+    <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'review'}
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'review')}
       overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
-    <TerminalPanel open={visibleRightPanel === 'terminal' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || Boolean(details)}
+    <TerminalPanel open={visibleRightPanel === 'terminal' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'browser' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'terminal'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'terminal')}
       overlay={!summarySpace} runtimeId={data.runtimeId} cwd={data.preferences.workspace} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
-    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || details ? 'is-replaced' : ''}`}>
+    <BrowserPanel open={visibleRightPanel === 'browser' && !details}
+      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || Boolean(details)}
+      expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
+      blocked={windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
+    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <header><h2>{t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={closeRightPanel}><X size={16}/></IconButton></header>
@@ -928,6 +940,7 @@ function App() {
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><Diff size={18}/></IconButton>
       <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
+      <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>
       <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-controls="conversation-navigation-panel" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
     </nav>
     {preview && <div className="attachment-preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>

@@ -185,7 +185,7 @@ try {
   await page.getByRole('button', { name: '预览 clipboard.png' }).click();
   assert.equal(await previewViewport.evaluate(element => getComputedStyle(element).cursor), 'grab');
   assert.equal(await previewViewport.locator('img').evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41), 0);
-  await page.getByText('100%', { exact: true }).waitFor();
+  await previewDialog.getByText('100%', { exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await previewDialog.waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.composer > textarea').evaluate(input => {
@@ -729,8 +729,8 @@ try {
   await page.screenshot({ path: 'test-results/conversation-navigation.png' });
   await page.waitForTimeout(350);
   const railButtons = page.locator('.right-tool-rail .icon-button');
-  assert.deepEqual(await railButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['摘要', '上下文', '变更', '终端', '会话导航']);
-  for (const label of ['摘要', '上下文', '变更', '终端', '会话导航']) {
+  assert.deepEqual(await railButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['摘要', '上下文', '变更', '终端', '浏览器', '会话导航']);
+  for (const label of ['摘要', '上下文', '变更', '终端', '浏览器', '会话导航']) {
     const button = page.locator('.right-tool-rail').getByRole('button', { name: label, exact: true });
     await button.hover();
     await tooltip.getByText(label, { exact: true }).waitFor();

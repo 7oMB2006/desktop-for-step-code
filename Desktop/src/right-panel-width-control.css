@@ -1,0 +1,12 @@
+.right-panel-width-control {
+  display: inline-flex; align-items: center; justify-content: flex-start; gap: 6px;
+  width: 126px; height: 26px; min-height: 26px; padding: 0 8px; border: 0; border-radius: 4px;
+  margin: 0; background: var(--bg); color: var(--ink); font-size: 11px; flex-shrink: 0;
+}
+.right-panel-width-control.is-zh { width: 84px; }
+.right-panel-width-icon { color: var(--muted); }
+.right-panel-width-chevron { margin-left: auto; display: flex; color: var(--muted); transition: transform .15s; }
+.right-panel-width-control[aria-expanded="true"] { background: var(--surface); }
+.right-panel-width-control[aria-expanded="true"] .right-panel-width-chevron { transform: rotate(180deg); }
+.right-panel-width-control:focus-visible { outline: 1px solid var(--primary); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .right-panel-width-chevron { transition: none; } }

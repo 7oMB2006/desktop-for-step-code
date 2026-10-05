@@ -28,6 +28,18 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  rightPanelWidthMenu: (selected, position) => invoke('rightPanelWidthMenu', selected, position),
+  browserList: () => invoke('browserList'),
+  browserCreate: address => invoke('browserCreate', address),
+  browserSelect: id => invoke('browserSelect', id),
+  browserClose: id => invoke('browserClose', id),
+  browserAction: (id, action, address) => invoke('browserAction', id, action, address),
+  browserLayout: bounds => invoke('browserLayout', bounds),
+  onBrowserEvent: callback => {
+    const listener = (_: unknown, event: import('../src/contracts').BrowserEvent) => callback(event);
+    ipcRenderer.on('browser-event', listener);
+    return () => ipcRenderer.removeListener('browser-event', listener);
+  },
   terminalList: runtimeId => invoke('terminalList', runtimeId),
   terminalCreate: runtimeId => invoke('terminalCreate', runtimeId),
   terminalWrite: (id, data) => invoke('terminalWrite', id, data),

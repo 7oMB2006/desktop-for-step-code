@@ -241,7 +241,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
       <div id="terminal-output" ref={host} className="terminal-output" role="tabpanel"/>
       {!tabs.length && <p className="terminal-empty">{runtimeId ? t('暂无终端', 'No terminal') : t('请先打开一个会话', 'Open a session first')}</p>}
       <footer className="terminal-footer"><span title={cwd}>{cwd}</span><span>{selected?.status === 'running' ? t('运行中', 'Running')
-        : selected?.status === 'starting' ? t('启动中', 'Starting') : selected?.status === 'failed' ? t('启动失败', 'Failed to start')
+        : selected?.status === 'starting' ? t('启动中', 'Starting') : selected?.status === 'failed' ? t('异常', 'Failed')
         : selected?.status === 'exited' ? `${t('已退出', 'Exited')} · ${selected.exitCode ?? '--'}` : ''}</span></footer>
     </aside>
   </div>;

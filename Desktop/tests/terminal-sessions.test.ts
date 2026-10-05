@@ -93,7 +93,9 @@ test('a reported taskkill success still requires host exit confirmation', async 
     child => terminateTerminalHost(child, fakeSuccess ? async () => true : undefined, fakeSuccess ? 50 : 3000));
   try {
     const terminal = await sessions.create(cwd);
-    await assert.rejects(sessions.close(terminal.id), /did not exit/);
+    const closing = sessions.close(terminal.id);
+    assert.throws(() => sessions.write(terminal.id, 'output'), /not running/);
+    await assert.rejects(closing, /did not exit/);
     assert.equal(sessions.list(cwd).length, 1);
     fakeSuccess = false;
     await Promise.all([sessions.close(terminal.id), sessions.close(terminal.id)]);

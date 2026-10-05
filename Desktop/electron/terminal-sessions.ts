@@ -112,7 +112,7 @@ export class TerminalSessions {
   write(id: string, data: unknown) {
     const entry = this.require(id);
     const value = terminalInput(data);
-    if (entry.info.status !== 'running' || !entry.child?.connected) throw new Error('Terminal is not running');
+    if (entry.closing || entry.info.status !== 'running' || !entry.child?.connected) throw new Error('Terminal is not running');
     entry.child.send({ type: 'write', data: value });
   }
   resize(id: string, cols: unknown, rows: unknown) {

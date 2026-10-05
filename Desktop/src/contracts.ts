@@ -17,6 +17,14 @@ export interface Account { loggedIn: boolean; validity: string; profile?: string
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
 export interface DesktopBridge {
+  browserWidthMenu(selected: 'standard' | 'wide' | 'fullscreen', position: { x: number; y: number }): Promise<'standard' | 'wide' | 'fullscreen' | undefined>;
+  browserList(): Promise<BrowserSnapshot>;
+  browserCreate(address?: string): Promise<BrowserSnapshot>;
+  browserSelect(id: string): Promise<BrowserSnapshot>;
+  browserClose(id: string): Promise<BrowserSnapshot>;
+  browserAction(id: string, action: BrowserAction, address?: string): Promise<BrowserSnapshot>;
+  browserLayout(bounds: BrowserBounds | null): Promise<void>;
+  onBrowserEvent(callback: (event: BrowserEvent) => void): () => void;
   terminalList(runtimeId?: string): Promise<TerminalSnapshot[]>;
   terminalCreate(runtimeId: string): Promise<TerminalSnapshot>;
   terminalWrite(id: string, data: string): Promise<void>;
@@ -62,6 +70,11 @@ export interface DesktopBridge {
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }
 export interface TurnUndoState { state: 'available' | 'unavailable' | 'conflict' | 'undone' | 'failed'; token?: string }
+export type BrowserAction = 'navigate' | 'back' | 'forward' | 'reload' | 'stop' | 'external' | 'zoomIn' | 'zoomOut' | 'zoomReset';
+export interface BrowserBounds { x: number; y: number; width: number; height: number }
+export interface BrowserTab { id: string; title: string; url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; zoom: number; error?: string }
+export interface BrowserSnapshot { revision: number; activeId?: string; tabs: BrowserTab[] }
+export type BrowserEvent = { type: 'snapshot'; snapshot: BrowserSnapshot } | { type: 'address' };
 export interface TerminalInfo {
   id: string; cwd: string; title: string; status: 'starting' | 'running' | 'exited' | 'failed';
   cols: number; rows: number; exitCode?: number;

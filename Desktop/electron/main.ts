@@ -13,6 +13,8 @@ import { permissionPresets } from './permission-status';
 import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { TerminalSessions } from './terminal-sessions';
+import { BrowserTabs } from './browser-tabs';
+import type { BrowserAction } from '../src/contracts';
 import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Preferences, Session, Snapshot } from '../src/contracts';
@@ -26,6 +28,7 @@ if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
 let window: BrowserWindow;
+let browser: BrowserTabs | undefined;
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
 let status = 'disconnected';
 let transition = false;
@@ -238,6 +241,13 @@ async function newIndependentSession() {
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[]) {
   switch (method) {
+    case 'browserList': return browser!.snapshot();
+    case 'browserCreate': return browser!.create(args[0] === undefined ? undefined : text(args[0], 8192));
+    case 'browserSelect': return browser!.select(text(args[0], 80));
+    case 'browserClose': return browser!.close(text(args[0], 80));
+    case 'browserAction': return browser!.action(text(args[0], 80), text(args[1], 20) as BrowserAction,
+      args[2] === undefined ? undefined : text(args[2], 8192));
+    case 'browserLayout': browser!.layout(args[0]); return;
     case 'terminalList': return args[0] === undefined ? terminals.list() : terminals.list(runtimes.require(text(args[0], 80)).cwd);
     case 'terminalCreate': return terminals.create(runtimes.require(text(args[0], 80)).cwd);
     case 'terminalWrite': terminals.write(text(args[0], 80), args[1]); return;
@@ -245,6 +255,28 @@ async function handle(method: string, args: any[]) {
     case 'terminalAck': terminals.ack(text(args[0], 80), args[1]); return;
     case 'terminalClose': return terminals.close(text(args[0], 80));
     case 'terminalPasteText': return (await clipboard.readText()).slice(0, 65536);
+    case 'browserWidthMenu': {
+      const selected = text(args[0], 16);
+      const position = args[1];
+      if (!window || !['standard', 'wide', 'fullscreen'].includes(selected) ||
+        ![position?.x, position?.y].every(value => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) < 100000))
+        throw new Error('Invalid browser width menu');
+      const options = [
+        { value: 'standard', label: preferences.language === 'zh' ? '标准' : 'Standard' },
+        { value: 'wide', label: preferences.language === 'zh' ? '宽幅' : 'Wide' },
+        { value: 'fullscreen', label: preferences.language === 'zh' ? '全屏' : 'Fullscreen' },
+      ];
+      const [width, height] = window.getContentSize();
+      return new Promise<string | undefined>(resolve => {
+        let choice: string | undefined;
+        const menu = Menu.buildFromTemplate(options.map(option => ({
+          label: option.label, type: 'radio' as const, checked: option.value === selected,
+          click: () => { choice = option.value; },
+        })));
+        menu.popup({ window, x: Math.max(0, Math.min(width - 1, Math.round(position.x))),
+          y: Math.max(0, Math.min(height - 1, Math.round(position.y))), callback: () => resolve(choice) });
+      });
+    }
     case 'reviewMenu': {
       const kind = text(args[1], 10);
       const selected = text(args[2], 512);
@@ -727,6 +759,7 @@ app.on('before-quit', event => {
     try {
       await terminals.stopAll();
       await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
+      browser?.dispose();
       quitting = true;
       app.quit();
     } catch {
@@ -800,6 +833,9 @@ else app.whenReady().then(async () => {
   window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: '#171717', autoHideMenuBar: true, show: !backgroundAcceptance, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
   nativeTheme.on('updated', () => { if (window && !window.isDestroyed()) window.webContents.send('runtime-event', { type: 'desktop_system_theme', dark: nativeTheme.shouldUseDarkColors }); });
   crashLog.setPhase('window created');
+  browser = new BrowserTabs(window, event => {
+    if (!window.isDestroyed()) window.webContents.send('browser-event', event);
+  }, () => preferences.language);
   const windowState = () => emit({ type: 'desktop_window_state', maximized: window.isMaximized(), focused: window.isFocused() });
   window.on('maximize', windowState);
   window.on('unmaximize', windowState);

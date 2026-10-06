@@ -98,6 +98,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Session branching acceptance failed' }
           node scripts/verify-message-order.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Message ordering acceptance failed' }
+          node scripts/verify-send-queue.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Send queue acceptance failed' }
           node scripts/verify-cross-session.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Cross-session tool acceptance failed' }
           node scripts/verify-auth-vault.mjs

@@ -1,0 +1,36 @@
+.composer-context-bar { position: relative; }
+.queue-context { grid-column: 1; grid-row: 1; justify-self: start; margin-left: 0; min-width: 0; transition: opacity 220ms cubic-bezier(.22,1,.36,1), transform 220ms cubic-bezier(.22,1,.36,1); }
+.composer-context-bar.has-queue { display: flex; }
+.composer-context-bar.has-queue .live-turn-context { margin-left: auto; flex-shrink: 1; }
+.composer-context-bar.has-queue .jump-to-bottom { flex: none; }
+.composer-context-bar.has-queue .composer-quotes { flex: none; }
+.queue-trigger { height: 30px; min-height: 0; box-sizing: border-box; padding: 4px 10px; font-size: 12px; white-space: nowrap; color: var(--muted); background: transparent; border-radius: 6px; }
+.queue-trigger[aria-expanded=true] { color: var(--ink); background: var(--surface); }
+.queue-context.is-leaving { position: absolute; opacity: 0; transform: translateY(3px); pointer-events: none; }
+.queue-popover { margin: 0; inset: auto; width: min(440px, calc(100vw - 24px)); max-height: min(320px, calc(100dvh - var(--window-bar-height) - 225px)); overflow: hidden; background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 0 12px; opacity: 0; transform: translateY(6px); transform-origin: bottom left; transition: opacity 220ms cubic-bezier(.22,1,.36,1), transform 220ms cubic-bezier(.22,1,.36,1), display 220ms allow-discrete, overlay 220ms allow-discrete; }
+.queue-popover:popover-open { opacity: 1; transform: translateY(0); }
+.queue-popover::backdrop { background: transparent; }
+.queue-popover::after { content: ''; position: absolute; top: 100%; left: 0; height: 10px; width: 100%; }
+.queue-heading { display: flex; gap: 8px; align-items: center; min-height: 36px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.queue-heading small { font-size: 10px; min-width: 0; line-height: 1.4; }
+.queue-total { margin-left: auto; flex: none; }
+.queue-heading > button, .queue-actions button { min-height: 0; height: 25px; width: 25px; padding: 4px; display: grid; place-items: center; border: 0; background: transparent; color: var(--muted); border-radius: 4px; flex: none; }
+.queue-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.queue-heading .queue-actions { margin-left: auto; }
+.queue-actions button:hover, .queue-heading > button:hover { color: var(--ink); background: var(--surface); }
+.queue-view { overflow: hidden; }
+.queue-list, .queue-full { max-height: min(276px, calc(100dvh - var(--window-bar-height) - 265px)); overflow-y: auto; overscroll-behavior: contain; }
+.queue-row { display: flex; align-items: flex-start; gap: 8px; padding: 12px 0; }
+.queue-row + .queue-row { border-top: 1px solid var(--border); }
+.queue-order { width: 15px; flex: none; font-size: 12px; line-height: 21px; color: var(--muted); }
+button.queue-message { display: block; flex: 1; min-width: 0; padding: 0; min-height: 0; background: transparent; border: 0; border-radius: 0; text-align: left; font-size: 13px; line-height: 21px; font-weight: 400; color: var(--ink); }
+button.queue-message:hover { background: transparent; }
+.queue-message-preview { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.queue-message small { display: block; font-size: 11px; color: var(--muted); margin-top: 5px; }
+.queue-full-text { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 3px; font-size: 13px; line-height: 21px; user-select: text; }
+.queue-full textarea { display: block; width: 100%; height: 210px; max-height: 100%; min-height: 90px; margin: 8px 0; border: 0; background: transparent; resize: none; padding: 4px; font-size: 13px; line-height: 21px; }
+.queue-full-quotes { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.queue-full-quotes blockquote { margin: 0 0 12px; padding: 8px; background: var(--surface); border-radius: 4px; white-space: pre-wrap; }
+@starting-style { .queue-context { opacity: 0; transform: translateY(3px); } .queue-popover:popover-open { opacity: 0; transform: translateY(6px); } }
+@media(max-width: 600px) { .queue-trigger { padding-inline: 7px; font-size: 11px; } .composer-context-bar.has-queue { gap: 5px; } .composer-context-bar.has-queue .live-turn-partial { display: none; } }
+@media(prefers-reduced-motion: reduce) { .queue-context, .queue-popover { transition: none; } }

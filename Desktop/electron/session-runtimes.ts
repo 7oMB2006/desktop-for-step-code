@@ -35,6 +35,8 @@ export interface SessionRuntime {
   runActive: boolean;
   revision: number;
   touched: number;
+  queued?: boolean;
+  stopping?: boolean;
 }
 export function firstUserText(messages: Message[]) {
   const content = messages.find(message => message.role === 'user')?.content;
@@ -66,7 +68,7 @@ export class SessionRuntimes {
     private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
-  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker)); }
+  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || worker.queued); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
   summaries() {
     return [...this.workers.values()].filter(worker => worker.state?.sessionId).map(worker => ({
@@ -134,8 +136,8 @@ export class SessionRuntimes {
       if (['message_start', 'message_update', 'message_end'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
       if (event.type === 'message_end' && event.message?.stopReason === 'error') worker.failed = true;
       if (event.type === 'desktop_exit') {
-        this.hooks.dispose?.(worker);
         worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
+        this.hooks.dispose?.(worker);
         if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
         for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
       }
@@ -239,6 +241,7 @@ export class SessionRuntimes {
     worker.models = models; worker.stats = stats; worker.touched = Date.now();
   }
   async assertIdle(worker: SessionRuntime) {
+    if (worker.queued) throw new Error('Send or withdraw the pending messages first');
     if (this.isBusy(worker)) throw new Error('Stop this session task first');
     if (worker.status === 'connected') {
       const state = await worker.rpc.request('get_state');
@@ -338,7 +341,7 @@ export class SessionRuntimes {
     this.publish();
   }
   async recycle() {
-    const idle = [...this.workers.values()].filter(worker => worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) && !worker.operations && !worker.mutating && worker.messages.length > 0);
+    const idle = [...this.workers.values()].filter(worker => worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) && !worker.operations && !worker.mutating && !worker.queued && worker.messages.length > 0);
     idle.sort((a, b) => b.touched - a.touched);
     for (const worker of idle) if (idle.indexOf(worker) >= 2 || Date.now() - worker.touched > 5 * 60000) await this.remove(worker);
   }

@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
 import { SessionCollaboration } from './session-collaboration';
+import { PendingMessages } from './pending-messages';
 import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
@@ -109,6 +110,13 @@ async function persistAuth(next: Record<string, unknown>) {
 }
 const emit = (event: unknown) => { if (window && !window.isDestroyed()) window.webContents.send('runtime-event', event); };
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
+  const queueWorker = runtimes.workers.get(event.runtimeId);
+  const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
+    && pendingMessages.delivered(queueWorker, event.message.content, event.message.timestamp, false);
+  if (queueWorker && event.message?.role === 'user') {
+    event.message = pendingMessages.decorate(queueWorker, event.message);
+    queueWorker.messages = queueWorker.messages.map(message => pendingMessages.decorate(queueWorker, message));
+  }
   if (event.type === 'agent_end') {
     const worker = runtimes.workers.get(event.runtimeId);
     const entry = worker && conversationEntries(worker.messages).at(-1);
@@ -124,10 +132,23 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   }
   if (event.type === 'desktop_exit') void crashLog.record('runtime-exit', new Error('Step Code runtime exited unexpectedly'), event.details ?? {});
   emit(event);
+  // Deliver the authoritative message before publishing the newer queue revision.
+  if (consumed) pendingMessages.publish(queueWorker!);
+  if (queueWorker && event.type === 'agent_end') pendingMessages.completed(queueWorker);
 }, undefined, {
   launch: worker => collaboration.attach(worker),
-  dispose: worker => collaboration.detach(worker),
+  dispose: worker => {
+    collaboration.detach(worker);
+    if (worker.status === 'disconnected' && worker.queued) pendingMessages.recover(worker);
+    else pendingMessages.clear(worker);
+  },
 });
+const pendingMessages = new PendingMessages(worker => {
+  worker.revision++;
+  emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
+  runtimes.publish();
+}, (worker, error) => emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) }),
+  (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message);
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language);
 setInterval(() => { if (!transition) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error)); }, 60000).unref();
 const admin = new RpcProcess(event => {
@@ -202,7 +223,8 @@ async function snapshot(worker = runtimes.active, refresh = true): Promise<Snaps
     preferences: { ...preferences, workspace: worker?.cwd ?? preferences.workspace },
     status: worker?.status ?? status, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: worker?.state, permissionPreset: worker?.permissionPreset, runtimeRevision: worker?.revision,
-    messages: worker?.messages ?? [], models: worker?.models ?? [], stats: worker?.stats,
+    messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: worker?.models ?? [], stats: worker?.stats,
+    pendingMessages: worker ? pendingMessages.list(worker) : [],
     requests: worker ? [...worker.pendingUI.values()] : [],
     sessions, independent: !worker || isIndependentPath(worker.cwd),
   };
@@ -553,9 +575,13 @@ async function handle(method: string, args: any[]) {
     case 'command': {
       const type = text(args[0], 80); const data = args[1] ?? {};
       if (transition) throw new Error('Workspace is changing');
-      const worker = runtimes.require(args[2] === undefined ? undefined : text(args[2], 80));
+      const runtimeId = args[2] === undefined ? runtimes.activeId : text(args[2], 80);
+      const worker = ['queue_edit', 'queue_remove'].includes(type) ? runtimes.workers.get(runtimeId!) : runtimes.require(runtimeId);
+      if (!worker) throw new Error('This session runtime is unavailable');
+      if (worker.stopping && ['prompt', 'queue_steer', 'queue_steer_first', 'abort'].includes(type))
+        throw new Error('Wait for this session to stop');
       if (worker.mutating && !['abort', 'extension_ui_response', 'get_commands', 'get_available_thinking_levels', 'get_session_stats'].includes(type)) throw new Error('Session operation in progress');
-      const mutating = ['set_model', 'set_thinking_level', 'set_permission_preset', 'compact'].includes(type);
+      const mutating = ['set_model', 'set_thinking_level', 'set_permission_preset', 'compact', 'queue_recover'].includes(type);
       if (mutating) worker.mutating = true;
       const wasStreaming = worker.busy || worker.submissions > 0;
       if (type === 'prompt') worker.submissions++;
@@ -573,6 +599,29 @@ async function handle(method: string, args: any[]) {
           runtimes.respondToRequest(worker, answer); return null;
         }
         const allowed = ['prompt', 'abort', 'clear_queue', 'new_session', 'set_model', 'set_thinking_level', 'set_session_name', 'set_permission_preset', 'get_commands', 'get_available_thinking_levels', 'get_session_stats', 'compact'];
+        if (type === 'queue_recover') {
+          if (worker.busy || worker.submissions || worker.stopping || worker.state?.isCompacting || worker.pendingUI.size)
+            throw new Error('Wait for this session to stop');
+          await rpc.request('clear_queue');
+          pendingMessages.recover(worker);
+          return;
+        }
+        if (type === 'queue_steer_first') {
+          const first = pendingMessages.list(worker).find(item => !item.sending);
+          if (first) await pendingMessages.steer(worker, first.id, first.version);
+          return;
+        }
+        if (['queue_edit', 'queue_remove', 'queue_steer'].includes(type)) {
+          const id = text(data.id, 80);
+          if (!Number.isInteger(data.version) || data.version < 0) throw new Error('Invalid queued message version');
+          if (type === 'queue_edit') {
+            const message = text(data.message);
+            if (/^\s*\/_desktop_retry\b/.test(message)) throw new Error('Reserved Desktop command');
+            pendingMessages.edit(worker, id, data.version, message);
+          } else if (type === 'queue_remove') pendingMessages.remove(worker, id, data.version);
+          else await pendingMessages.steer(worker, id, data.version);
+          return;
+        }
         if (!allowed.includes(type)) throw new Error('Unsupported command');
         if (type === 'set_permission_preset') {
           const preset = text(data.preset, 30);
@@ -586,6 +635,7 @@ async function handle(method: string, args: any[]) {
           return await rpc.request('prompt', { message: `/permissions ${preset}` });
         }
         let payload: Record<string, unknown> = {};
+        let filePaths: string[] = [];
         if (type === 'prompt') {
           payload.message = text(data.message);
           if (/^\s*\/_desktop_retry\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
@@ -598,6 +648,7 @@ async function handle(method: string, args: any[]) {
               if (!info.isFile() || info.size > MAX_FILE_BYTES) throw new Error('Attached file is unavailable or too large');
               return path;
             }));
+            filePaths = paths;
             payload.message = fileReferenceMessage(payload.message as string, paths, preferences.language);
           }
           if (data.images) {
@@ -607,21 +658,31 @@ async function handle(method: string, args: any[]) {
               return { type: 'image', mimeType: i.mimeType, data: text(i.data, 14000000) };
             });
           }
-          if (wasStreaming) payload.streamingBehavior = 'followUp';
+          if (wasStreaming) {
+            const id = pendingMessages.enqueue(worker, text(data.message), payload, filePaths);
+            if (Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
+            return { queued: true, id, version: 0 };
+          }
+          pendingMessages.resumed(worker);
         }
         if (type === 'set_model') payload = { provider: text(data.provider, 200), modelId: text(data.modelId, 300) };
         if (type === 'set_thinking_level') payload = { level: text(data.level, 30) };
         if (type === 'set_session_name') payload = { name: text(data.name, 200) };
         if (['set_model', 'set_thinking_level', 'compact'].includes(type)) await runtimes.assertIdle(worker);
-        if (type === 'abort' && runtimes.isBusy(worker)) worker.interrupted = true;
+        if (type === 'abort') { worker.stopping = true; worker.interrupted = true; pendingMessages.pause(worker); }
         worker.operations++;
         if (type === 'prompt') runtimes.publish();
         try {
           const response = await rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
+          if (type === 'abort') {
+            // Abort waits for idle; clear accepted steers before making them editable.
+            await rpc.request('clear_queue');
+            pendingMessages.recover(worker);
+          }
           if (type === 'prompt' && Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
           return response;
         } catch (error) {
-          if (type === 'prompt') worker.failed = true;
+          if (type === 'prompt') { worker.failed = true; pendingMessages.pause(worker); }
           throw error;
         } finally {
           worker.operations--;
@@ -629,7 +690,8 @@ async function handle(method: string, args: any[]) {
         }
       } finally {
         if (mutating) worker.mutating = false;
-        if (type === 'prompt') { worker.submissions--; runtimes.publish(); }
+        if (type === 'abort') worker.stopping = false;
+        if (type === 'prompt') { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }
       }
     }
     case 'settings': return admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });

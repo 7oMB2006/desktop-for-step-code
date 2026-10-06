@@ -57,6 +57,12 @@ export class RpcProcess {
         value.success ? request.resolve(value.data) : request.reject(new Error(value.error || 'Runtime command failed'));
       } else this.event(value);
     });
+    child.stdin.on('error', error => {
+      if (this.child !== child) return;
+      this.fail(error);
+      this.event({ type: 'desktop_exit', details: { kind: 'rpc-write', message: error.message } });
+      void this.stop();
+    });
     child.stdout.on('data', chunk => {
       try { decoder.push(chunk); }
       catch (e) {

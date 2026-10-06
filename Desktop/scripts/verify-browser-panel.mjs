@@ -74,8 +74,24 @@ try {
   const conversationBounds = await page.locator('.composer').boundingBox();
   assert.ok(conversationBounds && conversationBounds.x + conversationBounds.width <= standardPageBounds.x + 1,
     'the standard native browser does not overlap the conversation composer');
-  const webPage = app.windows().find(value => value.url().startsWith(url));
-  assert.ok(webPage, 'native WebContentsView exposes a real page');
+  // Native navigation/title events can precede Playwright's target attachment.
+  let webPage;
+  await assert.doesNotReject(async () => {
+    await page.waitForFunction(async () => {
+      const tab = (await window.desktop.browserList()).tabs[0];
+      return tab?.title === '项目预览' && !tab.loading;
+    });
+    const deadline = Date.now() + 15000;
+    while (!(webPage = app.windows().find(value => value.url().startsWith(url)))) {
+      if (Date.now() >= deadline) throw new Error('native WebContentsView exposes a real page');
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    await webPage.getByRole('textbox', { name: '测试输入' }).waitFor();
+    await webPage.waitForFunction(() => {
+      const image = document.querySelector('img');
+      return image?.complete && image.naturalWidth > 0;
+    });
+  }, 'native WebContentsView exposes a loaded real page');
   const isolation = await webPage.evaluate(() => ({
     require: typeof window.require, desktop: typeof window.desktop, process: typeof window.process,
     image: document.querySelector('img').complete && document.querySelector('img').naturalWidth > 0,

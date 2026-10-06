@@ -1,0 +1,257 @@
+import { _electron as electron } from 'playwright';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { queueFixture } from './queue-demo-fixture.mjs';
+
+const profile = await mkdtemp(join(tmpdir(), 'step-send-queue-'));
+const fixture = await queueFixture(profile, { duration: 120000 });
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
+delete env.ELECTRON_RUN_AS_NODE;
+const app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
+await mkdir('test-results', { recursive: true });
+const errors = [];
+try {
+  const page = await app.firstWindow();
+  page.on('pageerror', error => errors.push(error.message));
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1280, 850);
+  });
+  await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await page.getByText('队列交互示例（本地模拟）', { exact: true }).click();
+  await page.waitForFunction(async () => (await window.desktop.snapshot()).state?.sessionId === 'queue-demo');
+  await page.locator('.response-text').filter({ hasText: '示例目录里有一个 demo.txt。' }).waitFor();
+  const input = page.getByRole('textbox', { name: '消息', exact: true });
+  const snapshot = () => page.evaluate(() => window.desktop.snapshot());
+  const pending = async count => {
+    await page.waitForFunction(count => Number(document.querySelector('.queue-context:not(.is-leaving) .queue-trigger')?.textContent?.match(/\d+/)?.[0] ?? 0) === count, count);
+  };
+  const send = async text => { await input.fill(text); await input.press('Enter'); };
+  await send('RUN-A 检查示例文件');
+  await page.locator('.live-turn-chip').waitFor({ timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector('.response-active')?.textContent?.includes('正在处理'), undefined, { timeout: 30000 });
+  await page.evaluate(() => {
+    const source = document.querySelector('.response-text p');
+    source.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const range = document.createRange(); range.selectNodeContents(source);
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+  });
+  await page.getByRole('toolbar', { name: '选中文字' }).getByRole('button', { name: '引用', exact: true }).click();
+  const long = 'QUEUED-FIRST ' + '保留布局位置，长消息在队列内查看完整内容，不要覆盖输入框草稿。\n\n'.repeat(22);
+  const before = await page.locator('.live-turn-context').boundingBox();
+  await send(long);
+  await pending(1);
+  await page.waitForTimeout(80);
+  const motion = await page.locator('.live-turn-context').evaluate(e => e.getAnimations().map(a => ({ state: a.playState, duration: a.effect.getTiming().duration })));
+  assert.ok(motion.some(a => a.state === 'running'), 'diff movement needs an active animation');
+  await page.waitForTimeout(300);
+  const moved = await page.locator('.live-turn-context').boundingBox();
+  assert.ok(moved.x > before.x + 40, 'queued block should move diff right');
+  await send('QUEUED-SECOND 插队补充');
+  await pending(2);
+  await page.getByRole('button', { name: '查看运行中的变更', exact: true }).click();
+  await page.waitForTimeout(260);
+  const diffAnchor = await page.locator('.live-turn-chip').boundingBox();
+  const diffPanel = await page.getByRole('dialog', { name: '运行中的变更', exact: true }).boundingBox();
+  assert.ok(Math.abs(diffPanel.x + diffPanel.width - diffAnchor.x - diffAnchor.width) < 2, 'docked diff popover must align its right edge with the trigger and open toward the center');
+  await page.screenshot({ path: 'test-results/queue-diff-anchored-dark.png' });
+  await page.getByRole('button', { name: '查看运行中的变更', exact: true }).click();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await pending(0);
+  await page.getByText('队列交互示例（本地模拟）', { exact: true }).click();
+  await pending(2);
+  // The pending reference belongs to the next draft, not to the queued message.
+  await page.evaluate(() => {
+    const source = document.querySelector('.response-text p');
+    source.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const range = document.createRange(); range.selectNodeContents(source);
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+  });
+  await page.getByRole('toolbar', { name: '选中文字' }).getByRole('button', { name: '引用', exact: true }).click();
+  await page.locator('.queue-trigger').hover();
+  await page.getByRole('dialog', { name: '待发送消息' }).waitFor();
+  await page.waitForTimeout(260);
+  await page.screenshot({ path: 'test-results/queue-list-dark.png' });
+  await page.getByRole('button', { name: '查看第 1 条全文', exact: true }).click();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/queue-full-dark.png' });
+  const full = page.locator('.queue-full');
+  assert.ok(await full.evaluate(e => e.scrollHeight > e.clientHeight), 'long message must scroll');
+  await page.getByRole('button', { name: '编辑第 1 条', exact: true }).click();
+  await page.getByRole('textbox', { name: '编辑待发送消息' }).fill('QUEUED-FIRST-EDIT 保持原位置');
+  await page.getByRole('button', { name: '保存队列编辑' }).click();
+  await page.waitForFunction(() => document.querySelector('.queue-full-text')?.textContent?.includes('QUEUED-FIRST-EDIT'));
+  let state = await snapshot();
+  assert.ok(state.pendingMessages[0].message.includes('QUEUED-FIRST-EDIT'));
+  assert.ok(state.pendingMessages[0].message.includes('引用'));
+  await page.getByRole('button', { name: '返回队列', exact: true }).click();
+  await page.locator('.queue-trigger').click();
+  await page.getByRole('button', { name: '清空引用', exact: true }).click();
+  const bottom = page.getByRole('button', { name: '回到底部', exact: true });
+  if (await bottom.isVisible()) await bottom.click();
+  await input.press('Enter');
+  await pending(1);
+  assert.ok((await snapshot()).pendingMessages.some(item => item.message.includes('QUEUED-FIRST-EDIT') && item.sending));
+  assert.ok((await snapshot()).pendingMessages.some(item => item.message === 'QUEUED-SECOND 插队补充'));
+  assert.ok(!fixture.requests.some(text => text.includes('QUEUED-FIRST-EDIT')), 'steering cannot kill the current response');
+  await page.locator('.pending-user').filter({ hasText: 'QUEUED-FIRST-EDIT' }).waitFor();
+  assert.ok(!(await snapshot()).messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes('QUEUED-FIRST-EDIT')), 'pending receipt is not fabricated model history');
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await pending(0);
+  assert.equal(await page.locator('.pending-user').count(), 0, 'receipts cannot leak into another session');
+  await page.getByText('队列交互示例（本地模拟）', { exact: true }).click();
+  await page.locator('.pending-user').filter({ hasText: 'QUEUED-FIRST-EDIT' }).waitFor();
+  await page.reload();
+  await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await pending(1);
+  await page.locator('.pending-user').filter({ hasText: 'QUEUED-FIRST-EDIT' }).waitFor();
+  await page.waitForTimeout(260);
+  await page.screenshot({ path: 'test-results/queue-awaiting-dark.png' });
+  await page.evaluate(() => {
+    window.queueWireEvents = [];
+    window.desktop.onEvent(event => {
+      if (['desktop_queue', 'message_start', 'message_update', 'message_end'].includes(event.type))
+        window.queueWireEvents.push({ type: event.type, runtimeId: event.runtimeId, revision: event.runtimeRevision,
+          userText: event.message?.role === 'user' ? JSON.stringify(event.message.content) : undefined });
+    });
+  });
+  fixture.finish();
+  await page.waitForFunction(() => document.querySelector('.response-active')?.textContent?.includes('QUEUED-FIRST-EDIT'), undefined, { timeout: 60000 });
+  assert.equal(await page.locator('.pending-user').filter({ hasText: 'QUEUED-FIRST-EDIT' }).count(), 0);
+  assert.equal(await page.locator('.message.user:not(.pending-user)').filter({ hasText: 'QUEUED-FIRST-EDIT' }).count(), 1, 'consumption replaces the receipt with one authoritative user message');
+  const steered = page.locator('.message.user:not(.pending-user)').filter({ hasText: 'QUEUED-FIRST-EDIT' });
+  await steered.locator('.message-steered').waitFor();
+  const wire = await page.evaluate(() => window.queueWireEvents);
+  const consumption = wire.findIndex(event => event.type === 'message_start' && event.userText?.includes('QUEUED-FIRST-EDIT'));
+  assert.ok(consumption >= 0, 'real user delivery must be observed on the renderer wire');
+  assert.ok(wire[consumption + 1]?.type === 'desktop_queue' && wire[consumption + 1].revision > wire[consumption].revision,
+    'the consumed user event must arrive before the newer queue revision');
+  assert.ok(!wire.slice(0, consumption).some(event => event.runtimeId === wire[consumption].runtimeId
+    && event.revision >= wire[consumption].revision), 'delivery cannot be stale before it reaches the renderer');
+  assert.equal(await steered.locator('.message-steered').innerText(), '已插队引导');
+  assert.equal(await steered.locator('.message-steered').evaluate(e => getComputedStyle(e).fontStyle), 'italic');
+  const markerRight = await steered.locator('.message-steered').evaluate(e => e.getBoundingClientRect().right);
+  const bubbleRight = await steered.locator('.message-body').evaluate(e => e.getBoundingClientRect().right);
+  assert.ok(Math.abs(markerRight - bubbleRight) < 2, 'steering marker must align with the user bubble right edge');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/queue-consumed-dark.png' });
+  await steered.evaluate(e => e.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'test-results/queue-steered-marker-dark.png' });
+  await page.reload();
+  await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await steered.locator('.message-steered').waitFor();
+  assert.equal((await snapshot()).pendingMessages.length, 1, 'follow-up waits until steering run ends');
+  fixture.finish();
+  await page.waitForFunction(() => document.querySelector('.response-active')?.textContent?.includes('QUEUED-SECOND'), undefined, { timeout: 60000 });
+  await pending(0);
+  assert.equal(await page.locator('.message.user:not(.pending-user)').filter({ hasText: 'QUEUED-SECOND' }).locator('.message-steered').count(), 0, 'ordinary FIFO delivery is not steering');
+  assert.ok(fixture.requests.findIndex(text => text.includes('QUEUED-FIRST-EDIT')) < fixture.requests.findIndex(text => text.includes('QUEUED-SECOND')));
+  await page.waitForTimeout(350);
+  const restored = await page.locator('.live-turn-context').boundingBox();
+  assert.ok(Math.abs(restored.x - before.x) < 2, 'diff returns to center');
+  await send('WITHDRAW 不应该到模型');
+  await pending(1);
+  await page.locator('.queue-trigger').hover();
+  await page.getByRole('button', { name: '撤回第 1 条', exact: true }).click();
+  await pending(0);
+  assert.ok(!fixture.requests.some(text => text.includes('WITHDRAW')));
+  await send('PAUSED 停止后不能自动发送');
+  await pending(1);
+  await page.getByRole('button', { name: '停止此轮', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.response-active'));
+  assert.equal((await snapshot()).pendingMessages.length, 1);
+  await page.waitForTimeout(350);
+  assert.ok(!fixture.requests.some(text => text.includes('PAUSED')));
+  await page.evaluate(async () => { const s = await window.desktop.snapshot(); await window.desktop.command('queue_remove', { id: s.pendingMessages[0].id, version: s.pendingMessages[0].version }, s.runtimeId); });
+  await pending(0);
+  // Stop after a steer has been accepted but before the provider receives it.
+  await send('RUN-STOP-RECEIPT 保持运行直到停止');
+  await page.waitForFunction(() => document.querySelector('.response-active')?.textContent?.includes('RUN-STOP-RECEIPT'), undefined, { timeout: 60000 });
+  await send('RECOVER-RECEIPT 停止后恢复草稿');
+  await pending(1);
+  await input.press('Enter');
+  await pending(0);
+  await page.locator('.pending-user').filter({ hasText: 'RECOVER-RECEIPT' }).waitFor();
+  await page.getByRole('button', { name: '停止此轮', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.response-active'));
+  await pending(1);
+  assert.equal(await page.locator('.pending-user').count(), 0, 'confirmed cancellation restores receipts to the editable queue');
+  assert.ok(!fixture.requests.some(text => text.includes('RECOVER-RECEIPT')), 'the canceled steer cannot be silently replayed');
+  const recovered = (await snapshot()).pendingMessages[0];
+  assert.equal(recovered.sending, false);
+  await page.evaluate(async item => {
+    const s = await window.desktop.snapshot();
+    await window.desktop.command('queue_edit', { id: item.id, version: item.version, message: 'RECOVERED-EDIT' }, s.runtimeId);
+    await window.desktop.command('queue_remove', { id: item.id, version: item.version + 1 }, s.runtimeId);
+    await window.desktop.command('set_thinking_level', { level: 'off' }, s.runtimeId);
+  }, recovered);
+  await pending(0);
+  // Narrow, long-list and light-theme views are rendered against the actual bridge.
+  await page.evaluate(async () => { await window.desktop.preferences({ theme: 'light' }); });
+  await page.reload();
+  await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+  await send('RUN-NARROW 窄窗口');
+  await page.locator('.live-turn-chip').waitFor();
+  await send('LONG ' + '测试长消息和连续排队。\n'.repeat(80));
+  await send('SECOND 第二条');
+  await pending(2);
+  await page.reload();
+  await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await pending(2);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 850));
+  await page.locator('.queue-trigger').hover();
+  await page.waitForTimeout(350);
+  const chips = await page.locator('.quote-chip, .queue-trigger, .live-turn-chip, .jump-to-bottom').evaluateAll(elements => elements.map(e => {
+    const r = e.getBoundingClientRect(); return { x: r.x, right: r.right, height: r.height };
+  }));
+  assert.ok(chips.every(box => box.x >= 0 && box.right <= 640));
+  await page.screenshot({ path: 'test-results/queue-narrow-light.png' });
+  await page.evaluate(() => { window.queueKeyTests = []; const input = document.querySelector('.composer > textarea'); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })); });
+  assert.equal((await snapshot()).pendingMessages.length, 2, 'repeated/IME Enter cannot steer');
+  if (process.platform === 'win32') {
+    await input.press('Enter');
+    await page.locator('.pending-user').waitFor();
+    const owner = await app.evaluate(({ app }) => ({ pid: process.pid, profile: app.getPath('userData') }));
+    assert.equal(owner.profile, profile, 'termination must be scoped to this isolated fixture');
+    const runtimeCount = (await snapshot()).runtimes.length;
+    const command = `@(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${owner.pid}' | Where-Object {
+      $_.Name -eq 'node.exe' -and $_.CommandLine -match 'step[.]js' -and $_.CommandLine -match '--mode'
+    } | Select-Object -ExpandProperty ProcessId) | ConvertTo-Json -Compress`;
+    const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', command],
+      { encoding: 'utf8', windowsHide: true }).trim());
+    const children = Array.isArray(result) ? result : [result];
+    assert.ok(children.length > 0 && children.length <= runtimeCount
+      && children.every(pid => Number.isInteger(pid) && pid !== owner.pid));
+    for (const pid of children) process.kill(pid);
+    await page.waitForFunction(async () => {
+      try { return (await window.desktop.snapshot()).status === 'disconnected'; }
+      catch { return false; } // A read issued just before exit can reject; wait for the exit event.
+    });
+    await pending(2);
+    assert.equal(await page.locator('.pending-user').count(), 0);
+    await page.locator('.queue-trigger').click();
+    await page.getByRole('button', { name: '撤回第 1 条', exact: true }).click();
+    await pending(1);
+    await page.getByRole('button', { name: '撤回第 1 条', exact: true }).click();
+    await pending(0);
+    assert.equal((await snapshot()).pendingMessages.length, 0, 'dead-worker receipts remain locally withdrawable');
+  }
+  assert.deepEqual(errors, []);
+  await writeFile('test-results/queue-verification.json', JSON.stringify({ profile, requestOrder: fixture.requests, animation: motion, before: before.x, moved: moved.x, restored: restored.x, chips }, null, 2));
+  console.log('Send queue passed: real RPC steering/FIFO, long preview, edit with references, withdrawal, interruption, IME/repeat guards, layout animation and narrow theme.');
+} catch (error) {
+  const page = await app.firstWindow();
+  console.log(JSON.stringify(await page.evaluate(() => window.desktop.snapshot()), (key, value) => ['messages', 'models', 'sessions'].includes(key) ? undefined : value, 2));
+  console.log(await page.locator('body').innerText());
+  await page.screenshot({ path: 'test-results/queue-failure.png' });
+  throw error;
+} finally {
+  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); }).catch(() => {});
+  await app.close(); await fixture.close();
+}

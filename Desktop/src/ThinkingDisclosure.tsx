@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 
-export function ThinkingDisclosure({ autoOpen, index, label, children, onLayoutChange }: {
-  autoOpen: boolean; index: number; label: string; children: ReactNode; onLayoutChange?: () => void;
+export function ThinkingDisclosure({ autoOpen, index, label, elapsed, children, onLayoutChange }: {
+  autoOpen: boolean; index: number; label: string; elapsed?: ReactNode; children: ReactNode; onLayoutChange?: () => void;
 }) {
   const [expanded, setExpanded] = useState(autoOpen);
   const previousAuto = useRef(autoOpen);
@@ -53,7 +53,7 @@ export function ThinkingDisclosure({ autoOpen, index, label, children, onLayoutC
   }, []);
   return <details className="thinking" ref={details} data-message-index={index} data-expanded={expanded}>
     <summary onClick={event => { event.preventDefault(); setExpanded(value => !value); }} aria-expanded={expanded}>
-      <ChevronRight size={13} className="disclosure-chevron"/>{label}
+      <ChevronRight size={13} className="disclosure-chevron"/>{label}{elapsed}
     </summary>
     <div ref={body} className="thinking-body" aria-hidden={!expanded} inert={!expanded}>{children}</div>
   </details>;

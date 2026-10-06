@@ -84,6 +84,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
           node scripts/verify-electron.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Electron acceptance failed' }
+          node scripts/verify-conversation-timing.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Conversation timing acceptance failed' }
+          node scripts/verify-subagent-status.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Subagent status acceptance failed' }
+          node scripts/verify-background-subagents.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Background subagent acceptance failed' }
           node scripts/verify-terminal-panel.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Terminal acceptance failed' }
           node scripts/verify-browser-panel.mjs

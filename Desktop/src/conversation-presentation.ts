@@ -59,23 +59,28 @@ export function responsePresentation(items: IndexedMessage[]) {
   };
 }
 
-export type SubagentTaskKey = { agent: string; task: string };
+export type SubagentTaskKey = { agent: string; task: string; toolCallId?: string; taskIndex?: number };
 
 /** Finds the live record for a selected subagent, so an open panel tracks later tool events. */
 export function findSubagentTask(messages: Message[], key: SubagentTaskKey | null): SubagentTask | null {
   if (!key) return null;
-  for (const message of messages) {
-    if (message.role !== 'toolResult' || message.toolName !== 'subagent') continue;
-    const match = subagentTasks(undefined, message).find(task => task.agent === key.agent && task.task === key.task);
-    if (match) return match;
-  }
-  // Still running with no result yet: recover the planned entry from the matching call.
+  const background = backgroundSubagentStates(messages);
+  const results = new Map(messages.filter(message => message.role === 'toolResult' && message.toolCallId)
+    .map(message => [message.toolCallId!, message]));
+  const matches = (task: SubagentTask) => key.toolCallId
+      ? task.toolCallId === key.toolCallId && task.taskIndex === key.taskIndex
+      : task.agent === key.agent && task.task === key.task;
   for (const message of messages) {
     for (const block of messageBlocks(message)) {
-      if (block.type !== 'toolCall' || block.name !== 'subagent') continue;
-      const match = subagentTasks(block, undefined).find(task => task.agent === key.agent && task.task === key.task);
+      if (block.type !== 'toolCall' || block.name !== 'subagent' || (key.toolCallId && block.id !== key.toolCallId)) continue;
+      const match = subagentTasks(block, block.id ? results.get(block.id) : undefined, background).find(matches);
       if (match) return match;
     }
+  }
+  for (const result of results.values()) {
+    if (result.toolName !== 'subagent') continue;
+    const match = subagentTasks(undefined, result, background).find(matches);
+    if (match) return match;
   }
   return null;
 }
@@ -97,10 +102,48 @@ export type SubagentTask = {
   messages: Message[];
   model?: string;
   turns?: number;
+  toolCallId?: string;
+  taskIndex?: number;
+  backgroundAgentId?: string;
 };
 
+export type BackgroundSubagentStates = ReadonlyMap<string, SubagentTask['status']>;
+
+/** Background dispatch results are snapshots; later custom messages carry lane lifecycle. */
+export function backgroundSubagentStates(messages: Message[]): BackgroundSubagentStates {
+  const states = new Map<string, SubagentTask['status']>();
+  const eventStatuses: Record<string, SubagentTask['status']> = {
+    background_done: 'completed', background_failed: 'failed', background_interrupted: 'aborted',
+    background_progress: 'running', background_restarted: 'running', background_needs_input: 'running',
+  };
+  // A fast child can notify before its dispatch result arrives, so register IDs first.
+  for (const message of messages) {
+    const id = message.details?.agentId;
+    if (message.role === 'toolResult' && message.toolName === 'subagent' && typeof id === 'string' && id
+      && SUBAGENT_STATUSES.includes(message.details?.status as SubagentTask['status'])) {
+      states.set(id, message.details!.status as SubagentTask['status']);
+    }
+  }
+  for (const message of messages) {
+    const details = message.details;
+    const id = details?.agentId;
+    if (typeof id !== 'string' || !id) continue;
+    if (states.has(id)) {
+      if (message.role === 'custom' && message.customType === 'agent-notification'
+        && typeof details?.event === 'string' && Object.hasOwn(eventStatuses, details.event)
+        && details.status === eventStatuses[details.event]) {
+        states.set(id, eventStatuses[details.event]);
+      } else if (message.role === 'toolResult' && message.toolName === 'agent_send'
+        && SUBAGENT_STATUSES.includes(details?.status as SubagentTask['status'])) {
+        states.set(id, details!.status as SubagentTask['status']);
+      }
+    }
+  }
+  return states;
+}
+
 /** One subagent call carries a task list in its call args and per-task records in its result details. */
-export function subagentTasks(call: Content | undefined, result: Message | undefined): SubagentTask[] {
+export function subagentTasks(call: Content | undefined, result: Message | undefined, background?: BackgroundSubagentStates): SubagentTask[] {
   const details = (result as { details?: { results?: unknown } } | undefined)?.details;
   const records = Array.isArray(details?.results) ? details.results.filter(record => record && typeof record === 'object') : [];
   const tasks: SubagentTask[] = records.map(record => {
@@ -115,7 +158,6 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
       turns: typeof usage?.turns === 'number' ? usage.turns : undefined,
     };
   });
-  if (tasks.length) return tasks;
   // No record yet: the first update has not landed, so show the planned list from the call args.
   const args = call?.arguments as { tasks?: unknown; chain?: unknown; agent?: unknown; task?: unknown } | undefined;
   const planned: { agent: string; task: string }[] = [];
@@ -130,7 +172,14 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
   if (!planned.length && (typeof args?.agent === 'string' || typeof args?.task === 'string')) {
     planned.push({ agent: String(args.agent ?? ''), task: String(args.task ?? '') });
   }
-  return planned.map(entry => ({ ...entry, status: 'running' as const, messages: [] }));
+  const entries = tasks.length ? tasks : planned.map(entry => ({ ...entry, status: 'running' as const, messages: [] }));
+  const backgroundAgentId = typeof result?.details?.agentId === 'string' ? result.details.agentId : undefined;
+  const laneStatus = backgroundAgentId ? background?.get(backgroundAgentId) : undefined;
+  return entries.map((entry, taskIndex) => ({
+    ...entry, toolCallId: call?.id ?? result?.toolCallId, taskIndex, backgroundAgentId,
+    // Preserve already-settled steps in a failed multi-step lane. A single lane can run again.
+    status: laneStatus && (entries.length === 1 || entry.status === 'running') ? laneStatus : entry.status,
+  }));
 }
 
 export type ToolState = 'running' | 'done' | 'failed' | 'missing';

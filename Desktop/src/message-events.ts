@@ -1,6 +1,21 @@
 import type { Content, Message, RuntimeEvent } from './contracts';
+import { applyElapsedTimings } from './elapsed-time';
 
 export function applyMessageEvent(messages: Message[], event: RuntimeEvent): Message[] {
+  messages = applyElapsedTimings(messages, event);
+  // Execution progress and persisted message events describe the same tool result.
+  // Match by call ID rather than role: concurrent calls can finish out of order.
+  if (['message_start', 'message_update', 'message_end'].includes(event.type)
+    && event.message?.role === 'toolResult' && event.message.toolCallId) {
+    const existing = messages.findIndex(message =>
+      message.role === 'toolResult' && message.toolCallId === event.message!.toolCallId);
+    if (existing >= 0) {
+      const next = [...messages];
+      next[existing] = event.message;
+      return next;
+    }
+    return [...messages, event.message];
+  }
   if (event.type === 'message_start') return event.message ? [...messages, event.message] : messages;
   if (event.type === 'message_end' || (event.type === 'message_update' && event.message)) {
     if (!event.message) return messages;

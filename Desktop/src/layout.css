@@ -490,6 +490,8 @@ main { position: relative; }
 .user-actions .icon-button { pointer-events: none; }
 .user-actions .message-time { margin-right: 5px; }
 .assistant-actions .message-time { margin-left: 8px; }
+.assistant-actions .elapsed-total { margin-left: 8px; font-size: 11px; }
+.assistant-actions:has(.elapsed-total) .message-time { opacity: 1; }
 .message:hover > .message-actions, .message:focus-within > .message-actions { opacity: 1; }
 .message:hover > .message-actions .message-time, .message:focus-within > .message-actions .message-time { opacity: 1; }
 .message.user:hover .user-actions .icon-button, .message.user:focus-within .user-actions .icon-button { pointer-events: auto; }
@@ -501,6 +503,10 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .response-content > .thinking > summary { display: flex; align-items: center; gap: 6px; width: fit-content; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
 .response-content > .thinking > summary:hover { color: var(--ink); }
 .thinking-body > p { padding: 5px 0; }
+.elapsed-label { color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.thinking > summary > .elapsed-label { margin-left: 5px; }
+.elapsed-label > span { font-variant-numeric: tabular-nums; }
+.elapsed-total { font-size: 10px; }
 .thinking[data-expanded="false"] > summary > .disclosure-chevron { transform: rotate(0); }
 .stream-reveal { animation: stream-text-in .18s ease-out both; }
 @keyframes stream-text-in { from { opacity: .3; } to { opacity: 1; } }

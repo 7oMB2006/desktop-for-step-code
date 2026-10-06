@@ -1,6 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyMessageEvent, applyToolResult } from '../src/message-events';
+import { responsePresentation, subagentTasks } from '../src/conversation-presentation';
+import type { Message } from '../src/contracts';
+
+test('chain completion stays one tool through execution and message lifecycle before agent end', () => {
+  const tasks = ['explore', 'review', 'general'].map(agent => ({ agent, task: agent, status: 'completed', messages: [] }));
+  const call: Message = { role: 'assistant', content: [
+    { type: 'toolCall', id: 'chain', name: 'subagent', arguments: { tasks } },
+  ] };
+  const final: Message = { role: 'toolResult', toolCallId: 'chain', toolName: 'subagent',
+    content: 'done', details: { results: tasks }, timestamp: 123 };
+  let messages = applyToolResult([call], { type: 'tool_execution_update', toolCallId: 'chain',
+    toolName: 'subagent', partialResult: { ...final, details: { results: tasks.map(task => ({ ...task, status: 'running' })) } } });
+  const original = messages;
+  messages = applyToolResult(messages, { type: 'tool_execution_end', toolCallId: 'chain',
+    toolName: 'subagent', result: final });
+  for (const type of ['message_start', 'message_end', 'message_end']) {
+    messages = applyMessageEvent(messages, { type, message: final });
+    assert.equal(messages.length, 2);
+    const tools = responsePresentation(messages.map((message, index) => ({ message, index }))).content;
+    assert.equal(tools.length, 1);
+    assert.ok(tools[0].type === 'tool');
+    assert.equal(subagentTasks(tools[0].call, tools[0].result).length, 3);
+  }
+  assert.equal((original[1].details?.results as { status: string }[])[0].status, 'running');
+  assert.equal(messages[1], final, 'authoritative result replaces progress in the same slot');
+});
+
+test('tool lifecycle matches call IDs even when results and assistant messages interleave', () => {
+  const a: Message = { role: 'toolResult', toolCallId: 'a', content: 'A' };
+  const b: Message = { role: 'toolResult', toolCallId: 'b', content: 'B' };
+  const assistant: Message = { role: 'assistant', content: 'continuing' };
+  let messages = applyMessageEvent([], { type: 'message_start', message: a });
+  messages = applyMessageEvent(messages, { type: 'message_start', message: b });
+  messages = applyMessageEvent(messages, { type: 'message_start', message: assistant });
+  messages = applyMessageEvent(messages, { type: 'message_end', message: a });
+  messages = applyMessageEvent(messages, { type: 'message_update', message: b });
+  assert.deepEqual(messages, [a, b, assistant]);
+  messages = applyToolResult(messages, { type: 'tool_execution_end', toolCallId: 'a', result: { content: 'final A' } });
+  assert.equal(messages.length, 3);
+  assert.equal(messages[0].content, 'final A');
+  assert.equal(messages[1], b);
+});
+
 test('wire deltas without message snapshots update text, thinking and tool calls without mutating prior state', () => {
   const start = applyMessageEvent([], { type: 'message_start', message: { role: 'assistant', content: [] } });
   let next = start;

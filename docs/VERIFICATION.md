@@ -2,6 +2,36 @@
 
 This file combines historical feature checks with the current release gates. Named `Desktop/release-*` directories below identify local outputs used for those checks; they are not required retained artifacts or current download locations. Current packaging writes to `Desktop/release/`.
 
+## Conversation Elapsed Labels
+
+The 2026-10-06 source change adds per-thinking-block elapsed labels and a permanent total before the completed response time. Timing is observed in the Electron main process: thinking ends at its end event, prose/tool-call transition, message completion or runtime exit; the run total spans agent start to completion/exit, including tools and waits. Steering does not reset it. These are observed Desktop intervals, not provider-internal compute measurements.
+
+Completed observations are stored separately under userData `conversation-timing/`, keyed by session identity and assistant timestamps. They survive history refresh, renderer reload and cold reopening without changing upstream history or model context. Old messages without recorded intervals omit the labels. Permanent session deletion removes its timing sidecar. Concurrent workers have independent clocks; unexpected exit and orderly disposal freeze unfinished intervals.
+
+Typecheck, all 185 tests and build passed. Timing unit checks cover formatting, separate thinking segments, steering, concurrent workers, exit, sidecar restoration/deletion and full-snapshot events. A real staged RPC/local SSE fixture verifies thinking timing through authoritative message replacement and history refresh. `verify-conversation-timing.mjs` verifies live ticking/freeze, recorded-history reload, permanent footer visibility and dark/light/narrow layouts. General Electron and frame-sampled stream-motion acceptance passed; screenshots are `Desktop/test-results/conversation-elapsed-{dark,light,narrow}.png`. No package, shortcut update, paid-model execution or installer acceptance is claimed.
+
+## Subagent Status Motion
+
+The 2026-10-07 source preview replaces the task row's running/completed text with a rotating ring and a circle-check icon. A fixed 18px slot contains 16px Lucide artwork, close to the adjacent 14px tool icon; completed circles use the same primary rose color as the composer action button. Long task descriptions cannot squeeze the status into multiple lines. Failure retains explicit text and an alert circle; accessible row names still include all statuses.
+
+Only a mounted running-to-completed transition plays the 660ms completion sequence: cubic contraction (180ms), contracted hold (70ms), cubic regrowth (210ms), then a normalized SVG check-path draw (200ms). Historical completed tasks do not replay; reduced motion stops rotation and switches directly. Clicking the same task again closes its right panel with the existing animation, while clicking a different task switches records.
+
+`Desktop/scripts/verify-subagent-status.mjs` uses isolated fixture records with the real renderer to verify rotation, intermediate contraction/hold/draw frames, stable row geometry, history, dark/light themes, narrow width, reduced motion, failure and click-toggle. Screenshots are under `Desktop/test-results/subagent-status-*.png`. This preview does not establish real-model subagent execution, and has not been packaged.
+
+## Background Subagent Lifecycle
+
+The 2026-10-07 Desktop-only fix projects background-lane status from structured `custom` / `agent-notification` messages onto the original dispatch using `details.agentId`. Valid completion, failure, interruption, progress, restart and needs-input events are replayed in message order; known-lane `agent_send` result snapshots also update status for follow-ups. Identities are registered before replay to tolerate a fast child notifying before the dispatch result arrives. Ordinary prose, unknown lane IDs and mismatched event/status pairs cannot change task state.
+
+Conversation rows and the open Subagent panel share this projection across turn boundaries and restored snapshots. Panel selection now includes tool call ID and task index, preventing identical task descriptions from selecting a different dispatch. Background interruption is labelled Stopped rather than Failed. Neither original messages nor model context are rewritten; lifecycle notifications without child activity do not fabricate process records. The upstream checkout and staged runtime were not edited or restaged; the staged bundle hash matches the current packaged runtime.
+
+Type checking, production build and all 193 tests passed. The first full run exited an existing session-collaboration test file without detailed failure output; its isolated rerun and a subsequent full rerun passed. `verify-background-subagents.mjs` passed cross-turn live completion, open-panel synchronization, identical-task isolation, reload without animation replay, failure, interruption and follow-up checks. Subagent status/motion, elapsed-time and general Electron acceptance also passed. A read-only replay of the reported session's active history resolved its affected lane as completed. Screenshot evidence is `Desktop/test-results/background-subagent-completed.png`; fixture UI acceptance does not establish new paid-model execution.
+
+This fix is source-only. No package, shortcut update, user-session mutation or live-process interruption was performed.
+
+PR CI now runs the dedicated conversation-timing, subagent-status and background-subagent Electron checks after general Electron acceptance.
+
+The pre-PR validation reran type checking, build and all four Electron checks successfully. A full unit run alongside Electron checks hit an existing terminal-fixture process-tree termination failure and left fixture children alive; only children of that test runner were stopped. A subsequent independent serial run passed all 193 tests. No terminal product code was changed.
+
 ## Pending Send Preview
 
 The 2026-10-06 queue preview uses the real staged RPC runtime with an isolated local SSE provider. `Desktop/scripts/verify-send-queue.mjs` verifies FIFO delivery, explicit steering without aborting the active response, long-message previews, quote-preserving edits, withdrawal, stop-and-retain behavior, worker switching, renderer reload, IME/repeated-key guards, cubic diff relocation, light/dark and narrow layouts. Queue and live-change components have distinct sibling keys to prevent stale queue controls after switching. Queue popovers hide native browser content while open.
@@ -422,6 +452,22 @@ The subsequent 2026-10-04 package at `Desktop/release/right-panel-unified-previe
 The desktop shortcut now targets this package; the prior running application was left untouched. Runtime bundle and helper hashes are identical to the previous staged package, and Node matches its manifest hash. Installer SHA-256 is `a73f6b5ffdba8bf3d15792b1bff06e07dfabd63679bffe667418f80b4d72f0ab`. The new preview directory totals about 681.79 MiB; 26 preview directories total about 16.23 GiB and were inventoried without deletion. No installer execution, real-profile migration, paid-model test, commit, PR or public release was performed.
 
 ## Release Boundary
+
+### Conversation Timing and Subagent Status Package
+
+The subsequent 2026-10-07 source-only fix reconciles tool-result message start/update/end events by tool call ID with the existing execution-result slot. Upstream sends both execution completion and persisted message events; previously the second delivery temporarily rendered a duplicate chain until the final history refresh. Different call IDs remain separate even when results and assistant messages interleave.
+
+Type checking, 187 tests, production build, subagent-status, conversation-timing and general Electron acceptance passed. The subagent fixture sends execution completion, message start and message end while the response is still streaming and verifies exactly three lanes without an agent-end refresh. Evidence is `Desktop/test-results/subagent-chain-completed-no-duplicates.png`. The existing package and shortcut have not been updated with this fix.
+
+The follow-up package at `Desktop/release/conversation-status-dedupe-preview/` contains that tool-result reconciliation. Its unpacked executable passed subagent-status, conversation-timing and general Electron acceptance with isolated profiles; the fixture confirmed exactly three lanes across execution completion and subsequent message start/end events. The ordinary desktop shortcut now targets this package, including its own icon resource. The previous application under `conversation-status-preview` was left running. Runtime and helper hashes match the previously staged resources; no runtime restaging was performed. Installer SHA-256 is `017a5f8ff2a40d4139827f4959dd6e6d0648ca22a58eaef35c63973680670288`. No installer execution or paid-model acceptance was performed.
+
+The 2026-10-07 local package at `Desktop/release/conversation-status-preview/` includes thinking-segment elapsed time, permanent response total time, subagent panel click-toggle, and compact rose-accent completion icons with shrink/hold/grow/check-draw motion. Source type checking, production build and 185 tests passed; the full test run used concurrency 1 because default parallel execution intermittently stalled in existing terminal tests.
+
+The unpacked executable passed conversation-timing, subagent-status and general Electron acceptance using isolated profiles. These verify ticking/freeze, history/reload, themes/narrow layouts, status motion, reduced motion, click-toggle, real RPC startup and renderer isolation. Presentation fixtures do not establish paid-model or real subagent execution acceptance.
+
+The ordinary desktop shortcut now targets this package. The running `send-queue-marker-preview` application was preserved; close that old window before launching the updated shortcut. Packaged manifest, Node, Step Code bundle and terminal host match staged resources; both Desktop helpers also match current source. Runtime remains at `519e4de4ed2162d3667be1821cb92ada6b884e5a`, Node v24.15.0, without restaging the separately maintained upstream checkout.
+
+Installer SHA-256 is `7eacc82608a4e84eecc3040cda7d8e31a73f35c42ab040725a7162a8a891ccb1`. The package directory totals approximately 697.48 MiB; seven release directories total approximately 4.76 GiB and were inventoried without deletion. No installer execution, paid-model acceptance, commit, PR or public release was performed.
 
 ### PR #56 Review Follow-Up
 

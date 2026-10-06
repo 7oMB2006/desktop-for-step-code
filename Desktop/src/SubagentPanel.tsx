@@ -30,7 +30,8 @@ function SubagentTranscript({ task, ...props }: { task: SubagentTask } & Pick<Pa
 function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
   const zh = props.language === 'zh';
   const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : 'failed';
-  const status = { running: zh ? '进行中' : 'In progress', done: zh ? '完成' : 'Done', failed: zh ? '失败' : 'Failed' }[state];
+  const status = task.status === 'aborted' ? zh ? '已终止' : 'Stopped'
+    : { running: zh ? '进行中' : 'In progress', done: zh ? '完成' : 'Done', failed: zh ? '失败' : 'Failed' }[state];
   // Activity only arrives with the final result; a running subagent has none yet.
   const hasTranscript = task.messages.some(message => message.role !== 'user');
   return <div className="subagent-body">
@@ -46,8 +47,8 @@ function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Param
     <div className="subagent-transcript">
       {hasTranscript ? <SubagentTranscript task={task} {...props}/>
         : state === 'running' ? <p className="panel-empty">{zh
-          ? '运行中。过程数据要等这个子代理跑完才随结果一起到达。'
-          : 'Running. Its activity arrives with the result once it finishes.'}</p>
+          ? task.backgroundAgentId ? '运行中。后台任务未返回过程记录。' : '运行中。过程数据要等这个子代理跑完才随结果一起到达。'
+          : task.backgroundAgentId ? 'Running. No activity record returned for this background task.' : 'Running. Its activity arrives with the result once it finishes.'}</p>
           : <p className="panel-empty">{zh ? '无过程记录。' : 'No activity recorded.'}</p>}
     </div>
   </div>;

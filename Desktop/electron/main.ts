@@ -8,6 +8,7 @@ import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
 import { SessionCollaboration } from './session-collaboration';
 import { PendingMessages } from './pending-messages';
+import { ConversationTiming } from './conversation-timing';
 import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
@@ -28,6 +29,8 @@ app.setAppUserModelId('community.stepcode.desktop');
 if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
+const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 'conversation-timing'),
+  error => { void crashLog.record('conversation-timing', error); });
 let window: BrowserWindow;
 let browser: BrowserTabs | undefined;
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
@@ -136,8 +139,11 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (consumed) pendingMessages.publish(queueWorker!);
   if (queueWorker && event.type === 'agent_end') pendingMessages.completed(queueWorker);
 }, undefined, {
+  event: (worker, event) => conversationTiming.event(worker, event),
+  messages: (worker, messages) => worker.state?.sessionId ? conversationTiming.decorate(worker.state.sessionId, messages) : Promise.resolve(messages),
   launch: worker => collaboration.attach(worker),
   dispose: worker => {
+    conversationTiming.event(worker, { type: 'desktop_exit' });
     collaboration.detach(worker);
     if (worker.status === 'disconnected' && worker.queued) pendingMessages.recover(worker);
     else pendingMessages.clear(worker);
@@ -545,6 +551,7 @@ async function handle(method: string, args: any[]) {
             const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
             if (worker) await runtimes.remove(worker);
             await deleteManagedSessionFile(join(dataRoot, 'sessions'), target.path);
+            await conversationTiming.remove(target.id);
             sessionCatalog = sessionCatalog.filter(session => session.id !== target.id);
             runtimes.unreadSessionIds.delete(target.id);
             preferences.archivedSessionIds = preferences.archivedSessionIds?.filter(id => id !== target.id);
@@ -827,6 +834,7 @@ app.on('before-quit', event => {
     try {
       await terminals.stopAll();
       await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
+      await conversationTiming.flush();
       browser?.dispose();
       quitting = true;
       app.quit();

@@ -4,10 +4,12 @@ import Markdown from 'react-markdown';
 import { Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
-import { conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
-import type { ResponseItem, SubagentTask } from './conversation-presentation';
+import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
+import type { BackgroundSubagentStates, ResponseItem, SubagentTask } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
+import { SubagentStatusIcon } from './SubagentStatusIcon';
+import { ElapsedLabel } from './ElapsedLabel';
 import { quotePresentation } from './chat-quotes';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { TurnChanges } from './TurnChanges';
@@ -184,25 +186,27 @@ function SubagentTaskRow({ task, onOpen, language }: {
   const zh = language === 'zh';
   const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : 'failed';
   const summary = task.task.replace(/\s+/gu, ' ').trim();
-  const label = zh ? (state === 'running' ? '进行中' : state === 'done' ? '已完成' : '已失败')
-    : (state === 'running' ? 'Running' : state === 'done' ? 'Completed' : 'Failed');
+  const label = zh ? (state === 'running' ? '进行中' : state === 'done' ? '已完成' : task.status === 'aborted' ? '已终止' : '已失败')
+    : (state === 'running' ? 'Running' : state === 'done' ? 'Completed' : task.status === 'aborted' ? 'Stopped' : 'Failed');
   return <button type="button" className="lane-row" data-tool-state={state} data-lane-agent={task.agent}
     title={summary}
-    aria-label={language === 'zh' ? `查看子代理记录: ${summary}` : `Open subagent record: ${summary}`}
+    aria-label={language === 'zh' ? `查看子代理记录: ${label}，${summary}` : `Open subagent record: ${label}, ${summary}`}
     onClick={() => onOpen(task)}>
     <Bot size={14}/>
-    <span className="process-tool-label">{label}<span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/></span>
+    <SubagentStatusIcon state={state}/>
+    {state === 'failed' && <span className="lane-failure-label">{label}</span>}
     <span className="lane-type">{task.agent || (zh ? '子代理' : 'Subagent')}</span>
     <span className="lane-summary-text">{summary.slice(0, 80) || (zh ? '无任务描述' : 'No task')}</span>
     <ChevronRight size={13} className="disclosure-chevron"/>
   </button>;
 }
 
-function SubagentLane({ item, active, onOpen, ...props }: {
+function SubagentLane({ item, active, onOpen, background, ...props }: {
   item: Extract<ResponseItem, { type: 'tool' }>; active: boolean;
+  background: BackgroundSubagentStates;
   onOpen: (task: SubagentTask) => void;
 } & BodyProps) {
-  const tasks = useMemo(() => subagentTasks(item.call, item.result), [item.call, item.result]);
+  const tasks = useMemo(() => subagentTasks(item.call, item.result, background), [item.call, item.result, background]);
   // A failed dispatch carries no per-task records. Falling back to the planned list here would
   // show that error as lanes stuck on running and hide its output, so the plain failed view wins.
   if (!tasks.length || (item.result?.isError && !tasks.some(task => task.status !== 'running'))) {
@@ -213,10 +217,11 @@ function SubagentLane({ item, active, onOpen, ...props }: {
   </div>;
 }
 
-  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, ...props }: {
+  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, background, ...props }: {
     items: { message: Message; index: number }[]; active: boolean;
     canBranch: boolean; branch: Props['branch'];
     runtimeId?: string;
+    background: BackgroundSubagentStates;
     onOpenSubagent: (task: SubagentTask) => void;
   } & BodyProps) {
     const { content, text, lastTextIndex } = responsePresentation(items);
@@ -227,9 +232,11 @@ function SubagentLane({ item, active, onOpen, ...props }: {
       <div className="response-content message-body">{content.map((item, position) =>
           item.type === 'tool'
             ? item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
-              ? <SubagentLane key={item.key} item={item} active={active} onOpen={onOpenSubagent} {...props}/>
+              ? <SubagentLane key={item.key} item={item} active={active} background={background} onOpen={onOpenSubagent} {...props}/>
               : <Tool key={item.key} item={item} active={active} {...props}/>
           : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
+            elapsed={<ElapsedLabel timing={items.find(entry => entry.index === item.index)?.message.desktopTiming?.thinking[item.key.split(':')[1]]}
+              active={active} language={props.language}/>}
             autoOpen={active && position > lastTextIndex} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
             <Text text={item.block.thinking ?? ''} streaming={active && position > lastTextIndex} {...props}/>
           </ThinkingDisclosure>
@@ -243,6 +250,8 @@ function SubagentLane({ item, active, onOpen, ...props }: {
         data-tooltip={zh ? '从这里分支' : 'Branch from here'}
         disabled={!canBranch || !items.at(-1)?.message.entryId}
         onClick={() => branch(items.at(-1)!.message)}><GitBranch size={15}/></button>
+      <ElapsedLabel timing={[...items].reverse().find(item => item.message.desktopTiming)?.message.desktopTiming?.run}
+        total language={props.language}/>
       <Timestamp value={stamp} language={props.language}/>
     </footer>}
   </article>;
@@ -324,11 +333,12 @@ function UserMessage({ message, index, arriving, editState, setEditState, ...pro
 export function ConversationMessages(props: Props) {
   const [editState, setEditState] = useState<EditState | null>(null);
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
+  const background = useMemo(() => backgroundSubagentStates(props.messages), [props.messages]);
   const latestUser = [...props.messages].reverse().find(message => message.role === 'user');
   return <>{entries.map((entry, index) => entry.type === 'user'
     ? <UserMessage key={entry.item.index} message={entry.item.message} index={entry.item.index}
       editState={editState} setEditState={setEditState}
       arriving={entry.item.message === props.arrivingUser} {...props} canEdit={props.canEdit && entry.item.message === latestUser}/>
     : <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
-      canBranch={props.canEdit && index === entries.length - 1} {...props}/>)}</>;
+      canBranch={props.canEdit && index === entries.length - 1} background={background} {...props}/>)}</>;
 }

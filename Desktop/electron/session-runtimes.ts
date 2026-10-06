@@ -65,7 +65,9 @@ export class SessionRuntimes {
   constructor(
     private emit: (event: RuntimeEvent) => void,
     private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive => new RpcProcess(receive),
-    private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void } = {},
+    private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void;
+      event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
+      messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
   get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || worker.queued); }
@@ -120,6 +122,7 @@ export class SessionRuntimes {
     };
     worker.rpc = this.create(event => {
       if (this.workers.get(worker.id) !== worker) return;
+      event = this.hooks.event?.(worker, event) ?? event;
       worker.revision++;
       if (event.type === 'agent_start') { worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
       if (event.type === 'auto_compaction_start' && worker.state) worker.state = { ...worker.state, isCompacting: true };
@@ -133,7 +136,7 @@ export class SessionRuntimes {
           this.emit({ type: 'desktop_task_completed', runtimeId: worker.id, sessionId: worker.state?.sessionId });
         }
       }
-      if (['message_start', 'message_update', 'message_end'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
+      if (['message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
       if (event.type === 'message_end' && event.message?.stopReason === 'error') worker.failed = true;
       if (event.type === 'desktop_exit') {
         worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
@@ -228,12 +231,14 @@ export class SessionRuntimes {
       worker.rpc.request('get_available_models'), worker.rpc.request('get_session_stats'),
       worker.rpc.request('get_entries'),
     ]);
+    const savedMessages = messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null);
+    const decorated = this.hooks.messages ? await this.hooks.messages(worker, savedMessages) : savedMessages;
     // Never replace newly received deltas with an older asynchronous snapshot.
     if (revision === worker.revision) {
       worker.state = state;
       // get_messages contains committed history, not the in-flight assistant.
       if (!state.isStreaming) {
-        worker.messages = messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null);
+        worker.messages = decorated;
         worker.leafId = history.leafId ?? undefined;
       }
       worker.busy = Boolean(state.isStreaming);

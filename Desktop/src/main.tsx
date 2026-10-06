@@ -115,10 +115,13 @@ function App() {
   // updating instead of freezing on the status captured when the row was clicked.
   const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent), [data.messages, selectedSubagent]);
   const openSubagent = useCallback((task: SubagentTask) => {
-    setSelectedSubagent({ agent: task.agent, task: task.task });
+    const alreadyOpen = rightPanel === 'subagent' && !details
+      && selectedSubagent?.toolCallId === task.toolCallId && selectedSubagent?.taskIndex === task.taskIndex
+      && selectedSubagent?.agent === task.agent && selectedSubagent.task === task.task;
+    setSelectedSubagent({ agent: task.agent, task: task.task, toolCallId: task.toolCallId, taskIndex: task.taskIndex });
     setDetails('');
-    setRightPanel('subagent');
-  }, []);
+    setRightPanel(alreadyOpen ? null : 'subagent');
+  }, [rightPanel, details, selectedSubagent]);
   const [summarySpace, setSummarySpace] = useState(false);
   const appLayout = useRef<HTMLDivElement>(null);
   const rightRail = useRef<HTMLElement>(null);
@@ -358,7 +361,7 @@ function App() {
       if (event.type === 'desktop_error') setError(event.message);
       if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
       if (['message_start', 'message_end'].includes(event.type) && event.message?.role === 'user') setArrivingUser(event.message);
-      if (['message_start', 'message_update', 'message_end'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
+      if (['message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
       if (event.type === 'tool_execution_update' || event.type === 'tool_execution_end') {
         setData(d => ({ ...d, messages: applyToolResult(d.messages, event) }));
       }

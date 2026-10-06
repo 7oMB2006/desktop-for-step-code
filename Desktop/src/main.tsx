@@ -20,7 +20,7 @@ import { ConversationMarkers, ConversationNavigationPanel, conversationTurns, sc
 import { ArchivedSessions } from './ArchivedSessions';
 import { ConversationScrollThumb } from './ConversationScrollThumb';
 import { updateRunMetrics, type RunMetrics } from './performance';
-import { ConversationMessages } from './ConversationMessages';
+import { ConversationMessages, PendingUserMessages } from './ConversationMessages';
 import { messageBlocks, messageText } from './conversation-presentation';
 import { ComposerActionIcon } from './ComposerActionIcon';
 import { composerAction } from './composer-action';
@@ -33,6 +33,8 @@ import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-ord
 import { useSidebarReorder } from './use-sidebar-reorder';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
+import { QueuePreview } from './QueuePreview';
+import { ComposerContextBar } from './ComposerContextBar';
 import { ReviewPanel } from './ReviewPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { BrowserPanel } from './BrowserPanel';
@@ -67,6 +69,7 @@ function App() {
   const quoteScopeRef = useRef(quoteScope);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
+  const queueSend = useRef<Promise<{ queued?: boolean; id?: string; version?: number }> | null>(null);
   const [preview, setPreview] = useState<{ name: string; src: string } | null>(null);
   const [imageMenu, setImageMenu] = useState<ImageMenuTarget | null>(null);
   const previewPanel = useRef<HTMLDivElement>(null);
@@ -103,6 +106,8 @@ function App() {
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
+  const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
+  const [liveChangesOpen, setLiveChangesOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>('auto');
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>(null);
   const [selectedSubagent, setSelectedSubagent] = useState<SubagentTaskKey | null>(null);
@@ -246,6 +251,8 @@ function App() {
   const anyBusy = data.runtimes?.some(runtime => runtime.status === 'running' || runtime.status === 'waiting') ?? busy;
   const action = composerAction(busy, draft, attachments.length + quotes.length);
   const current = data.sessions.find(s => s.id === data.state?.sessionId);
+  const queuedMessages = useMemo(() => data.pendingMessages?.filter(item => !item.sending) ?? [], [data.pendingMessages]);
+  const hasPendingReceipt = data.pendingMessages?.some(item => item.sending);
   const activeTitle = sessionTitle(current ?? (data.state?.sessionName ? { name: data.state.sessionName, firstMessage: '' } : undefined), t('新会话', 'New session'));
   const turns = useMemo(() => conversationTurns(data.messages, data.preferences.language), [data.messages, data.preferences.language]);
   const workspaceTitle = (path: string) => data.preferences.workspaceNames?.[workspaceKey(path)] || basename(path);
@@ -335,8 +342,9 @@ function App() {
         return;
       }
       if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current)) return;
-      if (['desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
+      if (['desktop_queue', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
         && !messageRevision.current.acceptEvent(event)) return;
+      if (event.type === 'desktop_queue') setData(d => ({ ...d, pendingMessages: event.pendingMessages }));
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
       if (event.type === 'agent_start') setBusy(true);
@@ -398,7 +406,7 @@ function App() {
       if (viewId.current === id) { setLevels(effort.levels); setCommands(available.commands.filter((c: { name: string }) => c.name !== '_desktop_retry')); }
     });
   }, [connected, data.runtimeId, data.state?.model?.id]);
-  useLayoutEffect(followLayout, [data.messages, busy, followLayout]);
+  useLayoutEffect(followLayout, [data.messages, data.pendingMessages, busy, followLayout]);
   useLayoutEffect(() => {
     const viewport = scroll.current;
     const content = transcript.current;
@@ -570,7 +578,9 @@ function App() {
     setDraft(''); setQuotes([]); setAttachments([]); attachmentsRef.current = []; follow.current = true; setAwayFromBottom(false);
     await run(async () => {
       try {
-        await bridge!.command('prompt', { message: prompt, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
+        const submission = bridge!.command('prompt', { message: prompt, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
+        if (busy) queueSend.current = submission;
+        try { await submission; } finally { if (queueSend.current === submission) queueSend.current = null; }
       } catch (e) {
         if (quoteScopeRef.current !== scope) {
           if (sessionId) {
@@ -591,6 +601,20 @@ function App() {
         throw e;
       }
     });
+  };
+  const queueAction = async (type: 'queue_edit' | 'queue_remove' | 'queue_steer', item: import('./contracts').PendingMessage, message?: string) => {
+    if (!bridge || !viewId.current || loading) return;
+    try { await bridge.command(type, { id: item.id, version: item.version, ...(message === undefined ? {} : { message }) }, viewId.current); }
+    catch (error) { setError(String(error instanceof Error ? error.message : error)); throw error; }
+  };
+  const shortcutSteer = async () => {
+    const runtimeId = viewId.current;
+    try {
+      const pendingSend = queueSend.current;
+      if (pendingSend) await pendingSend;
+      if (!runtimeId || runtimeId !== viewId.current || view.current.draft.trim() || view.current.attachments.length || view.current.quotes.length) return;
+      await bridge!.command('queue_steer_first', undefined, runtimeId);
+    } catch (error) { if (runtimeId === viewId.current) setError(String(error instanceof Error ? error.message : error)); }
   };
   const branchMessage = async (message: Message) => {
     if (!bridge || !message.entryId || !viewId.current || !connected || busy || loading) return;
@@ -866,13 +890,18 @@ function App() {
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-          {!data.messages.length ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}><ConversationMessages key={data.runtimeId} runtimeId={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent}/>{busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}</div>}
+          {!data.messages.length && !hasPendingReceipt ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}>
+            <ConversationMessages key={data.runtimeId} runtimeId={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent}/>
+            {busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}
+            <PendingUserMessages messages={data.pendingMessages ?? []} connected={connected} busy={busy}
+              language={data.preferences.language} openImage={openImage} onError={setError} onLayoutChange={followLayout}/>
+          </div>}
         </div>
         <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>
       </div>
       <div className="composer-wrap">
         {draft.startsWith('/') && commands.filter(c => c.name.startsWith(draft.slice(1))).length > 0 && <div className="command-menu">{commands.filter(c => c.name.startsWith(draft.slice(1))).slice(0, 6).map(c => <button key={c.name} onClick={() => setDraft(`/${c.name} `)}><code>/{c.name}</code><span>{c.description}</span></button>)}</div>}
-        <div className="composer-context-bar" role="group" aria-label={t('消息辅助操作', 'Message context actions')}>
+        <ComposerContextBar queued={queuedMessages.length > 0}>
         <QuotePreview quotes={quotes} language={data.preferences.language}
           clear={() => setQuotes([])}
           remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}
@@ -883,9 +912,13 @@ function App() {
               source.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
             }
           }}/>
-        <LiveTurnChanges key={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}/>
+        <QueuePreview key={`queue-${data.runtimeId}`} messages={queuedMessages} language={data.preferences.language}
+          onOpenChange={setQueuePreviewOpen}
+          connected={connected} disabled={loading || stopping || settingsOpen || Boolean(preview) || requests.length > 0} onAction={queueAction}/>
+        <LiveTurnChanges key={`changes-${data.runtimeId}`} messages={data.messages} busy={busy} language={data.preferences.language}
+          docked={queuedMessages.length > 0} onOpenChange={setLiveChangesOpen}/>
         {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
-        </div>
+        </ComposerContextBar>
         <div className={`composer ${draggingFiles ? 'composer-file-drop' : ''}`}
           onDragEnter={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); dragDepth.current++; setDraggingFiles(true); } }}
           onDragOver={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
@@ -895,7 +928,13 @@ function App() {
             {item.kind === 'image' ? <button type="button" className="attachment-open" aria-label={t(`预览 ${item.name}`, `Preview ${item.name}`)} onClick={e => openImage(`data:${item.content.mimeType};base64,${item.content.data}`, item.name, e.currentTarget)}><img src={`data:${item.content.mimeType};base64,${item.content.data}`} alt={item.name}/></button> : <div className="attachment-file"><FileText size={27}/><span>{item.name}</span><small>{t('本地文件引用', 'Local file reference')}</small></div>}
             <IconButton title={t('移除附件', 'Remove attachment')} tooltip={false} className="attachment-remove" onClick={() => { const next = attachmentsRef.current.filter((_, n) => n !== i); attachmentsRef.current = next; setAttachments(next); }}><X size={13}/></IconButton>
           </div>)}</div>}
-          <textarea aria-label={t('消息', 'Message')} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={draft} disabled={!connected || loading} onChange={e => setDraft(e.target.value)} onPaste={e => { const files = Array.from(e.clipboardData.files); if (files.length) { e.preventDefault(); void importFiles(files); } }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/>
+          <textarea aria-label={t('消息', 'Message')} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={draft} disabled={!connected || loading} onChange={e => setDraft(e.target.value)} onPaste={e => { const files = Array.from(e.clipboardData.files); if (files.length) { e.preventDefault(); void importFiles(files); } }} onKeyDown={e => {
+            if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || e.repeat) return;
+            e.preventDefault();
+            if (!draft.trim() && !attachments.length && !quotes.length && !loading && connected && !stopping) {
+              void shortcutSteer();
+            } else void send();
+          }}/>
           <div className="composer-tools">
             <IconButton title={t('添加附件', 'Add attachments')} disabled={!connected || attachments.length >= 10} onClick={() => void run(async () => addAttachments(await bridge!.chooseAttachments()))}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}/>
@@ -936,7 +975,7 @@ function App() {
     <BrowserPanel open={visibleRightPanel === 'browser' && !details}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <SubagentPanel open={visibleRightPanel === 'subagent' && !details}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || Boolean(details)}

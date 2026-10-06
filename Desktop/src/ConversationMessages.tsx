@@ -2,7 +2,7 @@ import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ComponentProps, Dispatch, SetStateAction } from 'react';
 import Markdown from 'react-markdown';
 import { Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Wrench } from 'lucide-react';
-import type { Content, Message } from './contracts';
+import type { Content, Message, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
 import type { ResponseItem, SubagentTask } from './conversation-presentation';
@@ -114,6 +114,25 @@ function UserText({ text, ...props }: { text: string } & BodyProps) {
         <div className="sent-quote-content"><Text text={quote.markdown} {...props}/></div>
       </blockquote>)}</div>
     {presentation.draft && <div className="sent-quote-reply"><Text text={presentation.draft} {...props}/></div>}
+  </div>;
+}
+export function PendingUserMessages({ messages, connected, busy, ...props }: {
+  messages: PendingMessage[]; connected: boolean; busy: boolean;
+} & BodyProps) {
+  const zh = props.language === 'zh';
+  const awaiting = messages.filter(message => message.sending);
+  if (!awaiting.length) return null;
+  const status = !connected ? (zh ? '未确认接收 · 会话已断开' : 'Unconfirmed · Session disconnected')
+    : busy ? (zh ? '已发送 · 待接收' : 'Sent · Awaiting agent')
+      : (zh ? '未接收 · 等待继续' : 'Not received · Awaiting continuation');
+  return <div className="pending-user-messages" aria-label={zh ? '已发送的待接收消息' : 'Sent messages awaiting delivery'}>
+    {awaiting.map(message => <article className="message user pending-user" key={message.id} data-pending-id={message.id}>
+      <div className="message-body"><UserText text={message.message} {...props}/></div>
+      <footer className={`pending-user-status${connected && busy ? '' : ' is-paused'}`}>
+        <span className="working-dot" aria-hidden="true"/><span>{status}</span>
+        {message.attachmentCount > 0 && <span>{message.attachmentCount} {zh ? '个附件' : 'attachments'}</span>}
+      </footer>
+    </article>)}
   </div>;
 }
 function Timestamp({ value, language }: { value?: number; language: 'zh' | 'en' }) {
@@ -280,13 +299,14 @@ function UserMessage({ message, index, arriving, editState, setEditState, ...pro
       </div>
     </div> : <>
     <Body blocks={messageBlocks(message)} {...props}/>
-    <footer className="message-actions user-actions">
+    <footer className={`message-actions user-actions${message.desktopSteered ? ' has-steered-marker' : ''}`}>
       <Timestamp value={message.timestamp} language={props.language}/>
       <CopyButton text={messageText(message)} {...props}/>
       <button ref={pencil} type="button" className="icon-button" aria-label={props.language === 'zh' ? '编辑并重做' : 'Edit and retry'}
         data-tooltip={props.language === 'zh' ? '编辑并重做' : 'Edit and retry'}
         disabled={!props.canEdit || !message.entryId || (!messageText(message) && !messageBlocks(message).some(block => block.type === 'image'))}
         onClick={() => setEditState({ entryId: message.entryId!, text: messageText(message), submitting: false })}><Pencil size={15}/></button>
+      {message.desktopSteered && <em className="message-steered">{zh ? '已插队引导' : 'Steered'}</em>}
     </footer></>}
   </article>;
 }

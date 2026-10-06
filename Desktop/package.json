@@ -65,6 +65,18 @@
     ],
     "extraResources": [
       {
+        "from": "scripts/start-queue-demo.ps1",
+        "to": "queue-demo/start-queue-demo.ps1"
+      },
+      {
+        "from": "scripts/run-queue-demo.mjs",
+        "to": "queue-demo/run-queue-demo.mjs"
+      },
+      {
+        "from": "scripts/queue-demo-fixture.mjs",
+        "to": "queue-demo/queue-demo-fixture.mjs"
+      },
+      {
         "from": "build/icon.ico",
         "to": "icon.ico"
       },

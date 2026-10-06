@@ -456,6 +456,12 @@ main { position: relative; }
 .message-body .katex-error { color: var(--muted) !important; font-family: "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-body ul,.message-body ol { padding-left: 23px; margin: 10px 0 16px; }
 .message.user { display: flex; flex-direction: column; align-items: flex-end; margin: 0 0 30px 12%; }
+.pending-user { animation: pending-user-arrival 160ms cubic-bezier(.215, .61, .355, 1); }
+.pending-user-status { display: flex; align-items: center; gap: 7px; min-height: 30px; margin-top: 7px; color: var(--muted); font-size: 11px; }
+.pending-user-status .working-dot { width: 5px; height: 5px; }
+.pending-user-status.is-paused .working-dot { animation: none; background: var(--muted); }
+@keyframes pending-user-arrival { from { opacity: .45; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .pending-user, .pending-user-status .working-dot { animation: none; } }
 .user .message-body { max-width: 100%; width: fit-content; padding: 10px 15px; text-align: left; }
 .user-message-editor { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .user-edit-input { display: grid; grid-template-columns: minmax(0, 1fr) 24px; min-width: 0; }
@@ -477,6 +483,10 @@ main { position: relative; }
 .message-actions .icon-button:hover:not(:disabled) { color: var(--ink); background: var(--surface); }
 .message-time { font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .15s ease; }
 .user-actions { justify-content: flex-end; opacity: 0; transition: opacity .15s ease; }
+.user-actions.has-steered-marker { opacity: 1; }
+.message-steered { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 8px; }
+.user-actions.has-steered-marker .icon-button { opacity: 0; }
+.message.user:hover .user-actions.has-steered-marker .icon-button, .message.user:focus-within .user-actions.has-steered-marker .icon-button { opacity: 1; }
 .user-actions .icon-button { pointer-events: none; }
 .user-actions .message-time { margin-right: 5px; }
 .assistant-actions .message-time { margin-left: 8px; }

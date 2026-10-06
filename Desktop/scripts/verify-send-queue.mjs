@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { queueFixture } from './queue-demo-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-send-queue-'));
@@ -213,6 +214,34 @@ try {
   await page.screenshot({ path: 'test-results/queue-narrow-light.png' });
   await page.evaluate(() => { window.queueKeyTests = []; const input = document.querySelector('.composer > textarea'); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })); });
   assert.equal((await snapshot()).pendingMessages.length, 2, 'repeated/IME Enter cannot steer');
+  if (process.platform === 'win32') {
+    await input.press('Enter');
+    await page.locator('.pending-user').waitFor();
+    const owner = await app.evaluate(({ app }) => ({ pid: process.pid, profile: app.getPath('userData') }));
+    assert.equal(owner.profile, profile, 'termination must be scoped to this isolated fixture');
+    const runtimeCount = (await snapshot()).runtimes.length;
+    const command = `@(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${owner.pid}' | Where-Object {
+      $_.Name -eq 'node.exe' -and $_.CommandLine -match 'step[.]js' -and $_.CommandLine -match '--mode'
+    } | Select-Object -ExpandProperty ProcessId) | ConvertTo-Json -Compress`;
+    const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', command],
+      { encoding: 'utf8', windowsHide: true }).trim());
+    const children = Array.isArray(result) ? result : [result];
+    assert.ok(children.length > 0 && children.length <= runtimeCount
+      && children.every(pid => Number.isInteger(pid) && pid !== owner.pid));
+    for (const pid of children) process.kill(pid);
+    await page.waitForFunction(async () => {
+      try { return (await window.desktop.snapshot()).status === 'disconnected'; }
+      catch { return false; } // A read issued just before exit can reject; wait for the exit event.
+    });
+    await pending(2);
+    assert.equal(await page.locator('.pending-user').count(), 0);
+    await page.locator('.queue-trigger').click();
+    await page.getByRole('button', { name: '撤回第 1 条', exact: true }).click();
+    await pending(1);
+    await page.getByRole('button', { name: '撤回第 1 条', exact: true }).click();
+    await pending(0);
+    assert.equal((await snapshot()).pendingMessages.length, 0, 'dead-worker receipts remain locally withdrawable');
+  }
   assert.deepEqual(errors, []);
   await writeFile('test-results/queue-verification.json', JSON.stringify({ profile, requestOrder: fixture.requests, animation: motion, before: before.x, moved: moved.x, restored: restored.x, chips }, null, 2));
   console.log('Send queue passed: real RPC steering/FIFO, long preview, edit with references, withdrawal, interruption, IME/repeat guards, layout animation and narrow theme.');

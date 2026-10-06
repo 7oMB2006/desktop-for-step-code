@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { JsonLines, RpcProcess, isolatedEnvironment } from '../electron/runtime';
 import { createServer } from 'node:http';
 import { permissionFromStatus } from '../electron/permission-status';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
 test('JSONL preserves split multibyte characters and CRLF frames', () => {
   const values: any[] = []; const parser = new JsonLines(v => values.push(v));
@@ -13,6 +14,26 @@ test('JSONL preserves split multibyte characters and CRLF frames', () => {
   for (const byte of bytes) parser.push(Buffer.from([byte]));
   assert.deepEqual(values, [{ text: '中文' }, { n: 2 }]);
   assert.throws(() => parser.push(Buffer.from('bad\n')), /Invalid/);
+});
+test('an RPC pipe error rejects requests and disconnects without an uncaught stream error', { timeout: 60000 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'desktop-step-pipe-'));
+  const events: any[] = [];
+  const rpc = new RpcProcess(event => events.push(event));
+  try {
+    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), dir, isolatedEnvironment(dir));
+    await rpc.request('get_state', {}, 30000);
+    const child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
+    const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
+    const rejected = assert.rejects(rpc.request('get_messages'), /EPIPE|Runtime stopped/);
+    child.stdin.destroy(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+    await rejected;
+    await exited;
+    assert.ok(events.some(event => event.type === 'desktop_exit' && event.details?.kind === 'rpc-write'));
+    await assert.rejects(rpc.request('get_state'), /not connected/);
+    // A late error from the released child still has an owner but cannot disconnect a replacement.
+    assert.doesNotThrow(() => child.stdin.emit('error', new Error('late pipe error')));
+    assert.equal(events.filter(event => event.type === 'desktop_exit').length, 1);
+  } finally { await rpc.stop(); }
 });
 
 test('real Step runtime streams a local fixture response and restores its persisted session', { timeout: 90000 }, async () => {

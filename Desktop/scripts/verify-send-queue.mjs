@@ -109,12 +109,27 @@ try {
   await page.locator('.pending-user').filter({ hasText: 'QUEUED-FIRST-EDIT' }).waitFor();
   await page.waitForTimeout(260);
   await page.screenshot({ path: 'test-results/queue-awaiting-dark.png' });
+  await page.evaluate(() => {
+    window.queueWireEvents = [];
+    window.desktop.onEvent(event => {
+      if (['desktop_queue', 'message_start', 'message_update', 'message_end'].includes(event.type))
+        window.queueWireEvents.push({ type: event.type, runtimeId: event.runtimeId, revision: event.runtimeRevision,
+          userText: event.message?.role === 'user' ? JSON.stringify(event.message.content) : undefined });
+    });
+  });
   fixture.finish();
   await page.waitForFunction(() => document.querySelector('.response-active')?.textContent?.includes('QUEUED-FIRST-EDIT'), undefined, { timeout: 60000 });
   assert.equal(await page.locator('.pending-user').filter({ hasText: 'QUEUED-FIRST-EDIT' }).count(), 0);
   assert.equal(await page.locator('.message.user:not(.pending-user)').filter({ hasText: 'QUEUED-FIRST-EDIT' }).count(), 1, 'consumption replaces the receipt with one authoritative user message');
   const steered = page.locator('.message.user:not(.pending-user)').filter({ hasText: 'QUEUED-FIRST-EDIT' });
   await steered.locator('.message-steered').waitFor();
+  const wire = await page.evaluate(() => window.queueWireEvents);
+  const consumption = wire.findIndex(event => event.type === 'message_start' && event.userText?.includes('QUEUED-FIRST-EDIT'));
+  assert.ok(consumption >= 0, 'real user delivery must be observed on the renderer wire');
+  assert.ok(wire[consumption + 1]?.type === 'desktop_queue' && wire[consumption + 1].revision > wire[consumption].revision,
+    'the consumed user event must arrive before the newer queue revision');
+  assert.ok(!wire.slice(0, consumption).some(event => event.runtimeId === wire[consumption].runtimeId
+    && event.revision >= wire[consumption].revision), 'delivery cannot be stale before it reaches the renderer');
   assert.equal(await steered.locator('.message-steered').innerText(), '已插队引导');
   assert.equal(await steered.locator('.message-steered').evaluate(e => getComputedStyle(e).fontStyle), 'italic');
   const markerRight = await steered.locator('.message-steered').evaluate(e => e.getBoundingClientRect().right);
@@ -152,6 +167,28 @@ try {
   await page.waitForTimeout(350);
   assert.ok(!fixture.requests.some(text => text.includes('PAUSED')));
   await page.evaluate(async () => { const s = await window.desktop.snapshot(); await window.desktop.command('queue_remove', { id: s.pendingMessages[0].id, version: s.pendingMessages[0].version }, s.runtimeId); });
+  await pending(0);
+  // Stop after a steer has been accepted but before the provider receives it.
+  await send('RUN-STOP-RECEIPT 保持运行直到停止');
+  await page.waitForFunction(() => document.querySelector('.response-active')?.textContent?.includes('RUN-STOP-RECEIPT'), undefined, { timeout: 60000 });
+  await send('RECOVER-RECEIPT 停止后恢复草稿');
+  await pending(1);
+  await input.press('Enter');
+  await pending(0);
+  await page.locator('.pending-user').filter({ hasText: 'RECOVER-RECEIPT' }).waitFor();
+  await page.getByRole('button', { name: '停止此轮', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.response-active'));
+  await pending(1);
+  assert.equal(await page.locator('.pending-user').count(), 0, 'confirmed cancellation restores receipts to the editable queue');
+  assert.ok(!fixture.requests.some(text => text.includes('RECOVER-RECEIPT')), 'the canceled steer cannot be silently replayed');
+  const recovered = (await snapshot()).pendingMessages[0];
+  assert.equal(recovered.sending, false);
+  await page.evaluate(async item => {
+    const s = await window.desktop.snapshot();
+    await window.desktop.command('queue_edit', { id: item.id, version: item.version, message: 'RECOVERED-EDIT' }, s.runtimeId);
+    await window.desktop.command('queue_remove', { id: item.id, version: item.version + 1 }, s.runtimeId);
+    await window.desktop.command('set_thinking_level', { level: 'off' }, s.runtimeId);
+  }, recovered);
   await pending(0);
   // Narrow, long-list and light-theme views are rendered against the actual bridge.
   await page.evaluate(async () => { await window.desktop.preferences({ theme: 'light' }); });

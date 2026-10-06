@@ -1,7 +1,7 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps, Dispatch, SetStateAction } from 'react';
 import Markdown from 'react-markdown';
-import { Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Wrench } from 'lucide-react';
+import { Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
@@ -116,10 +116,18 @@ function UserText({ text, ...props }: { text: string } & BodyProps) {
     {presentation.draft && <div className="sent-quote-reply"><Text text={presentation.draft} {...props}/></div>}
   </div>;
 }
-export function PendingUserMessages({ messages, connected, busy, ...props }: {
-  messages: PendingMessage[]; connected: boolean; busy: boolean;
+export function PendingUserMessages({ messages, connected, busy, onRecover, ...props }: {
+  messages: PendingMessage[]; connected: boolean; busy: boolean; onRecover: () => Promise<void>;
 } & BodyProps) {
   const zh = props.language === 'zh';
+  const [recovering, setRecovering] = useState(false);
+  const recover = async () => {
+    if (recovering) return;
+    setRecovering(true);
+    try { await onRecover(); }
+    catch (error) { props.onError(String(error instanceof Error ? error.message : error)); }
+    finally { setRecovering(false); }
+  };
   const awaiting = messages.filter(message => message.sending);
   if (!awaiting.length) return null;
   const status = !connected ? (zh ? '未确认接收 · 会话已断开' : 'Unconfirmed · Session disconnected')
@@ -131,6 +139,9 @@ export function PendingUserMessages({ messages, connected, busy, ...props }: {
       <footer className={`pending-user-status${connected && busy ? '' : ' is-paused'}`}>
         <span className="working-dot" aria-hidden="true"/><span>{status}</span>
         {message.attachmentCount > 0 && <span>{message.attachmentCount} {zh ? '个附件' : 'attachments'}</span>}
+        {connected && !busy && message === awaiting[0] && <button type="button" className="icon-button" disabled={recovering}
+          aria-label={zh ? '恢复为待发送' : 'Restore queued drafts'} data-tooltip={zh ? '恢复为待发送' : 'Restore queued drafts'}
+          onClick={() => void recover()}><Undo2 size={14}/></button>}
       </footer>
     </article>)}
   </div>;

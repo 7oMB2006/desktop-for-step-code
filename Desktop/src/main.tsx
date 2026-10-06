@@ -894,6 +894,7 @@ function App() {
             <ConversationMessages key={data.runtimeId} runtimeId={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent}/>
             {busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}
             <PendingUserMessages messages={data.pendingMessages ?? []} connected={connected} busy={busy}
+              onRecover={() => bridge!.command('queue_recover', undefined, data.runtimeId)}
               language={data.preferences.language} openImage={openImage} onError={setError} onLayoutChange={followLayout}/>
           </div>}
         </div>

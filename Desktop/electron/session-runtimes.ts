@@ -36,6 +36,7 @@ export interface SessionRuntime {
   revision: number;
   touched: number;
   queued?: boolean;
+  stopping?: boolean;
 }
 export function firstUserText(messages: Message[]) {
   const content = messages.find(message => message.role === 'user')?.content;

@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PendingMessages } from '../electron/pending-messages';
 import type { SessionRuntime } from '../electron/session-runtimes';
+import { MessageRevision } from '../src/message-revision';
+import { applyMessageEvent } from '../src/message-events';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
 function fixture({ consume = true } = {}) {
@@ -114,4 +116,57 @@ test('only steering an active response marks the consumed user message, scoped t
   await queue.steer(worker, next, 0);
   queue.delivered(worker, 'same', 125);
   assert.equal(queue.decorate(worker, { ...message, timestamp: 125 }).desktopSteered, undefined);
+});
+test('consumption can publish its authoritative user event before a newer queue revision', async () => {
+  const { worker } = fixture({ consume: false });
+  const revision = new MessageRevision();
+  revision.acceptSnapshot({ runtimeId: worker.id, runtimeRevision: 4 });
+  let notifications = 0;
+  const message = { role: 'user', content: 'steered', timestamp: 55 };
+  const ordered = new PendingMessages(() => { notifications++; }, () => {});
+  const orderedId = ordered.enqueue(worker, 'steered', { message: 'steered' });
+  await ordered.steer(worker, orderedId, 0);
+  notifications = 0;
+  assert.equal(ordered.delivered(worker, message.content, message.timestamp, false), true);
+  assert.equal(notifications, 0);
+  const event = { type: 'message_start', runtimeId: worker.id, runtimeRevision: 5, message: ordered.decorate(worker, message) };
+  assert.equal(revision.acceptEvent(event), true);
+  assert.equal(applyMessageEvent([], event)[0].desktopSteered, true);
+  ordered.publish(worker);
+  assert.equal(notifications, 1);
+  assert.equal(revision.acceptEvent({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: 6 }), true);
+});
+test('confirmed cancellation restores in-flight drafts without retry, version reuse or attachment loss', async () => {
+  const { worker, queue, requests } = fixture({ consume: false });
+  const first = queue.enqueue(worker, 'same', { message: 'same', images: [{ data: 'image' }] }, ['file']);
+  await queue.steer(worker, first, 0);
+  queue.enqueue(worker, 'later', { message: 'later' });
+  assert.throws(() => queue.recover(worker), /stop/);
+  worker.busy = false; worker.interrupted = true;
+  queue.recover(worker);
+  assert.equal(queue.list(worker)[0].sending, false);
+  assert.equal(queue.list(worker)[0].version, 1);
+  assert.equal(queue.list(worker)[0].attachmentCount, 2);
+  await queue.drain(worker);
+  assert.equal(requests.length, 1, 'recovery must not retry automatically');
+  assert.throws(() => queue.remove(worker, first, 0), /changed/);
+  queue.edit(worker, first, 1, 'edited');
+  queue.remove(worker, first, 2);
+  assert.deepEqual(queue.list(worker).map(item => item.message), ['later']);
+});
+test('a dead child releases waiting receipts for local withdrawal', async () => {
+  const { worker, queue } = fixture({ consume: false });
+  const first = queue.enqueue(worker, 'lost', { message: 'lost' });
+  await queue.steer(worker, first, 0);
+  worker.status = 'disconnected'; worker.busy = false;
+  queue.recover(worker);
+  queue.remove(worker, first, 1);
+  assert.equal(worker.queued, false);
+});
+test('steering is blocked while abort and queue cancellation settle', async () => {
+  const { worker, queue, requests } = fixture({ consume: false });
+  const first = queue.enqueue(worker, 'later', { message: 'later' });
+  worker.stopping = true;
+  await assert.rejects(queue.steer(worker, first, 0), /cannot send/);
+  assert.equal(requests.length, 0);
 });

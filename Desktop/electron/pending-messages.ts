@@ -17,7 +17,7 @@ export class PendingMessages {
   list(worker: SessionRuntime): PendingMessage[] {
     return (this.entries.get(worker) ?? []).map(({ id, message, attachmentCount, version, sending, steered }) => ({ id, message, attachmentCount, version, sending, ...(steered ? { steered } : {}) }));
   }
-  private publish(worker: SessionRuntime) {
+  publish(worker: SessionRuntime) {
     worker.queued = Boolean(this.entries.get(worker)?.length);
     this.changed(worker);
   }
@@ -50,11 +50,21 @@ export class PendingMessages {
     this.entries.set(worker, this.entries.get(worker)!.filter(item => item !== entry)); this.publish(worker);
   }
   pause(worker: SessionRuntime) { this.paused.add(worker); }
+  // The caller must first clear upstream queues or confirm the child is gone.
+  recover(worker: SessionRuntime) {
+    if (worker.busy && worker.status === 'connected') throw new Error('Wait for the session to stop before recovering messages');
+    this.pause(worker);
+    for (const entry of this.entries.get(worker) ?? []) {
+      if (!entry.sending) continue;
+      entry.sending = false; entry.steered = false; entry.version++;
+    }
+    this.publish(worker);
+  }
   decorate(worker: SessionRuntime, message: Message): Message {
     return message.role === 'user' && message.timestamp !== undefined && this.steeredMessages.get(worker)?.has(message.timestamp)
       ? { ...message, desktopSteered: true } : message;
   }
-  delivered(worker: SessionRuntime, content: unknown, timestamp?: number) {
+  delivered(worker: SessionRuntime, content: unknown, timestamp?: number, notify = true) {
     const message = typeof content === 'string' ? content : Array.isArray(content)
       ? content.filter(block => block?.type === 'text').map(block => block.text ?? '').join('\n') : '';
     const entry = this.entries.get(worker)?.find(item => item.sending && item.payload.message === message);
@@ -63,13 +73,16 @@ export class PendingMessages {
         const stamps = this.steeredMessages.get(worker) ?? new Set<number>();
         stamps.add(timestamp); this.steeredMessages.set(worker, stamps);
       }
-      this.entries.set(worker, this.entries.get(worker)!.filter(item => item !== entry)); this.publish(worker);
+      this.entries.set(worker, this.entries.get(worker)!.filter(item => item !== entry));
+      worker.queued = Boolean(this.entries.get(worker)?.length);
+      if (notify) this.publish(worker);
     }
+    return Boolean(entry);
   }
   clear(worker: SessionRuntime) { this.entries.delete(worker); this.paused.delete(worker); worker.queued = false; }
   async steer(worker: SessionRuntime, id: string, version: number) {
     const entry = this.require(worker, id, version);
-    if (worker.mutating || worker.status !== 'connected') throw new Error('This session cannot send right now');
+    if (worker.mutating || worker.stopping || worker.status !== 'connected') throw new Error('This session cannot send right now');
     this.resumed(worker);
     return this.dispatch(worker, entry, true);
   }

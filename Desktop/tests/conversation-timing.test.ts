@@ -83,6 +83,35 @@ test('concurrent workers and unexpected exit keep independent frozen records', a
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('failed timing persistence settles the queue and recovers on the next write', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'step-timing-failure-'));
+  const reported: unknown[] = [];
+  try {
+    // A file at the configured root makes the sidecar path unwritable without
+    // relying on platform-specific permissions or a full volume.
+    await rm(root, { recursive: true, force: true });
+    await writeFile(root, 'temporarily unavailable', 'utf8');
+    const timing = new ConversationTiming(root, error => reported.push(error));
+    const first = worker('failed-write');
+    send(timing, first, { type: 'agent_start' }, 1000);
+    send(timing, first, { type: 'message_start', message: { role: 'assistant', timestamp: 1100, content: [] } }, 1100);
+    send(timing, first, { type: 'agent_end' }, 2000);
+    await timing.flush();
+    assert.equal(reported.length, 1);
+
+    await rm(root, { force: true });
+    await mkdir(root);
+    const second = worker('recovered-write');
+    send(timing, second, { type: 'agent_start' }, 3000);
+    send(timing, second, { type: 'message_start', message: { role: 'assistant', timestamp: 3100, content: [] } }, 3100);
+    send(timing, second, { type: 'agent_end' }, 4000);
+    await timing.flush();
+    assert.equal(reported.length, 1);
+    const restored = await new ConversationTiming(root).decorate('recovered-write', second.messages.map(({ desktopTiming, ...message }) => message));
+    assert.equal(restored[0].desktopTiming?.run.endedAt, 4000);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('authoritative snapshots preserve the active later thinking block', () => {
   const timing = new ConversationTiming('');
   const a = worker('a');

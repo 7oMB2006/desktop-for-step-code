@@ -94,7 +94,11 @@ export class ConversationTiming {
         await writeFile(`${file}.tmp`, contents, 'utf8');
         await rename(`${file}.tmp`, file);
       });
-      void this.writes.catch(this.onError);
+      // Persistence is diagnostic and best effort. Keep the queue usable after a
+      // transient filesystem failure so shutdown and session deletion can finish.
+      this.writes = this.writes.catch(error => {
+        try { this.onError(error); } catch { /* reporting must not poison the queue */ }
+      });
     }
     return event;
   }
@@ -102,6 +106,10 @@ export class ConversationTiming {
   async remove(sessionId: string) {
     await this.flush();
     this.records.delete(sessionId);
-    await rm(this.file(sessionId), { force: true });
+    try {
+      await rm(this.file(sessionId), { force: true });
+    } catch (error) {
+      try { this.onError(error); } catch { /* best effort cleanup */ }
+    }
   }
 }

@@ -491,7 +491,7 @@ try {
   await page.screenshot({ path: 'test-results/desktop-light.png' });
   await page.getByRole('button', { name: '账户设置', exact: true }).click();
   await page.getByRole('button', { name: '账户', exact: true }).click();
-  await page.getByText('尚未登录', { exact: true }).waitFor();
+  await page.getByText('未登录', { exact: true }).waitFor();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   assert.equal(await page.evaluate(() => CSS.supports('appearance', 'base-select')), true);
   const themePicker = page.getByRole('dialog').getByLabel(/主题|Theme/);

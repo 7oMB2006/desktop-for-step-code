@@ -1,6 +1,6 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps, Dispatch, SetStateAction } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { defaultUrlTransform } from 'react-markdown';
 import { Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
@@ -14,6 +14,9 @@ import { quotePresentation } from './chat-quotes';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { TurnChanges } from './TurnChanges';
 import { turnChanges } from './turn-changes';
+import { MessageLink } from './MessageLink';
+import { ArtifactContext, FileReference, TurnArtifacts } from './TurnArtifacts';
+import { localReference, turnOutputPaths } from './turn-artifacts';
 
 type Props = {
   runtimeId?: string;
@@ -91,10 +94,10 @@ export function Text({ text, streaming = false, ...props }: { text: string; stre
 const MarkdownText = memo(function MarkdownText({ text, language, openImage, onError, plugins }: {
   text: string; plugins: ComponentProps<typeof Markdown>['rehypePlugins'];
 } & Pick<BodyProps, 'language' | 'openImage' | 'onError'>) {
-  return <Markdown skipHtml remarkPlugins={messageRemarkPlugins} rehypePlugins={plugins}
+  return <Markdown skipHtml urlTransform={url => localReference(url) ? url : defaultUrlTransform(url)} remarkPlugins={messageRemarkPlugins} rehypePlugins={plugins}
     components={{
       code: ({ children, className }) => <Code className={className} language={language} onError={onError}>{children}</Code>,
-      a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
+      a: ({ children, href }) => localReference(href) ? <FileReference href={href!}>{children}</FileReference> : <MessageLink href={href} language={language}>{children}</MessageLink>,
       img: ({ src, alt }) => src?.startsWith('data:image/')
         ? <PreviewImage src={src} alt={alt ?? 'Image'} language={language} openImage={openImage}/> : <span>{alt}</span>,
     }}>{text}</Markdown>;
@@ -226,9 +229,12 @@ function SubagentLane({ item, active, onOpen, background, ...props }: {
   } & BodyProps) {
     const { content, text, lastTextIndex } = responsePresentation(items);
     const changes = useMemo(() => turnChanges(active ? [] : items), [items, active]);
+    const outputPaths = useMemo(() => active ? [] : turnOutputPaths(items), [items, active]);
+    const finalItem = [...content].reverse().find(item => item.type === 'text');
+    const finalProse = finalItem?.type === 'text' ? finalItem.block.text ?? '' : '';
     const zh = props.language === 'zh';
     const stamp = [...items].reverse().find(item => item.message.timestamp)?.message.timestamp;
-    return <article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
+    return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
       <div className="response-content message-body">{content.map((item, position) =>
           item.type === 'tool'
             ? item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
@@ -243,6 +249,7 @@ function SubagentLane({ item, active, onOpen, background, ...props }: {
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
               : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>
       )}</div>
+      {!active && <TurnArtifacts text={finalProse} outputPaths={outputPaths} language={props.language}/>}
       {!active && <TurnChanges changes={changes} runtimeId={runtimeId} language={props.language} onError={props.onError}/>}
     {!active && content.length > 0 && <footer className="message-actions assistant-actions">
       <CopyButton text={text} {...props}/>
@@ -254,7 +261,7 @@ function SubagentLane({ item, active, onOpen, background, ...props }: {
         total language={props.language}/>
       <Timestamp value={stamp} language={props.language}/>
     </footer>}
-  </article>;
+  </article></ArtifactContext.Provider>;
 }
 function UserMessage({ message, index, arriving, editState, setEditState, ...props }: {
   message: Message; index: number; arriving: boolean;

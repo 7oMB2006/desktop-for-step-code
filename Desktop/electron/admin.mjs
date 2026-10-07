@@ -23,18 +23,22 @@ async function dispatch(message) {
         authPath, modelsPath: join(dirname(authPath), 'models.json'), allowModelNetwork: false,
       });
       const registry = new upstream.ModelRegistry(runtime);
-      const { name, ...config } = upstream.createStepProviderConfig({ authPath });
-      registry.registerProvider(name, config);
-      await runtime.refresh({ allowNetwork: false });
+      const config = upstream.createStepProviderConfig({ authPath });
+      registry.registerProvider(upstream.STEP_PROVIDER_ID, config);
+      try {
+        await runtime.refresh({ allowNetwork: true, signal: AbortSignal.timeout(5000) });
+      } catch { /* Keep the provider's local catalog when discovery is unavailable. */ }
       // Project only the runtime model's declared levels; never guess xhigh/max support.
-      const models = registry.getAvailable().map(({ id, provider, name, reasoning, thinkingLevelMap }) => ({
+      const available = registry.getAvailable();
+      const catalog = available.length ? available : registry.getAll().filter(model => model.provider === upstream.STEP_PROVIDER_ID);
+      const models = catalog.map(({ id, provider, name, reasoning, thinkingLevelMap }) => ({
         id, provider, name, reasoning,
         thinkingLevels: reasoning ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].filter(level =>
           thinkingLevelMap?.[level] !== null && (!['xhigh', 'max'].includes(level) || thinkingLevelMap?.[level] !== undefined)) : ['off'],
       }));
       const provider = settings.getDefaultProvider() ?? upstream.STEP_DEFAULT_PROVIDER;
       const id = settings.getDefaultModel() ?? upstream.STEP_DEFAULT_MODEL;
-      const model = models.find(model => model.provider === provider && model.id === id) ?? { id, provider, name: id };
+      const model = models.find(model => model.provider === provider && model.id === id) ?? models[0] ?? { id, provider, name: id };
       const requested = settings.getDefaultThinkingLevel() ?? 'medium';
       return {
         models,

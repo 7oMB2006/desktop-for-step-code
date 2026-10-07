@@ -1,0 +1,11 @@
+.file-open-control { display: inline-flex; align-items: stretch; min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; background: var(--bg); }
+.file-open-control > button { display: inline-flex; align-items: center; gap: 6px; min-width: 0; min-height: 28px; padding: 4px 8px; border: 0; border-radius: 0; background: transparent; font-size: 11px; }
+.file-open-control > button:first-child { flex: 1; }
+.file-open-control > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+.file-open-control > button > svg, .file-open-control > button > img { flex-shrink: 0; width: 14px; height: 14px; object-fit: contain; }
+.file-open-control > .file-open-options { width: 25px; flex: 0 0 25px; padding: 0; justify-content: center; border-left: 1px solid var(--border); }
+.file-open-control > button:hover:not(:disabled) { background: var(--surface); }
+.file-open-control > button:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.artifact-options .file-open-control { margin-right: 2px; }
+.artifact-options .file-open-control > button { padding: 4px 8px; }
+.artifact-options .file-open-control > .file-open-options { padding: 0; }

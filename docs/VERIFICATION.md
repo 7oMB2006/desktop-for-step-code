@@ -473,6 +473,14 @@ The desktop shortcut now targets this package; the prior running application was
 
 ## Release Boundary
 
+### Links, Deliveries and File Preview
+
+The 2026-10-07 preview adds icon-bearing web links with hover-only dashed underlines and bounded metadata cards, delivery references collected from the current turn, and built-in opening of web links and local HTML. An independent read-only File Preview panel supports Markdown rendered/source modes, highlighted text, wrap, copy, refresh and a native file chooser. Standard/Wide width is persisted; fullscreen restores that underlying width.
+
+The split opening control uses application-rendered anchored menus. Selecting an application opens once and updates the primary button's icon/name. Successful explicit choices persist per extension across reload and application restart without changing Windows associations. Unavailable associations fall back to the internal destination; the native other-application picker remains a one-time action. The deferred new-session model/thinking selector and sidebar hover/focus scrollbar were also corrected.
+
+Source and packaged checks passed for links, deliveries, File Preview and general Electron behavior. File Preview tests exercise real file IPC, association enumeration and preference persistence, but intercept third-party application launches. HTML checks cover moving nonblank content, declared local assets, denied neighboring files, blocked external network, tab reuse and renderer isolation. Screenshots cover light/dark, narrow, wide and fullscreen layouts. These checks do not establish paid-model behavior, third-party editor compatibility or installer lifecycle acceptance. The Step Code upstream checkout and pinned runtime baseline are unchanged.
+
 ### Proposed Session and Greetings
 
 The 2026-10-07 new-session page holds an in-memory proposal. Opening New inherits the viewed project, and the searchable picker offers remembered projects, a native directory chooser and independent mode. Leaving before the first send creates neither a worker nor a persisted conversation or independent folder. Model, permission and thinking selections are available before creation.

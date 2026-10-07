@@ -25,6 +25,7 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
   const zh = language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const selected = snapshot.tabs.find(tab => tab.id === snapshot.activeId);
+  const shownAddress = selected?.localFile ?? (selected?.url === 'about:blank' ? '' : selected?.url ?? '');
   if (open && !present) setPresent(true);
   const accept = (next: BrowserSnapshot) => setSnapshot(previous => next.revision >= previous.revision ? next : previous);
   const focusAddress = () => {
@@ -65,11 +66,11 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
     }).catch(() => { initialized.current = false; setError(t('无法打开浏览器', 'Could not open browser')); });
   }, [open]);
   useEffect(() => {
-    if (document.activeElement !== input.current) setAddress(selected?.url === 'about:blank' ? '' : selected?.url ?? '');
-  }, [selected?.id, selected?.url]);
+    if (document.activeElement !== input.current) setAddress(shownAddress);
+  }, [selected?.id, shownAddress]);
   useEffect(() => {
     setError('');
-    setAddress(selected?.url === 'about:blank' ? '' : selected?.url ?? '');
+    setAddress(shownAddress);
     if (open && selected?.url === 'about:blank') focusAddress();
   }, [selected?.id, open]);
   useLayoutEffect(() => {
@@ -135,7 +136,7 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
         <button className="icon-button" {...label('新建标签页', 'New tab')} disabled={pending || snapshot.tabs.length >= 12}
           onClick={() => void create()}><Plus size={16}/></button>
       </div>
-      <form className={`browser-addressbar${selected?.loading ? ' is-loading' : ''}`} onSubmit={event => { event.preventDefault(); action('navigate', address); input.current?.blur(); }}>
+      <form className={`browser-addressbar${selected?.loading ? ' is-loading' : ''}`} onSubmit={event => { event.preventDefault(); if (address === selected?.localFile) action('reload'); else action('navigate', address); input.current?.blur(); }}>
         <button type="button" className="icon-button" {...label('后退', 'Back')} disabled={!selected?.canGoBack} onClick={() => action('back')}><ArrowLeft size={16}/></button>
         <button type="button" className="icon-button" {...label('前进', 'Forward')} disabled={!selected?.canGoForward} onClick={() => action('forward')}><ArrowRight size={16}/></button>
         <button type="button" className="icon-button" {...label(selected?.loading ? '停止加载' : '刷新', selected?.loading ? 'Stop loading' : 'Reload')}
@@ -147,7 +148,7 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
           <input ref={input} aria-label={t('网页地址', 'Web address')} placeholder={t('输入网址或 localhost:端口', 'URL or localhost:port')}
             value={address} spellCheck={false} onChange={event => setAddress(event.target.value)}
             onFocus={event => event.target.select()} onKeyDown={event => {
-              if (event.key === 'Escape') { event.stopPropagation(); setAddress(selected?.url === 'about:blank' ? '' : selected?.url ?? ''); event.currentTarget.blur(); }
+              if (event.key === 'Escape') { event.stopPropagation(); setAddress(shownAddress); event.currentTarget.blur(); }
             }}/>
         </div>
         <button type="button" className="icon-button" {...label('在系统浏览器打开', 'Open in system browser')}
@@ -161,7 +162,7 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
           {selected?.error && <><span>{selected.error}</span><button onClick={() => action('reload')}>{t('重新加载', 'Reload')}</button></>}
         </div>}
       </div>
-      <footer className="browser-footer"><span>{selected?.loading ? t('加载中', 'Loading') : selected?.error ? t('加载失败', 'Load failed') : t('就绪', 'Ready')}</span>
+      <footer className="browser-footer"><span>{selected?.loading ? t('加载中', 'Loading') : selected?.error ? t('加载失败', 'Load failed') : selected?.localFile ? t('本地预览', 'Local preview') : t('就绪', 'Ready')}</span>
         <button className="icon-button" {...label('缩小网页', 'Zoom out')} disabled={!selected || selected.zoom <= .5} onClick={() => action('zoomOut')}><ZoomOut size={13}/></button>
         <button className="browser-zoom" {...label('重置缩放', 'Reset zoom')} disabled={!selected} onClick={() => action('zoomReset')}>{Math.round((selected?.zoom ?? 1) * 100)}%</button>
         <button className="icon-button" {...label('放大网页', 'Zoom in')} disabled={!selected || selected.zoom >= 2} onClick={() => action('zoomIn')}><ZoomIn size={13}/></button>

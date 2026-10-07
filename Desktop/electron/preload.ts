@@ -28,6 +28,12 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  fileOpen: (target, destination) => invoke('fileOpen', target, destination),
+  fileOpenOptions: target => invoke('fileOpenOptions', target),
+  browserOpenLink: address => invoke('browserOpenLink', address),
+  artifactFiles: (runtimeId, paths) => invoke('artifactFiles', runtimeId, paths),
+  artifactAction: (runtimeId, path, action) => invoke('artifactAction', runtimeId, path, action),
+  linkPreview: url => invoke('linkPreview', url),
   rightPanelWidthMenu: (selected, position) => invoke('rightPanelWidthMenu', selected, position),
   browserList: () => invoke('browserList'),
   browserCreate: address => invoke('browserCreate', address),

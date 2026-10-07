@@ -60,3 +60,14 @@ test('untrusted math cannot create external links, images or raw HTML', () => {
   const html = render('$\\href{https://example.com}{link}$ $\\includegraphics{https://example.com/a.png}$\n<script>alert(1)</script>');
   assert.doesNotMatch(html, /<a |<img |<script>/);
 });
+
+test('standalone code-styled web addresses stay links without rewriting code samples', () => {
+  const html = render('Home: `https://example.com/`\n\n`curl https://example.com/`\n\n```text\nhttps://example.com/\n```\n\n[Label `https://example.org/`](https://example.net/)\n\n`javascript:alert(1)` `https://user:secret@example.com/`');
+  assert.match(html, /<a href="https:\/\/example.com\/">https:\/\/example.com\/<\/a>/);
+  assert.match(html, /<code>curl https:\/\/example.com\/<\/code>/);
+  assert.match(html, /<pre><code[^>]*>https:\/\/example.com\//);
+  assert.match(html, /<a href="https:\/\/example.net\/">Label <code>https:\/\/example.org\/<\/code><\/a>/);
+  assert.match(html, /<code>javascript:alert\(1\)<\/code>/);
+  assert.match(html, /<code>https:\/\/user:secret@example.com\/<\/code>/);
+  assert.equal((html.match(/<a /g) ?? []).length, 2);
+});

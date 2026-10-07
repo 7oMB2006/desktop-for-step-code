@@ -17,6 +17,12 @@ import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
 import { TerminalSessions } from './terminal-sessions';
 import { BrowserTabs } from './browser-tabs';
+import { linkPreview } from './link-preview';
+import { artifactFile } from './artifact-files';
+import { FilePreviews, fileMode, canOpenExternally, readPreview } from './file-previews';
+import { LocalPagePreview } from './local-page-preview';
+import { associationRequest, fileApplications } from './file-applications';
+import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
 import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
@@ -34,6 +40,10 @@ const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 
   error => { void crashLog.record('conversation-timing', error); });
 let window: BrowserWindow;
 let browser: BrowserTabs | undefined;
+const filePreviews = new FilePreviews(id => runtimes.require(id).cwd);
+const localPages = new LocalPagePreview();
+const localFileGrants = new Map<string, string>();
+const fileAssociationScript = () => join(app.isPackaged ? join(process.resourcesPath, 'file-opening') : join(__dirname, 'file-opening'), 'file-associations.ps1');
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
 let status = 'disconnected';
 let transition = false;
@@ -308,12 +318,93 @@ async function beginSession(workspace?: string) {
     runtimes.activeId = undefined;
     runtimes.publish();
     await runtimes.recycle();
-    return await snapshot();
+    return await snapshot(undefined, false);
   } finally { transition = false; }
 }
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[]) {
+  if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
+    case 'browserOpenLink': return browser!.open(text(args[0], 4096));
+    case 'fileOpen': {
+      let target: FileTarget = args[0];
+      if (target === undefined) {
+        const selected = await dialog.showOpenDialog(window, {
+          title: preferences.language === 'zh' ? '打开文件' : 'Open file', properties: ['openFile'],
+          defaultPath: runtimes.active?.cwd ?? preferences.workspace,
+        });
+        if (selected.canceled || !selected.filePaths.length) return null;
+        target = { grantId: (await filePreviews.grant(selected.filePaths[0])).id };
+      }
+      const file = await filePreviews.resolve(target);
+      const destination = args[1] === undefined ? 'internal' : text(args[1], 4200);
+      const mode = fileMode(file.path);
+      const remember = async () => {
+        if (args[1] === undefined || destination === 'preview' || destination === 'other') return;
+        preferences.fileOpeningApps = { ...preferences.fileOpeningApps, [extname(file.path).toLowerCase()]: destination };
+        await savePreferences();
+      };
+      if (destination === 'internal' && mode === 'browser') {
+        const page = await localPages.open(file.path);
+        localFileGrants.set(file.path, file.id);
+        const result = { destination: 'browser', browser: browser!.openLocal(page.url, file.path, page.origin) } satisfies FileOpenResult;
+        await remember();
+        return result;
+      }
+      if ((destination === 'internal' || destination === 'preview') && (mode === 'text' || mode === 'markdown')) {
+        const result = { destination: 'preview', file: { ...await readPreview(file.path), id: file.id } } satisfies FileOpenResult;
+        await remember();
+        return result;
+      }
+      if (!canOpenExternally(file.path)) throw new Error('This file type cannot be opened in an external application');
+      if (destination === 'internal' || destination === 'system') {
+        const error = await shell.openPath(file.path);
+        if (error) throw new Error(error);
+      } else if (destination === 'other') {
+        await associationRequest(fileAssociationScript(), { action: 'other', path: file.path,
+          window: window.getNativeWindowHandle().readBigUInt64LE().toString() }, 300000);
+      } else if (destination.startsWith('app:')) {
+        const apps = await fileApplications(fileAssociationScript(), extname(file.path));
+        if (!apps.some(item => item.id === destination)) throw new Error('Unknown associated application');
+        await associationRequest(fileAssociationScript(), { action: 'open', path: file.path, id: destination.slice(4) });
+      } else throw new Error('Invalid file destination');
+      await remember();
+      return { destination: 'external' } satisfies FileOpenResult;
+    }
+    case 'fileOpenOptions': {
+      const file = await filePreviews.resolve(args[0]);
+      const mode = fileMode(file.path);
+      const zh = preferences.language === 'zh';
+      const choices: FileDestination[] = [];
+      if (mode !== 'external') choices.push({ id: 'internal', label: mode === 'browser' ? (zh ? '内置浏览器' : 'Built-in browser') : (zh ? '文件预览' : 'File preview') });
+      if (canOpenExternally(file.path)) {
+        choices.push({ id: 'system', label: zh ? '系统默认应用' : 'System default app' });
+        choices.push(...await fileApplications(fileAssociationScript(), extname(file.path)));
+        choices.push({ id: 'other', label: zh ? '选择其他应用…' : 'Choose another app…' });
+      }
+      if (!choices.length) throw new Error('No opening options for this file type');
+      const saved = preferences.fileOpeningApps?.[extname(file.path).toLowerCase()];
+      return { choices, selected: choices.find(item => item.id === saved && item.id !== 'other')?.id ?? choices[0].id } satisfies FileOpeningOptions;
+    }
+    case 'artifactFiles': {
+      const worker = runtimes.require(text(args[0], 80));
+      if (!Array.isArray(args[1]) || args[1].length > 12) throw new Error('Invalid artifacts');
+      return Promise.all(args[1].map(async (path: unknown) => {
+        try { return await artifactFile(worker.cwd, path); }
+        catch { return { path: text(path, 4096), exists: false, canOpen: false, kind: 'file' }; }
+      }));
+    }
+    case 'artifactAction': {
+      const worker = runtimes.require(text(args[0], 80));
+      const file = await artifactFile(worker.cwd, args[1]);
+      if (args[2] === 'copy') { clipboard.writeText(file.path); return; }
+      if (!file.exists) throw new Error('File no longer exists');
+      if (args[2] === 'reveal') { shell.showItemInFolder(file.path); return; }
+      if (args[2] !== 'open' || !file.canOpen) throw new Error('Unsupported file type');
+      const error = await shell.openPath(file.path);
+      if (error) throw new Error(error);
+      return;
+    }
     case 'beginSession': return beginSession(args[0] === undefined ? undefined : text(args[0], 2048));
     case 'chooseSessionProject': {
       if (transition || deletingArchived) throw new Error('Workspace operation in progress');
@@ -349,8 +440,24 @@ async function handle(method: string, args: any[]) {
     case 'browserCreate': return browser!.create(args[0] === undefined ? undefined : text(args[0], 8192));
     case 'browserSelect': return browser!.select(text(args[0], 80));
     case 'browserClose': return browser!.close(text(args[0], 80));
-    case 'browserAction': return browser!.action(text(args[0], 80), text(args[1], 20) as BrowserAction,
-      args[2] === undefined ? undefined : text(args[2], 8192));
+    case 'browserAction': {
+      const id = text(args[0], 80);
+      const action = text(args[1], 20) as BrowserAction;
+      const tab = browser!.snapshot().tabs.find(tab => tab.id === id);
+      if (tab?.localFile && (action === 'external' || action === 'reload')) {
+        const grantId = localFileGrants.get(tab.localFile);
+        if (!grantId) throw new Error('Unknown local file permission');
+        const file = await filePreviews.resolve({ grantId });
+        if (action === 'external') {
+          const error = await shell.openPath(file.path);
+          if (error) throw new Error(error);
+          return browser!.snapshot();
+        }
+        const page = await localPages.open(file.path);
+        return browser!.openLocal(page.url, file.path, page.origin);
+      }
+      return browser!.action(id, action, args[2] === undefined ? undefined : text(args[2], 8192));
+    }
     case 'browserLayout': browser!.layout(args[0]); return;
     case 'terminalList': return args[0] === undefined ? terminals.list() : terminals.list(runtimes.require(text(args[0], 80)).cwd);
     case 'terminalCreate': return terminals.create(runtimes.require(text(args[0], 80)).cwd);
@@ -837,6 +944,10 @@ async function handle(method: string, args: any[]) {
     }
     case 'preferences': {
       const patch = args[0] ?? {};
+      if (patch.filePreviewWidth !== undefined) {
+        if (patch.filePreviewWidth !== 'standard' && patch.filePreviewWidth !== 'wide') throw new Error('Invalid file preview width');
+        preferences.filePreviewWidth = patch.filePreviewWidth;
+      }
       const sidebarPatch = validateSidebarPreferences(patch, cachedSessions(), preferences.workspaces, pathKey);
       if (['system', 'light', 'dark'].includes(patch.theme)) preferences.theme = patch.theme;
       if (['zh', 'en'].includes(patch.language)) preferences.language = patch.language;
@@ -921,6 +1032,7 @@ async function handle(method: string, args: any[]) {
     default: throw new Error('Unknown desktop operation');
   }
 }
+app.on('will-quit', () => localPages.dispose());
 app.on('before-quit', event => {
   if (quitting) return;
   event.preventDefault();

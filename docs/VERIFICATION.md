@@ -2,6 +2,16 @@
 
 This file combines historical feature checks with the current release gates. Named `Desktop/release-*` directories below identify local outputs used for those checks; they are not required retained artifacts or current download locations. Current packaging writes to `Desktop/release/`.
 
+## Permission Approval Presentation
+
+The 2026-10-07 Desktop-only change localizes known upstream tool approvals using deterministic presentation rules, not model translation. It distinguishes incomplete shell analysis from a matched high-risk rule and ordinary policy confirmation. Full inputs are recovered only by the exact tool call ID/name within the matching runtime; unavailable inputs remain explicitly labelled as potentially truncated summaries. Unknown extension dialogs keep their existing presentation, and original approval text remains expandable.
+
+Approval, denial and review-later retain their existing RPC behavior. This does not change permission policies, grant additional authority, add approval timeouts or solve unattended workflow waits. Related upstream discussion: https://github.com/stepfun-ai/Step-Code/issues/221.
+
+On an isolated worktree based on `26ec686`, typecheck, all 204 unit/protocol tests, production build, general Electron acceptance and `scripts/verify-permission-approval.mjs` passed. The dedicated fixture covers Chinese/English, exact commands and other parameters, summary fallback, original details, defer without responding, approval/denial payloads, high-risk and unknown-extension dialogs, and 360/640/1280-pixel window bounds. Screenshots are `Desktop/test-results/permission-approval-*.png`; the narrow Chinese screenshot was visually inspected. CI now runs this fixture.
+
+This is source and isolated-fixture acceptance only. No installer, replacement package, paid-model run, personal-session mutation, live-process interruption or upstream source change was performed.
+
 ## Conversation Elapsed Labels
 
 The 2026-10-06 source change adds per-thinking-block elapsed labels and a permanent total before the completed response time. Timing is observed in the Electron main process: thinking ends at its end event, prose/tool-call transition, message completion or runtime exit; the run total spans agent start to completion/exit, including tools and waits. Steering does not reset it. These are observed Desktop intervals, not provider-internal compute measurements.

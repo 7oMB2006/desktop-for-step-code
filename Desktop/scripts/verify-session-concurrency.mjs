@@ -198,7 +198,7 @@ try {
   assert.equal(await page.getByRole('dialog').count(), 0);
   await page.locator('.session-row').filter({ hasText: 'RUN-A' }).locator('button').first().click();
   await approval.waitFor();
-  await approval.getByRole('button', { name: '确认', exact: true }).click();
+  await approval.getByRole('button', { name: /^(确认|批准本次操作)$/ }).click();
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('Approval completed.'));
   await page.waitForFunction(() => document.querySelector('.composer-action-button')?.getAttribute('data-action') === 'send');
   assert.equal(await readFile(join(a.preferences.workspace, 'approved.txt'), 'utf8'), 'approved in A only');

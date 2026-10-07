@@ -238,7 +238,7 @@ async function snapshot(worker = runtimes.active, refresh = true): Promise<Snaps
     messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: draft?.models ?? worker?.models ?? [], stats: worker?.stats,
     pendingMessages: worker ? pendingMessages.list(worker) : [],
     requests: worker ? [...worker.pendingUI.values()] : [],
-    sessions, independent: draft ? !draft.workspace : !worker || isIndependentPath(worker.cwd),
+    sessions, independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
   };
 }
 async function guardIdle() {

@@ -113,7 +113,9 @@ try {
   assert.equal((await snapshot()).runtimeId, undefined);
   // Switching away discards the proposed session without touching saved history.
   await page.getByText('队列交互示例（本地模拟）', { exact: true }).click();
-  await waitState(value => value.state?.sessionId === 'queue-demo');
+  const restoredProject = await waitState(value => value.state?.sessionId === 'queue-demo');
+  assert.equal(restoredProject.independent, false, 'registered project history stays project-scoped across Windows path aliases');
+  assert.equal(restoredProject.sessions.find(session => session.id === 'queue-demo')?.workspacePath, fixture.workspace);
   const openedHistory = await readFile(join(profile, 'step-runtime', 'sessions', 'queue-demo.jsonl'), 'utf8');
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await heading.waitFor();

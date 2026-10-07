@@ -32,11 +32,15 @@ try {
   ];
   await app.evaluate(({ ipcMain }, { snapshot, messages, icon, remote }) => {
     globalThis.linkFixture = { ...snapshot, messages };
+    globalThis.previewRequests = [];
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', (_event, method, ...args) => {
       if (method === 'snapshot') return globalThis.linkFixture;
       if (method === 'sessions') return globalThis.linkFixture.sessions;
-      if (method === 'linkPreview') return { url: args[0], title: remote.title || '阶跃星辰', description: remote.description || '网页信息暂不可用', icon };
+      if (method === 'linkPreview') {
+        globalThis.previewRequests.push(args[0]);
+        return { url: args[0], title: remote.title || '阶跃星辰', description: remote.description || '网页信息暂不可用', icon };
+      }
       if (method === 'command' && args[0] === 'get_available_thinking_levels') return { levels: ['off', 'low', 'medium', 'high'] };
       if (method === 'command' && args[0] === 'get_commands') return { commands: [] };
       return {};
@@ -66,8 +70,10 @@ try {
   await link.waitFor();
   assert.equal(await link.evaluate(element => getComputedStyle(element).textDecorationLine), 'none');
   await page.screenshot({ path: 'test-results/message-links-light.png' });
+  assert.deepEqual(await app.evaluate(() => globalThis.previewRequests), [], 'visible links must not request previews without interaction');
   await link.hover();
   await page.locator('.link-preview-body p').waitFor();
+  assert.deepEqual(await app.evaluate(() => globalThis.previewRequests), ['https://www.stepfun.com/']);
   await page.waitForTimeout(250);
   assert.equal(await link.locator('.message-link-label').evaluate(element => getComputedStyle(element).textDecorationStyle), 'dashed');
   assert.equal(await page.locator('.link-preview').count(), 1);

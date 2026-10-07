@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { localReference, turnArtifacts, turnOutputPaths } from '../src/turn-artifacts';
@@ -32,6 +32,35 @@ test('file access stays inside the session and refuses executable opening', asyn
   }
   await assert.rejects(artifactFile(root, '../outside.html'));
   await assert.rejects(artifactFile(root, './directory'));
+});
+
+test('mapped workspace roots accept original and canonical paths but reject escaping links', async () => {
+  const fixture = await mkdtemp(join(tmpdir(), 'artifact-mapped-'));
+  try {
+    const root = join(fixture, 'workspace');
+    const alias = join(fixture, 'alias');
+    await mkdir(root);
+    await writeFile(join(root, 'report.doc'), 'Example');
+    await symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const canonical = await artifactFile(root, './report.doc');
+    assert.equal(canonical.canOpen, true);
+    assert.deepEqual(await artifactFile(alias, join(alias, 'report.doc')), canonical);
+    assert.deepEqual(await artifactFile(alias, canonical.path), canonical);
+    await mkdir(join(fixture, 'outside'));
+    await writeFile(join(fixture, 'outside/report.doc'), 'Outside');
+    await symlink(join(fixture, 'outside'), join(root, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(artifactFile(alias, './escape/report.doc'), /points outside/);
+  } finally { await rm(fixture, { recursive: true, force: true }); }
+});
+
+test('legacy Office artifacts support opening while executable types remain blocked', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'artifact-office-'));
+  try {
+    for (const ext of ['doc', 'xls', 'ppt', 'exe', 'cmd', 'ps1']) {
+      await writeFile(join(root, `output.${ext}`), 'Example');
+      assert.equal((await artifactFile(root, `./output.${ext}`)).canOpen, ['doc', 'xls', 'ppt'].includes(ext));
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('inline output filenames resolve against successful writes without requiring patches or links', () => {

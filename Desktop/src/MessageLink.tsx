@@ -43,17 +43,6 @@ export function MessageLink({ href, children, language }: { href?: string; child
   useEffect(() => { setPreview(undefined); setIconFailed(false); setOpen(false); }, [address]);
   useEffect(() => () => clearTimeout(timer.current), []);
   useEffect(() => {
-    if (!address || !anchor.current) return;
-    let mounted = true;
-    const observer = new IntersectionObserver(entries => {
-      if (!entries.some(entry => entry.isIntersecting)) return;
-      observer.disconnect();
-      void load(address).then(value => { if (mounted) setPreview(value); });
-    });
-    observer.observe(anchor.current);
-    return () => { mounted = false; observer.disconnect(); };
-  }, [address]);
-  useEffect(() => {
     if (open) { setPresent(true); return; }
     const exit = setTimeout(() => setPresent(false), 160);
     return () => clearTimeout(exit);

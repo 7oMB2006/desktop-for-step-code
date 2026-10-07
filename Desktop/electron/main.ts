@@ -47,6 +47,12 @@ let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Mode
   permissionPreset?: PermissionPreset; modelChanged?: boolean; permissionChanged?: boolean; thinkingChanged?: boolean } | undefined = { id: randomUUID() };
 let undoBusy = false;
 const undoStore = new TurnUndoStore(join(app.getPath('userData'), 'turn-undo'));
+// One agent_end can cover SEVERAL response entries: the runtime drains its queued
+// prompts before emitting it, so a prompt submitted while a turn is running lands in
+// the same batch. Recording only the batch's last entry silently loses the undo record
+// for every earlier turn in it, and status() then reports 'unavailable' forever, so the
+// UI can never offer undo for those turns. Each entry in the batch is captured, and the
+// in-flight work is aggregated per worker so `turnUndo` waits for the WHOLE batch.
 const undoCaptures = new Map<string, Promise<void>>();
 const attachedFiles = new Map<string, string>();
 async function importAttachment(path: string) {
@@ -125,13 +131,17 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   }
   if (event.type === 'agent_end') {
     const worker = runtimes.workers.get(event.runtimeId);
-    const entry = worker && conversationEntries(worker.messages).at(-1);
-    if (worker?.state?.sessionId && entry?.type === 'response' && !worker.failed && !worker.interrupted) {
+    if (worker?.state?.sessionId && !worker.failed && !worker.interrupted) {
       const sessionId = worker.state.sessionId;
-      const capture = undoStore.capture(sessionId, worker.cwd, entry.items).catch(() => {});
-      undoCaptures.set(worker.id, capture);
-      void capture.finally(() => {
-        if (undoCaptures.get(worker.id) === capture) undoCaptures.delete(worker.id);
+      const entries = conversationEntries(worker.messages).filter(entry => entry.type === 'response');
+      if (!entries.length) return;
+      // Start every capture in this batch immediately, then aggregate them into one
+      // promise so `turnUndo` keeps awaiting the whole batch rather than one entry.
+      const batch = Promise.all(entries.map(entry => undoStore.capture(sessionId, worker.cwd, entry.items).catch(() => {})))
+        .then(() => undefined);
+      undoCaptures.set(worker.id, batch);
+      void batch.finally(() => {
+        if (undoCaptures.get(worker.id) === batch) undoCaptures.delete(worker.id);
         emit({ type: 'desktop_undo_ready', runtimeId: worker.id });
       });
     }

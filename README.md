@@ -22,12 +22,15 @@ The original idea was to explore a community-built desktop client for Step Code 
 ### Features
 
 - Streaming conversations, model and thinking-level selection
-- Independent sessions and project workspaces, with session history and renaming
-- Image attachments, tool-call confirmations, and recoverable session deletion
+- Independent sessions and project workspaces, ordering, pinning, archiving and branching
+- Concurrent sessions, queued sends, steering, quotes and cross-session links
+- Image attachments, tool approvals, subagent status and elapsed-time feedback
+- Summary, context and diff inspection, with bounded recorded-change undo
+- A terminal, user-operated browser, file previews and delivery references
 - Step account sign-in, MCP configuration, and resource discovery
 - Chinese and English UI, with light and dark themes
 
-The app keeps its data in a dedicated directory (`%APPDATA%\Desktop for Step Code`) instead of reusing a personal Step Code CLI profile. Agent execution stays with Step Code; this project does not add another harness.
+The app keeps its data in a dedicated directory (`%APPDATA%\Desktop for Step Code`) instead of reusing a personal Step Code CLI profile. Step Code owns agent execution and permission policies; Desktop adds session orchestration and desktop interactions. Concurrent collaboration does not provide file locks or transaction isolation.
 
 Step login credentials are encrypted for the current Windows user in `step-runtime/auth.dpapi`. Existing desktop `auth.json` data is migrated on startup, and the plaintext file is removed after the encrypted copy is saved. Uninstall removes the desktop Step credential files while keeping sessions, settings and independent workspace files; signing out removes the Step credential as well. This protects against casual offline reading of the file, not software running with access to the same Windows account. Other configured MCP secrets are outside this credential migration.
 
@@ -38,6 +41,8 @@ The built-in StepPage MCP server cannot start on Windows: the command the upstre
 ### Download and Run
 
 This repository currently provides source code. There is no public installer on GitHub Releases yet. The installer and release timing will be decided after release acceptance; locally generated installers are not included in this repository.
+
+The first Windows x64 community preview is being prepared. See the [release gates and preparation status](docs/RELEASE.md) (Chinese).
 
 Running from source requires Windows x64 and the development dependencies below. On first launch, sign in under Account Settings with your own Step Plan account or Step Platform API key, then open a local project. Git/Bash, project-specific CLI tools, and MCP server dependencies must be installed on the host separately.
 
@@ -77,7 +82,7 @@ node scripts/checksums.mjs
 
 ### Project Status
 
-This is a community preview; full public-release acceptance is still in progress. A disposable Windows VM exercised installation, credential migration and uninstall of a candidate build. Separately, a packaged build completed a `step-5-preview` coding task with desktop tool approvals on a real Step Plan account. See `docs/VERIFICATION.md` for the acceptance record and release scope. MCP status indicates whether configuration is enabled, not connection health.
+This is a community preview; full public-release acceptance is still in progress. A disposable Windows VM exercised installation, credential migration and uninstall of a historical candidate build. Separately, a packaged build completed a `step-5-preview` coding task with desktop tool approvals on a real Step Plan account. Those historical results do not qualify the latest installer. See [VERIFICATION.md](docs/VERIFICATION.md) for the acceptance record and release scope. The Summary board shows MCP connection states supplied by the runtime; enabled configuration alone is not a health check, and connection status does not establish successful service calls.
 
 ### License
 

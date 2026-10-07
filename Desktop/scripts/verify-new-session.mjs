@@ -188,7 +188,7 @@ try {
   assert.equal(sent.draftId, undefined);
   assert.equal(sent.sessions.length, 2);
   assert.equal(sent.messages.filter(message => message.role === 'user').length, 1);
-  assert.equal(sent.preferences.workspace, fixture.workspace);
+  assert.equal(sent.preferences.workspace, await realpath(fixture.workspace));
   assert.ok(fixture.requests.some(text => text.includes('FIRST-SEND')));
   assert.equal((await readdir(join(profile, 'step-runtime', 'sessions'))).length, historyBefore.length + 1);
   await page.screenshot({ path: 'test-results/new-session-first-send.png' });

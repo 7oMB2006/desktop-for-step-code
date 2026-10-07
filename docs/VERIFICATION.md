@@ -8,6 +8,8 @@ Source and packaged account-settings and auth-vault Electron acceptance passed u
 
 The isolated PR checkout based on main `64cfadb` passed typecheck, build, account-settings and general Electron acceptance, plus 202 tests excluding `terminal-sessions.test.ts`. The unchanged terminal count-limit test failed and left fixture hosts alive both during the full run and its isolated rerun; those test process trees were stopped explicitly. The remaining four terminal tests printed passing results. This is an unresolved local baseline-test limitation, not a full-suite pass.
 
+The PR #68 review fix guards settings initialization with selection and request revisions. A late response can refresh account information but cannot overwrite a channel selected during that request; older settings requests cannot replace newer responses. Typecheck, build and account-settings acceptance passed after the fix. The added deterministic IPC fixture holds a saved mainland account response, selects international API, enters a fixture key, releases the response, and verifies both retained selection/key and the intercepted international login parameters. No real authorization is sent. The existing preview package predates this fix.
+
 This file combines historical feature checks with the current release gates. Named `Desktop/release-*` directories below identify local outputs used for those checks; they are not required retained artifacts or current download locations. Current packaging writes to `Desktop/release/`.
 
 ## Permission Approval Presentation

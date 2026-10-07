@@ -72,6 +72,48 @@ try {
   await page.getByText('Not signed in', { exact: true }).waitFor();
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await page.locator('.account-login-area').evaluate(element => getComputedStyle(element).animationName), 'none');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 800));
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await app.evaluate(({ ipcMain }) => {
+    const original = ipcMain._invokeHandlers.get('desktop');
+    globalThis.accountFixture = { calls: 0, login: undefined, release: undefined, finished: false };
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      if (method === 'settings') {
+        const next = await original(event, method, ...args);
+        if (++globalThis.accountFixture.calls === 2) {
+          await new Promise(resolve => { globalThis.accountFixture.release = resolve; });
+          globalThis.accountFixture.finished = true;
+        }
+        return { ...next, account: { loggedIn: true, validity: 'valid', profile: 'platform_cn' } };
+      }
+      if (method === 'login') {
+        globalThis.accountFixture.login = { profile: args[0], matches: args[1] === 'overseas-race-fixture' };
+        throw new Error('Fixture login intercepted');
+      }
+      return original(event, method, ...args);
+    });
+  });
+  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.account-channel.is-selected').filter({ hasText: 'Mainland China' }).waitFor();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.account-channel').nth(3).click();
+  await page.getByLabel('API Key', { exact: true }).fill('overseas-race-fixture');
+  await assert.doesNotReject(async () => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (await app.evaluate(() => Boolean(globalThis.accountFixture.release))) return;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error('Delayed settings fixture not ready');
+  });
+  await app.evaluate(() => globalThis.accountFixture.release());
+  await page.getByText('API Key · Mainland China', { exact: true }).waitFor();
+  assert.match(await page.locator('.account-channel.is-selected').innerText(), /International/);
+  assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), 'overseas-race-fixture');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.locator('.error-banner').filter({ hasText: 'Fixture login intercepted' }).waitFor();
+  assert.deepEqual(await app.evaluate(() => globalThis.accountFixture.login), { profile: 'platform_oversea', matches: true });
   assert.deepEqual(errors, []);
   console.log('Account channels, UID projection, credential states, API login/logout, themes and narrow layouts passed with isolated fixtures.');
 } finally {

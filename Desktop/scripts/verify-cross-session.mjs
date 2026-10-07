@@ -60,7 +60,11 @@ await writeFile(join(root, 'models.json'), JSON.stringify({
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
-const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+// Packaged launches bypass Playwright's loader, including its hidden-window screenshot switch.
+const app = await electron.launch({
+  ...(executablePath ? { executablePath, args: ['--enable-features=CDPScreenshotNewSurface'] } : { args: [resolve('.')] }),
+  env, timeout: 60000,
+});
 const errors = [];
 try {
   const page = await app.firstWindow();

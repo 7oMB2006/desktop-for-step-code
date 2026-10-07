@@ -9,7 +9,8 @@ import { join, resolve } from 'node:path';
 const profile = await mkdtemp(join(tmpdir(), 'step-permission-ui-'));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
+const executablePath = process.env.DESKTOP_VERIFY_EXE;
+const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
 const errors = [];
 let page;
 try {

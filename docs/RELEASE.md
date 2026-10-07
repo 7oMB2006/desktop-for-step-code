@@ -37,12 +37,12 @@ https://github.com/7oMB2006/desktop-for-step-code/actions/runs/37619401736/job/1
 | --- | --- | --- |
 | 已核对 | 准备基线 | 最新 main 已包含 PR #70；保留旧脏工作区，不从中直接发包 |
 | 待完成 | 版本及候选冻结 | 确认版本，记录完整 commit SHA；候选源码无未提交修改 |
-| 待完成 | 源码验收 | frozen-lockfile 安装、typecheck、全部 unit/protocol tests、build、PR CI 中全部 Electron 检查通过 |
-| 待完成 | 补充交互回归 | Context、Diff、撤销、引用、流式滚动等未单独列入当前 CI 的专用检查通过；关键明暗/窄窗截图人工确认 |
+| 待完成 | 源码验收 | frozen-lockfile 安装、typecheck、串行 unit/protocol tests、build、PR CI 中全部 Electron 检查通过；默认并发 test runner 的卡住情况已单独记录 |
+| 已通过 | 补充交互回归 | 候选包的 Context、Diff、撤销、引用、流式滚动专用检查通过；明暗与窄窗截图已生成，仍需发布者最终目视确认 |
 | 待完成 | 候选安装器 | 从冻结提交生成 NSIS x64 包；打包失败不得用旧 exe 或只用 unpacked 目录替代 |
 | 待完成 | 包内资源 | 核对 runtime manifest、Node、Step bundle、Desktop helpers、terminal host 及文件打开辅助资源；无账户、个人会话、fixture profile 或意外构建目录 |
 | 待完成 | 许可证及签名 | 检查安装包实际携带的上游/第三方许可证与版权声明；检查 Authenticode 状态，如未签名则明确说明可能出现 SmartScreen 提示 |
-| 待完成 | 打包版回归 | 使用该候选包的独立测试 profile 验证登录存储、并发/队列、摘要/子代理、浏览器/终端、链接/文件预览和通用 Electron 行为 |
+| 已通过 | 打包版回归 | 34 项 Electron 验收使用候选包 unpacked executable 与隔离测试 profile；明细见下方 2026-10-07 记录 |
 | 待完成 | 真实模型烟测 | 在最终候选上使用自己的真实账户完成任务、审批、历史恢复；核对至少一项真实工具改动与产物打开，不把 fixture 说成真实模型 |
 | 待完成 | 安装生命周期 | 一次性 Windows 环境完成下述流程，记录缺失或失败，不在日用机执行破坏性安装测试 |
 | 待完成 | 文档与校验值 | README 下载状态、已知限制、候选安装器 SHA-256 与 Release 文案一致；实际上传后再次下载核验 |
@@ -95,15 +95,18 @@ Authenticode 状态：待检查
 
 ## 2026-10-07 本地候选记录
 
-这份记录用于发布准备，不表示发布门槛全部通过。候选应用代码来自 `f3d83c30ecdc82df46542c773e1ef9c8f44319f3`；之后仅修正补充 Diff 验收脚本的旧新建会话假设，未修改候选应用代码。发布文档尚未合并，最终 tag 提交仍待冻结。
+这份记录用于发布准备，不表示发布门槛全部通过。候选应用代码来自 `f3d83c30ecdc82df46542c773e1ef9c8f44319f3`；随后修改的是验收脚本和发布文档，不涉及候选应用代码。发布文档尚未合并，最终 tag 提交仍待冻结。
 
 - 本地日用工作区已备份并 fast-forward 到 main；备份 ref 为 `refs/backups/pre-release-workspace-2026-10-07`。原来的独立 Step-Code 开发 checkout 保留。
 - 从独立 worktree 的 pinned Step Code 应用仓库补丁，frozen-lockfile 安装、构建并重新 staging 成功。上游构建联网生成模型目录，tracked 差异只有 `.manifest.json` 生成时间戳，结构哈希未变；不宣称构建逐字节可复现。
-- Desktop typecheck、220 项 unit/protocol tests 和 production build 通过。构建仍提示 renderer 大 chunk，不作为已经优化的性能承诺。
+- Desktop typecheck、串行模式下 220 项 unit/protocol tests 和 production build 通过。默认并发 test runner 本轮曾在 `terminal-sessions.test.ts` 停住；该测试随后以 `--test-concurrency=1` 单独和全套复验均通过，暂记为测试编排/fixture 并发稳定性风险，而不是产品用例失败。构建仍提示 renderer 大 chunk，不作为已经优化的性能承诺。
 - NSIS 安装器：`Desktop/release/v0.1.0-candidate/Desktop for Step Code Setup 0.1.0.exe`，`156676788` bytes。
 - SHA-256：`6d20c9c911e7832c0f1af6feeee15a9a51d0152f738e31d4ae7177552bcb1db0`；同目录包含仅记录该安装器的 `SHA256SUMS.txt`。
 - 安装器 Authenticode 为 `NotSigned`。electron-builder 的 signing 日志不代表实际具有签名证书。
 - 包内 manifest、Node、Step entry bundle、两份 Desktop helpers、terminal host 和文件打开辅助脚本与 staged/build 资源哈希一致。app.asar 根目录仅有 `node_modules`、`dist`、`package.json`，无旧 release/test-results 或源码工作目录。
 - 包含 Desktop/Step MIT、Step NOTICE/THIRD_PARTY_NOTICES、Node LICENSE、Electron/Chromium 许可与依赖许可文件；这不是对所有第三方材料的法律审计。
 - 候选安装器与 unpacked 合计约 712 MiB。旧包尚未删除，日用中的 `file-opening-persistent-preview` 进程未中断。
-- 源码完整 Electron 检查、打包版回归、真实账户烟测和一次性 Windows 安装生命周期的最终结果尚待补齐。未创建 tag、GitHub Release 或上传附件。
+- 候选包 34 项 Electron acceptance 通过，使用 `DESKTOP_VERIFY_EXE` 指向候选的 `win-unpacked` 可执行文件和隔离 fixture profile。覆盖 account settings、归档、auth vault、background subagents、browser、chat quotes、composer、context、conversation timing、crash log、cross-session、file preview、message feedback/links/order、拟创建会话、permission approval、review/diff、queue、branching、concurrency、sidebar order/scrollbar、StepPage registration、stream motion、subagent status、summary board/resize/runtime、terminal、theme bootstrap、turn artifacts/changes/undo。结果清单为 `Desktop/test-results/release-candidate-checks.json`；fixture pass 不等同于真实账户验收。
+- 候选包的通用 `verify-electron.mjs` 和 `verify-cross-session.mjs` 通过。后者发现指定 packaged executable 会绕过 Playwright loader 注入 `CDPScreenshotNewSurface`；已在脚本里显式补上该 feature 并复验。初次两次截图超时记录留在本地日志，不计为产品故障。
+- 候选应用源码 typecheck、串行 `--test-concurrency=1` 下 220 项 unit/protocol tests 和 production build 已通过；默认并发 runner 的本轮卡住已复现并停止，不能表述为并发模式通过。runtime manifest 仍匹配 Step Code `519e4de4ed2162d3667be1821cb92ada6b884e5a` 和 Node `v24.15.0`。
+- 真实账户烟测及一次性 Windows VM 对此候选安装器的全新安装/升级/卸载/重装仍未通过。此前 Issue #5 VM 测试针对另一候选，不能替代本次候选证据。未创建 tag、GitHub Release 或上传附件。

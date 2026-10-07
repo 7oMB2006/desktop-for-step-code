@@ -123,6 +123,8 @@ try {
   console.log('Drag, pinning and settings passed; checking reload.');
   await page.reload();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await page.waitForFunction(() => ['sidebar-0', 'sidebar-1', 'sidebar-2'].every(id =>
+    document.querySelector(`[data-reorder-kind="session"][data-reorder-id="${id}"]`)));
   assert.deepEqual(await rows(project(page, 0)), reorderedSessions);
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[0]), key(projects[2])]);
   console.log('Reload passed; checking remembered project open.');
@@ -141,6 +143,8 @@ try {
   console.log('Unpin and IPC validation passed; checking app restart.');
   await app.close(); app = null;
   page = await launch();
+  await page.waitForFunction(() => ['sidebar-0', 'sidebar-1', 'sidebar-2'].every(id =>
+    document.querySelector(`[data-reorder-kind="session"][data-reorder-id="${id}"]`)));
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[2]), key(projects[0])]);
   const restoredFixtureOrder = (await rows(project(page, 0))).filter(id => id.startsWith('sidebar-'));
   assert.deepEqual(restoredFixtureOrder, JSON.parse(beforeRestart).sessionOrder.filter(id => ['sidebar-0', 'sidebar-1', 'sidebar-2'].includes(id)));

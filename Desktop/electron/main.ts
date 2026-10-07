@@ -27,7 +27,7 @@ import type { BrowserAction } from '../src/contracts';
 import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Model, PermissionPreset, Preferences, Session, Snapshot } from '../src/contracts';
-import { reconcileSessionOrder, validateSidebarPreferences } from '../src/sidebar-order';
+import { validateSidebarPreferences } from '../src/sidebar-order';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
@@ -245,11 +245,6 @@ async function snapshot(worker = runtimes.active, refresh = true): Promise<Snaps
   if (draft) worker = undefined;
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
-  const sessionOrder = reconcileSessionOrder(preferences.sessionOrder ?? [], sessions);
-  if (JSON.stringify(sessionOrder) !== JSON.stringify(preferences.sessionOrder)) {
-    preferences.sessionOrder = sessionOrder;
-    await savePreferences();
-  }
   return {
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace },
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],

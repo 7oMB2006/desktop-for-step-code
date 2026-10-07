@@ -50,8 +50,12 @@ async function dispatch(message) {
     }
     case 'settings': {
       const config = upstream.readGlobalStepConfig();
+      const status = await upstream.getStepLoginStatus({ authPath });
+      const credential = upstream.readStepLoginCredential(authPath);
+      const userId = status.loggedIn && typeof credential?.uid === 'string' && status.account === credential.uid.trim()
+        ? credential.uid.trim().slice(0, 256) : undefined;
       return {
-        account: await upstream.getStepLoginStatus({ authPath }),
+        account: { loggedIn: status.loggedIn, validity: status.validity, profile: status.profile, ...(userId ? { userId } : {}) },
         profiles: upstream.resolveStepLoginProfiles().map(({ id, title, description, credentialSource }) => ({ id, title, description, credentialSource })),
         mcp: safeMcp(config.mcp_servers ?? {}),
         skills: upstream.loadSkills({ cwd: message.cwd, agentDir, skillPaths: [], includeDefaults: true, configDirName: '.stepcode' }).skills.map(({ name, description, source }) => ({ name, description, source })),

@@ -1,5 +1,15 @@
 # Verification
 
+## Account Settings Split
+
+The 2026-10-07 change separates Account and Providers in Settings. Account uses the supplied StepFun platform mark and four channel tiles for mainland/international Plan and API Key. Providers uses the same 17px, 2px outline icon convention as the other navigation entries and a noninteractive custom-provider placeholder. The management adapter exposes credential validity and an actual stored UID only when it matches the active account identity; the upstream profile fallback is not displayed as a user ID. Credential contents do not cross this settings DTO. Display name, avatar, plan tier, allowance and API balance are not supplied by current runtime interfaces and remain unavailable rather than inferred.
+
+Source and packaged account-settings and auth-vault Electron acceptance passed using isolated fixture profiles. Checks cover UID projection, channel/key reset, API login/logout, encrypted persistence, themes, 640px layout, English and reduced motion. The preview package is `Desktop/release/account-settings-preview/`; its installer SHA256 is `a83f02d4c1e81112a1121aae73c3080be860278a01d8be95a62de960cdb5255a`. The normal desktop shortcut targets its unpacked executable. The package includes local work present at packaging time; the PR contains only the account change. Fake keys do not establish real-account authorization. Installer lifecycle and paid-model acceptance were not performed.
+
+The isolated PR checkout based on main `64cfadb` passed typecheck, build, account-settings and general Electron acceptance, plus 202 tests excluding `terminal-sessions.test.ts`. The unchanged terminal count-limit test failed and left fixture hosts alive both during the full run and its isolated rerun; those test process trees were stopped explicitly. The remaining four terminal tests printed passing results. This is an unresolved local baseline-test limitation, not a full-suite pass.
+
+The PR #68 review fix guards settings initialization with selection and request revisions. A late response can refresh account information but cannot overwrite a channel selected during that request; older settings requests cannot replace newer responses. Typecheck, build and account-settings acceptance passed after the fix. The added deterministic IPC fixture holds a saved mainland account response, selects international API, enters a fixture key, releases the response, and verifies both retained selection/key and the intercepted international login parameters. No real authorization is sent. The existing preview package predates this fix.
+
 This file combines historical feature checks with the current release gates. Named `Desktop/release-*` directories below identify local outputs used for those checks; they are not required retained artifacts or current download locations. Current packaging writes to `Desktop/release/`.
 
 ## Permission Approval Presentation

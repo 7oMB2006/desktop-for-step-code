@@ -92,7 +92,11 @@ export class TurnUndoStore {
       for (const edit of [...file.edits].reverse()) {
         const patch = items.find(item => item.message.toolCallId === edit.id)?.message.details?.patch;
         if (!patch) throw new Error('Missing patch');
-        before = reverseExact(before, patch);
+        // The file has changed since the edit, so the pre-edit content cannot be reconstructed.
+        // Keep a record with no file versions: status() reports a conflict for it instead of
+        // leaving the turn without any record at all.
+        try { before = reverseExact(before, patch); }
+        catch { await this.save({ key, root, state: 'available', files: [] }); return; }
       }
       total += Buffer.byteLength(before) + after.length;
       if (total > MAX_TOTAL) throw new Error('Undo record is too large');
@@ -104,7 +108,10 @@ export class TurnUndoStore {
   private async checked(session: string, cwd: string, items: IndexedMessage[]) {
     const { key, changes } = identity(session, items);
     const record = await this.load(key);
-    if (!record || record.root.toLowerCase() !== (await realpath(cwd)).toLowerCase() ||
+    if (!record || record.root.toLowerCase() !== (await realpath(cwd)).toLowerCase()) return;
+    // An empty file list means capture could not reconstruct this turn. The key already binds
+    // the record to it, so it must not be rejected by the path comparison below.
+    if (record.files.length &&
       JSON.stringify(record.files.map(file => file.path)) !== JSON.stringify(changes.files.map(file => file.path))) return;
     return record;
   }
@@ -112,6 +119,8 @@ export class TurnUndoStore {
     const record = await this.checked(session, cwd, items);
     if (!record) return { state: 'unavailable' };
     if (record.state !== 'available') return { state: record.state };
+    // A record without file versions means the turn could not be reconstructed.
+    if (!record.files.length) return { state: 'conflict' };
     try {
       for (const file of record.files) {
         const path = await guardedPath(record.root, file.path);

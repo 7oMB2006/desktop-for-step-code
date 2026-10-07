@@ -75,14 +75,19 @@ function DiffFile({ file, repository, source, runtimeId, base, revision, languag
   </div>;
 }
 
-function ReviewContent({ runtimeId, messages, busy, active, language, expanded, onToggleExpanded, onClose, onError, repositoryRequest }: {
+function ReviewContent({ runtimeId, messages, busy, active, language, expanded, onToggleExpanded, onClose, onError, repositoryRequest, onRepositoryRequestHandled }: {
   runtimeId?: string; messages: Message[]; busy: boolean; active: boolean; language: 'zh' | 'en';
   onClose: () => void; onError: (error: string) => void;
   expanded: boolean; onToggleExpanded: () => void;
   repositoryRequest?: number;
+  onRepositoryRequestHandled?: (request: number) => void;
 }) {
   const [source, setSource] = useState<Source>(repositoryRequest ? 'branch' : 'turn');
-  useEffect(() => { if (repositoryRequest) setSource('branch'); }, [repositoryRequest]);
+  useEffect(() => {
+    if (!active || repositoryRequest === undefined) return;
+    setSource('branch');
+    onRepositoryRequestHandled?.(repositoryRequest);
+  }, [active, repositoryRequest, onRepositoryRequestHandled]);
   const [base, setBase] = useState('');
   const [repository, setRepository] = useState<RepositoryDiff>();
   const [loading, setLoading] = useState(false);
@@ -181,6 +186,7 @@ export function ReviewPanel({ open, replaced, overlay, ...props }: {
   language: 'zh' | 'en'; onClose: () => void; onError: (error: string) => void;
   expanded: boolean; onToggleExpanded: () => void;
   repositoryRequest?: number;
+  onRepositoryRequestHandled?: (request: number) => void;
 }) {
   const [present, setPresent] = useState(open);
   if (open && !present) setPresent(true);

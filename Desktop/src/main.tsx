@@ -971,6 +971,8 @@ function App() {
       onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
     <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || Boolean(details)}
       repositoryRequest={repositoryRequest?.runtimeId === data.runtimeId ? repositoryRequest?.sequence : undefined}
+      onRepositoryRequestHandled={sequence => setRepositoryRequest(value =>
+        value && value.runtimeId === data.runtimeId && value.sequence === sequence ? undefined : value)}
       expanded={inspectorExpanded && visibleRightPanel === 'review'}
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'review')}
       overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}

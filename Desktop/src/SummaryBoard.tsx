@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Check, Circle, FileDiff, GitBranch, Layers3, Plug } from 'lucide-react';
+import { ArrowUpRight, Check, FileDiff, GitBranch, Layers3, Plug } from 'lucide-react';
 import type { RepositoryDiff, SessionSummary, SummaryTask } from './contracts';
 import { DisclosureChevron } from './DisclosureChevron';
 import { DiffCount } from './DiffCount';
@@ -14,8 +14,7 @@ function TaskRow({ task, visible, language, animateEntrance }: { task: SummaryTa
     <div><div className={`sb-step is-${task.status}`}>
       <button className="sb-step-trigger" type="button" aria-expanded={open} aria-controls={id}
         aria-label={`${task.subject} · ${{ pending: language === 'zh' ? '待推进' : 'Pending', in_progress: language === 'zh' ? '进行中' : 'In progress', completed: language === 'zh' ? '已完成' : 'Completed' }[task.status]}`} onClick={() => setOpen(!open)}>
-        <span className="sb-step-symbol">{task.status === 'pending' ? <Circle size={12} strokeWidth={1.5} aria-hidden="true"/>
-          : <SubagentStatusIcon state={task.status === 'in_progress' ? 'running' : 'done'}/>}</span>
+        <span className="sb-step-symbol"><SubagentStatusIcon state={task.status === 'pending' ? 'pending' : task.status === 'in_progress' ? 'running' : 'done'}/></span>
         <span>{task.subject}</span><span className={`sb-fold-icon${open ? ' is-open' : ''}`}><DisclosureChevron/></span>
       </button>
       <div id={id} className={`sb-disclosure${open ? ' is-open' : ''}`} aria-hidden={!open} inert={!open}>
@@ -66,7 +65,10 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges }: 
   }, [runtimeId]);
   useLayoutEffect(() => {
     const key = (task: SummaryTask) => `${model?.plan?.id ?? ''}:${task.id}`;
-    const newlyCompleted = model?.tasks.filter(task => task.status === 'completed' && previous.current.get(key(task)) === 'in_progress').map(task => task.id) ?? [];
+    const newlyCompleted = model?.tasks.filter(task => {
+      const before = previous.current.get(key(task));
+      return task.status === 'completed' && before !== undefined && before !== 'completed';
+    }).map(task => task.id) ?? [];
     previous.current = new Map(model?.tasks.map(task => [key(task), task.status]));
     if (model) hasSnapshot.current = true;
     if (newlyCompleted.length) setRecent(ids => [...new Set([...ids, ...newlyCompleted])]);

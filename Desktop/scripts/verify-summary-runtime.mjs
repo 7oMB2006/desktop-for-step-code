@@ -46,6 +46,7 @@ const server = createServer(async (request, response) => {
     response.end(chunk({ role: 'assistant', tool_calls: [
       { index: 0, id: 'summary-update', type: 'function', function: { name: 'task_update', arguments: JSON.stringify({ taskId: '2', status: 'completed' }) } },
       { index: 1, id: 'summary-create', type: 'function', function: { name: 'task_create', arguments: JSON.stringify({ subject: '验证清单生成动画', description: '新增项平顺展开，已有项不重播。' }) } },
+      { index: 2, id: 'summary-fast-complete', type: 'function', function: { name: 'task_update', arguments: JSON.stringify({ taskId: '3', status: 'completed' }) } },
     ] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
   } else response.end(chunk({ role: 'assistant', content: '清单更新完成。' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
 });
@@ -88,9 +89,12 @@ try {
   await page.evaluate(() => {
     window.summaryMotion = [];
     window.summaryEntrance = [];
+    window.summaryFastCompletion = [];
     const record = () => {
       const live = [...document.querySelectorAll('.sb-step')].find(element => element.textContent.includes('接入清单与完成动画'));
       window.summaryMotion.push({ settling: live?.querySelector('[data-settling]')?.getAttribute('data-settling'), height: live?.getBoundingClientRect().height, state: live?.className });
+      const fast = [...document.querySelectorAll('.sb-task-shell')].find(element => element.textContent.includes('验证 MCP 状态和 Skills 数量'));
+      window.summaryFastCompletion.push({ settling: fast?.querySelector('[data-settling]')?.getAttribute('data-settling'), height: fast?.getBoundingClientRect().height });
       const created = [...document.querySelectorAll('.sb-task-shell')].find(element => element.textContent.includes('验证清单生成动画'));
       if (created) window.summaryEntrance.push({ height: created.getBoundingClientRect().height, opacity: Number(getComputedStyle(created).opacity),
         easing: getComputedStyle(created).transitionTimingFunction });
@@ -100,13 +104,14 @@ try {
   });
   await page.locator('.composer > textarea').fill('完成第二项');
   await page.locator('.composer > textarea').press('Enter');
-  await board.getByRole('button', { name: /已完成 2 项/ }).waitFor();
+  await board.getByRole('button', { name: /已完成 3 项/ }).waitFor();
   await page.waitForTimeout(1500);
   const update = await page.evaluate(async () => {
     const snapshot = await window.desktop.snapshot();
     return window.desktop.summary(snapshot.runtimeId);
   });
   assert.equal(update.tasks.find(task => task.id === '2').status, 'completed', 'Actual task_update must reach the board');
+  assert.equal(update.tasks.find(task => task.id === '3').status, 'completed', 'A pending task can complete directly');
   assert.ok(update.tasks.some(task => task.subject === '验证清单生成动画'), 'Actual task_create must reach the board');
   const entrance = await page.evaluate(() => window.summaryEntrance);
   assert.ok(entrance.some(frame => frame.height > 0 && frame.height < 30 && frame.opacity > 0 && frame.opacity < 1), 'New tasks must have intermediate height and opacity frames');
@@ -114,8 +119,11 @@ try {
   assert.ok(entrance.some(frame => frame.height >= 34 && frame.opacity === 1), 'New tasks settle at full height and opacity');
   const frames = await page.evaluate(() => window.summaryMotion);
   assert.ok(frames.some(frame => frame.settling === 'true' && frame.height > 20), 'mounted completion must animate before folding');
+  const fastFrames = await page.evaluate(() => window.summaryFastCompletion);
+  assert.ok(fastFrames.some(frame => frame.settling === 'true' && frame.height > 20), 'Pending-to-completed tasks must stay visible through the completion animation');
   assert.equal(await board.getByRole('button', { name: /接入清单与完成动画/ }).isVisible(), false, 'completed row collapses after its animation');
-  await board.getByRole('button', { name: /已完成 2 项/ }).click();
+  assert.equal(await board.getByRole('button', { name: /验证 MCP 状态和 Skills 数量/ }).isVisible(), false, 'Direct completion folds after animation');
+  await board.getByRole('button', { name: /已完成 3 项/ }).click();
   await board.getByRole('button', { name: /接入清单与完成动画/ }).waitFor();
   await page.waitForTimeout(350);
   await page.screenshot({ path: 'test-results/summary-runtime-completed.png' });
@@ -123,7 +131,28 @@ try {
   const review = page.getByRole('complementary', { name: '变更', exact: true });
   await review.waitFor();
   assert.equal(await review.getByRole('button', { name: '变更来源', exact: true }).textContent(), '分支');
+  await app.evaluate(({ Menu }) => {
+    Menu.prototype.popup = function (options) {
+      this.items.find(item => item.label === '上一轮')?.click();
+      options.callback?.();
+    };
+  });
+  await review.getByRole('button', { name: '变更来源', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="变更来源"]')?.textContent.trim() === '上一轮');
   await review.getByRole('button', { name: '关闭变更', exact: true }).click();
+  await page.locator('.review-panel').waitFor({ state: 'detached' });
+  await page.locator('.right-tool-rail').getByRole('button', { name: '变更', exact: true }).click();
+  await review.waitFor();
+  assert.equal(await review.getByRole('button', { name: '变更来源', exact: true }).textContent(), '上一轮', 'A consumed Summary navigation must not affect direct rail openings');
+  await review.getByRole('button', { name: '关闭变更', exact: true }).click();
+  await page.locator('.review-panel').waitFor({ state: 'detached' });
+  await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
+  await board.waitFor();
+  await board.locator('.sb-repo-change').click();
+  await review.waitFor();
+  assert.equal(await review.getByRole('button', { name: '变更来源', exact: true }).textContent(), '分支', 'A new Summary click must still select branch');
+  await review.getByRole('button', { name: '关闭变更', exact: true }).click();
+  await page.locator('.review-panel').waitFor({ state: 'detached' });
   await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
   await board.waitFor();
   assert.equal(await board.locator('.sb-task-shell.is-new').count(), 0, 'Reopening the board must not replay existing tasks');

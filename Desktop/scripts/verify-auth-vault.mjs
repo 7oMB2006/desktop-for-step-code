@@ -19,7 +19,7 @@ const launch = () => electron.launch({ ...(executablePath ? { executablePath } :
 let app = await launch();
 try {
   const page = await app.firstWindow();
-  await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
+  await page.getByRole('heading', { name: '让梦想阶跃星辰' }).waitFor();
   await page.evaluate(() => window.desktop.snapshot());
   const encrypted = await readFile(join(dataRoot, 'auth.dpapi'));
   assert.equal(encrypted.includes(Buffer.from(marker)), false);
@@ -37,7 +37,7 @@ try {
 app = await launch();
 try {
   const page = await app.firstWindow();
-  await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
+  await page.getByRole('heading', { name: '让梦想阶跃星辰' }).waitFor();
   await page.evaluate(() => window.desktop.snapshot());
   assert.equal(await page.evaluate(async () => (await window.desktop.settings()).account.loggedIn), true);
   await assert.rejects(readFile(join(dataRoot, 'auth.json')), { code: 'ENOENT' });

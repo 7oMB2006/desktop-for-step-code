@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { prepareSessionFixture } from './session-fixture.mjs';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, writeFile, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -70,6 +71,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  const initialEmpty = await prepareSessionFixture(page);
   await page.evaluate(() => {
     window.completionPlays = [];
     window.nativeMediaPlay = HTMLMediaElement.prototype.play;
@@ -79,7 +81,6 @@ try {
     };
   });
   const input = page.getByRole('textbox', { name: '消息', exact: true });
-  const initialEmpty = await page.evaluate(() => window.desktop.snapshot());
   await input.fill('Empty session draft');
   for (let i = 0; i < 5; i++) {
     const reused = await page.evaluate(id => window.desktop.command('new_session', {}, id), initialEmpty.runtimeId);

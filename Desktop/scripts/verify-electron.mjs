@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
+import { prepareSessionFixture } from './session-fixture.mjs';
 const profile = await mkdtemp(join(tmpdir(), 'step-desktop-electron-'));
 const workspace = join(profile, '中文项目 with spaces'); await mkdir(workspace);
 const secondWorkspace = join(profile, 'Second project'); await mkdir(secondWorkspace);
@@ -43,7 +44,8 @@ try {
   });
   assert.deepEqual(windowState, { opacity: 0, visible: true, focused: false });
   page.on('pageerror', e => errors.push(e.message));
-  await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
+  await page.getByRole('heading', { name: '让梦想阶跃星辰' }).waitFor();
+  await prepareSessionFixture(page);
   const documentPath = join(profile, 'attachment sample.md');
   await writeFile(documentPath, '# Attachment acceptance\n');
   await page.evaluate(() => {
@@ -481,9 +483,11 @@ try {
   independentState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(independentState.independent, true);
   assert.equal(independentState.messages.length, 0);
-  assert.notEqual(independentState.preferences.workspace, independentCwd);
-  assert.notEqual(independentState.preferences.workspace, startupState.preferences.workspace);
+  assert.equal(independentState.runtimeId, undefined);
+  assert.equal(independentState.state.sessionId, undefined);
+  assert.equal(independentState.preferences.workspace, undefined);
   assert.equal(independentState.preferences.workspaces.length, 2);
+  await prepareSessionFixture(page);
   await page.screenshot({ path: 'test-results/desktop-light.png' });
   await page.getByRole('button', { name: '账户设置', exact: true }).click();
   await page.getByRole('button', { name: '账户', exact: true }).click();
@@ -635,7 +639,9 @@ try {
     assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), 'Retained empty project draft');
   }
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('');
-  console.log('Project new-session clicks reuse one empty runtime and retain the composer draft without extra sidebar rows.');
+  assert.ok(projectState.draftId);
+  assert.equal(projectState.runtimeId, undefined);
+  console.log('Project new-session clicks retain one proposed session and its composer draft without creating a worker or sidebar row.');
   await page.screenshot({ path: 'test-results/desktop-dark-connected.png' });
   assert.equal(await page.locator('.topbar').count(), 0);
   const firstGroup = page.getByRole('region', { name: projectState.preferences.workspace, exact: true });
@@ -1405,7 +1411,7 @@ try {
   throw error;
 } finally { await app.close(); }
 
-// Both repeat launch and a brand-new profile must open an independent draft.
+// Both repeat launch and a brand-new profile open a proposal, not a worker.
 const cleanProfile = await mkdtemp(join(tmpdir(), 'step-desktop-first-run-'));
 for (const userData of [profile, cleanProfile]) {
   const relaunched = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env: { ...env, DESKTOP_TEST_USER_DATA: userData }, timeout: 60000 });
@@ -1417,8 +1423,11 @@ for (const userData of [profile, cleanProfile]) {
     });
     await page.waitForFunction(() => { const input = document.querySelector('.composer > textarea'); return input && !input.disabled; }, { timeout: 60000 });
     const home = await page.evaluate(() => window.desktop.snapshot());
-    assert.equal(home.independent, true);
-    assert.equal(home.status, 'connected');
+    assert.equal(home.independent, !home.preferences.workspace);
+    assert.equal(home.status, 'ready');
+    assert.ok(home.draftId);
+    assert.equal(home.runtimeId, undefined);
+    assert.equal(home.state.sessionId, undefined);
     assert.equal(home.messages.length, 0);
     assert.equal(home.preferences.workspaces.length, userData === profile ? 2 : 0);
     assert.equal(home.sessions.some(s => !s.independent && s.cwd.startsWith(join(userData, 'workspaces', 'independent'))), false);
@@ -1430,4 +1439,4 @@ for (const userData of [profile, cleanProfile]) {
     await page.screenshot({ path: `test-results/home-${userData === profile ? 'reopened' : 'first-run'}.png` });
   } finally { await relaunched.close(); }
 }
-console.log('Independent home passed: new/reopened profiles, fresh draft and persistent independent history.');
+console.log('Proposed home passed: new/reopened profiles, no eager worker and persistent independent history.');

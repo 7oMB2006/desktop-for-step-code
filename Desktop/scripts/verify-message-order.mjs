@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,7 +20,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
-  const saved = await page.evaluate(() => window.desktop.snapshot());
+  const saved = await prepareSessionFixture(page);
   await app.evaluate(({ ipcMain }, saved) => {
     const text = value => ({ role: 'assistant', content: [{ type: 'text', text: value }], timestamp: 2 });
     globalThis.messageOrderFixture = {

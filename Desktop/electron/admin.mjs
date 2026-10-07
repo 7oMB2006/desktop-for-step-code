@@ -17,6 +17,31 @@ const safeMcp = servers => Object.fromEntries(Object.entries(servers).map(([name
 }]));
 async function dispatch(message) {
   switch (message.type) {
+    case 'session_options': {
+      const settings = upstream.createStepSettingsManager(message.cwd, agentDir);
+      const runtime = await upstream.ModelRuntime.create({
+        authPath, modelsPath: join(dirname(authPath), 'models.json'), allowModelNetwork: false,
+      });
+      const registry = new upstream.ModelRegistry(runtime);
+      const { name, ...config } = upstream.createStepProviderConfig({ authPath });
+      registry.registerProvider(name, config);
+      await runtime.refresh({ allowNetwork: false });
+      // Project only the runtime model's declared levels; never guess xhigh/max support.
+      const models = registry.getAvailable().map(({ id, provider, name, reasoning, thinkingLevelMap }) => ({
+        id, provider, name, reasoning,
+        thinkingLevels: reasoning ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].filter(level =>
+          thinkingLevelMap?.[level] !== null && (!['xhigh', 'max'].includes(level) || thinkingLevelMap?.[level] !== undefined)) : ['off'],
+      }));
+      const provider = settings.getDefaultProvider() ?? upstream.STEP_DEFAULT_PROVIDER;
+      const id = settings.getDefaultModel() ?? upstream.STEP_DEFAULT_MODEL;
+      const model = models.find(model => model.provider === provider && model.id === id) ?? { id, provider, name: id };
+      const requested = settings.getDefaultThinkingLevel() ?? 'medium';
+      return {
+        models,
+        model, thinkingLevel: model.thinkingLevels?.includes(requested) ? requested : model.thinkingLevels?.[0],
+        permissionPreset: upstream.readGlobalStepConfig().permissionPreset ?? upstream.resolveInitialStepPermissionPreset(),
+      };
+    }
     case 'sessions': return (await upstream.SessionManager.listAll(sessions)).map(({ allMessagesText, ...s }) => s);
     case 'copy_session': {
       // Copy before starting an agent: restoring a cold original can append runtime metadata.

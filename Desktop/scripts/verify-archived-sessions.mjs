@@ -72,7 +72,7 @@ async function launch() {
       throw new Error('Archived deletion must not show a confirmation dialog');
     };
   });
-  await page.waitForFunction(async () => (await window.desktop?.snapshot())?.status === 'connected', undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled, undefined, { timeout: 60000 });
   return page;
 }
 async function archives(page) {

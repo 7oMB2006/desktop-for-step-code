@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -69,7 +70,7 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.evaluate(() => { HTMLMediaElement.prototype.play = () => Promise.resolve(); });
   // Real upstream edit emits its persisted patch and agent_end capture hook.
-  const live = await page.evaluate(() => window.desktop.snapshot());
+  const live = await prepareSessionFixture(page);
   const livePath = join(live.preferences.workspace, 'live.ts');
   await writeFile(livePath, 'const value = 1;\n');
   await page.locator('.composer > textarea').fill('Update the live file.');

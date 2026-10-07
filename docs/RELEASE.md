@@ -43,7 +43,7 @@ https://github.com/7oMB2006/desktop-for-step-code/actions/runs/37619401736/job/1
 | 待完成 | 包内资源 | 核对 runtime manifest、Node、Step bundle、Desktop helpers、terminal host 及文件打开辅助资源；无账户、个人会话、fixture profile 或意外构建目录 |
 | 待完成 | 许可证及签名 | 检查安装包实际携带的上游/第三方许可证与版权声明；检查 Authenticode 状态，如未签名则明确说明可能出现 SmartScreen 提示 |
 | 已通过 | 打包版回归 | 34 项 Electron 验收使用候选包 unpacked executable 与隔离测试 profile；明细见下方 2026-10-07 记录 |
-| 待完成 | 真实模型烟测 | 在最终候选上使用自己的真实账户完成任务、审批、历史恢复；核对至少一项真实工具改动与产物打开，不把 fixture 说成真实模型 |
+| 部分通过 | 真实模型烟测 | Windows Server 2022 云桌面上，用户确认真实账户登录、项目/会话加载及 Agent 对话正常；审批、重启后的历史恢复、真实工具改动及产物打开仍待验证 |
 | 待完成 | 安装生命周期 | 一次性 Windows 环境完成下述流程，记录缺失或失败，不在日用机执行破坏性安装测试 |
 | 待完成 | 文档与校验值 | README 下载状态、已知限制、候选安装器 SHA-256 与 Release 文案一致；实际上传后再次下载核验 |
 
@@ -77,7 +77,7 @@ Step Code commit / patches / Node：待包内核对
 安装器文件名 / 字节数 / SHA-256：待生成
 Authenticode 状态：待检查
 源码与打包版检查结果：待记录
-真实账户烟测：待记录，不保存凭据
+真实账户烟测：2026-10-08 Windows Server 2022 云桌面基础 smoke 通过；完整真实模型验收尚未完成，不保存凭据
 安装 / 迁移 / 卸载 / 重装：待记录
 未验收项与已知限制：待最终复核
 发布授权：尚未获得
@@ -110,3 +110,9 @@ Authenticode 状态：待检查
 - 候选包的通用 `verify-electron.mjs` 和 `verify-cross-session.mjs` 通过。后者发现指定 packaged executable 会绕过 Playwright loader 注入 `CDPScreenshotNewSurface`；已在脚本里显式补上该 feature 并复验。初次两次截图超时记录留在本地日志，不计为产品故障。
 - 候选应用源码 typecheck、串行 `--test-concurrency=1` 下 220 项 unit/protocol tests 和 production build 已通过；默认并发 runner 的本轮卡住已复现并停止，不能表述为并发模式通过。runtime manifest 仍匹配 Step Code `519e4de4ed2162d3667be1821cb92ada6b884e5a` 和 Node `v24.15.0`。
 - 真实账户烟测及一次性 Windows VM 对此候选安装器的全新安装/升级/卸载/重装仍未通过。此前 Issue #5 VM 测试针对另一候选，不能替代本次候选证据。未创建 tag、GitHub Release 或上传附件。
+
+## 2026-10-08 Windows Server 2022 云桌面基础烟测
+
+用户在阿里云无影个人云桌面的 Windows Server 2022 Datacenter 21H2 环境安装并启动候选安装器，以自己的账号进行了基础交互测试，并确认“一切正常”。截图可见应用版本 `0.1.0`、Step Code 已连接、项目会话已加载、Agent 对话已返回，输入区及本轮/会话上下文统计可用。此次观察支持该安装包在此 Server 2022 云环境完成安装、启动、登录和基础对话；不外推为 Windows 10/11 覆盖，也不把未见证的任务细节记作通过。
+
+该 smoke 未记录审批交互、应用重启后的历史/凭据恢复、真实工具改动及产物打开，也未完成覆盖安装、卸载和重装。因此真实模型烟测门槛为部分通过，安装生命周期门槛仍待完成。候选文件 SHA-256 再次核对为 `6d20c9c911e7832c0f1af6feeee15a9a51d0152f738e31d4ae7177552bcb1db0`；该包构建于 2026-10-07，早于当前发布准备提交，仍需在最终冻结提交上重建并复验哈希。当前 GitHub 最近成功的 PR CI 是 PR #70 的合并前提交，未覆盖本地发布准备分支上的验收脚本/文档提交。

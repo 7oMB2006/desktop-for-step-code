@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, Diff, Globe, Bot } from 'lucide-react';
+import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
 import 'katex/dist/katex.min.css';
 import './style.css';
@@ -36,6 +36,7 @@ import { LiveTurnChanges } from './LiveTurnChanges';
 import { QueuePreview } from './QueuePreview';
 import { ComposerContextBar } from './ComposerContextBar';
 import { ReviewPanel } from './ReviewPanel';
+import { SummaryBoard } from './SummaryBoard';
 import { TerminalPanel } from './TerminalPanel';
 import { BrowserPanel } from './BrowserPanel';
 import { SubagentPanel } from './SubagentPanel';
@@ -111,6 +112,7 @@ function App() {
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>('auto');
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>(null);
   const [selectedSubagent, setSelectedSubagent] = useState<SubagentTaskKey | null>(null);
+  const [repositoryRequest, setRepositoryRequest] = useState<{ runtimeId?: string; sequence: number }>();
   // The panel reads from live messages, so a subagent that finishes while it stays open keeps
   // updating instead of freezing on the status captured when the row was clicked.
   const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent), [data.messages, selectedSubagent]);
@@ -968,6 +970,7 @@ function App() {
       overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
     <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || Boolean(details)}
+      repositoryRequest={repositoryRequest?.runtimeId === data.runtimeId ? repositoryRequest?.sequence : undefined}
       expanded={inspectorExpanded && visibleRightPanel === 'review'}
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'review')}
       overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}
@@ -990,7 +993,8 @@ function App() {
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <header><h2>{t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={closeRightPanel}><X size={16}/></IconButton></header>
-          <div className="summary-content"><p className="panel-empty">{t('暂无摘要', 'No summary yet')}</p></div>
+          <div className="summary-content"><SummaryBoard key={`${data.runtimeId ?? 'empty'}:${data.state?.sessionId ?? ''}`} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
+            language={data.preferences.language} onOpenChanges={() => { setRepositoryRequest(value => ({ runtimeId: data.runtimeId, sequence: (value?.sequence ?? 0) + 1 })); setDetails(''); setRightPanel('review'); }}/></div>
         </aside>
       </div>}
       {visibleRightPanel === 'context' && !details && <div className={`summary-region context-region right-inspector-surface${inspectorExpanded ? ' is-expanded' : ''}`}>
@@ -1003,7 +1007,7 @@ function App() {
     <nav ref={rightRail} className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
-      <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><Diff size={18}/></IconButton>
+      <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><FileDiff size={18} strokeWidth={1.5}/></IconButton>
       <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>
         <IconButton title={t('子代理', 'Subagents')} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'subagent' ? null : 'subagent'); }}><Bot size={18}/></IconButton>

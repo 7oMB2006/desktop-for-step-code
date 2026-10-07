@@ -19,6 +19,9 @@ const patchedFiles = [
   ['index.ts', 'packages/coding-agent/src/index.ts', '394a944cd4758b705e3f5d87a7b94aae0a23abec'],
   ['build-coding-agent-bundle.mjs', 'scripts/build-coding-agent-bundle.mjs', 'da69d6cf5582c7e4f762ac2ecbb543fbc2ef87c8'],
   ['subagent-rpc-adapter.ts', 'packages/coding-agent/src/features/subagent/rpc-adapter.ts', '3ddc850f55fbd4947f0f980db5b4220ed55bb6d0'],
+  ['rpc-mode.ts', 'packages/coding-agent/src/modes/rpc/rpc-mode.ts', '9ba054b6fe48ee7839ed66095215d4c985f56e4e'],
+  ['rpc-types.ts', 'packages/coding-agent/src/modes/rpc/rpc-types.ts', '63e73570b724e9cecdfa192d984b5ea9b24677cb'],
+  ['mcp.ts', 'packages/coding-agent/src/step/mcp.ts', '8bd173c8212fdf52cf831283b05014251f268a0b'],
 ];
 const patchedSourceHashes = {};
 for (const [name, relative, expected] of patchedFiles) {
@@ -74,5 +77,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env'], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc'], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

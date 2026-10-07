@@ -18,7 +18,7 @@ if (patchText.includes("\r")) {
 	throw new Error("The Step Code integration patch has unsupported line endings");
 }
 const patchBytes = Buffer.from(patchText, "utf8");
-if (gitBlobHash(patchBytes) !== "cde715e4d7dae4daf87ebfff0050e18e246db59a") {
+if (gitBlobHash(patchBytes) !== "20398d1f21f7d8d89a60956dd37fb8a9e352a77d") {
 	throw new Error("The Step Code integration patch changed; review and update this applier");
 }
 
@@ -44,5 +44,14 @@ if (gitBlobHash(subagentRpcAdapterBytes) !== "9010d79a8f74ad026f805e2706b29a774b
 }
 
 const applyOptions = { input: patchBytes, stdio: ["pipe", "inherit", "inherit"] };
+for (const [relative, expected] of [
+	["packages/coding-agent/src/modes/rpc/rpc-mode.ts", "fd9aabca7465b6b104dcdd3f83f13ff2bd6b8ec9"],
+	["packages/coding-agent/src/modes/rpc/rpc-types.ts", "1565bd4ab5bea1d427fb11a4a7218187d8a91db7"],
+	["packages/coding-agent/src/step/mcp.ts", "db6b985480e9f570a240223c9475f3e503e044f2"],
+]) {
+	if (gitBlobHash(await readFile(path.join(upstreamDir, relative))) !== expected) {
+		throw new Error(`Unexpected pinned source content: ${relative}`);
+	}
+}
 execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], applyOptions);
 execFileSync("git", ["-C", upstreamDir, "apply", "-"], applyOptions);

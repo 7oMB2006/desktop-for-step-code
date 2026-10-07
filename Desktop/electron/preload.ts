@@ -54,6 +54,7 @@ const bridge: DesktopBridge = {
   },
   reviewMenu: (runtimeId, kind, selected, position) => invoke('reviewMenu', runtimeId, kind, selected, position),
   repositoryDiff: (runtimeId, base) => invoke('repositoryDiff', runtimeId, base),
+  summary: runtimeId => invoke('summary', runtimeId),
   repositoryFileDiff: (runtimeId, base, path) => invoke('repositoryFileDiff', runtimeId, base, path),
   turnUndo: (runtimeId, toolIds, action, token) => invoke('turnUndo', runtimeId, toolIds, action, token),
   windowControl: action => invoke('windowControl', action),

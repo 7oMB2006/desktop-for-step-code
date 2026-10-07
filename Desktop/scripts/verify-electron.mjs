@@ -749,7 +749,7 @@ try {
   }
   await page.mouse.move(800, 400);
   await page.getByRole('button', { name: '摘要', exact: true }).click();
-  await page.getByRole('complementary', { name: '摘要' }).getByText('暂无摘要').waitFor();
+  await page.getByRole('complementary', { name: '摘要' }).getByText('暂无任务清单').waitFor();
   await page.screenshot({ path: 'test-results/summary-placeholder.png' });
   await page.getByRole('button', { name: '摘要', exact: true }).click();
   const currentRow = page.locator('.session-row.selected');

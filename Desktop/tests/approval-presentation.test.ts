@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { permissionApprovalPresentation } from '../src/approval-presentation';
+import { permissionApprovalPresentation, redactApprovalText } from '../src/approval-presentation';
 import type { Message, UIRequest } from '../src/contracts';
 
 const callId = 'permission-call-3d6009f9';
@@ -65,6 +65,22 @@ test('ordinary writes keep their complete structured parameters and English loca
   assert.equal(result.inputKind, 'parameters');
   assert.deepEqual(JSON.parse(result.input), input);
   assert.match(result.reason, /permission settings/);
+});
+
+test('redacts credentials from commands, summaries, raw details and auxiliary parameters', () => {
+  const r = request('write_file can modify the workspace or execute a command', 'Approve', 'write_file');
+  r.message = r.message!.replace(summary, 'write_file path=note.md Authorization: Bearer visible-token');
+  const result = permissionApprovalPresentation(r, messages({
+    path: 'note.md', content: 'safe', authorization: 'token-value', env: { API_KEY: 'secret-value', PATH: 'visible-path' },
+    command: 'curl -H "Authorization: Bearer command-token" https://example.test?token=query-token',
+  }, callId, 'write_file'), 'zh', 'worker-1')!;
+  assert.match(result.input, /Bearer \[redacted\]/);
+  assert.doesNotMatch(result.input, /command-token|query-token/);
+  assert.match(result.otherParameters!, /"authorization": "\[redacted\]"/);
+  assert.match(result.otherParameters!, /"API_KEY": "\[redacted\]"/);
+  assert.match(result.otherParameters!, /"PATH": "\[redacted\]"/);
+  assert.doesNotMatch(result.rawMessage, /visible-token/);
+  assert.equal(redactApprovalText('api_key=raw-secret'), 'api_key=[redacted]');
 });
 
 test('handles CRLF and unknown analysis codes without inventing a risk classification', () => {

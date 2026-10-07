@@ -23,6 +23,32 @@ const dangerousRules: Record<string, [string, string]> = {
   'destructive-sql': ['命令包含删除数据库或清空数据表，可能不可恢复地删除数据。', 'This command includes dropping a database or truncating a table and may irreversibly delete data.'],
 };
 
+const sensitiveKey = /(?:api[-_]?key|access[-_]?key|token|secret|password|passwd|credential|cookie|authorization|client[-_]?secret|env)/i;
+
+export function redactApprovalText(value: string): string {
+  return value
+    .replace(/\b(?:sk-|ghp_|github_pat_)[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
+    .replace(/(?<![A-Za-z0-9_$-])(["']?[A-Za-z0-9_$-]*(?:api[-_]?key|access[-_]?key|token|secret|password|passwd|credential|cookie|authorization|client[-_]?secret)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|Bearer\s+\[redacted\]|[^\s,;&]+)/gi,
+      (_match, prefix: string, secret: string) => `${prefix}${/^Bearer\s+\[redacted\]$/i.test(secret) ? secret : '[redacted]'}`);
+}
+
+function redactApprovalValue(value: unknown, key?: string): unknown {
+  if (key && sensitiveKey.test(key)) {
+    if (key.toLowerCase() === 'env' && value && typeof value === 'object' && !Array.isArray(value)) {
+      return Object.fromEntries(Object.keys(value as Record<string, unknown>).map(name => [name, '[redacted]']));
+    }
+    return '[redacted]';
+  }
+  if (typeof value === 'string') return redactApprovalText(value);
+  if (Array.isArray(value)) return value.map(item => redactApprovalValue(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .map(([name, item]) => [name, redactApprovalValue(item, name)]));
+  }
+  return value;
+}
+
 function callInput(messages: Message[], callId: string, toolName: string): Record<string, unknown> | undefined {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
@@ -80,8 +106,8 @@ export function permissionApprovalPresentation(
     title: category === 'hazardous' ? t('高风险操作需要批准', 'Approve high-risk operation')
       : commandTool ? t('批准执行命令', 'Approve command execution')
         : writingTool ? t('批准文件修改', 'Approve file changes') : t('批准工具操作', 'Approve tool call'),
-    category, reason, reasonCode, toolName, callId, input: summary,
-    inputKind: 'summary', rawMessage,
+    category, reason, reasonCode, toolName, callId, input: redactApprovalText(summary),
+    inputKind: 'summary', rawMessage: redactApprovalText(rawMessage),
   };
   // Never recover inputs by the short display ID or from another runtime.
   if (request.runtimeId && request.runtimeId !== runtimeId) return result;
@@ -90,14 +116,16 @@ export function permissionApprovalPresentation(
   try {
     const commandKey = ['command', 'cmd', 'script'].find(key => typeof input[key] === 'string');
     if (commandKey) {
-      result.input = input[commandKey] as string;
+      result.input = redactApprovalText(input[commandKey] as string);
       result.inputKind = 'command';
-      const other = Object.fromEntries(Object.entries(input).filter(([key]) => key !== commandKey));
+      const other = Object.fromEntries(Object.entries(input)
+        .filter(([key]) => key !== commandKey)
+        .map(([key, value]) => [key, redactApprovalValue(value, key)]));
       if (Object.keys(other).length) result.otherParameters = JSON.stringify(other, null, 2);
     } else {
-      result.input = JSON.stringify(input, null, 2);
+      result.input = JSON.stringify(redactApprovalValue(input), null, 2);
       result.inputKind = 'parameters';
     }
-  } catch { return { ...result, input: summary, inputKind: 'summary', otherParameters: undefined }; }
+  } catch { return { ...result, input: redactApprovalText(summary), inputKind: 'summary', otherParameters: undefined }; }
   return result;
 }

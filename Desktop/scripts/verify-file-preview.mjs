@@ -196,13 +196,16 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   const menuBox = await openingMenu.boundingBox();
   assert.ok(menuBox.x >= 0 && menuBox.x + menuBox.width <= 640 && menuBox.y > 46);
   await page.screenshot({ path: 'test-results/file-preview-narrow.png' });
-  await page.mouse.click(20, 430);
+  await page.locator('#file-panel .file-preview-scroll').click({ position: { x: 12, y: 12 } });
   await openingMenu.waitFor({ state: 'hidden' });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await widthTrigger.click();
   await widthMenu.waitFor();
   assert.equal(await widthMenu.evaluate(element => getComputedStyle(element).transitionDuration), '0s');
+  await page.waitForFunction(() => document.activeElement?.closest('[role="menu"]')?.getAttribute('aria-label') === '文件预览宽度');
   await page.keyboard.press('Escape');
+  await widthMenu.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('#file-panel').getAttribute('aria-hidden'), 'false', 'dismissing the width menu keeps file preview open');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await app.evaluate(({ dialog }, chosen) => {
     globalThis.originalFileDialog = dialog.showOpenDialog;

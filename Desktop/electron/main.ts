@@ -298,7 +298,7 @@ async function beginSession(workspace?: string) {
     runtimes.activeId = undefined;
     runtimes.publish();
     await runtimes.recycle();
-    return await snapshot(undefined, false);
+    return await snapshot();
   } finally { transition = false; }
 }
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };

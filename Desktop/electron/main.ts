@@ -20,7 +20,7 @@ import { BrowserTabs } from './browser-tabs';
 import type { BrowserAction } from '../src/contracts';
 import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
-import type { Preferences, Session, Snapshot } from '../src/contracts';
+import type { Model, PermissionPreset, Preferences, Session, Snapshot } from '../src/contracts';
 import { reconcileSessionOrder, validateSidebarPreferences } from '../src/sidebar-order';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
@@ -43,6 +43,8 @@ let quitting = false;
 let quitPending = false;
 let startup: Promise<void> = Promise.resolve();
 let startupError: string | undefined;
+let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Model[]; thinkingLevel?: string;
+  permissionPreset?: PermissionPreset; modelChanged?: boolean; permissionChanged?: boolean; thinkingChanged?: boolean } | undefined = { id: randomUUID() };
 let undoBusy = false;
 const undoStore = new TurnUndoStore(join(app.getPath('userData'), 'turn-undo'));
 const undoCaptures = new Map<string, Promise<void>>();
@@ -219,6 +221,8 @@ function cachedSessions(): Session[] {
   return [...sessions.values()];
 }
 async function snapshot(worker = runtimes.active, refresh = true): Promise<Snapshot> {
+  const draft = sessionDraft;
+  if (draft) worker = undefined;
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
   const sessionOrder = reconcileSessionOrder(preferences.sessionOrder ?? [], sessions);
@@ -227,13 +231,14 @@ async function snapshot(worker = runtimes.active, refresh = true): Promise<Snaps
     await savePreferences();
   }
   return {
-    preferences: { ...preferences, workspace: worker?.cwd ?? preferences.workspace },
-    status: worker?.status ?? status, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
-    state: worker?.state, permissionPreset: worker?.permissionPreset, runtimeRevision: worker?.revision,
-    messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: worker?.models ?? [], stats: worker?.stats,
+    preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace },
+    status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
+    state: draft ? { isStreaming: false, model: draft.model, thinkingLevel: draft.thinkingLevel } : worker?.state,
+    permissionPreset: draft?.permissionPreset ?? worker?.permissionPreset, runtimeRevision: worker?.revision,
+    messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: draft?.models ?? worker?.models ?? [], stats: worker?.stats,
     pendingMessages: worker ? pendingMessages.list(worker) : [],
     requests: worker ? [...worker.pendingUI.values()] : [],
-    sessions, independent: !worker || isIndependentPath(worker.cwd),
+    sessions, independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
   };
 }
 async function guardIdle() {
@@ -248,6 +253,7 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
     if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
     status = 'connecting';
     const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment(), sessionPath);
+    sessionDraft = undefined;
     preferences.workspace = canonical;
     if (rememberProject && !pathKey(canonical).startsWith(`${pathKey(independentRoot)}/`)) {
       const previous = await Promise.all(preferences.workspaces.map(async path => ({ path, same: await samePath(path, canonical) })));
@@ -273,9 +279,62 @@ async function newIndependentSession() {
   await mkdir(cwd, { recursive: true });
   return connect(cwd, undefined, false);
 }
+async function beginSession(workspace?: string) {
+  if (transition || deletingArchived) throw new Error('Workspace operation in progress');
+  const selected = workspace === undefined ? undefined
+    : preferences.workspaces.find(path => pathKey(path) === pathKey(workspace));
+  if (workspace !== undefined && !selected) throw new Error('Unknown workspace');
+  transition = true;
+  try {
+    const previous = sessionDraft;
+    const options = await admin.request('session_options', { cwd: selected ?? app.getPath('documents') });
+    const next: NonNullable<typeof sessionDraft> = { id: previous?.id ?? randomUUID(), workspace: selected, ...options,
+      permissionPreset: previous?.permissionPreset ?? options.permissionPreset, permissionChanged: previous?.permissionChanged };
+    if (previous?.modelChanged) Object.assign(next, { model: previous.model, modelChanged: true });
+    if (previous?.thinkingChanged && next.model?.thinkingLevels?.includes(previous.thinkingLevel!))
+      Object.assign(next, { thinkingLevel: previous.thinkingLevel, thinkingChanged: true });
+    sessionDraft = next;
+    // Keep existing workers running, but none is being viewed on the draft page.
+    runtimes.activeId = undefined;
+    runtimes.publish();
+    await runtimes.recycle();
+    return await snapshot();
+  } finally { transition = false; }
+}
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[]) {
   switch (method) {
+    case 'beginSession': return beginSession(args[0] === undefined ? undefined : text(args[0], 2048));
+    case 'chooseSessionProject': {
+      if (transition || deletingArchived) throw new Error('Workspace operation in progress');
+      const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
+      if (result.canceled) return null;
+      if (transition || deletingArchived) throw new Error('Workspace operation in progress');
+      const canonical = await realpath(result.filePaths[0]);
+      if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
+      const existing = (await Promise.all(preferences.workspaces.map(async path => await samePath(path, canonical) ? path : undefined))).find(Boolean);
+      if (!existing) { preferences.workspaces = [...preferences.workspaces, canonical]; await savePreferences(); }
+      return beginSession(existing ?? canonical);
+    }
+    case 'createDraftSession': {
+      if (!sessionDraft || sessionDraft.id !== text(args[0], 80)) throw new Error('This session draft is no longer active');
+      const draft = sessionDraft;
+      const created = await (draft.workspace ? connect(draft.workspace) : newIndependentSession());
+      try {
+        if (draft.modelChanged && draft.model) await handle('command', ['set_model', { provider: draft.model.provider, modelId: draft.model.id }, created.runtimeId]);
+        if (draft.thinkingChanged) await handle('command', ['set_thinking_level', { level: draft.thinkingLevel }, created.runtimeId]);
+        if (draft.permissionChanged) await handle('command', ['set_permission_preset', { preset: draft.permissionPreset }, created.runtimeId]);
+        return await snapshot(runtimes.require(created.runtimeId));
+      } catch (error) {
+        const worker = created.runtimeId && runtimes.workers.get(created.runtimeId);
+        if (worker && !worker.messages.length && !runtimes.isBusy(worker)) {
+          await runtimes.remove(worker);
+          sessionDraft = draft;
+          runtimes.activeId = undefined;
+        }
+        throw error;
+      }
+    }
     case 'browserList': return browser!.snapshot();
     case 'browserCreate': return browser!.create(args[0] === undefined ? undefined : text(args[0], 8192));
     case 'browserSelect': return browser!.select(text(args[0], 80));
@@ -439,6 +498,7 @@ async function handle(method: string, args: any[]) {
       if (transition || deletingArchived) throw new Error('Workspace operation in progress');
       const resident = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === text(args[0]));
       if (resident) {
+        sessionDraft = undefined;
         runtimes.activate(resident);
         preferences.workspace = resident.cwd;
         void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
@@ -591,6 +651,27 @@ async function handle(method: string, args: any[]) {
     case 'command': {
       const type = text(args[0], 80); const data = args[1] ?? {};
       if (transition) throw new Error('Workspace is changing');
+      if (sessionDraft && args[2] === undefined) {
+        if (type === 'set_model') {
+          const model = sessionDraft.models?.find(model => model.id === data.modelId && model.provider === data.provider);
+          if (!model) throw new Error('Unknown model');
+          sessionDraft.model = model; sessionDraft.modelChanged = true;
+          if (!model.thinkingLevels?.includes(sessionDraft.thinkingLevel!)) sessionDraft.thinkingLevel = model.thinkingLevels?.[0];
+          sessionDraft.thinkingChanged = Boolean(sessionDraft.thinkingLevel);
+          return;
+        }
+        if (type === 'set_thinking_level') {
+          if (!sessionDraft.model?.thinkingLevels?.includes(data.level)) throw new Error('Unsupported thinking level');
+          sessionDraft.thinkingLevel = data.level; sessionDraft.thinkingChanged = true;
+          return;
+        }
+        if (type === 'set_permission_preset') {
+          if (!permissionPresets.includes(data.preset)) throw new Error('Unknown permission preset');
+          sessionDraft.permissionPreset = data.preset; sessionDraft.permissionChanged = true;
+          return;
+        }
+        throw new Error('Send a message to create this session first');
+      }
       const runtimeId = args[2] === undefined ? runtimes.activeId : text(args[2], 80);
       const worker = ['queue_edit', 'queue_remove'].includes(type) ? runtimes.workers.get(runtimeId!) : runtimes.require(runtimeId);
       if (!worker) throw new Error('This session runtime is unavailable');
@@ -710,7 +791,7 @@ async function handle(method: string, args: any[]) {
         if (type === 'prompt') { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }
       }
     }
-    case 'settings': return admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
+    case 'settings': return admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') });
     case 'login': {
       await guardIdle();
       const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
@@ -932,10 +1013,10 @@ else app.whenReady().then(async () => {
   ipcMain.handle('desktop', async (event, method, ...args) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
     const shared = ['login', 'logout', 'saveMcp'].includes(method);
-    if (undoBusy && ['command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
+    if (undoBusy && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
       'switchSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp'].includes(method))
       throw new Error('Undo in progress');
-    if (settingsMutation && ['command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp'].includes(method)) throw new Error('Shared settings operation in progress');
     if (shared) settingsMutation = true;
     try { return await handle(method, args); }
     catch (error) { throw new Error(error instanceof Error ? error.message : 'Desktop operation failed'); }
@@ -945,7 +1026,7 @@ else app.whenReady().then(async () => {
   {
     startup = (async () => {
       try {
-        await newIndependentSession();
+        await beginSession(preferences.workspaces.find(path => pathKey(path) === pathKey(preferences.workspace ?? '')));
       } catch (error) {
         status = 'disconnected';
         await runtimes.stopAll();

@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { createPatch } from 'diff';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -23,7 +24,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1440, 1000);
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
-  const original = await page.evaluate(() => window.desktop.snapshot());
+  const original = await prepareSessionFixture(page);
   const now = Date.now();
   const edit = (path, before, after, id) => [
     { role: 'assistant', content: [{ type: 'toolCall', name: 'edit_file', id, arguments: { path, edits: [{ oldText: before, newText: after }] } }], timestamp: now - 30000 },

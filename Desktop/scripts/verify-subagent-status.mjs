@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -20,7 +21,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1157, 790);
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
-  const snapshot = await page.evaluate(() => window.desktop.snapshot());
+  const snapshot = await prepareSessionFixture(page);
   const task = '对一份摘要做事实忠实性审查。只读，严禁修改、创建或删除任何文件。需要读的两个文件都在当前工作目录：原始材料与研究摘要。';
   const tasks = [
     { agent: 'review', task, status: 'running', messages: [] },

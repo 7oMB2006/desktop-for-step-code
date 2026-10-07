@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -23,7 +24,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1706, 1066);
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
-  const original = await page.evaluate(() => window.desktop.snapshot());
+  const original = await prepareSessionFixture(page);
   const now = Date.now();
   const usage = { input: 2136, output: 824, cacheRead: 11240, cacheWrite: 0, reasoning: 256,
     totalTokens: 14200, cost: { input: .004272, output: .006592, cacheRead: .002248, cacheWrite: 0, total: .013112 } };

@@ -39,6 +39,7 @@ import { QueuePreview } from './QueuePreview';
 import { ComposerContextBar } from './ComposerContextBar';
 import { ReviewPanel } from './ReviewPanel';
 import { SummaryBoard } from './SummaryBoard';
+import { NewSession } from './NewSession';
 import { TerminalPanel } from './TerminalPanel';
 import { BrowserPanel } from './BrowserPanel';
 import { SubagentPanel } from './SubagentPanel';
@@ -109,6 +110,8 @@ function App() {
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const firstSend = useRef(false);
   const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
   const [liveChangesOpen, setLiveChangesOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>('auto');
@@ -166,8 +169,8 @@ function App() {
   const metricsBySession = useRef(new Map<string, RunMetrics | null>());
   const composerBySession = useRef(new Map<string, { draft: string; quotes: ChatQuote[]; attachments: ComposerAttachment[]; follow: boolean; top: number }>());
   const errorsBySession = useRef(new Map<string, string>());
-  const view = useRef({ runtimeId: data.runtimeId, sessionId: data.state?.sessionId, draft, quotes, attachments });
-  view.current = { runtimeId: data.runtimeId, sessionId: data.state?.sessionId, draft, quotes, attachments };
+  const view = useRef({ runtimeId: data.runtimeId, sessionId: data.state?.sessionId, draftId: data.draftId, draft, quotes, attachments });
+  view.current = { runtimeId: data.runtimeId, sessionId: data.state?.sessionId, draftId: data.draftId, draft, quotes, attachments };
   useLayoutEffect(() => { quoteScopeRef.current = quoteScope; }, [quoteScope]);
   const followLayout = useCallback(() => {
     const viewport = scroll.current;
@@ -254,7 +257,7 @@ function App() {
   }, [visibleRightPanel, details, settingsOpen, preview, requests.length, renaming, closeRightPanel, inspectorExpanded]);
   const zh = data.preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
-  const connected = data.status === 'connected';
+  const connected = data.status === 'connected' || data.status === 'ready';
   const anyBusy = data.runtimes?.some(runtime => runtime.status === 'running' || runtime.status === 'waiting') ?? busy;
   const action = composerAction(busy, draft, attachments.length + quotes.length);
   const current = data.sessions.find(s => s.id === data.state?.sessionId);
@@ -406,7 +409,7 @@ function App() {
     return () => clearInterval(timer);
   }, [runMetrics?.startedAt, runMetrics?.finishedAt]);
   useEffect(() => {
-    if (!connected) return;
+    if (!connected || !data.runtimeId) { setLevels(data.state?.model?.thinkingLevels ?? []); setCommands([]); return; }
     const id = data.runtimeId;
     void run(async () => {
       const [effort, available] = await Promise.all([bridge!.command('get_available_thinking_levels', undefined, id), bridge!.command('get_commands', undefined, id)]);
@@ -529,8 +532,9 @@ function App() {
     await run(async () => { await bridge!.command('extension_ui_response', { id: r.id, ...value }, r.runtimeId ?? viewId.current); setRequests(q => q.filter(v => v.id !== r.id)); });
   };
   const openSettings = async () => { setSettingsOpen(true); await run(async () => setSettings(await bridge!.settings())); };
-  const addAttachments = (added: ComposerAttachment[], id = view.current.sessionId) => {
-    const background = id && id !== view.current.sessionId;
+  const addAttachments = (added: ComposerAttachment[], id = view.current.sessionId ?? view.current.draftId) => {
+    const background = id && id !== (view.current.sessionId ?? view.current.draftId);
+    if (background && !latestData.current.sessions.some(session => session.id === id)) return;
     const saved = background ? composerBySession.current.get(id) : undefined;
     const previous = background ? saved?.attachments ?? [] : attachmentsRef.current;
     const next = [...previous, ...added];
@@ -542,7 +546,7 @@ function App() {
     else { attachmentsRef.current = next; setAttachments(next); }
   };
   const importFiles = async (files: File[]) => run(async () => {
-    const id = view.current.sessionId;
+    const id = view.current.sessionId ?? view.current.draftId;
     if (!files.length) return;
     if (files.length + attachmentsRef.current.length > 10) throw new Error(t('最多添加 10 个附件', 'Maximum 10 attachments'));
     const added: ComposerAttachment[] = [];
@@ -572,10 +576,11 @@ function App() {
     });
   };
   const send = async () => {
-    if ((!draft.trim() && !attachments.length && !quotes.length) || !connected || loading) return;
+    if ((!draft.trim() && !attachments.length && !quotes.length) || !connected || loading || firstSend.current) return;
     const message = draft; const attached = attachments; const sentQuotes = quotes; const scope = quoteScope;
-    const id = viewId.current;
-    const sessionId = data.state?.sessionId;
+    let id = viewId.current;
+    let sessionId = data.state?.sessionId;
+    let deliveryScope = scope;
     if (sessionId) errorsBySession.current.delete(sessionId);
     const prompt = quotePrompt(message, sentQuotes, data.preferences.language);
     if (prompt.length > MAX_PROMPT_LENGTH) {
@@ -585,11 +590,24 @@ function App() {
     setDraft(''); setQuotes([]); setAttachments([]); attachmentsRef.current = []; follow.current = true; setAwayFromBottom(false);
     await run(async () => {
       try {
+        if (data.draftId) {
+          firstSend.current = true; switching.current = true; setLoading(true);
+          try {
+            const created = await bridge!.createDraftSession(data.draftId);
+            installSnapshot(created);
+            id = created.runtimeId;
+            sessionId = created.state?.sessionId;
+            deliveryScope = `${created.preferences.workspace ?? ''}:${sessionId ?? ''}`;
+            quoteScopeRef.current = deliveryScope;
+          } finally {
+            firstSend.current = false; switching.current = false; setLoading(false);
+          }
+        }
         const submission = bridge!.command('prompt', { message: prompt, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
         if (busy) queueSend.current = submission;
         try { await submission; } finally { if (queueSend.current === submission) queueSend.current = null; }
       } catch (e) {
-        if (quoteScopeRef.current !== scope) {
+        if (quoteScopeRef.current !== deliveryScope) {
           if (sessionId) {
             const saved = composerBySession.current.get(sessionId);
             errorsBySession.current.set(sessionId, String(e instanceof Error ? e.message : e));
@@ -757,14 +775,12 @@ function App() {
   };
   const toggleWorkspace = (key: string) => setCollapsedWorkspaces(previous => { const next = new Set(previous); next.has(key) ? next.delete(key) : next.add(key); return next; });
   const independentExpanded = !collapsedWorkspaces.has('__independent__');
-  const createInWorkspace = async (path: string, sessions: typeof data.sessions) => {
+  const createInWorkspace = async (path: string, _sessions: typeof data.sessions) => {
     setCollapsedWorkspaces(previous => { const next = new Set(previous); next.delete(workspaceKey(path)); return next; });
-    await applySnapshot(async () => {
-      if (data.preferences.workspaces.includes(path)) return bridge!.workspace(path);
-      const result = await bridge!.switchSession(sessions[0].id);
-      return bridge!.command('new_session', undefined, result.runtimeId);
-    });
+    await applySnapshot(() => bridge!.beginSession(path));
   };
+  const newSession = () => applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace));
+  const openProject = () => applySnapshot(() => bridge!.chooseSessionProject());
   const toggleSidebar = () => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open);
   const renderWorkspace = ([key, group]: [string, { path: string; sessions: Session[] }]) => {
     const expanded = !collapsedWorkspaces.has(key);
@@ -789,9 +805,9 @@ function App() {
   };
   const menus: WindowMenu[] = [
     { id: 'file', label: t('文件', 'File'), items: [
-      { label: t('新建独立会话', 'New independent session'), disabled: !bridge || loading, action: () => void applySnapshot(() => bridge!.newIndependentSession()) },
-      { label: t('打开项目…', 'Open project...'), disabled: !bridge || loading, action: () => void applySnapshot(() => bridge!.chooseWorkspace()) },
-      { label: t('打开会话文件夹', 'Open session folder'), disabled: !bridge || !data.preferences.workspace || loading, action: () => void run(() => bridge!.openSessionFolder()) },
+      { label: t('新建独立会话', 'New independent session'), disabled: !bridge || loading, action: () => void applySnapshot(() => bridge!.beginSession()) },
+      { label: t('打开项目…', 'Open project...'), disabled: !bridge || loading, action: () => void openProject() },
+      { label: t('打开会话文件夹', 'Open session folder'), disabled: !bridge || !data.runtimeId || loading, action: () => void run(() => bridge!.openSessionFolder()) },
     ] },
     { id: 'edit', label: t('编辑', 'Edit'), items: [
       { label: t('重命名会话', 'Rename session'), disabled: !connected || busy || !data.state?.sessionId, action: () => beginRename('session', data.state!.sessionId!) },
@@ -799,8 +815,8 @@ function App() {
     ] },
     { id: 'view', label: t('视图', 'View'), items: [
       { label: sidebarVisible ? t('隐藏侧栏', 'Hide sidebar') : t('显示侧栏', 'Show sidebar'), action: toggleSidebar },
-      { label: t('会话统计', 'Session statistics'), disabled: !connected, action: () => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats', undefined, viewId.current), null, 2))) },
-      { label: t('重启运行时', 'Restart runtime'), disabled: !data.preferences.workspace || busy || loading, action: () => void applySnapshot(() => bridge!.restart()) },
+      { label: t('会话统计', 'Session statistics'), disabled: !data.runtimeId, action: () => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats', undefined, viewId.current), null, 2))) },
+      { label: t('重启运行时', 'Restart runtime'), disabled: !data.runtimeId || busy || loading, action: () => void applySnapshot(() => bridge!.restart()) },
     ] },
     { id: 'help', label: t('帮助', 'Help'), items: [
       { label: t('设置', 'Settings'), disabled: !bridge, action: () => void openSettings() },
@@ -871,7 +887,7 @@ function App() {
     {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
     <aside className="sidebar" inert={!sidebarVisible}>
       <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
-      <button className="new-chat" disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.newIndependentSession())}><Plus size={17}/>{t('新建会话', 'New session')}</button>
+      <button className="new-chat" disabled={!bridge || loading} onClick={() => void newSession()}><Plus size={17}/>{t('新建会话', 'New session')}</button>
       <nav className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
           <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
@@ -883,9 +899,9 @@ function App() {
           <div className="section-label">{t('置顶', 'Pinned')}</div>
           {[...pinnedWorkspaces].flatMap(key => workspaceGroups.has(key) ? [[key, workspaceGroups.get(key)!] as [string, { path: string; sessions: Session[] }]] : []).map(renderWorkspace)}
         </div>}
-        <div className="section-label">{t('项目', 'Projects')}<IconButton title={t('添加工作区', 'Add workspace')} disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><Plus size={15}/></IconButton></div>
+        <div className="section-label">{t('项目', 'Projects')}<IconButton title={t('添加工作区', 'Add workspace')} disabled={!bridge || loading} onClick={() => void openProject()}><Plus size={15}/></IconButton></div>
         {[...workspaceGroups].filter(([key]) => !pinnedWorkspaces.has(key)).map(renderWorkspace)}
-        {!workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
+        {!workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void openProject()}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
       </nav>
       <div className="sidebar-bottom"><button onClick={() => void openSettings()} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span>0.1.0</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
@@ -898,7 +914,11 @@ function App() {
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll} onScroll={() => { if (scroll.current) { const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight; follow.current = distance < 100; setAwayFromBottom(distance > 120); } }}>
-          {!data.messages.length && !hasPendingReceipt ? <div className="empty-state"><div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div><h1>{t('让想法阶跃星辰', 'Let ideas reach the stars')}</h1><p>{data.independent ? t('独立会话', 'Independent session') : data.preferences.workspace ? basename(data.preferences.workspace) : t('选择一个本地项目', 'Choose a local project')}</p><div className="empty-actions"><button disabled={!bridge || loading} onClick={() => void applySnapshot(() => bridge!.chooseWorkspace())}><FolderOpen size={16}/>{t('打开项目', 'Open project')}</button><button disabled={!bridge} onClick={() => void openSettings()}><SettingsIcon size={16}/>{t('账户设置', 'Account settings')}</button></div><span className="community-note">Desktop for Step Code · {t('独立社区项目', 'Independent community project')}</span></div> : <div className="messages" ref={transcript}>
+          {!data.messages.length && !hasPendingReceipt ? <NewSession language={data.preferences.language}
+            workspace={data.independent ? undefined : data.preferences.workspace} workspaces={data.preferences.workspaces}
+            title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
+            onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
+            onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
             <ConversationMessages key={data.runtimeId} runtimeId={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent}/>
             {busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}
             <PendingUserMessages messages={data.pendingMessages ?? []} connected={connected} busy={busy}
@@ -945,8 +965,11 @@ function App() {
             } else void send();
           }}/>
           <div className="composer-tools">
-            <IconButton title={t('添加附件', 'Add attachments')} disabled={!connected || attachments.length >= 10} onClick={() => void run(async () => addAttachments(await bridge!.chooseAttachments()))}><Plus size={17}/></IconButton>
-            <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}/>
+            <IconButton title={t('添加附件', 'Add attachments')} disabled={!connected || loading || attachments.length >= 10} onClick={() => {
+              const scope = view.current.sessionId ?? view.current.draftId;
+              void run(async () => addAttachments(await bridge!.chooseAttachments(), scope));
+            }}><Plus size={17}/></IconButton>
+            <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}/>
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
             <ModelEffortPicker model={data.state?.model} models={data.models} level={data.state?.thinkingLevel} levels={levels} language={data.preferences.language} disabled={!connected || busy || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })}/>
@@ -987,7 +1010,7 @@ function App() {
     <BrowserPanel open={visibleRightPanel === 'browser' && !details}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <SubagentPanel open={visibleRightPanel === 'subagent' && !details}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || Boolean(details)}

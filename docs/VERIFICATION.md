@@ -463,6 +463,18 @@ The desktop shortcut now targets this package; the prior running application was
 
 ## Release Boundary
 
+### Proposed Session and Greetings
+
+The 2026-10-07 new-session page holds an in-memory proposal. Opening New inherits the viewed project, and the searchable picker offers remembered projects, a native directory chooser and independent mode. Leaving before the first send creates neither a worker nor a persisted conversation or independent folder. Model, permission and thinking selections are available before creation.
+
+The Chinese heading starts with `让梦想阶跃星辰`, then types and deletes local-time, weekend and common greetings, with a low-frequency developer motto `踽踽而行 步履不停`. Text centers independently of the cursor. Composing holds the current complete phrase; reduced motion displays static text. English retains its smaller existing corpus; expanded English copy is deferred. Project choices show at least five rows where window space permits.
+
+Assistant message footers, including copy, branch, total elapsed time and timestamp, appear on hover or keyboard focus with an opacity transition. Touch devices retain visible controls. Elapsed-time data is unchanged.
+
+Dedicated isolated-profile acceptance covers proposal cancellation, project inheritance, native-directory selection through a test hook, first-send protection, greeting replacement and composing pause, light/dark/narrow layouts and reduced motion. Timing acceptance checks default hidden and hover-visible timestamps alongside ticking and frozen history. These fixtures do not establish paid-model or installer lifecycle acceptance. The staged runtime is reused without upstream checkout changes.
+
+Type checking, 207 tests, production build and general Electron acceptance passed on the latest main baseline. The package at `Desktop/release/new-session-pr-preview/` passed dedicated new-session and timing acceptance. The ordinary desktop shortcut targets its unpacked executable. Installer SHA-256 is `909b8bd1229919df5d2f52578e54e1f3ef31ffb74db9b8a959019dac83517e3c`; its directory totals about 704.02 MiB. Running user windows and old packages were preserved.
+
 ### Runtime Summary Board
 
 The 2026-10-07 Summary board replaces placeholder content with repository changes, the current session's active-branch task plan, actual MCP connection states and available Skills count. Repository information is hidden outside Git; its change link opens the branch comparison. MCP indicators are read-only. Skills have a count only. The original hanging-board layout and quadratic motion remain unchanged; internal disclosures use cubic enter/exit transitions and reduced-motion handling.

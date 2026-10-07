@@ -53,9 +53,16 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.getByText(user.content, { exact: true }).click();
   await page.locator('.elapsed-total').waitFor();
+  await page.locator('.sidebar').hover();
+  await page.waitForTimeout(180);
   assert.deepEqual(await page.locator('.thinking .elapsed-label').allTextContents(), ['已耗时 17s', '已耗时 15s']);
   assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m23s');
+  assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '0');
+  await page.locator('.assistant-actions').hover();
+  await page.waitForTimeout(180);
   assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '1');
+  await page.locator('.sidebar').hover();
+  await page.waitForTimeout(180);
   await page.screenshot({ path: 'test-results/conversation-elapsed-dark.png' });
   await page.reload();
   await page.locator('.elapsed-total').waitFor();

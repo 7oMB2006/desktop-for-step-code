@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -20,7 +21,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
-  const snapshot = await page.evaluate(() => window.desktop.snapshot());
+  const snapshot = await prepareSessionFixture(page);
   // Only this isolated process uses a command recorder; no prompt reaches a model.
   await app.evaluate(({ ipcMain }, snapshot) => {
     globalThis.composerFixture = { snapshot, calls: [], failAbort: false };

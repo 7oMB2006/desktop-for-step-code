@@ -83,9 +83,9 @@ try {
   targetId = target.state.sessionId;
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.composer > textarea').disabled);
-  const source = await page.evaluate(() => window.desktop.snapshot());
   await send('PROBE-LIST');
   await page.getByText('PROBE-LIST COMPLETE', { exact: true }).waitFor();
+  const source = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(replies.find(reply => reply.label === 'PROBE-LIST').text.includes(targetId));
   await app.evaluate(({ clipboard }) => {
     globalThis.sessionCopyTest = { original: clipboard.writeText, values: [] };

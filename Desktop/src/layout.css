@@ -482,7 +482,8 @@ main { position: relative; }
 .message-actions .icon-button { width: 28px; height: 28px; min-height: 28px; border-radius: 5px; color: var(--muted); }
 .message-actions .icon-button:hover:not(:disabled) { color: var(--ink); background: var(--surface); }
 .message-time { font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .15s ease; }
-.user-actions { justify-content: flex-end; opacity: 0; transition: opacity .15s ease; }
+.user-actions, .assistant-actions { opacity: 0; transition: opacity .15s ease; }
+.user-actions { justify-content: flex-end; }
 .user-actions.has-steered-marker { opacity: 1; }
 .message-steered { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 8px; }
 .user-actions.has-steered-marker .icon-button { opacity: 0; }
@@ -491,7 +492,6 @@ main { position: relative; }
 .user-actions .message-time { margin-right: 5px; }
 .assistant-actions .message-time { margin-left: 8px; }
 .assistant-actions .elapsed-total { margin-left: 8px; font-size: 11px; }
-.assistant-actions:has(.elapsed-total) .message-time { opacity: 1; }
 .message:hover > .message-actions, .message:focus-within > .message-actions { opacity: 1; }
 .message:hover > .message-actions .message-time, .message:focus-within > .message-actions .message-time { opacity: 1; }
 .message.user:hover .user-actions .icon-button, .message.user:focus-within .user-actions .icon-button { pointer-events: auto; }
@@ -557,7 +557,7 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
   .tool-summary-shimmer::before { animation: none; }
   .process-tool.running .tool-summary-shimmer { opacity: 0; }
 }
-@media (hover: none) { .user-actions, .message-time { opacity: 1; } .user-actions .icon-button { pointer-events: auto; } }
+@media (hover: none) { .user-actions, .assistant-actions, .message-time { opacity: 1; } .user-actions .icon-button { pointer-events: auto; } }
 @media (prefers-reduced-motion: reduce) { .message-time, .user-actions, .disclosure-chevron { transition: none; } }
 .composer-wrap {
   position: relative; flex-shrink: 0; width: 100%; max-width: var(--conversation-width);

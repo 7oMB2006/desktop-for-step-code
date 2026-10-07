@@ -45,7 +45,7 @@ const launchCase = async (profile, bundlePath) => {
     });
     phase = `launch ${launchNumber}: window ready`;
     const page = await app.firstWindow();
-    await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
+    await page.getByRole('heading', { name: '让梦想阶跃星辰' }).waitFor();
     phase = `launch ${launchNumber}: runtime snapshot`;
     await page.evaluate(() => window.desktop.snapshot());
     phase = `launch ${launchNumber}: settings`;

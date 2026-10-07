@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { prepareSessionFixture } from './session-fixture.mjs';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -88,7 +89,7 @@ try {
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   checkpoint('cold sidebar copy');
-  const initialView = await page.evaluate(() => window.desktop.snapshot());
+  const initialView = await prepareSessionFixture(page);
   assert.ok(!initialView.runtimes.some(runtime => runtime.sessionId === 'sidebar-cold-source'));
   const coldBytes = await readFile(coldFile);
   const composer = page.getByRole('textbox', { name: '消息', exact: true });

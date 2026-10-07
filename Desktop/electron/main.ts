@@ -14,6 +14,7 @@ import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
 import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
+import { sessionSummary } from './session-summary';
 import { TerminalSessions } from './terminal-sessions';
 import { BrowserTabs } from './browser-tabs';
 import type { BrowserAction } from '../src/contracts';
@@ -333,6 +334,14 @@ async function handle(method: string, args: any[]) {
         menu.popup({ window, x: Math.max(0, Math.min(width - 1, Math.round(position.x))),
           y: Math.max(0, Math.min(height - 1, Math.round(position.y))), callback: () => resolve(choice) });
       });
+    }
+    case 'summary': {
+      const worker = runtimes.require(text(args[0], 80));
+      const sessionId = worker.state?.sessionId;
+      if (!sessionId) throw new Error('Session is not ready');
+      const result = await worker.rpc.request('get_desktop_summary');
+      if (runtimes.workers.get(worker.id) !== worker || worker.state?.sessionId !== sessionId) throw new Error('Session changed');
+      return sessionSummary(result, sessionId);
     }
     case 'repositoryDiff': {
       const worker = runtimes.require(text(args[0], 80));

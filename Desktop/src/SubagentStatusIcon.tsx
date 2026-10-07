@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { CircleAlert, CircleCheck, LoaderCircle } from 'lucide-react';
+import { Circle, CircleAlert, CircleCheck, LoaderCircle } from 'lucide-react';
 import './subagent-status.css';
 
-export type SubagentStatus = 'running' | 'done' | 'failed';
+export type SubagentStatus = 'pending' | 'running' | 'done' | 'failed';
 const cubicIn = 'cubic-bezier(.55, .055, .675, .19)';
 const cubicOut = 'cubic-bezier(.215, .61, .355, 1)';
 
@@ -18,7 +18,7 @@ export function SubagentStatusIcon({ state }: { state: SubagentStatus }) {
     return () => media.removeEventListener('change', change);
   }, []);
   useLayoutEffect(() => {
-    const complete = previous.current === 'running' && state === 'done';
+    const complete = (previous.current === 'pending' || previous.current === 'running') && state === 'done';
     previous.current = state;
     setSettling(false);
     if (!complete || reduced) return;
@@ -51,6 +51,7 @@ export function SubagentStatusIcon({ state }: { state: SubagentStatus }) {
     };
   }, [state, reduced]);
   return <span ref={slot} className="subagent-status-icon" data-state={state} data-settling={settling} aria-hidden="true">
+    {state === 'pending' && <Circle size={12} strokeWidth={1.5}/>}
     <span className="subagent-status-spinner"><LoaderCircle size={16} strokeWidth={1.9}/></span>
     <CircleCheck className="subagent-status-check" size={16} strokeWidth={1.9}/>
     {state === 'failed' && <CircleAlert size={16} strokeWidth={1.9}/>}

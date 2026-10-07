@@ -20,6 +20,7 @@ export interface Account { loggedIn: boolean; validity: string; profile?: string
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
 export interface DesktopBridge {
+  summary(runtimeId: string): Promise<SessionSummary>;
   rightPanelWidthMenu(selected: 'standard' | 'wide' | 'fullscreen', position: { x: number; y: number }): Promise<'standard' | 'wide' | 'fullscreen' | undefined>;
   browserList(): Promise<BrowserSnapshot>;
   browserCreate(address?: string): Promise<BrowserSnapshot>;
@@ -101,5 +102,13 @@ export interface DesktopTheme {
   resolved: 'light' | 'dark';
   systemDark: boolean;
   firstFrame: () => { theme?: string; readyState: string };
+}
+export interface SummaryTask {
+  id: string; subject: string; description: string; status: 'pending' | 'in_progress' | 'completed';
+}
+export interface SessionSummary {
+  sessionId: string; plan?: { id: string; title: string }; tasks: SummaryTask[];
+  mcp: { name: string; status: 'connecting' | 'connected' | 'failed' | 'disabled'; toolCount: number }[];
+  skillCount: number;
 }
 declare global { interface Window { desktop?: DesktopBridge; desktopTheme?: DesktopTheme } }

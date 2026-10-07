@@ -123,8 +123,14 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
       let request = '';
       child.stdin.on('data', chunk => request += chunk);
       child.stdin.on('finish', () => {
+        const payload = JSON.parse(request);
+        if (payload.action === 'list') {
+          child.stdout.end('[]');
+          child.emit('close', 0);
+          return;
+        }
         globalThis.fileOpenCount = (globalThis.fileOpenCount ?? 0) + 1;
-        globalThis.openedFileRequest = JSON.parse(request);
+        globalThis.openedFileRequest = payload;
         child.stdout.end('{"ok":true}');
         child.emit('close', 0);
       });

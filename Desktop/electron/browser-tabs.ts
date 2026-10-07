@@ -40,23 +40,44 @@ export class BrowserTabs {
     if (!tab || this.disposed) throw new Error('Unknown browser tab');
     return tab;
   }
-  create(address = 'about:blank'): BrowserSnapshot {
+  open(address: string): BrowserSnapshot {
+    const url = browserUrl(address);
+    const existing = [...this.tabs.values()].find(tab => !tab.info.localFile && tab.info.url === url);
+    return existing ? this.select(existing.info.id) : this.create(url);
+  }
+  openLocal(address: string, path: string, origin: string): BrowserSnapshot {
+    const existing = [...this.tabs.values()].find(tab => tab.info.localFile === path);
+    if (existing) { void this.load(existing, address); return this.select(existing.info.id); }
+    return this.create(address, { path, origin });
+  }
+  create(address = 'about:blank', local?: { path: string; origin: string }): BrowserSnapshot {
     if (this.disposed || this.window.isDestroyed()) throw new Error('Browser is closed');
     if (this.tabs.size >= MAX_BROWSER_TABS) throw new Error('Browser tab limit reached');
     const url = browserUrl(address);
     const id = randomUUID();
     const view = new WebContentsView({ webPreferences: {
-      partition: 'persist:desktop-browser', nodeIntegration: false, nodeIntegrationInSubFrames: false,
+      partition: local ? `local-preview:${randomUUID()}` : 'persist:desktop-browser', nodeIntegration: false, nodeIntegrationInSubFrames: false,
       contextIsolation: true, sandbox: true, webSecurity: true, allowRunningInsecureContent: false,
       navigateOnDragDrop: false,
       backgroundThrottling: !(process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA)),
     } });
     const tab: Tab = { view, navigation: 0, info: { id, title: '', url: 'about:blank', loading: false,
-      canGoBack: false, canGoForward: false, zoom: 1 } };
+      canGoBack: false, canGoForward: false, zoom: 1, localFile: local?.path } };
     this.tabs.set(id, tab);
     view.setVisible(false);
     this.window.contentView.addChildView(view);
     const contents = view.webContents;
+    if (local) {
+      contents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+      contents.session.setPermissionCheckHandler(() => false);
+      contents.session.setDevicePermissionHandler(() => false);
+      contents.session.on('will-download', (_event, item) => item.cancel());
+      contents.session.webRequest.onBeforeRequest((details, callback) => {
+        let allowed = /^(data:|blob:|about:blank$)/.test(details.url);
+        try { allowed ||= new URL(details.url).origin === local.origin; } catch { /* Block malformed URLs. */ }
+        callback({ cancel: !allowed });
+      });
+    }
     const update = () => {
       if (!this.tabs.has(id) || contents.isDestroyed()) return;
       tab.info.canGoBack = contents.navigationHistory.canGoBack();
@@ -88,7 +109,7 @@ export class BrowserTabs {
       tab.info.loading = false; tab.info.error = 'Page process exited'; update();
     });
     const guard = (event: Electron.Event, target: string, _inPlace?: boolean, mainFrame = true) => {
-      if (!browserNavigation(target)) {
+      if (!browserNavigation(target) || (local && target !== 'about:blank' && new URL(target).origin !== local.origin)) {
         event.preventDefault();
         if (mainFrame) {
           tab.info.loading = false;
@@ -100,11 +121,11 @@ export class BrowserTabs {
     contents.on('will-navigate', guard);
     contents.on('will-redirect', guard);
     contents.on('will-frame-navigate', event => {
-      if (!browserNavigation(event.url)) event.preventDefault();
+      if (!browserNavigation(event.url) || (local && new URL(event.url).origin !== local.origin)) event.preventDefault();
     });
     contents.on('will-attach-webview', event => event.preventDefault());
     contents.setWindowOpenHandler(({ url }) => {
-      if (browserNavigation(url) && this.tabs.size < MAX_BROWSER_TABS) this.create(url);
+      if (browserNavigation(url) && this.tabs.size < MAX_BROWSER_TABS && (!local || new URL(url).origin === local.origin)) this.create(url, local);
       return { action: 'deny' };
     });
     contents.on('before-input-event', (event, input) => {
@@ -119,7 +140,8 @@ export class BrowserTabs {
       const items: Electron.MenuItemConstructorOptions[] = [];
       const t = (cn: string, en: string) => this.language() === 'zh' ? cn : en;
       if (params.linkURL && browserNavigation(params.linkURL)) {
-        items.push({ label: t('在新标签页打开链接', 'Open link in new tab'), enabled: this.tabs.size < MAX_BROWSER_TABS, click: () => this.create(params.linkURL) });
+        const allowed = !local || new URL(params.linkURL).origin === local.origin;
+        items.push({ label: t('在新标签页打开链接', 'Open link in new tab'), enabled: allowed && this.tabs.size < MAX_BROWSER_TABS, click: () => { if (allowed) this.create(params.linkURL, local); } });
         items.push({ label: t('复制链接', 'Copy link'), click: () => { void clipboard.writeText(params.linkURL); } });
       }
       if (params.isEditable) items.push(
@@ -180,7 +202,9 @@ export class BrowserTabs {
     const tab = this.require(id);
     const contents = tab.view.webContents;
     switch (action) {
-      case 'navigate': await this.load(tab, browserUrl(address)); break;
+      case 'navigate':
+        if (tab.info.localFile && browserUrl(address) !== tab.info.url) return this.open(browserUrl(address));
+        await this.load(tab, browserUrl(address)); break;
       case 'back': if (contents.navigationHistory.canGoBack()) { tab.navigation++; contents.navigationHistory.goBack(); } break;
       case 'forward': if (contents.navigationHistory.canGoForward()) { tab.navigation++; contents.navigationHistory.goForward(); } break;
       case 'reload': tab.navigation++; tab.info.error = undefined; contents.reload(); break;
@@ -189,7 +213,10 @@ export class BrowserTabs {
       case 'zoomOut': contents.setZoomFactor(Math.max(.5, contents.getZoomFactor() - .1)); break;
       case 'zoomReset': contents.setZoomFactor(1); break;
       case 'external':
-        if (tab.info.url !== 'about:blank') await shell.openExternal(browserUrl(tab.info.url)); break;
+        if (tab.info.localFile) {
+          throw new Error('Local file opening requires a validated file permission');
+        } else if (tab.info.url !== 'about:blank') await shell.openExternal(browserUrl(tab.info.url));
+        break;
       default: throw new Error('Invalid browser action');
     }
     if (this.tabs.get(id) !== tab || contents.isDestroyed()) return this.snapshot();

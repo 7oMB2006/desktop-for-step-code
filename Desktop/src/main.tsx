@@ -43,6 +43,9 @@ import { AccountSettings, ProviderIcon, ProviderSettings, StepPlatformIcon } fro
 import { NewSession } from './NewSession';
 import { TerminalPanel } from './TerminalPanel';
 import { BrowserPanel } from './BrowserPanel';
+import { FilePreviewPanel } from './FilePreviewPanel';
+import { FileOpeningContext } from './FileOpening';
+import type { FilePreviewData, FileTarget } from './contracts';
 import { SubagentPanel } from './SubagentPanel';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
@@ -115,8 +118,22 @@ function App() {
   const firstSend = useRef(false);
   const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
   const [liveChangesOpen, setLiveChangesOpen] = useState(false);
-  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>('auto');
-  const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'subagent' | null>(null);
+  const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>('auto');
+  const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>(null);
+  const [previewFile, setPreviewFile] = useState<FilePreviewData>();
+  const openFile = useCallback(async (target?: FileTarget, destination?: string) => {
+    if (!bridge) throw new Error('Desktop unavailable');
+    const result = await bridge.fileOpen(target, destination);
+    if (!result || result.destination === 'external') return;
+    setDetails('');
+    if (result.destination === 'preview') { setPreviewFile(result.file); setRightPanel('file'); }
+    else setRightPanel('browser');
+  }, []);
+  const openWeb = useCallback(async (address: string) => {
+    if (!bridge) throw new Error('Desktop unavailable');
+    await bridge.browserOpenLink(address);
+    setDetails(''); setRightPanel('browser');
+  }, []);
   const [selectedSubagent, setSelectedSubagent] = useState<SubagentTaskKey | null>(null);
   const [repositoryRequest, setRepositoryRequest] = useState<{ runtimeId?: string; sequence: number }>();
   // The panel reads from live messages, so a subagent that finishes while it stays open keeps
@@ -184,7 +201,7 @@ function App() {
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = expandedRightPanel === visibleRightPanel && !details &&
-    (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent');
+    (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent');
   useEffect(() => {
     if (expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
   }, [expandedRightPanel, visibleRightPanel, details]);
@@ -416,7 +433,7 @@ function App() {
       const [effort, available] = await Promise.all([bridge!.command('get_available_thinking_levels', undefined, id), bridge!.command('get_commands', undefined, id)]);
       if (viewId.current === id) { setLevels(effort.levels); setCommands(available.commands.filter((c: { name: string }) => c.name !== '_desktop_retry')); }
     });
-  }, [connected, data.runtimeId, data.state?.model?.id]);
+  }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.thinkingLevels]);
   useLayoutEffect(followLayout, [data.messages, data.pendingMessages, busy, followLayout]);
   useLayoutEffect(() => {
     const viewport = scroll.current;
@@ -852,7 +869,7 @@ function App() {
     });
   };
   const permissionApproval = !renaming ? permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId) : undefined;
-  return <div ref={appLayout} className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
+  return <FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
     if (!image || !image.closest('.attachment-open, .attachment-preview-image, .messages')) return;
@@ -1007,10 +1024,10 @@ function App() {
         setQuotes(value => [...value, quote]); return true;
       }}/>
     {details && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
-    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || Boolean(details)}
+    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
-    <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || Boolean(details)}
+    <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       repositoryRequest={repositoryRequest?.runtimeId === data.runtimeId ? repositoryRequest?.sequence : undefined}
       onRepositoryRequestHandled={sequence => setRepositoryRequest(value =>
         value && value.runtimeId === data.runtimeId && value.sequence === sequence ? undefined : value)}
@@ -1018,21 +1035,27 @@ function App() {
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'review')}
       overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
-    <TerminalPanel open={visibleRightPanel === 'terminal' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || Boolean(details)}
+    <TerminalPanel open={visibleRightPanel === 'terminal' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'terminal'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'terminal')}
       overlay={!summarySpace} runtimeId={data.runtimeId} cwd={data.preferences.workspace} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
     <BrowserPanel open={visibleRightPanel === 'browser' && !details}
-      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'subagent' || Boolean(details)}
+      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
       blocked={projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
+    <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
+      replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}
+      overlay={!summarySpace} expanded={inspectorExpanded && visibleRightPanel === 'file'} language={data.preferences.language}
+      width={data.preferences.filePreviewWidth === 'wide' ? 'wide' : 'standard'}
+      onWidthChange={value => void setPreference({ filePreviewWidth: value })}
+      onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'file')} onClose={closeRightPanel} onError={setError}/>
     <SubagentPanel open={visibleRightPanel === 'subagent' && !details}
-      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || Boolean(details)}
+      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'subagent'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'subagent')}
       overlay={!summarySpace} task={openSubagentTask} language={data.preferences.language}
       openImage={openImage} onClose={closeRightPanel} onError={setError}/>
-    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'subagent' || details ? 'is-replaced' : ''}`}>
+    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <header><h2>{t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={closeRightPanel}><X size={16}/></IconButton></header>
@@ -1053,6 +1076,7 @@ function App() {
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><FileDiff size={18} strokeWidth={1.5}/></IconButton>
       <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>
+      <IconButton title={t('文件预览', 'File preview')} data-tooltip-side="left" aria-controls="file-panel" aria-pressed={!details && visibleRightPanel === 'file'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'file' ? null : 'file'); }}><FileText size={18}/></IconButton>
         <IconButton title={t('子代理', 'Subagents')} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'subagent' ? null : 'subagent'); }}><Bot size={18}/></IconButton>
       <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-controls="conversation-navigation-panel" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
     </nav>
@@ -1115,7 +1139,7 @@ function App() {
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
     {permissionApproval && approvalOpen && <PermissionApproval key={requests[0].id} presentation={permissionApproval} language={data.preferences.language} onLater={() => setApprovalOpen(false)} onRespond={respond}/>}
     {((requests[0] && approvalOpen && !permissionApproval) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={requests[0]?.title ?? 'Rename'}><h2>{requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map(o => <button className="option" key={o} onClick={() => void respond({ value: o })}>{o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}<button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
-  </div>;
+  </div></FileOpeningContext.Provider>;
 }
 class RenderBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
   state = { failed: false };

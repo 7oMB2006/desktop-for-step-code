@@ -100,6 +100,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Terminal acceptance failed' }
           node scripts/verify-browser-panel.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Browser acceptance failed' }
+          node scripts/verify-message-links.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Message links acceptance failed' }
+          node scripts/verify-turn-artifacts.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Turn artifacts acceptance failed' }
+          node scripts/verify-file-preview.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'File preview acceptance failed' }
+          node scripts/verify-sidebar-scrollbar.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Sidebar scrollbar acceptance failed' }
           node scripts/verify-sidebar-order.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Sidebar ordering acceptance failed' }
           node scripts/verify-archived-sessions.mjs

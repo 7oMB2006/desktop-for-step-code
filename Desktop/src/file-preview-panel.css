@@ -1,0 +1,34 @@
+.file-preview-track { --inspector-width: 540px; flex: 0 0 0px; min-width: 0; transition: flex-basis var(--right-panel-duration) var(--right-panel-ease); }
+.file-preview-track.is-open:not(.is-overlay) { flex-basis: clamp(0px, calc(var(--conversation-width) + 28px + 1080px - 100vw + var(--sidebar-track) + 44px), 540px); }
+.file-preview-track.is-wide:not(.is-overlay) { --inspector-width: max(620px, min(calc((100vw - var(--sidebar-track) - 44px) * .6), calc(100vw - var(--sidebar-track) - 44px - 480px))); }
+.file-preview-track.is-wide.is-open:not(.is-overlay) { flex-basis: var(--inspector-width); }
+.file-preview-track.is-replaced { flex-basis: 0 !important; transition: none; }
+.file-preview-panel { display: flex; flex-direction: column; min-width: 0; background: var(--bg); border-left: 1px solid var(--border); }
+.app .file-preview-panel.right-inspector-surface { transition: opacity var(--right-panel-duration) var(--right-panel-ease), transform var(--right-panel-duration) var(--right-panel-ease), width var(--right-panel-duration) var(--right-panel-ease); }
+.file-preview-panel.is-closing { opacity: 0; transform: translateX(8px); pointer-events: none; }
+.file-preview-track.is-overlay .file-preview-panel { box-shadow: -8px 0 20px oklch(0 0 0 / .06); }
+@starting-style { .file-preview-panel { opacity: 0; transform: translateX(8px); } }
+.file-preview-identity { display: flex; align-items: center; gap: 9px; padding: 14px; border-bottom: 1px solid var(--border); }
+.file-preview-identity > svg { color: var(--muted); flex-shrink: 0; }
+.file-preview-identity > div:not(.file-open-control) { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.file-preview-identity strong { font-size: 12px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-preview-identity span[title] { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-preview-identity .file-open-control { flex-shrink: 0; max-width: 47%; }
+.file-preview-toolbar { display: flex; align-items: center; gap: 5px; padding: 7px 12px; border-bottom: 1px solid var(--border); min-height: 40px; }
+.file-preview-toolbar .icon-button { width: 26px; height: 26px; min-height: 26px; }
+.file-preview-modes { display: flex; padding: 2px; border: 1px solid var(--border); border-radius: 5px; gap: 2px; }
+.file-preview-toolbar button[aria-pressed=true] { background: var(--surface); color: var(--primary); }
+.file-preview-type { flex: 1; padding-left: 4px; font-size: 10px; color: var(--muted); }
+.file-preview-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.file-preview-markdown { padding: 16px 20px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.file-preview-markdown > :first-child { margin-top: 0; }
+.file-preview-markdown h1 { font-size: 23px; } .file-preview-markdown h2 { font-size: 19px; } .file-preview-markdown h3 { font-size: 16px; }
+.file-preview-markdown table { display: block; overflow-x: auto; }
+.file-preview-source { min-width: 100%; width: max-content; padding: 14px 18px; margin: 0; border: 0; border-radius: 0; background: transparent; font: 12px/1.75 "Cascadia Code", Consolas, monospace; tab-size: 2; }
+.file-preview-source > code { background: transparent; padding: 0; font: inherit; }
+.file-preview-source.is-wrapped { width: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.file-preview-footer { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--border); padding: 8px 14px; font-size: 10px; color: var(--muted); }
+.file-preview-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--muted); }
+.file-preview-empty > button { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.app[data-native-resize] .file-preview-track, .app[data-native-resize] .file-preview-panel.right-inspector-surface { transition: none; }
+@media (prefers-reduced-motion: reduce) { .file-preview-track, .app .file-preview-panel.right-inspector-surface { transition: none; } }

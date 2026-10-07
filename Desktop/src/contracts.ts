@@ -12,7 +12,7 @@ export interface Message { role: string; content: string | Content[]; customType
 export interface RuntimeState { isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
 export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string }
 export type RuntimeEvent = { type: string; [key: string]: any };
-export interface Preferences { theme: 'system' | 'light' | 'dark'; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[] }
+export interface Preferences { theme: 'system' | 'light' | 'dark'; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide' }
 export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
 export interface Snapshot { preferences: Preferences; status: string; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; permissionPreset?: PermissionPreset; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
@@ -20,6 +20,12 @@ export interface Account { loggedIn: boolean; validity: string; profile?: string
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
 export interface DesktopBridge {
+  fileOpen(target?: FileTarget, destination?: string): Promise<FileOpenResult | null>;
+  fileOpenOptions(target: FileTarget): Promise<FileOpeningOptions>;
+  browserOpenLink(address: string): Promise<BrowserSnapshot>;
+  artifactFiles(runtimeId: string, paths: string[]): Promise<ArtifactFile[]>;
+  artifactAction(runtimeId: string, path: string, action: 'open' | 'reveal' | 'copy'): Promise<void>;
+  linkPreview(url: string): Promise<LinkPreview>;
   summary(runtimeId: string): Promise<SessionSummary>;
   rightPanelWidthMenu(selected: 'standard' | 'wide' | 'fullscreen', position: { x: number; y: number }): Promise<'standard' | 'wide' | 'fullscreen' | undefined>;
   browserList(): Promise<BrowserSnapshot>;
@@ -77,9 +83,19 @@ export interface DesktopBridge {
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }
 export interface TurnUndoState { state: 'available' | 'unavailable' | 'conflict' | 'undone' | 'failed'; token?: string }
+export interface LinkPreview { url: string; title?: string; description?: string; icon?: string }
+export interface ArtifactFile { path: string; exists: boolean; canOpen: boolean; size?: number; kind: import('./turn-artifacts').ArtifactKind }
+export type FileTarget = { runtimeId: string; path: string } | { grantId: string };
+export interface FileDestination { id: string; label: string; icon?: string }
+export interface FileOpeningOptions { choices: FileDestination[]; selected: string }
+export interface FilePreviewData {
+  id: string; path: string; name: string; mode: 'markdown' | 'text'; text: string; size: number; language?: string;
+}
+export type FileOpenResult = { destination: 'preview'; file: FilePreviewData }
+  | { destination: 'browser'; browser: BrowserSnapshot } | { destination: 'external' };
 export type BrowserAction = 'navigate' | 'back' | 'forward' | 'reload' | 'stop' | 'external' | 'zoomIn' | 'zoomOut' | 'zoomReset';
 export interface BrowserBounds { x: number; y: number; width: number; height: number }
-export interface BrowserTab { id: string; title: string; url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; zoom: number; error?: string }
+export interface BrowserTab { id: string; title: string; url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; zoom: number; error?: string; localFile?: string }
 export interface BrowserSnapshot { revision: number; activeId?: string; tabs: BrowserTab[] }
 export type BrowserEvent = { type: 'snapshot'; snapshot: BrowserSnapshot } | { type: 'address' };
 export interface TerminalInfo {

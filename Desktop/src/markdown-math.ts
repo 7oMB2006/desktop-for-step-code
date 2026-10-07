@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
+import { remarkWebReferences } from './markdown-references';
 
 export const MAX_FORMULA_LENGTH = 12000;
 
@@ -43,7 +44,7 @@ export function remarkChatMath() {
   };
 }
 
-export const messageRemarkPlugins: Options['remarkPlugins'] = [remarkGfm, remarkMath, remarkChatMath];
+export const messageRemarkPlugins: Options['remarkPlugins'] = [remarkGfm, remarkMath, remarkChatMath, remarkWebReferences];
 export const messageRehypePlugins: Options['rehypePlugins'] = [
   [rehypeKatex, { trust: false, strict: 'ignore', maxExpand: 1000, maxSize: 20 }],
   rehypeHighlight,

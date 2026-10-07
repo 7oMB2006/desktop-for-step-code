@@ -1,6 +1,6 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
@@ -144,7 +144,10 @@ try {
   await page.waitForFunction(() => document.querySelector('.new-session-project-trigger')?.textContent.includes('New project'));
   assert.equal((await snapshot()).runtimeId, undefined);
   assert.equal((await snapshot()).sessions.length, 1);
-  assert.ok((await snapshot()).preferences.workspaces.includes(fresh));
+  const canonicalFresh = await realpath(fresh);
+  const selectedFresh = await snapshot();
+  assert.ok(selectedFresh.preferences.workspaces.includes(canonicalFresh));
+  assert.equal(selectedFresh.preferences.workspace, canonicalFresh);
   await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
   await page.reload();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light' && !document.querySelector('.new-chat').disabled);

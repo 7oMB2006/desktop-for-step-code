@@ -1,0 +1,44 @@
+.app-updates { margin: 0 0 24px; font-size: 12px; }
+.update-version { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 0 0 18px; }
+.update-version strong { display: block; font-size: 14px; font-weight: 600; }
+.update-version span { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
+.update-edition { flex-shrink: 0; }
+.update-status { display: flex; gap: 11px; align-items: center; padding: 16px 0; border-top: 1px solid var(--border); }
+.update-status > svg { color: var(--muted); }
+.update-status strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.update-status small { display: block; margin-top: 5px; }
+.update-status.available > svg, .update-status.available strong { color: var(--primary); }
+.update-status.failed > svg { color: var(--danger); }
+.update-release { border-top: 1px solid var(--border); padding: 15px 0 4px; }
+.update-release-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.update-release-heading strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.update-release-heading span { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+.update-notes { margin-top: 13px; }
+.update-notes summary { cursor: pointer; width: fit-content; color: var(--muted); font-size: 11px; list-style: none; display: flex; align-items: center; gap: 5px; }
+.update-notes summary::-webkit-details-marker { display: none; }
+.update-notes summary svg { transform: rotate(-90deg); transition: transform 180ms cubic-bezier(.215,.61,.355,1); }
+.update-notes[open] summary svg { transform: none; }
+.update-notes > div { overflow-wrap: anywhere; line-height: 1.75; max-height: 220px; overflow-y: auto; padding: 12px 8px 4px 0; }
+.update-notes h1, .update-notes h2, .update-notes h3 { font-size: 12px; margin: 10px 0 6px; }
+.update-notes p { font-size: 12px; margin-bottom: 8px; }
+.update-notes ul, .update-notes ol { padding-left: 20px; }
+.update-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 14px; }
+.update-actions button { font-size: 11px; min-height: 32px; }
+.update-download-detail, .update-package-missing { font-size: 11px; line-height: 1.7; color: var(--muted); margin: 11px 0 0; overflow-wrap: anywhere; }
+.update-action-error { font-size: 11px; color: var(--danger); margin-top: 10px; }
+.update-preferences { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+.update-preferences label { font-size: 12px; }
+.update-preferences .checkbox { margin-bottom: 16px; }
+.update-preferences input { accent-color: var(--primary); }
+.update-channel-field { display: flex; flex-direction: column; gap: 7px; }
+.update-channel-field select { width: 100%; min-height: 36px; }
+.update-channel-field select::picker(select) {
+  max-width: calc(100vw - 24px);
+  position-try-order: normal;
+}
+.update-spinning { animation: update-spin 1s linear infinite; }
+.sidebar-bottom > button span.update-indicator { color: var(--primary); display: inline-flex; align-items: center; gap: 5px; }
+.update-indicator i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+@keyframes update-spin { to { transform: rotate(360deg); } }
+@media(max-width:740px) { .update-version { flex-wrap: wrap; gap: 6px; } .update-version .update-edition { margin-top: 0; } }
+@media(prefers-reduced-motion:reduce) { .update-spinning { animation: none; } .update-notes summary svg { transition: none; } }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, session, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -8,6 +8,7 @@ import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
 import { SessionCollaboration } from './session-collaboration';
 import { PendingMessages } from './pending-messages';
+import { normalizeAppearance } from '../src/appearance';
 import { ConversationTiming } from './conversation-timing';
 import { AuthVault } from './auth-vault';
 import { installCrashLog } from './crash-log';
@@ -22,6 +23,8 @@ import { artifactFile } from './artifact-files';
 import { FilePreviews, fileMode, canOpenExternally, readPreview } from './file-previews';
 import { LocalPagePreview } from './local-page-preview';
 import { associationRequest, fileApplications } from './file-applications';
+import { AppUpdates, updatePreferences } from './app-updates';
+import { DesktopTray } from './desktop-tray';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
 import { conversationEntries } from '../src/conversation-presentation';
@@ -45,12 +48,23 @@ const localPages = new LocalPagePreview();
 const localFileGrants = new Map<string, string>();
 const fileAssociationScript = () => join(app.isPackaged ? join(process.resourcesPath, 'file-opening') : join(__dirname, 'file-opening'), 'file-associations.ps1');
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
+const updates = new AppUpdates(app.getVersion(), (url, options) => net.fetch(url, options),
+  state => { if (window && !window.isDestroyed()) window.webContents.send('app-update', state); }, () => Date.now());
 let status = 'disconnected';
 let transition = false;
 let settingsMutation = false;
 let deletingArchived = false;
 let quitting = false;
 let quitPending = false;
+let tray: DesktopTray | undefined;
+let sessionEnding = false;
+let restoreRequested = false;
+function showMainWindow() {
+  if (!window || window.isDestroyed()) { restoreRequested = true; return; }
+  if (window.isMinimized()) window.restore();
+  window.show();
+  if (!backgroundAcceptance) window.focus();
+}
 let startup: Promise<void> = Promise.resolve();
 let startupError: string | undefined;
 let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Model[]; thinkingLevel?: string;
@@ -320,6 +334,9 @@ const text = (value: unknown, max = 100000): string => { if (typeof value !== 's
 async function handle(method: string, args: any[]) {
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
+    case 'updateState': return updates.snapshot();
+    case 'checkUpdates': return updates.check();
+    case 'openUpdate': return shell.openExternal(updates.openTarget(args[0]));
     case 'browserOpenLink': return browser!.open(text(args[0], 4096));
     case 'fileOpen': {
       let target: FileTarget = args[0];
@@ -561,6 +578,7 @@ async function handle(method: string, args: any[]) {
         case 'minimize': window.minimize(); break;
         case 'toggleMaximize': window.isMaximized() ? window.unmaximize() : window.maximize(); break;
         case 'close': window.close(); break;
+        case 'quit': app.quit(); break;
         default: throw new Error('Unsupported window action');
       }
       return { maximized: window.isMaximized() };
@@ -939,6 +957,8 @@ async function handle(method: string, args: any[]) {
     }
     case 'preferences': {
       const patch = args[0] ?? {};
+      if (patch.appearance !== undefined) preferences.appearance = normalizeAppearance(patch.appearance);
+      const updatePatch = updatePreferences(patch);
       if (patch.filePreviewWidth !== undefined) {
         if (patch.filePreviewWidth !== 'standard' && patch.filePreviewWidth !== 'wide') throw new Error('Invalid file preview width');
         preferences.filePreviewWidth = patch.filePreviewWidth;
@@ -960,8 +980,11 @@ async function handle(method: string, args: any[]) {
         const known = new Set((await listSessions()).map(s => s.id));
         preferences.archivedSessionIds = patch.archivedSessionIds.map((id: unknown) => text(id, 200)).filter((id: string) => known.has(id));
       }
-      Object.assign(preferences, sidebarPatch);
-      await savePreferences(); return preferences;
+      Object.assign(preferences, sidebarPatch, updatePatch);
+      await savePreferences();
+      updates.setChannel(preferences.updateChannel ?? 'preview');
+      tray?.relabel();
+      return preferences;
     }
     case 'copyText': {
       await clipboard.writeText(text(args[0], 2000000));
@@ -1027,15 +1050,17 @@ async function handle(method: string, args: any[]) {
     default: throw new Error('Unknown desktop operation');
   }
 }
-app.on('will-quit', () => localPages.dispose());
+app.on('will-quit', () => { tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); });
 app.on('before-quit', event => {
   if (quitting) return;
   event.preventDefault();
   if (quitPending) return;
   quitPending = true;
   void (async () => {
-    if ((runtimes.running || transition) && window && !window.isDestroyed()) {
-      const r = await dialog.showMessageBox(window, { message: preferences.language === 'zh' ? '仍有会话在运行。停止所有任务并退出？' : 'Sessions are still running. Stop all tasks and quit?', buttons: ['Cancel', 'Stop and quit'], cancelId: 0 });
+    if (!sessionEnding && (runtimes.running || transition) && window && !window.isDestroyed()) {
+      showMainWindow();
+      const zh = preferences.language === 'zh';
+      const r = await dialog.showMessageBox(window, { message: zh ? '仍有会话在运行。停止所有任务并退出？' : 'Sessions are still running. Stop all tasks and quit?', buttons: zh ? ['取消', '停止并退出'] : ['Cancel', 'Stop and quit'], cancelId: 0, defaultId: 0 });
       if (r.response !== 1) { quitPending = false; return; }
     }
     try {
@@ -1047,12 +1072,15 @@ app.on('before-quit', event => {
       app.quit();
     } catch {
       quitPending = false;
+      if (!sessionEnding) showMainWindow();
       emit({ type: 'desktop_error', message: preferences.language === 'zh' ? '无法结束终端，请关闭终端后重试退出。' : 'Could not stop terminals. Close them and try exiting again.' });
     }
   })();
 });
 app.on('window-all-closed', () => app.quit());
-if (!app.requestSingleInstanceLock()) app.quit();
+app.on('second-instance', showMainWindow);
+app.on('activate', showMainWindow);
+if (!app.requestSingleInstanceLock()) { quitting = true; app.quit(); }
 else app.whenReady().then(async () => {
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
@@ -1063,6 +1091,9 @@ else app.whenReady().then(async () => {
   authData = await vault.load();
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
+  preferences.updateChannel = preferences.updateChannel === 'stable' ? 'stable' : 'preview';
+  preferences.autoCheckUpdates = preferences.autoCheckUpdates !== false;
+  updates.setChannel(preferences.updateChannel);
   try { await writeFile(join(dataRoot, 'config.toml'), 'permissionPreset = "ask"\n[telemetry]\nenabled = false\n', { flag: 'wx' }); } catch (e: any) { if (e.code !== 'EEXIST') throw e; }
   admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
   crashLog.setPhase('admin started');
@@ -1114,7 +1145,7 @@ else app.whenReady().then(async () => {
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
   window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: '#171717', autoHideMenuBar: true, show: !backgroundAcceptance, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
-  nativeTheme.on('updated', () => { if (window && !window.isDestroyed()) window.webContents.send('runtime-event', { type: 'desktop_system_theme', dark: nativeTheme.shouldUseDarkColors }); });
+  nativeTheme.on('updated', () => { tray?.relabel(); if (window && !window.isDestroyed()) window.webContents.send('runtime-event', { type: 'desktop_system_theme', dark: nativeTheme.shouldUseDarkColors }); });
   crashLog.setPhase('window created');
   browser = new BrowserTabs(window, event => {
     if (!window.isDestroyed()) window.webContents.send('browser-event', event);
@@ -1126,7 +1157,21 @@ else app.whenReady().then(async () => {
   window.on('blur', windowState);
   window.webContents.setWindowOpenHandler(({ url }) => { try { const u = new URL(url); if (['https:', 'http:'].includes(u.protocol)) void shell.openExternal(u.href); } catch {} return { action: 'deny' }; });
   window.webContents.on('will-navigate', event => event.preventDefault());
-  window.on('close', event => { if (!quitting) { event.preventDefault(); app.quit(); } });
+  try {
+    tray = new DesktopTray(app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'),
+      () => preferences.language, showMainWindow, () => app.quit(), {
+        theme: resolvedTheme, quitting: () => quitting, noFocus: backgroundAcceptance,
+        devUrl: !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined,
+        onError: error => { void crashLog.record('tray-menu', error); },
+      });
+  } catch (error) { void crashLog.record('tray-creation', error); }
+  window.on('close', event => {
+    if (quitting) return;
+    event.preventDefault();
+    if (tray && !sessionEnding) window.hide();
+    else app.quit();
+  });
+  window.on('session-end', () => { sessionEnding = true; app.quit(); });
   ipcMain.handle('desktop', async (event, method, ...args) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
     const shared = ['login', 'logout', 'saveMcp'].includes(method);
@@ -1139,7 +1184,6 @@ else app.whenReady().then(async () => {
     catch (error) { throw new Error(error instanceof Error ? error.message : 'Desktop operation failed'); }
     finally { if (shared) settingsMutation = false; }
   });
-  app.on('second-instance', () => { window.restore(); window.focus(); });
   {
     startup = (async () => {
       try {
@@ -1154,6 +1198,13 @@ else app.whenReady().then(async () => {
   }
   if (process.env.DESKTOP_DEV_URL && !app.isPackaged) await window.loadURL(process.env.DESKTOP_DEV_URL);
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
+  if (restoreRequested) { restoreRequested = false; showMainWindow(); }
+  // Update checks are independent of runtime/model startup and never block first paint.
+  if (app.isPackaged && !backgroundAcceptance) {
+    const check = () => { if (!quitting && preferences.autoCheckUpdates !== false) void updates.check(); };
+    setTimeout(check, 10_000).unref();
+    setInterval(check, 6 * 60 * 60 * 1000).unref();
+  }
 }).catch(async error => {
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));

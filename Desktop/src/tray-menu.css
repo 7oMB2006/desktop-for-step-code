@@ -1,0 +1,7 @@
+html, body, #root { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+.tray-menu-root { width: 100%; height: 100%; padding: 10px; }
+.tray-menu.app-menu { position: relative; inset: auto; width: 100%; min-width: 0; max-width: none; max-height: none; overflow: hidden; box-shadow: 0 3px 9px oklch(0 0 0 / .16); }
+.tray-menu[data-visible="true"] { opacity: 1; transform: none; }
+.tray-menu > button { justify-content: flex-start; }
+.tray-menu .app-menu-label { white-space: nowrap; }
+.tray-menu-separator { height: 1px; margin: 4px 8px; background: var(--border); }

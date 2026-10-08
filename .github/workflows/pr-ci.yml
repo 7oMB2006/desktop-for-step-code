@@ -86,6 +86,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Electron acceptance failed' }
           node scripts/verify-new-session.mjs
           if ($LASTEXITCODE -ne 0) { throw 'New session draft acceptance failed' }
+          node scripts/verify-app-updates.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'App update acceptance failed' }
+          node scripts/verify-desktop-tray.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop tray acceptance failed' }
           node scripts/verify-permission-approval.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Permission approval acceptance failed' }
           node scripts/verify-conversation-timing.mjs

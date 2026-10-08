@@ -28,6 +28,14 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  updateState: () => invoke('updateState'),
+  checkUpdates: () => invoke('checkUpdates'),
+  openUpdate: action => invoke('openUpdate', action),
+  onUpdateEvent: callback => {
+    const listener = (_: unknown, state: import('../src/contracts').AppUpdateState) => callback(state);
+    ipcRenderer.on('app-update', listener);
+    return () => ipcRenderer.removeListener('app-update', listener);
+  },
   fileOpen: (target, destination) => invoke('fileOpen', target, destination),
   fileOpenOptions: target => invoke('fileOpenOptions', target),
   browserOpenLink: address => invoke('browserOpenLink', address),

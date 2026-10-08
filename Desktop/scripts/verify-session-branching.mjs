@@ -226,6 +226,11 @@ try {
   await page.waitForFunction(async id => (await window.desktop.snapshot()).runtimes.find(runtime => runtime.runtimeId === id).status !== 'running', forked.runtimeId);
   await originalRow().click();
   await page.getByText('最新一轮旧回复。', { exact: true }).waitFor();
+  // Resident history paints before navigation's follow-up snapshot finishes.
+  await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
+  const restored = await snapshot();
+  assert.equal(restored.runtimeId, source.runtimeId);
+  assert.equal(restored.state.sessionId, source.state.sessionId);
   assert.ok(sourceBytes.equals(await readFile(sourceFile)));
   assert.equal(await readFile(join(workspace, 'already-changed.txt'), 'utf8'), 'Do not roll this back');
   checkpoint('explicit fork and first-message retry');

@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { developerMottos, firstGreeting, greetingPool, nextGreeting } from '../src/session-greetings';
+import { developerMottos, firstGreeting, greetingPool, nextGreeting, openingGreetings, selectFirstGreeting } from '../src/session-greetings';
+
+test('Chinese opening greetings have equal probability and English stays unchanged', () => {
+  assert.deepEqual(openingGreetings.zh, ['让想法阶跃星辰', '星辰因你而阶跃']);
+  for (const value of [0, .25, .499999]) assert.equal(selectFirstGreeting('zh', () => value), openingGreetings.zh[0]);
+  for (const value of [.5, .75, .999999]) assert.equal(selectFirstGreeting('zh', () => value), openingGreetings.zh[1]);
+  for (const value of [0, .5, .999999]) assert.equal(selectFirstGreeting('en', () => value), firstGreeting.en);
+  assert.ok(openingGreetings.zh.every(text => !greetingPool('zh', new Date(2026, 9, 8, 8)).includes(text)));
+});
 
 test('greetings follow local time boundaries and weekends', () => {
   const date = (hour: number, day = 7) => new Date(2026, 9, day, hour);

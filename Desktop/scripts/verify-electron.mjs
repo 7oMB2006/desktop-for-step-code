@@ -44,7 +44,7 @@ try {
   });
   assert.deepEqual(windowState, { opacity: 0, visible: true, focused: false });
   page.on('pageerror', e => errors.push(e.message));
-  await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
+  await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
   await prepareSessionFixture(page);
   const documentPath = join(profile, 'attachment sample.md');
   await writeFile(documentPath, '# Attachment acceptance\n');

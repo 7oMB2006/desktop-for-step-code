@@ -1,4 +1,11 @@
 export const firstGreeting = { zh: '让想法阶跃星辰', en: 'Let ideas reach the stars' };
+export const openingGreetings = { zh: [firstGreeting.zh, '星辰因你而阶跃'], en: [firstGreeting.en] };
+
+export function selectFirstGreeting(language: 'zh' | 'en', random = Math.random): string {
+  const options = openingGreetings[language];
+  return options[Math.floor(random() * options.length)];
+}
+
 export const developerMottos = ['踽踽而行 步履不停'];
 const common = ['来啦！', '你好呀~', '有什么新鲜事？', '想聊什么都行。', '今天从哪里开始？', '我们从这里开始。', '慢慢来，不着急。', '有个想法？', '说说看？', '想试点什么？', '换个思路看看？', '一起琢磨一下。', '先试试，再说。', '不一定要有计划。', '随便聊聊也行。'];
 const morning = ['早上好！', '早呀。', '新的一天，早上好。', '早，今天从哪开始？', '睡得还好吗？', '吃早饭了吗？', '今天有什么安排？', '不着急，慢慢开始。'];

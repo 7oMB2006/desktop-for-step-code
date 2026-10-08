@@ -162,9 +162,13 @@ try {
   await input.fill(longDraft);
   assert.ok(await input.evaluate(element => element.scrollHeight > element.clientHeight));
   const scrollStyle = await input.evaluate(element => ({
-    width: getComputedStyle(element).scrollbarWidth,
+    width: getComputedStyle(element, '::-webkit-scrollbar').width,
+    track: getComputedStyle(element, '::-webkit-scrollbar-track').backgroundColor,
+    buttons: getComputedStyle(element, '::-webkit-scrollbar-button').display,
   }));
-  assert.equal(scrollStyle.width, 'thin', 'retain the approved thin native scrollbar, including Windows end buttons');
+  assert.equal(scrollStyle.width, '4px');
+  assert.equal(scrollStyle.track, 'rgba(0, 0, 0, 0)', 'scrollbar track stays transparent');
+  assert.equal(scrollStyle.buttons, 'none', 'trackless scrollbar has no end buttons');
   await input.evaluate(element => { element.scrollTop = 100; });
   const inputBefore = await input.evaluate(element => element.scrollTop);
   const conversationBefore = await page.locator('.conversation').evaluate(element => element.scrollTop);

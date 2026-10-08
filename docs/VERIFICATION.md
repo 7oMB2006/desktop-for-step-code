@@ -1,5 +1,7 @@
 # Verification
 
+For the current first-release gates and candidate status, see [RELEASE.md](RELEASE.md). This document preserves historical feature evidence; different preview packages and source-only checks do not collectively qualify one final installer.
+
 ## Account Settings Split
 
 The 2026-10-07 change separates Account and Providers in Settings. Account uses the supplied StepFun platform mark and four channel tiles for mainland/international Plan and API Key. Providers uses the same 17px, 2px outline icon convention as the other navigation entries and a noninteractive custom-provider placeholder. The management adapter exposes credential validity and an actual stored UID only when it matches the active account identity; the upstream profile fallback is not displayed as a user ID. Credential contents do not cross this settings DTO. Display name, avatar, plan tier, allowance and API balance are not supplied by current runtime interfaces and remain unavailable rather than inferred.

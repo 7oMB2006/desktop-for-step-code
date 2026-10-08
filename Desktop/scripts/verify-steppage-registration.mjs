@@ -10,10 +10,11 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const serverName = 'steppage';
-const expectedCommand = join(resolve('runtime'), 'node', 'node.exe');
+const executablePath = process.env.DESKTOP_VERIFY_EXE;
+const expectedCommand = join(executablePath ? join(dirname(executablePath), 'resources', 'runtime') : resolve('runtime'), 'node', 'node.exe');
 const userCommand = 'my-own-steppage-command';
 let launchNumber = 0;
 let phase = 'initializing';
@@ -39,7 +40,7 @@ const launchCase = async (profile, bundlePath) => {
   let app;
   let closing = false;
   try {
-    app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
+    app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
     app.process().on('exit', (code, signal) => {
       if (!closing) console.error(`Unexpected Electron exit during ${phase}: code=${code}, signal=${signal}`);
     });

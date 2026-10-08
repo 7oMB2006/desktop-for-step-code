@@ -83,7 +83,10 @@ try {
   await input.fill('');
   assert.equal(await button.getAttribute('data-action'), 'stop');
   await input.press('Enter');
-  assert.equal((await app.evaluate(() => globalThis.composerFixture.calls)).length, 2, 'empty Enter must not abort');
+  const enterCalls = await app.evaluate(() => globalThis.composerFixture.calls);
+  assert.equal(enterCalls.length, 3);
+  assert.equal(enterCalls.at(-1)[0], 'queue_steer_first', 'empty Enter steers the oldest queued message');
+  assert.ok(enterCalls.every(call => call[0] !== 'abort'), 'Enter must not abort');
   await page.getByRole('button', { name: '添加附件', exact: true }).click();
   assert.equal(await button.getAttribute('data-action'), 'send');
   await page.locator('.attachment-card').hover();

@@ -125,7 +125,10 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.evaluate(() => { HTMLMediaElement.prototype.play = () => Promise.resolve(); });
   await page.getByRole('region', { name: repo, exact: true }).getByRole('button', { name: '在 stream-client 新建会话', exact: true }).click();
-  await page.waitForFunction(repo => document.querySelector('.empty-state p')?.textContent === repo.split(/[\\/]/).at(-1), repo);
+  await page.waitForFunction(async repo => {
+    const snapshot = await window.desktop.snapshot();
+    return Boolean(snapshot.draftId) && !snapshot.runtimeId && snapshot.preferences.workspace === repo;
+  }, repo);
   const input = page.locator('.composer > textarea');
   await input.fill('修复工具结束后正文无法继续输出的问题，保留现有的流式动画。');
   await input.press('Enter');
@@ -253,6 +256,13 @@ try {
   await page.getByRole('button', { name: '新建会话', exact: true }).waitFor({ state: 'visible' });
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await page.waitForFunction(() => !!document.querySelector('.empty-state'));
+  // The draft inherits the current Git project; this case needs an actual non-Git worker.
+  await page.evaluate(() => window.desktop.newIndependentSession());
+  await page.reload();
+  await page.waitForFunction(async () => {
+    const snapshot = await window.desktop.snapshot();
+    return snapshot.independent && Boolean(snapshot.runtimeId) && !snapshot.state.isStreaming;
+  });
   await toggle.click();
   await panel.waitFor();
   await choose('变更来源', '分支');

@@ -26,7 +26,7 @@ try {
   });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.getByRole('heading', { name: '让梦想阶跃星辰' }).waitFor();
+  await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
   await page.locator('.sidebar-bottom > button').click();
   await page.getByText('UID fixture-user-1042', { exact: true }).waitFor();
   const account = await page.evaluate(async () => (await window.desktop.settings()).account);

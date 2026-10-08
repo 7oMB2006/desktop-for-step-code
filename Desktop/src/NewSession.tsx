@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Check, FolderOpen, MessageSquare, Plus, Search, Settings } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
 import './new-session.css';
-import { firstGreeting, nextGreeting } from './session-greetings';
+import { nextGreeting, selectFirstGreeting } from './session-greetings';
 
 interface Props {
   language: 'zh' | 'en';
@@ -20,7 +20,8 @@ interface Props {
 
 export function NewSession({ language, workspace, workspaces, title, disabled, composing, onSelect, onOpenProject, onSettings, onOpenChange }: Props) {
   const zh = language === 'zh';
-  const [text, setText] = useState(firstGreeting[language]);
+  const [text, setText] = useState(() => selectFirstGreeting(language));
+  const greetingLanguage = useRef(language);
   const [count, setCount] = useState(0);
   const phase = useRef<'typing' | 'holding' | 'deleting' | 'waiting'>('typing');
   const seen = useRef(new Set<string>());
@@ -74,7 +75,9 @@ export function NewSession({ language, workspace, workspaces, title, disabled, c
     return () => window.removeEventListener('resize', place);
   }, [open, search, workspaces.length]);
   useEffect(() => {
-    setText(firstGreeting[language]); setCount(0); phase.current = 'typing'; seen.current.clear();
+    if (greetingLanguage.current === language) return;
+    greetingLanguage.current = language;
+    setText(selectFirstGreeting(language)); setCount(0); phase.current = 'typing'; seen.current.clear();
   }, [language]);
   useEffect(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)');

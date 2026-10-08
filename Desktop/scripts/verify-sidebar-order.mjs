@@ -26,9 +26,21 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
 const errors = [];
+let phase = 'fixture setup';
+let closing = false;
+const mark = value => { phase = value; console.log(`Sidebar acceptance: ${phase}`); };
+process.on('exit', code => {
+  if (code !== 0) console.error(`Sidebar acceptance exited (${code}) during ${phase}`);
+});
 async function launch() {
+  mark('Electron launch');
+  closing = false;
   const executablePath = process.env.DESKTOP_VERIFY_EXE;
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+  app.process().on('exit', (code, signal) => {
+    if (!closing) console.error(`Unexpected Electron exit during ${phase}: code=${code}, signal=${signal}`);
+  });
+  mark('first window');
   const page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow, dialog }) => {
     const window = BrowserWindow.getAllWindows()[0];
@@ -37,7 +49,11 @@ async function launch() {
     dialog.showMessageBox = async () => ({ response: 1 });
   });
   page.on('pageerror', error => errors.push(error.message));
+  mark('runtime ready');
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled &&
+    ['sidebar-0', 'sidebar-1', 'sidebar-2', 'sidebar-3', 'sidebar-4'].every(id =>
+      document.querySelector(`[data-reorder-kind="session"][data-reorder-id="${id}"]`)));
   return page;
 }
 const key = path => path.replaceAll('\\', '/').toLowerCase();
@@ -61,6 +77,7 @@ async function drag(page, from, to, after = false, cancel = false) {
 }
 try {
   let page = await launch();
+  mark('session drag and cancellation');
   const initialOrder = await rows(project(page, 0));
   const initialActive = (await page.evaluate(() => window.desktop.snapshot())).state.sessionId;
   assert.deepEqual(await projectOrder(page), projects.map(key));
@@ -74,6 +91,7 @@ try {
   await drag(page, session(page, 0), session(page, 3));
   assert.deepEqual(await rows(project(page, 0)), reorderedSessions, 'cross-project session drag is ignored');
 
+  mark('project drag and pinning');
   await drag(page, project(page, 2).locator('.workspace-toggle'), project(page, 0));
   await waitOrder(page, [key(projects[2]), key(projects[0]), key(projects[1])]);
   assert.equal(await project(page, 2).locator('.workspace-toggle').getAttribute('aria-expanded'), 'true', 'drag must not toggle project');
@@ -91,6 +109,7 @@ try {
   await page.screenshot({ path: 'test-results/sidebar-order-light.png' });
   await page.locator('.sidebar').screenshot({ path: 'test-results/sidebar-order-light-detail.png' });
 
+  mark('sorting settings');
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   const sort = page.getByLabel('会话排序', { exact: true });
@@ -120,14 +139,14 @@ try {
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.screenshot({ path: 'test-results/sidebar-order-dark.png' });
   await page.locator('.sidebar').screenshot({ path: 'test-results/sidebar-order-dark-detail.png' });
-  console.log('Drag, pinning and settings passed; checking reload.');
+  mark('reload');
   await page.reload();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.waitForFunction(() => ['sidebar-0', 'sidebar-1', 'sidebar-2'].every(id =>
     document.querySelector(`[data-reorder-kind="session"][data-reorder-id="${id}"]`)));
   assert.deepEqual(await rows(project(page, 0)), reorderedSessions);
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[0]), key(projects[2])]);
-  console.log('Reload passed; checking remembered project open.');
+  mark('remembered project open');
 
   // Reopening a remembered project cannot promote it above its saved siblings.
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, projects[0]);
@@ -140,7 +159,8 @@ try {
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[2]), key(projects[0])]);
   await assert.rejects(page.evaluate(() => window.desktop.preferences({ workspaces: ['C:/not-remembered'] })), /Invalid workspace order/);
   const beforeRestart = await readFile(join(profile, 'preferences.json'), 'utf8');
-  console.log('Unpin and IPC validation passed; checking app restart.');
+  mark('app restart');
+  closing = true;
   await app.close(); app = null;
   page = await launch();
   await page.waitForFunction(() => ['sidebar-0', 'sidebar-1', 'sidebar-2'].every(id =>
@@ -148,6 +168,7 @@ try {
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[2]), key(projects[0])]);
   const restoredFixtureOrder = (await rows(project(page, 0))).filter(id => id.startsWith('sidebar-'));
   assert.deepEqual(restoredFixtureOrder, JSON.parse(beforeRestart).sessionOrder.filter(id => ['sidebar-0', 'sidebar-1', 'sidebar-2'].includes(id)));
+  mark('narrow layout and keyboard reorder');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(680, 780));
   await page.waitForFunction(() => document.querySelector('.app').classList.contains('sidebar-compact'));
   await page.locator('.window-sidebar-toggle').click();
@@ -158,6 +179,10 @@ try {
   await waitOrder(page, [key(projects[1]), key(projects[0]), key(projects[2])]);
   assert.deepEqual(errors, []);
   console.log('Sidebar: manual session/project drag, cancel, group boundaries, pins, sorting, IPC validation, reload/relaunch, narrow and reduced motion passed.');
+} catch (error) {
+  console.error(`Sidebar acceptance failed during ${phase}`);
+  throw error;
 } finally {
+  closing = true;
   if (app) await app.close();
 }

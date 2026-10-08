@@ -29,6 +29,8 @@ https://github.com/7oMB2006/desktop-for-step-code/actions/runs/37619401736/job/1
 
 执行、权限和模型行为仍由固定 Step Code 运行时提供。Desktop 的并发与协作功能不提供文件锁或事务隔离。
 
+当前版本不提供自动检查或自动获取 GitHub 新版的更新机制。后续版本请手动查看项目 Releases 页面并下载安装包。
+
 ## 必须通过的发布门槛
 
 以下未勾选项均未在本轮获得最终候选证据，不因历史验收或用户日常使用自动通过。

@@ -1,0 +1,62 @@
+name: Publish Update Manifest
+
+on:
+  release:
+    types: [published, unpublished, edited, deleted, released, prereleased]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-update-feed
+  cancel-in-progress: false
+
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out trusted publishing code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - name: Install publishing dependencies
+        working-directory: Desktop
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: corepack pnpm install --frozen-lockfile --ignore-scripts
+      - name: Generate public manifest
+        working-directory: Desktop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: corepack pnpm exec tsx scripts/generate-update-feed.mjs "$RUNNER_TEMP/latest.json"
+      - name: Publish metadata only to update-feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          mkdir "$RUNNER_TEMP/feed"
+          cd "$RUNNER_TEMP/feed"
+          git init
+          git remote add origin "https://github.com/$REPOSITORY.git"
+          if git ls-remote --exit-code --heads origin update-feed; then
+            git fetch --depth 1 origin update-feed
+            git checkout -b update-feed FETCH_HEAD
+          else
+            status=$?
+            if [ "$status" -ne 2 ]; then exit "$status"; fi
+            git checkout --orphan update-feed
+          fi
+          cp "$RUNNER_TEMP/latest.json" latest.json
+          git add latest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -m "chore: refresh public update manifest"
+          git push origin HEAD:update-feed

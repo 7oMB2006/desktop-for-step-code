@@ -12,7 +12,7 @@ export interface Message { role: string; content: string | Content[]; customType
 export interface RuntimeState { isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
 export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string }
 export type RuntimeEvent = { type: string; [key: string]: any };
-export interface Preferences { theme: 'system' | 'light' | 'dark'; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide' }
+export interface Preferences { appearance?: import('./appearance').Appearance; theme: 'system' | 'light' | 'dark'; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide'; updateChannel?: UpdateChannel; autoCheckUpdates?: boolean }
 export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
 export interface Snapshot { preferences: Preferences; status: string; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; permissionPreset?: PermissionPreset; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
@@ -20,6 +20,10 @@ export interface Account { loggedIn: boolean; validity: string; profile?: string
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
 export interface DesktopBridge {
+  updateState(): Promise<AppUpdateState>;
+  checkUpdates(): Promise<AppUpdateState>;
+  openUpdate(action: 'release' | 'download'): Promise<void>;
+  onUpdateEvent(callback: (state: AppUpdateState) => void): () => void;
   fileOpen(target?: FileTarget, destination?: string): Promise<FileOpenResult | null>;
   fileOpenOptions(target: FileTarget): Promise<FileOpeningOptions>;
   browserOpenLink(address: string): Promise<BrowserSnapshot>;
@@ -47,7 +51,7 @@ export interface DesktopBridge {
   repositoryDiff(runtimeId: string, base?: string): Promise<RepositoryDiff>;
   repositoryFileDiff(runtimeId: string, base: string, path: string): Promise<RepositoryFileDiff>;
   turnUndo(runtimeId: string, toolIds: string[], action: 'status' | 'prepare' | 'undo', token?: string): Promise<TurnUndoState>;
-  windowControl(action: 'state' | 'minimize' | 'toggleMaximize' | 'close'): Promise<{ maximized: boolean }>;
+  windowControl(action: 'state' | 'minimize' | 'toggleMaximize' | 'close' | 'quit'): Promise<{ maximized: boolean }>;
   systemTheme(): Promise<{ systemDark: boolean }>;
   snapshot(): Promise<Snapshot>;
   beginSession(workspace?: string): Promise<Snapshot>;
@@ -81,6 +85,18 @@ export interface DesktopBridge {
   copyText(text: string): Promise<void>;
   diagnostics(): Promise<boolean>;
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
+}
+export type UpdateChannel = 'stable' | 'preview';
+export interface AppRelease {
+  version: string; tag: string; name: string; prerelease?: boolean; publishedAt?: string;
+  notes: string; url: string; installer?: { name: string; url: string; size: number };
+}
+export interface AppUpdateState {
+  currentVersion: string; channel: UpdateChannel;
+  status: 'idle' | 'checking' | 'available' | 'current' | 'no-release' | 'error';
+  checkedAt?: number; release?: AppRelease; source?: 'manifest' | 'release-feed'; updateAvailable?: boolean;
+  error?: 'network' | 'rate-limit' | 'invalid-response' | 'unsupported-version' | 'feed-unavailable';
+  retryAt?: number;
 }
 export interface TurnUndoState { state: 'available' | 'unavailable' | 'conflict' | 'undone' | 'failed'; token?: string }
 export interface LinkPreview { url: string; title?: string; description?: string; icon?: string }

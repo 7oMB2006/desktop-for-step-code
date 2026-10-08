@@ -4,7 +4,7 @@ import { createServer } from 'vite';
 import electron from 'electron';
 import './icons.mjs';
 import './build-terminal.mjs';
-await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'] });
+await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'] });
 const server = await createServer({ server: { host: '127.0.0.1', port: 5173, strictPort: false } });
 await server.listen();
 const url = server.resolvedUrls.local[0];

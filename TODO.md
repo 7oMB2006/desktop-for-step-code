@@ -13,6 +13,7 @@
 - [ ] Subagent 失败态及优化
 - [ ] MCP 和 Skill
 - [ ] Goal 模式优化
+- [ ] 自动化任务
 
 ## P2
 

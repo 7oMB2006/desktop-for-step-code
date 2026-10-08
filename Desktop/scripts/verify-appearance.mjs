@@ -1,6 +1,6 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -15,8 +15,11 @@ async function launch() {
   app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
   const page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
-  await app.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.setOpacity(0); win.setIgnoreMouseEvents(true); win.showInactive(); win.setSize(1280, 960); });
-  await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
+  await app.evaluate(({ BrowserWindow, dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); const win = BrowserWindow.getAllWindows()[0]; win.setOpacity(0); win.setIgnoreMouseEvents(true); win.showInactive(); win.setSize(1280, 960); });
+  await page.waitForFunction(() => {
+    const button = document.querySelector('.new-chat');
+    return button && !button.disabled;
+  });
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('region', { name: '文字与排版' }).waitFor();
@@ -38,7 +41,9 @@ try {
   await page.screenshot({ path: 'test-results/appearance-serif-relaxed.png' });
   assert.equal(await page.locator('.appearance-heading .icon-button').evaluate(el => el.getBoundingClientRect().width), 30);
   await app.close(); app = undefined;
+  assert.equal(JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8')).appearance.bodySize, 18);
   page = await launch();
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.appearance.bodySize, 18);
   assert.equal(await page.getByRole('spinbutton', { name: '正文字号', exact: true }).inputValue(), '18');
   assert.equal(await page.getByRole('combobox', { name: '正文字体', exact: true }).inputValue(), 'serif');
   await page.getByRole('button', { name: '恢复默认排版', exact: true }).click();
@@ -46,7 +51,10 @@ try {
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark', appearance: { uiSize: 18, bodySize: 22, codeSize: 20, lineHeight: 2 } }));
   // Refresh the snapshot through the application lifecycle rather than editing React state.
   await page.reload();
-  await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
+  await page.waitForFunction(() => {
+    const button = document.querySelector('.new-chat');
+    return button && !button.disabled;
+  });
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 880));

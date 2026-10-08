@@ -43,8 +43,8 @@ https://github.com/7oMB2006/desktop-for-step-code/actions/runs/37619401736/job/1
 | 待完成 | 包内资源 | 核对 runtime manifest、Node、Step bundle、Desktop helpers、terminal host 及文件打开辅助资源；无账户、个人会话、fixture profile 或意外构建目录 |
 | 待完成 | 许可证及签名 | 检查安装包实际携带的上游/第三方许可证与版权声明；检查 Authenticode 状态，如未签名则明确说明可能出现 SmartScreen 提示 |
 | 已通过 | 打包版回归 | 34 项 Electron 验收使用候选包 unpacked executable 与隔离测试 profile；明细见下方 2026-10-07 记录 |
-| 部分通过 | 真实模型烟测 | Windows Server 2022 云桌面上，用户确认真实账户登录、项目/会话加载及 Agent 对话正常；审批、重启后的历史恢复、真实工具改动及产物打开仍待验证 |
-| 待完成 | 安装生命周期 | 一次性 Windows 环境完成下述流程，记录缺失或失败，不在日用机执行破坏性安装测试 |
+| 已通过 | 真实模型烟测 | Windows Server 2022 云桌面上，真实账户登录、项目/会话加载、Agent 对话、工具改动、审批、产物打开及重启后的历史恢复均已由用户完成验证 |
+| 已通过 | 安装生命周期 | 一次性 Windows 云桌面已完成全新安装、登录与基础使用、覆盖安装、卸载和重装；会话/设置保留，卸载后凭据按预期需要重新登录 |
 | 待完成 | 文档与校验值 | README 下载状态、已知限制、候选安装器 SHA-256 与 Release 文案一致；实际上传后再次下载核验 |
 
 详细历史证据保留在 [VERIFICATION.md](VERIFICATION.md)。其多次 source-only / preview package 记录不可拼接为同一个最终安装器的通过记录。
@@ -77,8 +77,8 @@ Step Code commit / patches / Node：待包内核对
 安装器文件名 / 字节数 / SHA-256：待生成
 Authenticode 状态：待检查
 源码与打包版检查结果：待记录
-真实账户烟测：2026-10-08 Windows Server 2022 云桌面基础 smoke 通过；完整真实模型验收尚未完成，不保存凭据
-安装 / 迁移 / 卸载 / 重装：待记录
+真实账户烟测：2026-10-08 Windows Server 2022 云桌面完整 smoke 通过，不保存凭据
+安装 / 迁移 / 卸载 / 重装：2026-10-08 测试云桌面通过；旧包同版本覆盖安装按 build-to-build migration 记录
 未验收项与已知限制：待最终复核
 发布授权：尚未获得
 ```
@@ -109,10 +109,16 @@ Authenticode 状态：待检查
 - 候选包 34 项 Electron acceptance 通过，使用 `DESKTOP_VERIFY_EXE` 指向候选的 `win-unpacked` 可执行文件和隔离 fixture profile。覆盖 account settings、归档、auth vault、background subagents、browser、chat quotes、composer、context、conversation timing、crash log、cross-session、file preview、message feedback/links/order、拟创建会话、permission approval、review/diff、queue、branching、concurrency、sidebar order/scrollbar、StepPage registration、stream motion、subagent status、summary board/resize/runtime、terminal、theme bootstrap、turn artifacts/changes/undo。结果清单为 `Desktop/test-results/release-candidate-checks.json`；fixture pass 不等同于真实账户验收。
 - 候选包的通用 `verify-electron.mjs` 和 `verify-cross-session.mjs` 通过。后者发现指定 packaged executable 会绕过 Playwright loader 注入 `CDPScreenshotNewSurface`；已在脚本里显式补上该 feature 并复验。初次两次截图超时记录留在本地日志，不计为产品故障。
 - 候选应用源码 typecheck、串行 `--test-concurrency=1` 下 220 项 unit/protocol tests 和 production build 已通过；默认并发 runner 的本轮卡住已复现并停止，不能表述为并发模式通过。runtime manifest 仍匹配 Step Code `519e4de4ed2162d3667be1821cb92ada6b884e5a` 和 Node `v24.15.0`。
-- 真实账户烟测及一次性 Windows VM 对此候选安装器的全新安装/升级/卸载/重装仍未通过。此前 Issue #5 VM 测试针对另一候选，不能替代本次候选证据。未创建 tag、GitHub Release 或上传附件。
+- 截至该日记录，真实账户烟测及一次性 Windows VM 对此候选安装器的全新安装/升级/卸载/重装尚未完成；后续 2026-10-08 云桌面完整补测已补齐这些证据。此前 Issue #5 VM 测试针对另一候选，不能替代本次候选证据。未创建 tag、GitHub Release 或上传附件。
 
 ## 2026-10-08 Windows Server 2022 云桌面基础烟测
 
 用户在阿里云无影个人云桌面的 Windows Server 2022 Datacenter 21H2 环境安装并启动候选安装器，以自己的账号进行了基础交互测试，并确认“一切正常”。截图可见应用版本 `0.1.0`、Step Code 已连接、项目会话已加载、Agent 对话已返回，输入区及本轮/会话上下文统计可用。此次观察支持该安装包在此 Server 2022 云环境完成安装、启动、登录和基础对话；不外推为 Windows 10/11 覆盖，也不把未见证的任务细节记作通过。
 
-该 smoke 未记录审批交互、应用重启后的历史/凭据恢复、真实工具改动及产物打开，也未完成覆盖安装、卸载和重装。因此真实模型烟测门槛为部分通过，安装生命周期门槛仍待完成。候选文件 SHA-256 再次核对为 `6d20c9c911e7832c0f1af6feeee15a9a51d0152f738e31d4ae7177552bcb1db0`；该包构建于 2026-10-07，早于当前发布准备提交，仍需在最终冻结提交上重建并复验哈希。当前 GitHub 最近成功的 PR CI 是 PR #70 的合并前提交，未覆盖本地发布准备分支上的验收脚本/文档提交。
+该记录只覆盖基础安装、启动、登录和对话；审批、应用重启后的历史/凭据恢复、真实工具改动、产物打开及安装生命周期在下面的补充记录中完成。候选文件 SHA-256 再次核对为 `6d20c9c911e7832c0f1af6feeee15a9a51d0152f738e31d4ae7177552bcb1db0`；该包构建于 2026-10-07，早于当前发布准备提交，仍需在最终冻结提交上重建并复验哈希。PR #72 已在当前发布准备提交上通过 Windows integration CI。
+
+## 2026-10-08 Windows Server 2022 云桌面完整烟测补充
+
+用户继续在同一台阿里云无影 Windows Server 2022 Datacenter 21H2 云桌面上完成剩余验收，结果全部成功：Agent 实际修改小文件并完成审批，产物可打开；退出并重新启动应用后登录状态与会话历史恢复；在测试云桌面完成覆盖安装、卸载和重新安装，确认会话/设置保留且卸载后的账户凭据按预期需要重新登录。该结果将真实模型烟测和安装生命周期门槛提升为已通过，但仍只代表该 Server 2022 测试环境，不等同于 Windows 10/11 全覆盖。
+
+这些测试针对当前候选包完成；最终公开发布仍需在冻结提交上重新构建 NSIS 安装器、生成并核对新的 SHA-256，同时复核 Release 文案与附件。当前尚未创建 tag、GitHub Release 或上传附件。

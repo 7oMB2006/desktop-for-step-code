@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import semver from 'semver';
+
+const { version: currentVersion } = JSON.parse(await readFile(resolve('package.json'), 'utf8'));
+const nextVersion = semver.inc(currentVersion, 'minor');
+const feedVersion = semver.inc(nextVersion, 'minor');
+assert.ok(nextVersion && feedVersion);
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-app-updates-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: [] }));
@@ -15,7 +21,7 @@ const launch = async () => {
   const executablePath = process.env.DESKTOP_VERIFY_EXE;
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
-  await app.evaluate(({ BrowserWindow, dialog, net, shell }) => {
+  await app.evaluate(({ BrowserWindow, dialog, net, shell }, { currentVersion, nextVersion, feedVersion }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1280, 900);
     dialog.showMessageBox = async () => ({ response: 1 });
@@ -30,7 +36,7 @@ const launch = async () => {
       if (fixture.mode === 'rate-limit') return new Response('', { status: 429, headers: { 'retry-after': '120' } });
       if (fixture.mode === 'feed') return url.endsWith('latest.json') ? new Response('', { status: 404 })
         : new Response(`<feed xmlns="http://www.w3.org/2005/Atom"><id>tag:github.com,2008:https://github.com/7oMB2006/desktop-for-step-code/releases</id>
-          <entry><title>Desktop for Step Code 0.3.0</title><link rel="alternate" href="https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.3.0"/></entry></feed>`);
+          <entry><title>Desktop for Step Code ${feedVersion}</title><link rel="alternate" href="https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v${feedVersion}"/></entry></feed>`);
       const makeRelease = (version, preview = false) => ({
         version, tag: `v${version}`, prerelease: preview, name: `Desktop for Step Code ${version}`,
         url: `https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v${version}`,
@@ -43,13 +49,15 @@ const launch = async () => {
       return new Response(JSON.stringify({ schemaVersion: 1, repository: '7oMB2006/desktop-for-step-code',
         generatedAt: '2026-10-08T00:00:00Z', channels: {
           stable: fixture.mode === 'current' ? null : makeRelease('0.1.0'),
-          preview: makeRelease(fixture.mode === 'current' ? '0.1.0' : '0.2.0', true),
+          preview: makeRelease(fixture.mode === 'current' ? currentVersion : nextVersion, true),
         } }));
     };
-  });
+  }, { currentVersion, nextVersion, feedVersion });
   page.on('pageerror', error => errors.push(error.message));
-  await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
-  await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
+  await page.waitForFunction(() => {
+    const button = document.querySelector('.new-chat');
+    return Boolean(window.desktop && button && !button.disabled);
+  });
   return page;
 };
 const mode = async value => app.evaluate((_electron, value) => {
@@ -88,7 +96,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.update-channel-field select')?.matches(':open'));
   await page.getByRole('heading', { name: '版本更新', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.update-channel-field select')?.matches(':open'));
-  assert.ok((await updates.locator('.update-version').textContent()).includes('v0.1.0'));
+  assert.ok((await updates.locator('.update-version').textContent()).includes(`v${currentVersion}`));
   await mode('pending');
   await updates.getByRole('button', { name: '检查更新', exact: true }).click();
   await updates.getByText('正在检查更新…', { exact: true }).waitFor();
@@ -97,7 +105,7 @@ try {
   assert.equal(await updates.locator('.update-spinning').evaluate(element => getComputedStyle(element).animationName), 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await app.evaluate(() => { globalThis.updateFixture.mode = 'available'; globalThis.updateFixture.release(); });
-  await updates.getByText('发现新版本 0.2.0', { exact: true }).waitFor();
+  await updates.getByText(`发现新版本 ${nextVersion}`, { exact: true }).waitFor();
   await page.locator('.update-indicator').waitFor();
   await updates.getByText('版本说明', { exact: true }).click();
   assert.equal(await updates.locator('.update-notes script').count(), 0);
@@ -108,8 +116,8 @@ try {
   await updates.getByRole('button', { name: '发布页', exact: true }).click();
   const opened = await app.evaluate(() => globalThis.updateFixture.opened);
   assert.deepEqual(opened, [
-    'https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.2.0/Desktop.for.Step.Code.Setup.0.2.0.exe',
-    'https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.2.0',
+    `https://github.com/7oMB2006/desktop-for-step-code/releases/download/v${nextVersion}/Desktop.for.Step.Code.Setup.${nextVersion}.exe`,
+    `https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v${nextVersion}`,
   ]);
   await assert.rejects(page.evaluate(() => window.desktop.openUpdate('https://evil.example')), /No verified update download/);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -149,7 +157,7 @@ try {
   assert.equal(await app.evaluate(() => globalThis.updateFixture.calls.length), rateCalls);
   await app.evaluate(() => { globalThis.updateFixture.time += 180_000; globalThis.updateFixture.mode = 'available'; });
   await updates.getByRole('button', { name: '检查更新', exact: true }).click();
-  await updates.getByText('发现新版本 0.2.0', { exact: true }).waitFor();
+  await updates.getByText(`发现新版本 ${nextVersion}`, { exact: true }).waitFor();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByRole('dialog').getByLabel(/^主题/).selectOption('dark');
   await page.getByRole('button', { name: '版本更新', exact: true }).click();
@@ -186,7 +194,7 @@ try {
   await app.evaluate(() => { globalThis.updateFixture.time += 60_001; globalThis.updateFixture.mode = 'feed'; });
   await chooseChannel(page, 'preview');
   const fallback = page.getByRole('region', { name: 'App updates' });
-  await fallback.getByText('Version 0.3.0 is available', { exact: true }).waitFor();
+  await fallback.getByText(`Version ${feedVersion} is available`, { exact: true }).waitFor();
   assert.equal(await fallback.getByRole('button', { name: 'Download installer', exact: true }).count(), 0);
   await fallback.getByText('Check the releases page for a Windows x64 installer.', { exact: true }).waitFor();
   await page.locator('.update-indicator').waitFor();

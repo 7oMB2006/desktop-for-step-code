@@ -957,7 +957,10 @@ async function handle(method: string, args: any[]) {
     }
     case 'preferences': {
       const patch = args[0] ?? {};
-      if (patch.appearance !== undefined) preferences.appearance = normalizeAppearance(patch.appearance);
+      if (patch.appearance !== undefined) {
+        if (!patch.appearance || typeof patch.appearance !== 'object' || Array.isArray(patch.appearance)) throw new Error('Invalid appearance settings');
+        preferences.appearance = normalizeAppearance({ ...preferences.appearance, ...patch.appearance });
+      }
       const updatePatch = updatePreferences(patch);
       if (patch.filePreviewWidth !== undefined) {
         if (patch.filePreviewWidth !== 'standard' && patch.filePreviewWidth !== 'wide') throw new Error('Invalid file preview width');

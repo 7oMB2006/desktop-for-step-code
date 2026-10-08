@@ -18,10 +18,10 @@ function FontSizeInput({ value, min, max, label, onChange }: { value: number; mi
   return <input aria-label={label} type="number" min={min} max={max} step={1} value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { e.stopPropagation(); setDraft(String(value)); } }}/>;
 }
 
-export function AppearanceSettings({ value, onChange, language }: { value?: Appearance; onChange: (value: Appearance) => void; language: 'zh' | 'en' }) {
+export function AppearanceSettings({ value, onChange, language }: { value?: Appearance; onChange: (value: Partial<Appearance>) => void; language: 'zh' | 'en' }) {
   const a = normalizeAppearance(value);
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
-  const update = (patch: Partial<Appearance>) => onChange(normalizeAppearance({ ...a, ...patch }));
+  const update = (patch: Partial<Appearance>) => onChange(patch);
   const size = (key: 'uiSize' | 'bodySize' | 'codeSize', min: number, max: number, label: string) => <label className="appearance-row"><span>{label}</span><span className="appearance-number"><FontSizeInput key={`${key}-${a[key]}`} label={label} min={min} max={max} value={a[key]} onChange={value => update({ [key]: value })}/><small>px</small></span></label>;
   return <section className="appearance-settings" aria-label={t('文字与排版', 'Typography')}>
     <div className="appearance-heading"><h3>{t('外观', 'Appearance')}</h3><button className="icon-button" aria-label={t('恢复默认排版', 'Reset typography')} data-tooltip={t('恢复默认排版', 'Reset typography')} onClick={() => onChange({ ...defaultAppearance })}><RotateCcw size={16}/></button></div>

@@ -32,16 +32,37 @@ try {
   await page.screenshot({ path: 'test-results/appearance-default-light.png' });
   await page.locator('.appearance-preview').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/appearance-default-preview.png' });
+  // Hold preference acknowledgements so consecutive controls share stale props.
+  await app.evaluate(({ ipcMain }) => {
+    const handler = ipcMain._invokeHandlers.get('desktop');
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    globalThis.appearanceFixture = { patches: [], release };
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      if (method === 'preferences' && args[0]?.appearance) {
+        globalThis.appearanceFixture.patches.push(structuredClone(args[0].appearance));
+        await gate;
+      }
+      return handler(event, method, ...args);
+    });
+  });
   await page.getByRole('spinbutton', { name: '正文字号', exact: true }).fill('18');
   await page.getByRole('spinbutton', { name: '正文字号', exact: true }).press('Enter');
   await page.getByRole('combobox', { name: '正文行间距', exact: true }).selectOption('2');
   await page.getByRole('combobox', { name: '正文字体', exact: true }).selectOption('serif');
+  assert.deepEqual(await app.evaluate(() => globalThis.appearanceFixture.patches), [
+    { bodySize: 18 }, { lineHeight: 2 }, { bodyFont: 'serif' },
+  ]);
+  await app.evaluate(() => globalThis.appearanceFixture.release());
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.appearance-preview .message-body')).lineHeight === '36px');
+  await page.waitForFunction(() => document.querySelector('[aria-label="正文字体"]').value === 'serif');
   await page.locator('.appearance-preview').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/appearance-serif-relaxed.png' });
   assert.equal(await page.locator('.appearance-heading .icon-button').evaluate(el => el.getBoundingClientRect().width), 30);
   await app.close(); app = undefined;
   assert.equal(JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8')).appearance.bodySize, 18);
+  assert.equal(JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8')).appearance.lineHeight, 2);
   page = await launch();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.appearance.bodySize, 18);
   assert.equal(await page.getByRole('spinbutton', { name: '正文字号', exact: true }).inputValue(), '18');

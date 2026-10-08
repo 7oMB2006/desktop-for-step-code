@@ -288,7 +288,7 @@ try {
   assert.equal((await list()).length, 0, 'closing the last terminal must not recreate it automatically');
   assert.deepEqual(errors, []);
   const closed = app.waitForEvent('close', { timeout: 30000 });
-  await page.evaluate(() => window.desktop.windowControl('close')).catch(() => {});
+  await page.evaluate(() => window.desktop.windowControl('quit')).catch(() => {});
   await closed;
   appClosed = true;
   const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };

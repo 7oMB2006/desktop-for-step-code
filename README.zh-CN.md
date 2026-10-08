@@ -10,7 +10,7 @@
 <p align="center">Windows x64 · Electron · React · TypeScript · MIT</p>
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a></p>
 <p align="center">
-  <img src="assets/readme/home-zh.png" width="960" alt="Desktop for Step Code v0.1.0 简体中文工作区与新建会话页面">
+  <img src="assets/readme/home-workspace-v0.1.0.png" width="960" alt="Desktop for Step Code v0.1.0 简体中文工作区与新建会话页面">
 </p>
 
 一个面向 Windows 的 [Step Code](https://github.com/stepfun-ai/Step-Code) 桌面客户端。它提供桌面工作区、对话和会话管理，Agent 执行由 Step Code 提供。

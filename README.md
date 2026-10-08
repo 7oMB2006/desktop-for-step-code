@@ -10,7 +10,7 @@
 <p align="center">Windows x64 · Electron · React · TypeScript · MIT</p>
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a></p>
 <p align="center">
-  <img src="assets/readme/home-zh.png" width="960" alt="Desktop for Step Code v0.1.0 workspace and new conversation screen in Chinese">
+  <img src="assets/readme/home-workspace-v0.1.0.png" width="960" alt="Desktop for Step Code v0.1.0 workspace and new conversation screen in Chinese">
 </p>
 
 A Windows desktop client for [Step Code](https://github.com/stepfun-ai/Step-Code). It provides desktop workspaces, conversations, and session management; Step Code powers agent execution.

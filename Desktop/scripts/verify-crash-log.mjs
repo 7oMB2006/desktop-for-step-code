@@ -28,7 +28,7 @@ await writeFile(join(dataRoot, 'auth.json'), JSON.stringify({
 let app = await launch();
 try {
   const page = await app.firstWindow();
-  await page.getByRole('heading', { name: '让梦想阶跃星辰' }).waitFor();
+  await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
   await page.evaluate(() => window.desktop.snapshot());
 } finally { await app.close(); }
 
@@ -46,7 +46,7 @@ for (const legacy of [
   app = await launch();
   try {
     const page = await app.firstWindow();
-    await page.getByRole('heading', { name: '让梦想阶跃星辰' }).waitFor();
+    await page.getByRole('heading', { name: '让想法阶跃星辰' }).waitFor();
     await page.evaluate(() => window.desktop.snapshot());
   } finally { await app.close(); }
   assert.deepEqual(await readFile(join(dataRoot, 'auth.dpapi')), encrypted, 'migration must preserve the encrypted vault bytes');

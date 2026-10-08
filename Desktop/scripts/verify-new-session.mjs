@@ -37,7 +37,7 @@ try {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1440, 960);
   });
-  const heading = page.getByRole('heading', { name: '让梦想阶跃星辰', exact: true });
+  const heading = page.getByRole('heading', { name: '让想法阶跃星辰', exact: true });
   await heading.waitFor();
   await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
@@ -61,7 +61,7 @@ try {
   const historyBefore = await readdir(join(profile, 'step-runtime', 'sessions'));
   await assert.rejects(readdir(join(profile, 'workspaces', 'independent')), /ENOENT/);
   await heading.locator('.terminal-heading-output').evaluate(async element => {
-    while (!element.textContent.includes('让梦想阶跃星辰')) await new Promise(resolve => setTimeout(resolve, 20));
+    while (!element.textContent.includes('让想法阶跃星辰')) await new Promise(resolve => setTimeout(resolve, 20));
   });
   const input = page.getByRole('textbox', { name: '消息', exact: true });
   assert.equal(await input.isEnabled(), true);
@@ -91,13 +91,13 @@ try {
   await page.reload();
   await heading.waitFor();
   await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
-  await page.waitForFunction(() => document.querySelector('.terminal-heading-output')?.textContent === '让梦想阶跃星辰');
+  await page.waitForFunction(() => document.querySelector('.terminal-heading-output')?.textContent === '让想法阶跃星辰');
   const frames = await page.evaluate(() => window.headingFrames);
   const textLengths = [...new Set(frames.map(frame => frame.text.length))];
   assert.ok(textLengths.some(length => length > 0 && length < 7) && textLengths.includes(7), 'headline reveals individual characters');
   assert.ok(frames.every(frame => Math.abs(frame.width - frames[0].width) < .5), 'headline typing cannot shift its width');
   await page.waitForFunction(() => document.querySelector('.terminal-heading-output')?.textContent.length < 7, undefined, { timeout: 12000 });
-  await page.waitForFunction(() => document.querySelector('.new-session h1')?.getAttribute('aria-label') !== '让梦想阶跃星辰', undefined, { timeout: 12000 });
+  await page.waitForFunction(() => document.querySelector('.new-session h1')?.getAttribute('aria-label') !== '让想法阶跃星辰', undefined, { timeout: 12000 });
   const nextText = await page.locator('.new-session h1').getAttribute('aria-label');
   await input.fill('Pause the greeting while composing');
   await page.waitForFunction(text => document.querySelector('.terminal-heading-output')?.textContent === text, nextText);
@@ -170,7 +170,7 @@ try {
   await page.reload();
   await heading.waitFor();
   await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
-  assert.equal(await heading.locator('.terminal-heading-output').textContent(), '让梦想阶跃星辰');
+  assert.equal(await heading.locator('.terminal-heading-output').textContent(), '让想法阶跃星辰');
   assert.equal(await heading.locator('.terminal-cursor').evaluate(element => getComputedStyle(element).animationName), 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));

@@ -9,7 +9,8 @@ test('greetings follow local time boundaries and weekends', () => {
   }
   assert.ok(greetingPool('zh', date(14, 10)).includes('周末好！'));
   assert.ok(!greetingPool('zh', date(14)).includes('周末好！'));
-  assert.equal(firstGreeting.zh, '让梦想阶跃星辰');
+  assert.equal(firstGreeting.zh, '让想法阶跃星辰');
+  assert.equal(firstGreeting.en, 'Let ideas reach the stars');
   assert.equal(developerMottos[0], '踽踽而行 步履不停');
 });
 

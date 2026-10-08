@@ -10,7 +10,7 @@
 <p align="center">Windows x64 · Electron · React · TypeScript · MIT</p>
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a></p>
 <p align="center">
-  <img src="assets/readme/home-zh.png" width="360" alt="Desktop for Step Code 简体中文独立会话首页">
+  <img src="assets/readme/home-zh.png" width="960" alt="Desktop for Step Code v0.1.0 简体中文工作区与新建会话页面">
 </p>
 
 一个面向 Windows 的 [Step Code](https://github.com/stepfun-ai/Step-Code) 桌面客户端。它提供桌面工作区、对话和会话管理，Agent 执行由 Step Code 提供。
@@ -40,11 +40,21 @@ Step 登录凭据使用当前 Windows 用户的加密存储机制保存到 `step
 
 ### 下载与运行
 
-当前仓库提供源码，GitHub Releases 暂无公开安装包。安装包和发布时间将在完成发布验收后另行确定；本机生成的安装文件不包含在仓库中。
+首个 Windows x64 社区预览版 **v0.1.0** 已发布。
 
-首版正在整理为 Windows x64 社区预览版，发布门槛与当前进度见 [首版发布准备](docs/RELEASE.md)。
+**[下载 Windows x64 安装包](https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.1.0/Desktop.for.Step.Code.Setup.0.1.0.exe)** · [版本说明与校验值](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.1.0) · [所有版本](https://github.com/7oMB2006/desktop-for-step-code/releases)
 
-从源码运行需要 Windows x64 环境和下方列出的构建依赖。首次启动后，在账户设置中使用自己的 Step Plan 账户或 Step Platform API Key 登录，再打开本地项目。Git/Bash、项目专用命令行工具以及 MCP 服务端依赖需在主机上另行安装。
+1. 下载安装包，按照版本说明核对 SHA-256，再运行安装器。
+2. 启动应用，在账户设置中使用自己的 Step Plan 账户或 Step Platform API Key 登录。
+3. 打开本地项目或选择独立会话，选择模型后开始对话。
+
+安装包包含 Electron、固定版本的 Step Code 和 Node 运行时，无需安装下方的开发依赖。Git/Bash、项目专用工具以及 MCP 服务端依赖需另行安装；模型使用资格与额度由你的账户决定。
+
+**安装提示：** v0.1.0 安装器未进行数字签名，Windows 可能显示 SmartScreen 或“未知发布者”提示。请核对下载来源与哈希，不要关闭系统安全防护。
+
+**后续更新：** 当前没有自动检查、下载或安装新版的功能，请手动查看 [Releases](https://github.com/7oMB2006/desktop-for-step-code/releases) 并下载安装包。
+
+本版面向 Windows x64，不提供 macOS、Linux 或 WSL 兼容承诺。从源码运行请参阅下方构建步骤。
 
 ### 从源码构建
 
@@ -82,7 +92,9 @@ node scripts/checksums.mjs
 
 ### 当前状态
 
-这是社区预览版，完整的公开发布验收仍在进行。一次性 Windows 虚拟机验证了历史候选包的安装、凭据迁移和卸载；另一次真实 Step Plan 账号验收中，打包客户端使用 `step-5-preview` 完成了一项编程任务及桌面端工具审批。这些历史结果不代表最新安装器已经通过完整验收。具体验收记录与发布范围见 [VERIFICATION.md](docs/VERIFICATION.md)。摘要板展示运行时实际提供的 MCP 连接状态；配置启用不等于连接健康，也不代表实际业务调用成功。
+v0.1.0 是社区预览版，不是 StepFun 官方产品，也不代表稳定版承诺。发布准备中已在一台 Windows Server 2022 云桌面验证真实账户对话、工具改动与审批、产物打开、重启恢复，以及安装、覆盖安装、卸载和重装；这不等于 Windows 10/11 全配置或所有模型与 MCP 场景均已验证。
+
+具体验收记录与发布范围见 [VERIFICATION.md](docs/VERIFICATION.md) 和 [发布准备记录](docs/RELEASE.md)。摘要板展示运行时实际提供的 MCP 连接状态；配置启用不等于连接健康，也不代表实际业务调用成功。
 
 ### 许可
 

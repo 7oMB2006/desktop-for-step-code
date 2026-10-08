@@ -92,6 +92,8 @@ node scripts/checksums.mjs
 
 ### 当前状态
 
+后续功能与优先级见 [开发待办](TODO.md)。
+
 v0.1.0 是社区预览版，不是 StepFun 官方产品，也不代表稳定版承诺。发布准备中已在一台 Windows Server 2022 云桌面验证真实账户对话、工具改动与审批、产物打开、重启恢复，以及安装、覆盖安装、卸载和重装；这不等于 Windows 10/11 全配置或所有模型与 MCP 场景均已验证。
 
 具体验收记录与发布范围见 [VERIFICATION.md](docs/VERIFICATION.md) 和 [发布准备记录](docs/RELEASE.md)。摘要板展示运行时实际提供的 MCP 连接状态；配置启用不等于连接健康，也不代表实际业务调用成功。

@@ -92,6 +92,8 @@ node scripts/checksums.mjs
 
 ### Project Status
 
+See the [Development TODO](TODO.md) (Chinese) for planned work and priorities.
+
 v0.1.0 is a community preview, not an official StepFun product or a stability guarantee. Release preparation included testing on one Windows Server 2022 cloud desktop: real-account conversations, tool edits and approvals, artifact opening, restart recovery, installation, installation over an existing build, uninstall, and reinstall. This does not establish coverage of every Windows 10/11 configuration, model, or MCP scenario.
 
 See [VERIFICATION.md](docs/VERIFICATION.md) and the [release preparation record](docs/RELEASE.md) (Chinese) for the evidence and scope. The Summary board shows MCP connection states supplied by the runtime; enabled configuration alone is not a health check, and connection status does not establish successful service calls.

@@ -1,6 +1,6 @@
 # 首版发布准备
 
-状态：整理中，尚未发布。核对日期：2026-10-07。
+状态：发布文案已准备，尚未发布。核对日期：2026-10-08。
 
 ## 定位与候选基线
 
@@ -36,16 +36,16 @@ https://github.com/7oMB2006/desktop-for-step-code/actions/runs/37619401736/job/1
 | 状态 | 门槛 | 通过条件 |
 | --- | --- | --- |
 | 已核对 | 准备基线 | 最新 main 已包含 PR #70；保留旧脏工作区，不从中直接发包 |
-| 待完成 | 版本及候选冻结 | 确认版本，记录完整 commit SHA；候选源码无未提交修改 |
-| 待完成 | 源码验收 | frozen-lockfile 安装、typecheck、串行 unit/protocol tests、build、PR CI 中全部 Electron 检查通过；默认并发 test runner 的卡住情况已单独记录 |
+| 已通过 | 版本及候选冻结 | 版本 `0.1.0`；最终 main 提交为 `226a0d629ba2e35e0d6e1e7386942c559c6907e2`；候选源码无未提交修改 |
+| 已通过 | 源码验收 | frozen-lockfile 安装、typecheck、串行 unit/protocol tests、build、PR CI 中全部 Electron 检查通过；默认并发 test runner 的卡住情况已单独记录 |
 | 已通过 | 补充交互回归 | 候选包的 Context、Diff、撤销、引用、流式滚动专用检查通过；明暗与窄窗截图已生成，仍需发布者最终目视确认 |
-| 待完成 | 候选安装器 | 从冻结提交生成 NSIS x64 包；打包失败不得用旧 exe 或只用 unpacked 目录替代 |
-| 待完成 | 包内资源 | 核对 runtime manifest、Node、Step bundle、Desktop helpers、terminal host 及文件打开辅助资源；无账户、个人会话、fixture profile 或意外构建目录 |
-| 待完成 | 许可证及签名 | 检查安装包实际携带的上游/第三方许可证与版权声明；检查 Authenticode 状态，如未签名则明确说明可能出现 SmartScreen 提示 |
+| 已通过 | 候选安装器 | 从最终 main 提交生成 NSIS x64 包；未用旧 exe 或只用 unpacked 目录替代 |
+| 已通过 | 包内资源 | 已核对 runtime manifest、Node、Step bundle、Desktop helpers、terminal host 及文件打开辅助资源；未发现账户、个人会话、fixture profile 或意外构建目录 |
+| 已通过 | 许可证及签名 | 已核对包内许可证与版权声明；Authenticode 实际状态为 `NotSigned`，Release 文案明确说明 SmartScreen 风险 |
 | 已通过 | 打包版回归 | 34 项 Electron 验收使用候选包 unpacked executable 与隔离测试 profile；明细见下方 2026-10-07 记录 |
 | 已通过 | 真实模型烟测 | Windows Server 2022 云桌面上，真实账户登录、项目/会话加载、Agent 对话、工具改动、审批、产物打开及重启后的历史恢复均已由用户完成验证 |
 | 已通过 | 安装生命周期 | 一次性 Windows 云桌面已完成全新安装、登录与基础使用、覆盖安装、卸载和重装；会话/设置保留，卸载后凭据按预期需要重新登录 |
-| 待完成 | 文档与校验值 | README 下载状态、已知限制、候选安装器 SHA-256 与 Release 文案一致；实际上传后再次下载核验 |
+| 已准备 | 文档与校验值 | Release 文案、最终安装器 SHA-256 与 `SHA256SUMS.txt` 已整理；实际上传后的下载核验仍待发布操作 |
 
 详细历史证据保留在 [VERIFICATION.md](VERIFICATION.md)。其多次 source-only / preview package 记录不可拼接为同一个最终安装器的通过记录。
 
@@ -70,17 +70,17 @@ https://github.com/7oMB2006/desktop-for-step-code/actions/runs/37619401736/job/1
 候选证据记录应包含：
 
 ```text
-应用版本 / tag：待确认
-候选 Desktop commit：待冻结
-构建日期及 Windows 环境：待记录
-Step Code commit / patches / Node：待包内核对
-安装器文件名 / 字节数 / SHA-256：待生成
-Authenticode 状态：待检查
-源码与打包版检查结果：待记录
+应用版本 / tag：`0.1.0` / `v0.1.0`（待创建）
+候选 Desktop commit：`226a0d629ba2e35e0d6e1e7386942c559c6907e2`
+构建日期及 Windows 环境：2026-10-08，本机 Windows x64
+Step Code commit / patches / Node：`519e4de4ed2162d3667be1821cb92ada6b884e5a` / manifest 中记录的 Desktop 集成补丁 / `v24.15.0`
+安装器文件名 / 字节数 / SHA-256：`Desktop for Step Code Setup 0.1.0.exe` / `156676739` / `7b1fc243a73bb1c650e67d03f9f54a74ed1de2381ac8cc8c532555c80f39d5ee`
+Authenticode 状态：`NotSigned`
+源码与打包版检查结果：已通过；默认并发 test runner 的卡住情况已单独记录
 真实账户烟测：2026-10-08 Windows Server 2022 云桌面完整 smoke 通过，不保存凭据
 安装 / 迁移 / 卸载 / 重装：2026-10-08 测试云桌面通过；旧包同版本覆盖安装按 build-to-build migration 记录
-未验收项与已知限制：待最终复核
-发布授权：尚未获得
+未验收项与已知限制：默认并发 test runner 的稳定性风险、未签名安装器的 SmartScreen 提示、Server 2022 单环境边界及文案中列出的其他限制
+发布授权：尚未获得；尚未创建 tag、GitHub Release 或上传附件
 ```
 
 构建完成后只生成该候选的 `SHA256SUMS.txt`，避免把 release 目录中旧 exe 一起当成首版附件。大型产物先盘点精确路径、占用及进程；删除旧包另行获得授权。
@@ -121,4 +121,16 @@ Authenticode 状态：待检查
 
 用户继续在同一台阿里云无影 Windows Server 2022 Datacenter 21H2 云桌面上完成剩余验收，结果全部成功：Agent 实际修改小文件并完成审批，产物可打开；退出并重新启动应用后登录状态与会话历史恢复；在测试云桌面完成覆盖安装、卸载和重新安装，确认会话/设置保留且卸载后的账户凭据按预期需要重新登录。该结果将真实模型烟测和安装生命周期门槛提升为已通过，但仍只代表该 Server 2022 测试环境，不等同于 Windows 10/11 全覆盖。
 
-这些测试针对当前候选包完成；最终公开发布仍需在冻结提交上重新构建 NSIS 安装器、生成并核对新的 SHA-256，同时复核 Release 文案与附件。当前尚未创建 tag、GitHub Release 或上传附件。
+这些测试针对前一份候选包完成；最终 main 候选已按下方记录重新构建并复核哈希。当前尚未创建 tag、GitHub Release 或上传附件。
+
+## 2026-10-08 最终 main 候选
+
+PR #72 已合并，最终 main 提交为 `226a0d629ba2e35e0d6e1e7386942c559c6907e2`。已从该提交重新生成 Windows x64 NSIS 安装器：
+
+- 文件：`Desktop/release/Desktop for Step Code Setup 0.1.0.exe`
+- 大小：`156676739` bytes
+- SHA-256：`7b1fc243a73bb1c650e67d03f9f54a74ed1de2381ac8cc8c532555c80f39d5ee`
+- Authenticode：`NotSigned`
+- runtime：Step Code `519e4de4ed2162d3667be1821cb92ada6b884e5a`，Node `v24.15.0`
+
+该安装器对应最终 main，且包内资源核对通过。`Desktop/release/SHA256SUMS.txt` 只记录此安装器。尚未创建 tag、GitHub Release 或上传附件；发布后仍需从 GitHub 下载附件复核哈希。

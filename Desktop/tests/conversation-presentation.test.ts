@@ -136,4 +136,16 @@ test('subagent records tolerate missing fields and non-object junk', () => {
   assert.equal(withUsage.turns, 2);
   assert.deepEqual(withUsage.messages.map(message => message.role), ['user']);
 });
+test('chain queued and skipped records survive projection and background settlement', () => {
+  const call = subagentCall({ chain: [{ agent: 'general', task: 'A' }, { agent: 'general', task: 'B' }, { agent: 'general', task: 'C' }] });
+  assert.deepEqual(subagentTasks(call, undefined).map(task => task.status), ['running', 'queued', 'queued']);
+  const dispatch = subagentResult({ agentId: 'lane', status: 'running' });
+  assert.deepEqual(subagentTasks(call, dispatch, new Map([['lane', 'running']])).map(task => task.status), ['running', 'queued', 'queued']);
+  const progress = subagentResult({ agentId: 'lane', results: [{ status: 'completed' }, { status: 'running' }, { status: 'queued' }] });
+  assert.deepEqual(subagentTasks(call, progress, new Map([['lane', 'running']])).map(task => task.status), ['completed', 'running', 'queued']);
+  const records = ['completed', 'failed', 'skipped'].map((status, index) => ({ agent: 'general', task: String(index), status, messages: [] }));
+  assert.deepEqual(subagentTasks(call, subagentResult({ results: records })).map(task => task.status), ['completed', 'failed', 'skipped']);
+  const queued = subagentResult({ agentId: 'lane', results: [{ status: 'completed' }, { status: 'queued' }, { status: 'skipped' }] });
+  assert.deepEqual(subagentTasks(call, queued, new Map([['lane', 'failed']])).map(task => task.status), ['completed', 'failed', 'skipped']);
+});
 

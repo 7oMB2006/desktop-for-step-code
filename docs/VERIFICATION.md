@@ -1,5 +1,19 @@
 # Verification
 
+## Chained Subagent Runtime Upgrade
+
+The PR #81 review follow-up preserves queued steps when a background lane reports `running`; the active step still inherits lane lifecycle, and previously settled records remain unchanged. Projection regression checks cover initial background dispatch and partial per-step results. Concurrency and cross-session HTTP fixtures locate their explicit task/peer messages instead of the upstream discovery reminder. Typecheck, build, presentation tests and both real-RPC acceptance scripts passed locally; replacement cloud CI is checked separately.
+
+The 2026-10-10 source integration pins Step Code to `39ec6e0adeca09d50c8897023ea4e471371634cd`, the merge of upstream PR #227 addressing Issue #220. The existing Desktop integration patch is rebased without changing its credential, RPC or bundle behavior. The patch applier succeeds against a fresh checkout of that exact commit; runtime staging and CI assert the same baseline. The original user-owned upstream checkout, staged runtime and running application remain untouched.
+
+Desktop accepts `queued` and `skipped` result records. Planned chain steps after the first start as pending rather than falsely running; settled completed/failed/skipped records survive projection. Skipped uses a neutral circle-minus icon and the shared application tooltip explaining that the chain stopped before this step executed.
+
+`verify-chain-runtime.mjs` uses a temporary Desktop profile, a local HTTP model fixture, real Electron IPC, the staged RPC worker and actual subagent children. It verifies three-step output propagation, final-step content delivered to the parent, middle-step failure with a skipped third step, and cancellation during the second step with completed/aborted/skipped results and no residual streaming state. It is included in CI. The upstream chain-result suite passed eight tests. This is real-runtime fixture acceptance, not paid-model or real-account acceptance.
+
+Typecheck, all 259 serial unit/protocol tests and production build passed. General Electron, auth-vault, account settings, custom providers (three protocols with and without authentication and real tool invocation), Summary, background subagents and send-queue acceptance passed against the upgraded runtime. Provider and queue fixtures locate the actual user task rather than treating the new upstream Ultracode system reminder as a user request; their execution and FIFO assertions remain intact.
+
+The local `chain-runtime-preview-20261010` package passed general Electron and all three chain-runtime scenarios. Packaged manifest, Node, Step bundle and Desktop helpers match staging. Installer SHA256 is `dff0a769a06760b69ca34b1abfe4df652c2e8c38b263605ec6e9202ec3b5bdef`; the ordinary desktop shortcut targets this preview. A user-run Step model session also completed a three-step planner chain: saved records confirm full previous-output substitution at both boundaries, final-step text returned to the parent, zero child exit codes and settled records without pending replies. Real-model failure/cancellation and installer lifecycle remain unverified. No public release or upstream feature reimplementation is included.
+
 ## Status Icons and Secondary Descriptions
 
 The 2026-10-09 Desktop-only follow-up separates semantic status colors from the brand accent: completion uses green, failure uses red, and interruption uses a yellow warning triangle. Subagent rows and the right-side transcript share the existing shrink/hold/grow/draw animation. Task-plan projection accepts explicitly reported `failed` records without inferring task failure from individual tool errors; the current pinned upstream does not yet emit that task-plan state.

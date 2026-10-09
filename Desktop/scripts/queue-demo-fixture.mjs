@@ -27,7 +27,11 @@ export async function queueFixture(profile, { duration = 40000 } = {}) {
         if (body.length > 8 * 1024 * 1024) { response.writeHead(413).end(); return; }
       }
       const payload = JSON.parse(body);
-      const userIndex = payload.messages.findLastIndex(message => message.role === 'user');
+      const userIndex = payload.messages.findLastIndex(message => {
+        if (message.role !== 'user') return false;
+        const content = typeof message.content === 'string' ? message.content : message.content?.filter(block => block.type === 'text').map(block => block.text).join('\n') ?? '';
+        return !content.startsWith('<system-reminder>Ultracode and Ultraloop are names for the same multi-agent workflow capability.');
+      });
       const user = payload.messages[userIndex];
       const text = typeof user.content === 'string' ? user.content : user.content.filter(block => block.type === 'text').map(block => block.text).join('\n');
       requests.push(text);

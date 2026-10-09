@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Circle, CircleX, CircleCheck, LoaderCircle, TriangleAlert } from 'lucide-react';
+import { Circle, CircleX, CircleCheck, CircleMinus, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { StatusTooltip } from './StatusTooltip';
 import './subagent-status.css';
 
-export type SubagentStatus = 'pending' | 'running' | 'done' | 'failed' | 'stopped';
+export type SubagentStatus = 'pending' | 'running' | 'done' | 'failed' | 'stopped' | 'skipped';
 const cubicIn = 'cubic-bezier(.55, .055, .675, .19)';
 const cubicOut = 'cubic-bezier(.215, .61, .355, 1)';
 
@@ -53,6 +53,7 @@ export function SubagentStatusIcon({ state, language = 'zh', detail }: { state: 
   }, [state, reduced]);
   return <StatusTooltip state={state} language={language} detail={detail}><span ref={slot} className="subagent-status-icon" data-state={state} data-settling={settling} aria-hidden="true">
     {state === 'pending' && <Circle size={12} strokeWidth={1.5}/>}
+    {state === 'skipped' && <CircleMinus size={16} strokeWidth={1.9}/>}
     <span className="subagent-status-spinner"><LoaderCircle size={16} strokeWidth={1.9}/></span>
     <CircleCheck className="subagent-status-check" size={16} strokeWidth={1.9}/>
     <CircleX className="subagent-status-failure" size={16} strokeWidth={1.9}/>

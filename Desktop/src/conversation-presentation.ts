@@ -94,7 +94,7 @@ export function toolSubject(call: Content | undefined): string {
   return typeof value === 'string' ? value.replace(/\s+/gu, ' ').slice(0, 160) : '';
 }
 
-const SUBAGENT_STATUSES = ['running', 'completed', 'failed', 'aborted'] as const;
+const SUBAGENT_STATUSES = ['queued', 'running', 'completed', 'failed', 'aborted', 'skipped'] as const;
 export type SubagentTask = {
   agent: string;
   task: string;
@@ -172,13 +172,15 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
   if (!planned.length && (typeof args?.agent === 'string' || typeof args?.task === 'string')) {
     planned.push({ agent: String(args.agent ?? ''), task: String(args.task ?? '') });
   }
-  const entries = tasks.length ? tasks : planned.map(entry => ({ ...entry, status: 'running' as const, messages: [] }));
+  const entries = tasks.length ? tasks : planned.map((entry, index) => ({ ...entry,
+    status: Array.isArray(args?.chain) && index > 0 ? 'queued' as const : 'running' as const, messages: [] }));
   const backgroundAgentId = typeof result?.details?.agentId === 'string' ? result.details.agentId : undefined;
   const laneStatus = backgroundAgentId ? background?.get(backgroundAgentId) : undefined;
   return entries.map((entry, taskIndex) => ({
     ...entry, toolCallId: call?.id ?? result?.toolCallId, taskIndex, backgroundAgentId,
     // Preserve already-settled steps in a failed multi-step lane. A single lane can run again.
-    status: laneStatus && (entries.length === 1 || entry.status === 'running') ? laneStatus : entry.status,
+    status: laneStatus && (entries.length === 1 || entry.status === 'running'
+      || (entry.status === 'queued' && laneStatus !== 'running')) ? laneStatus : entry.status,
   }));
 }
 

@@ -187,10 +187,10 @@ function SubagentTaskRow({ task, onOpen, language }: {
   task: SubagentTask; onOpen: (task: SubagentTask) => void; language: 'zh' | 'en';
 }) {
   const zh = language === 'zh';
-  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'aborted' ? 'stopped' : 'failed';
+  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'queued' ? 'pending' : task.status === 'skipped' ? 'skipped' : task.status === 'aborted' ? 'stopped' : 'failed';
   const summary = task.task.replace(/\s+/gu, ' ').trim();
-  const label = zh ? (state === 'running' ? '进行中' : state === 'done' ? '已完成' : task.status === 'aborted' ? '已终止' : '已失败')
-    : (state === 'running' ? 'Running' : state === 'done' ? 'Completed' : task.status === 'aborted' ? 'Stopped' : 'Failed');
+  const label = zh ? (state === 'pending' ? '待执行' : state === 'skipped' ? '已跳过' : state === 'running' ? '进行中' : state === 'done' ? '已完成' : task.status === 'aborted' ? '已终止' : '已失败')
+    : (state === 'pending' ? 'Pending' : state === 'skipped' ? 'Skipped' : state === 'running' ? 'Running' : state === 'done' ? 'Completed' : task.status === 'aborted' ? 'Stopped' : 'Failed');
   return <button type="button" className="lane-row" data-tool-state={state} data-lane-agent={task.agent}
     aria-label={language === 'zh' ? `查看子代理记录: ${label}，${summary}` : `Open subagent record: ${label}, ${summary}`}
     onClick={() => onOpen(task)}>

@@ -179,7 +179,8 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
   return entries.map((entry, taskIndex) => ({
     ...entry, toolCallId: call?.id ?? result?.toolCallId, taskIndex, backgroundAgentId,
     // Preserve already-settled steps in a failed multi-step lane. A single lane can run again.
-    status: laneStatus && (entries.length === 1 || entry.status === 'running' || entry.status === 'queued') ? laneStatus : entry.status,
+    status: laneStatus && (entries.length === 1 || entry.status === 'running'
+      || (entry.status === 'queued' && laneStatus !== 'running')) ? laneStatus : entry.status,
   }));
 }
 

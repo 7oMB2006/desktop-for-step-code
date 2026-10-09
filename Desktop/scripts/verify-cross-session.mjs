@@ -20,7 +20,8 @@ const server = createServer(async (req, res) => {
   let body = '';
   for await (const part of req) body += part;
   const payload = JSON.parse(body);
-  const user = textOf(payload.messages.filter(message => message.role === 'user').at(-1)?.content);
+  const user = textOf(payload.messages.findLast(message => message.role === 'user'
+    && /^(?:PROBE-[A-Z-]+|KEEP-BUSY|TARGET-SEED|Peer-session reference)/.test(textOf(message.content)))?.content);
   const label = user.startsWith('Peer-session reference') ? undefined : /PROBE-[A-Z-]+/.exec(user)?.[0];
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   const complete = text => res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');

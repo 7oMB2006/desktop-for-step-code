@@ -2,6 +2,8 @@
 
 ## Chained Subagent Runtime Upgrade
 
+The PR #81 review follow-up preserves queued steps when a background lane reports `running`; the active step still inherits lane lifecycle, and previously settled records remain unchanged. Projection regression checks cover initial background dispatch and partial per-step results. Concurrency and cross-session HTTP fixtures locate their explicit task/peer messages instead of the upstream discovery reminder. Typecheck, build, presentation tests and both real-RPC acceptance scripts passed locally; replacement cloud CI is checked separately.
+
 The 2026-10-10 source integration pins Step Code to `39ec6e0adeca09d50c8897023ea4e471371634cd`, the merge of upstream PR #227 addressing Issue #220. The existing Desktop integration patch is rebased without changing its credential, RPC or bundle behavior. The patch applier succeeds against a fresh checkout of that exact commit; runtime staging and CI assert the same baseline. The original user-owned upstream checkout, staged runtime and running application remain untouched.
 
 Desktop accepts `queued` and `skipped` result records. Planned chain steps after the first start as pending rather than falsely running; settled completed/failed/skipped records survive projection. Skipped uses a neutral circle-minus icon and the shared application tooltip explaining that the chain stopped before this step executed.

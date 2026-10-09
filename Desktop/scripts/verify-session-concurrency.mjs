@@ -24,7 +24,8 @@ const server = createServer(async (req, res) => {
   let body = '';
   for await (const part of req) body += part;
   const payload = JSON.parse(body);
-  const lastUser = payload.messages.filter(message => message.role === 'user').at(-1);
+  const lastUser = payload.messages.findLast(message => message.role === 'user'
+    && /RUN-[A-Z]/.test(typeof message.content === 'string' ? message.content : JSON.stringify(message.content)));
   const content = typeof lastUser?.content === 'string' ? lastUser.content : JSON.stringify(lastUser?.content);
   const label = /RUN-[A-Z]/.exec(content)?.[0] ?? 'RUN-X';
   systemPrompts.set(label, payload.messages.filter(message => ['system', 'developer'].includes(message.role)).map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).join('\n'));

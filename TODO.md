@@ -9,12 +9,17 @@
 - [ ] 第三方供应商适配
 - [ ] Subagent 失败态及优化
 
+- [ ] 正文开头泄露：避免正文开头出现非面向用户的内部内容。[复现截图](docs/acceptance/assistant-opening-content-leak.png)
+- [ ] 任务运行中解放模型控件，允许运行期间调整模型。[复现截图](docs/acceptance/model-control-during-run.png)
+
 ## P1
 
 - [ ] MCP 和 Skill
 - [ ] Goal 模式优化
 - [ ] 自动化任务
 - [ ] 审批前端优化
+
+- [ ] 产物原处交互返回。[复现截图](docs/acceptance/artifact-inline-return.png)
 
 ## P2
 

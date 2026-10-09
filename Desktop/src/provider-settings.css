@@ -58,7 +58,7 @@
 .provider-test-top { display:flex; align-items:center; gap:8px; padding-top:9px; margin-top:12px; border-top:1px solid var(--border); }
 .provider-test-top > span { display:flex; align-items:center; gap:7px; flex:1; min-width:0; font-size:12px; }
 .provider-test-top svg { flex-shrink:0; }
-.provider-test-top .success { color:var(--primary); }
+.provider-test-top .success { color:var(--green); }
 .provider-test-top .failure { color:var(--danger); }
 .provider-test-meta { display:flex; align-items:center; gap:8px; margin:4px 0 6px; }
 .provider-test-meta button { min-width:0; max-width:75%; gap:8px; padding:4px 6px; font-size:11px; border:0; background:transparent; }

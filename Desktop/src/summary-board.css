@@ -37,7 +37,7 @@
 .sb-disclosure > div { min-height: 0; overflow: hidden; }
 .sb-content .sb-step-detail { padding: 4px 8px 10px 30px; font-size: 11px; color: var(--muted); white-space: pre-wrap; }
 .sb-completed-trigger { display: flex; gap: 8px; width: 100%; min-height: 29px; padding: 3px 4px; border: 0; background: transparent; font-size: 11px; color: var(--muted); }
-.sb-completed-trigger > svg { color: var(--primary); }
+.sb-completed-trigger > svg { color: var(--green); }
 .sb-mcp { padding: 9px 12px 10px; border-top: 1px solid var(--border); }
 .sb-mcp-trigger { display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 32px; padding: 4px; gap: 8px; border: 0; border-radius: 4px; background: transparent; font-size: 12px; }
 .sb-mcp-trigger > svg, .sb-skills > svg { color: var(--muted); }

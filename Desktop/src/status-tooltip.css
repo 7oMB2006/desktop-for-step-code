@@ -1,0 +1,25 @@
+.status-tooltip-anchor {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; flex: 0 0 18px;
+}
+.status-tooltip-anchor:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 3px; }
+.status-tooltip {
+  --status-warning: oklch(.48 .10 80);
+  position: fixed; z-index: 76; width: min(252px, calc(100vw - 24px));
+  padding: 11px 13px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--ink); box-shadow: 0 5px 18px oklch(0 0 0 / .14);
+  text-align: left; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere;
+  animation: status-tooltip-enter 160ms cubic-bezier(.215, .61, .355, 1) both;
+}
+:root[data-theme="dark"] .status-tooltip { --status-warning: oklch(.80 .15 85); }
+.status-tooltip-heading { display: flex; align-items: center; gap: 8px; }
+.status-tooltip-heading strong { font-size: 12px; font-weight: 600; }
+.status-tooltip-heading svg { color: var(--muted); }
+.status-tooltip[data-state="done"] .status-tooltip-heading svg { color: var(--green); }
+.status-tooltip[data-state="failed"] .status-tooltip-heading svg { color: var(--danger); }
+.status-tooltip[data-state="stopped"] .status-tooltip-heading svg { color: var(--status-warning); }
+.status-tooltip p { margin: 5px 0 0 24px; color: var(--muted); }
+.status-tooltip.is-closing { pointer-events: none; animation: status-tooltip-exit 160ms cubic-bezier(.55, .055, .675, .19) both; }
+@keyframes status-tooltip-enter { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: scale(1); } }
+@keyframes status-tooltip-exit { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(.97); } }
+@media (prefers-reduced-motion: reduce) { .status-tooltip { animation: none !important; } .status-tooltip.is-closing { opacity: 0; } }

@@ -1,20 +1,24 @@
 .subagent-status-icon {
+  --status-warning: oklch(.48 .10 80);
   position: relative; display: inline-grid; place-items: center;
   width: 18px; height: 18px; flex: 0 0 18px; transform-origin: center;
 }
-.subagent-status-spinner, .subagent-status-check, .subagent-status-failure {
+:root[data-theme="dark"] .subagent-status-icon { --status-warning: oklch(.80 .15 85); }
+.subagent-status-spinner, .subagent-status-check, .subagent-status-failure, .subagent-status-warning {
   position: absolute; width: 16px; height: 16px; opacity: 0;
 }
-.subagent-status-spinner { display: grid; place-items: center; }
+.subagent-status-spinner { display: grid; place-items: center; color: var(--muted); }
 .subagent-status-icon[data-state="running"] .subagent-status-spinner,
 .subagent-status-icon[data-settling="true"] .subagent-status-spinner { animation: subagent-status-spin 1s linear infinite; opacity: 1; }
-.subagent-status-icon[data-state="done"] .subagent-status-check { opacity: 1; color: var(--primary); }
+.subagent-status-icon[data-state="done"] .subagent-status-check { opacity: 1; color: var(--green); }
 .subagent-status-icon[data-state="failed"] .subagent-status-failure { opacity: 1; color: var(--danger); }
+.subagent-status-icon[data-state="stopped"] .subagent-status-warning { opacity: 1; color: var(--status-warning); }
 .subagent-status-icon[data-settling="true"] .subagent-status-check { opacity: 0; }
 .subagent-status-icon[data-settling="true"] .subagent-status-failure { opacity: 0; }
+.subagent-status-icon[data-settling="true"] .subagent-status-warning { opacity: 0; }
 .subagent-status-icon[data-settling="true"] .subagent-status-check path,
-.subagent-status-icon[data-settling="true"] .subagent-status-failure path { stroke-dasharray: 1; stroke-dashoffset: 1; }
-.lane-failure-label { flex-shrink: 0; white-space: nowrap; font-size: 12px; }
+.subagent-status-icon[data-settling="true"] .subagent-status-failure path,
+.subagent-status-icon[data-settling="true"] .subagent-status-warning path { stroke-dasharray: 1; stroke-dashoffset: 1; }
 @keyframes subagent-status-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .subagent-status-spinner { animation: none !important; }

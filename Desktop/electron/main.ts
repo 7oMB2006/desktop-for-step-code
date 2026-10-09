@@ -355,8 +355,14 @@ async function beginSession(workspace?: string) {
     const options = await admin.request('session_options', { cwd: selected ?? app.getPath('documents') });
     const next: NonNullable<typeof sessionDraft> = { id: previous?.id ?? randomUUID(), workspace: selected, ...options,
       permissionPreset: previous?.permissionPreset ?? options.permissionPreset, permissionChanged: previous?.permissionChanged };
-    if (previous?.modelChanged && options.models.some((m: Model) => m.provider === previous.model?.provider && m.id === previous.model?.id))
-      Object.assign(next, { model: previous.model, modelChanged: true });
+    const selectedModel = previous?.modelChanged
+      ? options.models.find((m: Model) => m.provider === previous.model?.provider && m.id === previous.model?.id) : undefined;
+    if (selectedModel) {
+      Object.assign(next, { model: selectedModel, modelChanged: true });
+      if (!selectedModel.thinkingLevels?.includes(next.thinkingLevel!))
+        next.thinkingLevel = selectedModel.thinkingLevels?.[0];
+      next.thinkingChanged = Boolean(next.thinkingLevel);
+    }
     if (previous?.thinkingChanged && next.model?.thinkingLevels?.includes(previous.thinkingLevel!))
       Object.assign(next, { thinkingLevel: previous.thinkingLevel, thinkingChanged: true });
     sessionDraft = next;
@@ -1008,8 +1014,10 @@ async function handle(method: string, args: any[]) {
       const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
       await persistAuth(mergeRuntimeAuth(authData, next));
       const current = runtimes.active;
+      const draft = sessionDraft;
       await runtimes.stopAll();
-      if (current) await connect(current.cwd, current.state?.sessionFile, false);
+      if (draft) await beginSession(draft.workspace);
+      else if (current) await connect(current.cwd, current.state?.sessionFile, false);
       return null;
     }
     case 'cancelLogin': return admin.request('cancel_login');
@@ -1018,8 +1026,10 @@ async function handle(method: string, args: any[]) {
       const next = await admin.request('logout');
       await persistAuth(mergeRuntimeAuth(authData, next));
       const current = runtimes.active;
+      const draft = sessionDraft;
       await runtimes.stopAll();
-      if (current) await connect(current.cwd, undefined, false);
+      if (draft) await beginSession(draft.workspace);
+      else if (current) await connect(current.cwd, undefined, false);
       return null;
     }
     case 'saveMcp': {

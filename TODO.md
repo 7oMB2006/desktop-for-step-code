@@ -4,7 +4,7 @@
 
 ## P0
 
-- [ ] 下一个 Release 前解决：登录 Step Plan 后，初始化时模型的思考档位不可见（显示“暂无可用档位”）。[复现截图](docs/acceptance/plan-thinking-initialization.png)
+- [x] 下一个 Release 前解决：登录 Step Plan 后，初始化时模型的思考档位不可见（显示“暂无可用档位”）。客户端刷新修复已实现，隔离登录回归和新包的真实 Step Plan 登录验收均通过（2026-10-10 用户确认）。[复现截图](docs/acceptance/plan-thinking-initialization.png)
 - [ ] 前端体验优化（第二部分）：按小白、普通开发者、深度开发者提供不同前端能力与分组式体验。目标为第二版 Release，在第一部分之后开展。
 
 - [ ] 正文开头泄露：避免正文开头出现非面向用户的内部内容。[复现截图](docs/acceptance/assistant-opening-content-leak.png)

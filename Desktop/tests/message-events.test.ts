@@ -1,8 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyMessageEvent, applyToolResult } from '../src/message-events';
-import { responsePresentation, subagentTasks } from '../src/conversation-presentation';
+import { backgroundSubagentStates, conversationEntries, responsePresentation, subagentTasks } from '../src/conversation-presentation';
 import type { Message } from '../src/contracts';
+
+test('hidden discovery and lane messages remain hidden throughout live events and replay', () => {
+  const hidden: Message = {
+    role: 'custom', customType: 'ultraloop-discovery', display: false, content: 'Internal discovery reminder',
+  };
+  let messages: Message[] = [{ role: 'user', content: 'Hello' }];
+  for (const type of ['message_start', 'message_update', 'message_end']) {
+    messages = applyMessageEvent(messages, { type, message: hidden });
+    assert.equal(messages.at(-1)?.display, false);
+    assert.equal(conversationEntries(messages).length, 1, 'no empty assistant turn before real output');
+    assert.equal(responsePresentation(messages.map((message, index) => ({ message, index }))).text, 'Hello');
+  }
+  const assistant: Message = { role: 'assistant', content: [{ type: 'text', text: 'Hello back' }] };
+  messages = applyMessageEvent(messages, { type: 'message_start', message: assistant });
+  messages = applyMessageEvent(messages, { type: 'message_end', message: assistant });
+  const tool: Message = { role: 'toolResult', toolName: 'subagent', toolCallId: 's1', content: 'Started',
+    details: { agentId: 'lane-a', status: 'running' } };
+  messages = applyMessageEvent(messages, { type: 'message_start', message: tool });
+  const notification: Message = { role: 'custom', customType: 'agent-notification', display: false,
+    content: 'Internal lane notification', details: { agentId: 'lane-a', event: 'background_done', status: 'completed' } };
+  messages = applyMessageEvent(messages, { type: 'message_start', message: notification });
+  messages = applyMessageEvent(messages, { type: 'message_end', message: notification });
+  assert.equal(backgroundSubagentStates(messages).get('lane-a'), 'completed');
+  const replayed = JSON.parse(JSON.stringify(messages)) as Message[];
+  assert.deepEqual(conversationEntries(replayed), conversationEntries(messages));
+  const response = conversationEntries(replayed)[1];
+  assert.equal(response.type, 'response');
+  if (response.type === 'response') {
+    assert.equal(responsePresentation(response.items).text, 'Hello back');
+    assert.deepEqual(response.items.map(item => item.index), [2, 3]);
+  }
+  assert.equal(messages.filter(message => message.display === false).length, 2);
+});
 
 test('chain completion stays one tool through execution and message lifecycle before agent end', () => {
   const tasks = ['explore', 'review', 'general'].map(agent => ({ agent, task: agent, status: 'completed', messages: [] }));

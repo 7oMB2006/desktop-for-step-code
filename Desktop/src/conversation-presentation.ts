@@ -13,6 +13,7 @@ export type ConversationEntry = { type: 'user'; item: IndexedMessage } | {
 export function conversationEntries(messages: Message[]): ConversationEntry[] {
   const entries: ConversationEntry[] = [];
   messages.forEach((message, index) => {
+    if (message.display === false) return;
     if (message.role === 'user') entries.push({ type: 'user', item: { message, index } });
     else {
       const last = entries.at(-1);
@@ -31,6 +32,7 @@ export function responsePresentation(items: IndexedMessage[]) {
   const content: ResponseItem[] = [];
   const pending = new Map<string, Extract<ResponseItem, { type: 'tool' }>>();
   for (const { message, index } of items) {
+    if (message.display === false) continue;
     if (message.role === 'toolResult') {
       const call = message.toolCallId ? pending.get(message.toolCallId) : undefined;
       if (call) {
@@ -54,7 +56,7 @@ export function responsePresentation(items: IndexedMessage[]) {
     content,
     lastTextIndex: content.reduce((last, item, position) =>
       item.type === 'text' && item.block.text?.trim() ? position : last, -1),
-    text: items.filter(item => item.message.role !== 'toolResult')
+    text: items.filter(item => item.message.display !== false && item.message.role !== 'toolResult')
       .map(item => messageText(item.message)).filter(Boolean).join('\n\n'),
   };
 }

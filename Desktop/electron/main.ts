@@ -11,7 +11,7 @@ import { PendingMessages } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { ConversationTiming } from './conversation-timing';
 import { AuthVault } from './auth-vault';
-import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels } from './custom-providers';
+import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
 let providerTestController: AbortController | undefined;
 import { installCrashLog } from './crash-log';
@@ -137,6 +137,7 @@ const authEnvironment = () => ({
   ...env,
   STEPCODE_DESKTOP_AUTH_PATH: env.STEPCODE_AUTH_PATH,
   STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(runtimeAuth(authData)),
+  ...keylessEnvironment(authData, app.isPackaged ? join(process.resourcesPath, 'runtime-adapters/keyless-fetch.cjs') : join(__dirname, 'keyless-fetch.cjs')),
 });
 async function persistAuth(next: Record<string, unknown>) {
   try { await vault.save(next); }

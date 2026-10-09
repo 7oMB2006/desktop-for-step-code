@@ -71,6 +71,10 @@
     ],
     "extraResources": [
       {
+        "from": "dist/keyless-fetch.cjs",
+        "to": "runtime-adapters/keyless-fetch.cjs"
+      },
+      {
         "from": "dist/file-opening",
         "to": "file-opening"
       },

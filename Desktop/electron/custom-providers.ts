@@ -144,13 +144,24 @@ export function deleteProviderAuth(auth: AuthData, id: unknown): AuthData {
   delete next[id];
   return next;
 }
+const keylessToken = (id: string) => `desktop-no-auth-${id}`;
+export function keylessEndpoints(auth: AuthData) {
+  return providerList(auth).filter(p => p.enabled && p.keyless).map(p => ({ baseUrl: p.baseUrl, token: keylessToken(p.id) }));
+}
+export function keylessEnvironment(auth: AuthData, bootstrap: string): NodeJS.ProcessEnv {
+  const endpoints = keylessEndpoints(auth);
+  return endpoints.length ? {
+    STEPCODE_DESKTOP_KEYLESS_ENDPOINTS: JSON.stringify(endpoints),
+    NODE_OPTIONS: `--require ${JSON.stringify(bootstrap.replace(/\\/g, '/'))}`,
+  } : {};
+}
 // Only credentials reach the runtime. Desktop metadata stays in the encrypted vault.
 export function runtimeAuth(auth: AuthData): AuthData {
   const next = { ...auth };
   delete next[FIELD];
   for (const p of providerList(auth)) {
     if (!p.enabled) delete next[p.id];
-    else if (p.keyless) next[p.id] = { type: 'api_key', key: 'desktop-local-no-key' };
+    else if (p.keyless) next[p.id] = { type: 'api_key', key: keylessToken(p.id) };
     else {
       const key = (auth[p.id] as { key?: string } | undefined)?.key;
       if (key) {

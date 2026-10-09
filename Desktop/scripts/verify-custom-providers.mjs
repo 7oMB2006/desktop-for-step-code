@@ -11,13 +11,18 @@ await mkdir(join(profile, 'step-runtime'), { recursive: true });
 await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
 const requests = [];
 let expectedKey = 'isolated-provider-fixture';
+let expectNoAuth = false;
 let release;
 let hold = false;
 let diagnosticMode = 'reply';
 const server = createServer(async (req, res) => {
   try {
+    if (expectNoAuth && (req.headers.authorization !== undefined || req.headers['x-api-key'] !== undefined)) {
+      console.log('No-auth fixture rejected unexpected authentication:', req.url?.split('?')[0]);
+      res.writeHead(400); res.end('Unexpected authentication'); return;
+    }
     if (req.method === 'GET' && req.url === '/v1/models') {
-      assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
+      if (!expectNoAuth) assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ data: [{ id: 'fixture-custom', display_name: 'Fixture Custom', input_modalities: ['text', 'image', 'audio'], output_modalities: ['text'], supported_reasoning_efforts: ['off', 'low', 'high'], context_window: 200000, max_output_tokens: 30000 }, { id: 'fixture-second' }] }));
       return;
@@ -25,7 +30,8 @@ const server = createServer(async (req, res) => {
     let raw = '';
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
-    requests.push({ path: req.url, body, keyMatches: req.headers.authorization === `Bearer ${expectedKey}` || req.headers['x-api-key'] === expectedKey });
+    requests.push({ path: req.url, body, keyMatches: req.headers.authorization === `Bearer ${expectedKey}` || req.headers['x-api-key'] === expectedKey,
+      noAuth: req.headers.authorization === undefined && req.headers['x-api-key'] === undefined });
     if (body.stream === false) {
       assert.equal(body.messages?.[0]?.content ?? body.input, 'Reply with OK only.');
       if (diagnosticMode === 'hold') { await new Promise(resolve => res.once('close', resolve)); return; }
@@ -290,6 +296,55 @@ try {
     assert.equal(requests.at(-1).keyMatches, true);
     await settings();
   }
+  expectNoAuth = true;
+  await page.getByRole('checkbox', { name: '无需密钥（本地服务）', exact: true }).check();
+  await page.getByRole('button', { name: '从上游获取', exact: true }).click();
+  await page.locator('.provider-discovery').waitFor();
+  await page.getByRole('button', { name: '关闭模型列表', exact: true }).click();
+  for (const [label, path] of [
+    ['Chat Completions · /chat/completions', '/v1/chat/completions'],
+    ['Responses · /responses', '/v1/responses'],
+    ['Anthropic Messages · /messages', '/v1/messages'],
+  ]) {
+    console.log('No-auth acceptance:', label);
+    await page.getByRole('button', { name: /API 格式/ }).click();
+    await page.getByRole('menuitemradio', { name: label, exact: true }).click();
+    await page.getByRole('button', { name: '测试连接', exact: true }).click();
+    await page.getByText('收到有效模型回复', { exact: true }).waitFor();
+    assert.equal(requests.at(-1).noAuth, true, 'keyless diagnostics omit authentication');
+    await page.getByRole('button', { name: '收起诊断', exact: true }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.getByText('已保存', { exact: true }).waitFor();
+    assert.equal((await page.evaluate(() => window.desktop.settings())).providers[0].hasKey, true, 'keyless keeps the saved real key');
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    const before = await snapshot();
+    const beforeReplies = before.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length;
+    const beforeUsers = before.messages.filter(m => m.role === 'user').length;
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill(`Test no-auth ${label}`);
+    await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+    try {
+      const finished = await waitFor(s => !s.state?.isStreaming && (s.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length > beforeReplies
+        || (s.messages.filter(m => m.role === 'user').length > beforeUsers && s.messages.at(-1)?.stopReason === 'error')));
+      assert.equal(finished.messages.at(-1)?.stopReason, 'stop', 'no-auth runtime generation must succeed');
+    } catch (error) {
+      const s = await snapshot();
+      console.log('No-auth generation state:', { status: s.status, streaming: s.state?.isStreaming,
+        lastRole: s.messages.at(-1)?.role, stopReason: s.messages.at(-1)?.stopReason, requestCount: requests.length,
+        lastRequestNoAuth: requests.at(-1)?.noAuth, lastRequestPath: requests.at(-1)?.path?.split('?')[0] });
+      throw error;
+    }
+    assert.equal(requests.at(-1).path.split('?')[0], path);
+    assert.equal(requests.at(-1).noAuth, true, 'real runtime generation omits authentication');
+    await settings();
+  }
+  await page.getByRole('checkbox', { name: '无需密钥（本地服务）', exact: true }).uncheck();
+  expectNoAuth = false;
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByText('已保存', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '测试连接', exact: true }).click();
+  await page.getByText('收到有效模型回复', { exact: true }).waitFor();
+  assert.equal(requests.at(-1).keyMatches, true, 'leaving keyless mode restores the saved credential');
+  await page.getByRole('button', { name: '收起诊断', exact: true }).click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('light');
   await page.getByRole('button', { name: '供应商', exact: true }).click();
@@ -307,7 +362,7 @@ try {
   await page.waitForFunction(async () => (await window.desktop.settings()).providers.length === 0);
   assert.equal((await snapshot()).models.some(m => m.provider === provider.id), false);
   assert.deepEqual(errors, []);
-  console.log('Custom provider UI, three wire protocols, real tool invocation, secure persistence, no-Step-login RPC generation, settings guard, rename, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.');
+  console.log('Custom provider UI, three wire protocols with and without authentication, real tool invocation, secure persistence, no-Step-login RPC generation, settings guard, rename, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.');
 } finally {
   hold = false; release?.();
   server.closeAllConnections();

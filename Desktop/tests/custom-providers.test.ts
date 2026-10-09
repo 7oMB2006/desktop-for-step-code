@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
-import { validateProvider, saveProviderAuth, providerInfos, providerList, runtimeAuth, mergeRuntimeAuth, deleteProviderAuth, projectProviders, discoverProviderModels, discoverModelMetadata } from '../electron/custom-providers';
+import { validateProvider, saveProviderAuth, providerInfos, providerList, runtimeAuth, mergeRuntimeAuth, deleteProviderAuth, projectProviders, discoverProviderModels, discoverModelMetadata, keylessEndpoints } from '../electron/custom-providers';
 import type { CustomProvider } from '../src/contracts';
 
 const fixture = (): CustomProvider => ({ id: '', name: 'Fixture provider', baseUrl: 'https://example.test/v1', api: 'openai-completions',
@@ -79,12 +79,19 @@ test('keys stay private; account login/logout preserve custom credentials and me
   assert.deepEqual(deleted.step, auth.step);
   assert.throws(() => deleteProviderAuth(auth, 'step'));
 });
-test('keyless uses a runtime placeholder without overwriting a saved key', () => {
+test('keyless uses an endpoint-scoped internal sentinel without overwriting a saved key', () => {
   const auth = saveProviderAuth({}, { ...fixture(), keyless: true });
   const p = providerList(auth)[0];
-  assert.deepEqual(runtimeAuth(auth)[p.id], { type: 'api_key', key: 'desktop-local-no-key' });
+  assert.deepEqual(runtimeAuth(auth)[p.id], { type: 'api_key', key: `desktop-no-auth-${p.id}` });
+  assert.deepEqual(keylessEndpoints(auth), [{ baseUrl: p.baseUrl, token: `desktop-no-auth-${p.id}` }]);
+  assert.deepEqual(keylessEndpoints(saveProviderAuth(auth, { ...p, enabled: false })), []);
   assert.equal(providerInfos(auth)[0].hasKey, false);
   assert.equal(mergeRuntimeAuth(auth, runtimeAuth(auth))[p.id], undefined);
+  const saved = saveProviderAuth(auth, { ...p, keyless: false }, 'retained-key');
+  const keyless = saveProviderAuth(saved, { ...p, keyless: true });
+  assert.deepEqual(keyless[p.id], saved[p.id]);
+  assert.deepEqual(mergeRuntimeAuth(keyless, runtimeAuth(keyless))[p.id], saved[p.id]);
+  assert.deepEqual(keylessEndpoints(saved), []);
 });
 test('literal API keys cannot become upstream shell commands or environment references', () => {
   const auth = saveProviderAuth({}, fixture(), '!literal$VALUE');

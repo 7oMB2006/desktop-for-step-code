@@ -12,7 +12,8 @@ delete env.ELECTRON_RUN_AS_NODE;
 let app;
 const errors = [];
 async function launch() {
-  app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
+  const executablePath = process.env.DESKTOP_VERIFY_EXE;
+  app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow, dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); const win = BrowserWindow.getAllWindows()[0]; win.setOpacity(0); win.setIgnoreMouseEvents(true); win.showInactive(); win.setSize(1280, 960); });

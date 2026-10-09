@@ -263,7 +263,9 @@ try {
   await page.reload();
   await page.getByText('分支的新回复。', { exact: true }).waitFor();
   assert.equal((await snapshot()).state.sessionId, forked.state.sessionId);
-  assert.equal((await snapshot()).messages.length, 4);
+  const reopened = (await snapshot()).messages;
+  assert.equal(reopened.filter(message => !(message.role === 'custom'
+    && message.customType === 'ultraloop-discovery' && message.display === false)).length, 4);
   assert.equal(await page.getByRole('button', { name: 'Branch from here', exact: true }).last().isEnabled(), true);
   assert.equal(await page.getByRole('button', { name: 'Edit and retry', exact: true }).last().isEnabled(), true);
   await page.screenshot({ path: 'test-results/branch-reopened-dark-narrow.png' });

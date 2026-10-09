@@ -1,5 +1,5 @@
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
-export interface Model { id: string; provider: string; name: string; reasoning?: boolean; thinkingLevels?: string[] }
+export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export type ComposerAttachment = { kind: 'image'; name: string; content: Content } | { kind: 'file'; id: string; name: string; size: number };
 export interface PendingMessage { id: string; message: string; attachmentCount: number; version: number; sending?: boolean; steered?: boolean }
@@ -18,7 +18,16 @@ export interface Snapshot { preferences: Preferences; status: string; draftId?: 
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
-export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[] }
+export type ProviderApi = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
+export interface ProviderModel { id: string; name: string; reasoning: boolean; vision: boolean; contextWindow: number; maxTokens: number; thinkingLevels?: string[]; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
+export interface DiscoveredProviderModel { id: string; name: string; reasoning?: boolean; vision?: boolean; contextWindow?: number; maxTokens?: number; thinkingLevels?: string[]; declaredInput?: string[]; declaredOutput?: string[] }
+export interface CustomProvider { id: string; name: string; baseUrl: string; api: ProviderApi; enabled: boolean; keyless: boolean; models: ProviderModel[] }
+export interface ProviderInfo extends CustomProvider { hasKey: boolean }
+export interface ProviderDiagnostic {
+  ok: boolean; outcome: 'reply' | 'authentication' | 'not-found' | 'rate-limit' | 'http-error' | 'invalid-response' | 'timeout' | 'cancelled' | 'network' | 'invalid-config';
+  elapsedMs: number; status?: number; model: string; api: ProviderApi; endpoint: string;
+}
+export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[]; providers?: ProviderInfo[] }
 export interface DesktopBridge {
   updateState(): Promise<AppUpdateState>;
   checkUpdates(): Promise<AppUpdateState>;
@@ -72,6 +81,11 @@ export interface DesktopBridge {
   deleteArchivedSessions(ids: string[]): Promise<boolean>;
   restart(): Promise<Snapshot>;
   settings(): Promise<Settings>;
+  saveProvider(provider: CustomProvider, key?: string): Promise<Snapshot>;
+  discoverProviderModels(provider: CustomProvider, key?: string): Promise<DiscoveredProviderModel[]>;
+  testProvider(provider: CustomProvider, modelId: string, key?: string): Promise<ProviderDiagnostic>;
+  cancelProviderTest(): Promise<void>;
+  deleteProvider(id: string): Promise<Snapshot>;
   login(profile: string, key?: string): Promise<void>;
   cancelLogin(): Promise<void>;
   logout(): Promise<void>;

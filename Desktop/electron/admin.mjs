@@ -31,8 +31,8 @@ async function dispatch(message) {
       // Project only the runtime model's declared levels; never guess xhigh/max support.
       const available = registry.getAvailable();
       const catalog = available.length ? available : registry.getAll().filter(model => model.provider === upstream.STEP_PROVIDER_ID);
-      const models = catalog.map(({ id, provider, name, reasoning, thinkingLevelMap }) => ({
-        id, provider, name, reasoning,
+      const models = catalog.map(({ id, provider, name, reasoning, thinkingLevelMap, input, contextWindow, maxTokens }) => ({
+        id, provider, name, reasoning, input, contextWindow, maxTokens,
         thinkingLevels: reasoning ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].filter(level =>
           thinkingLevelMap?.[level] !== null && (!['xhigh', 'max'].includes(level) || thinkingLevelMap?.[level] !== undefined)) : ['off'],
       }));

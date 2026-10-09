@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Circle, CircleAlert, CircleCheck, LoaderCircle } from 'lucide-react';
+import { Circle, CircleX, CircleCheck, LoaderCircle } from 'lucide-react';
 import './subagent-status.css';
 
 export type SubagentStatus = 'pending' | 'running' | 'done' | 'failed';
@@ -18,18 +18,18 @@ export function SubagentStatusIcon({ state }: { state: SubagentStatus }) {
     return () => media.removeEventListener('change', change);
   }, []);
   useLayoutEffect(() => {
-    const complete = (previous.current === 'pending' || previous.current === 'running') && state === 'done';
+    const complete = (previous.current === 'pending' || previous.current === 'running') && (state === 'done' || state === 'failed');
     previous.current = state;
     setSettling(false);
     if (!complete || reduced) return;
     const mark = slot.current!;
     const spinner = mark.querySelector<HTMLElement>('.subagent-status-spinner')!;
-    const circle = mark.querySelector<SVGElement>('.subagent-status-check')!;
-    const check = circle.querySelector('path')!;
-    check.setAttribute('pathLength', '1');
+    const circle = mark.querySelector<SVGElement>(state === 'done' ? '.subagent-status-check' : '.subagent-status-failure')!;
+    const paths = [...circle.querySelectorAll('path')];
+    paths.forEach(path => path.setAttribute('pathLength', '1'));
     setSettling(true);
     // The ring contracts for 180ms, holds for 70ms, then regrows for 210ms.
-    // Its fixed slot stays put; only after regrowth does the check write itself.
+    // Its fixed slot stays put; the success/failure mark draws after regrowth.
     const scale = mark.animate([
       { transform: 'scale(1)', offset: 0, easing: cubicOut },
       { transform: 'scale(.18)', offset: 180 / 660, easing: 'linear' },
@@ -41,19 +41,19 @@ export function SubagentStatusIcon({ state }: { state: SubagentStatus }) {
       { delay: 180, duration: 70, fill: 'both' });
     const fadeIn = circle.animate([{ opacity: 0 }, { opacity: 1 }],
       { delay: 180, duration: 70, fill: 'both' });
-    const draw = check.animate([{ strokeDashoffset: '1' }, { strokeDashoffset: '0' }],
-      { delay: 460, duration: 200, easing: cubicOut, fill: 'both' });
+    const draws = paths.map((path, index) => path.animate([{ strokeDashoffset: '1' }, { strokeDashoffset: '0' }],
+      { delay: 460 + index * 200 / paths.length, duration: 200 / paths.length, easing: cubicOut, fill: 'both' }));
     let cancelled = false;
-    void draw.finished.then(() => { if (!cancelled) setSettling(false); }).catch(() => {});
+    void Promise.all(draws.map(draw => draw.finished)).then(() => { if (!cancelled) setSettling(false); }).catch(() => {});
     return () => {
       cancelled = true;
-      [scale, fadeOut, fadeIn, draw].forEach(animation => animation.cancel());
+      [scale, fadeOut, fadeIn, ...draws].forEach(animation => animation.cancel());
     };
   }, [state, reduced]);
   return <span ref={slot} className="subagent-status-icon" data-state={state} data-settling={settling} aria-hidden="true">
     {state === 'pending' && <Circle size={12} strokeWidth={1.5}/>}
     <span className="subagent-status-spinner"><LoaderCircle size={16} strokeWidth={1.9}/></span>
     <CircleCheck className="subagent-status-check" size={16} strokeWidth={1.9}/>
-    {state === 'failed' && <CircleAlert size={16} strokeWidth={1.9}/>}
+    <CircleX className="subagent-status-failure" size={16} strokeWidth={1.9}/>
   </span>;
 }

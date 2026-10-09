@@ -23,9 +23,6 @@
 .account-channel > small { font-size: 11px; }
 .account-login-area { margin-top: 18px; animation: account-login-enter 180ms cubic-bezier(.22,1,.36,1); }
 .account-login-area .button-row { justify-content: flex-start; margin-top: 0; }
-.provider-placeholder { display: flex; align-items: center; gap: 14px; padding: 22px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); color: var(--muted); }
-.provider-placeholder strong { font-size: 13px; color: var(--ink); font-weight: 500; }
-.provider-placeholder p { margin: 6px 0 0; font-size: 12px; }
 @keyframes account-login-enter { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 520px) { .account-identity { flex-wrap: wrap; }.account-logout { margin-left: 69px; }.account-channel { padding: 11px; }.account-channel-top { gap: 6px; }.account-details > div { flex-direction: column; gap: 5px; }.account-details dd { text-align: left; } }
 @media (prefers-reduced-motion: reduce) { .account-login-area { animation: none; }.account-channel { transition: none; } }

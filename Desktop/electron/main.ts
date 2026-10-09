@@ -11,6 +11,9 @@ import { PendingMessages } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { ConversationTiming } from './conversation-timing';
 import { AuthVault } from './auth-vault';
+import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels } from './custom-providers';
+import { testProvider } from './provider-diagnostic';
+let providerTestController: AbortController | undefined;
 import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
 import { TurnUndoStore } from './turn-undo';
@@ -133,7 +136,7 @@ let authData: Record<string, unknown> = {};
 const authEnvironment = () => ({
   ...env,
   STEPCODE_DESKTOP_AUTH_PATH: env.STEPCODE_AUTH_PATH,
-  STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(authData),
+  STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(runtimeAuth(authData)),
 });
 async function persistAuth(next: Record<string, unknown>) {
   try { await vault.save(next); }
@@ -264,7 +267,7 @@ async function snapshot(worker = runtimes.active, refresh = true): Promise<Snaps
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model, thinkingLevel: draft.thinkingLevel } : worker?.state,
     permissionPreset: draft?.permissionPreset ?? worker?.permissionPreset, runtimeRevision: worker?.revision,
-    messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: draft?.models ?? worker?.models ?? [], stats: worker?.stats,
+    messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: providerModelNames(draft?.models ?? worker?.models ?? [], authData), stats: worker?.stats,
     pendingMessages: worker ? pendingMessages.list(worker) : [],
     requests: worker ? [...worker.pendingUI.values()] : [],
     sessions, independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
@@ -319,7 +322,8 @@ async function beginSession(workspace?: string) {
     const options = await admin.request('session_options', { cwd: selected ?? app.getPath('documents') });
     const next: NonNullable<typeof sessionDraft> = { id: previous?.id ?? randomUUID(), workspace: selected, ...options,
       permissionPreset: previous?.permissionPreset ?? options.permissionPreset, permissionChanged: previous?.permissionChanged };
-    if (previous?.modelChanged) Object.assign(next, { model: previous.model, modelChanged: true });
+    if (previous?.modelChanged && options.models.some((m: Model) => m.provider === previous.model?.provider && m.id === previous.model?.id))
+      Object.assign(next, { model: previous.model, modelChanged: true });
     if (previous?.thinkingChanged && next.model?.thinkingLevels?.includes(previous.thinkingLevel!))
       Object.assign(next, { thinkingLevel: previous.thinkingLevel, thinkingChanged: true });
     sessionDraft = next;
@@ -434,7 +438,8 @@ async function handle(method: string, args: any[]) {
       const draft = sessionDraft;
       const created = await (draft.workspace ? connect(draft.workspace) : newIndependentSession());
       try {
-        if (draft.modelChanged && draft.model) await handle('command', ['set_model', { provider: draft.model.provider, modelId: draft.model.id }, created.runtimeId]);
+        if (draft.model && (draft.modelChanged || draft.model.provider !== created.state?.model?.provider || draft.model.id !== created.state?.model?.id))
+          await handle('command', ['set_model', { provider: draft.model.provider, modelId: draft.model.id }, created.runtimeId]);
         if (draft.thinkingChanged) await handle('command', ['set_thinking_level', { level: draft.thinkingLevel }, created.runtimeId]);
         if (draft.permissionChanged) await handle('command', ['set_permission_preset', { preset: draft.permissionPreset }, created.runtimeId]);
         return await snapshot(runtimes.require(created.runtimeId));
@@ -921,11 +926,50 @@ async function handle(method: string, args: any[]) {
         if (type === 'prompt') { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }
       }
     }
-    case 'settings': return admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') });
+    case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
+    case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
+    case 'cancelProviderTest': providerTestController?.abort(); return;
+    case 'testProvider': {
+      if (providerTestController) throw new Error('Provider test already in progress');
+      const controller = new AbortController();
+      providerTestController = controller;
+      try { return await testProvider(authData, args[0], args[1], args[2], controller.signal); }
+      finally { if (providerTestController === controller) providerTestController = undefined; }
+    }
+    case 'saveProvider':
+    case 'deleteProvider': {
+      await guardIdle();
+      const previous = authData;
+      const next = method === 'saveProvider' ? saveProviderAuth(previous, args[0], args[1]) : deleteProviderAuth(previous, args[0]);
+      // The vault is authoritative; startup regenerates the non-secret runtime projection.
+      await persistAuth(next);
+      try { await projectProviders(dataRoot, next); }
+      catch (error) { await persistAuth(previous); throw error; }
+      const current = runtimes.active;
+      const draft = sessionDraft;
+      await runtimes.stopAll();
+      await admin.stop();
+      admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
+      if (draft) {
+        await beginSession(draft.workspace);
+      } else if (current) {
+        await connect(current.cwd, current.state?.sessionFile, false);
+        const worker = runtimes.active!;
+        if (current.permissionPreset && worker.permissionPreset !== current.permissionPreset) {
+          await worker.rpc.request('prompt', { message: `/permissions ${current.permissionPreset}` });
+        }
+        if (!worker.models.some(m => m.provider === worker.state?.model?.provider && m.id === worker.state?.model?.id) && worker.models[0]) {
+          await worker.rpc.request('set_model', { provider: worker.models[0].provider, modelId: worker.models[0].id });
+          await runtimes.read(worker);
+        }
+      }
+      emit({ type: 'desktop_sessions_changed' });
+      return snapshot();
+    }
     case 'login': {
       await guardIdle();
       const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
-      await persistAuth(next);
+      await persistAuth(mergeRuntimeAuth(authData, next));
       const current = runtimes.active;
       await runtimes.stopAll();
       if (current) await connect(current.cwd, current.state?.sessionFile, false);
@@ -935,7 +979,7 @@ async function handle(method: string, args: any[]) {
     case 'logout': {
       await guardIdle();
       const next = await admin.request('logout');
-      await persistAuth(next);
+      await persistAuth(mergeRuntimeAuth(authData, next));
       const current = runtimes.active;
       await runtimes.stopAll();
       if (current) await connect(current.cwd, undefined, false);
@@ -1092,6 +1136,7 @@ else app.whenReady().then(async () => {
   // vault.load() also migrates and removes a legacy plaintext auth.json. safeStorage
   // requires the ready state, which whenReady provides.
   authData = await vault.load();
+  await projectProviders(dataRoot, authData);
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
   preferences.updateChannel = preferences.updateChannel === 'stable' ? 'stable' : 'preview';
@@ -1177,11 +1222,11 @@ else app.whenReady().then(async () => {
   window.on('session-end', () => { sessionEnding = true; app.quit(); });
   ipcMain.handle('desktop', async (event, method, ...args) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
-    const shared = ['login', 'logout', 'saveMcp'].includes(method);
+    const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method);
     if (undoBusy && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
-      'switchSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp'].includes(method))
+      'switchSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
-    if (settingsMutation && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
     if (shared) settingsMutation = true;
     try { return await handle(method, args); }
     catch (error) { throw new Error(error instanceof Error ? error.message : 'Desktop operation failed'); }

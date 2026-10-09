@@ -1,10 +1,8 @@
 import { Check, Cloud, ExternalLink, KeyRound, LogOut } from 'lucide-react';
 import type { Settings } from './contracts';
 import './account-settings.css';
-
-export function StepPlatformIcon({ size = 17 }: { size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="9" y="2" width="6" height="6"/><rect x="17" y="2" width="6" height="6"/><rect x="9" y="10" width="6" height="6"/><rect x="1" y="18" width="6" height="6"/><rect x="9" y="18" width="6" height="6"/></svg>;
-}
+import { StepPlatformIcon } from './ProviderBrand';
+export { StepPlatformIcon } from './ProviderBrand';
 
 export function ProviderIcon({ size = 17 }: { size?: number }) {
   return <Cloud size={size} aria-hidden="true"/>;
@@ -52,9 +50,4 @@ export function AccountSettings({ settings, profile, onProfile, apiKey, onKey, l
       <div className="button-row"><button className="primary" disabled={loggingIn || busy || !selected || (selected.credentialSource === 'apiKey' && !apiKey.trim())} onClick={onLogin}><ExternalLink size={15}/>{loggingIn ? t('等待授权…', 'Waiting for sign-in…') : t('登录', 'Sign in')}</button>{loggingIn && <button onClick={onCancel}>{t('取消', 'Cancel')}</button>}</div>
     </div>
   </section>;
-}
-
-export function ProviderSettings({ language }: { language: string }) {
-  const en = language === 'en';
-  return <section className="provider-settings"><h3>{en ? 'Providers' : '供应商'}</h3><div className="provider-placeholder"><ProviderIcon size={22}/><div><strong>{en ? 'Custom provider' : '自定义供应商'}</strong><p>{en ? 'Coming soon' : '暂未开放'}</p></div></div></section>;
 }

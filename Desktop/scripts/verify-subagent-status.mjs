@@ -152,6 +152,32 @@ try {
   const narrow = await icon.boundingBox();
   assert.equal(Math.round(narrow.width), 18);
   await page.screenshot({ path: 'test-results/subagent-status-completed-narrow.png' });
+  await update('running');
+  await page.waitForTimeout(100);
+  await update('failed');
+  await page.waitForFunction(() => document.querySelector('.lane-row[data-lane-agent="review"] .subagent-status-icon').dataset.settling === 'true');
+  await setTime(180);
+  const failedContracted = await icon.evaluate(element => element.getBoundingClientRect().width);
+  await setTime(230);
+  assert.ok(Math.abs(failedContracted - 3.24) < .1 && Math.abs((await icon.evaluate(element => element.getBoundingClientRect().width)) - failedContracted) < .1, 'failure reuses the shrink and hold');
+  const failurePaths = icon.locator('.subagent-status-failure path');
+  assert.equal(await failurePaths.count(), 2);
+  await setTime(490);
+  const firstStroke = parseFloat(await failurePaths.nth(0).evaluate(e => getComputedStyle(e).strokeDashoffset));
+  assert.ok(firstStroke > 0 && firstStroke < 1, 'first cross stroke writes itself');
+  assert.equal(parseFloat(await failurePaths.nth(1).evaluate(e => getComputedStyle(e).strokeDashoffset)), 1);
+  await setTime(590);
+  const secondStroke = parseFloat(await failurePaths.nth(1).evaluate(e => getComputedStyle(e).strokeDashoffset));
+  assert.ok(secondStroke > 0 && secondStroke < 1, 'second cross stroke follows the first');
+  await page.screenshot({ path: 'test-results/subagent-status-failure-drawing.png' });
+  await icon.evaluate(element => {
+    for (const animation of element.getAnimations({ subtree: true })) {
+      if (!(animation instanceof CSSAnimation)) animation.finish();
+    }
+  });
+  await page.waitForFunction(() => document.querySelector('.lane-row[data-lane-agent="review"] .subagent-status-icon').dataset.settling === 'false');
+  await review.locator('.lane-failure-label').waitFor();
+  await page.screenshot({ path: 'test-results/subagent-status-failed.png' });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await update('running');
   await page.waitForTimeout(100);

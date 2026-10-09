@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { Check, ChevronLeft } from 'lucide-react';
+import { Check, ChevronLeft, SlidersHorizontal, Type, Image, AudioLines, Video, File } from 'lucide-react';
 import type { Model } from './contracts';
+import { ProviderBrand } from './ProviderBrand';
 
 const DRAG_THRESHOLD = 0.62;
 const THUMB_SIZE = 38;
@@ -77,11 +78,12 @@ interface Props {
   disabled: boolean;
   onModel: (model: Model) => Promise<unknown>;
   onEffort: (level: string) => Promise<unknown>;
+  onConfigure?: () => void;
 }
 
-export function ModelEffortPicker({ model, models, level, levels, language, disabled, onModel, onEffort }: Props) {
+export function ModelEffortPicker({ model, models, level, levels, language, disabled, onModel, onEffort, onConfigure }: Props) {
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<'effort' | 'models'>('effort');
+  const [view, setView] = useState<'effort' | 'models' | 'parameters'>('effort');
   const [previewIndex, setPreviewIndex] = useState(0);
   const [pressure, setPressure] = useState(0);
   const root = useRef<HTMLDivElement>(null);
@@ -93,6 +95,14 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
   const submitted = useRef<string | undefined>(undefined);
   const zh = language === 'zh';
   const modelName = model?.name || model?.id || (zh ? '选择模型' : 'Select model');
+  const parameters = models.find(m => m.id === model?.id && m.provider === model?.provider) ?? model;
+  const modalities: Record<string, { icon: typeof Type; label: string }> = {
+    text: { icon: Type, label: zh ? '文本' : 'Text' }, image: { icon: Image, label: zh ? '图片' : 'Image' },
+    audio: { icon: AudioLines, label: zh ? '音频' : 'Audio' }, video: { icon: Video, label: zh ? '视频' : 'Video' }, file: { icon: File, label: zh ? '文件' : 'File' },
+  };
+  const previewModalities = parameters?.declaredInput ?? parameters?.input ?? [];
+  const capacity = parameters?.contextWindow;
+  const capacityLabel = capacity ? capacity >= 1000000 ? `${Number((capacity / 1000000).toFixed(2))}M` : capacity >= 1000 ? `${Number((capacity / 1000).toFixed(1))}K` : String(capacity) : '?';
   const activeLevel = level && levels.includes(level) ? level : levels[0];
   const currentIndex = Math.max(0, levels.indexOf(activeLevel ?? ''));
   useEffect(() => {
@@ -186,13 +196,23 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
       <span className="model-effort-name">{modelName}</span>
       {level && <span className="model-effort-level">{effortLabel(level, language)}</span>}
     </button>
-    {open && <div className={`model-effort-popover ${view === 'effort' ? 'effort-view' : 'models-view'}`} style={{ '--effort-color': effortColor } as CSSProperties} role="dialog" aria-label={zh ? '模型与思考强度' : 'Model and thinking level'}>
+    {open && <div className={`model-effort-popover ${view}-view`} style={{ '--effort-color': effortColor } as CSSProperties} role="dialog" aria-label={zh ? '模型与思考强度' : 'Model and thinking level'}>
       <div className="model-effort-panel model-effort-effort-panel" inert={view !== 'effort'} aria-hidden={view !== 'effort'}>
         <div className="model-effort-info">
           <button type="button" className="model-effort-heading" onClick={() => setView('models')} aria-label={zh ? '选择模型' : 'Select model'}>
+            <ProviderBrand provider={model?.provider}/>
             <span className="model-effort-heading-copy"><span className="model-effort-heading-name">{modelName}</span><AnimatedEffortLevel level={previewLevel ?? ''} index={previewIndex} color={effortColor} language={language}/></span>
           </button>
-          <div className="model-effort-details-space" aria-hidden="true" />
+          <button type="button" className="model-effort-details-space" aria-label={zh ? '模型参数' : 'Model parameters'} onClick={() => setView('parameters')}>
+            <span className="model-effort-preview-modalities">{previewModalities.length ? previewModalities.map(v => {
+              const item = modalities[v]; if (!item) return null;
+              const Icon = item.icon;
+              const supported = parameters?.input?.includes(v);
+              const label = `${item.label}${supported ? '' : zh ? ' · 未启用' : ' · Unavailable'}`;
+              return <span key={v} className={supported ? '' : 'unavailable'} title={label} aria-label={label}><Icon size={16}/></span>;
+            }) : <span title={zh ? '模态未确认' : 'Modalities unknown'}><SlidersHorizontal size={16}/></span>}</span>
+            <span className="model-effort-preview-capacity" title={capacity ? `${zh ? '上下文容量' : 'Context window'}: ${capacity.toLocaleString()} tokens` : zh ? '上下文容量未确认' : 'Context window unknown'}><b>{capacityLabel}</b><small>{zh ? '上下文' : 'context'}</small></span>
+          </button>
         </div>
         <div className="model-effort-fader-column" ref={faderColumn}>
           {levels.length ? <div ref={fader} className={`model-effort-fader${levels.length > 1 && previewIndex === levels.length - 1 ? ' is-max' : ''}`} role="slider" tabIndex={levels.length > 1 ? 0 : -1} aria-disabled={levels.length < 2} aria-label={zh ? '思考强度' : 'Thinking level'} aria-orientation="vertical" aria-valuemin={0} aria-valuemax={levels.length - 1} aria-valuenow={previewIndex} aria-valuetext={previewLevel ? effortLabel(previewLevel, language) : ''} onKeyDown={onFaderKey}
@@ -218,7 +238,26 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
         <button type="button" className="model-effort-back" onClick={() => setView('effort')}><ChevronLeft size={16}/>{zh ? '选择模型' : 'Select model'}</button>
         <div className="model-effort-list" role="listbox" aria-label={zh ? '模型' : 'Models'}>
           {models.length === 0 && <span className="model-effort-single">{zh ? '暂无可用模型' : 'No models available'}</span>}
-          {models.map(item => <button type="button" role="option" aria-selected={item.provider === model?.provider && item.id === model.id} key={`${item.provider}/${item.id}`} onClick={() => void chooseModel(item)}><span>{item.name || item.id}</span>{item.provider === model?.provider && item.id === model.id && <Check size={16}/>}</button>)}
+          {models.map(item => <button type="button" role="option" aria-selected={item.provider === model?.provider && item.id === model.id} key={`${item.provider}/${item.id}`} onClick={() => void chooseModel(item)}><span>{item.name || item.id}{item.providerName && <small className="model-provider-name">{item.providerName}</small>}</span>{item.provider === model?.provider && item.id === model.id && <Check size={16}/>}</button>)}
+        </div>
+      </div>
+      <div className="model-effort-panel model-effort-parameters-panel" inert={view !== 'parameters'} aria-hidden={view !== 'parameters'}>
+        <button type="button" className="model-effort-back" onClick={() => setView('effort')}><ChevronLeft size={16}/>{zh ? '模型参数' : 'Model parameters'}</button>
+        <div className="model-parameters-body">
+          <div className="model-parameters-identity"><strong>{modelName}</strong><small>{parameters?.providerName ?? parameters?.provider}</small></div>
+          <div className="model-parameters-modalities" aria-label={zh ? '输入模态' : 'Input modalities'}>
+            {(parameters?.declaredInput ?? parameters?.input ?? []).map(v => {
+              const item = modalities[v]; if (!item) return null;
+              const Icon = item.icon;
+              const supported = parameters?.input?.includes(v);
+              return <span className={supported ? '' : 'unavailable'} key={v} title={supported ? (zh ? '已配置输入能力' : 'Configured input capability') : (zh ? '上游声明，客户端暂不支持或尚未启用' : 'Declared upstream; unsupported or not enabled')}><Icon size={14}/>{item.label}{!supported && <small>{zh ? '未启用' : 'Unavailable'}</small>}</span>;
+            })}
+            {!parameters?.input && !parameters?.declaredInput && <span>{zh ? '输入能力未确认' : 'Input capabilities unknown'}</span>}
+          </div>
+          <dl className="model-parameters-values"><div><dt>{zh ? '上下文' : 'Context'}</dt><dd>{parameters?.contextWindow?.toLocaleString() ?? (zh ? '未确认' : 'Unknown')}</dd></div><div><dt>{zh ? '最大输出' : 'Max output'}</dt><dd>{parameters?.maxTokens?.toLocaleString() ?? (zh ? '未确认' : 'Unknown')}</dd></div></dl>
+          <div className="model-parameters-levels"><span>{zh ? '思考档位' : 'Thinking levels'}</span><div>{levels.map(v => <span key={v}>{effortLabel(v, language)}</span>)}</div></div>
+          {parameters?.declaredOutput && <div className="model-parameters-output">{zh ? '上游输出' : 'Declared output'} · {parameters.declaredOutput.map(v => modalities[v]?.label ?? v).join(' / ')}{parameters.declaredOutput.some(v => v !== 'text') && <small>{zh ? '当前客户端仅接入文本输出' : 'Only text output is supported'}</small>}</div>}
+          <div className="model-parameters-footer"><span>{parameters?.metadataSource === 'upstream' ? (zh ? '包含上游声明 · 未实测' : 'Upstream declarations · Untested') : parameters?.provider.startsWith('desktop-custom-') ? (zh ? '手动配置 · 未实测' : 'Manual configuration · Untested') : (zh ? '运行时配置' : 'Runtime configuration')}</span>{onConfigure && parameters?.provider.startsWith('desktop-custom-') && <button type="button" onClick={() => { setOpen(false); onConfigure(); }}><SlidersHorizontal size={13}/>{zh ? '配置' : 'Configure'}</button>}</div>
         </div>
       </div>
     </div>}

@@ -38,7 +38,7 @@ try {
   await page.screenshot({ path: 'test-results/account-settings-light.png' });
   await page.getByRole('button', { name: '供应商', exact: true }).click();
   await page.getByText('自定义供应商', { exact: true }).waitFor();
-  assert.equal(await page.locator('.provider-settings button').count(), 0);
+  assert.equal(await page.getByRole('button', { name: '添加供应商', exact: true }).count(), 2);
   await page.screenshot({ path: 'test-results/provider-settings-light.png' });
   await page.getByRole('button', { name: '账户', exact: true }).click();
   await page.locator('.account-channel').nth(2).click();

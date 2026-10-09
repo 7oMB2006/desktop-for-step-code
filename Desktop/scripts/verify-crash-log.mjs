@@ -18,6 +18,17 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const launch = () => electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+const ready = async app => {
+  const page = await app.firstWindow();
+  // The animated heading is painted before the management process is ready.
+  await page.waitForFunction(() => {
+    const composer = document.querySelector('.composer textarea');
+    return Boolean(window.desktop && composer && !composer.disabled);
+  }, undefined, { timeout: 60000 });
+  const snapshot = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(snapshot.status, 'ready', 'migration launches must finish draft initialization');
+  assert.ok(snapshot.draftId, 'migration launches must retain the proposed session');
+};
 
 // 1. A real encrypted vault: start once with a plaintext legacy file, which the
 //    app migrates to auth.dpapi and removes. (Fixture credential only.)
@@ -27,9 +38,7 @@ await writeFile(join(dataRoot, 'auth.json'), JSON.stringify({
 
 let app = await launch();
 try {
-  const page = await app.firstWindow();
-  await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
-  await page.evaluate(() => window.desktop.snapshot());
+  await ready(app);
 } finally { await app.close(); }
 
 const encrypted = await readFile(join(dataRoot, 'auth.dpapi'));
@@ -45,9 +54,7 @@ for (const legacy of [
   await writeFile(join(dataRoot, 'auth.json'), JSON.stringify(legacy));
   app = await launch();
   try {
-    const page = await app.firstWindow();
-    await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
-    await page.evaluate(() => window.desktop.snapshot());
+    await ready(app);
   } finally { await app.close(); }
   assert.deepEqual(await readFile(join(dataRoot, 'auth.dpapi')), encrypted, 'migration must preserve the encrypted vault bytes');
   await assert.rejects(readFile(join(dataRoot, 'auth.json')), { code: 'ENOENT' }, 'redundant plaintext must be removed');

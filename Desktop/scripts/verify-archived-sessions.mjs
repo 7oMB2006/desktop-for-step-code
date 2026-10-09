@@ -94,7 +94,9 @@ try {
   assert.equal(await page.locator('.archived-group').count(), 0);
   assert.equal(await page.locator('.sidebar [data-reorder-id^="archive-"]').count(), 0);
   await page.getByRole('button', { name: '归档与会话导航', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '归档与会话导航');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '归档与会话导航' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   await page.getByRole('button', { name: '会话导航', exact: true }).click();
   const dates = page.locator('.nav-turn-time');
   await dates.first().waitFor();
@@ -119,11 +121,15 @@ try {
   await page.getByText('没有匹配的归档会话', { exact: true }).waitFor();
   await search.fill('');
   await row(page, 0).getByRole('button', { name: '查看 主线 · 左栏整理', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '主线 · 左栏整理');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '主线 · 左栏整理' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   assert.ok((await persistedIds()).includes('archive-0'), 'reading an archive must not restore it');
   assert.equal(await page.locator('.sidebar [data-reorder-id="archive-0"]').count(), 0);
   await page.getByRole('button', { name: '归档与会话导航', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '归档与会话导航');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '归档与会话导航' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   await archives(page);
   await row(page, 8).getByRole('button', { name: '取消归档', exact: true }).click();
   await row(page, 8).waitFor({ state: 'detached' });

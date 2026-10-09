@@ -316,29 +316,43 @@ try {
   await page.waitForTimeout(300);
   assert.equal(await widthControl.getAttribute('data-width'), 'wide', 'browser width survives panel switching');
   assert.ok((await viewState()).some(view => view.visible && view.url === url));
-  await rail.click();
-  assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0,
-    'closing hides the opaque native page at the start of the shell fade');
-  const closeFrames = await page.evaluate(async () => {
-    const track = document.querySelector('.browser-track');
-    const frames = [];
-    const start = performance.now();
-    while (performance.now() - start < 180) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      const style = getComputedStyle(track);
-      frames.push({ basis: parseFloat(style.flexBasis), duration: style.transitionDuration,
-        opacity: getComputedStyle(document.querySelector('.browser-panel')).opacity });
-    }
-    return frames;
-  });
-  assert.ok(closeFrames.length > 2 && closeFrames.every(frame => frame.basis < 1 && frame.duration === '0s'),
-    'closing releases the conversation layout in one reflow');
-  assert.ok(closeFrames.some(frame => Number(frame.opacity) > 0 && Number(frame.opacity) < 1),
-    'the browser shell keeps its fade while the content layout is stable');
-  await page.waitForTimeout(150);
-  assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0,
-    'the native page stays hidden after the shell exits');
-  await rail.click();
+  for (const mode of ['wide', 'standard']) {
+    await chooseWidth(mode);
+    await page.waitForTimeout(300);
+    const before = await page.evaluate(() => ({
+      basis: parseFloat(getComputedStyle(document.querySelector('.browser-track')).flexBasis),
+      main: document.querySelector('main').getBoundingClientRect().width,
+    }));
+    await rail.click();
+    assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0,
+      'closing hides the opaque native page at the start of the shell fade');
+    const closeFrames = await page.evaluate(async () => {
+      const track = document.querySelector('.browser-track');
+      const frames = [];
+      const start = performance.now();
+      while (performance.now() - start < 340) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        frames.push({ basis: parseFloat(getComputedStyle(track).flexBasis),
+          main: document.querySelector('main').getBoundingClientRect().width,
+          opacity: Number(getComputedStyle(document.querySelector('.browser-panel')).opacity) });
+      }
+      return frames;
+    });
+    const final = closeFrames.at(-1);
+    assert.ok(before.basis > 1 && final.basis < 1, `${mode} closes the layout reservation completely`);
+    assert.ok(closeFrames.some(frame => frame.basis > 1 && frame.basis < before.basis - 1),
+      `${mode} animates intermediate layout reservations on close`);
+    assert.ok(closeFrames.some(frame => frame.main > before.main + 1 && frame.main < final.main - 1),
+      `${mode} returns the conversation smoothly instead of snapping`);
+    assert.ok(Math.abs(final.main - before.main - before.basis) < 2,
+      `${mode} restores all reserved conversation space`);
+    assert.ok(closeFrames.some(frame => frame.opacity > 0 && frame.opacity < 1),
+      'the browser shell fades alongside the conversation layout');
+    assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0,
+      'the native page stays hidden after the shell exits');
+    await rail.click();
+    await page.waitForTimeout(300);
+  }
   await page.waitForTimeout(300);
   assert.ok((await viewState()).some(view => view.visible && view.url === url));
   await page.locator('.sidebar-bottom button').click();

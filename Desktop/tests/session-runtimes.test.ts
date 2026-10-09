@@ -49,6 +49,47 @@ test('wire message revisions increase per worker and match its snapshot revision
   } finally { await pool.stopAll(); }
 });
 
+test('preparing cold history does not activate it or clear its unread status', async () => {
+  const { pool, open } = fixture();
+  const original = await open();
+  pool.unreadSessionIds.add('session-1');
+  const prepared = await pool.prepare('node', 'step', 'other-workspace', {}, 'session-1.jsonl');
+  assert.equal(pool.active, original);
+  assert.equal(prepared.state?.sessionId, 'session-1');
+  assert.equal(pool.unreadSessionIds.has('session-1'), true);
+  pool.activate(prepared);
+  assert.equal(pool.active, prepared);
+  assert.equal(pool.unreadSessionIds.has('session-1'), false);
+  await pool.stopAll();
+});
+
+test('recycling rechecks activation and pending operations after awaiting another disposal', async () => {
+  const { pool, transports, open } = fixture();
+  const workers = [];
+  for (let i = 0; i < 5; i++) {
+    const worker = await open();
+    worker.messages = [{ role: 'user', content: 'saved' }];
+    worker.touched = i;
+    workers.push(worker);
+  }
+  let finish!: () => void;
+  let disposing!: () => void;
+  const began = new Promise<void>(resolve => { disposing = resolve; });
+  const stop = new Promise<void>(resolve => { finish = resolve; });
+  transports[3].stop = async () => { disposing(); await stop; };
+  const recycling = pool.recycle();
+  await began;
+  pool.activate(workers[2]);
+  workers[1].operations++;
+  finish();
+  await recycling;
+  assert.equal(pool.active, workers[2]);
+  assert.equal(pool.workers.has(workers[2].id), true);
+  assert.equal(pool.workers.has(workers[1].id), true);
+  workers[1].operations--;
+  await pool.stopAll();
+});
+
 test('repeated new-session requests reuse one empty worker without resetting it', async () => {
   const { pool, transports, open } = fixture();
   const empty = await open('workspace');

@@ -277,13 +277,15 @@ try {
   await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled);
   await assert.rejects(page.evaluate(id => window.desktop.command('get_session_stats', {}, id), b.runtimeId), /not connected/);
   await page.locator('.session-row').filter({ hasText: 'RUN-B' }).locator('button').first().click();
-  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === 'Idle draft B');
+  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === 'Idle draft B' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   const restoredB = await page.evaluate(() => window.desktop.snapshot());
   assert.notEqual(restoredB.runtimeId, b.runtimeId);
   assert.equal(restoredB.state.sessionId, b.state.sessionId);
   assert.ok(JSON.stringify(restoredB.messages).includes('RUN-B output'));
   await page.locator('.session-row').filter({ hasText: 'RUN-A' }).locator('button').first().click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'RUN-A');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'RUN-A' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   await page.waitForFunction(() => !document.querySelector('.session-activity.completed'));
   const readSnapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(!readSnapshot.unreadSessionIds.includes(a.state.sessionId));

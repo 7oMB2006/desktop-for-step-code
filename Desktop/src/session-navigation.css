@@ -1,0 +1,26 @@
+.session-row > button:first-child { position: relative; }
+.session-row.selected { transition: background-color 140ms cubic-bezier(.215, .61, .355, 1); }
+.session-row > button:first-child > .session-navigation-spinner {
+  width: 12px; min-width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%;
+  border: 1.5px solid var(--border); border-top-color: var(--muted);
+  animation: session-navigation-spin 850ms linear infinite;
+}
+.session-reading-preview { opacity: .78; }
+.session-reading-placeholder {
+  max-width: 760px; margin: 30px auto; padding: 0 24px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.session-reading-placeholder span {
+  display: block; height: 12px; width: 72%; border-radius: 3px;
+  background: var(--surface);
+}
+.session-reading-placeholder span:first-child { width: 34%; margin-left: auto; }
+.session-reading-placeholder span:last-child { width: 52%; }
+.session-navigation-pending { opacity: .55; }
+.conversation[aria-busy="false"] > .messages { animation: session-reading-enter 120ms cubic-bezier(.215, .61, .355, 1); }
+@keyframes session-navigation-spin { to { transform: rotate(360deg); } }
+@keyframes session-reading-enter { from { opacity: .8; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .session-row.selected { transition: none; }
+  .session-navigation-spinner, .conversation[aria-busy="false"] > .messages { animation: none; }
+}

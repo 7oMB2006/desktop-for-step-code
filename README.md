@@ -29,6 +29,9 @@ The original idea was to explore a community-built desktop client for Step Code 
 - A terminal, user-operated browser, file previews and delivery references
 - Step account sign-in, MCP configuration, and resource discovery
 - Chinese and English UI, with light and dark themes
+- GitHub update checks and notifications, with selectable release channels
+- Background tray operation and window restoration
+- Font and size settings for the interface, messages, code and Diff, plus message line spacing
 
 The app keeps its data in a dedicated directory (`%APPDATA%\Desktop for Step Code`) instead of reusing a personal Step Code CLI profile. Step Code owns agent execution and permission policies; Desktop adds session orchestration and desktop interactions. Concurrent collaboration does not provide file locks or transaction isolation.
 
@@ -40,9 +43,9 @@ The built-in StepPage MCP server cannot start on Windows: the command the upstre
 
 ### Download and Run
 
-The first Windows x64 community preview, **v0.1.0**, is available.
+The latest Windows x64 community preview, **v0.2.0**, is available, adding update notifications, a background tray and reading typography settings.
 
-**[Download the Windows x64 installer](https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.1.0/Desktop.for.Step.Code.Setup.0.1.0.exe)** · [Release notes and checksums](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.1.0) · [All releases](https://github.com/7oMB2006/desktop-for-step-code/releases)
+**[Download the Windows x64 installer](https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.2.0/Desktop.for.Step.Code.Setup.0.2.0.exe)** · [Release notes and checksums](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.2.0) · [All releases](https://github.com/7oMB2006/desktop-for-step-code/releases)
 
 1. Download the installer, verify its SHA-256 against the release notes, and run it.
 2. Launch the app and sign in under Account Settings with your own Step Plan account or Step Platform API key.
@@ -50,9 +53,11 @@ The first Windows x64 community preview, **v0.1.0**, is available.
 
 The installer includes Electron and pinned Step Code and Node runtimes; the development dependencies below are not required. Git/Bash, project-specific tools, and MCP server dependencies must be installed separately. Model access and usage limits depend on your account.
 
-**Installation notice:** The v0.1.0 installer is unsigned. Windows may display SmartScreen or an "unknown publisher" warning. Verify the download source and checksum; do not disable system security protections.
+**Installation notice:** The v0.2.0 installer is unsigned. Windows may display SmartScreen or an "unknown publisher" warning. Verify the download source and checksum; do not disable system security protections.
 
-**Updates:** This version does not automatically check for, download, or install updates. Visit [Releases](https://github.com/7oMB2006/desktop-for-step-code/releases) and download new installers manually.
+**Updates:** v0.2.0 checks for updates after startup and every six hours. You can also check manually or disable automatic checks under Settings → Updates. The default channel includes releases and previews; the releases-only channel excludes community previews. Downloads open in your system browser, and you run installers yourself; the app does not silently install updates or restart automatically. v0.1.0 users must download this upgrade manually from [Releases](https://github.com/7oMB2006/desktop-for-step-code/releases).
+
+**Exit and upgrade:** Closing the window keeps the app in the tray and lets running tasks continue. Before upgrading, finish tasks and explicitly quit through File → Exit App or the tray menu, then run the installer over the existing installation.
 
 This release targets Windows x64, with no compatibility commitment for macOS, Linux, or WSL. To run from source, follow the build instructions below.
 
@@ -94,7 +99,7 @@ node scripts/checksums.mjs
 
 See the [Development TODO](TODO.md) (Chinese) for planned work and priorities.
 
-v0.1.0 is a community preview, not an official StepFun product or a stability guarantee. Release preparation included testing on one Windows Server 2022 cloud desktop: real-account conversations, tool edits and approvals, artifact opening, restart recovery, installation, installation over an existing build, uninstall, and reinstall. This does not establish coverage of every Windows 10/11 configuration, model, or MCP scenario.
+v0.2.0 remains a community preview, not an official StepFun product or a stability guarantee. First-release preparation included testing on one Windows Server 2022 cloud desktop: real-account conversations, tool edits and approvals, artifact opening, restart recovery, installation, installation over an existing build, uninstall, and reinstall. A cloud-desktop upgrade to the v0.2.0 RC was also confirmed by the user. This does not establish coverage of every Windows 10/11 configuration, model, or MCP scenario.
 
 See [VERIFICATION.md](docs/VERIFICATION.md) and the [release preparation record](docs/RELEASE.md) (Chinese) for the evidence and scope. The Summary board shows MCP connection states supplied by the runtime; enabled configuration alone is not a health check, and connection status does not establish successful service calls.
 

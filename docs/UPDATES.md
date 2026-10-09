@@ -1,6 +1,6 @@
 # GitHub 版本检查
 
-本地预览实现，尚未发布。公开的 `v0.1.0` 安装包不包含本功能。
+已随 Windows x64 社区预览版 [v0.2.0](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.2.0) 发布。`v0.1.0` 安装包不包含本功能，需手动下载安装包升级。下方各预览结果保留为历史验收记录，不代表当前发布状态。
 
 ## 使用与边界
 
@@ -54,7 +54,7 @@
 
 `corepack pnpm exec tsx scripts/generate-update-feed.mjs test-results/update-manifest-live.json`
 
-这条维护命令使用本机 `gh` 授权；**不是客户端路径**，不会把凭据写入清单。工作流上云及静态分支部署在本轮尚未执行。
+这条维护命令使用本机 `gh` 授权；**不是客户端路径**，不会把凭据写入清单。工作流和静态清单的部署状态应另行核对，不以本地生成成功作为部署证据。
 
 ## 验收
 

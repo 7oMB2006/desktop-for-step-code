@@ -4,6 +4,7 @@
 
 ## P0
 
+- [ ] 下一个 Release 前解决：登录 Step Plan 后，初始化时模型的思考档位不可见（显示“暂无可用档位”）。[复现截图](docs/acceptance/plan-thinking-initialization.png)
 - [ ] 前端体验优化（第二部分）：按小白、普通开发者、深度开发者提供不同前端能力与分组式体验。目标为第二版 Release，在第一部分之后开展。
 - [ ] 第三方供应商适配
 - [ ] Subagent 失败态及优化

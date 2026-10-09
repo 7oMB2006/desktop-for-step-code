@@ -14,7 +14,7 @@ export function sessionSummary(value: unknown, sessionId: string): SessionSummar
   const seen = new Set<string>();
   for (const item of Array.isArray(data.tasks) ? data.tasks : []) {
     const task = record(item), id = string(task.id, 200);
-    if (!id || seen.has(id) || !['pending', 'in_progress', 'completed'].includes(String(task.status))) continue;
+    if (!id || seen.has(id) || !['pending', 'in_progress', 'completed', 'failed'].includes(String(task.status))) continue;
     seen.add(id);
     tasks.push({ id, subject: string(task.subject), description: string(task.description, 16000), status: task.status as SessionSummary['tasks'][number]['status'] });
     if (tasks.length >= 1000) break;

@@ -41,6 +41,9 @@ try {
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', (_event, method, ...args) => method === 'snapshot' ? globalThis.subagentStatusFixture
       : method === 'sessions' ? globalThis.subagentStatusFixture.sessions
+        : method === 'summary' ? { sessionId: globalThis.subagentStatusFixture.state.sessionId,
+          tasks: [{ id: 'verify', subject: '验证结果', description: '保留明确失败状态，可重试。',
+            status: globalThis.planStatusFixture ?? 'in_progress' }], mcp: [], skillCount: 0 }
         : method === 'command' && args[0] === 'get_available_thinking_levels' ? { levels: ['off', 'low', 'medium', 'high'] }
           : method === 'command' && args[0] === 'get_commands' ? { commands: [] } : {});
   }, { ...snapshot, messages, state: { ...snapshot.state, isStreaming: true } });
@@ -110,12 +113,12 @@ try {
   assert.ok(Math.abs(anchor.x - finalAnchor.x) < .1 && Math.abs(anchor.y - finalAnchor.y) < .1, 'task row layout does not move with status animation');
   assert.ok(await icon.locator('.subagent-status-check').evaluate(element => {
     const token = document.createElement('span');
-    token.style.color = 'var(--primary)';
+    token.style.color = 'var(--green)';
     document.body.append(token);
     const matches = getComputedStyle(token).color === getComputedStyle(element).color;
     token.remove();
     return matches && element.getBoundingClientRect().width === 16;
-  }), 'completed icon uses the brand accent at a tool-sized scale');
+  }), 'completed icon uses semantic green at a tool-sized scale');
   await page.screenshot({ path: 'test-results/subagent-status-completed-dark.png' });
   await page.locator('.response-content').screenshot({ path: 'test-results/subagent-status-rows-completed.png' });
   await app.evaluate(({ BrowserWindow }, tasks) => {
@@ -154,8 +157,19 @@ try {
   await page.screenshot({ path: 'test-results/subagent-status-completed-narrow.png' });
   await update('running');
   await page.waitForTimeout(100);
+  await review.click({ position: { x: 10, y: 15 } });
+  const panelStatus = page.locator('#subagent-panel .subagent-status');
+  const panelIcon = panelStatus.locator('.subagent-status-icon');
+  await panelIcon.locator('.subagent-status-spinner').waitFor({ state: 'visible' });
   await update('failed');
   await page.waitForFunction(() => document.querySelector('.lane-row[data-lane-agent="review"] .subagent-status-icon').dataset.settling === 'true');
+  assert.equal(await panelIcon.getAttribute('data-settling'), 'true', 'right panel uses the shared failure transition');
+  assert.equal(await panelStatus.getAttribute('aria-label'), '失败');
+  await panelIcon.evaluate(element => {
+    for (const animation of element.getAnimations({ subtree: true })) {
+      if (!(animation instanceof CSSAnimation)) animation.finish();
+    }
+  });
   await setTime(180);
   const failedContracted = await icon.evaluate(element => element.getBoundingClientRect().width);
   await setTime(230);
@@ -176,8 +190,89 @@ try {
     }
   });
   await page.waitForFunction(() => document.querySelector('.lane-row[data-lane-agent="review"] .subagent-status-icon').dataset.settling === 'false');
-  await review.locator('.lane-failure-label').waitFor();
+  assert.equal(await review.locator('.lane-failure-label').count(), 0, 'status is conveyed by the icon without extra text');
   await page.screenshot({ path: 'test-results/subagent-status-failed.png' });
+  await page.locator('#subagent-panel').screenshot({ path: 'test-results/subagent-panel-failed.png' });
+  await review.click({ position: { x: 10, y: 15 } });
+  await page.locator('#subagent-panel').waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
+  const planRow = page.locator('.sb-step-trigger');
+  await planRow.locator('.subagent-status-icon[data-state="running"]').waitFor();
+  await app.evaluate(() => { globalThis.planStatusFixture = 'failed'; });
+  const planIcon = planRow.locator('.subagent-status-icon[data-state="failed"]');
+  await planIcon.waitFor();
+  assert.equal(await planIcon.getAttribute('data-settling'), 'true');
+  assert.match(await planRow.getAttribute('aria-label'), /已失败/);
+  await planIcon.evaluate(element => {
+    for (const animation of element.getAnimations({ subtree: true })) {
+      if (!(animation instanceof CSSAnimation)) animation.finish();
+    }
+  });
+  await page.waitForFunction(() => document.querySelector('.sb-step .subagent-status-icon').dataset.settling === 'false');
+  assert.equal(await page.locator('.sb-step-count strong').innerText(), '0', 'failed tasks are not counted as complete');
+  await page.locator('#summary-board').screenshot({ path: 'test-results/task-plan-failed.png' });
+  await app.evaluate(() => { globalThis.planStatusFixture = 'in_progress'; });
+  await planRow.locator('.subagent-status-icon[data-state="running"]').waitFor();
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
+  tasks[1] = { ...tasks[1], status: 'running' };
+  await update('failed');
+  const stoppedRow = page.locator('.lane-row[data-lane-agent="explore"]');
+  await stoppedRow.locator('.subagent-status-icon[data-state="running"]').waitFor();
+  tasks[1] = { ...tasks[1], status: 'aborted' };
+  await update('failed');
+  const stoppedIcon = stoppedRow.locator('.subagent-status-icon[data-state="stopped"]');
+  await stoppedIcon.waitFor();
+  assert.equal(await stoppedIcon.getAttribute('data-settling'), 'true', 'interruption reuses the terminal-state animation');
+  await stoppedIcon.evaluate(element => {
+    for (const animation of element.getAnimations({ subtree: true })) {
+      if (!(animation instanceof CSSAnimation)) animation.finish();
+    }
+  });
+  await page.waitForFunction(() => document.querySelector('.lane-row[data-lane-agent="explore"] .subagent-status-icon').dataset.settling === 'false');
+  assert.equal(await stoppedRow.getAttribute('data-tool-state'), 'stopped');
+  assert.equal(await stoppedRow.getAttribute('title'), null, 'no competing native tooltip');
+  await stoppedRow.click({ position: { x: 10, y: 15 } });
+  await page.locator('#subagent-panel .subagent-status-icon[data-state="stopped"]').waitFor();
+  assert.equal(await page.locator('#subagent-panel .subagent-status').getAttribute('aria-label'), '已终止');
+  await stoppedRow.click({ position: { x: 10, y: 15 } });
+  await page.locator('#subagent-panel').waitFor({ state: 'detached' });
+  await page.mouse.move(20, 40);
+  await page.locator('.response-content').screenshot({ path: 'test-results/subagent-status-semantic-light.png' });
+  await page.evaluate(async () => { await window.desktop.preferences({ theme: 'dark' }); });
+  await app.evaluate(() => { globalThis.subagentStatusFixture.preferences.theme = 'dark'; });
+  await page.reload();
+  await review.waitFor();
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  await page.locator('.response-content').screenshot({ path: 'test-results/subagent-status-semantic-dark.png' });
+  const tooltip = page.locator('.status-tooltip[aria-hidden="false"]');
+  await stoppedIcon.hover();
+  await tooltip.getByText('已中断', { exact: true }).waitFor();
+  await tooltip.getByText('执行已停止，未继续完成；这不等同于执行报错。', { exact: true }).waitFor();
+  const stoppedAnchor = await stoppedIcon.boundingBox();
+  const stoppedBubble = await tooltip.boundingBox();
+  assert.ok(stoppedBubble.y >= stoppedAnchor.y + stoppedAnchor.height, 'status details open below the fixed icon when there is room');
+  assert.ok(stoppedBubble.x >= 12 && stoppedBubble.x + stoppedBubble.width <= 628, 'tooltip remains inside the narrow viewport');
+  await tooltip.hover();
+  assert.equal(await tooltip.count(), 1, 'pointer can enter the secondary description');
+  const responseBox = await page.locator('.response-content').boundingBox();
+  await page.screenshot({ path: 'test-results/status-tooltip-interrupted-dark.png', clip: {
+    x: Math.max(0, responseBox.x), y: responseBox.y, width: Math.min(responseBox.width, 640 - responseBox.x),
+    height: Math.min(780 - responseBox.y, Math.max(responseBox.y + responseBox.height, stoppedBubble.y + stoppedBubble.height + 12) - responseBox.y),
+  } });
+  await page.mouse.move(20, 40);
+  await page.locator('.status-tooltip.is-closing').waitFor();
+  await page.locator('.status-tooltip').waitFor({ state: 'detached' });
+  await review.focus();
+  await tooltip.getByText('已失败', { exact: true }).waitFor();
+  const describedBy = await review.getAttribute('aria-describedby');
+  assert.equal(describedBy, await tooltip.getAttribute('id'), 'keyboard focus associates the detailed tooltip with the row');
+  await page.keyboard.press('Escape');
+  await page.locator('.status-tooltip').waitFor({ state: 'detached' });
+  assert.equal(await review.getAttribute('aria-describedby'), null);
+  await icon.hover();
+  await tooltip.getByText('已失败', { exact: true }).waitFor();
+  await page.locator('.conversation').evaluate(element => element.dispatchEvent(new Event('scroll')));
+  await page.locator('.status-tooltip').waitFor({ state: 'detached' });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await update('running');
   await page.waitForTimeout(100);
@@ -186,7 +281,7 @@ try {
   await page.waitForTimeout(100);
   assert.equal(await icon.getAttribute('data-settling'), 'false');
   await update('failed');
-  await review.locator('.lane-failure-label').waitFor();
+  await icon.locator('.subagent-status-failure').waitFor({ state: 'visible' });
   assert.match(await review.getAttribute('aria-label'), /已失败/);
   assert.deepEqual(errors, []);
   console.log('Subagent status passed: rotation, shrink/hold/grow/draw, stable layout, history, themes, narrow, reduced motion, failure and click-toggle.');

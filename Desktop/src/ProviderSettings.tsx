@@ -222,7 +222,8 @@ export function ProviderSettings({ providers, language, busy, onSave, onDelete, 
             <section className="provider-test-result" aria-label={t('连接诊断', 'Connection diagnostic')}>
               <div className="provider-test-top">
                 <span role="status" className={diagnostic?.ok ? 'success' : diagnostic && diagnostic.outcome !== 'cancelled' ? 'failure' : ''}>
-                  <SubagentStatusIcon state={testing ? 'running' : diagnostic?.ok ? 'done' : diagnostic && diagnostic.outcome !== 'cancelled' ? 'failed' : 'pending'}/>
+                  <SubagentStatusIcon language={language === 'zh' ? 'zh' : 'en'} detail={testing ? t('正在等待模型回复…', 'Waiting for a model reply…') : diagnostic ? diagnosticMessages[diagnostic.outcome] : t('尚未发起连接测试。', 'No connection test has been started.')}
+                    state={testing ? 'running' : diagnostic?.ok ? 'done' : diagnostic?.outcome === 'cancelled' ? 'stopped' : diagnostic ? 'failed' : 'pending'}/>
                   {testing ? t('正在等待模型回复…', 'Waiting for a model reply…') : diagnostic ? diagnosticMessages[diagnostic.outcome] : t('待测试', 'Ready to test')}
                 </span>
                 <button type="button" className="provider-icon" aria-label={testing ? t('取消测试', 'Cancel test') : t('收起诊断', 'Close diagnostic')} onClick={() => {

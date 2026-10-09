@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Circle, CircleX, CircleCheck, LoaderCircle } from 'lucide-react';
+import { Circle, CircleX, CircleCheck, LoaderCircle, TriangleAlert } from 'lucide-react';
+import { StatusTooltip } from './StatusTooltip';
 import './subagent-status.css';
 
-export type SubagentStatus = 'pending' | 'running' | 'done' | 'failed';
+export type SubagentStatus = 'pending' | 'running' | 'done' | 'failed' | 'stopped';
 const cubicIn = 'cubic-bezier(.55, .055, .675, .19)';
 const cubicOut = 'cubic-bezier(.215, .61, .355, 1)';
 
-export function SubagentStatusIcon({ state }: { state: SubagentStatus }) {
+export function SubagentStatusIcon({ state, language = 'zh', detail }: { state: SubagentStatus; language?: 'zh' | 'en'; detail?: string }) {
   const slot = useRef<HTMLSpanElement>(null);
   const previous = useRef(state);
   const [settling, setSettling] = useState(false);
@@ -18,13 +19,13 @@ export function SubagentStatusIcon({ state }: { state: SubagentStatus }) {
     return () => media.removeEventListener('change', change);
   }, []);
   useLayoutEffect(() => {
-    const complete = (previous.current === 'pending' || previous.current === 'running') && (state === 'done' || state === 'failed');
+    const complete = (previous.current === 'pending' || previous.current === 'running') && (state === 'done' || state === 'failed' || state === 'stopped');
     previous.current = state;
     setSettling(false);
     if (!complete || reduced) return;
     const mark = slot.current!;
     const spinner = mark.querySelector<HTMLElement>('.subagent-status-spinner')!;
-    const circle = mark.querySelector<SVGElement>(state === 'done' ? '.subagent-status-check' : '.subagent-status-failure')!;
+    const circle = mark.querySelector<SVGElement>(state === 'done' ? '.subagent-status-check' : state === 'stopped' ? '.subagent-status-warning' : '.subagent-status-failure')!;
     const paths = [...circle.querySelectorAll('path')];
     paths.forEach(path => path.setAttribute('pathLength', '1'));
     setSettling(true);
@@ -50,10 +51,11 @@ export function SubagentStatusIcon({ state }: { state: SubagentStatus }) {
       [scale, fadeOut, fadeIn, ...draws].forEach(animation => animation.cancel());
     };
   }, [state, reduced]);
-  return <span ref={slot} className="subagent-status-icon" data-state={state} data-settling={settling} aria-hidden="true">
+  return <StatusTooltip state={state} language={language} detail={detail}><span ref={slot} className="subagent-status-icon" data-state={state} data-settling={settling} aria-hidden="true">
     {state === 'pending' && <Circle size={12} strokeWidth={1.5}/>}
     <span className="subagent-status-spinner"><LoaderCircle size={16} strokeWidth={1.9}/></span>
     <CircleCheck className="subagent-status-check" size={16} strokeWidth={1.9}/>
     <CircleX className="subagent-status-failure" size={16} strokeWidth={1.9}/>
-  </span>;
+    <TriangleAlert className="subagent-status-warning" size={16} strokeWidth={1.9}/>
+  </span></StatusTooltip>;
 }

@@ -13,8 +13,8 @@ function TaskRow({ task, visible, language, animateEntrance }: { task: SummaryTa
   return <li className={`sb-disclosure sb-task-shell${entering ? ' is-new' : ''}${visible ? ' is-open' : ''}`} aria-hidden={!visible} inert={!visible}>
     <div><div className={`sb-step is-${task.status}`}>
       <button className="sb-step-trigger" type="button" aria-expanded={open} aria-controls={id}
-        aria-label={`${task.subject} · ${{ pending: language === 'zh' ? '待推进' : 'Pending', in_progress: language === 'zh' ? '进行中' : 'In progress', completed: language === 'zh' ? '已完成' : 'Completed' }[task.status]}`} onClick={() => setOpen(!open)}>
-        <span className="sb-step-symbol"><SubagentStatusIcon state={task.status === 'pending' ? 'pending' : task.status === 'in_progress' ? 'running' : 'done'}/></span>
+        aria-label={`${task.subject} · ${{ pending: language === 'zh' ? '待推进' : 'Pending', in_progress: language === 'zh' ? '进行中' : 'In progress', completed: language === 'zh' ? '已完成' : 'Completed', failed: language === 'zh' ? '已失败' : 'Failed' }[task.status]}`} onClick={() => setOpen(!open)}>
+        <span className="sb-step-symbol"><SubagentStatusIcon language={language} state={task.status === 'pending' ? 'pending' : task.status === 'in_progress' ? 'running' : task.status === 'failed' ? 'failed' : 'done'}/></span>
         <span>{task.subject}</span><span className={`sb-fold-icon${open ? ' is-open' : ''}`}><DisclosureChevron/></span>
       </button>
       <div id={id} className={`sb-disclosure${open ? ' is-open' : ''}`} aria-hidden={!open} inert={!open}>

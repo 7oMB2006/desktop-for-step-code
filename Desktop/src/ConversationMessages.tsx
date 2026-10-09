@@ -187,17 +187,15 @@ function SubagentTaskRow({ task, onOpen, language }: {
   task: SubagentTask; onOpen: (task: SubagentTask) => void; language: 'zh' | 'en';
 }) {
   const zh = language === 'zh';
-  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : 'failed';
+  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'aborted' ? 'stopped' : 'failed';
   const summary = task.task.replace(/\s+/gu, ' ').trim();
   const label = zh ? (state === 'running' ? '进行中' : state === 'done' ? '已完成' : task.status === 'aborted' ? '已终止' : '已失败')
     : (state === 'running' ? 'Running' : state === 'done' ? 'Completed' : task.status === 'aborted' ? 'Stopped' : 'Failed');
   return <button type="button" className="lane-row" data-tool-state={state} data-lane-agent={task.agent}
-    title={summary}
     aria-label={language === 'zh' ? `查看子代理记录: ${label}，${summary}` : `Open subagent record: ${label}, ${summary}`}
     onClick={() => onOpen(task)}>
     <Bot size={14}/>
-    <SubagentStatusIcon state={state}/>
-    {state === 'failed' && <span className="lane-failure-label">{label}</span>}
+    <SubagentStatusIcon state={state} language={language}/>
     <span className="lane-type">{task.agent || (zh ? '子代理' : 'Subagent')}</span>
     <span className="lane-summary-text">{summary.slice(0, 80) || (zh ? '无任务描述' : 'No task')}</span>
     <ChevronRight size={13} className="disclosure-chevron"/>

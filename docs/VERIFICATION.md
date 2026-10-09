@@ -1,5 +1,13 @@
 # Verification
 
+## Status Icons and Secondary Descriptions
+
+The 2026-10-09 Desktop-only follow-up separates semantic status colors from the brand accent: completion uses green, failure uses red, and interruption uses a yellow warning triangle. Subagent rows and the right-side transcript share the existing shrink/hold/grow/draw animation. Task-plan projection accepts explicitly reported `failed` records without inferring task failure from individual tool errors; the current pinned upstream does not yet emit that task-plan state.
+
+Status icons have an application-rendered secondary tooltip with a localized title and explanation. It supports pointer entry into the description, keyboard focus on the existing row control or standalone icon, Escape dismissal, scroll/resize dismissal, viewport bounds, entry/exit motion and reduced motion. Provider diagnostics supply their own safe outcome description. No upstream runtime upgrade is included.
+
+The local `status-tooltip-preview-20261009` package passed packaged status acceptance and the isolated replay demo. Installer SHA256 is `11323b6415407ad5c999450843ff5d947e11cfca0d4f015e74ac4f11d75462b8`. The demo is a development script (`node scripts/run-status-demo.mjs <packaged-executable>`), requires the development Playwright dependency, and intercepts IPC in a fresh temporary profile; it never sends a paid model request or changes normal session history. This is local preview evidence, not a public release or clean-machine acceptance claim.
+
 For the current first-release gates and candidate status, see [RELEASE.md](RELEASE.md). This document preserves historical feature evidence; different preview packages and source-only checks do not collectively qualify one final installer.
 
 ## Session Navigation and Browser Close

@@ -154,7 +154,7 @@ export interface DesktopTheme {
   firstFrame: () => { theme?: string; readyState: string };
 }
 export interface SummaryTask {
-  id: string; subject: string; description: string; status: 'pending' | 'in_progress' | 'completed';
+  id: string; subject: string; description: string; status: 'pending' | 'in_progress' | 'completed' | 'failed';
 }
 export interface SessionSummary {
   sessionId: string; plan?: { id: string; title: string }; tasks: SummaryTask[];

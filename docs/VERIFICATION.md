@@ -8,6 +8,8 @@ The 2026-10-10 Desktop-only fix honors the upstream `display: false` marker when
 
 General Electron acceptance and the full serial test rerun passed (261 tests). The first full run failed and remained alive at the unchanged terminal count-limit test; only that verified test process tree was terminated before rerunning, without editing terminal code or interrupting the user's application.
 
+The PR #83 P2 follow-up excludes hidden messages from the child transcript-presence check. The Electron fixture verifies a failed child with only its user task and hidden discovery record shows the localized empty state, both live and after reload. Cloud run `38005007240` passed this fixture but exited at artifact acceptance without an assertion trace or artifact screenshots. That acceptance now canonicalizes its temporary profile, avoids invisible quit confirmation in its isolated window, and logs stages and unexpected process exits; all original assertions remain. Three consecutive local artifact checks passed. The initial cloud exit's root cause is not established; replacement CI must be checked separately.
+
 ## Chained Subagent Runtime Upgrade
 
 The PR #81 review follow-up preserves queued steps when a background lane reports `running`; the active step still inherits lane lifecycle, and previously settled records remain unchanged. Projection regression checks cover initial background dispatch and partial per-step results. Concurrency and cross-session HTTP fixtures locate their explicit task/peer messages instead of the upstream discovery reminder. Typecheck, build, presentation tests and both real-RPC acceptance scripts passed locally; replacement cloud CI is checked separately.

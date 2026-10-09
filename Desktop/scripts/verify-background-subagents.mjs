@@ -86,9 +86,10 @@ try {
   await rows.nth(0).click();
   await page.locator('#subagent-panel .subagent-status[data-lane-state="running"]').waitFor();
   await notify('a', 'background_interrupted', 'aborted');
-  await state(0, 'failed');
+  await state(0, 'stopped');
   await page.locator('#subagent-panel .subagent-status[data-lane-state="aborted"]').waitFor();
-  assert.equal(await page.locator('#subagent-panel .subagent-status').innerText(), '已终止');
+  assert.equal(await page.locator('#subagent-panel .subagent-status').getAttribute('aria-label'), '已终止');
+  await rows.nth(0).locator('.subagent-status-icon[data-state="stopped"]').waitFor();
   assert.match(await rows.nth(0).getAttribute('aria-label'), /已终止/);
   await send({ role: 'toolResult', toolName: 'agent_send', toolCallId: 'follow-up', content: 'Follow-up',
     details: { agentId: 'lane-a', status: 'running' } });

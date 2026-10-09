@@ -262,6 +262,19 @@ try {
   await page.mouse.move(20, 40);
   await page.locator('.status-tooltip.is-closing').waitFor();
   await page.locator('.status-tooltip').waitFor({ state: 'detached' });
+  await review.click({ position: { x: 120, y: 15 } });
+  await page.locator('#subagent-panel[aria-hidden="false"]').waitFor();
+  await page.mouse.move(20, 40);
+  await page.waitForTimeout(400);
+  assert.equal(await tooltip.count(), 0, 'mouse activation of the task text does not pin a focus tooltip');
+  await icon.hover();
+  await tooltip.getByText('已失败', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.status-tooltip').waitFor({ state: 'detached' });
+  assert.equal(await page.locator('#subagent-panel').getAttribute('aria-hidden'), 'false', 'Escape dismisses the tooltip before the right panel');
+  await page.keyboard.press('Escape');
+  await page.locator('#subagent-panel').waitFor({ state: 'detached' });
+  await page.keyboard.press('Tab');
   await review.focus();
   await tooltip.getByText('已失败', { exact: true }).waitFor();
   const describedBy = await review.getAttribute('aria-describedby');
@@ -269,6 +282,7 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('.status-tooltip').waitFor({ state: 'detached' });
   assert.equal(await review.getAttribute('aria-describedby'), null);
+  await page.mouse.move(20, 40);
   await icon.hover();
   await tooltip.getByText('已失败', { exact: true }).waitFor();
   await page.locator('.conversation').evaluate(element => element.dispatchEvent(new Event('scroll')));

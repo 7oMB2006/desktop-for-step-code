@@ -22,6 +22,7 @@ export function StatusTooltip({ state, language, detail, children }: {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const focused = useRef(false);
   const hovered = useRef(false);
+  const pointerFocus = useRef(false);
   const id = useId();
   const [embedded, setEmbedded] = useState(true);
   const [open, setOpen] = useState(false);
@@ -46,14 +47,26 @@ export function StatusTooltip({ state, language, detail, children }: {
     const owner = target.closest<HTMLElement>('button, a[href]');
     setEmbedded(!!owner);
     const control = owner ?? target;
-    const focus = () => { focused.current = true; clearTimeout(timer.current); setOpen(true); };
+    const dismiss = () => { clearTimeout(timer.current); focused.current = false; setOpen(false); };
+    const pointer = () => { pointerFocus.current = true; dismiss(); };
+    const keyboard = () => { pointerFocus.current = false; };
+    const focus = () => {
+      if (pointerFocus.current) return;
+      focused.current = true; clearTimeout(timer.current); setOpen(true);
+    };
     const blur = () => { focused.current = false; if (!hovered.current) setOpen(false); };
     control.addEventListener('focus', focus);
     control.addEventListener('blur', blur);
+    control.addEventListener('click', dismiss);
+    document.addEventListener('pointerdown', pointer, true);
+    document.addEventListener('keydown', keyboard, true);
     return () => {
       clearTimeout(timer.current);
       control.removeEventListener('focus', focus);
       control.removeEventListener('blur', blur);
+      control.removeEventListener('click', dismiss);
+      document.removeEventListener('pointerdown', pointer, true);
+      document.removeEventListener('keydown', keyboard, true);
     };
   }, []);
   useEffect(() => {
@@ -85,16 +98,20 @@ export function StatusTooltip({ state, language, detail, children }: {
     const top = fitsBelow ? below : Math.max(titlebar + inset, rect.top - box.height - 8);
     setPosition({ left, top, origin: `${rect.left + rect.width / 2 - left}px ${fitsBelow ? '0%' : '100%'}` });
     const hide = () => { clearTimeout(timer.current); setOpen(false); };
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') hide(); };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && open) {
+        event.preventDefault(); event.stopImmediatePropagation(); hide();
+      }
+    };
     window.addEventListener('resize', hide);
     document.addEventListener('scroll', hide, true);
-    document.addEventListener('keydown', key);
+    window.addEventListener('keydown', key, true);
     return () => {
       window.removeEventListener('resize', hide);
       document.removeEventListener('scroll', hide, true);
-      document.removeEventListener('keydown', key);
+      window.removeEventListener('keydown', key, true);
     };
-  }, [present, title, description]);
+  }, [present, open, title, description]);
 
   return <>
     <span ref={anchor} className="status-tooltip-anchor" tabIndex={embedded ? undefined : 0}

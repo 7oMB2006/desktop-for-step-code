@@ -27,6 +27,30 @@ test('response grouping preserves user anchors and separates adjacent turns with
   assert.deepEqual(messages, copy);
 });
 
+test('hidden runtime messages stay in history but not response groups, prose or copied text', () => {
+  const hidden: Message = {
+    role: 'custom', customType: 'ultraloop-discovery', display: false, content: 'Internal discovery reminder',
+  };
+  const notification: Message = {
+    role: 'custom', customType: 'agent-notification', display: false, content: 'Internal lane notification',
+  };
+  const visible: Message = { role: 'custom', customType: 'extension-notice', display: true, content: 'Visible notice' };
+  const messages = [hidden, user('One'), hidden, call('a'), notification, result('a'), text('Answer'), hidden,
+    user('Two'), hidden, visible, text('Second')];
+  const copy = structuredClone(messages);
+  const entries = conversationEntries(messages);
+  assert.deepEqual(entries.map(entry => entry.type === 'user' ? entry.item.index : entry.index), [1, 3, 8, 10]);
+  assert.deepEqual(entries[1].type === 'response' && entries[1].items.map(item => item.index), [3, 5, 6]);
+  const projected = responsePresentation(indexed(messages.slice(2, 8)));
+  assert.deepEqual(projected.content.map(item => item.type), ['thinking', 'text', 'tool', 'text']);
+  assert.equal(projected.content.at(-1)?.index, 4, 'source indices are not compacted');
+  assert.equal(projected.text, 'Checking files\n\nAnswer');
+  assert.deepEqual(conversationEntries([hidden, notification]), []);
+  assert.deepEqual(responsePresentation(indexed([hidden, notification])), { content: [], lastTextIndex: -1, text: '' });
+  assert.equal(responsePresentation(indexed([visible])).text, 'Visible notice');
+  assert.deepEqual(messages, copy, 'presentation must not erase model context or lane lifecycle records');
+});
+
 test('tool results match call IDs rather than completion order and retain errors and images', () => {
   const image = { type: 'image', mimeType: 'image/png', data: 'fixture' };
   const messages = indexed([call('a'), call('b'), result('b', true), { ...result('a'), content: [image] }, text('Done')]);

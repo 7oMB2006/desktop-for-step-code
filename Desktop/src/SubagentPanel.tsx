@@ -34,7 +34,7 @@ function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Param
   const status = task.status === 'aborted' ? zh ? '已终止' : 'Stopped'
     : { pending: zh ? '待执行' : 'Pending', skipped: zh ? '已跳过' : 'Skipped', running: zh ? '进行中' : 'In progress', done: zh ? '完成' : 'Done', failed: zh ? '失败' : 'Failed', stopped: zh ? '已终止' : 'Stopped' }[state];
   // Activity only arrives with the final result; a running subagent has none yet.
-  const hasTranscript = task.messages.some(message => message.role !== 'user');
+  const hasTranscript = task.messages.some(message => message.role !== 'user' && message.display !== false);
   return <div className="subagent-body">
     <div className="subagent-head">
       <span className="lane-type">{task.agent || (zh ? '子代理' : 'Subagent')}</span>

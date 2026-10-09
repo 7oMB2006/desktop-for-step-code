@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-navigation-')));
 const project = join(profile, 'project');
@@ -151,6 +152,32 @@ try {
   } finally { await rename(`${failureProject}-unavailable`, failureProject); }
   await row(5).click();
   await opened(5);
+  phase = 'disconnected resident history recovery';
+  const crashed = await page.evaluate(() => window.desktop.snapshot());
+  await page.evaluate(() => {
+    window.navigationExits = [];
+    window.stopNavigationExits = window.desktop.onEvent(event => {
+      if (event.type === 'desktop_exit') window.navigationExits.push(event.runtimeId);
+    });
+  });
+  const mainPid = await app.evaluate(() => process.pid);
+  const crashedPids = (() => {
+    const script = `Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq ${mainPid} -and $_.Name -eq "node.exe" -and $_.CommandLine -like "*step.js*" -and $_.CommandLine -like "*--mode*rpc*" } | Select-Object -ExpandProperty ProcessId | ConvertTo-Json -Compress`;
+    const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', script], { encoding: 'utf8', windowsHide: true }) || '[]');
+    const pids = Array.isArray(result) ? result : [result];
+    for (const pid of pids) execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+    return pids;
+  })();
+  assert.ok(crashedPids.length > 0, 'Only fixture-owned RPC children are terminated');
+  await page.waitForFunction(runtimeId => window.navigationExits.includes(runtimeId), crashed.runtimeId);
+  await page.evaluate(() => window.stopNavigationExits());
+  await row(0).click();
+  await opened(0);
+  await row(5).click();
+  await opened(5);
+  const recovered = await page.evaluate(() => window.desktop.snapshot());
+  assert.notEqual(recovered.runtimeId, crashed.runtimeId);
+  assert.ok(!recovered.runtimes.some(runtime => runtime.runtimeId === crashed.runtimeId));
   phase = 'dark narrow and reduced motion';
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
   await page.reload();

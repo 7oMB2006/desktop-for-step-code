@@ -67,6 +67,9 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1600, 1000);
   });
   await page.getByRole('button', { name: '摘要板运行时验收', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
+  await page.getByRole('button', { name: '摘要', exact: true }).click();
   const board = page.getByRole('complementary', { name: '摘要', exact: true });
   await board.locator('.sb-plan-title').filter({ hasText: '接入摘要板' }).waitFor();
   assert.equal(await board.locator('.sb-task-shell.is-new').count(), 0, 'Historical tasks must not replay entrance');

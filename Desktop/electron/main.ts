@@ -281,6 +281,10 @@ async function guardIdle() {
 }
 const sessionNavigation = new SessionNavigation(async (id: string) => {
   let worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === id);
+  if (worker?.status === 'disconnected') {
+    await runtimes.remove(worker);
+    worker = undefined;
+  }
   if (!worker) {
     const target = cachedSessions().find(session => session.id === id) ?? (await listSessions()).find(session => session.id === id);
     if (!target?.path) throw new Error('This session history is unavailable');

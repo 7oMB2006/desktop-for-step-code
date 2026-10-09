@@ -36,7 +36,10 @@ try {
   await page.locator('.message.user').waitFor();
   const send = async message => {
     await app.evaluate(({ BrowserWindow }, message) => {
-      globalThis.hiddenFixture.messages.push(message);
+      const previous = message.role === 'toolResult' ? globalThis.hiddenFixture.messages.findIndex(item =>
+        item.role === 'toolResult' && item.toolCallId === message.toolCallId) : -1;
+      if (previous >= 0) globalThis.hiddenFixture.messages[previous] = message;
+      else globalThis.hiddenFixture.messages.push(message);
       const contents = BrowserWindow.getAllWindows()[0].webContents;
       for (const type of ['message_start', 'message_update', 'message_end']) {
         contents.send('runtime-event', { type, message });
@@ -87,6 +90,18 @@ try {
   assert.equal(await page.locator('.message.assistant').getAttribute('data-message-index'), '2');
   assert.equal(await page.getByText(/HIDDEN_.*_SENTINEL/).count(), 0, 'saved hidden records do not reappear after reload');
   await page.screenshot({ path: 'test-results/hidden-messages-replay.png' });
+  await send({ role: 'toolResult', toolName: 'subagent', toolCallId: 's1', content: 'Failed', entryId: 'dispatch',
+    details: { status: 'failed', results: [{ agent: 'explore', task: 'Check files',
+      status: 'failed', messages: [{ role: 'user', content: 'Check files' }, childHidden] }] } });
+  await page.waitForFunction(() => document.querySelector('.lane-row')?.getAttribute('data-tool-state') === 'failed');
+  await row.click();
+  await page.locator('#subagent-panel .panel-empty').filter({ hasText: '无过程记录。' }).waitFor();
+  assert.equal(await page.locator('#subagent-panel .lane-text').count(), 0);
+  assert.equal(await page.getByText(childHidden.content, { exact: true }).count(), 0);
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector('.lane-row')?.getAttribute('data-tool-state') === 'failed');
+  await row.click();
+  await page.locator('#subagent-panel .panel-empty').filter({ hasText: '无过程记录。' }).waitFor();
   assert.deepEqual(errors, []);
   console.log('Hidden messages passed: live lifecycle, no empty turns, visible extension notice, copy, child transcript, lane settlement and history reload.');
 } finally { await app.close(); }

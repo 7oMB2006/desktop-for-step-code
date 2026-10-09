@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "7oMB2006/desktop-for-step-code",
-  "generatedAt": "2026-10-09T01:45:12.337Z",
+  "generatedAt": "2026-10-09T01:47:03.752Z",
   "channels": {
     "stable": null,
     "preview": {
@@ -11,7 +11,12 @@
       "prerelease": true,
       "notes": "第二个 Windows x64 社区预览版，带来 GitHub 更新提示、后台托盘，以及可自定义的字体与阅读排版。\r\n\r\n## 本次更新\r\n\r\n### GitHub 更新提示\r\n\r\n- 设置新增独立的“版本更新”页面，支持手动检查、查看版本说明和下载安装包。\r\n- 启动后自动检查，此后每六小时复查；可以关闭自动检查，或选择仅正式版通道。\r\n- 发现新版时，左下角设置入口显示更新提示，不打断正在运行的任务。\r\n- 下载通过系统浏览器完成，不会静默安装或自动重启应用。\r\n\r\n### 后台托盘\r\n\r\n- 关闭窗口后，应用保留在 Windows 托盘，运行中的 Agent、队列、终端和浏览器不因窗口关闭而结束。\r\n- 可以从托盘恢复窗口，也可以通过托盘菜单或“文件 → 退出应用”明确退出。\r\n- 托盘菜单与应用内的主题和交互样式保持一致。\r\n\r\n### 字体与阅读排版\r\n\r\n- 设置新增独立的“外观”页面，界面、正文、代码与 Diff 可以分别选择预设字体和字号。\r\n- 正文提供紧凑、标准、宽松三档行距，支持即时预览与恢复默认。\r\n- 正文默认字号由 14px 调整为 15px，文字调整不连带放大按钮和图标。\r\n- 外观偏好保存在本机，重新打开应用后继续生效。\r\n\r\n### 其他\r\n\r\n- 新建会话中文首句修正为“让想法阶跃星辰”，与“星辰因你而阶跃”等概率出现。\r\n\r\n## 下载与升级\r\n\r\n下载本 Release 附件中的 **Desktop for Step Code Setup 0.2.0.exe**。`SHA256SUMS.txt` 提供安装器校验值。\r\n\r\n**v0.1.0 没有新版检查功能，需要手动到 Releases 页面下载此次更新。** 安装本版本后，后续新版可以通过左下角提示和“版本更新”页面发现，但仍需自行下载并运行安装包。\r\n\r\n升级前先结束运行中的任务，明确退出旧版，再运行安装器覆盖安装。**本版本仅关闭窗口不会退出应用**，请使用“文件 → 退出应用”或托盘菜单。\r\n\r\n应用沿用现有配置目录，不需要为了升级删除个人数据。RC 的云桌面覆盖升级已由用户确认通过；升级前仍建议备份重要项目与会话数据。\r\n\r\n## 已知边界\r\n\r\n- 本次只提供 Windows x64 安装包，其他平台不在发布范围内。\r\n- 字体选择为预设列表，暂不枚举本机全部字体。\r\n- 不包含按小白、普通开发者、深度开发者划分的前端能力模式。\r\n- 更新检查依赖 GitHub 公开资源，访问受限或断网时可能失败。\r\n- 安装包未做代码签名，Windows SmartScreen 可能提示未知发布者，请核对下载来源与文件哈希。\r\n- 上游 Step Code runtime 保持现有固定基线，本次不升级 runtime。\r\n- 本次仍标记为 GitHub Pre-release；仅正式版通道不会提示社区预览版。",
       "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.2.0",
-      "publishedAt": "2026-10-09T01:44:33Z"
+      "publishedAt": "2026-10-09T01:44:33Z",
+      "installer": {
+        "name": "Desktop.for.Step.Code.Setup.0.2.0.exe",
+        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.2.0/Desktop.for.Step.Code.Setup.0.2.0.exe",
+        "size": 156950655
+      }
     }
   }
 }

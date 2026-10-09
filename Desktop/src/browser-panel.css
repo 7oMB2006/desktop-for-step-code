@@ -6,7 +6,7 @@
 .browser-track.is-open:not(.is-overlay) {
   flex-basis: clamp(0px, calc(var(--conversation-width) + 28px + 1240px - 100vw + var(--sidebar-track) + 44px), 620px);
 }
-.browser-track.is-closing:not(.is-overlay) { flex-basis: 0 !important; transition: none; }
+.browser-track.is-closing:not(.is-overlay) { flex-basis: 0 !important; }
 .browser-track.is-wide:not(.is-overlay) {
   --inspector-width: max(620px, min(calc((100vw - var(--sidebar-track) - 44px) * .6), calc(100vw - var(--sidebar-track) - 44px - 480px)));
 }

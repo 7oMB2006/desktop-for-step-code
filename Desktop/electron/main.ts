@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/prom
 import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
+import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
 import { PendingMessages } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
@@ -258,8 +259,8 @@ function cachedSessions(): Session[] {
   }
   return [...sessions.values()];
 }
-async function snapshot(worker = runtimes.active, refresh = true): Promise<Snapshot> {
-  const draft = sessionDraft;
+async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = false): Promise<Snapshot> {
+  const draft = ignoreDraft ? undefined : sessionDraft;
   if (draft) worker = undefined;
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
@@ -278,6 +279,33 @@ async function guardIdle() {
   if (transition) throw new Error('Workspace operation in progress');
   await runtimes.assertAllIdle();
 }
+const sessionNavigation = new SessionNavigation(async (id: string) => {
+  let worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === id);
+  if (!worker) {
+    const target = cachedSessions().find(session => session.id === id) ?? (await listSessions()).find(session => session.id === id);
+    if (!target?.path) throw new Error('This session history is unavailable');
+    const canonical = await realpath(target.cwd);
+    if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
+    worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment(), target.path);
+    if (worker.state?.sessionId !== id) {
+      await runtimes.remove(worker);
+      throw new Error('Session history identity changed');
+    }
+  }
+  worker.operations++;
+  try { return { worker, value: await snapshot(worker, false, true) }; }
+  finally { worker.operations--; }
+}, ({ worker, value }) => {
+  if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected') throw new Error('Session runtime disconnected while opening');
+  sessionDraft = undefined;
+  runtimes.activate(worker);
+  preferences.workspace = worker.cwd;
+  void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
+  return { ...value, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds] };
+}, busy => {
+  transition = busy;
+  if (!busy) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error));
+});
 async function connect(cwd: string, sessionPath?: string, rememberProject = true) {
   if (transition) throw new Error('Workspace operation in progress');
   transition = true;
@@ -629,6 +657,10 @@ async function handle(method: string, args: any[]) {
       try { await runtimes.assertIdle(worker); await runtimes.remove(worker); }
       finally { transition = false; }
       return connect(cwd, state?.sessionFile && existsSync(state.sessionFile) ? state.sessionFile : undefined, false);
+    }
+    case 'navigateSession': {
+      if (deletingArchived || transition && !sessionNavigation.busy) throw new Error('Workspace operation in progress');
+      return sessionNavigation.select(text(args[0], 300));
     }
     case 'switchSession': {
       if (transition || deletingArchived) throw new Error('Workspace operation in progress');
@@ -1225,9 +1257,9 @@ else app.whenReady().then(async () => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
     const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method);
     if (undoBusy && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
-      'switchSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
+      'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
-    if (settingsMutation && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
     if (shared) settingsMutation = true;
     try { return await handle(method, args); }
     catch (error) { throw new Error(error instanceof Error ? error.message : 'Desktop operation failed'); }

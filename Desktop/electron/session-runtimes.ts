@@ -115,7 +115,10 @@ export class SessionRuntimes {
     try { return await opening; }
     finally { if (this.openingEmpty.get(key) === opening) this.openingEmpty.delete(key); }
   }
-  private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
+  prepare(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath: string) {
+    return this.openWorker(node, entry, cwd, env, sessionPath, undefined, false);
+  }
+  private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation, activate = true) {
     const worker: SessionRuntime = {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
@@ -202,7 +205,8 @@ export class SessionRuntimes {
       worker.status = 'connected';
       worker.state = await worker.rpc.request('get_state');
       await this.read(worker);
-      this.activate(worker);
+      if (activate) this.activate(worker);
+      else this.publish();
       return worker;
     } catch (error) {
       this.hooks.dispose?.(worker);
@@ -346,9 +350,13 @@ export class SessionRuntimes {
     this.publish();
   }
   async recycle() {
-    const idle = [...this.workers.values()].filter(worker => worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) && !worker.operations && !worker.mutating && !worker.queued && worker.messages.length > 0);
+    const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
+      worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
+      !worker.operations && !worker.mutating && !worker.queued && worker.messages.length > 0;
+    const idle = [...this.workers.values()].filter(recyclable);
     idle.sort((a, b) => b.touched - a.touched);
-    for (const worker of idle) if (idle.indexOf(worker) >= 2 || Date.now() - worker.touched > 5 * 60000) await this.remove(worker);
+    for (const worker of idle) if (recyclable(worker) &&
+      (idle.indexOf(worker) >= 2 || Date.now() - worker.touched > 5 * 60000)) await this.remove(worker);
   }
   async stopAll() {
     const workers = [...this.workers.values()];

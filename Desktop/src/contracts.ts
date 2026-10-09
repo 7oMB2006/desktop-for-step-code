@@ -74,6 +74,7 @@ export interface DesktopBridge {
   command(type: string, args?: Record<string, unknown>, runtimeId?: string): Promise<any>;
   sessions(): Promise<Session[]>;
   switchSession(id: string): Promise<Snapshot>;
+  navigateSession(id: string): Promise<Snapshot | null>;
   branchSession(kind: 'clone' | 'fork', entryId: string, runtimeId: string): Promise<Snapshot>;
   cloneSession(id: string): Promise<Snapshot>;
   retryMessage(entryId: string, message: string, runtimeId: string): Promise<void>;

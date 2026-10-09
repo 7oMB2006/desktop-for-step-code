@@ -2,6 +2,16 @@
 
 For the current first-release gates and candidate status, see [RELEASE.md](RELEASE.md). This document preserves historical feature evidence; different preview packages and source-only checks do not collectively qualify one final installer.
 
+## Session Navigation and Browser Close
+
+The 2026-10-09 Desktop-only fix prepares cold histories without activating them, serializes navigation and commits only the latest requested target. The selected sidebar row and window title update immediately; they are not completion signals. Recently viewed transcripts can appear from a detached, inert cache bounded to six sessions and an estimated 12 MiB of serialized UTF-16 data. Runtime controls and approvals are never restored from that cache. Catalog changes and background message/tool events invalidate cached readings. Drafts, quotes, attachments and stable message-relative reading anchors survive navigation and idle-worker recycling; pointer, wheel and keyboard interaction cancel pending reading restoration, including the external scrollbar.
+
+The delayed sidebar loading ring has a fixed 12px square instead of inheriting title-span flex growth. Browser close keeps the shared cubic layout-reservation transition while hiding the opaque native webpage immediately. Replacement by another right panel still releases the outgoing reservation immediately. Browser acceptance samples intermediate Standard/Wide close widths and checks the final restored reservation.
+
+An isolated PR worktree based on main `14b1ca2` retains the merged supplier/no-auth adapter. Typecheck, production build, 257 serial unit/protocol tests, general Electron, dedicated session navigation, browser, concurrent-session, archived-session, branching, sidebar ordering, new-session and cross-session acceptance passed locally. General/archived/concurrency checks wait for the confirmed transcript and enabled composer rather than just the optimistic title. The image-menu check completes Playwright's image scrolling before opening its scroll-dismissed menu. These changes preserve existing assertions and runtime operation guards. One full-suite attempt had a provider test-process failure; that file passed separately and the subsequent complete serial run passed all 257 tests. Sidebar acceptance also exited during its restart launch on one attempt without a reported assertion; its standalone rerun passed unchanged.
+
+The previously delivered local preview at `Desktop/release/session-spinner-fix-preview-20261009/` passed packaged navigation/spinner and browser checks. Its installer SHA256 is `2508607f322f8de8653f72a9fc9f4e3273da1aa7c8256fd319c32ede55f1b16e`; the normal desktop shortcut remains unchanged during PR preparation. That preview predates the isolated latest-main integration and final acceptance refinements, so it is not evidence for every PR change. No upstream checkout/runtime edits, real-profile mutation, paid-provider request, installer lifecycle qualification or new public release is part of this fix. Cloud CI is separate from these local results.
+
 ## Account Settings Split
 
 ### Custom Providers Follow-Up

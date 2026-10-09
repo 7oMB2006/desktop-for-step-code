@@ -465,7 +465,9 @@ try {
   assert.equal(await page.locator('.error-banner').getByText('A real error').isVisible(), true);
   await page.locator('.error-banner').getByRole('button', { name: '关闭' }).click();
   await page.getByRole('button', { name: '独立验证会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '独立验证会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '独立验证会话' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   assert.equal(await page.locator('.window-session-title').getAttribute('data-tooltip'), '独立验证会话');
   let independentState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(independentState.independent, true);
@@ -646,10 +648,14 @@ try {
   assert.equal(await page.locator('.topbar').count(), 0);
   const firstGroup = page.getByRole('region', { name: projectState.preferences.workspace, exact: true });
   await firstGroup.getByRole('button', { name: '你好！', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '你好！');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '你好！' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   await page.locator('.conversation-scroll-track.hidden').waitFor();
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   await page.locator('.conversation-scroll-track:not(.hidden)').waitFor();
   await page.locator('.turn-marker').nth(2).waitFor();
   assert.equal(await page.locator('.turn-marker').count(), 3);
@@ -675,6 +681,9 @@ try {
   await page.mouse.up();
   await page.waitForFunction(() => document.querySelector('.conversation').scrollTop < 20);
   const sentImage = page.locator('.message.user .previewable-image').first();
+  await sentImage.scrollIntoViewIfNeeded();
+  // Finish Playwright's implicit image scrolling before opening a scroll-dismissed menu.
+  await page.clock.runFor(120);
   await sentImage.click({ button: 'right' });
   await imageMenu.waitFor();
   assert.deepEqual(await imageMenu.getByRole('menuitem').allTextContents(), ['添加到聊天', '复制图像', '在资源管理器中打开', '下载副本']);
@@ -844,9 +853,13 @@ try {
   assert.equal(await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'Second session');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'Second session' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   await page.evaluate(() => {
     window.__sessionSwitchEvents = [];
     window.__stopSessionSwitchEvents = window.desktop.onEvent(event => {
@@ -855,9 +868,13 @@ try {
   });
   const sameWorkspaceSwitchStarted = Date.now();
   await firstGroup.getByRole('button', { name: '同项目另一会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '同项目另一会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '同项目另一会话' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话');
+  await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话' &&
+    document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+    !document.querySelector('.composer > textarea')?.disabled);
   assert.deepEqual(await page.evaluate(() => { window.__stopSessionSwitchEvents(); return window.__sessionSwitchEvents; }), []);
   console.log(`Same-workspace round trip: ${Date.now() - sameWorkspaceSwitchStarted} ms without a runtime restart.`);
   await page.screenshot({ path: 'test-results/workspace-tree.png' });
@@ -1433,7 +1450,9 @@ for (const userData of [profile, cleanProfile]) {
     assert.equal(home.sessions.some(s => !s.independent && s.cwd.startsWith(join(userData, 'workspaces', 'independent'))), false);
     if (userData === profile) {
       await page.getByRole('button', { name: '独立验证会话', exact: true }).click();
-      await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '独立验证会话');
+      await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '独立验证会话' &&
+        document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
+        !document.querySelector('.composer > textarea')?.disabled);
       assert.equal((await page.evaluate(() => window.desktop.snapshot())).independent, true);
     }
     await page.screenshot({ path: `test-results/home-${userData === profile ? 'reopened' : 'first-run'}.png` });

@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Circle, CircleCheck, CircleX, LoaderCircle, TriangleAlert } from 'lucide-react';
+import { Circle, CircleCheck, CircleX, CircleMinus, LoaderCircle, TriangleAlert } from 'lucide-react';
 import type { SubagentStatus } from './SubagentStatusIcon';
 import './status-tooltip.css';
 
@@ -11,8 +11,9 @@ const copy = {
   done: ['已完成', '本次执行已正常结束。', 'Completed', 'This execution has finished normally.'],
   failed: ['已失败', '本次执行未成功结束，不代表其他任务也已失败。', 'Failed', 'This execution did not finish successfully. Other tasks may have different outcomes.'],
   stopped: ['已中断', '执行已停止，未继续完成；这不等同于执行报错。', 'Interrupted', 'Execution stopped before completion. This is not the same as an execution error.'],
+  skipped: ['已跳过', '链路已停止，这一步尚未执行。', 'Skipped', 'The chain stopped before this step was executed.'],
 } as const;
-const symbols = { pending: Circle, running: LoaderCircle, done: CircleCheck, failed: CircleX, stopped: TriangleAlert };
+const symbols = { pending: Circle, running: LoaderCircle, done: CircleCheck, failed: CircleX, stopped: TriangleAlert, skipped: CircleMinus };
 
 export function StatusTooltip({ state, language, detail, children }: {
   state: SubagentStatus; language: 'zh' | 'en'; detail?: string; children: ReactNode;

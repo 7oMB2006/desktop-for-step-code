@@ -7,7 +7,7 @@ const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE
 const runtime = resolve('runtime');
 if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('Build this Windows x64 preview on Windows x64');
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
-if (commit !== '519e4de4ed2162d3667be1821cb92ada6b884e5a') {
+if (commit !== '39ec6e0adeca09d50c8897023ea4e471371634cd') {
   throw new Error('Step Code source does not match the pinned Desktop baseline; build the pinned checkout and pass its path to stage:runtime');
 }
 // The manifest advertises the patch set below, so staging must prove the sources are
@@ -16,12 +16,12 @@ if (commit !== '519e4de4ed2162d3667be1821cb92ada6b884e5a') {
 // ship a runtime whose manifest claims patches that are not there.
 const patchedFiles = [
   ['auth-storage.ts', 'packages/coding-agent/src/core/auth-storage.ts', 'a25fff15510b1bd9f009483717727f2fe19dc442'],
-  ['index.ts', 'packages/coding-agent/src/index.ts', '394a944cd4758b705e3f5d87a7b94aae0a23abec'],
+  ['index.ts', 'packages/coding-agent/src/index.ts', '8c4e177db7bf1c45b4ea4c9c9508e2be6c1f39a3'],
   ['build-coding-agent-bundle.mjs', 'scripts/build-coding-agent-bundle.mjs', 'da69d6cf5582c7e4f762ac2ecbb543fbc2ef87c8'],
   ['subagent-rpc-adapter.ts', 'packages/coding-agent/src/features/subagent/rpc-adapter.ts', '3ddc850f55fbd4947f0f980db5b4220ed55bb6d0'],
   ['rpc-mode.ts', 'packages/coding-agent/src/modes/rpc/rpc-mode.ts', '9ba054b6fe48ee7839ed66095215d4c985f56e4e'],
   ['rpc-types.ts', 'packages/coding-agent/src/modes/rpc/rpc-types.ts', '63e73570b724e9cecdfa192d984b5ea9b24677cb'],
-  ['mcp.ts', 'packages/coding-agent/src/step/mcp.ts', '8bd173c8212fdf52cf831283b05014251f268a0b'],
+  ['mcp.ts', 'packages/coding-agent/src/step/mcp.ts', 'dd9bf2ce923497dcf5519ee5ee1aa88192c06731'],
 ];
 const patchedSourceHashes = {};
 for (const [name, relative, expected] of patchedFiles) {

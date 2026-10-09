@@ -18,7 +18,7 @@ if (patchText.includes("\r")) {
 	throw new Error("The Step Code integration patch has unsupported line endings");
 }
 const patchBytes = Buffer.from(patchText, "utf8");
-if (gitBlobHash(patchBytes) !== "20398d1f21f7d8d89a60956dd37fb8a9e352a77d") {
+if (gitBlobHash(patchBytes) !== "d682864dddf3511c8d0966378c1dd0a7d5cefa6a") {
 	throw new Error("The Step Code integration patch changed; review and update this applier");
 }
 
@@ -32,7 +32,7 @@ const bundleScriptBytes = await readFile(bundleScriptPath);
 if (gitBlobHash(authStorageBytes) !== "b7d72e885b80c53e17920a405ec7ce9612a3e2e7") {
 	throw new Error("Unexpected pinned auth storage source content");
 }
-if (gitBlobHash(codingAgentBytes) !== "8e933536e3d6a0ac15017121a25e88e3d6a142e3") {
+if (gitBlobHash(codingAgentBytes) !== "b41b022648dcb1ce31e30c0ba333136062f28d96") {
 	throw new Error("Unexpected pinned coding-agent source content");
 }
 if (gitBlobHash(bundleScriptBytes) !== "59fdc3ebc3f8d9e7a8b0d6d5fb919f0f7cd44d89") {
@@ -47,7 +47,7 @@ const applyOptions = { input: patchBytes, stdio: ["pipe", "inherit", "inherit"] 
 for (const [relative, expected] of [
 	["packages/coding-agent/src/modes/rpc/rpc-mode.ts", "fd9aabca7465b6b104dcdd3f83f13ff2bd6b8ec9"],
 	["packages/coding-agent/src/modes/rpc/rpc-types.ts", "1565bd4ab5bea1d427fb11a4a7218187d8a91db7"],
-	["packages/coding-agent/src/step/mcp.ts", "db6b985480e9f570a240223c9475f3e503e044f2"],
+	["packages/coding-agent/src/step/mcp.ts", "055d0d3e91cd1a82214a711f7db9cecb3c3e5277"],
 ]) {
 	if (gitBlobHash(await readFile(path.join(upstreamDir, relative))) !== expected) {
 		throw new Error(`Unexpected pinned source content: ${relative}`);

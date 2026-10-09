@@ -30,9 +30,9 @@ function SubagentTranscript({ task, ...props }: { task: SubagentTask } & Pick<Pa
 
 function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
   const zh = props.language === 'zh';
-  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'aborted' ? 'stopped' : 'failed';
+  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'queued' ? 'pending' : task.status === 'skipped' ? 'skipped' : task.status === 'aborted' ? 'stopped' : 'failed';
   const status = task.status === 'aborted' ? zh ? '已终止' : 'Stopped'
-    : { running: zh ? '进行中' : 'In progress', done: zh ? '完成' : 'Done', failed: zh ? '失败' : 'Failed', stopped: zh ? '已终止' : 'Stopped' }[state];
+    : { pending: zh ? '待执行' : 'Pending', skipped: zh ? '已跳过' : 'Skipped', running: zh ? '进行中' : 'In progress', done: zh ? '完成' : 'Done', failed: zh ? '失败' : 'Failed', stopped: zh ? '已终止' : 'Stopped' }[state];
   // Activity only arrives with the final result; a running subagent has none yet.
   const hasTranscript = task.messages.some(message => message.role !== 'user');
   return <div className="subagent-body">
@@ -52,7 +52,9 @@ function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Param
         : state === 'running' ? <p className="panel-empty">{zh
           ? task.backgroundAgentId ? '运行中。后台任务未返回过程记录。' : '运行中。过程数据要等这个子代理跑完才随结果一起到达。'
           : task.backgroundAgentId ? 'Running. No activity record returned for this background task.' : 'Running. Its activity arrives with the result once it finishes.'}</p>
-          : <p className="panel-empty">{zh ? '无过程记录。' : 'No activity recorded.'}</p>}
+          : <p className="panel-empty">{state === 'pending' ? zh ? '等待前序步骤或可用执行名额。' : 'Waiting for earlier steps or execution capacity.'
+            : state === 'skipped' ? zh ? '链路已停止，这一步没有执行。' : 'The chain stopped before this step ran.'
+              : zh ? '无过程记录。' : 'No activity recorded.'}</p>}
     </div>
   </div>;
 }

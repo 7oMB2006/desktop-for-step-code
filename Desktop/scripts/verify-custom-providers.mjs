@@ -68,7 +68,8 @@ const server = createServer(async (req, res) => {
       choices: [{ index: 0, delta, finish_reason }],
     })}\n\n`);
     send({ role: 'assistant', content: '' });
-    const userIndex = body.messages.findLastIndex(m => m.role === 'user');
+    const textOf = m => typeof m.content === 'string' ? m.content : m.content?.filter(c => c.type === 'text').map(c => c.text).join('\n');
+    const userIndex = body.messages.findLastIndex(m => m.role === 'user' && textOf(m) === 'Test custom provider');
     const user = body.messages[userIndex]?.content;
     const userText = typeof user === 'string' ? user : user?.filter(c => c.type === 'text').map(c => c.text).join('\n');
     if (userText === 'Test custom provider' && !body.messages.slice(userIndex + 1).some(m => m.role === 'tool')) {

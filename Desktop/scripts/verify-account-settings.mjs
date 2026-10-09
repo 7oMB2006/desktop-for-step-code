@@ -3,8 +3,26 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createServer } from 'node:http';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-account-settings-'));
+const requests = [];
+const server = createServer(async (req, res) => {
+  try {
+    let raw = '';
+    for await (const chunk of req) { raw += chunk; assert.ok(raw.length < 1024 * 1024); }
+    requests.push(JSON.parse(raw));
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    for (const [delta, finish_reason] of [[{ role: 'assistant', content: 'Thinking fixture reply.' }, null], [{}, 'stop']])
+      res.write(`data: ${JSON.stringify({ id: 'account-thinking-fixture', object: 'chat.completion.chunk',
+        created: 1, model: requests.at(-1).model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
+    res.end('data: [DONE]\n\n');
+  } catch {
+    if (!res.headersSent) res.writeHead(500);
+    res.end();
+  }
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await mkdir('test-results', { recursive: true });
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
@@ -54,9 +72,14 @@ try {
   assert.equal(proposedBefore.state.model.thinkingLevels, undefined, 'Fixture starts with the unauthenticated placeholder capability state');
   // Discovery becomes available after authentication; the existing proposal must refresh.
   await writeFile(join(profile, 'step-runtime/models.json'), JSON.stringify({ providers: {
-    step: { apiKey: 'isolated-model-fixture-only', baseUrl: 'http://127.0.0.1:1/v1', api: 'openai-completions',
+    step: { apiKey: 'isolated-model-fixture-only', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions',
       models: [{ id: 'step-5-preview', name: 'Step thinking fixture', reasoning: true,
         thinkingLevelMap: { off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: null, max: null },
+        contextWindow: 32768, maxTokens: 2048 }] },
+    'thinking-fixture': { apiKey: 'isolated-model-fixture-only', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions',
+      models: [{
+        id: 'step-thinking-alternative', name: 'Step alternate thinking fixture', reasoning: true,
+        thinkingLevelMap: { off: null, minimal: null, low: 'low', medium: null, high: 'high', xhigh: null, max: null },
         contextWindow: 32768, maxTokens: 2048 }] },
   } }));
   await page.getByRole('button', { name: '登录', exact: true }).click();
@@ -77,17 +100,40 @@ try {
   await effort.press('End');
   await page.waitForFunction(async () => (await window.desktop.snapshot()).state.thinkingLevel === 'high');
   await page.keyboard.press('Escape');
-  await page.evaluate(() => window.desktop.command('set_model', { provider: 'step', modelId: 'step-5-preview' }));
+  await page.evaluate(() => window.desktop.command('set_model', { provider: 'thinking-fixture', modelId: 'step-thinking-alternative' }));
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.thinkingLevel, 'high', 'Fixture has a manually selected effort before it disappears');
   const catalog = JSON.parse(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'));
-  catalog.providers.step.models[0].thinkingLevelMap.high = null;
-  catalog.providers.step.models[0].thinkingLevelMap.xhigh = 'xhigh';
+  catalog.providers['thinking-fixture'].models[0].thinkingLevelMap.high = null;
+  catalog.providers['thinking-fixture'].models[0].thinkingLevelMap.xhigh = 'xhigh';
   await writeFile(join(profile, 'step-runtime/models.json'), JSON.stringify(catalog));
-  const refreshed = await page.evaluate(() => window.desktop.beginSession());
-  assert.deepEqual(refreshed.state.model.thinkingLevels, ['low', 'medium', 'xhigh'], 'Explicitly selected models take fresh capabilities instead of retaining the old object');
-  assert.ok(refreshed.state.model.thinkingLevels.includes(refreshed.state.thinkingLevel));
+  const refreshed = await page.evaluate(async () => {
+    await window.desktop.login('platform_oversea', 'isolated-api-fixture-only');
+    return window.desktop.snapshot();
+  });
+  assert.deepEqual(refreshed.state.model.thinkingLevels, ['low', 'xhigh'], 'Explicitly selected models take fresh capabilities instead of retaining the old object');
+  assert.equal(refreshed.state.thinkingLevel, 'low', 'Removed manual effort falls back to the first available level');
   assert.equal(refreshed.draftId, proposedBefore.draftId);
   assert.equal(refreshed.sessions.length, 0);
   assert.equal(refreshed.runtimes.length, 0);
+  const created = await page.evaluate(id => window.desktop.createDraftSession(id), refreshed.draftId);
+  assert.equal(created.state.model.id, 'step-thinking-alternative');
+  assert.equal(created.state.thinkingLevel, refreshed.state.thinkingLevel, 'Created runtime must use the effort displayed in the proposal, not its own model-switch fallback');
+  await page.evaluate(runtimeId => window.desktop.command('prompt', { message: 'Verify the displayed thinking fallback' }, runtimeId), created.runtimeId);
+  let replied = false;
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
+    const current = await page.evaluate(() => window.desktop.snapshot());
+    if (!current.state.isStreaming && current.messages.some(message => message.role === 'assistant'
+      && message.stopReason === 'stop' && message.content?.some(block => block.type === 'text' && block.text === 'Thinking fixture reply.'))) {
+      replied = true; break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.ok(replied, 'First prompt receives the local fixture reply and settles');
+  assert.equal(requests.length, 1, 'One first prompt reaches only the local model fixture');
+  assert.equal(requests[0].model, 'step-thinking-alternative');
+  assert.equal(requests[0].reasoning_effort, refreshed.state.thinkingLevel, 'First provider request matches the displayed effort');
+  const nextDraft = await page.evaluate(() => window.desktop.beginSession());
   await page.locator('.sidebar-bottom > button').click();
   assert.equal(await page.locator('.account-user-id').count(), 0);
   const apiAccount = await page.evaluate(async () => (await window.desktop.settings()).account);
@@ -108,7 +154,7 @@ try {
   await page.getByRole('button', { name: '退出登录', exact: true }).click();
   await page.getByText('未登录', { exact: true }).waitFor();
   const signedOut = await page.evaluate(() => window.desktop.snapshot());
-  assert.equal(signedOut.draftId, proposedBefore.draftId);
+  assert.equal(signedOut.draftId, nextDraft.draftId);
   assert.equal(signedOut.state.model.thinkingLevels, undefined, 'Signed-out proposal does not retain the authenticated catalog');
   assert.equal(signedOut.runtimeId, undefined);
   await page.getByRole('button', { name: '通用', exact: true }).click();
@@ -160,7 +206,9 @@ try {
   await page.locator('.error-banner').filter({ hasText: 'Fixture login intercepted' }).waitFor();
   assert.deepEqual(await app.evaluate(() => globalThis.accountFixture.login), { profile: 'platform_oversea', matches: true });
   assert.deepEqual(errors, []);
-  console.log('Account channels, UID projection, credential states, API login/logout, themes and narrow layouts passed with isolated fixtures.');
+  console.log('Account channels, UID projection, credential states, API login/logout, thinking fallback through the first provider request, themes and narrow layouts passed with isolated fixtures.');
 } finally {
+  server.closeAllConnections();
+  await new Promise(resolve => server.close(resolve));
   if (app) await app.close();
 }

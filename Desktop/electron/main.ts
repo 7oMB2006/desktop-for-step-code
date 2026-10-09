@@ -361,6 +361,7 @@ async function beginSession(workspace?: string) {
       Object.assign(next, { model: selectedModel, modelChanged: true });
       if (!selectedModel.thinkingLevels?.includes(next.thinkingLevel!))
         next.thinkingLevel = selectedModel.thinkingLevels?.[0];
+      next.thinkingChanged = Boolean(next.thinkingLevel);
     }
     if (previous?.thinkingChanged && next.model?.thinkingLevels?.includes(previous.thinkingLevel!))
       Object.assign(next, { thinkingLevel: previous.thinkingLevel, thinkingChanged: true });

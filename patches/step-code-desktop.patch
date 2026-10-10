@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/core/auth-storage.ts b/packages/coding-agent/src/core/auth-storage.ts
-index b7d72e885b80c53e17920a405ec7ce9612a3e2e7..a25fff15510b1bd9f009483717727f2fe19dc442 100644
+index b7d72e8..a25fff1 100644
 --- a/packages/coding-agent/src/core/auth-storage.ts
 +++ b/packages/coding-agent/src/core/auth-storage.ts
 @@ -6,7 +6,7 @@
@@ -80,7 +80,7 @@ index b7d72e885b80c53e17920a405ec7ce9612a3e2e7..a25fff15510b1bd9f009483717727f2f
  	} catch {
  		return undefined;
 diff --git a/packages/coding-agent/src/features/subagent/rpc-adapter.ts b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
-index 9010d79a8f74ad026f805e2706b29a774ba5818d..3ddc850f55fbd4947f0f980db5b4220ed55bb6d0 100644
+index 9010d79..3ddc850 100644
 --- a/packages/coding-agent/src/features/subagent/rpc-adapter.ts
 +++ b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
 @@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
@@ -129,7 +129,7 @@ index 9010d79a8f74ad026f805e2706b29a774ba5818d..3ddc850f55fbd4947f0f980db5b4220e
  		STEP_DISABLE_WORKFLOW: "1",
  		STEP_DISABLE_CRON: "1",
 diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
-index b41b022648dcb1ce31e30c0ba333136062f28d96..8c4e177db7bf1c45b4ea4c9c9508e2be6c1f39a3 100644
+index b41b022..8c4e177 100644
 --- a/packages/coding-agent/src/index.ts
 +++ b/packages/coding-agent/src/index.ts
 @@ -41,7 +41,7 @@ export {
@@ -159,7 +159,7 @@ index b41b022648dcb1ce31e30c0ba333136062f28d96..8c4e177db7bf1c45b4ea4c9c9508e2be
  export {
  	getStepLoginStatus,
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index fd9aabca7465b6b104dcdd3f83f13ff2bd6b8ec9..9ba054b6fe48ee7839ed66095215d4c985f56e4e 100644
+index fd9aabc..9ba054b 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 @@ -12,6 +12,7 @@
@@ -188,7 +188,7 @@ index fd9aabca7465b6b104dcdd3f83f13ff2bd6b8ec9..9ba054b6fe48ee7839ed66095215d4c9
  				const state: RpcSessionState = {
  					model: session.model,
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
-index 1565bd4ab5bea1d427fb11a4a7218187d8a91db7..63e73570b724e9cecdfa192d984b5ea9b24677cb 100644
+index 1565bd4..63e7357 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
 @@ -28,6 +28,7 @@ export type RpcCommand =
@@ -200,7 +200,7 @@ index 1565bd4ab5bea1d427fb11a4a7218187d8a91db7..63e73570b724e9cecdfa192d984b5ea9
  	// Model
  	| { id?: string; type: "set_model"; provider: string; modelId: string }
 diff --git a/packages/coding-agent/src/step/mcp.ts b/packages/coding-agent/src/step/mcp.ts
-index 055d0d3e91cd1a82214a711f7db9cecb3c3e5277..dd9bf2ce923497dcf5519ee5ee1aa88192c06731 100644
+index 055d0d3..dd9bf2c 100644
 --- a/packages/coding-agent/src/step/mcp.ts
 +++ b/packages/coding-agent/src/step/mcp.ts
 @@ -133,6 +133,10 @@ export function createStepMcpExtension(): ExtensionFactory {
@@ -223,22 +223,37 @@ index 055d0d3e91cd1a82214a711f7db9cecb3c3e5277..dd9bf2ce923497dcf5519ee5ee1aa881
  					discovered.map(async (item, index) => {
  						let connected: ConnectedServer | undefined;
 diff --git a/scripts/build-coding-agent-bundle.mjs b/scripts/build-coding-agent-bundle.mjs
-index 59fdc3ebc3f8d9e7a8b0d6d5fb919f0f7cd44d89..da69d6cf5582c7e4f762ac2ecbb543fbc2ef87c8 100644
+index 59fdc3e..93aaca8 100644
 --- a/scripts/build-coding-agent-bundle.mjs
 +++ b/scripts/build-coding-agent-bundle.mjs
-@@ -176,7 +176,14 @@ function outputBytes(metafiles) {
+@@ -176,7 +176,29 @@ function outputBytes(metafiles) {
  // stays self-contained despite the entry now living in the app package. Always
  // rebuild rather than trusting a pre-existing dist/main.js: a stale app compile
  // from an earlier checkout would otherwise be baked into the bundle.
 -execFileSync("npm", ["--prefix", appEntryDir, "run", "build"], { stdio: "inherit", cwd: repoRoot });
-+const npmCliPath = process.env.npm_execpath;
-+if (!npmCliPath) {
-+	throw new Error("npm_execpath is required to build the CLI entry.");
++// Run npm's CLI entry point through the current Node binary instead of
++// spawning the `npm` command, which fails on Windows in every naive form:
++// `execFileSync("npm")` cannot resolve the `npm.cmd` shim (ENOENT), Node
++// rejects spawning `.cmd` files without a shell (EINVAL), and a
++// `shell: true` retry splits `--prefix <path>` on spaces (the argument is
++// passed to cmd.exe unquoted).
++// 1. npm/pnpm lifecycle scripts expose their own entry via `npm_execpath`.
++// 2. The standard Windows installer ships npm-cli.js next to node.exe.
++// 3. Otherwise fall back to spawning `npm` (shell-resolved on win32 only),
++//    matching profile-coding-agent-node.mjs.
++function resolveNpmEntryPoint() {
++	const fromEnv = process.env.npm_execpath;
++	if (fromEnv && fromEnv.endsWith(".js") && existsSync(fromEnv)) return fromEnv;
++	const besideNode = join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
++	return existsSync(besideNode) ? besideNode : undefined;
 +}
-+execFileSync(process.execPath, [npmCliPath, "--prefix", appEntryDir, "run", "build"], {
-+	stdio: "inherit",
-+	cwd: repoRoot,
-+});
++const npmBuildArgs = ["--prefix", appEntryDir, "run", "build"];
++const npmEntryPoint = resolveNpmEntryPoint();
++if (npmEntryPoint) {
++	execFileSync(process.execPath, [npmEntryPoint, ...npmBuildArgs], { stdio: "inherit", cwd: repoRoot });
++} else {
++	execFileSync("npm", npmBuildArgs, { stdio: "inherit", cwd: repoRoot, shell: process.platform === "win32" });
++}
  
  for (const entry of [
  	join(appEntryDistDir, "main.js"),

@@ -1,28 +1,41 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 // Exercise the production renderer with isolated synthetic requests. No
 // command, approval or model request reaches a real user session.
-const profile = await mkdtemp(join(tmpdir(), 'step-permission-ui-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-permission-ui-')));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
+let phase = 'Electron launch';
+let closing = false;
+const mark = value => { phase = value; console.log(`Permission acceptance: ${phase}`); };
+process.on('exit', code => {
+  if (code !== 0) console.error(`Permission acceptance exited (${code}) during ${phase}`);
+});
 const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+app.process().on('exit', (code, signal) => {
+  if (!closing) console.error(`Unexpected Electron exit during ${phase}: code=${code}, signal=${signal}`);
+});
 const errors = [];
 let page;
 try {
+  mark('first window');
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
-  await app.evaluate(({ BrowserWindow }) => {
+  await app.evaluate(({ BrowserWindow, dialog }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
     window.setMinimumSize(320, 400); window.setSize(1280, 900);
+    dialog.showMessageBox = async () => ({ response: 1 });
   });
+  mark('runtime ready');
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const saved = await page.evaluate(() => window.desktop.snapshot());
+  mark('install approval fixture');
   await app.evaluate(({ ipcMain }, saved) => {
     globalThis.approvalFixture = { saved, responses: [], revision: saved.runtimeRevision ?? 0 };
     const original = ipcMain._invokeHandlers.get('desktop');
@@ -74,6 +87,7 @@ try {
   };
   await mkdir('test-results', { recursive: true });
   await load(request);
+  mark('Chinese approval and command details');
   const dialog = page.getByRole('dialog', { name: '批准执行命令' });
   await dialog.waitFor();
   assert.equal(await dialog.locator('.permission-approval-input').first().textContent(), command);
@@ -94,6 +108,7 @@ try {
     { value: { id: request.id, cancelled: true }, runtimeId: request.runtimeId },
   ]);
   await load({ ...request, id: 'approval-ui-2' }, history, 'zh', 'light');
+  mark('light and narrow layouts');
   await dialog.waitFor();
   await page.screenshot({ path: 'test-results/permission-approval-zh-light.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 680));
@@ -106,6 +121,7 @@ try {
   assert.equal(await app.evaluate(() => globalThis.approvalFixture.responses.at(-1).value.confirmed), true);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 900));
   await load({ ...request, id: 'approval-ui-3' }, [], 'en', 'dark');
+  mark('English summary');
   const english = page.getByRole('dialog', { name: 'Approve command execution' });
   await english.waitFor();
   await english.getByText('Full input is unavailable; the upstream summary may be truncated.').waitFor();
@@ -116,6 +132,7 @@ try {
       'Dangerous command requires confirmation (destructive-git): run_command command=git reset --hard'),
   }, [{ ...history[0], content: [{ ...history[0].content[0], arguments: { command: 'git reset --hard' } }] }]);
   const dangerous = page.getByRole('dialog', { name: '高风险操作需要批准' });
+  mark('dangerous and extension requests');
   await dangerous.waitFor();
   await dangerous.getByText('命中高风险规则', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/permission-approval-zh-dangerous.png' });
@@ -123,7 +140,11 @@ try {
   await page.getByRole('dialog', { name: 'Custom extension confirmation' }).getByText('Keep arbitrary extension text unchanged.').waitFor();
   assert.deepEqual(errors, []);
   console.log('Permission approval UI passed: Chinese/English, full input, summary fallback, raw details, defer, deny, approve, high-risk and unknown extension. Screenshots: test-results/permission-approval-*.png');
+} catch (error) {
+  console.error(`Permission acceptance failed during ${phase}:`, error);
+  throw error;
 } finally {
+  closing = true;
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); }).catch(() => {});
   await app.close();
 }

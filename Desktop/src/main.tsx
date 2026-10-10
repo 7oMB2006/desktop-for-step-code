@@ -685,8 +685,13 @@ function App() {
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const reduce = () => { if (motion.matches) finishSettingsClose(); };
     const timer = window.setTimeout(finishSettingsClose, 260);
+    const containKeyboard = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    document.addEventListener('keydown', containKeyboard, true);
     motion.addEventListener('change', reduce);
-    return () => { window.clearTimeout(timer); motion.removeEventListener('change', reduce); };
+    return () => { window.clearTimeout(timer); motion.removeEventListener('change', reduce); document.removeEventListener('keydown', containKeyboard, true); };
   }, [settingsClosing, finishSettingsClose]);
   const openSettings = async () => {
     const request = ++settingsRequestRevision.current;
@@ -1053,7 +1058,7 @@ function App() {
     </div>}
     {error && (settingsOpen || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
     {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
-    <aside className="sidebar" inert={!sidebarVisible}>
+    <aside className="sidebar" inert={settingsOpen || !sidebarVisible}>
       <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
       <button className="new-chat" disabled={!bridge || loading} onClick={() => void newSession()}><Plus size={17}/>{t('新建会话', 'New session')}</button>
       <nav className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
@@ -1074,7 +1079,7 @@ function App() {
       <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
-    <main inert={inspectorExpanded}
+    <main inert={settingsOpen || inspectorExpanded}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>

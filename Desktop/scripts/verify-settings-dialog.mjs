@@ -65,7 +65,14 @@ try {
   assert.equal(await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).backgroundColor), lightTint, 'Dark theme must not introduce a pale ink-color veil');
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await capture('settings-fixed-appearance-dark');
-  await page.getByRole('button', { name: 'Close', exact: true }).evaluate(button => button.click());
+  await page.getByRole('button', { name: 'Close', exact: true }).focus();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-backdrop.is-closing').waitFor();
+  const exitKeyboard = await page.evaluate(() => {
+    const blocked = ['Tab', 'Enter', ' '].map(key => !document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })));
+    return { blocked, sidebar: document.querySelector('.sidebar').inert, main: document.querySelector('main').inert };
+  });
+  assert.deepEqual(exitKeyboard, { blocked: [true, true, true], sidebar: true, main: true }, 'Exit blocks keyboard navigation and activation of covered controls');
   await page.locator('.settings-backdrop.is-closing').waitFor();
   assert.equal(await dialog.evaluate(element => element.inert), true, 'Closing contents cannot receive duplicate actions');
   assert.equal(await page.locator('.window-bar').evaluate(element => element.inert), true, 'Background titlebar stays blocked throughout exit');

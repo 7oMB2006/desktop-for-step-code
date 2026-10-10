@@ -375,7 +375,15 @@ try {
   await page.waitForTimeout(100);
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0, 'settings hides the native surface');
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
-  await page.waitForTimeout(100);
+  await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
+  await assert.doesNotReject(async () => {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if ((await viewState()).some(view => view.visible && view.url === url)) return;
+      await page.waitForTimeout(25);
+    }
+    throw new Error('Native browser did not return after settings dismissal');
+  });
   assert.ok((await viewState()).some(view => view.visible && view.url === url));
   await page.locator('.window-menu-list').getByRole('button', { name: '文件', exact: true }).click();
   await page.waitForTimeout(100);

@@ -24,7 +24,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
       if (!expectNoAuth) assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ data: [{ id: 'fixture-custom', display_name: 'Fixture Custom', input_modalities: ['text', 'image', 'audio'], output_modalities: ['text'], supported_reasoning_efforts: ['off', 'low', 'high'], context_window: 200000, max_output_tokens: 30000 }, { id: 'fixture-second' }] }));
+      res.end(JSON.stringify({ data: [{ id: 'fixture-custom', name: 'Fixture Custom', input_modalities: ['text', 'image', 'audio'], output_modalities: ['text'], effort: { supported_levels: ['off', 'low', 'high'], default_level: 'high' }, context_window: 200000, max_output_tokens: 30000 }, { id: 'fixture-second' }] }));
       return;
     }
     let raw = '';
@@ -130,6 +130,15 @@ try {
   await page.locator('.provider-discovery label').filter({ hasText: 'fixture-custom' }).getByRole('checkbox').check();
   await page.locator('.provider-discovery').getByRole('button', { name: '加入 1', exact: true }).click();
   assert.equal(await page.getByLabel('模型 ID 1', { exact: true }).inputValue(), 'fixture-custom');
+  assert.equal(await page.getByLabel('显示名 1', { exact: true }).inputValue(), 'Fixture Custom');
+  assert.equal(await page.locator('.provider-model-advanced').first().getAttribute('open'), null);
+  assert.match(await page.locator('.provider-thinking-summary').first().textContent(), /上游声明.*3 档/);
+  await page.getByRole('button', { name: '从上游获取', exact: true }).click();
+  const refreshChoice = page.locator('.provider-discovery label').filter({ hasText: 'fixture-custom' }).getByRole('checkbox');
+  assert.equal(await refreshChoice.isEnabled(), true, 'existing models can refresh their declarations');
+  await refreshChoice.check();
+  await page.locator('.provider-discovery').getByRole('button', { name: '应用 1', exact: true }).click();
+  assert.equal(await page.locator('.provider-model').count(), 1, 'refresh does not duplicate the existing model');
   const beforeTest = await snapshot();
   await page.getByRole('button', { name: '测试连接', exact: true }).click();
   await page.getByText('收到有效模型回复', { exact: true }).waitFor();
@@ -163,6 +172,7 @@ try {
   let state = await snapshot();
   const provider = await page.evaluate(async () => (await window.desktop.settings()).providers[0]);
   assert.ok(provider.hasKey);
+  assert.equal(provider.models[0].thinkingControl.defaultLevel, 'high');
   assert.equal(state.models.find(m => m.id === 'fixture-custom')?.providerName, '我的测试供应商');
   assert.deepEqual(state.models.find(m => m.id === 'fixture-custom')?.thinkingLevels, ['off', 'low', 'high']);
   assert.deepEqual(state.models.find(m => m.id === 'fixture-custom')?.input, ['text', 'image']);
@@ -206,6 +216,7 @@ try {
   await page.locator('.provider-model-advanced summary').first().click();
   await page.waitForTimeout(280);
   await verifyFocusGutter('上下文容量 1', 'provider-focus-capacity');
+  await page.screenshot({ path: 'test-results/provider-thinking-declared.png' });
   await page.locator('.provider-model-advanced summary').first().click();
   await page.locator('.provider-editor fieldset').evaluate(e => { e.scrollTop = 0; });
   await page.screenshot({ path: 'test-results/custom-providers-dark.png' });
@@ -356,6 +367,69 @@ try {
   await page.getByText('收到有效模型回复', { exact: true }).waitFor();
   assert.equal(requests.at(-1).keyMatches, true, 'leaving keyless mode restores the saved credential');
   await page.getByRole('button', { name: '收起诊断', exact: true }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  const configured = await page.evaluate(async () => (await window.desktop.settings()).providers[0]);
+  const generate = async message => {
+    const before = await snapshot();
+    const replies = before.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length;
+    const requestCount = requests.length;
+    await page.evaluate(async ({ message, id }) => window.desktop.command('prompt', { message }, id), { message, id: before.runtimeId });
+    await waitFor(s => !s.state?.isStreaming && s.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length > replies);
+    assert.ok(requests.length > requestCount, 'a new generation request must reach the fixture');
+    return requests.at(-1).body;
+  };
+  for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages']) {
+    const unknown = { ...configured, api, models: [{ ...configured.models[0], reasoning: true, thinkingLevels: undefined, thinkingControl: undefined, declaredThinkingLevels: undefined }] };
+    await page.evaluate(p => window.desktop.saveProvider(p), unknown);
+    state = await snapshot();
+    assert.equal(state.state.model.thinkingServiceDefault, true);
+    assert.deepEqual(state.models.find(m => m.id === 'fixture-custom').thinkingLevels, []);
+    const selectionEvents = await page.evaluate(async ({ provider, id }) => {
+      const events = [];
+      const unsubscribe = window.desktop.onEvent(event => {
+        if (event.type === 'desktop_model_selection' && event.runtimeId === id) events.push(event);
+      });
+      try {
+        await window.desktop.command('set_model', { provider, modelId: 'fixture-custom' }, id);
+        // Wait for IPC delivery only; no snapshot or UI command refresh can mask a raw event.
+        const until = Date.now() + 5000;
+        while (events.length < 2 && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 20));
+        return events;
+      } finally { unsubscribe(); }
+    }, { provider: configured.id, id: state.runtimeId });
+    assert.ok(selectionEvents.length >= 2, `${api}: selection and application both emit events`);
+    for (const event of selectionEvents) {
+      assert.equal(event.state.model.thinkingServiceDefault, true, `${api}: selection events preserve service-default state`);
+      assert.deepEqual(event.state.model.thinkingLevels, []);
+    }
+    await page.waitForFunction(() => document.querySelector('.model-effort-level')?.textContent === '服务默认');
+    const body = await generate('Unknown thinking control fixture');
+    for (const field of ['reasoning_effort', 'reasoning', 'thinking', 'output_config'])
+      assert.equal(body[field], undefined, `${api}: no invented ${field}`);
+  }
+  await settings();
+  if (await page.locator('.provider-model-advanced').first().getAttribute('open') === null)
+    await page.locator('.provider-model-advanced > summary').first().click();
+  await page.getByText('未提供可用的思考控制信息。不附加思考参数，使用服务默认。', { exact: true }).waitFor();
+  await page.screenshot({ path: 'test-results/provider-thinking-unknown.png' });
+  await page.locator('.provider-thinking-override > summary').first().click();
+  await page.getByRole('button', { name: '添加档位 1 high', exact: true }).click();
+  await page.getByLabel('发送值 1 high', { exact: true }).fill('medium');
+  await page.getByRole('checkbox', { name: '接口支持 adaptive 思考与 effort 参数', exact: true }).check();
+  await page.screenshot({ path: 'test-results/provider-thinking-manual.png' });
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByText('已保存', { exact: true }).waitFor();
+  assert.equal((await page.evaluate(async () => (await window.desktop.settings()).providers[0])).models[0].thinkingControl.mapping.high, 'medium');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages']) {
+    await page.evaluate(p => window.desktop.saveProvider(p), { ...configured, api, models: [{ ...configured.models[0], reasoning: true, thinkingLevels: ['high'], thinkingControl: { source: 'manual', levels: ['high'], ...(api === 'anthropic-messages' ? { adaptive: true } : {}), mapping: { high: 'medium' } } }] });
+    state = await snapshot();
+    await page.evaluate(id => window.desktop.command('set_thinking_level', { level: 'high' }, id), state.runtimeId);
+    const body = await generate('Mapped thinking fixture');
+    assert.equal(api === 'openai-completions' ? body.reasoning_effort : api === 'openai-responses' ? body.reasoning?.effort : body.output_config?.effort, 'medium', `${api}: custom mapping reaches the request`);
+  }
+  await page.evaluate(p => window.desktop.saveProvider(p), configured);
+  await settings();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('light');
   await page.getByRole('button', { name: '供应商', exact: true }).click();

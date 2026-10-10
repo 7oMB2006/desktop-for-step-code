@@ -19,8 +19,9 @@ export function discoverModelMetadata(entry: Record<string, any>): Partial<Disco
   if (input) { result.declaredInput = input; result.vision = input.includes('image'); }
   if (output) result.declaredOutput = output;
   if (typeof entry.reasoning === 'boolean') result.reasoning = entry.reasoning;
-  const levels = stringSubset(entry.thinking_levels ?? entry.supported_reasoning_efforts, THINKING_LEVELS);
+  const levels = stringSubset(entry.thinking_levels ?? entry.supported_reasoning_efforts ?? entry.effort?.supported_levels, THINKING_LEVELS);
   if (levels) { result.thinkingLevels = levels; result.reasoning = levels.some(v => v !== 'off'); }
+  if (levels && typeof entry.effort?.default_level === 'string' && levels.includes(entry.effort.default_level)) result.thinkingDefaultLevel = entry.effort.default_level;
   const context = entry.context_window ?? entry.context_length;
   const max = entry.max_output_tokens ?? entry.top_provider?.max_completion_tokens;
   if (Number.isSafeInteger(context) && context > 0 && context <= 10000000) result.contextWindow = context;
@@ -65,7 +66,8 @@ export async function discoverProviderModels(auth: AuthData, raw: unknown, key?:
     for (const entry of body.data) {
       if (typeof entry?.id !== 'string' || !entry.id.trim() || entry.id.length > 300 || /[\u0000-\u001f]/.test(entry.id)) continue;
       const id = entry.id.trim();
-      const name = typeof entry.display_name === 'string' && entry.display_name.trim() && entry.display_name.length <= 200 && !/[\u0000-\u001f]/.test(entry.display_name) ? entry.display_name.trim() : id;
+      const displayName = [entry.display_name, entry.name].find(value => typeof value === 'string' && value.trim() && value.length <= 200 && !/[\u0000-\u001f]/.test(value));
+      const name = displayName?.trim() ?? id;
       result.set(id, { id, name, ...discoverModelMetadata(entry) });
       if (result.size >= 1000) break;
     }
@@ -105,12 +107,28 @@ export function validateProvider(raw: unknown): CustomProvider {
     const thinkingLevels = m.thinkingLevels === undefined ? undefined : stringSubset(m.thinkingLevels, THINKING_LEVELS);
     if (m.thinkingLevels !== undefined && !thinkingLevels) throw new Error('Invalid thinking levels');
     if (thinkingLevels && thinkingLevels.some(v => v !== 'off') !== m.reasoning) throw new Error('Thinking levels do not match reasoning capability');
+    const declaredThinkingLevels = m.declaredThinkingLevels === undefined ? undefined : stringSubset(m.declaredThinkingLevels, THINKING_LEVELS);
+    if (m.declaredThinkingLevels !== undefined && !declaredThinkingLevels) throw new Error('Invalid declared thinking levels');
+    let thinkingControl = m.thinkingControl;
+    if (thinkingControl) {
+      const levels = stringSubset(thinkingControl.levels, THINKING_LEVELS);
+      if (!['upstream', 'manual'].includes(thinkingControl.source) || !levels) throw new Error('Invalid thinking control');
+      const mapping = thinkingControl.mapping;
+      if (mapping !== undefined && (!mapping || typeof mapping !== 'object' || Array.isArray(mapping) ||
+          Object.keys(mapping).some(level => !levels.includes(level)) ||
+          levels.some(level => typeof mapping[level] !== 'string' || !/^[a-zA-Z0-9_-]{1,40}$/.test(mapping[level])))) throw new Error('Invalid thinking mapping');
+      if (thinkingControl.source === 'upstream' && (mapping || !declaredThinkingLevels || JSON.stringify(levels) !== JSON.stringify(declaredThinkingLevels))) throw new Error('Invalid upstream thinking control');
+      if (thinkingControl.adaptive !== undefined && (typeof thinkingControl.adaptive !== 'boolean' || p.api !== 'anthropic-messages' || thinkingControl.source !== 'manual')) throw new Error('Invalid adaptive thinking control');
+      if (JSON.stringify(levels) !== JSON.stringify(thinkingLevels)) throw new Error('Thinking control does not match levels');
+      if (thinkingControl.defaultLevel !== undefined && !levels.includes(thinkingControl.defaultLevel)) throw new Error('Invalid default thinking level');
+      thinkingControl = { source: thinkingControl.source, levels, ...(thinkingControl.defaultLevel !== undefined ? { defaultLevel: thinkingControl.defaultLevel } : {}), ...(thinkingControl.adaptive !== undefined ? { adaptive: thinkingControl.adaptive } : {}), ...(mapping ? { mapping: Object.fromEntries(levels.map(level => [level, mapping[level]])) } : {}) };
+    }
     const declaredInput = m.declaredInput === undefined ? undefined : stringSubset(m.declaredInput, MODALITIES);
     const declaredOutput = m.declaredOutput === undefined ? undefined : stringSubset(m.declaredOutput, MODALITIES);
     if ((m.declaredInput !== undefined && !declaredInput) || (m.declaredOutput !== undefined && !declaredOutput)) throw new Error('Invalid modalities');
     if (m.metadataSource !== undefined && !['manual', 'upstream'].includes(m.metadataSource)) throw new Error('Invalid metadata source');
     return { id: modelId, name: text(m.name || modelId, 200, 'model name'), reasoning: m.reasoning, vision: m.vision, contextWindow, maxTokens,
-      ...(thinkingLevels ? { thinkingLevels } : {}), ...(declaredInput ? { declaredInput } : {}), ...(declaredOutput ? { declaredOutput } : {}), ...(m.metadataSource ? { metadataSource: m.metadataSource } : {}) };
+      ...(thinkingLevels ? { thinkingLevels } : {}), ...(thinkingControl ? { thinkingControl } : {}), ...(declaredThinkingLevels ? { declaredThinkingLevels } : {}), ...(declaredInput ? { declaredInput } : {}), ...(declaredOutput ? { declaredOutput } : {}), ...(m.metadataSource ? { metadataSource: m.metadataSource } : {}) };
   });
   return { id, name: text(p.name, 100, 'provider name'), baseUrl: url.href.replace(/\/$/, ''), api: p.api, enabled: p.enabled, keyless: p.keyless, models };
 }
@@ -187,7 +205,8 @@ export function providerModelNames(models: Model[], auth: AuthData): Model[] {
   return models.map(m => {
     const p = providers.get(m.provider);
     const configured = p?.models.find(v => v.id === m.id);
-    return p ? { ...m, providerName: p.name, ...(configured ? { input: configured.vision ? ['text', 'image'] : ['text'], contextWindow: configured.contextWindow, maxTokens: configured.maxTokens,
+    const controlled = configured?.thinkingLevels?.length && (p?.api !== 'anthropic-messages' || configured.thinkingControl?.adaptive === true);
+    return p ? { ...m, providerName: p.name, ...(configured ? { thinkingServiceDefault: !controlled, thinkingLevels: controlled ? configured.thinkingLevels : [], input: configured.vision ? ['text', 'image'] : ['text'], contextWindow: configured.contextWindow, maxTokens: configured.maxTokens,
       declaredInput: configured.declaredInput, declaredOutput: configured.declaredOutput, metadataSource: configured.metadataSource ?? 'manual' } : {}) } : m;
   });
 }
@@ -204,8 +223,9 @@ export async function projectProviders(root: string, auth: AuthData) {
   const entries = Object.fromEntries(Object.entries(config.providers ?? {}).filter(([id]) => !id.startsWith(PREFIX)));
   for (const p of providers.filter(p => p.enabled)) entries[p.id] = {
     baseUrl: p.baseUrl, api: p.api,
-    models: p.models.map(m => ({ id: m.id, name: m.name, reasoning: m.reasoning, input: m.vision ? ['text', 'image'] : ['text'],
-      ...(m.thinkingLevels ? { thinkingLevelMap: Object.fromEntries(THINKING_LEVELS.map(level => [level, m.thinkingLevels!.includes(level) ? level : null])) } : {}),
+    models: p.models.map(m => ({ id: m.id, name: m.name, reasoning: Boolean(m.thinkingLevels?.length && (p.api !== 'anthropic-messages' || m.thinkingControl?.adaptive === true)), input: m.vision ? ['text', 'image'] : ['text'],
+      thinkingLevelMap: Object.fromEntries(THINKING_LEVELS.map(level => [level, m.thinkingLevels?.includes(level) ? m.thinkingControl?.mapping?.[level] ?? level : null])),
+      ...(p.api === 'anthropic-messages' && m.thinkingControl?.adaptive === true ? { compat: { forceAdaptiveThinking: true } } : {}),
       contextWindow: m.contextWindow, maxTokens: m.maxTokens, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } })),
   };
   const temp = `${path}.${randomUUID()}.tmp`;

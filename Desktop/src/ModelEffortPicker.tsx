@@ -195,7 +195,7 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
   return <div className="model-effort" ref={root}>
     <button ref={trigger} type="button" className="model-effort-trigger" aria-label={zh ? '模型与思考强度' : 'Model and thinking level'} aria-expanded={open} aria-haspopup="dialog" disabled={disabled} onClick={() => { setOpen(value => !value); setView('effort'); }}>
       <span className="model-effort-name">{modelName}</span>
-      {level && <span className="model-effort-level">{effortLabel(level, language)}</span>}
+      {(level || model?.thinkingServiceDefault) && <span className="model-effort-level">{model?.thinkingServiceDefault ? zh ? '服务默认' : 'Service default' : effortLabel(level!, language)}</span>}
     </button>
     {open && <div className={`model-effort-popover ${view}-view`} style={{ '--effort-color': effortColor } as CSSProperties} role="dialog" aria-label={zh ? '模型与思考强度' : 'Model and thinking level'}>
       <div className="model-effort-panel model-effort-effort-panel" inert={view !== 'effort'} aria-hidden={view !== 'effort'}>
@@ -233,7 +233,7 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
               {levels.map((value, index) => <span className="model-effort-fader-tick" key={value} style={{ bottom: `${position(index)}%` }}/>)}
               <span className="model-effort-fader-thumb" style={{ bottom: `${position(previewIndex)}%`, '--pressure': `${-pressure}px`, '--squeeze': `${Math.min(Math.abs(pressure) / 110, .08)}`, '--stretch': `${Math.min(Math.abs(pressure) / 65, .13)}` } as CSSProperties}><span className="model-effort-fader-grip"/></span>
             </div>
-          </div> : <span className="model-effort-single">{activeLevel ? effortLabel(activeLevel, language) : zh ? '暂无可用档位' : 'No levels available'}</span>}
+          </div> : <span className="model-effort-single">{model?.thinkingServiceDefault ? zh ? '服务默认' : 'Service default' : activeLevel ? effortLabel(activeLevel, language) : zh ? '暂无可用档位' : 'No levels available'}</span>}
         </div>
       </div>
       <div className="model-effort-panel model-effort-models-panel" inert={view !== 'models'} aria-hidden={view !== 'models'}>

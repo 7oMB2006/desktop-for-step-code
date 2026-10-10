@@ -208,7 +208,13 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await page.locator('#file-panel').getByRole('button', { name: '选择打开方式', exact: true }).click();
   await openingMenu.getByRole('menuitemradio', { name: selection.label, exact: true }).waitFor();
   assert.equal(await openingMenu.getByRole('menuitemradio', { name: selection.label, exact: true }).getAttribute('aria-checked'), 'true');
+  await page.waitForFunction(() => document.activeElement?.closest('[role="menu"]')?.getAttribute('aria-label') === '打开方式');
+  const nextFocusedItem = await openingMenu.getByRole('menuitemradio').evaluateAll(items => {
+    const enabled = items.filter(item => !item.disabled);
+    return enabled[(enabled.indexOf(document.activeElement) + 1) % enabled.length].textContent;
+  });
   await page.keyboard.press('ArrowDown');
+  await page.waitForFunction(text => document.activeElement?.getAttribute('role') === 'menuitemradio' && document.activeElement.textContent === text, nextFocusedItem);
   assert.equal(await openingMenu.getByRole('menuitemradio').evaluateAll(items => items.includes(document.activeElement)), true);
   await page.keyboard.press('Escape');
   await openingMenu.waitFor({ state: 'hidden' });

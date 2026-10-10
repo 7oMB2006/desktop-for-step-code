@@ -543,9 +543,9 @@ function App() {
     const id = data.runtimeId;
     void run(async () => {
       const [effort, available] = await Promise.all([bridge!.command('get_available_thinking_levels', undefined, id), bridge!.command('get_commands', undefined, id)]);
-      if (viewId.current === id) { setLevels(effort.levels); setCommands(available.commands.filter((c: { name: string }) => c.name !== '_desktop_retry')); }
+      if (viewId.current === id) { setLevels((data.modelSelection?.model ?? data.state?.model)?.thinkingServiceDefault ? [] : effort.levels); setCommands(available.commands.filter((c: { name: string }) => c.name !== '_desktop_retry')); }
     });
-  }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.provider, data.state?.model?.thinkingLevels, data.modelSelection?.model]);
+  }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.provider, data.state?.model?.thinkingLevels, data.state?.model?.thinkingServiceDefault, data.modelSelection?.model]);
   useLayoutEffect(followLayout, [data.messages, data.pendingMessages, busy, followLayout]);
   useLayoutEffect(() => {
     const viewport = scroll.current;

@@ -73,6 +73,30 @@ test('configuration refresh never stops running, queued or mutating workers', as
   }
 });
 
+test('failed replacement preserves the active session and suspends all configuration peers', async () => {
+  const transports: Transport[] = [];
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'same-session');
+    if (transports.length === 2) transport.start = () => { throw new Error('replacement failed'); };
+    transports.push(transport);
+    return transport;
+  });
+  const peer = await pool.open('node', 'step', 'peer', {});
+  const active = await pool.open('node', 'step', 'active', {});
+  await assert.rejects(pool.refresh(active, 'node', 'step', {}), /replacement failed/);
+  assert.equal(pool.active, active);
+  assert.equal(active.state?.sessionId, 'same-session');
+  assert.equal(active.status, 'disconnected');
+  await pool.suspend([peer, active]);
+  assert.equal(peer.status, 'disconnected');
+  assert.ok(transports.every(transport => transport.stopped));
+  assert.equal(pool.workers.size, 2);
+  transports[0].receive({ type: 'agent_start' });
+  assert.equal(peer.busy, false, 'late stopped-transport events cannot revive a suspended worker');
+  assert.equal(pool.running, false);
+  await pool.stopAll();
+});
+
 test('wire message revisions increase per worker and match its snapshot revision', async () => {
   const { pool, transports, events, open } = fixture();
   const worker = await open();

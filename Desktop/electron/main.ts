@@ -326,6 +326,7 @@ async function performProviderSettings() {
   await guardIdle();
   const workers = [...runtimes.workers.values()];
   const draft = sessionDraft;
+  try {
   await projectProviders(dataRoot, authData);
   appliedAuthData = authData;
   await admin.stop();
@@ -350,6 +351,15 @@ async function performProviderSettings() {
   }
   providerSettingsPending = false;
   emit({ type: 'desktop_sessions_changed' });
+  } catch (error) {
+    // A partial refresh must never leave old and new configurations runnable together.
+    sessionDraft = undefined;
+    await runtimes.suspend(workers);
+    await admin.stop();
+    admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
+    emit({ type: 'desktop_sessions_changed' });
+    throw error;
+  }
 }
 setInterval(() => {
   if (quitting || settingsMutation || !providerSettingsPending || !canApplyProviders()) return;

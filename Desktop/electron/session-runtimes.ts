@@ -129,7 +129,7 @@ export class SessionRuntimes {
     };
     worker.status = 'connecting';
     const transport = this.create(event => {
-      if (this.workers.get(worker.id) !== worker || worker.rpc !== transport) return;
+      if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected') return;
       event = this.hooks.event?.(worker, event) ?? event;
       worker.revision++;
       if (event.type === 'agent_start') { worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
@@ -323,6 +323,7 @@ export class SessionRuntimes {
     const model = worker.state?.model;
     const thinkingLevel = worker.state?.thinkingLevel;
     const permissionPreset = worker.permissionPreset;
+    const previousState = worker.state;
     worker.mutating = true;
     // Ignore late exit events from the old transport without changing the UI identity.
     this.workers.delete(worker.id);
@@ -339,7 +340,26 @@ export class SessionRuntimes {
       }
       if (permissionPreset) await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
       await this.read(worker);
+    } catch (error) {
+      worker.state = previousState;
+      await this.suspend([worker]);
+      throw error;
     } finally { worker.mutating = false; this.publish(); }
+  }
+  async suspend(workers: SessionRuntime[] = [...this.workers.values()]) {
+    // Keep history and navigation identities, but expose no usable mixed-config transport.
+    for (const worker of workers) {
+      worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
+      worker.failed = true;
+      if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
+      this.workers.set(worker.id, worker);
+      this.hooks.dispose?.(worker);
+      for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
+    }
+    const stopped = await Promise.allSettled(workers.map(worker => worker.rpc.stop()));
+    this.publish();
+    const failed = stopped.find(result => result.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
   }
   clearRequest(worker: SessionRuntime, id: string) {
     const confirmation = this.confirmations.get(id);

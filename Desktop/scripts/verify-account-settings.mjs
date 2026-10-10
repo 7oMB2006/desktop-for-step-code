@@ -152,7 +152,16 @@ try {
   assert.equal(await page.locator('.settings-content').evaluate(element => element.scrollWidth > element.clientWidth), false);
   await writeFile(join(profile, 'step-runtime/models.json'), JSON.stringify({ providers: {} }));
   await page.getByRole('button', { name: '退出登录', exact: true }).click();
-  await page.getByText('未登录', { exact: true }).waitFor();
+  try {
+    await page.getByText('未登录', { exact: true }).waitFor();
+  } catch (error) {
+    const account = await page.evaluate(async () => (await window.desktop.settings()).account);
+    console.log('Sign-out diagnostic:', { loggedIn: account.loggedIn, validity: account.validity,
+      profile: account.profile, visibleStatus: await page.locator('.account-status').textContent(),
+      errorBanner: await page.locator('.error-banner').allTextContents() });
+    await page.screenshot({ path: 'test-results/account-settings-signout-failure.png' });
+    throw error;
+  }
   const signedOut = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(signedOut.draftId, nextDraft.draftId);
   assert.equal(signedOut.state.model.thinkingLevels, undefined, 'Signed-out proposal does not retain the authenticated catalog');

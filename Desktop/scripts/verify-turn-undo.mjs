@@ -11,15 +11,20 @@ const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
   choices: [{ index: 0, delta, finish_reason }],
 })}\n\n`;
 let finishLive;
+const fixtureTasks = new Set(['Update the live file.', 'FIXTURE-RETRY', 'FIXTURE-STATUS', 'KEEP-BUSY']);
+const messageText = message => typeof message.content === 'string' ? message.content
+  : message.content?.filter(part => part.type === 'text').map(part => part.text).join('\n');
 const server = createServer(async (req, res) => {
   let body = '';
   for await (const part of req) body += part;
   const payload = JSON.parse(body);
   res.writeHead(200, { 'content-type': 'text/event-stream' });
-  const lastUser = payload.messages.filter(message => message.role === 'user').at(-1)?.content;
-  const userText = typeof lastUser === 'string' ? lastUser : lastUser?.filter(part => part.type === 'text').map(part => part.text).join('\n');
+  // Upstream can append hidden user-role capability reminders after the task.
+  const taskIndex = payload.messages.findLastIndex(message => message.role === 'user' && fixtureTasks.has(messageText(message)));
+  assert.ok(taskIndex >= 0, 'provider request must contain an explicit fixture task');
+  const userText = messageText(payload.messages[taskIndex]);
   if (userText === 'KEEP-BUSY') { res.write(chunk({ role: 'assistant', content: 'Peer is running.' })); return; }
-  const statusTools = payload.messages.slice(payload.messages.findLastIndex(message => message.role === 'user') + 1)
+  const statusTools = payload.messages.slice(taskIndex + 1)
     .filter(message => message.role === 'tool').length;
   if (userText === 'Update the live file.' && statusTools) {
     res.write(chunk({ role: 'assistant', content: 'Live edit finished.' }));
@@ -77,7 +82,19 @@ try {
   await page.locator('.composer > textarea').press('Enter');
   await page.getByText('Live edit finished.', { exact: true }).waitFor({ timeout: 60000 });
   const chip = page.getByRole('button', { name: '查看运行中的变更', exact: true });
-  await chip.waitFor();
+  try {
+    await chip.waitFor();
+  } catch (error) {
+    const current = await page.evaluate(() => window.desktop.snapshot());
+    console.log('Live change diagnostic:', { streaming: current.state?.isStreaming,
+      roles: current.messages.map(message => message.role),
+      toolResults: current.messages.filter(message => message.role === 'toolResult')
+        .map(message => ({ isError: message.isError, detailsKeys: Object.keys(message.details ?? {}) })),
+      liveChips: await page.locator('.live-turn-chip').count(),
+      fileContents: await readFile(livePath, 'utf8') });
+    await page.screenshot({ path: 'test-results/turn-undo-live-failure.png' });
+    throw error;
+  }
   assert.equal(await chip.locator('.diff-added').getAttribute('data-count'), '1');
   const stripBefore = await page.locator('.composer-context-bar').boundingBox();
   const chipBox = await chip.boundingBox();

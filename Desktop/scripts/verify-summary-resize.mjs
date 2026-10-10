@@ -44,6 +44,8 @@ try {
   await page.getByRole('button', { name: '长会话缩放验收', exact: true }).click();
   await page.locator('.response-text').last().waitFor();
   assert.equal(await page.locator('.response-text').count(), 60);
+  await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
+  await page.getByRole('complementary', { name: '摘要', exact: true }).waitFor();
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Performance.enable');
   const trace = [];

@@ -119,6 +119,9 @@ try {
   assert.equal(await board.evaluate(element => getComputedStyle(element).animationTimingFunction), 'cubic-bezier(0.25, 0.46, 0.45, 0.94)');
   await page.getByRole('button', { name: '看板布局验收', exact: true }).click();
   await page.locator('.response-text').waitFor();
+  await board.waitFor({ state: 'hidden' });
+  await toggle.click();
+  await board.waitFor();
   await settleLayout();
   const layout = () => page.evaluate(() => {
     const rect = selector => {

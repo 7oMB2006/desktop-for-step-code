@@ -315,6 +315,27 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await page.getByRole('link', { name: '海岸骑行动画', exact: true }).click();
   await page.waitForTimeout(350);
   assert.equal(await app.evaluate(() => globalThis.previewContents.executeJavaScript('window.previewRetained')), 42, 'reopening local HTML preserves its page state');
+  const updatedHtml = (await readFile(join(cwd, 'index.html'), 'utf8')) + '<h2 id="refresh-result">Updated HTML preview</h2><script src="refresh-result.js"></script>';
+  await writeFile(join(cwd, 'refresh-result.js'), 'window.refreshedAsset = "Updated local asset";');
+  await writeFile(join(cwd, 'index.html'), updatedHtml);
+  assert.equal(await app.evaluate(() => globalThis.previewContents.executeJavaScript('document.getElementById("refresh-result")?.textContent ?? null')), null);
+  await page.locator('#browser-panel').getByRole('button', { name: '刷新', exact: true }).click();
+  await page.waitForFunction(async () => {
+    const snapshot = await window.desktop.browserList();
+    return snapshot.tabs.some(tab => tab.localFile && !tab.loading);
+  });
+  await app.evaluate(async () => {
+    const contents = globalThis.previewContents;
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      if (await contents.executeJavaScript('window.refreshedAsset === "Updated local asset"')) return;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    throw new Error('Explicit refresh did not load the updated local asset');
+  });
+  const refreshed = await app.evaluate(() => globalThis.previewContents.executeJavaScript('({ text: document.getElementById("refresh-result")?.textContent, retained: typeof window.previewRetained })'));
+  assert.deepEqual(refreshed, { text: 'Updated HTML preview', retained: 'undefined' }, 'explicit refresh reloads HTML and resets page state');
+  assert.equal((await page.evaluate(() => window.desktop.browserList())).tabs.find(tab => tab.localFile)?.id, local.id, 'explicit refresh retains the existing tab');
   await page.getByRole('link', { name: '网页参考', exact: true }).click();
   await waitBrowser(page, snapshot => snapshot.tabs.some(tab => tab.url === address && !tab.loading));
   assert.equal((await page.evaluate(() => window.desktop.browserList())).tabs.length, 2);

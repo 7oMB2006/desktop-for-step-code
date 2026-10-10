@@ -530,7 +530,7 @@ async function handle(method: string, args: any[]) {
           return browser!.snapshot();
         }
         const page = await localPages.open(file.path);
-        return browser!.openLocal(page.url, file.path, page.origin);
+        return browser!.openLocal(page.url, file.path, page.origin, true);
       }
       return browser!.action(id, action, args[2] === undefined ? undefined : text(args[2], 8192));
     }

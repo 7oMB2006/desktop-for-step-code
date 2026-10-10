@@ -45,9 +45,12 @@ export class BrowserTabs {
     const existing = [...this.tabs.values()].find(tab => !tab.info.localFile && tab.info.url === url);
     return existing ? this.select(existing.info.id) : this.create(url);
   }
-  openLocal(address: string, path: string, origin: string): BrowserSnapshot {
+  openLocal(address: string, path: string, origin: string, reload = false): BrowserSnapshot {
     const existing = [...this.tabs.values()].find(tab => tab.info.localFile === path);
-    if (existing) return this.select(existing.info.id);
+    if (existing) {
+      if (reload) void this.load(existing, address);
+      return this.select(existing.info.id);
+    }
     return this.create(address, { path, origin });
   }
   create(address = 'about:blank', local?: { path: string; origin: string }): BrowserSnapshot {

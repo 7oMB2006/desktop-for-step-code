@@ -156,7 +156,8 @@ const emit = (event: unknown) => { if (window && !window.isDestroyed()) window.w
 function publishModelSelection(worker: import('./session-runtimes').SessionRuntime) {
   emit({ type: 'desktop_model_selection', runtimeId: worker.id, sessionId: worker.state?.sessionId,
     runtimeRevision: ++worker.revision, modelSelection: modelSelections.selection(worker),
-    modelChanges: modelSelections.changes(worker), state: worker.state });
+    modelChanges: modelSelections.changes(worker),
+    state: worker.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], authData)[0] : undefined } : undefined });
 }
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   const queueWorker = runtimes.workers.get(event.runtimeId);

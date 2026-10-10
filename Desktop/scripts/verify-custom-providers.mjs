@@ -384,6 +384,25 @@ try {
     state = await snapshot();
     assert.equal(state.state.model.thinkingServiceDefault, true);
     assert.deepEqual(state.models.find(m => m.id === 'fixture-custom').thinkingLevels, []);
+    const selectionEvents = await page.evaluate(async ({ provider, id }) => {
+      const events = [];
+      const unsubscribe = window.desktop.onEvent(event => {
+        if (event.type === 'desktop_model_selection' && event.runtimeId === id) events.push(event);
+      });
+      try {
+        await window.desktop.command('set_model', { provider, modelId: 'fixture-custom' }, id);
+        // Wait for IPC delivery only; no snapshot or UI command refresh can mask a raw event.
+        const until = Date.now() + 5000;
+        while (events.length < 2 && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 20));
+        return events;
+      } finally { unsubscribe(); }
+    }, { provider: configured.id, id: state.runtimeId });
+    assert.ok(selectionEvents.length >= 2, `${api}: selection and application both emit events`);
+    for (const event of selectionEvents) {
+      assert.equal(event.state.model.thinkingServiceDefault, true, `${api}: selection events preserve service-default state`);
+      assert.deepEqual(event.state.model.thinkingLevels, []);
+    }
+    await page.waitForFunction(() => document.querySelector('.model-effort-level')?.textContent === '服务默认');
     const body = await generate('Unknown thinking control fixture');
     for (const field of ['reasoning_effort', 'reasoning', 'thinking', 'output_config'])
       assert.equal(body[field], undefined, `${api}: no invented ${field}`);

@@ -75,6 +75,41 @@ test('thinking control preserves independent provenance and rejects unsupported 
   assert.equal(validateProvider({ ...p, models: [{ ...m, thinkingControl: { source: 'manual', levels: m.thinkingLevels, mapping: { low: 'low', high: 'medium' } } }] }).models[0].thinkingControl?.mapping?.high, 'medium');
   assert.throws(() => validateProvider({ ...p, models: [{ ...m, thinkingControl: { source: 'manual', levels: m.thinkingLevels, adaptive: true } }] }));
 });
+test('refresh clears withdrawn upstream controls and their projected effort parameters', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'provider-thinking-refresh-'));
+  try {
+    const existing = importProviderModel({ id: 'declared', name: 'Declared', ...discoverModelMetadata({
+      effort: { supported_levels: ['low', 'high'], default_level: 'high' },
+    }) });
+    for (const metadata of [{}, { reasoning: false }, { reasoning: true }]) {
+      const refreshed = importProviderModel({ id: existing.id, name: 'New name', ...metadata }, existing);
+      assert.equal(refreshed.thinkingLevels, undefined);
+      assert.equal(refreshed.thinkingControl, undefined);
+      assert.equal(refreshed.declaredThinkingLevels, undefined);
+      assert.equal(refreshed.reasoning, metadata.reasoning ?? false);
+      assert.equal(refreshed.name, existing.name);
+      await projectProviders(root, saveProviderAuth({}, { ...fixture(), models: [refreshed] }, 'fixture'));
+      const config = JSON.parse(await readFile(join(root, 'models.json'), 'utf8'));
+      const model = Object.values<any>(config.providers)[0].models[0];
+      assert.equal(model.reasoning, false);
+      assert.ok(Object.values(model.thinkingLevelMap).every(value => value === null));
+    }
+    assert.deepEqual(existing.thinkingLevels, ['low', 'high'], 'refresh never mutates the original');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+test('refresh preserves manual and legacy controls even when upstream withdraws or contradicts them', () => {
+  const base = { ...fixture().models[0], reasoning: true, thinkingLevels: ['high'], declaredThinkingLevels: ['low', 'high'] };
+  for (const existing of [base, { ...base, thinkingControl: { source: 'manual' as const, levels: ['high'], mapping: { high: 'medium' } } }]) {
+    for (const metadata of [{}, { reasoning: false }, { reasoning: true, thinkingLevels: ['low'] }]) {
+      const refreshed = importProviderModel({ id: existing.id, name: 'Refreshed', ...metadata }, existing);
+      assert.deepEqual(refreshed.thinkingLevels, existing.thinkingLevels);
+      assert.deepEqual(refreshed.thinkingControl, 'thinkingControl' in existing ? existing.thinkingControl : undefined);
+      assert.equal(refreshed.reasoning, true);
+      assert.deepEqual(refreshed.declaredThinkingLevels, 'thinkingLevels' in metadata ? metadata.thinkingLevels : undefined);
+      assert.doesNotThrow(() => validateProvider({ ...fixture(), models: [refreshed] }));
+    }
+  }
+});
 test('unknown thinking controls never opt into default runtime levels; explicit mappings are projected', async () => {
   const root = await mkdtemp(join(tmpdir(), 'provider-thinking-'));
   try {

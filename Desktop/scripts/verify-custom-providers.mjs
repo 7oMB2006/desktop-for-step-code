@@ -229,6 +229,7 @@ try {
   assert.equal(await page.locator('.settings-content').evaluate(e => e.scrollWidth > e.clientWidth), false);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '模型与思考强度' }).click();
   await page.getByRole('button', { name: '模型参数', exact: true }).click();
   await page.waitForTimeout(350);
@@ -270,6 +271,7 @@ try {
     if (!(await window.desktop.settings()).providers[0].hasKey) throw new Error('Step logout erased provider key');
   });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   await app.close(); app = undefined;
   await launch();
   await settings();
@@ -277,6 +279,7 @@ try {
   assert.equal(restored.name, '重新命名的供应商');
   assert.equal(restored.hasKey, true);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   hold = true;
   const prompt = page.getByRole('textbox', { name: '消息', exact: true });
   await prompt.fill('Hold this response');
@@ -310,6 +313,7 @@ try {
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await page.getByText('已保存', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(promptText);
     await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
     await page.getByText(reply, { exact: true }).waitFor({ timeout: 60000 });
@@ -339,6 +343,7 @@ try {
     await page.getByText('已保存', { exact: true }).waitFor();
     assert.equal((await page.evaluate(() => window.desktop.settings())).providers[0].hasKey, true, 'keyless keeps the saved real key');
     await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
     const before = await snapshot();
     const beforeReplies = before.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length;
     const beforeUsers = before.messages.filter(m => m.role === 'user').length;
@@ -368,6 +373,7 @@ try {
   assert.equal(requests.at(-1).keyMatches, true, 'leaving keyless mode restores the saved credential');
   await page.getByRole('button', { name: '收起诊断', exact: true }).click();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   const configured = await page.evaluate(async () => (await window.desktop.settings()).providers[0]);
   const generate = async message => {
     const before = await snapshot();
@@ -421,6 +427,7 @@ try {
   await page.getByText('已保存', { exact: true }).waitFor();
   assert.equal((await page.evaluate(async () => (await window.desktop.settings()).providers[0])).models[0].thinkingControl.mapping.high, 'medium');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages']) {
     await page.evaluate(p => window.desktop.saveProvider(p), { ...configured, api, models: [{ ...configured.models[0], reasoning: true, thinkingLevels: ['high'], thinkingControl: { source: 'manual', levels: ['high'], ...(api === 'anthropic-messages' ? { adaptive: true } : {}), mapping: { high: 'medium' } } }] });
     state = await snapshot();

@@ -1,5 +1,15 @@
 # Verification
 
+## Custom Provider Thinking Discovery
+
+The 2026-10-10 Desktop-only change discovers explicit `thinking_levels`, `supported_reasoning_efforts`, and nested `effort.supported_levels` declarations from a custom provider's model list. A nested `effort.default_level` is retained only when it belongs to the declared levels. Display names accept `display_name` or `name`. Refreshing an existing model updates declarations without duplicating the model or replacing its custom name or manual thinking override. No model-name inference or official-provider registry is included.
+
+The original compact model editor keeps thinking status beside the collapsed capabilities summary. Thinking control provenance is independent of general model metadata: upstream declarations and manual/unverified configurations remain distinct. Unknown controls use the service default, expose no selectable effort levels, and send no invented thinking parameters. Manual controls support explicit UI-level to request-value mappings. Anthropic adaptive thinking requires explicit confirmation; budget-based controls are not implemented. Changing API format clears incompatible controls. Legacy explicit level lists remain manual/unverified.
+
+This branch is based on main `549a6df` and preserves its endpoint-scoped no-auth adapter and next-turn model selection. No upstream checkout or runtime implementation was edited. Validation used the staged upstream `39ec6e0adeca09d50c8897023ea4e471371634cd` baseline. Typecheck, build, all 276 serial unit/protocol tests, custom-provider Electron acceptance, model-effort acceptance and model-switch acceptance passed locally.
+
+The extended custom-provider acceptance uses temporary profiles, local HTTP fixtures, real Electron IPC and real RPC requests. It checks discovery defaults, metadata refresh, unknown controls and mapped values across all three protocols, explicit Anthropic adaptive configuration, and the existing authenticated/keyless generation and tool-call assertions. Screenshots include `Desktop/test-results/provider-thinking-declared.png`, `provider-thinking-unknown.png`, and `provider-thinking-manual.png`. This is fixture acceptance, not a successful live DeepSeek account query or paid-provider capability certification. Earlier primary-workspace preview packages are not the installer for this latest-main integration; no new installer or public release is part of this PR.
+
 ## Right Panel Grip Preview
 
 The PR #85 P1 follow-up separates local artifact reactivation from explicit browser refresh. Reactivation selects the existing tab without navigation; the refresh handler renews the local-page grant and requests a reload of that same tab. Source typecheck/build and the extended file-preview acceptance passed, verifying edited HTML, a newly added local JavaScript asset, reset page state after refresh, retained tab identity, and unchanged state preservation on reactivation. The previously delivered installer predates this follow-up.

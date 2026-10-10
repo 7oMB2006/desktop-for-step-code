@@ -285,7 +285,8 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   return {
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace },
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
-    state: draft ? { isStreaming: false, model: draft.model, thinkingLevel: draft.thinkingLevel } : worker?.state,
+    state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], authData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
+      : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], authData)[0] : undefined } : undefined,
     modelSelection: worker ? modelSelections.selection(worker) : undefined,
     modelChanges: worker ? modelSelections.changes(worker) : [],
     permissionPreset: draft?.permissionPreset ?? worker?.permissionPreset, runtimeRevision: worker?.revision,
@@ -891,13 +892,18 @@ async function handle(method: string, args: any[]) {
             const provider = text(data.provider, 200), modelId = text(data.modelId, 300);
             const model = worker.models.find(model => model.provider === provider && model.id === modelId);
             if (!model) throw new Error('Unknown model');
-            modelSelections.select(worker, { ...model, thinkingLevels: modelThinkingLevels(model) });
+            const configured = providerModelNames([model], authData)[0];
+            modelSelections.select(worker, { ...configured, thinkingLevels: modelThinkingLevels(configured) });
           } else modelSelections.selectEffort(worker, text(data.level, 30));
           if (!runtimes.isBusy(worker)) await modelSelections.apply(worker);
           return;
         }
-        if (type === 'get_available_thinking_levels' && worker.pendingModel)
-          return { levels: modelThinkingLevels(worker.pendingModel.model) };
+        if (type === 'get_available_thinking_levels') {
+          const selected = worker.pendingModel?.model ?? worker.state?.model;
+          const configured = selected ? providerModelNames([selected], authData)[0] : undefined;
+          if (configured?.thinkingServiceDefault) return { levels: [] };
+          if (worker.pendingModel) return { levels: modelThinkingLevels(worker.pendingModel.model) };
+        }
         if (type === 'new_session') return connect(worker.cwd, undefined, false);
         if (type === 'extension_ui_response') {
           const request = pendingUI.get(text(data.id));

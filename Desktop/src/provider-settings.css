@@ -81,6 +81,26 @@
 @media (prefers-reduced-motion: reduce) { .provider-test-reveal, .provider-test-details::details-content { transition:none; } }
 @media(max-width:480px) { .provider-save { flex-wrap:wrap; gap:8px; } .provider-save > span { flex-basis:100%; } .provider-test-trigger { margin-left:auto; } }
 .provider-error { color:var(--danger); font-size:12px; line-height:1.6; }
+.provider-thinking-summary { margin-left:auto; text-align:right; font-size:11px; overflow-wrap:anywhere; }
+.provider-thinking-manual { color:#d9ab79; }
+.provider-thinking-control { border-top:1px solid var(--border); margin-top:14px; padding-top:12px; }
+.provider-thinking-heading { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; font-size:12px; }
+.provider-thinking-heading > span { margin-left:auto; font-size:11px; color:var(--muted); }
+.provider-thinking-heading > .provider-thinking-manual { color:#d9ab79; }
+.provider-thinking-declared { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
+.provider-thinking-declared > span { padding:3px 7px; border:1px solid var(--border); border-radius:4px; font-size:11px; }
+.provider-thinking-override { margin-top:12px; }
+.provider-thinking-override > summary { color:var(--muted); font-size:12px; cursor:pointer; }
+.provider-model-advanced .provider-thinking-override[open] > summary { margin-bottom:6px; }
+.provider-model-advanced[open] .provider-thinking-override:not([open]) > summary svg { transform:none; }
+.provider-thinking-edit { padding-top:3px; }
+.provider-thinking-row { display:grid; grid-template-columns:90px minmax(0,1fr) 28px; align-items:center; gap:9px; margin:7px 0; }
+.provider-thinking-row > span { font-size:12px; }
+.provider-thinking-row small { display:block; color:var(--muted); font-size:10px; }
+.provider-editor .provider-thinking-row input { margin:0; padding:7px 9px; }
+.provider-thinking-add { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.provider-thinking-add button { padding:4px 7px; font-size:11px; }
+.provider-thinking-reset { margin-top:12px; font-size:11px; }
 .provider-confirm { display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:12px 0; margin-top:12px; border-top:1px solid var(--border); font-size:12px; }
 .provider-confirm span { flex-basis:100%; }
 .provider-danger { color:var(--danger); }

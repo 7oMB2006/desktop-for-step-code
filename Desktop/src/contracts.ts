@@ -1,5 +1,5 @@
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
-export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
+export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export type ComposerAttachment = { kind: 'image'; name: string; content: Content } | { kind: 'file'; id: string; name: string; size: number };
 export interface PendingMessage { id: string; message: string; attachmentCount: number; version: number; sending?: boolean; steered?: boolean }
@@ -21,8 +21,9 @@ export interface Profile { id: string; title: string; description: string; crede
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
 export type ProviderApi = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
-export interface ProviderModel { id: string; name: string; reasoning: boolean; vision: boolean; contextWindow: number; maxTokens: number; thinkingLevels?: string[]; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
-export interface DiscoveredProviderModel { id: string; name: string; reasoning?: boolean; vision?: boolean; contextWindow?: number; maxTokens?: number; thinkingLevels?: string[]; declaredInput?: string[]; declaredOutput?: string[] }
+export interface ProviderThinkingControl { source: 'upstream' | 'manual'; levels: string[]; mapping?: Record<string, string>; adaptive?: boolean; defaultLevel?: string }
+export interface ProviderModel { id: string; name: string; reasoning: boolean; vision: boolean; contextWindow: number; maxTokens: number; thinkingLevels?: string[]; thinkingControl?: ProviderThinkingControl; declaredThinkingLevels?: string[]; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
+export interface DiscoveredProviderModel { id: string; name: string; reasoning?: boolean; vision?: boolean; contextWindow?: number; maxTokens?: number; thinkingLevels?: string[]; thinkingDefaultLevel?: string; declaredInput?: string[]; declaredOutput?: string[] }
 export interface CustomProvider { id: string; name: string; baseUrl: string; api: ProviderApi; enabled: boolean; keyless: boolean; models: ProviderModel[] }
 export interface ProviderInfo extends CustomProvider { hasKey: boolean }
 export interface ProviderDiagnostic {

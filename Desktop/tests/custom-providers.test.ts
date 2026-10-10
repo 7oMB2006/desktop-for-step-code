@@ -4,8 +4,10 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
-import { validateProvider, saveProviderAuth, providerInfos, providerList, runtimeAuth, mergeRuntimeAuth, deleteProviderAuth, projectProviders, discoverProviderModels, discoverModelMetadata, keylessEndpoints } from '../electron/custom-providers';
+import { validateProvider, saveProviderAuth, providerInfos, providerList, runtimeAuth, mergeRuntimeAuth, deleteProviderAuth, projectProviders, discoverProviderModels, discoverModelMetadata, keylessEndpoints, providerModelNames } from '../electron/custom-providers';
 import type { CustomProvider } from '../src/contracts';
+import { importProviderModel } from '../src/provider-model-import';
+import { modelThinkingLevels } from '../electron/model-selection';
 
 const fixture = (): CustomProvider => ({ id: '', name: 'Fixture provider', baseUrl: 'https://example.test/v1', api: 'openai-completions',
   enabled: true, keyless: false, models: [{ id: 'fixture-model', name: '', reasoning: false, vision: true, contextWindow: 128000, maxTokens: 16384 }] });
@@ -45,6 +47,64 @@ test('model discovery uses draft or saved literal keys, validates responses and 
     for (const value of ['redirect', 'invalid', 'error']) { mode = value; await assert.rejects(discoverProviderModels({}, p, 'key'), error => !String(error).includes('secret-body')); }
     await assert.rejects(discoverProviderModels({}, p));
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+test('custom discovery imports nested effort declarations and refreshes existing models without overriding manual control', () => {
+  const metadata = discoverModelMetadata({ effort: { supported_levels: ['low', 'high', 'max'], default_level: 'high' } });
+  assert.deepEqual(metadata, { reasoning: true, thinkingLevels: ['low', 'high', 'max'], thinkingDefaultLevel: 'high' });
+  assert.equal(discoverModelMetadata({ effort: { supported_levels: ['low'], default_level: 'max' } }).thinkingDefaultLevel, undefined);
+  assert.deepEqual(discoverModelMetadata({ effort: { supported_levels: ['invented'], default_level: 'invented' } }), {});
+  const imported = importProviderModel({ id: 'nested-effort', name: 'Nested Effort', ...metadata });
+  assert.equal(imported.thinkingControl?.source, 'upstream');
+  assert.equal(imported.thinkingControl?.defaultLevel, 'high');
+  assert.deepEqual(validateProvider({ ...fixture(), models: [imported] }).models[0].thinkingLevels, ['low', 'high', 'max']);
+  const refreshed = importProviderModel({ id: imported.id, name: 'Changed', ...metadata }, { ...imported, thinkingLevels: ['low'], thinkingControl: { source: 'manual', levels: ['low'], mapping: { low: 'high' } } });
+  assert.equal(refreshed.name, 'Nested Effort');
+  assert.deepEqual(refreshed.thinkingLevels, ['low']);
+  assert.equal(refreshed.thinkingControl?.mapping?.low, 'high');
+  assert.deepEqual(refreshed.declaredThinkingLevels, ['low', 'high', 'max']);
+});
+test('thinking control preserves independent provenance and rejects unsupported mappings', () => {
+  const m = { ...fixture().models[0], reasoning: true, thinkingLevels: ['low', 'high'], declaredThinkingLevels: ['low', 'high'],
+    thinkingControl: { source: 'upstream' as const, levels: ['low', 'high'] } };
+  const p = { ...fixture(), models: [m] };
+  const saved = validateProvider(p).models[0];
+  assert.equal(saved.thinkingControl?.source, 'upstream');
+  assert.equal(validateProvider({ ...p, models: [{ ...m, name: 'Renamed', metadataSource: 'manual' }] }).models[0].thinkingControl?.source, 'upstream');
+  assert.throws(() => validateProvider({ ...p, models: [{ ...m, thinkingControl: { source: 'upstream', levels: ['high'] } }] }));
+  assert.throws(() => validateProvider({ ...p, models: [{ ...m, thinkingControl: { source: 'manual', levels: m.thinkingLevels, mapping: { low: 'low', high: 'secret\nvalue' } } }] }));
+  assert.equal(validateProvider({ ...p, models: [{ ...m, thinkingControl: { source: 'manual', levels: m.thinkingLevels, mapping: { low: 'low', high: 'medium' } } }] }).models[0].thinkingControl?.mapping?.high, 'medium');
+  assert.throws(() => validateProvider({ ...p, models: [{ ...m, thinkingControl: { source: 'manual', levels: m.thinkingLevels, adaptive: true } }] }));
+});
+test('unknown thinking controls never opt into default runtime levels; explicit mappings are projected', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'provider-thinking-'));
+  try {
+    const p = { ...fixture(), models: [{ ...fixture().models[0], reasoning: true }] };
+    await projectProviders(root, saveProviderAuth({}, p, 'fixture'));
+    const read = async () => Object.values<any>(JSON.parse(await readFile(join(root, 'models.json'), 'utf8')).providers)[0].models[0];
+    assert.equal((await read()).reasoning, false);
+    assert.ok(Object.values((await read()).thinkingLevelMap).every(v => v === null));
+    await projectProviders(root, saveProviderAuth({}, { ...p, models: [{ ...p.models[0], thinkingLevels: ['low', 'high'], thinkingControl: { source: 'manual', levels: ['low', 'high'], mapping: { low: 'low', high: 'medium' } } }] }, 'fixture'));
+    assert.equal((await read()).thinkingLevelMap.high, 'medium');
+    assert.equal((await read()).thinkingLevelMap.xhigh, null);
+    await projectProviders(root, saveProviderAuth({}, { ...p, api: 'anthropic-messages', models: [{ ...p.models[0], thinkingLevels: ['high'] }] }, 'fixture'));
+    assert.equal((await read()).reasoning, false, 'legacy Anthropic levels must not silently opt into budget or adaptive mode');
+    await projectProviders(root, saveProviderAuth({}, { ...p, api: 'anthropic-messages', models: [{ ...p.models[0], thinkingLevels: ['high'], thinkingControl: { source: 'manual', levels: ['high'], adaptive: true, mapping: { high: 'medium' } } }] }, 'fixture'));
+    assert.equal((await read()).compat.forceAdaptiveThinking, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+test('selected custom models expose only usable controls, including next-turn selections', () => {
+  for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages'] as const) {
+    const auth = saveProviderAuth({}, { ...fixture(), api, models: [{ ...fixture().models[0], reasoning: true }] }, 'fixture');
+    const p = providerList(auth)[0];
+    const raw = { id: p.models[0].id, provider: p.id, name: p.models[0].name, reasoning: true };
+    const unknown = providerModelNames([raw], auth)[0];
+    assert.equal(unknown.thinkingServiceDefault, true);
+    assert.deepEqual(modelThinkingLevels(unknown), []);
+    const controlledAuth = saveProviderAuth(auth, { ...p, models: [{ ...p.models[0], thinkingLevels: ['high'], thinkingControl: { source: 'manual', levels: ['high'], mapping: { high: 'medium' }, ...(api === 'anthropic-messages' ? { adaptive: true } : {}) } }] });
+    const controlled = providerModelNames([raw], controlledAuth)[0];
+    assert.equal(controlled.thinkingServiceDefault, false);
+    assert.deepEqual(modelThinkingLevels(controlled), ['high']);
+  }
 });
 test('custom providers validate IDs, endpoints, protocols and capabilities', () => {
   const raw = fixture();

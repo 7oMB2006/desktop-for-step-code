@@ -5,6 +5,8 @@ import { AppMenu } from './AppMenu';
 import { DisclosureChevron } from './DisclosureChevron';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import './provider-settings.css';
+import { ProviderThinkingSettings, thinkingSummary } from './ProviderThinkingSettings';
+import { importProviderModel } from './provider-model-import';
 
 const formats: { id: ProviderApi; label: string }[] = [
   { id: 'openai-completions', label: 'Chat Completions · /chat/completions' },
@@ -56,6 +58,11 @@ export function ProviderSettings({ providers, language, busy, onSave, onDelete, 
     return () => { lifecycle.current.mounted = false; if (lifecycle.current.testing) void cancelTest.current().catch(() => {}); };
   }, []);
   const blocked = busy || saving || discovering || testing;
+  useEffect(() => {
+    if (dirty || blocked) return;
+    const current = providers.find(provider => provider.id === draft?.id);
+    if (current) setDraft(current);
+  }, [providers, dirty, blocked, draft?.id]);
   const modelId = draft?.models.find(m => m.id === testModel)?.id
     ?? (activeModel?.provider === draft?.id ? draft?.models.find(m => m.id === activeModel?.id)?.id : undefined)
     ?? draft?.models[0]?.id ?? '';
@@ -97,7 +104,7 @@ export function ProviderSettings({ providers, language, busy, onSave, onDelete, 
     if (dirty) setConfirmation(p); else select(p);
   };
   const update = (patch: Partial<ProviderInfo>) => {
-    setDraft(p => p ? { ...p, ...patch } : p); setDirty(true); setSaved(false); setError('');
+    setDraft(p => p ? { ...p, ...patch, ...(patch.api && patch.api !== p.api ? { models: p.models.map(m => ({ ...m, thinkingLevels: undefined, thinkingControl: undefined, declaredThinkingLevels: undefined })) } : {}) } : p); setDirty(true); setSaved(false); setError('');
     setDiagnosticOpen(false); setDiagnostic(undefined); setCopied(false);
   };
   const updateModel = (index: number, patch: Partial<ProviderModel>) => update({ models: draft!.models.map((m, i) => i === index ? { ...m, ...patch, metadataSource: 'manual' } : m) });
@@ -110,13 +117,13 @@ export function ProviderSettings({ providers, language, busy, onSave, onDelete, 
   };
   const importModels = () => {
     if (!draft || !discovered) return;
-    const added = discovered.filter(m => selected.includes(m.id) && !draft.models.some(existing => existing.id === m.id));
+    const chosen = discovered.filter(m => selected.includes(m.id));
+    const added = chosen.filter(m => !draft.models.some(existing => existing.id === m.id));
     if (draft.models.length + added.length > 100) { setError(t('每个供应商最多配置 100 个模型，请减少选择。', 'Each provider supports up to 100 models. Select fewer models.')); return; }
-    update({ models: [...draft.models, ...added.map(m => {
-      const initial = { ...model(), ...m };
-      initial.maxTokens = Math.min(initial.maxTokens, initial.contextWindow);
-      return { ...initial, metadataSource: Object.keys(m).length > 2 ? 'upstream' as const : 'manual' as const };
-    })] });
+    update({ models: [...draft.models.map(existing => {
+      const found = chosen.find(m => m.id === existing.id);
+      return found ? importProviderModel(found, existing) : existing;
+    }), ...added.map(m => importProviderModel(m))] });
     setDiscovered(undefined); setSelected([]);
   };
   const save = async () => {
@@ -175,11 +182,11 @@ export function ProviderSettings({ providers, language, busy, onSave, onDelete, 
             <div className="provider-discovery-list">
               {discovered.filter(m => `${m.id} ${m.name}`.toLowerCase().includes(filter.toLowerCase())).map(m => {
                 const exists = draft.models.some(existing => existing.id === m.id);
-                return <label className="provider-checkbox" key={m.id}><input type="checkbox" disabled={exists} checked={exists || selected.includes(m.id)} onChange={e => setSelected(ids => e.target.checked ? [...ids, m.id] : ids.filter(id => id !== m.id))}/><span>{m.id}{m.declaredInput && <small className="provider-discovered-capabilities">{m.declaredInput.join(' · ')}</small>}</span>{exists && <small>{t('已添加', 'Added')}</small>}</label>;
+                return <label className="provider-checkbox" key={m.id}><input type="checkbox" checked={selected.includes(m.id)} onChange={e => setSelected(ids => e.target.checked ? [...ids, m.id] : ids.filter(id => id !== m.id))}/><span>{m.id}{m.thinkingLevels && <small className="provider-discovered-capabilities">{t('思考', 'Thinking')}: {m.thinkingLevels.join(' · ')}{m.thinkingDefaultLevel && ` · ${t('默认', 'Default')} ${m.thinkingDefaultLevel}`}</small>}{m.declaredInput && <small className="provider-discovered-capabilities">{m.declaredInput.join(' · ')}</small>}</span>{exists && <small>{t('已添加 · 可更新', 'Added · Refreshable')}</small>}</label>;
               })}
               {!discovered.length && <span>{t('上游未返回模型', 'No models returned')}</span>}
             </div>
-            <div className="provider-discovery-bottom"><span>{t('能力与容量需确认', 'Review capabilities and limits')}</span><button type="button" disabled={!selected.length} onClick={importModels}><Plus size={14}/>{t('加入', 'Add')} {selected.length || ''}</button></div>
+            <div className="provider-discovery-bottom"><span>{t('已有模型可更新声明，手动思考配置保留', 'Refresh declarations; manual thinking overrides are preserved')}</span><button type="button" disabled={!selected.length} onClick={importModels}><Plus size={14}/>{selected.some(id => draft.models.some(m => m.id === id)) ? t('应用', 'Apply') : t('加入', 'Add')} {selected.length || ''}</button></div>
           </section>}
           {!draft.models.length && <div className="provider-model-empty">{t('尚未添加模型', 'No models added')}</div>}
           {draft.models.map((m, index) => <div className="provider-model" key={index}>
@@ -188,26 +195,15 @@ export function ProviderSettings({ providers, language, busy, onSave, onDelete, 
               <label>{t('显示名', 'Display name')}<input aria-label={`${t('显示名', 'Display name')} ${index + 1}`} maxLength={200} value={m.name} placeholder={m.id || t('可选', 'Optional')} onChange={e => updateModel(index, { name: e.target.value })}/></label>
               <button type="button" className="provider-icon" title={t('移除模型', 'Remove model')} aria-label={`${t('移除模型', 'Remove model')} ${index + 1}`} onClick={() => update({ models: draft.models.filter((_, i) => i !== index) })}><X size={14}/></button>
             </div>
-            <details className="provider-model-advanced"><summary><DisclosureChevron/>{t('能力与容量', 'Capabilities and limits')}</summary>
+            <details className="provider-model-advanced"><summary><DisclosureChevron/>{t('能力与容量', 'Capabilities and limits')}<span className={`provider-thinking-summary${m.thinkingControl?.source !== 'upstream' && m.thinkingLevels?.length ? ' provider-thinking-manual' : ''}`}>{thinkingSummary(m, language, draft.api)}</span></summary>
             <div className="provider-model-limits">
               <label>{t('上下文容量', 'Context window')}<input aria-label={`${t('上下文容量', 'Context window')} ${index + 1}`} type="number" min={1} max={10000000} required value={m.contextWindow || ''} onChange={e => updateModel(index, { contextWindow: Number(e.target.value) })}/></label>
               <label>{t('最大输出', 'Max output')}<input aria-label={`${t('最大输出', 'Max output')} ${index + 1}`} type="number" min={1} max={m.contextWindow} required value={m.maxTokens || ''} onChange={e => updateModel(index, { maxTokens: Number(e.target.value) })}/></label>
             </div>
             <div className="provider-model-capabilities">
-              <label className="provider-checkbox"><input type="checkbox" checked={m.reasoning} onChange={e => updateModel(index, { reasoning: e.target.checked, thinkingLevels: e.target.checked ? undefined : ['off'] })}/>{t('思考', 'Reasoning')}</label>
               <label className="provider-checkbox"><input type="checkbox" checked={m.vision} onChange={e => updateModel(index, { vision: e.target.checked, declaredInput: e.target.checked ? [...new Set([...(m.declaredInput ?? ['text']), 'image'])] : m.declaredInput?.filter(v => v !== 'image') ?? ['text'] })}/>{t('图片输入', 'Image input')}</label>
             </div>
-            {m.reasoning && <div className="provider-thinking-levels" role="group" aria-label={`${t('支持档位', 'Supported levels')} ${index + 1}`}>
-              <span>{t('支持档位', 'Supported levels')}</span>
-              {['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((level, levelIndex) => {
-                const current = m.thinkingLevels ?? ['off', 'minimal', 'low', 'medium', 'high'];
-                return <label className="provider-checkbox" key={level}><input type="checkbox" checked={current.includes(level)} onChange={e => {
-                  const next = e.target.checked ? [...current, level] : current.filter(v => v !== level);
-                  if (!next.length) return;
-                  updateModel(index, { thinkingLevels: next, reasoning: next.some(v => v !== 'off') });
-                }}/>{t(['关闭', '极简', '轻度', '中', '高', '极高', '最高'][levelIndex], level)}</label>;
-              })}
-            </div>}
+            <ProviderThinkingSettings model={m} api={draft.api} index={index} language={language} onChange={patch => updateModel(index, patch)}/>
             {(m.declaredInput || m.declaredOutput) && <p className="provider-capability-note">{t('上游声明', 'Declared modalities')}: {m.declaredInput?.join(' / ') ?? '—'} → {m.declaredOutput?.join(' / ') ?? '—'}{[...(m.declaredInput ?? []), ...(m.declaredOutput ?? [])].some(v => !['text', 'image'].includes(v)) && <span>{t(' · 音频、视频和文件模态暂不接入', ' · Audio, video and file modalities are not supported')}</span>}{m.declaredOutput?.includes('image') && <span>{t(' · 暂不支持图片生成', ' · Image generation is not supported')}</span>}</p>}
             </details>
           </div>)}

@@ -3,7 +3,7 @@ import { Minus, Square, Copy, X, PanelLeft } from 'lucide-react';
 
 export type WindowMenu = { id: string; label: string; items: { label: string; action: () => void; disabled?: boolean }[] };
 
-export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle, onMenuOpenChange }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string; onMenuOpenChange?: (open: boolean) => void }) {
+export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle, onMenuOpenChange, inert = false }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string; onMenuOpenChange?: (open: boolean) => void; inert?: boolean }) {
   const [maximized, setMaximized] = useState(false);
   const [focused, setFocused] = useState(true);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
     setOpenMenu(null);
     void bridge?.windowControl(action).then(state => setMaximized(state.maximized)).catch(() => {});
   };
-  return <header className={`window-bar ${focused ? '' : 'window-inactive'}`}>
+  return <header inert={inert} className={`window-bar ${focused ? '' : 'window-inactive'}`}>
     <div className="window-tools" ref={menuRef}>
       <button type="button" className="window-sidebar-toggle" data-tooltip={zh ? '侧栏' : 'Sidebar'} aria-label={zh ? '侧栏' : 'Sidebar'} aria-expanded={sidebarVisible} onClick={() => { setOpenMenu(null); toggleSidebar(); }}><PanelLeft size={18}/></button>
       <nav className="window-menu-list" aria-label={zh ? '应用菜单' : 'Application menu'}>

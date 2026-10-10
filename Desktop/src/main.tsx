@@ -58,6 +58,7 @@ import { SubagentPanel } from './SubagentPanel';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
 import './appearance.css';
+import './settings-dialog.css';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -130,6 +131,7 @@ function App() {
   // pushes changes here.
   const [systemDark, setSystemDark] = useState(() => window.desktopTheme?.systemDark ?? false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsClosing, setSettingsClosing] = useState(false);
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
@@ -656,7 +658,7 @@ function App() {
     };
     document.addEventListener('keydown', handler);
     return () => { document.removeEventListener('keydown', handler); previous?.focus(); };
-  }, [settingsOpen, Boolean(mcpEdit), requests[0]?.id, approvalOpen, renaming, tab]);
+  }, [settingsOpen, Boolean(mcpEdit), requests[0]?.id, approvalOpen, renaming]);
   const respond = async (value: Record<string, unknown>) => {
     if (navigationPending.current) return;
     const r = requests[0]; if (!r) return;
@@ -668,10 +670,33 @@ function App() {
     loginProfileRevision.current++;
     setLoginProfile(profile);
   };
+  const finishSettingsClose = useCallback(() => {
+    setSettingsOpen(false);
+    setSettingsClosing(false);
+    setKey('');
+  }, []);
+  const closeSettings = () => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) finishSettingsClose();
+    else setSettingsClosing(true);
+  };
+  useEffect(() => {
+    if (!settingsClosing) return;
+    // Keep dismissal reliable if an animation is cancelled or motion preferences change.
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const reduce = () => { if (motion.matches) finishSettingsClose(); };
+    const timer = window.setTimeout(finishSettingsClose, 260);
+    const containKeyboard = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    document.addEventListener('keydown', containKeyboard, true);
+    motion.addEventListener('change', reduce);
+    return () => { window.clearTimeout(timer); motion.removeEventListener('change', reduce); document.removeEventListener('keydown', containKeyboard, true); };
+  }, [settingsClosing, finishSettingsClose]);
   const openSettings = async () => {
     const request = ++settingsRequestRevision.current;
     const selection = loginProfileRevision.current;
-    setSettingsOpen(true); await run(async () => {
+    setSettingsClosing(false); setSettingsOpen(true); await run(async () => {
     const next = await bridge!.settings();
     if (request !== settingsRequestRevision.current) return;
     setSettings(next);
@@ -999,7 +1024,7 @@ function App() {
       x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
   }}>
     <AppTooltip/>
-    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen}/>
+    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen}/>
     {imageMenu && <ImageContextMenu target={imageMenu} language={data.preferences.language}
       canAdd={Boolean(bridge) && attachments.length < 10 && attachments.filter(item => item.kind === 'image').length < 5}
       onAction={imageAction} onClose={() => setImageMenu(null)}/>}
@@ -1033,7 +1058,7 @@ function App() {
     </div>}
     {error && (settingsOpen || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
     {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
-    <aside className="sidebar" inert={!sidebarVisible}>
+    <aside className="sidebar" inert={settingsOpen || !sidebarVisible}>
       <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
       <button className="new-chat" disabled={!bridge || loading} onClick={() => void newSession()}><Plus size={17}/>{t('新建会话', 'New session')}</button>
       <nav className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
@@ -1054,7 +1079,7 @@ function App() {
       <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
-    <main inert={inspectorExpanded}
+    <main inert={settingsOpen || inspectorExpanded}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
@@ -1270,10 +1295,10 @@ function App() {
         </div>
       </div>
     </div>}
-    {settingsOpen && <div className="modal-backdrop"><section className={`settings-dialog${tab === 'archived' ? ' archive-settings-dialog' : ''}`} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={() => { setSettingsOpen(false); setKey(''); }}><X size={19}/></IconButton></header><div className="settings-layout"><nav>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} className={`${tab === id ? 'selected' : ''}${id === 'archived' ? ' archive-tab' : ''}`} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div className="settings-content">
+    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'archived' ? ' archive-tab' : ''}`} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
       {tab === 'appearance' ? <AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
-        onOpen={id => { setSettingsOpen(false); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
+        onOpen={id => { closeSettings(); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
         onRestore={id => run(() => updateArchive(id, true)).then(() => {})} onDelete={deleteArchived}/> : <>
       {settings && tab === 'mcp' && Object.keys(mcpFailures).length > 0 && <section className="mcp-failures" aria-label={t('本次窗口的 MCP 警告', 'MCP warnings in this window')}>
         <h3>{t('本次窗口的连接警告', 'Connection warnings')}</h3>

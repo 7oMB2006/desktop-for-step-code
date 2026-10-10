@@ -1,0 +1,94 @@
+.settings-backdrop {
+  top: 0;
+  padding: 28px;
+  background: oklch(0 0 0 / .12);
+  backdrop-filter: blur(5px);
+  -webkit-app-region: no-drag;
+  animation: settings-backdrop-enter 180ms ease-out;
+}
+.app:has(.settings-backdrop) > .window-bar { z-index: 19; }
+.settings-backdrop .settings-dialog {
+  width: min(1060px, 100%);
+  height: min(740px, calc(100dvh - 56px));
+  max-height: none;
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: 0 20px 70px oklch(0 0 0 / .18), 0 2px 8px oklch(0 0 0 / .08);
+  animation: settings-dialog-enter 220ms cubic-bezier(.22, 1, .36, 1);
+}
+.settings-backdrop.is-closing {
+  animation: settings-backdrop-exit 220ms cubic-bezier(.4, 0, 1, 1) forwards;
+}
+.settings-backdrop.is-closing .settings-dialog {
+  animation: settings-dialog-exit 220ms cubic-bezier(.4, 0, 1, 1) forwards;
+}
+.settings-dialog > header {
+  min-height: 56px;
+  flex-shrink: 0;
+  padding: 12px 20px;
+}
+.settings-dialog > header h2 { font-size: 16px; }
+.settings-dialog .settings-layout { overflow: hidden; }
+.settings-dialog .settings-layout > nav {
+  width: 190px;
+  padding: 20px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: color-mix(in oklch, var(--side) 78%, transparent);
+}
+.settings-dialog .settings-layout > nav button {
+  min-height: 38px;
+  gap: 11px;
+  padding: 8px 12px;
+  margin-bottom: 5px;
+  text-align: left;
+}
+.settings-dialog .settings-layout > nav button svg { color: var(--muted); }
+.settings-dialog .settings-layout > nav button.selected {
+  background: color-mix(in oklch, var(--primary) 7%, var(--bg)) !important;
+}
+.settings-dialog .settings-layout > nav button.selected svg { color: var(--primary); }
+.settings-dialog .settings-content {
+  padding: 28px 36px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  animation: settings-content-enter 160ms ease-out;
+}
+.settings-dialog .settings-content > label { max-width: 560px; }
+.settings-dialog .settings-content::-webkit-scrollbar,
+.settings-dialog .settings-layout > nav::-webkit-scrollbar { width: 6px; }
+.settings-dialog .settings-content::-webkit-scrollbar-thumb,
+.settings-dialog .settings-layout > nav::-webkit-scrollbar-thumb { background: transparent; }
+.settings-dialog .settings-content:hover::-webkit-scrollbar-thumb,
+.settings-dialog .settings-content:focus-within::-webkit-scrollbar-thumb,
+.settings-dialog .settings-layout > nav:hover::-webkit-scrollbar-thumb,
+.settings-dialog .settings-layout > nav:focus-within::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--muted) 45%, transparent);
+}
+@keyframes settings-backdrop-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes settings-backdrop-exit { from { opacity: 1; } to { opacity: 0; } }
+@keyframes settings-dialog-enter {
+  from { opacity: 0; transform: translateY(6px) scale(.99); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes settings-dialog-exit {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(6px) scale(.99); }
+}
+@keyframes settings-content-enter { from { opacity: .5; } to { opacity: 1; } }
+@media (max-width: 740px) {
+  .settings-backdrop { padding: 12px; }
+  .settings-backdrop .settings-dialog {
+    height: min(740px, calc(100dvh - 24px));
+  }
+  .settings-dialog .settings-layout > nav { width: 52px; padding: 12px 5px; }
+  .settings-dialog .settings-layout > nav button {
+    font-size: 0; gap: 0; justify-content: center; padding: 8px;
+  }
+  .settings-dialog .settings-content { padding: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-backdrop, .settings-backdrop .settings-dialog,
+  .settings-backdrop.is-closing, .settings-backdrop.is-closing .settings-dialog,
+  .settings-dialog .settings-content { animation: none; }
+}

@@ -106,10 +106,7 @@
 .provider-danger { color:var(--danger); }
 .provider-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; font-size:13px; color:var(--muted); }
 .provider-settings button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
-.settings-dialog:has(.provider-settings) { width:min(960px,100%); height:min(780px,86dvh); }
 @media(max-width:760px) {
-  .settings-dialog:has(.provider-settings) .settings-layout > nav { width:52px; padding:12px 4px; }
-  .settings-dialog:has(.provider-settings) .settings-layout > nav button { font-size:0; gap:0; justify-content:center; padding:8px; }
   .provider-workbench { grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); }
   .provider-list { display:flex; gap:6px; overflow:auto; border-right:0; border-bottom:1px solid var(--border); padding:0 0 10px; margin-bottom:16px; }
   .provider-list button { width:auto; min-width:112px; max-width:180px; flex-shrink:0; }

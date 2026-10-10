@@ -58,6 +58,7 @@ import { SubagentPanel } from './SubagentPanel';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
 import './appearance.css';
+import './settings-dialog.css';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -130,6 +131,7 @@ function App() {
   // pushes changes here.
   const [systemDark, setSystemDark] = useState(() => window.desktopTheme?.systemDark ?? false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsClosing, setSettingsClosing] = useState(false);
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
@@ -656,7 +658,7 @@ function App() {
     };
     document.addEventListener('keydown', handler);
     return () => { document.removeEventListener('keydown', handler); previous?.focus(); };
-  }, [settingsOpen, Boolean(mcpEdit), requests[0]?.id, approvalOpen, renaming, tab]);
+  }, [settingsOpen, Boolean(mcpEdit), requests[0]?.id, approvalOpen, renaming]);
   const respond = async (value: Record<string, unknown>) => {
     if (navigationPending.current) return;
     const r = requests[0]; if (!r) return;
@@ -668,10 +670,28 @@ function App() {
     loginProfileRevision.current++;
     setLoginProfile(profile);
   };
+  const finishSettingsClose = useCallback(() => {
+    setSettingsOpen(false);
+    setSettingsClosing(false);
+    setKey('');
+  }, []);
+  const closeSettings = () => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) finishSettingsClose();
+    else setSettingsClosing(true);
+  };
+  useEffect(() => {
+    if (!settingsClosing) return;
+    // Keep dismissal reliable if an animation is cancelled or motion preferences change.
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const reduce = () => { if (motion.matches) finishSettingsClose(); };
+    const timer = window.setTimeout(finishSettingsClose, 260);
+    motion.addEventListener('change', reduce);
+    return () => { window.clearTimeout(timer); motion.removeEventListener('change', reduce); };
+  }, [settingsClosing, finishSettingsClose]);
   const openSettings = async () => {
     const request = ++settingsRequestRevision.current;
     const selection = loginProfileRevision.current;
-    setSettingsOpen(true); await run(async () => {
+    setSettingsClosing(false); setSettingsOpen(true); await run(async () => {
     const next = await bridge!.settings();
     if (request !== settingsRequestRevision.current) return;
     setSettings(next);
@@ -999,7 +1019,7 @@ function App() {
       x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
   }}>
     <AppTooltip/>
-    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen}/>
+    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen}/>
     {imageMenu && <ImageContextMenu target={imageMenu} language={data.preferences.language}
       canAdd={Boolean(bridge) && attachments.length < 10 && attachments.filter(item => item.kind === 'image').length < 5}
       onAction={imageAction} onClose={() => setImageMenu(null)}/>}
@@ -1270,10 +1290,10 @@ function App() {
         </div>
       </div>
     </div>}
-    {settingsOpen && <div className="modal-backdrop"><section className={`settings-dialog${tab === 'archived' ? ' archive-settings-dialog' : ''}`} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={() => { setSettingsOpen(false); setKey(''); }}><X size={19}/></IconButton></header><div className="settings-layout"><nav>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} className={`${tab === id ? 'selected' : ''}${id === 'archived' ? ' archive-tab' : ''}`} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div className="settings-content">
+    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'archived' ? ' archive-tab' : ''}`} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
       {tab === 'appearance' ? <AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
-        onOpen={id => { setSettingsOpen(false); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
+        onOpen={id => { closeSettings(); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
         onRestore={id => run(() => updateArchive(id, true)).then(() => {})} onDelete={deleteArchived}/> : <>
       {settings && tab === 'mcp' && Object.keys(mcpFailures).length > 0 && <section className="mcp-failures" aria-label={t('本次窗口的 MCP 警告', 'MCP warnings in this window')}>
         <h3>{t('本次窗口的连接警告', 'Connection warnings')}</h3>

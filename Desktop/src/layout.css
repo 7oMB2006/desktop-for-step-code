@@ -771,10 +771,6 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .empty-state h1 { font-size: 23px; }
 .empty-actions { margin-top: 10px; }
 .community-note { margin-top: 22px; }
-.settings-dialog { height: min(620px, 86dvh); }
-.settings-layout > nav { width: 160px; }
-.settings-content { padding: 26px 32px; }
-.archive-settings-dialog { width: min(960px, 100%); height: min(720px, 86dvh); }
 .settings-layout > nav .archive-tab { margin-top: 22px; }
 .archive-heading { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .archive-heading h3 { margin: 0; font-size: 18px; }
@@ -833,8 +829,6 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
     max-height: 55px;
     overflow: hidden;
   }
-  .settings-layout > nav { width: 52px; }
-  .settings-content { padding: 20px; }
 }
 @media (max-width: 440px) {
   .permission-trigger { max-width: 36px; padding: 3px 9px; }

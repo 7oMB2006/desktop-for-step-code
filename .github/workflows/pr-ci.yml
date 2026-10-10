@@ -90,6 +90,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'App update acceptance failed' }
           node scripts/verify-appearance.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Appearance acceptance failed' }
+          node scripts/verify-settings-dialog.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Settings dialog acceptance failed' }
           node scripts/verify-desktop-tray.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Desktop tray acceptance failed' }
           node scripts/verify-permission-approval.mjs

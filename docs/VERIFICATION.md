@@ -1,5 +1,13 @@
 # Verification
 
+## Fixed Settings Window
+
+The 2026-10-10 settings change is based on main `5778d3f`. All eight categories use one viewport-bounded shell; providers and archived sessions no longer resize it. The full titlebar sits behind a five-pixel blurred backdrop with a 12% black tint, never an ink-based white veil in dark mode. The form remains opaque. Navigation and content scroll independently, category changes retain navigation focus, and a matching 220ms exit keeps the background blocked until unmount. Reopening cancels pending dismissal and reduced motion dismisses immediately.
+
+Typecheck, production build, all 279 serial unit/protocol tests, source custom-provider/settings-dialog/model-effort acceptance, and packaged custom-provider/settings-dialog/general Electron acceptance passed. The dedicated settings fixture is part of PR CI and covers stable geometry, provider editing, titlebar layering, dark/light tint equivalence, inert controls during exit, reopening, retained draft, Chinese/English, reduced motion, and no horizontal overflow at 800/640/480-pixel window widths. Screenshots are `Desktop/test-results/settings-fixed-*.png`. Provider checks use local fixtures, not paid services. Packaged main/preload and staged runtime resources match the current build.
+
+Installer: `Desktop/release/settings-latest-main-20261010/Desktop for Step Code Setup 0.2.0.exe` in the primary workspace. SHA256: `BC655D2385DB33D807A301ABEB744C91EE01B70C07D491644BBBD41D7E651068`. Output totals 718,655,378 bytes. The ordinary desktop shortcut now targets this normal-mode package with empty arguments. Previous packages and running user applications remain untouched. The pinned upstream runtime baseline is unchanged; no upstream checkout edit, public release or installer lifecycle retest is included.
+
 ## Custom Provider Thinking Discovery
 
 Cloud run `38028135174` passed staging, typecheck, unit tests, build and the preceding Electron fixtures, then failed the file-preview keyboard-focus assertion at line 212. That fixture pressed ArrowDown as soon as the menu became visible, before the AppMenu requestAnimationFrame focus was guaranteed to run. It now waits for real menu focus and asserts the next enabled item receives focus after ArrowDown; the original membership assertion remains. Two consecutive local file-preview runs passed. Product menu behavior and all CI gates are unchanged; a replacement cloud run must establish the final result.
@@ -13,7 +21,6 @@ The original compact model editor keeps thinking status beside the collapsed cap
 This branch is based on main `549a6df` and preserves its endpoint-scoped no-auth adapter and next-turn model selection. No upstream checkout or runtime implementation was edited. Validation used the staged upstream `39ec6e0adeca09d50c8897023ea4e471371634cd` baseline. Typecheck, build, all 276 serial unit/protocol tests, custom-provider Electron acceptance, model-effort acceptance and model-switch acceptance passed locally.
 
 The extended custom-provider acceptance uses temporary profiles, local HTTP fixtures, real Electron IPC and real RPC requests. It checks discovery defaults, metadata refresh, unknown controls and mapped values across all three protocols, explicit Anthropic adaptive configuration, and the existing authenticated/keyless generation and tool-call assertions. Screenshots include `Desktop/test-results/provider-thinking-declared.png`, `provider-thinking-unknown.png`, and `provider-thinking-manual.png`. This is fixture acceptance, not a successful live DeepSeek account query or paid-provider capability certification. Earlier primary-workspace preview packages are not the installer for this latest-main integration; no new installer or public release is part of this PR.
-
 ## Right Panel Grip Preview
 
 The PR #85 P1 follow-up separates local artifact reactivation from explicit browser refresh. Reactivation selects the existing tab without navigation; the refresh handler renews the local-page grant and requests a reload of that same tab. Source typecheck/build and the extended file-preview acceptance passed, verifying edited HTML, a newly added local JavaScript asset, reset page state after refresh, retained tab identity, and unchanged state preservation on reactivation. The previously delivered installer predates this follow-up.

@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
 if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('Build this Windows x64 preview on Windows x64');
-const PINNED_COMMIT = '39ec6e0adeca09d50c8897023ea4e471371634cd';
+const PINNED_COMMIT = 'f7392089e67d80232b73c87f894dec8100c6c20a';
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 if (commit !== PINNED_COMMIT) {
   // Naming both sides keeps a stale build instruction from reading as a broken checkout.

@@ -2,7 +2,7 @@
 
 Repository: https://github.com/stepfun-ai/Step-Code
 
-Pinned commit: `39ec6e0adeca09d50c8897023ea4e471371634cd`.
+Pinned commit: `f7392089e67d80232b73c87f894dec8100c6c20a`.
 
 `step-code-desktop.patch` contains the Windows build fix, desktop integration exports, and an opt-in in-memory auth backend. The build fix invokes npm through `process.execPath` and `npm_execpath`. The desktop backend activates only when the desktop client supplies an isolated auth path and credential payload; ordinary Step Code file storage is unchanged. The payload is removed from the child process environment during module initialization.
 

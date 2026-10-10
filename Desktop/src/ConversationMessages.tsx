@@ -1,8 +1,8 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps, Dispatch, SetStateAction } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
-import { Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
-import type { Content, Message, PendingMessage } from './contracts';
+import { ArrowRight, ArrowRightLeft, Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
+import type { Content, Message, ModelChange, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
 import type { BackgroundSubagentStates, ResponseItem, SubagentTask } from './conversation-presentation';
@@ -20,6 +20,7 @@ import { localReference, turnOutputPaths } from './turn-artifacts';
 
 type Props = {
   runtimeId?: string;
+  modelChanges?: ModelChange[];
   messages: Message[]; language: 'zh' | 'en'; busy: boolean; canEdit: boolean;
   openImage: (src: string, name: string, anchor: HTMLElement) => void;
   edit: (message: Message, text: string) => Promise<void>; onError: (message: string) => void;
@@ -218,10 +219,22 @@ function SubagentLane({ item, active, onOpen, background, ...props }: {
   </div>;
 }
 
-  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, background, ...props }: {
+export function ModelChangeNote({ change, language }: { change: ModelChange; language: 'zh' | 'en' }) {
+  return <div className="client-model-change" role="note" data-model-change-id={change.id}>
+    <ArrowRightLeft size={14} aria-hidden="true"/>
+    <span><strong>{language === 'zh' ? '模型已切换' : 'Model switched'}</strong>{language === 'zh' ? '：' : ':'}</span>
+    <span className="change-models">
+      <span title={`${change.from.provider}/${change.from.id}`}>{change.from.name}</span>
+      <ArrowRight size={13} aria-label={language === 'zh' ? '切换为' : 'to'}/>
+      <span title={`${change.to.provider}/${change.to.id}`}>{change.to.name}</span>
+    </span>
+  </div>;
+}
+  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, background, modelChange, ...props }: {
     items: { message: Message; index: number }[]; active: boolean;
     canBranch: boolean; branch: Props['branch'];
     runtimeId?: string;
+    modelChange?: ModelChange;
     background: BackgroundSubagentStates;
     onOpenSubagent: (task: SubagentTask) => void;
   } & BodyProps) {
@@ -233,6 +246,7 @@ function SubagentLane({ item, active, onOpen, background, ...props }: {
     const zh = props.language === 'zh';
     const stamp = [...items].reverse().find(item => item.message.timestamp)?.message.timestamp;
     return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
+      {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
       <div className="response-content message-body">{content.map((item, position) =>
           item.type === 'tool'
             ? item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
@@ -340,10 +354,16 @@ export function ConversationMessages(props: Props) {
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
   const background = useMemo(() => backgroundSubagentStates(props.messages), [props.messages]);
   const latestUser = [...props.messages].reverse().find(message => message.role === 'user');
-  return <>{entries.map((entry, index) => entry.type === 'user'
-    ? <UserMessage key={entry.item.index} message={entry.item.message} index={entry.item.index}
+  let userTimestamp: number | undefined;
+  return <>{entries.map((entry, index) => {
+    if (entry.type === 'user') {
+      userTimestamp = entry.item.message.timestamp;
+      return <UserMessage key={entry.item.index} message={entry.item.message} index={entry.item.index}
       editState={editState} setEditState={setEditState}
-      arriving={entry.item.message === props.arrivingUser} {...props} canEdit={props.canEdit && entry.item.message === latestUser}/>
-    : <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
-      canBranch={props.canEdit && index === entries.length - 1} background={background} {...props}/>)}</>;
+      arriving={entry.item.message === props.arrivingUser} {...props} canEdit={props.canEdit && entry.item.message === latestUser}/>;
+    }
+    const modelChange = userTimestamp === undefined ? undefined : props.modelChanges?.find(change => change.userTimestamp === userTimestamp);
+    return <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
+      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props}/>;
+  })}</>;
 }

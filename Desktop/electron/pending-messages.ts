@@ -13,6 +13,7 @@ export class PendingMessages {
     private changed: (worker: SessionRuntime) => void,
     private failed: (worker: SessionRuntime, error: unknown) => void,
     private format: (message: string, files: string[]) => string = message => message,
+    private beforePrompt: (worker: SessionRuntime, message: string) => Promise<void> = async () => {},
   ) {}
   list(worker: SessionRuntime): PendingMessage[] {
     return (this.entries.get(worker) ?? []).map(({ id, message, attachmentCount, version, sending, steered }) => ({ id, message, attachmentCount, version, sending, ...(steered ? { steered } : {}) }));
@@ -105,6 +106,7 @@ export class PendingMessages {
   private async dispatch(worker: SessionRuntime, entry: Entry, steer: boolean) {
     entry.sending = true; entry.steered = steer && worker.busy; worker.submissions++; worker.operations++; this.publish(worker);
     try {
+      if (!worker.busy) await this.beforePrompt(worker, String(entry.payload.message ?? ''));
       await worker.rpc.request('prompt', { ...entry.payload, ...(steer ? { streamingBehavior: 'steer' } : {}) }, 600000);
       // RPC success means accepted for delivery, not consumed by the agent.
       // Only the authoritative user message event releases the pending receipt.

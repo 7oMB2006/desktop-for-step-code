@@ -1,4 +1,4 @@
-import type { Message, Session } from './contracts';
+import type { Message, ModelChange, Session } from './contracts';
 
 export interface ReadingPosition {
   follow: boolean;
@@ -8,6 +8,7 @@ export interface ReadingPosition {
 export interface SessionReading {
   sessionId: string;
   messages: Message[];
+  modelChanges?: ModelChange[];
 }
 
 /** A bounded, disposable reading cache. No runtime, credentials, approvals or actions. */
@@ -15,12 +16,12 @@ export class SessionReadingCache {
   private entries = new Map<string, { reading: SessionReading; modified: string; count: number; bytes: number }>();
   private bytes = 0;
   constructor(private maxEntries = 6, private maxBytes = 12 * 1024 * 1024) {}
-  set(session: Session, messages: Message[]) {
+  set(session: Session, messages: Message[], modelChanges?: ModelChange[]) {
     this.delete(session.id);
-    const bytes = JSON.stringify(messages).length * 2;
+    const bytes = (JSON.stringify(messages).length + JSON.stringify(modelChanges ?? []).length) * 2;
     if (bytes > this.maxBytes) return;
     this.entries.set(session.id, {
-      reading: { sessionId: session.id, messages: structuredClone(messages) },
+      reading: { sessionId: session.id, messages: structuredClone(messages), ...(modelChanges ? { modelChanges: structuredClone(modelChanges) } : {}) },
       modified: session.modified, count: session.messageCount, bytes,
     });
     this.bytes += bytes;

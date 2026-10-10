@@ -185,9 +185,19 @@ try {
       const bounds = scroll.getBoundingClientRect();
       const style = getComputedStyle(element);
       const extent = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
-      return box.left - extent >= bounds.left - .1 && box.right + extent <= bounds.left + scroll.clientWidth + .1
-        && box.top - extent >= bounds.top - .1 && box.bottom + extent <= bounds.top + scroll.clientHeight + .1;
+      // clientHeight/clientWidth round CSS pixels at fractional Windows scaling.
+      const right = bounds.right - (scroll.offsetWidth - scroll.clientWidth);
+      const bottom = bounds.bottom - (scroll.offsetHeight - scroll.clientHeight);
+      return box.left - extent >= bounds.left - .1 && box.right + extent <= right + .1
+        && box.top - extent >= bounds.top - .1 && box.bottom + extent <= bottom + .1;
     });
+    if (!visible) console.log('Focus geometry:', await input.evaluate(element => {
+      const scroll = element.closest('fieldset');
+      const box = element.getBoundingClientRect(), bounds = scroll.getBoundingClientRect();
+      return { label: element.getAttribute('aria-label'), box: box.toJSON(), bounds: bounds.toJSON(),
+        clientHeight: scroll.clientHeight, clientWidth: scroll.clientWidth, scrollTop: scroll.scrollTop,
+        outline: getComputedStyle(element).outline, offset: getComputedStyle(element).outlineOffset };
+    }));
     assert.equal(visible, true, `${label}: focus outline fits inside the scroll viewport`);
     await page.screenshot({ path: `test-results/${file}.png` });
   };

@@ -11,6 +11,7 @@ import { SessionCollaboration } from './session-collaboration';
 import { PendingMessages } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { ConversationTiming } from './conversation-timing';
+import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { AuthVault } from './auth-vault';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
@@ -45,6 +46,8 @@ const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolea
 const crashLog = installCrashLog();
 const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 'conversation-timing'),
   error => { void crashLog.record('conversation-timing', error); });
+const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model-changes'),
+  worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); });
 let window: BrowserWindow;
 let browser: BrowserTabs | undefined;
 const filePreviews = new FilePreviews(id => runtimes.require(id).cwd);
@@ -150,8 +153,15 @@ async function persistAuth(next: Record<string, unknown>) {
   authData = next;
 }
 const emit = (event: unknown) => { if (window && !window.isDestroyed()) window.webContents.send('runtime-event', event); };
+function publishModelSelection(worker: import('./session-runtimes').SessionRuntime) {
+  emit({ type: 'desktop_model_selection', runtimeId: worker.id, sessionId: worker.state?.sessionId,
+    runtimeRevision: ++worker.revision, modelSelection: modelSelections.selection(worker),
+    modelChanges: modelSelections.changes(worker), state: worker.state });
+}
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   const queueWorker = runtimes.workers.get(event.runtimeId);
+  const modelChanged = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
+    && modelSelections.delivered(queueWorker, event.message.content, event.message.timestamp);
   const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
     && pendingMessages.delivered(queueWorker, event.message.content, event.message.timestamp, false);
   if (queueWorker && event.message?.role === 'user') {
@@ -177,12 +187,18 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   }
   if (event.type === 'desktop_exit') void crashLog.record('runtime-exit', new Error('Step Code runtime exited unexpectedly'), event.details ?? {});
   emit(event);
+  if (modelChanged) publishModelSelection(queueWorker!);
   // Deliver the authoritative message before publishing the newer queue revision.
   if (consumed) pendingMessages.publish(queueWorker!);
   if (queueWorker && event.type === 'agent_end') pendingMessages.completed(queueWorker);
 }, undefined, {
   event: (worker, event) => conversationTiming.event(worker, event),
-  messages: (worker, messages) => worker.state?.sessionId ? conversationTiming.decorate(worker.state.sessionId, messages) : Promise.resolve(messages),
+  messages: async (worker, messages) => {
+    if (!worker.state?.sessionId) return messages;
+    await modelSelections.load(worker.state.sessionId);
+    return conversationTiming.decorate(worker.state.sessionId, messages);
+  },
+  beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
   launch: worker => collaboration.attach(worker),
   dispose: worker => {
     conversationTiming.event(worker, { type: 'desktop_exit' });
@@ -196,8 +212,10 @@ const pendingMessages = new PendingMessages(worker => {
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
   runtimes.publish();
 }, (worker, error) => emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) }),
-  (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message);
-const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language);
+  (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
+  (worker, message) => runtimes.preparePrompt(worker, message));
+const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
+  (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
 setInterval(() => { if (!transition) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error)); }, 60000).unref();
 const admin = new RpcProcess(event => {
   if (event.type === 'auth_url') {
@@ -268,6 +286,8 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace },
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model, thinkingLevel: draft.thinkingLevel } : worker?.state,
+    modelSelection: worker ? modelSelections.selection(worker) : undefined,
+    modelChanges: worker ? modelSelections.changes(worker) : [],
     permissionPreset: draft?.permissionPreset ?? worker?.permissionPreset, runtimeRevision: worker?.revision,
     messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: providerModelNames(draft?.models ?? worker?.models ?? [], authData), stats: worker?.stats,
     pendingMessages: worker ? pendingMessages.list(worker) : [],
@@ -718,6 +738,7 @@ async function handle(method: string, args: any[]) {
         const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd, authEnvironment(),
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
+        await modelSelections.copyHistory(sessionId, worker.state!.sessionId!);
         preferences.workspace = worker.cwd;
         await savePreferences();
         return await snapshot(worker);
@@ -749,6 +770,7 @@ async function handle(method: string, args: any[]) {
         const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), source.cwd, authEnvironment(),
           sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
             name });
+        await modelSelections.copyHistory(source.state!.sessionId!, worker.state!.sessionId!);
         return await snapshot(worker);
       } finally { source.mutating = false; transition = false; }
     }
@@ -799,6 +821,7 @@ async function handle(method: string, args: any[]) {
             if (worker) await runtimes.remove(worker);
             await deleteManagedSessionFile(join(dataRoot, 'sessions'), target.path);
             await conversationTiming.remove(target.id);
+            await modelSelections.remove(target.id);
             sessionCatalog = sessionCatalog.filter(session => session.id !== target.id);
             runtimes.unreadSessionIds.delete(target.id);
             preferences.archivedSessionIds = preferences.archivedSessionIds?.filter(id => id !== target.id);
@@ -856,13 +879,25 @@ async function handle(method: string, args: any[]) {
       if (worker.stopping && ['prompt', 'queue_steer', 'queue_steer_first', 'abort'].includes(type))
         throw new Error('Wait for this session to stop');
       if (worker.mutating && !['abort', 'extension_ui_response', 'get_commands', 'get_available_thinking_levels', 'get_session_stats'].includes(type)) throw new Error('Session operation in progress');
-      const mutating = ['set_model', 'set_thinking_level', 'set_permission_preset', 'compact', 'queue_recover'].includes(type);
+      const mutating = ['set_permission_preset', 'compact', 'queue_recover'].includes(type);
       if (mutating) worker.mutating = true;
       const wasStreaming = worker.busy || worker.submissions > 0;
       if (type === 'prompt') worker.submissions++;
       try {
         const rpc = worker.rpc;
         const pendingUI = worker.pendingUI;
+        if (type === 'set_model' || type === 'set_thinking_level') {
+          if (type === 'set_model') {
+            const provider = text(data.provider, 200), modelId = text(data.modelId, 300);
+            const model = worker.models.find(model => model.provider === provider && model.id === modelId);
+            if (!model) throw new Error('Unknown model');
+            modelSelections.select(worker, { ...model, thinkingLevels: modelThinkingLevels(model) });
+          } else modelSelections.selectEffort(worker, text(data.level, 30));
+          if (!runtimes.isBusy(worker)) await modelSelections.apply(worker);
+          return;
+        }
+        if (type === 'get_available_thinking_levels' && worker.pendingModel)
+          return { levels: modelThinkingLevels(worker.pendingModel.model) };
         if (type === 'new_session') return connect(worker.cwd, undefined, false);
         if (type === 'extension_ui_response') {
           const request = pendingUI.get(text(data.id));
@@ -943,11 +978,12 @@ async function handle(method: string, args: any[]) {
         if (type === 'set_model') payload = { provider: text(data.provider, 200), modelId: text(data.modelId, 300) };
         if (type === 'set_thinking_level') payload = { level: text(data.level, 30) };
         if (type === 'set_session_name') payload = { name: text(data.name, 200) };
-        if (['set_model', 'set_thinking_level', 'compact'].includes(type)) await runtimes.assertIdle(worker);
+        if (type === 'compact') await runtimes.assertIdle(worker);
         if (type === 'abort') { worker.stopping = true; worker.interrupted = true; pendingMessages.pause(worker); }
         worker.operations++;
         if (type === 'prompt') runtimes.publish();
         try {
+          if (type === 'prompt' && !(payload.message as string).trimStart().startsWith('/')) await runtimes.preparePrompt(worker, payload.message as string);
           const response = await rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
           if (type === 'abort') {
             // Abort waits for idle; clear accepted steers before making them editable.
@@ -967,6 +1003,7 @@ async function handle(method: string, args: any[]) {
         if (mutating) worker.mutating = false;
         if (type === 'abort') worker.stopping = false;
         if (type === 'prompt') { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }
+        if (type === 'set_model' || type === 'set_thinking_level') void pendingMessages.drain(worker);
       }
     }
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
@@ -1161,6 +1198,7 @@ app.on('before-quit', event => {
       await terminals.stopAll();
       await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
       await conversationTiming.flush();
+      await modelSelections.flush();
       browser?.dispose();
       quitting = true;
       app.quit();

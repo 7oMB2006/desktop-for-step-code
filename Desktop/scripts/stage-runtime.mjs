@@ -19,7 +19,7 @@ if (commit !== PINNED_COMMIT) {
 const patchedFiles = [
   ['auth-storage.ts', 'packages/coding-agent/src/core/auth-storage.ts', 'a25fff15510b1bd9f009483717727f2fe19dc442'],
   ['index.ts', 'packages/coding-agent/src/index.ts', '8c4e177db7bf1c45b4ea4c9c9508e2be6c1f39a3'],
-  ['build-coding-agent-bundle.mjs', 'scripts/build-coding-agent-bundle.mjs', 'da69d6cf5582c7e4f762ac2ecbb543fbc2ef87c8'],
+  ['build-coding-agent-bundle.mjs', 'scripts/build-coding-agent-bundle.mjs', '93aaca8db784bd66e45d0a1e4f177567a7c35272'],
   ['subagent-rpc-adapter.ts', 'packages/coding-agent/src/features/subagent/rpc-adapter.ts', '3ddc850f55fbd4947f0f980db5b4220ed55bb6d0'],
   ['rpc-mode.ts', 'packages/coding-agent/src/modes/rpc/rpc-mode.ts', '9ba054b6fe48ee7839ed66095215d4c985f56e4e'],
   ['rpc-types.ts', 'packages/coding-agent/src/modes/rpc/rpc-types.ts', '63e73570b724e9cecdfa192d984b5ea9b24677cb'],

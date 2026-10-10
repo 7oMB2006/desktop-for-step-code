@@ -326,7 +326,7 @@ function App() {
       ...captureReadingPosition(scroll.current, latestData.current.messages, follow.current),
     });
     const session = latestData.current.sessions.find(session => session.id === previous.sessionId);
-    if (session) readingCache.current.set(session, latestData.current.messages);
+    if (session) readingCache.current.set(session, latestData.current.messages, latestData.current.modelChanges);
   };
   const installSnapshot = (value: Snapshot) => {
     if (!messageRevision.current.acceptSnapshot(value)) return false;
@@ -426,7 +426,7 @@ function App() {
     const unsubscribe = bridge.onEvent(event => {
       if (event.type === 'desktop_task_completed') { playCompletionSound(); return; }
       if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
-      if (event.sessionId && ['desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)) {
+      if (event.sessionId && ['desktop_model_selection', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)) {
         readingCache.current.delete(event.sessionId);
       }
       if (event.type === 'desktop_runtimes') {
@@ -461,8 +461,9 @@ function App() {
         return;
       }
       if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current)) return;
-      if (['desktop_queue', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
+      if (['desktop_model_selection', 'desktop_queue', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
         && !messageRevision.current.acceptEvent(event)) return;
+      if (event.type === 'desktop_model_selection') setData(d => ({ ...d, modelSelection: event.modelSelection, modelChanges: event.modelChanges, state: event.state ?? d.state }));
       if (event.type === 'desktop_queue') setData(d => ({ ...d, pendingMessages: event.pendingMessages }));
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
@@ -524,7 +525,7 @@ function App() {
       const [effort, available] = await Promise.all([bridge!.command('get_available_thinking_levels', undefined, id), bridge!.command('get_commands', undefined, id)]);
       if (viewId.current === id) { setLevels(effort.levels); setCommands(available.commands.filter((c: { name: string }) => c.name !== '_desktop_retry')); }
     });
-  }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.thinkingLevels]);
+  }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.provider, data.state?.model?.thinkingLevels, data.modelSelection?.model]);
   useLayoutEffect(followLayout, [data.messages, data.pendingMessages, busy, followLayout]);
   useLayoutEffect(() => {
     const viewport = scroll.current;
@@ -1061,7 +1062,7 @@ function App() {
             if (!readingRestore.current) { follow.current = distance < 100; setAwayFromBottom(distance > 120); }
           }}>
           {navigationTarget ? navigationTarget.reading ? <div className="messages session-reading-preview" ref={transcript} inert>
-            <ConversationMessages key={`session-${navigationTarget.session.id}`} messages={navigationTarget.reading.messages}
+            <ConversationMessages key={`session-${navigationTarget.session.id}`} messages={navigationTarget.reading.messages} modelChanges={navigationTarget.reading.modelChanges}
               language={data.preferences.language} busy={false} canEdit={false}
               openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError}
               onLayoutChange={followLayout} arrivingUser={null} onOpenSubagent={openSubagent}/>
@@ -1071,7 +1072,7 @@ function App() {
             title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
             onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
-            <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent}/>
+            <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent}/>
             {busy && <div className="working"><span className="working-dot"/>{t('正在执行', 'Working')}</div>}
             <PendingUserMessages messages={data.pendingMessages ?? []} connected={connected} busy={busy}
               onRecover={() => bridge!.command('queue_recover', undefined, data.runtimeId)}
@@ -1125,7 +1126,7 @@ function App() {
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}/>
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
-            <ModelEffortPicker model={data.state?.model} models={data.models} level={data.state?.thinkingLevel} levels={levels} language={data.preferences.language} disabled={!connected || busy || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
+            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
             <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : busy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
               disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}

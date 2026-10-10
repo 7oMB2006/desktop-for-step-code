@@ -5,7 +5,7 @@ import { permissionFromStatus } from './permission-status';
 import { WORKSPACE_POLICY } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
-import type { Message, Model, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
+import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -27,6 +27,7 @@ export interface SessionRuntime {
   permissionPreset?: PermissionPreset;
   messages: Message[];
   models: Model[];
+  pendingModel?: ModelSelection;
   stats?: SessionStats;
   pendingUI: Map<string, UIRequest>;
   uiTimers: Map<string, NodeJS.Timeout>;
@@ -67,11 +68,13 @@ export class SessionRuntimes {
     private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive => new RpcProcess(receive),
     private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void;
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
-      messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]> } = {},
+      messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
+      beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
   get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || worker.queued); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
+  async preparePrompt(worker: SessionRuntime, message: string) { await this.hooks.beforePrompt?.(worker, message); }
   summaries() {
     return [...this.workers.values()].filter(worker => worker.state?.sessionId).map(worker => ({
       runtimeId: worker.id, sessionId: worker.state!.sessionId!, cwd: worker.cwd,
@@ -284,6 +287,7 @@ export class SessionRuntimes {
     worker.submissions++;
     this.publish();
     try {
+      await this.preparePrompt(worker, message);
       await worker.rpc.request('prompt', { message, ...(images.length ? { images } : {}) }, 600000);
     } catch (error) {
       const current = await worker.rpc.request('get_entries');
@@ -352,7 +356,7 @@ export class SessionRuntimes {
   async recycle() {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
       worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
-      !worker.operations && !worker.mutating && !worker.queued && worker.messages.length > 0;
+      !worker.operations && !worker.mutating && !worker.pendingModel && !worker.queued && worker.messages.length > 0;
     const idle = [...this.workers.values()].filter(recyclable);
     idle.sort((a, b) => b.touched - a.touched);
     for (const worker of idle) if (recyclable(worker) &&

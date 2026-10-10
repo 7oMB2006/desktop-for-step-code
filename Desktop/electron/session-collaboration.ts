@@ -132,6 +132,7 @@ export class SessionCollaboration {
     target.touched = Date.now();
     this.pool.publish();
     try {
+      if (!queued) await this.pool.preparePrompt(target, message);
       await target.rpc.request('prompt', { message, streamingBehavior: 'followUp' }, 30000);
       return { delivered: true, sessionId: target.state!.sessionId, delivery: queued ? 'queued' : 'started', note: 'Delivery acknowledgement, not task completion' };
     } finally {

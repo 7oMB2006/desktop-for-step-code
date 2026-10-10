@@ -6,6 +6,20 @@ import { MessageRevision } from '../src/message-revision';
 import { applyMessageEvent } from '../src/message-events';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
+test('queued new tasks prepare configuration before dispatch, while active steering skips preparation', async () => {
+  const { worker } = fixture();
+  const calls: string[] = [];
+  const queue = new PendingMessages(() => {}, () => {}, text => text, async () => { calls.push('prepare'); });
+  worker.rpc.request = async () => { calls.push('prompt'); };
+  const steer = queue.enqueue(worker, 'steer', { message: 'steer' });
+  await queue.steer(worker, steer, 0);
+  assert.deepEqual(calls, ['prompt']);
+  queue.delivered(worker, 'steer');
+  queue.enqueue(worker, 'next', { message: 'next' });
+  worker.busy = false;
+  await queue.drain(worker);
+  assert.deepEqual(calls, ['prompt', 'prepare', 'prompt']);
+});
 function fixture({ consume = true } = {}) {
   const requests: { type: string; args: Record<string, unknown> }[] = [];
   let failure = false;

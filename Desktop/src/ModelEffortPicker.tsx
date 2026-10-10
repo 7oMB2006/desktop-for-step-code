@@ -76,12 +76,13 @@ interface Props {
   levels: string[];
   language: 'zh' | 'en';
   disabled: boolean;
+  pending?: boolean;
   onModel: (model: Model) => Promise<unknown>;
   onEffort: (level: string) => Promise<unknown>;
   onConfigure?: () => void;
 }
 
-export function ModelEffortPicker({ model, models, level, levels, language, disabled, onModel, onEffort, onConfigure }: Props) {
+export function ModelEffortPicker({ model, models, level, levels, language, disabled, pending, onModel, onEffort, onConfigure }: Props) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'effort' | 'models' | 'parameters'>('effort');
   const [previewIndex, setPreviewIndex] = useState(0);
@@ -201,6 +202,7 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
         <div className="model-effort-info">
           <button type="button" className="model-effort-heading" onClick={() => setView('models')} aria-label={zh ? '选择模型' : 'Select model'}>
             <ProviderBrand provider={model?.provider}/>
+            {pending && <span className="model-effort-pending" role="status">{zh ? '下一轮生效' : 'Applies next turn'}</span>}
             <span className="model-effort-heading-copy"><span className="model-effort-heading-name">{modelName}</span><AnimatedEffortLevel level={previewLevel ?? ''} index={previewIndex} color={effortColor} language={language}/></span>
           </button>
           <button type="button" className="model-effort-details-space" aria-label={zh ? '模型参数' : 'Model parameters'} onClick={() => setView('parameters')}>

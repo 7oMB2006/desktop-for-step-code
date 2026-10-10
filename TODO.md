@@ -7,8 +7,6 @@
 - [x] 下一个 Release 前解决：登录 Step Plan 后，初始化时模型的思考档位不可见（显示“暂无可用档位”）。客户端刷新修复已实现，隔离登录回归和新包的真实 Step Plan 登录验收均通过（2026-10-10 用户确认）。[复现截图](docs/acceptance/plan-thinking-initialization.png)
 - [ ] 前端体验优化（第二部分）：按小白、普通开发者、深度开发者提供不同前端能力与分组式体验。目标为第二版 Release，在第一部分之后开展。
 
-- [ ] 任务运行中解放模型控件，允许运行期间调整模型。[复现截图](docs/acceptance/model-control-during-run.png)
-
 ## P1
 
 - [ ] MCP 和 Skill
@@ -25,6 +23,8 @@
 - [ ] 流量统计，日常与月度消耗热力图，柱形图
 
 ## 已完成
+
+- [x] 任务运行中解放模型与思考档位控件：运行中预选，下一轮任务启动前生效；当前任务及插队引导保留原配置。切换成功后以独立客户端时间线记录展示，不进入模型上下文。真实 RPC 的本地模拟模型与打包版验收通过，用户体验确认；供应商兼容性不由本地模拟验收建立。[复现截图](docs/acceptance/model-control-during-run.png)
 
 - [x] 正文开头泄露：遵循上游隐藏消息标记，避免内部能力提示混入正文。[复现截图](docs/acceptance/assistant-opening-content-leak.png)
 - [x] Subagent 失败态及优化

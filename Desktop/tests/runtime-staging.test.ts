@@ -46,4 +46,8 @@ test('every documented pin matches the staging guard', { skip: process.platform 
     const text = await readFile(resolve(doc), 'utf8');
     assert.ok(text.includes(pin!), `${doc} still documents an older pin than the staging guard`);
   }
+  // The workflow already fails when the two drift, because the applier checks the pinned
+  // pre-image hashes, but that error blames the upstream source. Checking here names the cause.
+  const workflow = await readFile(resolve('../.github/workflows/pr-ci.yml'), 'utf8');
+  assert.ok(workflow.includes(pin!), '.github/workflows/pr-ci.yml still pins an older Step Code revision');
 });

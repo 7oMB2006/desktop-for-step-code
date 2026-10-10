@@ -1,6 +1,6 @@
 # 首版发布准备
 
-> 本页保留首版发布前的历史记录，不表示当前尚未发布。第二版候选见 [v0.2.0 草稿与验收记录](releases/v0.2.0-draft.zh-CN.md)，版本规则见 [VERSIONING.md](VERSIONING.md)。
+> 本页保留首版发布前的历史记录，不表示当前尚未发布。下一版准备见 [v0.3.0 草稿与验收清单](releases/v0.3.0-draft.zh-CN.md)；第二版历史见 [v0.2.0 草稿与验收记录](releases/v0.2.0-draft.zh-CN.md)，版本规则见 [VERSIONING.md](VERSIONING.md)。
 
 状态：发布文案已准备，尚未发布。核对日期：2026-10-08。
 

@@ -6,7 +6,7 @@ import type { FileOpeningOptions, FileTarget } from './contracts';
 import './file-opening.css';
 
 export const FileOpeningContext = createContext<{
-  openFile: (target?: FileTarget, destination?: string) => Promise<void>;
+  openFile: (target?: FileTarget, destination?: string, toggle?: boolean) => Promise<void>;
   openWeb: (url: string) => Promise<void>;
   onError: (message: string) => void;
 }>({

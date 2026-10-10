@@ -59,6 +59,24 @@ try {
   let terminals = await list();
   assert.equal(terminals.length, 1);
   const id = terminals[0].id;
+  const handle = page.getByRole('button', { name: '调整右栏宽度', exact: true });
+  await handle.focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForTimeout(350);
+  assert.equal(await panel.locator('.right-panel-width-control').getAttribute('data-width'), 'wide');
+  await handle.click();
+  const handleMenu = page.getByRole('menu', { name: '右栏宽度', exact: true });
+  await handleMenu.getByRole('menuitemradio', { name: '全屏', exact: true }).click();
+  await page.waitForTimeout(350);
+  assert.equal(await panel.locator('.right-panel-width-control').getAttribute('data-width'), 'fullscreen');
+  await handle.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(350);
+  assert.equal(await panel.locator('.right-panel-width-control').getAttribute('data-width'), 'wide');
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(350);
+  assert.equal(await panel.locator('.right-panel-width-control').getAttribute('data-width'), 'standard');
+  assert.equal((await list())[0].id, id, 'grip width changes preserve the existing PTY');
   const write = data => page.evaluate(({ id, data }) => window.desktop.terminalWrite(id, data), { id, data });
   const output = async () => (await list()).find(terminal => terminal.id === id)?.chunks.map(chunk => chunk.data).join('') ?? '';
   async function waitOutput(text) {

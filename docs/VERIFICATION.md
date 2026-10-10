@@ -1,5 +1,13 @@
 # Verification
 
+## Right Panel Grip Preview
+
+The PR #85 P1 follow-up separates local artifact reactivation from explicit browser refresh. Reactivation selects the existing tab without navigation; the refresh handler renews the local-page grant and requests a reload of that same tab. Source typecheck/build and the extended file-preview acceptance passed, verifying edited HTML, a newly added local JavaScript asset, reset page state after refresh, retained tab identity, and unchanged state preservation on reactivation. The previously delivered installer predates this follow-up.
+
+The 2026-10-10 preview adds artifact/web-reference toggle behavior and a shared boundary grip using the existing width presets. Source typecheck, build, 272 serial unit/protocol tests, and file-preview, browser, terminal and context Electron acceptance passed. Extended fixtures cover multi-preset pointer dragging, deliberate drag-to-close, keyboard and anchored menu selection, native browser/menu layering, preservation of the existing terminal ID and local HTML page state, repeated artifact/web-reference toggles, and refresh remaining a command. Screenshots include `Desktop/test-results/panel-handle-standard.png` and `panel-handle-fullscreen.png`. Fixtures use isolated profiles, not real account histories. No upstream runtime changes or public release are included.
+
+General source Electron acceptance and packaged file-preview/browser acceptance also passed. The local installer is `Desktop/release/right-panel-handle-20261010/Desktop for Step Code Setup 0.2.0.exe` in the primary workspace, SHA256 `D6D1763AF621CFC385E119CCA023D73360E232930A8E2C6463A6CA13706F2B5F`. The normal desktop shortcut targets this package's unpacked executable. Packaged Node, Step bundle, manifest and Desktop helper hashes match the staged resources. Output totals 718,670,088 bytes. Existing applications and older packages were left untouched. Installer lifecycle and paid-provider acceptance were not repeated.
+
 ## Deferred Model Selection
 
 Cloud run `38013712253` passed staging, tests, build and the preceding Electron fixtures, then the permission-approval script exited without an assertion trace or its screenshots. The exact exit cause is not established. Its isolated profile now uses a canonical path and it logs stages, errors and unexpected Electron exits; a test-only quit-dialog response is installed before fixtures. All original approval assertions remain. Three consecutive local approval runs passed; replacement CI is required to confirm cloud status.

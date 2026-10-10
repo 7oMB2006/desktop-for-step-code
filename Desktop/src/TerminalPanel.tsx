@@ -12,9 +12,10 @@ type Chunk = { seq: number; data: string };
 type Controller = { terminal: Terminal; fit: FitAddon; element: HTMLDivElement; seq: number; info: TerminalInfo; hydrated: boolean; pending: Chunk[] };
 const directoryKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 
-export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cwd, language, onClose, onToggleExpanded, onError }: {
+export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cwd, language, onClose, onToggleExpanded, onError, width, onWidthChange }: {
   open: boolean; replaced: boolean; overlay: boolean; expanded: boolean; runtimeId?: string; cwd?: string;
   language: 'zh' | 'en'; onClose: () => void; onToggleExpanded: () => void; onError: (error: string) => void;
+  width: 'standard' | 'wide'; onWidthChange: (value: 'standard' | 'wide') => void;
 }) {
   const controllers = useRef(new Map<string, Controller>());
   const loaded = useRef(new Set<string>());
@@ -27,7 +28,6 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
   const [active, setActive] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [present, setPresent] = useState(open);
-  const [width, setWidth] = useState<'standard' | 'wide'>('standard');
   const latest = useRef({ language, onError });
   latest.current = { language, onError };
   const scope = directoryKey(cwd ?? '');
@@ -219,7 +219,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
       <header className="right-panel-header"><h2>{t('终端', 'Terminal')}</h2>
         <RightPanelWidthControl panel="terminal" language={language} value={expanded ? 'fullscreen' : width}
           onChange={value => {
-            if (value === 'standard' || value === 'wide') setWidth(value);
+            if (value === 'standard' || value === 'wide') onWidthChange(value);
             if ((value === 'fullscreen') !== expanded) onToggleExpanded();
           }} onError={onError}/>
         <RightPanelExpandButton expanded={expanded} language={language} onToggle={onToggleExpanded}/>

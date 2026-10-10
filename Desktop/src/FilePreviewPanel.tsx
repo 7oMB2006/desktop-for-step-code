@@ -61,7 +61,7 @@ export function FilePreviewPanel({ file, open, replaced, overlay, expanded, lang
           {(file.mode === 'text' || source) && <button className="icon-button" {...label('自动换行', 'Wrap lines')} aria-pressed={wrap} onClick={() => setWrap(!wrap)}><WrapText size={15}/></button>}
           <span className="file-preview-type">{file.language ?? 'text'}</span>
           <button className="icon-button" {...label('复制文件内容', 'Copy file content')} disabled={busy} onClick={() => void run(() => window.desktop!.copyText(file.text))}><Copy size={15}/></button>
-          <button className="icon-button" {...label('刷新文件', 'Refresh file')} disabled={busy} onClick={() => void run(() => openFile({ grantId: file.id }, 'preview'))}><RefreshCw size={15}/></button>
+          <button className="icon-button" {...label('刷新文件', 'Refresh file')} disabled={busy} onClick={() => void run(() => openFile({ grantId: file.id }, 'preview', false))}><RefreshCw size={15}/></button>
         </div>
         <div className="file-preview-scroll" key={`${file.id}:${source}`} tabIndex={0}>
           {file.mode === 'markdown' && !source

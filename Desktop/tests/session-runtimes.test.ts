@@ -33,6 +33,46 @@ function fixture() {
   return { pool, transports, events, open };
 }
 
+test('idle configuration refresh preserves runtime identity and ignores the retired transport', async () => {
+  const transports: Transport[] = [];
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'same-session');
+    transports.push(transport);
+    return transport;
+  });
+  const worker = await pool.open('node', 'step', 'workspace', {});
+  const id = worker.id;
+  worker.permissionPreset = 'read-only';
+  await pool.refresh(worker, 'node', 'step', { NEW_CONFIG: '1' });
+  assert.equal(pool.active, worker);
+  assert.equal(worker.id, id);
+  assert.equal(worker.state?.sessionId, 'same-session');
+  assert.equal(worker.permissionPreset, 'read-only');
+  assert.equal(transports[0].stopped, true);
+  assert.deepEqual(transports[1].startArgs.slice(2, 4), ['--session-id', 'same-session']);
+  assert.equal(transports[1].calls.includes('new_session'), false, 'unpersisted empty session is not recreated');
+  const revision = worker.revision;
+  transports[0].receive({ type: 'desktop_exit' });
+  transports[0].receive({ type: 'agent_start' });
+  assert.equal(worker.revision, revision);
+  assert.equal(worker.status, 'connected');
+  assert.equal(worker.busy, false);
+  transports[1].receive({ type: 'agent_start' });
+  assert.equal(worker.busy, true);
+  await pool.stopAll();
+});
+
+test('configuration refresh never stops running, queued or mutating workers', async () => {
+  for (const field of ['busy', 'queued', 'mutating', 'operations', 'stopping'] as const) {
+    const { pool, transports, open } = fixture();
+    const worker = await open();
+    Object.assign(worker, { [field]: field === 'operations' ? 1 : true });
+    await assert.rejects(pool.refresh(worker, 'node', 'step', {}));
+    assert.equal(transports[0].stopped, false, field);
+    await pool.stopAll();
+  }
+});
+
 test('wire message revisions increase per worker and match its snapshot revision', async () => {
   const { pool, transports, events, open } = fixture();
   const worker = await open();

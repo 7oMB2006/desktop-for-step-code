@@ -15,8 +15,8 @@ const formats: { id: ProviderApi; label: string }[] = [
 ];
 const blank = (): ProviderInfo => ({ id: '', name: '', baseUrl: '', api: 'openai-completions', enabled: true, keyless: false, hasKey: false, models: [] });
 const model = (): ProviderModel => ({ id: '', name: '', reasoning: false, vision: false, contextWindow: 128000, maxTokens: 16384 });
-export function ProviderSettings({ providers, language, busy, onSave, onDelete, onDiscover, onTest, onCancelTest, onCopyDiagnostic, activeModel }: {
-  providers: ProviderInfo[]; language: string; busy: boolean;
+export function ProviderSettings({ providers, language, pending, onSave, onDelete, onDiscover, onTest, onCancelTest, onCopyDiagnostic, activeModel }: {
+  providers: ProviderInfo[]; language: string; pending?: boolean;
   onSave: (provider: CustomProvider, key?: string) => Promise<ProviderInfo[]>;
   onDelete: (id: string) => Promise<ProviderInfo[]>;
   onDiscover: (provider: CustomProvider, key?: string) => Promise<DiscoveredProviderModel[]>;
@@ -57,7 +57,7 @@ export function ProviderSettings({ providers, language, busy, onSave, onDelete, 
     lifecycle.current.mounted = true;
     return () => { lifecycle.current.mounted = false; if (lifecycle.current.testing) void cancelTest.current().catch(() => {}); };
   }, []);
-  const blocked = busy || saving || discovering || testing;
+  const blocked = saving || discovering || testing;
   useEffect(() => {
     if (dirty || blocked) return;
     const current = providers.find(provider => provider.id === draft?.id);
@@ -240,7 +240,7 @@ export function ProviderSettings({ providers, language, busy, onSave, onDelete, 
               <small className="provider-test-cost">{t('发送短请求，可能产生少量费用；不进入会话历史', 'Sends a short request; charges may apply. Not added to chat history.')}</small>
             </section>
           </div>
-          <div className="provider-save"><span role="status">{saved ? <><Check size={14}/>{t('已保存', 'Saved')}</> : busy ? t('任务结束后可保存', 'Save when tasks finish') : dirty ? t('未保存', 'Unsaved') : ''}</span>
+          <div className="provider-save"><span role="status">{dirty ? t('未保存', 'Unsaved') : pending ? t('已保存，待任务空闲后应用', 'Saved; applies when tasks are idle') : saved ? <><Check size={14}/>{t('已保存', 'Saved')}</> : ''}</span>
             <button type="button" className="provider-test-trigger" title={t('发送短请求，可能产生少量费用', 'Sends a short request; charges may apply')} disabled={saving || discovering || testing || !draft.baseUrl.trim() || !modelId.trim() || (!draft.keyless && !draft.hasKey && !key.trim())} onClick={() => void runTest()}><Stethoscope size={14}/>{testing ? t('测试中…', 'Testing…') : t('测试连接', 'Test connection')}</button>
             <button type="submit" className="primary" disabled={blocked || !dirty || !draft.models.length || (!draft.keyless && !draft.hasKey && !key.trim())}><Save size={14}/>{saving ? t('保存中…', 'Saving…') : t('保存', 'Save')}</button></div>
       </form>}

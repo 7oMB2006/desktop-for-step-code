@@ -102,6 +102,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Subagent status acceptance failed' }
           node scripts/verify-chain-runtime.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Chain runtime acceptance failed' }
+          node scripts/verify-workflow-runtime.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Workflow runtime acceptance failed' }
           node scripts/verify-summary-runtime.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Summary runtime acceptance failed' }
           node scripts/verify-background-subagents.mjs

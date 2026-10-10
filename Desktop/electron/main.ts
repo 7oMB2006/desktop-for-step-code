@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/prom
 import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
+import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
 import { PendingMessages } from './pending-messages';
@@ -137,11 +138,15 @@ crashLog.setPhase('runtime staged');
 const env = isolatedEnvironment(dataRoot);
 const vault = new AuthVault(dataRoot);
 let authData: Record<string, unknown> = {};
+let appliedAuthData: Record<string, unknown> = {};
+let providerSettingsPending = false;
+let providerApplyFailed = false;
+let providerApplication: Promise<void> | undefined;
 const authEnvironment = () => ({
   ...env,
   STEPCODE_DESKTOP_AUTH_PATH: env.STEPCODE_AUTH_PATH,
-  STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(runtimeAuth(authData)),
-  ...keylessEnvironment(authData, app.isPackaged ? join(process.resourcesPath, 'runtime-adapters/keyless-fetch.cjs') : join(__dirname, 'keyless-fetch.cjs')),
+  STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(runtimeAuth(appliedAuthData)),
+  ...keylessEnvironment(appliedAuthData, app.isPackaged ? join(process.resourcesPath, 'runtime-adapters/keyless-fetch.cjs') : join(__dirname, 'keyless-fetch.cjs')),
 });
 async function persistAuth(next: Record<string, unknown>) {
   try { await vault.save(next); }
@@ -157,7 +162,7 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
   emit({ type: 'desktop_model_selection', runtimeId: worker.id, sessionId: worker.state?.sessionId,
     runtimeRevision: ++worker.revision, modelSelection: modelSelections.selection(worker),
     modelChanges: modelSelections.changes(worker),
-    state: worker.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], authData)[0] : undefined } : undefined });
+    state: worker.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined });
 }
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   const queueWorker = runtimes.workers.get(event.runtimeId);
@@ -242,15 +247,14 @@ let sessionCatalog: Session[] = [];
 // Upstream spawns one real session per subagent so it can resume the child transcript.
 // Those are an implementation detail of the subagent feature, not sessions the user opened,
 // so they are kept out of the Desktop session list. The files stay on disk.
-const SUBAGENT_SESSION_PREFIX = 'subagent-';
 async function listSessions(): Promise<Session[]> {
   const upstream: Session[] = await admin.request('sessions');
   const sessions: Session[] = upstream
-    .filter(session => !String(session.id ?? '').startsWith(SUBAGENT_SESSION_PREFIX));
+    .filter(session => !isChildSession(String(session.id ?? '')));
   // Empty upstream sessions are persisted lazily, but must remain navigable.
   for (const worker of runtimes.workers.values()) {
     const id = worker.state?.sessionId;
-    if (id && !sessions.some(session => session.id === id)) sessions.unshift({
+    if (id && !isChildSession(id) && !sessions.some(session => session.id === id)) sessions.unshift({
       id, path: worker.state?.sessionFile ?? '', cwd: worker.cwd,
       name: worker.state?.sessionName, firstMessage: firstUserText(worker.messages), modified: new Date(worker.touched).toISOString(), messageCount: worker.messages.length,
     });
@@ -265,7 +269,7 @@ function cachedSessions(): Session[] {
   const sessions = new Map(sessionCatalog.map(session => [session.id, { ...session }]));
   for (const worker of runtimes.workers.values()) {
     const id = worker.state?.sessionId;
-    if (!id) continue;
+    if (!id || isChildSession(id)) continue;
     const previous = sessions.get(id);
     sessions.set(id, {
       ...previous, id, path: worker.state?.sessionFile ?? previous?.path ?? '', cwd: worker.cwd,
@@ -284,14 +288,14 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
   return {
-    preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace },
+    preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
-    state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], authData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
-      : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], authData)[0] : undefined } : undefined,
+    state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
+      : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
     modelSelection: worker ? modelSelections.selection(worker) : undefined,
     modelChanges: worker ? modelSelections.changes(worker) : [],
     permissionPreset: draft?.permissionPreset ?? worker?.permissionPreset, runtimeRevision: worker?.revision,
-    messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: providerModelNames(draft?.models ?? worker?.models ?? [], authData), stats: worker?.stats,
+    messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: providerModelNames(draft?.models ?? worker?.models ?? [], appliedAuthData), stats: worker?.stats,
     pendingMessages: worker ? pendingMessages.list(worker) : [],
     requests: worker ? [...worker.pendingUI.values()] : [],
     sessions, independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
@@ -301,6 +305,62 @@ async function guardIdle() {
   if (transition) throw new Error('Workspace operation in progress');
   await runtimes.assertAllIdle();
 }
+function canApplyProviders() {
+  return !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
+    && [...runtimes.workers.values()].every(worker => worker.status !== 'connecting'
+      && !worker.operations && !worker.mutating && !worker.stopping);
+}
+function applyProviderSettings(): Promise<void> {
+  if (providerApplication) return providerApplication;
+  if (!providerSettingsPending || !canApplyProviders()) return Promise.resolve();
+  const alreadyMutating = settingsMutation;
+  settingsMutation = true;
+  providerApplication = performProviderSettings().catch(error => {
+    providerApplyFailed = true;
+    throw error;
+  }).finally(() => { settingsMutation = alreadyMutating; providerApplication = undefined; });
+  return providerApplication;
+}
+async function performProviderSettings() {
+  if (!providerSettingsPending || !canApplyProviders()) return;
+  await guardIdle();
+  const workers = [...runtimes.workers.values()];
+  const draft = sessionDraft;
+  await projectProviders(dataRoot, authData);
+  appliedAuthData = authData;
+  await admin.stop();
+  admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
+  for (const worker of workers) {
+    if (worker.status !== 'connected') continue;
+    await runtimes.refresh(worker, nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), authEnvironment());
+    if (worker.pendingModel && !worker.models.some(m => m.provider === worker.pendingModel?.model.provider && m.id === worker.pendingModel?.model.id))
+      worker.pendingModel = undefined;
+  }
+  if (draft) {
+    await beginSession(draft.workspace);
+    if (sessionDraft) {
+      sessionDraft.id = draft.id;
+      const selected = sessionDraft.models?.find(model => model.id === draft.model?.id && model.provider === draft.model?.provider);
+      if (selected) {
+        sessionDraft.model = selected; sessionDraft.modelChanged = draft.modelChanged;
+        sessionDraft.thinkingLevel = draft.thinkingLevel; sessionDraft.thinkingChanged = draft.thinkingChanged;
+      }
+      sessionDraft.permissionPreset = draft.permissionPreset; sessionDraft.permissionChanged = draft.permissionChanged;
+    }
+  }
+  providerSettingsPending = false;
+  emit({ type: 'desktop_sessions_changed' });
+}
+setInterval(() => {
+  if (quitting || settingsMutation || !providerSettingsPending || !canApplyProviders()) return;
+  void applyProviderSettings().catch(error => {
+    providerApplyFailed = true;
+    void crashLog.record('provider-settings-apply', error);
+    emit({ type: 'desktop_error', message: preferences.language === 'en'
+      ? 'Provider settings were saved, but could not be applied. Restart the app to retry.'
+      : '供应商配置已保存，但应用失败，请重启软件后重试。' });
+  });
+}, 1000).unref();
 const sessionNavigation = new SessionNavigation(async (id: string) => {
   let worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === id);
   if (worker?.status === 'disconnected') {
@@ -692,10 +752,13 @@ async function handle(method: string, args: any[]) {
     }
     case 'navigateSession': {
       if (deletingArchived || transition && !sessionNavigation.busy) throw new Error('Workspace operation in progress');
-      return sessionNavigation.select(text(args[0], 300));
+      const id = text(args[0], 300);
+      if (isChildSession(id)) throw new Error('Child sessions belong to their parent task');
+      return sessionNavigation.select(id);
     }
     case 'switchSession': {
       if (transition || deletingArchived) throw new Error('Workspace operation in progress');
+      if (isChildSession(text(args[0], 300))) throw new Error('Child sessions belong to their parent task');
       const resident = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === text(args[0]));
       if (resident) {
         sessionDraft = undefined;
@@ -893,7 +956,7 @@ async function handle(method: string, args: any[]) {
             const provider = text(data.provider, 200), modelId = text(data.modelId, 300);
             const model = worker.models.find(model => model.provider === provider && model.id === modelId);
             if (!model) throw new Error('Unknown model');
-            const configured = providerModelNames([model], authData)[0];
+            const configured = providerModelNames([model], appliedAuthData)[0];
             modelSelections.select(worker, { ...configured, thinkingLevels: modelThinkingLevels(configured) });
           } else modelSelections.selectEffort(worker, text(data.level, 30));
           if (!runtimes.isBusy(worker)) await modelSelections.apply(worker);
@@ -901,7 +964,7 @@ async function handle(method: string, args: any[]) {
         }
         if (type === 'get_available_thinking_levels') {
           const selected = worker.pendingModel?.model ?? worker.state?.model;
-          const configured = selected ? providerModelNames([selected], authData)[0] : undefined;
+          const configured = selected ? providerModelNames([selected], appliedAuthData)[0] : undefined;
           if (configured?.thinkingServiceDefault) return { levels: [] };
           if (worker.pendingModel) return { levels: modelThinkingLevels(worker.pendingModel.model) };
         }
@@ -1025,38 +1088,21 @@ async function handle(method: string, args: any[]) {
     }
     case 'saveProvider':
     case 'deleteProvider': {
-      await guardIdle();
       const previous = authData;
       const next = method === 'saveProvider' ? saveProviderAuth(previous, args[0], args[1]) : deleteProviderAuth(previous, args[0]);
-      // The vault is authoritative; startup regenerates the non-secret runtime projection.
+      // Keep live credentials and models unchanged until every task and queue drains.
       await persistAuth(next);
-      try { await projectProviders(dataRoot, next); }
-      catch (error) { await persistAuth(previous); throw error; }
-      const current = runtimes.active;
-      const draft = sessionDraft;
-      await runtimes.stopAll();
-      await admin.stop();
-      admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
-      if (draft) {
-        await beginSession(draft.workspace);
-      } else if (current) {
-        await connect(current.cwd, current.state?.sessionFile, false);
-        const worker = runtimes.active!;
-        if (current.permissionPreset && worker.permissionPreset !== current.permissionPreset) {
-          await worker.rpc.request('prompt', { message: `/permissions ${current.permissionPreset}` });
-        }
-        if (!worker.models.some(m => m.provider === worker.state?.model?.provider && m.id === worker.state?.model?.id) && worker.models[0]) {
-          await worker.rpc.request('set_model', { provider: worker.models[0].provider, modelId: worker.models[0].id });
-          await runtimes.read(worker);
-        }
-      }
-      emit({ type: 'desktop_sessions_changed' });
+      providerSettingsPending = true;
+      providerApplyFailed = false;
+      await applyProviderSettings();
       return snapshot();
     }
     case 'login': {
       await guardIdle();
+      await applyProviderSettings();
       const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
       await persistAuth(mergeRuntimeAuth(authData, next));
+      appliedAuthData = authData;
       const current = runtimes.active;
       const draft = sessionDraft;
       await runtimes.stopAll();
@@ -1067,8 +1113,10 @@ async function handle(method: string, args: any[]) {
     case 'cancelLogin': return admin.request('cancel_login');
     case 'logout': {
       await guardIdle();
+      await applyProviderSettings();
       const next = await admin.request('logout');
       await persistAuth(mergeRuntimeAuth(authData, next));
+      appliedAuthData = authData;
       const current = runtimes.active;
       const draft = sessionDraft;
       await runtimes.stopAll();
@@ -1228,6 +1276,7 @@ else app.whenReady().then(async () => {
   // vault.load() also migrates and removes a legacy plaintext auth.json. safeStorage
   // requires the ready state, which whenReady provides.
   authData = await vault.load();
+  appliedAuthData = authData;
   await projectProviders(dataRoot, authData);
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
@@ -1314,11 +1363,16 @@ else app.whenReady().then(async () => {
   window.on('session-end', () => { sessionEnding = true; app.quit(); });
   ipcMain.handle('desktop', async (event, method, ...args) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
+    // Reads must not observe the admin transport halfway through an idle reload.
+    if (providerApplication) await providerApplication;
     const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method);
     if (undoBusy && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
       'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
     if (settingsMutation && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (providerSettingsPending && !settingsMutation && canApplyProviders()) {
+      await applyProviderSettings();
+    }
     if (shared) settingsMutation = true;
     try { return await handle(method, args); }
     catch (error) { throw new Error(error instanceof Error ? error.message : 'Desktop operation failed'); }

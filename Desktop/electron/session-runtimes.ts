@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RpcProcess } from './runtime';
 import { permissionFromStatus } from './permission-status';
@@ -121,13 +122,14 @@ export class SessionRuntimes {
   prepare(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath: string) {
     return this.openWorker(node, entry, cwd, env, sessionPath, undefined, false);
   }
-  private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation, activate = true) {
-    const worker: SessionRuntime = {
+  private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation, activate = true, existing?: SessionRuntime) {
+    const worker: SessionRuntime = existing ?? {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
     };
-    worker.rpc = this.create(event => {
-      if (this.workers.get(worker.id) !== worker) return;
+    worker.status = 'connecting';
+    const transport = this.create(event => {
+      if (this.workers.get(worker.id) !== worker || worker.rpc !== transport) return;
       event = this.hooks.event?.(worker, event) ?? event;
       worker.revision++;
       if (event.type === 'agent_start') { worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
@@ -176,12 +178,15 @@ export class SessionRuntimes {
       this.emit({ ...event, runtimeId: worker.id, runtimeRevision: worker.revision, sessionId: worker.state?.sessionId });
       if (['agent_start', 'agent_end', 'desktop_exit', 'extension_ui_request'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
     });
+    worker.rpc = transport;
     this.workers.set(worker.id, worker);
     try {
       const launch = this.hooks.launch?.(worker);
-      worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env }, ['--append-system-prompt', WORKSPACE_POLICY, ...(launch?.args ?? [])]);
+      worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env }, ['--append-system-prompt', WORKSPACE_POLICY,
+        ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);
       await worker.rpc.request('get_state', {}, 60000);
-      const result = await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath } : {}, 60000);
+      const result = existing && !sessionPath ? { cancelled: false }
+        : await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath } : {}, 60000);
       if (result.cancelled) throw new Error('Session operation cancelled');
       if (branch) {
         const sourceState = await worker.rpc.request('get_state');
@@ -309,6 +314,32 @@ export class SessionRuntimes {
       if (worker.mutating) throw new Error('Session operation in progress');
       await this.assertIdle(worker);
     }
+  }
+  async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv) {
+    await this.assertIdle(worker);
+    if (worker.operations || worker.mutating || worker.stopping) throw new Error('Session operation in progress');
+    const sessionFile = worker.state?.sessionFile && existsSync(worker.state.sessionFile) ? worker.state.sessionFile : undefined;
+    const sessionId = worker.state?.sessionId;
+    const model = worker.state?.model;
+    const thinkingLevel = worker.state?.thinkingLevel;
+    const permissionPreset = worker.permissionPreset;
+    worker.mutating = true;
+    // Ignore late exit events from the old transport without changing the UI identity.
+    this.workers.delete(worker.id);
+    try {
+      this.hooks.dispose?.(worker);
+      await worker.rpc.stop();
+      await this.openWorker(node, entry, worker.cwd, env, sessionFile, undefined, false, worker);
+      if (worker.state?.sessionId !== sessionId) throw new Error('Runtime changed session identity');
+      const selected = worker.models.find(item => item.provider === model?.provider && item.id === model?.id) ?? worker.models[0];
+      if (selected) await worker.rpc.request('set_model', { provider: selected.provider, modelId: selected.id });
+      if (selected?.provider === model?.provider && selected?.id === model?.id && thinkingLevel) {
+        const { levels } = await worker.rpc.request('get_available_thinking_levels');
+        if (levels?.includes(thinkingLevel)) await worker.rpc.request('set_thinking_level', { level: thinkingLevel });
+      }
+      if (permissionPreset) await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
+      await this.read(worker);
+    } finally { worker.mutating = false; this.publish(); }
   }
   clearRequest(worker: SessionRuntime, id: string) {
     const confirmation = this.confirmations.get(id);

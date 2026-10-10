@@ -211,6 +211,23 @@ try {
     const r = e.getBoundingClientRect(); return { x: r.x, right: r.right, height: r.height };
   }));
   assert.ok(chips.every(box => box.x >= 0 && box.right <= 640));
+  // A queued message must not pull the return-to-bottom control left when no diff is available.
+  const returnPosition = await page.evaluate(() => {
+    const bar = document.querySelector('.composer-context-bar.has-queue');
+    const changes = bar.querySelector('.live-turn-context');
+    const next = changes?.nextSibling;
+    changes?.remove();
+    const existing = bar.querySelector('.jump-to-bottom');
+    const button = existing ?? document.createElement('button');
+    if (!existing) { button.className = 'icon-button jump-to-bottom'; button.textContent = '↓'; bar.append(button); }
+    const bounds = bar.getBoundingClientRect();
+    const rect = button.getBoundingClientRect();
+    if (!existing) button.remove();
+    if (changes) bar.insertBefore(changes, next);
+    return { right: rect.right, barRight: bounds.right };
+  });
+  assert.ok(Math.abs(returnPosition.right - returnPosition.barRight) < 2,
+    'return-to-bottom stays at the right edge with a queue and no diff');
   await page.screenshot({ path: 'test-results/queue-narrow-light.png' });
   await page.evaluate(() => { window.queueKeyTests = []; const input = document.querySelector('.composer > textarea'); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })); });
   assert.equal((await snapshot()).pendingMessages.length, 2, 'repeated/IME Enter cannot steer');

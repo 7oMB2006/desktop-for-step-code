@@ -3,6 +3,7 @@
 .composer-context-bar.has-queue { display: flex; }
 .composer-context-bar.has-queue .live-turn-context { margin-left: auto; flex-shrink: 1; }
 .composer-context-bar.has-queue .jump-to-bottom { flex: none; }
+.composer-context-bar.has-queue:not(:has(.live-turn-context)) .jump-to-bottom { margin-left: auto; }
 .composer-context-bar.has-queue .composer-quotes { flex: none; }
 .queue-trigger { height: 30px; min-height: 0; box-sizing: border-box; padding: 4px 10px; font-size: 12px; white-space: nowrap; color: var(--muted); background: transparent; border-radius: 6px; }
 .queue-trigger[aria-expanded=true] { color: var(--ink); background: var(--surface); }

@@ -10,6 +10,8 @@ await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'z
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
 await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
 const requests = [];
+const textOfMessage = message => typeof message.content === 'string' ? message.content
+  : message.content?.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') ?? '';
 let expectedKey = 'isolated-provider-fixture';
 let expectNoAuth = false;
 let release;
@@ -285,13 +287,45 @@ try {
   await prompt.fill('Hold this response');
   await prompt.press('Enter');
   await waitFor(s => s.state?.isStreaming);
-  const rejection = await page.evaluate(async p => {
-    try { await window.desktop.saveProvider(p); return false; } catch { return true; }
+  const oldRuntime = await snapshot();
+  const beforeProjection = await readFile(join(profile, 'step-runtime/models.json'), 'utf8');
+  await settings();
+  await page.getByLabel('名称', { exact: true }).fill('运行中保存的供应商');
+  assert.equal(await page.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByText('已保存，待任务空闲后应用', { exact: true }).waitFor();
+  const pending = await snapshot();
+  assert.equal(pending.providerSettingsPending, true);
+  assert.equal(pending.runtimeId, oldRuntime.runtimeId);
+  assert.equal(pending.state.sessionId, oldRuntime.state.sessionId);
+  assert.equal(pending.state.isStreaming, true);
+  assert.equal(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'), beforeProjection,
+    'in-flight parent and child model projection remains untouched');
+  assert.equal((await page.evaluate(() => window.desktop.settings())).providers[0].name, '运行中保存的供应商');
+  const updated = await page.evaluate(async p => {
+    return window.desktop.saveProvider({ ...p, name: '运行中再次保存的供应商' });
   }, restored);
-  assert.equal(rejection, true, 'cannot mutate provider while an agent runs');
+  assert.equal(updated.providerSettingsPending, true);
+  const addedId = await page.evaluate(async p => {
+    await window.desktop.saveProvider({ ...p, id: '', name: '运行中新增供应商' }, 'isolated-extra-fixture');
+    return (await window.desktop.settings()).providers.find(provider => provider.name === '运行中新增供应商').id;
+  }, restored);
+  assert.equal((await snapshot()).models.some(model => model.provider === addedId), false,
+    'a saved addition does not alter an in-flight registry');
+  const removed = await page.evaluate(id => window.desktop.deleteProvider(id), addedId);
+  assert.equal(removed.providerSettingsPending, true, 'pending additions can be removed without stopping the agent');
+  assert.equal(removed.runtimeId, oldRuntime.runtimeId);
+  assert.equal(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'), beforeProjection);
   while (!release) await page.waitForTimeout(20);
   hold = false; release();
-  await waitFor(s => !s.state?.isStreaming);
+  const applied = await waitFor(s => !s.state?.isStreaming && !s.providerSettingsPending);
+  assert.equal(applied.runtimeId, oldRuntime.runtimeId, 'idle reload keeps renderer runtime identity');
+  assert.equal(applied.state.sessionId, oldRuntime.state.sessionId);
+  assert.equal(applied.models.find(m => m.provider === provider.id)?.providerName, '运行中再次保存的供应商');
+  assert.ok(applied.messages.some(m => textOfMessage(m).includes('Custom provider fixture reply.')),
+    'the held response finishes normally and survives reload');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   await settings();
   await page.getByRole('switch', { name: '启用供应商' }).click();
   await page.getByRole('button', { name: '保存', exact: true }).click();
@@ -454,7 +488,7 @@ try {
   await page.waitForFunction(async () => (await window.desktop.settings()).providers.length === 0);
   assert.equal((await snapshot()).models.some(m => m.provider === provider.id), false);
   assert.deepEqual(errors, []);
-  console.log('Custom provider UI, three wire protocols with and without authentication, real tool invocation, secure persistence, no-Step-login RPC generation, settings guard, rename, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.');
+  console.log('Custom provider UI, three wire protocols with and without authentication, real tool invocation, secure persistence, running save/add/remove, deferred idle application with stable identity, rename, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.');
 } finally {
   hold = false; release?.();
   server.closeAllConnections();

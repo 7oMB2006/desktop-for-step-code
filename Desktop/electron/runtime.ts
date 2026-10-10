@@ -44,6 +44,7 @@ export class RpcProcess {
   private child?: ChildProcessWithoutNullStreams;
   private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  get hasPendingRequests() { return this.pending.size > 0; }
   constructor(private event: (value: any) => void) {}
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) {
     if (this.child) throw new Error('Runtime already started');

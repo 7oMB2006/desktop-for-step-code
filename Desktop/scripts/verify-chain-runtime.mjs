@@ -92,6 +92,8 @@ try {
       await new Promise(resolve => setTimeout(resolve, 100));
     } while (Date.now() < deadline);
     assert.ok(settled, `${scenario}: run and authoritative result settled before deadline`);
+    assert.equal(current.sessions.some(session => /^(workflow|subagent)-/.test(session.id)), false,
+      'real child sessions never enter the user conversation catalog');
     phase(`${scenario}: settled`);
     const tool = current.messages.slice(before).findLast(m => m.role === 'toolResult' && m.toolName === 'subagent');
     assert.ok(tool, 'real runtime returned subagent records');

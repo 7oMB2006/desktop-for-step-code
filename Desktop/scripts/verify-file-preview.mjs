@@ -120,11 +120,23 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   assert.equal(await page.locator('.file-preview-source').count(), 0);
   assert.match(await page.locator('#file-panel').evaluate(element => getComputedStyle(element).transitionTimingFunction), /cubic-bezier\(0.22, 1, 0.36, 1\)/);
   const widthTrigger = page.getByRole('button', { name: '文件预览宽度', exact: true });
+  await page.waitForFunction(() => {
+    const panel = document.querySelector('#file-panel');
+    const track = document.querySelector('.file-preview-track');
+    return panel && track && !track.classList.contains('is-wide')
+      && panel.getBoundingClientRect().width > 0
+      && [panel, track, track.parentElement].filter(Boolean).every(element =>
+        element.getAnimations().every(animation => animation.playState !== 'running'));
+  });
   const standardBox = await page.locator('#file-panel').boundingBox();
   await widthTrigger.click();
   const widthMenu = page.getByRole('menu', { name: '文件预览宽度', exact: true });
   await widthMenu.getByRole('menuitemradio', { name: '宽幅', exact: true }).click();
-  await page.waitForTimeout(350);
+  await page.waitForFunction(standardWidth => {
+    const panel = document.querySelector('#file-panel');
+    return document.querySelector('.file-preview-track')?.classList.contains('is-wide')
+      && panel?.getBoundingClientRect().width > standardWidth + 50;
+  }, standardBox.width);
   assert.ok((await page.locator('#file-panel').boundingBox()).width > standardBox.width + 50);
   await page.screenshot({ path: 'test-results/file-preview-wide.png' });
   await widthTrigger.click();

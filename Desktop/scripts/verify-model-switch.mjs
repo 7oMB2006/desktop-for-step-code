@@ -158,6 +158,20 @@ try {
   await reopened.locator('.session-row > button:first-child').filter({ hasText: 'FIRST:' }).click();
   await reopened.locator('.client-model-change').waitFor();
   assert.equal(await reopened.locator('.client-model-change').count(), 1, 'sidecar survives a full application restart');
+  const history = await reopened.evaluate(() => window.desktop.snapshot());
+  const cloned = await reopened.evaluate(id => window.desktop.cloneSession(id), history.state.sessionId);
+  assert.notEqual(cloned.state.sessionId, history.state.sessionId);
+  assert.equal(cloned.modelChanges.length, 1, 'whole-session copy inherits switch history');
+  await reopened.reload();
+  await reopened.locator('.client-model-change').waitFor();
+  const lastReply = cloned.messages.findLast(message => message.role === 'assistant' && message.display !== false);
+  assert.ok(lastReply?.entryId);
+  const branched = await reopened.evaluate(({ entryId, runtimeId }) => window.desktop.branchSession('clone', entryId, runtimeId),
+    { entryId: lastReply.entryId, runtimeId: cloned.runtimeId });
+  assert.equal(branched.modelChanges.length, 1, 'reply branch inherits switch history');
+  await reopened.reload();
+  await reopened.locator('.client-model-change').waitFor();
+  assert.equal(await reopened.locator('.client-model-change').count(), 1);
   console.log('Model switch passed: active selection, effort, cancellation, reload, navigation, old-model steering, new-model FIFO dispatch, sidecar history, styles and context isolation.');
 } catch (error) {
   console.error(error);

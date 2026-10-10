@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SessionCollaboration, publicMessages } from '../electron/session-collaboration';
 import { SessionRuntimes, type WorkerTransport } from '../electron/session-runtimes';
 import type { RuntimeEvent } from '../src/contracts';
+import { PendingMessages } from '../electron/pending-messages';
 
 class Transport implements WorkerTransport {
   calls: { type: string; args?: Record<string, unknown> }[] = [];
@@ -20,15 +21,17 @@ class Transport implements WorkerTransport {
   respond() { throw new Error('Local approvals must not be sent to upstream'); }
   async stop() {}
 }
-async function fixture() {
+async function fixture(beforePrompt?: (worker: import('../electron/session-runtimes').SessionRuntime, message: string) => Promise<void>) {
   const events: RuntimeEvent[] = [];
   const transports: Transport[] = [];
   const pool: SessionRuntimes = new SessionRuntimes(event => events.push(event), () => {
     const transport = new Transport(`session-${transports.length}`);
     transports.push(transport);
     return transport;
-  }, { launch: worker => broker.attach(worker), dispose: worker => broker.detach(worker) });
-  const broker: SessionCollaboration = new SessionCollaboration(pool, 'extension.mjs');
+  }, { beforePrompt, launch: worker => broker.attach(worker), dispose: worker => broker.detach(worker) });
+  const queue = new PendingMessages(() => {}, () => {}, undefined, (worker, message) => pool.preparePrompt(worker, message));
+  const broker: SessionCollaboration = new SessionCollaboration(pool, 'extension.mjs', () => 'zh',
+    (worker, message) => { queue.enqueue(worker, message, { message }); });
   await broker.start();
   const a = await pool.open('node', 'step', 'workspace-a', {});
   const b = await pool.open('node', 'step', 'workspace-b', {});
@@ -38,7 +41,7 @@ async function fixture() {
     assert.ok(request);
     pool.respondToRequest(a, { id: request.id, confirmed: approved });
   };
-  return { pool, broker, events, transports, a, b, close, approve };
+  return { pool, broker, queue, events, transports, a, b, close, approve };
 }
 
 test('prose snapshots exclude thinking, tool payloads and images and bound their output', () => {
@@ -92,13 +95,50 @@ test('each cross-session message requires source-scoped approval including bypas
     const accepted = f.broker.dispatch(f.a, { action: 'send', sessionId: 'stepcode-desktop://sessions/session-1', message: 'Only inspect your files.' });
     f.approve(true);
     assert.equal((await accepted as any).delivery, 'queued');
+    assert.equal(f.transports[1].calls.some(call => call.type === 'prompt'), false, 'busy peer messages stay in the Desktop queue');
+    assert.equal(f.queue.list(f.b).length, 1);
+    f.b.busy = false;
+    await f.queue.drain(f.b);
     const prompt = f.transports[1].calls.find(call => call.type === 'prompt')!;
-    assert.equal(prompt.args?.streamingBehavior, 'followUp');
+    assert.equal(prompt.args?.streamingBehavior, undefined);
     assert.ok(String(prompt.args?.message).includes('sourceSessionId'));
     assert.ok(String(prompt.args?.message).includes('Only inspect your files.'));
     assert.ok(String(prompt.args?.message).includes('not the peer'));
     assert.equal(f.b.submissions, 0);
     assert.ok(!f.transports[1].calls.some(call => ['abort', 'steer'].includes(call.type)));
+  } finally { await f.close(); }
+});
+
+test('queued peer turns prepare the next model before dispatch and retain FIFO order', async () => {
+  const prepared: string[] = [];
+  const f = await fixture(async (worker, message) => {
+    prepared.push(message);
+    if (worker.pendingModel) {
+      await worker.rpc.request('set_model', { modelId: worker.pendingModel.model.id });
+      worker.pendingModel = undefined;
+    }
+  });
+  try {
+    f.b.busy = true;
+    f.queue.enqueue(f.b, 'older local message', { message: 'older local message' });
+    f.b.pendingModel = { model: { id: 'next-model', provider: 'fixture', name: 'Next model' } };
+    const send = f.broker.dispatch(f.a, { action: 'send', sessionId: 'session-1', message: 'peer follow-up' });
+    f.approve(true);
+    assert.equal((await send as any).delivery, 'queued');
+    assert.equal(prepared.length, 0);
+    f.b.busy = false;
+    await f.queue.drain(f.b);
+    assert.equal(prepared[0], 'older local message');
+    assert.equal(f.transports[1].calls.filter(call => ['set_model', 'prompt'].includes(call.type))[0].type, 'set_model');
+    f.queue.delivered(f.b, 'older local message', 1);
+    f.b.pendingModel = { model: { id: 'peer-model', provider: 'fixture', name: 'Peer model' } };
+    await f.queue.drain(f.b);
+    assert.match(prepared[1], /peer follow-up/);
+    const calls = f.transports[1].calls.filter(call => ['set_model', 'prompt'].includes(call.type));
+    assert.deepEqual(calls.map(call => call.type), ['set_model', 'prompt', 'set_model', 'prompt']);
+    assert.equal(calls[2].args?.modelId, 'peer-model');
+    assert.equal(calls[3].args?.streamingBehavior, undefined);
+    f.queue.delivered(f.b, String(calls[3].args?.message), 2);
   } finally { await f.close(); }
 });
 

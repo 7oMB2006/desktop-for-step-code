@@ -12,6 +12,7 @@ const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
 const textOf = content => typeof content === 'string' ? content : content?.filter(block => block.type === 'text').map(block => block.text).join('\n') ?? '';
 const replies = [];
 const calls = [];
+const peerModels = [];
 let targetId;
 let targetReference;
 let running;
@@ -43,6 +44,7 @@ const server = createServer(async (req, res) => {
     res.on('close', () => clearInterval(timer));
   } else if (user.startsWith('Peer-session reference')) {
     peerDeliveries++;
+    peerModels.push(payload.model);
     assert.ok(user.includes('not the peer'));
     assert.ok(user.includes('sourceSessionId'));
     complete(`Peer receipt ${peerDeliveries}`);
@@ -56,7 +58,7 @@ await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'z
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-test-only',
-    models: [{ id: 'fixture', name: 'Peer fixture', contextWindow: 32768, maxTokens: 2048 }] } },
+    models: ['fixture', 'fixture-next'].map(id => ({ id, name: id, contextWindow: 32768, maxTokens: 2048 })) } },
 }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -178,6 +180,7 @@ try {
 
   await page.evaluate(async ({ runtimeId }) => window.desktop.command('prompt', { message: 'KEEP-BUSY' }, runtimeId), { runtimeId: target.runtimeId });
   await page.waitForFunction(async id => (await window.desktop.snapshot()).runtimes.find(runtime => runtime.sessionId === id)?.status === 'running', targetId);
+  await page.evaluate(runtimeId => window.desktop.command('set_model', { provider: 'fixture', modelId: 'fixture-next' }, runtimeId), target.runtimeId);
   await send('PROBE-SEND-QUEUED');
   await approval.waitFor();
   await approval.getByRole('button', { name: '确认', exact: true }).click();
@@ -189,6 +192,7 @@ try {
   const deliveryDeadline = Date.now() + 15000;
   while (peerDeliveries !== 2 && Date.now() < deliveryDeadline) await page.waitForTimeout(50);
   assert.equal(peerDeliveries, 2);
+  assert.deepEqual(peerModels, ['fixture', 'fixture-next'], 'busy peer follow-up applies the pending model before its first request');
   await page.waitForFunction(async () => (await window.desktop.snapshot()).runtimes.every(runtime => runtime.status !== 'running'));
   assert.equal(peerDeliveries, 2);
   const unreadBefore = (await page.evaluate(() => window.desktop.snapshot())).unreadSessionIds;

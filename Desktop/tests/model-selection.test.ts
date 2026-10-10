@@ -117,6 +117,27 @@ test('idle choices collapse before consumption; sidecars survive reopen and cont
     assert.equal(history.changes({ ...worker, state: { ...worker.state!, sessionId: 'session-b' } }).length, 0);
   } finally { await close(); }
 });
+test('clones inherit settled switch history independently without pending transitions', async () => {
+  const { selections, worker, root, close } = await fixture();
+  try {
+    selections.select(worker, b);
+    await selections.prepare(worker, 'retained turn');
+    assert.equal(selections.delivered(worker, 'retained turn', 10), true);
+    selections.select(worker, a, 'low');
+    await selections.prepare(worker, 'not delivered');
+    await selections.copyHistory('session-a', 'session-branch');
+    const branch = { ...worker, state: { ...worker.state!, sessionId: 'session-branch' } };
+    assert.equal(selections.changes(branch).length, 1);
+    assert.equal(selections.changes(branch)[0].userTimestamp, 10);
+    assert.equal(selections.delivered(branch, 'not delivered', 11), false, 'unconfirmed transitions are not inherited');
+    selections.changes(branch)[0].to.name = 'branch-only mutation';
+    assert.equal(selections.changes(worker)[0].to.name, 'Next Model');
+    const reopened = new ModelSelections(root, () => {});
+    await reopened.load('session-branch');
+    assert.equal(reopened.changes(branch)[0].to.name, 'Next Model');
+  } finally { await close(); }
+});
+
 test('upstream busy state is rechecked before application and concurrent mutation is rejected', async () => {
   const { selections, worker, calls, close } = await fixture();
   try {

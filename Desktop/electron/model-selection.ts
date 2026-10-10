@@ -121,5 +121,12 @@ export class ModelSelections {
     }).catch(error => { try { this.onError(error); } catch { /* persistence must not poison the queue */ } });
   }
   async flush() { await this.writes; }
+  async copyHistory(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return;
+    const source = await this.load(sourceId);
+    this.records.set(targetId, { changes: structuredClone(source.changes) });
+    this.save(targetId);
+    await this.flush();
+  }
   async remove(id: string) { await this.flush(); this.records.delete(id); await rm(this.file(id), { force: true }); }
 }

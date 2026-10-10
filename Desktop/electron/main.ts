@@ -214,7 +214,8 @@ const pendingMessages = new PendingMessages(worker => {
 }, (worker, error) => emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) }),
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
   (worker, message) => runtimes.preparePrompt(worker, message));
-const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language);
+const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
+  (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
 setInterval(() => { if (!transition) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error)); }, 60000).unref();
 const admin = new RpcProcess(event => {
   if (event.type === 'auth_url') {
@@ -737,6 +738,7 @@ async function handle(method: string, args: any[]) {
         const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd, authEnvironment(),
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
+        await modelSelections.copyHistory(sessionId, worker.state!.sessionId!);
         preferences.workspace = worker.cwd;
         await savePreferences();
         return await snapshot(worker);
@@ -768,6 +770,7 @@ async function handle(method: string, args: any[]) {
         const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), source.cwd, authEnvironment(),
           sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
             name });
+        await modelSelections.copyHistory(source.state!.sessionId!, worker.state!.sessionId!);
         return await snapshot(worker);
       } finally { source.mutating = false; transition = false; }
     }

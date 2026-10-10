@@ -6,9 +6,11 @@ import { createHash } from 'node:crypto';
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
 if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('Build this Windows x64 preview on Windows x64');
+const PINNED_COMMIT = '39ec6e0adeca09d50c8897023ea4e471371634cd';
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
-if (commit !== '39ec6e0adeca09d50c8897023ea4e471371634cd') {
-  throw new Error('Step Code source does not match the pinned Desktop baseline; build the pinned checkout and pass its path to stage:runtime');
+if (commit !== PINNED_COMMIT) {
+  // Naming both sides keeps a stale build instruction from reading as a broken checkout.
+  throw new Error(`Step Code source does not match the pinned Desktop baseline: source is at ${commit}, pinned is ${PINNED_COMMIT}; check out the pinned commit and reapply patches/step-code-desktop.patch`);
 }
 // The manifest advertises the patch set below, so staging must prove the sources are
 // actually patched instead of trusting the working tree. `pnpm package` never applies the

@@ -32,3 +32,18 @@ test('staging rejects the wrong upstream before touching runtime through every s
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// A pin bump moves four things together: the guard, the patch, the apply script and the
+// instructions. The first three are coupled by the guard itself; this couples the fourth so a
+// stale build instruction fails in CI instead of on a contributor's machine.
+test('every documented pin matches the staging guard', { skip: process.platform !== 'win32' }, async () => {
+  const guard = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
+  const pin = guard.match(/const PINNED_COMMIT = '([0-9a-f]{40})'/)?.[1];
+  assert.match(pin ?? '', /^[0-9a-f]{40}$/, 'staging guard declares a pin');
+  // Dated verification records legitimately keep the pin they were built with, so only the
+  // locations that tell someone what to check out are listed here.
+  for (const doc of ['../README.md', '../README.zh-CN.md', '../patches/README.md', '../docs/RELEASE.md']) {
+    const text = await readFile(resolve(doc), 'utf8');
+    assert.ok(text.includes(pin!), `${doc} still documents an older pin than the staging guard`);
+  }
+});

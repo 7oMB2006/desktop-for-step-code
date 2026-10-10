@@ -1,0 +1,12 @@
+.right-panel-handle {
+  position: fixed; top: calc(50% + var(--window-bar-height) / 2); z-index: 14;
+  transform: translate(-50%, -50%); width: 20px; height: 64px; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; background: transparent; cursor: ew-resize; touch-action: none;
+}
+.right-panel-handle::before { content: ''; width: 3px; height: 28px; border-radius: 2px; background: var(--muted); opacity: .45; box-shadow: 0 0 0 3px var(--bg); transition: height 180ms var(--right-panel-ease), opacity 150ms; pointer-events: none; }
+.right-panel-handle:hover::before, .right-panel-handle:focus-visible::before, .app[data-panel-drag] .right-panel-handle::before { height: 36px; opacity: .85; }
+.right-panel-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.app[data-panel-drag] { cursor: ew-resize; user-select: none; }
+.app[data-panel-drag] .right-inspector-surface, .app[data-panel-drag] > [class$="-track"], .app[data-panel-drag] .summary-track { transition: none !important; }
+@media (prefers-reduced-motion: reduce) { .right-panel-handle::before { transition: none; } }

@@ -51,6 +51,8 @@ import { TerminalPanel } from './TerminalPanel';
 import { BrowserPanel } from './BrowserPanel';
 import { FilePreviewPanel } from './FilePreviewPanel';
 import { FileOpeningContext } from './FileOpening';
+import { RightPanelHandle } from './RightPanelHandle';
+import type { RightPanelWidth } from './RightPanelWidthControl';
 import type { FilePreviewData, FileTarget } from './contracts';
 import { SubagentPanel } from './SubagentPanel';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
@@ -138,19 +140,37 @@ function App() {
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>('auto');
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>(null);
   const [previewFile, setPreviewFile] = useState<FilePreviewData>();
-  const openFile = useCallback(async (target?: FileTarget, destination?: string) => {
+  const [browserWidth, setBrowserWidth] = useState<'standard' | 'wide'>('standard');
+  const [terminalWidth, setTerminalWidth] = useState<'standard' | 'wide'>('standard');
+  const [handleBlocked, setHandleBlocked] = useState(false);
+  const openingSequence = useRef(0);
+  const openFile = useCallback(async (target?: FileTarget, destination?: string, toggle = true) => {
     if (!bridge) throw new Error('Desktop unavailable');
+    const sequence = ++openingSequence.current;
+    const before = rightPanel === 'browser' ? await bridge.browserList() : undefined;
     const result = await bridge.fileOpen(target, destination);
-    if (!result || result.destination === 'external') return;
+    if (sequence !== openingSequence.current || !result || result.destination === 'external') return;
     setDetails('');
-    if (result.destination === 'preview') { setPreviewFile(result.file); setRightPanel('file'); }
-    else setRightPanel('browser');
-  }, []);
+    if (result.destination === 'preview') {
+      const same = previewFile?.path.toLowerCase() === result.file.path.toLowerCase();
+      if (toggle && target && same && rightPanel === 'file' && !details) { setRightPanel(null); return; }
+      setPreviewFile(result.file); setRightPanel('file');
+    } else {
+      const same = before?.activeId === result.browser.activeId;
+      setRightPanel(toggle && same && rightPanel === 'browser' && !details ? null : 'browser');
+    }
+  }, [rightPanel, details, previewFile]);
   const openWeb = useCallback(async (address: string) => {
     if (!bridge) throw new Error('Desktop unavailable');
+    const sequence = ++openingSequence.current;
+    const before = await bridge.browserList();
+    if (rightPanel === 'browser' && !details && before.tabs.find(tab => tab.id === before.activeId)?.url === address) {
+      setRightPanel(null); return;
+    }
     await bridge.browserOpenLink(address);
+    if (sequence !== openingSequence.current) return;
     setDetails(''); setRightPanel('browser');
-  }, []);
+  }, [rightPanel, details]);
   const [selectedSubagent, setSelectedSubagent] = useState<SubagentTaskKey | null>(null);
   const [repositoryRequest, setRepositoryRequest] = useState<{ runtimeId?: string; sequence: number }>();
   // The panel reads from live messages, so a subagent that finishes while it stays open keeps
@@ -1158,13 +1178,15 @@ function App() {
       overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
     <TerminalPanel open={visibleRightPanel === 'terminal' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
+      width={terminalWidth} onWidthChange={setTerminalWidth}
       expanded={inspectorExpanded && visibleRightPanel === 'terminal'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'terminal')}
       overlay={!summarySpace} runtimeId={data.runtimeId} cwd={data.preferences.workspace} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
     <BrowserPanel open={visibleRightPanel === 'browser' && !details}
+      width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}
@@ -1172,6 +1194,19 @@ function App() {
       width={data.preferences.filePreviewWidth === 'wide' ? 'wide' : 'standard'}
       onWidthChange={value => void setPreference({ filePreviewWidth: value })}
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'file')} onClose={closeRightPanel} onError={setError}/>
+    {!details && visibleRightPanel && ['file', 'browser', 'terminal', 'context', 'review', 'subagent'].includes(visibleRightPanel) && <RightPanelHandle key={visibleRightPanel}
+      panel={visibleRightPanel} language={data.preferences.language} onClose={closeRightPanel} onBlocked={setHandleBlocked}
+      standard={visibleRightPanel === 'browser' ? 620 : visibleRightPanel === 'file' ? 540 : visibleRightPanel === 'terminal' ? 500 : 344}
+      wide={['file', 'browser', 'terminal'].includes(visibleRightPanel)}
+      value={inspectorExpanded ? 'fullscreen' : visibleRightPanel === 'browser' ? browserWidth : visibleRightPanel === 'terminal' ? terminalWidth : visibleRightPanel === 'file' && data.preferences.filePreviewWidth === 'wide' ? 'wide' : 'standard'}
+      onChange={(value: RightPanelWidth) => {
+        if (value !== 'fullscreen') {
+          if (visibleRightPanel === 'browser') setBrowserWidth(value);
+          if (visibleRightPanel === 'terminal') setTerminalWidth(value);
+          if (visibleRightPanel === 'file') void setPreference({ filePreviewWidth: value });
+        }
+        setExpandedRightPanel(value === 'fullscreen' ? visibleRightPanel as 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' : null);
+      }}/>}
     <SubagentPanel open={visibleRightPanel === 'subagent' && !details}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'subagent'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'subagent')}

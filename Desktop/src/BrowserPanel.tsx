@@ -7,16 +7,16 @@ import './browser-panel.css';
 
 const empty: BrowserSnapshot = { revision: -1, tabs: [] };
 
-export function BrowserPanel({ open, replaced, overlay, expanded, blocked, language, onClose, onToggleExpanded }: {
+export function BrowserPanel({ open, replaced, overlay, expanded, blocked, language, onClose, onToggleExpanded, width, onWidthChange }: {
   open: boolean; replaced: boolean; overlay: boolean; expanded: boolean; blocked: boolean; language: 'zh' | 'en';
   onClose: () => void; onToggleExpanded: () => void;
+  width: 'standard' | 'wide'; onWidthChange: (value: 'standard' | 'wide') => void;
 }) {
   const [snapshot, setSnapshot] = useState(empty);
   const [address, setAddress] = useState('');
   const [error, setError] = useState('');
   const [present, setPresent] = useState(open);
   const [pending, setPending] = useState(false);
-  const [width, setWidth] = useState<'standard' | 'wide'>('standard');
   const host = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const initialized = useRef(false);
@@ -112,7 +112,7 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
   const label = (title: string, en: string) => ({ 'aria-label': t(title, en), 'data-tooltip': t(title, en) });
   const chooseWidth = (value: 'standard' | 'wide' | 'fullscreen') => {
     if (!latest.current.open || latest.current.blocked) return;
-    if (value === 'standard' || value === 'wide') setWidth(value);
+    if (value === 'standard' || value === 'wide') onWidthChange(value);
     if ((value === 'fullscreen') !== expanded) onToggleExpanded();
   };
   return <div className={`browser-track${open ? ' is-open' : ''}${!open && present ? ' is-closing' : ''}${width === 'wide' ? ' is-wide' : ''}${overlay ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}`}>

@@ -19,6 +19,7 @@ import { turnChanges } from './turn-changes';
 import { MessageLink } from './MessageLink';
 import { ArtifactContext, FileReference, TurnArtifacts } from './TurnArtifacts';
 import { localReference, turnOutputPaths } from './turn-artifacts';
+import { isUserMessage } from './user-message';
 
 type Props = {
   runtimeId?: string;
@@ -375,7 +376,7 @@ export function ConversationMessages(props: Props) {
   const [editState, setEditState] = useState<EditState | null>(null);
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
   const background = useMemo(() => backgroundSubagentStates(props.messages), [props.messages]);
-  const latestUser = [...props.messages].reverse().find(message => message.role === 'user');
+  const latestUser = [...props.messages].reverse().find(isUserMessage);
   const lastEntry = entries.at(-1);
   const hasSettledFooter = !props.busy && lastEntry?.type === 'response' && responsePresentation(lastEntry.items).content.length > 0;
   let userTimestamp: number | undefined;

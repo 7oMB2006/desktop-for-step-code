@@ -6,6 +6,7 @@ import { permissionFromStatus } from './permission-status';
 import { projectLaunch, ultracodeNotification } from './launch-state';
 import { emptyLaunch, type LaunchState } from '../src/launch-state';
 import { isUltracodeInput, originalUltracodeInput } from '../src/ultracode-input';
+import { isUserMessage } from '../src/user-message';
 import { WORKSPACE_POLICY } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
@@ -45,7 +46,7 @@ export interface SessionRuntime {
   stopping?: boolean;
 }
 export function firstUserText(messages: Message[]) {
-  const content = messages.find(message => message.role === 'user' || message.customType === 'desktop-goal-input')?.content;
+  const content = messages.find(isUserMessage)?.content;
   return originalUltracodeInput(typeof content === 'string' ? content : content?.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') ?? '').slice(0, 200);
 }
 export function taskOutcome(messages: Message[]) {
@@ -165,7 +166,8 @@ export class SessionRuntimes {
           const goalId = worker.launch?.goal?.id;
           void this.readLaunch(worker).then(() => {
             if (this.workers.get(worker.id) === worker && worker.rpc === transport
-              && worker.launch?.goal?.id === goalId && worker.launch?.goal?.status === 'complete') { notifyCompleted(); this.publish(); }
+              && !worker.runActive && worker.launch?.goal?.id === goalId
+              && ['complete', 'blocked', 'usage_limited', 'budget_limited'].includes(worker.launch?.goal?.status ?? '')) { notifyCompleted(); this.publish(); }
           }).catch(() => {});
         }
       }

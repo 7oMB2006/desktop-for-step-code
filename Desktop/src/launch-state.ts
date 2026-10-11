@@ -12,6 +12,18 @@ export interface GoalState {
 export interface LaunchState { plan: boolean; planArmed?: boolean; ultracode: boolean; ultracodeArmed?: boolean; ultracodeTurn?: boolean; goalArmed: boolean; goal?: GoalState }
 export type LaunchMode = 'plan' | 'goal' | 'ultracode';
 export const emptyLaunch = (): LaunchState => ({ plan: false, ultracode: false, goalArmed: false });
+export function draftLaunchChanges(current = emptyLaunch(), draft = emptyLaunch()): { mode: LaunchMode; enabled: boolean }[] {
+  const changes: { mode: LaunchMode; enabled: boolean }[] = [];
+  // Disarm an old Goal before applying the draft's mutually exclusive Plan choice.
+  if (!draft.goalArmed && (current.goalArmed || current.goal?.status === 'active'))
+    changes.push({ mode: 'goal', enabled: false });
+  if (draft.plan || current.plan || current.planArmed)
+    changes.push({ mode: 'plan', enabled: draft.plan });
+  if (draft.ultracodeArmed || current.ultracodeArmed)
+    changes.push({ mode: 'ultracode', enabled: Boolean(draft.ultracodeArmed) });
+  if (draft.goalArmed) changes.push({ mode: 'goal', enabled: true });
+  return changes;
+}
 export const goalStatuses = ['active', 'paused', 'blocked', 'usage_limited', 'budget_limited', 'complete'] as const;
 export function goalCompletionResponse(messages: Message[], goal?: GoalState): number | undefined {
   if (goal?.status !== 'complete' || !goal.completion) return;

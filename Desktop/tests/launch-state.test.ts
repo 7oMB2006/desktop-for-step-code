@@ -4,7 +4,7 @@ import { projectLaunch, ultracodeNotification } from '../electron/launch-state';
 import { LaunchControls } from '../electron/launch-controls';
 import { SessionRuntimes, type WorkerTransport } from '../electron/session-runtimes';
 import { conversationEntries } from '../src/conversation-presentation';
-import { emptyLaunch, goalCompletionResponse } from '../src/launch-state';
+import { draftLaunchChanges, emptyLaunch, goalCompletionResponse } from '../src/launch-state';
 import { ultracodeInput, visibleInputBlocks } from '../src/ultracode-input';
 
 const goal = { id: 'goal-1', sessionId: 'session-1', objective: 'Make tests pass', status: 'active',
@@ -119,6 +119,29 @@ test('Goal arming does not create history, is mutually exclusive with Plan, and 
   assert.ok(!calls.some(call => String(call.message).startsWith('/ultraloop')), 'Arming is not session-wide consent');
   assert.ok(!calls.some(call => String(call.message).startsWith('/goal')));
   await pool.stopAll();
+});
+test('a new draft reconciles disabled launch choices on the reused empty worker', async () => {
+  for (const mode of ['plan', 'goal'] as const) {
+    const { pool, worker, controls } = await fixture();
+    try {
+      await controls.set(worker, mode, true);
+      await controls.set(worker, 'ultracode', true);
+      const reused = await pool.open('node', 'step', 'workspace', {});
+      assert.equal(reused, worker);
+      for (const change of draftLaunchChanges(reused.launch, emptyLaunch()))
+        await controls.set(reused, change.mode, change.enabled);
+      assert.equal(reused.launch?.plan, false);
+      assert.equal(Boolean(reused.launch?.planArmed), false);
+      assert.equal(reused.launch?.goalArmed, false);
+      assert.equal(reused.launch?.ultracodeArmed, false);
+      assert.equal(controls.input(reused, { message: 'ordinary task' }).message, 'ordinary task');
+    } finally { await pool.stopAll(); }
+  }
+  assert.deepEqual(draftLaunchChanges(emptyLaunch(), emptyLaunch()), [], 'Ordinary drafts need no unsupported mode commands');
+  assert.deepEqual(draftLaunchChanges({ ...emptyLaunch(), goalArmed: true },
+    { ...emptyLaunch(), plan: true, planArmed: true }), [
+    { mode: 'goal', enabled: false }, { mode: 'plan', enabled: true },
+  ]);
 });
 test('one-shot Ultracode consumes only pending launch choices and preserves the original user presentation', async () => {
   const { pool, worker, controls } = await fixture();

@@ -17,6 +17,7 @@ import { ModelEffortPicker } from './ModelEffortPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { LaunchStatus } from './LaunchStatus';
 import { goalCompletionResponse } from './launch-state';
+import { isUserMessage } from './user-message';
 import { PermissionApproval } from './PermissionApproval';
 import { permissionApprovalPresentation } from './approval-presentation';
 import { ContextRing } from './ContextRing';
@@ -526,7 +527,7 @@ function App() {
       }
       if (event.type === 'desktop_error') setError(event.message);
       if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
-      if (['message_start', 'message_end'].includes(event.type) && event.message?.role === 'user') setArrivingUser(event.message);
+      if (['message_start', 'message_end'].includes(event.type) && event.message && isUserMessage(event.message)) setArrivingUser(event.message);
       if (['message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
       if (event.type === 'tool_execution_update' || event.type === 'tool_execution_end') {
         setData(d => ({ ...d, messages: applyToolResult(d.messages, event) }));

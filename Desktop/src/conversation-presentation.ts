@@ -1,5 +1,6 @@
 import type { Content, Message } from './contracts';
 import { visibleInputBlocks } from './ultracode-input';
+import { isUserMessage } from './user-message';
 
 export const messageBlocks = (message: Message): Content[] => visibleInputBlocks(message);
 export const messageText = (message: Message): string => messageBlocks(message)
@@ -13,9 +14,8 @@ export type ConversationEntry = { type: 'user'; item: IndexedMessage } | {
 export function conversationEntries(messages: Message[]): ConversationEntry[] {
   const entries: ConversationEntry[] = [];
   messages.forEach((message, index) => {
-    if (message.role === 'custom' && message.display === false) return;
     if (message.display === false) return;
-    if (message.role === 'user' || message.role === 'custom' && message.customType === 'desktop-goal-input')
+    if (isUserMessage(message))
       entries.push({ type: 'user', item: { message, index } });
     else {
       const last = entries.at(-1);

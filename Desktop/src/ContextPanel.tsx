@@ -5,6 +5,7 @@ import type { Message, RuntimeState, SessionStats } from './contracts';
 import { contextCapacityColors, contextMessageCounts, contextMessageJson, contextMessagePreview, finiteAmount, type MessageFilter } from './context-inspector';
 import './context-panel.css';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
+import { isUserMessage } from './user-message';
 
 function JsonCode({ json }: { json: string }) {
   const nodes: ReactNode[] = [];
@@ -50,7 +51,7 @@ export function ContextPanel({ messages, stats, state, title, language, busy, co
   const [expanded, setExpanded] = useState<string | null>(null);
   const counts = useMemo(() => contextMessageCounts(messages), [messages]);
   const rows = useMemo(() => messages.map((message, index) => ({ message, index, key: message.entryId ?? `${index}:${message.timestamp ?? ''}:${message.role}` }))
-    .filter(({ message }) => filter === 'all' || message.role === filter).reverse(), [messages, filter]);
+    .filter(({ message }) => filter === 'all' || (filter === 'user' ? isUserMessage(message) : message.role === filter)).reverse(), [messages, filter]);
   const last = [...messages].reverse().find(message => message.role === 'assistant' && message.usage);
   const number = (value: unknown) => {
     const amount = finiteAmount(value);
@@ -128,10 +129,10 @@ export function ContextPanel({ messages, stats, state, title, language, busy, co
             }}>{value === 'all' ? t('全部', 'All') : role(value)}<small>{counts[value]}</small></button>)}
         </div>
         <div id="context-message-list" role="tabpanel" aria-labelledby={`context-tab-${filter}`}>
-          {rows.map(({ message, index, key }) => <details className={`context-message context-role-${message.role}`} key={key}
+          {rows.map(({ message, index, key }) => <details className={`context-message context-role-${isUserMessage(message) ? 'user' : message.role}`} key={key}
             open={expanded === key} onToggle={event => { if (event.currentTarget.open) setExpanded(key); else setExpanded(previous => previous === key ? null : previous); }}>
             <summary><span className="context-message-number">{String(index + 1).padStart(2, '0')}</span>
-              <span className="context-message-caption"><span><b>{role(message.role)}</b><time>{time(message.timestamp)}</time></span>
+              <span className="context-message-caption"><span><b>{role(isUserMessage(message) ? 'user' : message.role)}</b><time>{time(message.timestamp)}</time></span>
                 <span className="context-message-preview">{contextMessagePreview(message)}</span></span><ChevronRight className="context-message-chevron" size={13}/></summary>
             {expanded === key && <MessageJson message={message} language={language} onError={onError}/>}
           </details>)}

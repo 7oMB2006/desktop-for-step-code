@@ -11,6 +11,15 @@ test('capacity colors use a fixed bounded scale with neutral unknown and zero', 
   assert.ok(contextCapacityColors(100)!.light.includes('0.2000 25'));
   assert.deepEqual(contextCapacityColors(120), contextCapacityColors(100));
 });
+test('context user counts include only visible Goal inputs and ordinary users', () => {
+  assert.deepEqual(contextMessageCounts([
+    { role: 'custom', customType: 'desktop-goal-input', content: 'Goal' },
+    { role: 'custom', customType: 'desktop-goal-input', display: false, content: 'Hidden input' },
+    { role: 'custom', customType: 'step-goal', display: false, content: 'Continue' },
+    { role: 'custom', customType: 'other', content: 'Other custom message' },
+    { role: 'user', content: 'Next' },
+  ]), { all: 5, user: 2, assistant: 0, toolResult: 0 });
+});
 
 test('context message categories count roles, not tool calls or token shares', () => {
   const messages: Message[] = [

@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
 import { LaunchControls } from './launch-controls';
-import { emptyLaunch, type LaunchState } from '../src/launch-state';
+import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
 import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
@@ -580,9 +580,8 @@ async function handle(method: string, args: any[]) {
           await handle('command', ['set_model', { provider: draft.model.provider, modelId: draft.model.id }, created.runtimeId]);
         if (draft.thinkingChanged) await handle('command', ['set_thinking_level', { level: draft.thinkingLevel }, created.runtimeId]);
         if (draft.permissionChanged) await handle('command', ['set_permission_preset', { preset: draft.permissionPreset }, created.runtimeId]);
-        if (draft.launch?.plan) await handle('command', ['set_launch_mode', { mode: 'plan', enabled: true }, created.runtimeId]);
-        if (draft.launch?.ultracodeArmed) await handle('command', ['set_launch_mode', { mode: 'ultracode', enabled: true }, created.runtimeId]);
-        if (draft.launch?.goalArmed) await handle('command', ['set_launch_mode', { mode: 'goal', enabled: true }, created.runtimeId]);
+        for (const change of draftLaunchChanges(runtimes.require(created.runtimeId).launch, draft.launch))
+          await handle('command', ['set_launch_mode', change, created.runtimeId]);
         return await snapshot(runtimes.require(created.runtimeId));
       } catch (error) {
         const worker = created.runtimeId && runtimes.workers.get(created.runtimeId);

@@ -19,6 +19,20 @@ test('navigation indexes user turns and preserves the underlying message positio
   ]);
   assert.equal(conversationTurns(messages, 'en')[1].preview, 'Image message');
 });
+test('navigation includes visible Goal inputs but excludes internal continuation messages', () => {
+  const messages: Message[] = [
+    { role: 'custom', customType: 'desktop-goal-input', content: 'Goal request', timestamp: 100 },
+    { role: 'custom', customType: 'step-goal', display: false, content: 'Continue' },
+    { role: 'assistant', content: 'Result' },
+    { role: 'custom', customType: 'desktop-goal-input', display: false, content: 'Hidden input' },
+    { role: 'custom', customType: 'other', content: 'Not a user' },
+    { role: 'user', content: 'Next request', timestamp: 200 },
+  ];
+  assert.deepEqual(conversationTurns(messages, 'en'), [
+    { index: 0, preview: 'Goal request', timestamp: 100 },
+    { index: 5, preview: 'Next request', timestamp: 200 },
+  ]);
+});
 
 test('scroll thumb reaches both ends of the full-height overlay track', () => {
   assert.deepEqual(thumbMetrics(0, 500, 2000, 1000), { top: 0, height: 72, maxScroll: 1500 });

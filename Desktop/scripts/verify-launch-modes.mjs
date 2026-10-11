@@ -35,9 +35,11 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const profile = await mkdtemp(join(tmpdir(), 'desktop-launch-modes-'));
 const root = join(profile, 'step-runtime');
+const reuseWorkspace = join(profile, 'reuse-workspace');
 await mkdir(root, { recursive: true });
+await mkdir(reuseWorkspace);
 await mkdir('test-results', { recursive: true });
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [reuseWorkspace] }));
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ defaultProvider: 'fixture', defaultModel: 'fixture',
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-test',
@@ -292,10 +294,31 @@ try {
     const state = await window.desktop.snapshot();
     return !state.state.isStreaming && state.launch.plan && !state.launch.planArmed;
   });
+  await page.waitForFunction(() => !document.querySelector('.composer .launch-status-trigger')
+    && document.querySelector('.working-idle .launch-status-pulse'));
   assert.equal(await page.locator('.composer .launch-status-trigger').count(), 0);
   await page.locator('.launch-status-pulse').click();
   await page.getByRole('button', { name: '关闭计划', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.launch-status-trigger'));
+  const firstDraft = await page.evaluate(workspace => window.desktop.beginSession(workspace), reuseWorkspace);
+  const firstEmpty = await page.evaluate(id => window.desktop.createDraftSession(id), firstDraft.draftId);
+  for (const mode of ['plan', 'goal']) {
+    await page.evaluate(async mode => {
+      await window.desktop.command('set_launch_mode', { mode, enabled: true });
+      await window.desktop.command('set_launch_mode', { mode: 'ultracode', enabled: true });
+    }, mode);
+    const freshDraft = await page.evaluate(workspace => window.desktop.beginSession(workspace), reuseWorkspace);
+    assert.equal(freshDraft.launch.plan, false);
+    assert.equal(freshDraft.launch.goalArmed, false);
+    assert.equal(Boolean(freshDraft.launch.ultracodeArmed), false);
+    const reused = await page.evaluate(id => window.desktop.createDraftSession(id), freshDraft.draftId);
+    assert.equal(reused.runtimeId, firstEmpty.runtimeId, 'The same empty resident worker is reused');
+    assert.equal(reused.launch.plan, false);
+    assert.equal(Boolean(reused.launch.planArmed), false);
+    assert.equal(reused.launch.goalArmed, false);
+    assert.equal(reused.launch.ultracodeArmed, false);
+    assert.equal(reused.messages.length, 0);
+  }
   await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
   await page.reload();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');

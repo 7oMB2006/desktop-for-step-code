@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
 import { X } from 'lucide-react';
 import type { Message } from './contracts';
+import { isUserMessage } from './user-message';
 
 export type ConversationTurn = { index: number; preview: string; timestamp?: number };
 
@@ -15,7 +16,7 @@ export function turnTime(timestamp: number | undefined, language: 'zh' | 'en'): 
 
 export function conversationTurns(messages: Message[], language: 'zh' | 'en'): ConversationTurn[] {
   return messages.flatMap((message, index) => {
-    if (message.role !== 'user') return [];
+    if (!isUserMessage(message)) return [];
     const text = typeof message.content === 'string'
       ? message.content
       : message.content?.filter(part => part.type === 'text').map(part => part.text ?? '').join(' ') ?? '';

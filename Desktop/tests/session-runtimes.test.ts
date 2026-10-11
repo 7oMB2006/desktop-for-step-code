@@ -678,6 +678,42 @@ test('successful background completion emits sound event once, never from restor
   assert.equal(pool.unreadSessionIds.size, 0);
   await pool.stopAll();
 });
+test('background Goal attention notifications wait for authoritative status and fire once', async () => {
+  for (const status of ['complete', 'blocked', 'usage_limited', 'budget_limited', 'active', 'paused'] as const) {
+    const { pool, transports, events, open } = fixture();
+    const worker = await open();
+    await open('foreground');
+    const goal = { id: 'goal-1', sessionId: worker.state!.sessionId!, objective: 'Goal',
+      status: 'active' as const, tokensUsed: 0, timeUsedSeconds: 0, iteration: 0,
+      createdAt: '2026-10-11T00:00:00Z', updatedAt: '2026-10-11T00:00:00Z' };
+    worker.launch = { plan: false, ultracode: false, goalArmed: false, goal };
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const original = transports[0].request.bind(transports[0]);
+    transports[0].request = async (type, args) => {
+      if (type === 'get_entries') {
+        await gate;
+        return { entries: [{ id: 'status', parentId: null, type: 'custom',
+          customType: 'step-goal', data: { ...goal, status } }], leafId: 'status' };
+      }
+      return original(type, args);
+    };
+    try {
+      transports[0].receive({ type: 'agent_start' });
+      transports[0].receive({ type: 'message_end', message: { role: 'assistant', content: 'Stopped', stopReason: 'stop' } });
+      transports[0].receive({ type: 'agent_end' });
+      transports[0].receive({ type: 'agent_end' });
+      assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+      release();
+      await pool.readLaunch(worker);
+      const expected = status === 'active' || status === 'paused' ? 0 : 1;
+      assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, expected, status);
+      assert.equal(pool.unreadSessionIds.has(goal.sessionId), expected === 1, status);
+      await pool.readLaunch(worker);
+      assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, expected, 'History refresh cannot repeat notifications');
+    } finally { release(); await pool.stopAll(); }
+  }
+});
 
 test('foreground completion and restored successful history do not create unread dots', async () => {
   const { pool, transports, open } = fixture();

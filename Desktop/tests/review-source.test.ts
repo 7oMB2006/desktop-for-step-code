@@ -17,6 +17,19 @@ test('last-turn review excludes the active response and preserves the exact prec
   assert.equal(lastCompletedResponse(messages, false)?.timestamp, 200);
   assert.equal(lastCompletedResponse(messages.slice(0, 2), true), undefined);
 });
+test('Goal inputs contribute their user-turn number and timestamp to review', () => {
+  const history: Message[] = [
+    { role: 'custom', customType: 'desktop-goal-input', content: 'Goal', timestamp: 100 },
+    { role: 'custom', customType: 'step-goal', display: false, content: 'Continue' },
+    { role: 'assistant', content: 'Done' },
+    { role: 'user', content: 'Next', timestamp: 200 },
+    { role: 'assistant', content: 'Working' },
+  ];
+  assert.equal(lastCompletedResponse(history, true)?.number, 1);
+  assert.equal(lastCompletedResponse(history, true)?.timestamp, 100);
+  assert.equal(lastCompletedResponse(history, false)?.number, 2);
+  assert.equal(lastCompletedResponse(history, false)?.timestamp, 200);
+});
 test('cloud credential assignments redact snake-case and camel-case names in added and removed lines', () => {
   const names = ['AWS_SECRET_ACCESS_KEY', 'awsSecretAccessKey', 'AWS_ACCESS_KEY_ID', 'awsAccessKeyId',
     'AWS_SESSION_TOKEN', 'awsSessionToken', 'AZURE_CLIENT_SECRET', 'azureClientSecret',

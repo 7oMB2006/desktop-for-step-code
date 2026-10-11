@@ -385,7 +385,8 @@ export function ConversationMessages(props: Props) {
       userTimestamp = entry.item.message.timestamp;
       return <UserMessage key={entry.item.index} message={entry.item.message} index={entry.item.index}
       editState={editState} setEditState={setEditState}
-      arriving={entry.item.message === props.arrivingUser} {...props} canEdit={props.canEdit && entry.item.message === latestUser}/>;
+      arriving={entry.item.message === props.arrivingUser} {...props}
+      canEdit={props.canEdit && entry.item.message.role === 'user' && entry.item.message === latestUser}/>;
     }
     const modelChange = userTimestamp === undefined ? undefined : props.modelChanges?.find(change => change.userTimestamp === userTimestamp);
     const settledStatus = hasSettledFooter && index === entries.length - 1 ? props.settledStatus : undefined;

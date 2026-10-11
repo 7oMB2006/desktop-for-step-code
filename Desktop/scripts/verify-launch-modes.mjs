@@ -116,6 +116,8 @@ try {
   assert.equal(await page.locator('.working .working-dot').count(), 0, 'Paused Goal keeps a quiet entry, not a fake running pulse');
   snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(snapshot.launch.goal.status, 'paused');
+  assert.equal(await page.locator('.message.user').getByRole('button', { name: '编辑并重做', exact: true }).isDisabled(), true,
+    'Goal input remains managed through Goal editing rather than ordinary message retry');
   // Exercise actual runtime notifications after creation, not only draft selections.
   await page.getByRole('button', { name: '关闭', exact: true }).click();
   for (const enabled of [true, false]) {

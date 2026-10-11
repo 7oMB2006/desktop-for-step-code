@@ -1,5 +1,5 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ComponentProps, Dispatch, SetStateAction } from 'react';
+import type { ComponentProps, Dispatch, ReactNode, SetStateAction } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import { ArrowRight, ArrowRightLeft, Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, ModelChange, PendingMessage } from './contracts';
@@ -19,6 +19,7 @@ import { turnChanges } from './turn-changes';
 import { MessageLink } from './MessageLink';
 import { ArtifactContext, FileReference, TurnArtifacts } from './TurnArtifacts';
 import { localReference, turnOutputPaths } from './turn-artifacts';
+import { isUserMessage } from './user-message';
 
 type Props = {
   runtimeId?: string;
@@ -32,6 +33,8 @@ type Props = {
   onOpenSubagent: (task: SubagentTask) => void;
   onOpenWorkflow?: (id: string) => void;
   arrivingUser?: Message | null;
+  settledStatus?: ReactNode;
+  completedStatus?: { responseIndex: number; content: ReactNode };
 };
 type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls'>;
 type EditState = { entryId: string; text: string; submitting: boolean };
@@ -238,11 +241,12 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     </span>
   </div>;
 }
-  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, ...props }: {
+  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, ...props }: {
     items: { message: Message; index: number }[]; active: boolean;
     canBranch: boolean; branch: Props['branch'];
     runtimeId?: string;
     modelChange?: ModelChange;
+    settledStatus?: ReactNode;
     background: BackgroundSubagentStates;
     onOpenSubagent: (task: SubagentTask) => void;
     onOpenWorkflow?: (id: string) => void;
@@ -254,6 +258,16 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     const finalProse = finalItem?.type === 'text' ? finalItem.block.text ?? '' : '';
     const zh = props.language === 'zh';
     const stamp = [...items].reverse().find(item => item.message.timestamp)?.message.timestamp;
+    const actions = !active && content.length > 0 && <footer className="message-actions assistant-actions">
+      <CopyButton text={text} {...props}/>
+      <button type="button" className="icon-button branch-action" aria-label={zh ? '从这里分支' : 'Branch from here'}
+        data-tooltip={zh ? '从这里分支' : 'Branch from here'}
+        disabled={!canBranch || !items.at(-1)?.message.entryId}
+        onClick={() => branch(items.at(-1)!.message)}><GitBranch size={15}/></button>
+      <ElapsedLabel timing={[...items].reverse().find(item => item.message.desktopTiming)?.message.desktopTiming?.run}
+        total language={props.language}/>
+      <Timestamp value={stamp} language={props.language}/>
+    </footer>;
     return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
       <div className="response-content message-body">{content.map((item, position) =>
@@ -281,16 +295,7 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
       )}</div>
       {!active && <TurnArtifacts text={finalProse} outputPaths={outputPaths} language={props.language}/>}
       {!active && <TurnChanges changes={changes} runtimeId={runtimeId} language={props.language} onError={props.onError}/>}
-    {!active && content.length > 0 && <footer className="message-actions assistant-actions">
-      <CopyButton text={text} {...props}/>
-      <button type="button" className="icon-button branch-action" aria-label={zh ? '从这里分支' : 'Branch from here'}
-        data-tooltip={zh ? '从这里分支' : 'Branch from here'}
-        disabled={!canBranch || !items.at(-1)?.message.entryId}
-        onClick={() => branch(items.at(-1)!.message)}><GitBranch size={15}/></button>
-      <ElapsedLabel timing={[...items].reverse().find(item => item.message.desktopTiming)?.message.desktopTiming?.run}
-        total language={props.language}/>
-      <Timestamp value={stamp} language={props.language}/>
-    </footer>}
+    {actions && settledStatus ? <div className="assistant-footer-row working working-idle">{actions}{settledStatus}</div> : actions}
   </article></ArtifactContext.Provider>;
 }
 function UserMessage({ message, index, arriving, editState, setEditState, ...props }: {
@@ -371,17 +376,23 @@ export function ConversationMessages(props: Props) {
   const [editState, setEditState] = useState<EditState | null>(null);
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
   const background = useMemo(() => backgroundSubagentStates(props.messages), [props.messages]);
-  const latestUser = [...props.messages].reverse().find(message => message.role === 'user');
+  const latestUser = [...props.messages].reverse().find(isUserMessage);
+  const lastEntry = entries.at(-1);
+  const hasSettledFooter = !props.busy && lastEntry?.type === 'response' && responsePresentation(lastEntry.items).content.length > 0;
   let userTimestamp: number | undefined;
   return <>{entries.map((entry, index) => {
     if (entry.type === 'user') {
       userTimestamp = entry.item.message.timestamp;
       return <UserMessage key={entry.item.index} message={entry.item.message} index={entry.item.index}
       editState={editState} setEditState={setEditState}
-      arriving={entry.item.message === props.arrivingUser} {...props} canEdit={props.canEdit && entry.item.message === latestUser}/>;
+      arriving={entry.item.message === props.arrivingUser} {...props}
+      canEdit={props.canEdit && entry.item.message.role === 'user' && entry.item.message === latestUser}/>;
     }
     const modelChange = userTimestamp === undefined ? undefined : props.modelChanges?.find(change => change.userTimestamp === userTimestamp);
+    const settledStatus = hasSettledFooter && index === entries.length - 1 ? props.settledStatus : undefined;
+    const completedStatus = props.completedStatus?.responseIndex === entry.index ? props.completedStatus.content : undefined;
     return <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
-      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props}/>;
-  })}</>;
+      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props}
+      settledStatus={completedStatus ? <>{completedStatus}{settledStatus}</> : settledStatus}/>;
+  })}{props.settledStatus && !hasSettledFooter && <div className="working working-idle">{props.settledStatus}</div>}</>;
 }

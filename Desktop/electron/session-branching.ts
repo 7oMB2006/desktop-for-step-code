@@ -25,9 +25,17 @@ export function activeHistory(entries: HistoryEntry[], leafId: string | null) {
 
 // Match full user/assistant identity on the active path, never text or array position alone.
 export function messagesWithEntryIds(messages: Message[], entries: HistoryEntry[], leafId: string | null): Message[] {
-  const key = (message: Message) => JSON.stringify([message.role, message.timestamp, message.content]);
+  const key = (message: Message) => JSON.stringify([message.role, message.timestamp, message.content, message.customType]);
   const matches = new Map<string, string[]>();
   for (const entry of activeHistory(entries, leafId)) {
+    const custom = entry as HistoryEntry & { customType?: string; timestamp?: string; content?: Message['content']; display?: boolean };
+    if (custom.type === 'custom_message' && custom.customType === 'desktop-goal-input' && custom.content !== undefined) {
+      const timestamp = Date.parse(custom.timestamp ?? '');
+      if (!Number.isFinite(timestamp)) continue;
+      const identity = key({ role: 'custom', customType: custom.customType, content: custom.content, timestamp });
+      matches.set(identity, [...matches.get(identity) ?? [], entry.id]);
+      continue;
+    }
     if (entry.type !== 'message' || !entry.message || !['user', 'assistant'].includes(entry.message.role)) continue;
     const identity = key(entry.message);
     matches.set(identity, [...matches.get(identity) ?? [], entry.id]);

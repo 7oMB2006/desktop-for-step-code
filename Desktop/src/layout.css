@@ -509,6 +509,11 @@ main { position: relative; }
 .user-actions .message-time { margin-right: 5px; }
 .assistant-actions .message-time { margin-left: 8px; }
 .assistant-actions .elapsed-total { margin-left: 8px; font-size: 11px; }
+.assistant-footer-row.working { margin-top: 7px; }
+.assistant-footer-row > .assistant-actions { margin-top: 0; margin-right: auto; flex: 1 1 0; min-width: 0; overflow: hidden; }
+.assistant-footer-row > .assistant-actions .elapsed-total { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.message:hover > .assistant-footer-row > .assistant-actions, .message:focus-within > .assistant-footer-row > .assistant-actions { opacity: 1; }
+.message:hover > .assistant-footer-row .message-time, .message:focus-within > .assistant-footer-row .message-time { opacity: 1; }
 .message:hover > .message-actions, .message:focus-within > .message-actions { opacity: 1; }
 .message:hover > .message-actions .message-time, .message:focus-within > .message-actions .message-time { opacity: 1; }
 .message.user:hover .user-actions .icon-button, .message.user:focus-within .user-actions .icon-button { pointer-events: auto; }

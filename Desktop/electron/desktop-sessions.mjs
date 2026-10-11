@@ -2,6 +2,21 @@ export default function registerDesktopSessions(pi) {
   const url = process.env.DESKTOP_SESSION_URL;
   const token = process.env.DESKTOP_SESSION_TOKEN;
   if (!url || !token || process.env.STEPCODE_SUBAGENT_CHILD === '1') return;
+  pi.registerCommand('_desktop_goal_input', {
+    description: 'Desktop internal Goal input',
+    handler: async (args, ctx) => {
+      if (!ctx.isIdle()) throw new Error('Goal input requires an idle session');
+      const value = JSON.parse(args);
+      if (typeof value.message !== 'string' || !value.message.trim() || value.message.length > 16000)
+        throw new Error('Invalid Goal input');
+      if (value.images !== undefined && (!Array.isArray(value.images) || value.images.length > 10
+        || value.images.some(image => image.type !== 'image' || !['image/png', 'image/jpeg', 'image/webp'].includes(image.mimeType)
+          || typeof image.data !== 'string' || image.data.length > 14000000))) throw new Error('Invalid Goal images');
+      // Preserve the user's original text and attachments without starting a second run.
+      pi.sendMessage({ customType: 'desktop-goal-input', display: true,
+        content: [{ type: 'text', text: value.message }, ...value.images ?? []] });
+    },
+  });
   pi.registerCommand('_desktop_retry', {
     description: 'Desktop internal message edit',
     handler: async (args, ctx) => {

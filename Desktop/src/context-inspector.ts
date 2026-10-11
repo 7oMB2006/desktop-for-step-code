@@ -1,4 +1,5 @@
 import type { Message } from './contracts';
+import { isUserMessage } from './user-message';
 
 export type MessageFilter = 'all' | 'user' | 'assistant' | 'toolResult';
 export const finiteAmount = (value: unknown): number | undefined =>
@@ -21,7 +22,7 @@ export function contextCapacityColors(value: unknown) {
 export function contextMessageCounts(messages: Message[]) {
   return {
     all: messages.length,
-    user: messages.filter(message => message.role === 'user').length,
+    user: messages.filter(isUserMessage).length,
     assistant: messages.filter(message => message.role === 'assistant').length,
     toolResult: messages.filter(message => message.role === 'toolResult').length,
   };

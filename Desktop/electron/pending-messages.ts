@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Message, PendingMessage } from '../src/contracts';
 import type { SessionRuntime } from './session-runtimes';
+import { isUltracodeInput, ultracodeInput } from '../src/ultracode-input';
 
 interface Entry extends PendingMessage { payload: Record<string, unknown>; files: string[]; bytes: number }
 // Undelivered drafts remain editable here; once dispatched, Step owns execution.
@@ -39,7 +40,8 @@ export class PendingMessages {
   edit(worker: SessionRuntime, id: string, version: number, message: string) {
     const entry = this.require(worker, id, version);
     if (!message.trim() && !entry.attachmentCount) throw new Error('Message is empty');
-    const payload = { ...entry.payload, message: this.format(message, entry.files) };
+    const formatted = this.format(message, entry.files);
+    const payload = { ...entry.payload, message: isUltracodeInput(String(entry.payload.message ?? '')) ? ultracodeInput(formatted) : formatted };
     const bytes = Buffer.byteLength(JSON.stringify(payload));
     if (this.entries.get(worker)!.reduce((sum, item) => sum + (item === entry ? bytes : item.bytes), 0) > 32 * 1024 * 1024)
       throw new Error('Pending messages exceed 32 MiB');

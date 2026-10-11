@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import type { Message } from './contracts';
 import { createTurnChangesReader } from './turn-changes';
+import { isUserMessage } from './user-message';
 import { DiffCount } from './DiffCount';
 import './live-turn-changes.css';
 
@@ -11,7 +12,7 @@ export function LiveTurnChanges({ messages, busy, language, docked = false, onOp
 }) {
   const read = useMemo(createTurnChangesReader, []);
   let start = messages.length;
-  while (start > 0 && messages[start - 1].role !== 'user') start--;
+  while (start > 0 && !isUserMessage(messages[start - 1])) start--;
   const changes = read(busy ? messages.slice(start).map((message, offset) => ({ message, index: start + offset })) : []);
   const id = useId();
   const anchor = useRef<HTMLButtonElement>(null);

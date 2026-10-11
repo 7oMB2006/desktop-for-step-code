@@ -1,5 +1,6 @@
 import type { Message } from './contracts';
 import { redactSensitiveText } from './subagent-redact';
+import { isUserMessage } from './user-message';
 
 export interface WorkflowAgent {
   id: string; label: string; task: string; phase?: string;
@@ -88,7 +89,7 @@ export function workflowIcon(status: WorkflowState['status'] | WorkflowAgent['st
 }
 
 export function currentTurnWorkflows(messages: Message[]): WorkflowState[] {
-  const lastUser = messages.reduce((last, message, index) => message.role === 'user' ? index : last, -1);
+  const lastUser = messages.reduce((last, message, index) => isUserMessage(message) ? index : last, -1);
   return workflowsFromMessages(messages.slice(lastUser + 1));
 }
 export function workflowCount(flow: WorkflowState) {

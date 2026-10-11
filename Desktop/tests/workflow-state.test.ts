@@ -30,6 +30,19 @@ test('current turn excludes unfinished historical workflows without removing his
   assert.equal(currentTurnWorkflows(messages)[0].status, 'completed');
   assert.equal(workflowsFromMessages(messages).length, 2);
 });
+test('a visible Goal input separates workflows from earlier turns', () => {
+  const messages: Message[] = [
+    { role: 'user', content: 'old turn' },
+    { role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'old' }] },
+    { role: 'custom', customType: 'desktop-goal-input', content: 'Goal' },
+    { role: 'custom', customType: 'step-goal', display: false, content: 'Continue' },
+  ];
+  assert.deepEqual(currentTurnWorkflows(messages), []);
+  messages.push({ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'new' }] });
+  assert.deepEqual(currentTurnWorkflows(messages).map(flow => flow.toolCallId), ['new']);
+  messages.push({ role: 'custom', customType: 'desktop-goal-input', display: false, content: 'Hidden input' });
+  assert.deepEqual(currentTurnWorkflows(messages).map(flow => flow.toolCallId), ['new']);
+});
 
 test('workflow final result and duplicate persisted messages preserve the latest agent snapshot', () => {
   let messages: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'call' }] }];

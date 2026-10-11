@@ -50,12 +50,56 @@ try {
             : method === 'preferences' ? Object.assign(globalThis.workflowFixture.preferences, args[0])
               : method === 'command' && args[0] === 'get_available_thinking_levels' ? { levels: ['off', 'low', 'medium', 'high'] }
                 : method === 'command' && args[0] === 'get_commands' ? { commands: [] } : {});
-  }, { ...snapshot, messages, state: { ...snapshot.state, isStreaming: true } });
+  }, { ...snapshot, messages, state: { ...snapshot.state, isStreaming: true },
+    launch: { plan: false, ultracode: false, ultracodeTurn: true, goalArmed: false,
+      goal: { id: 'goal-fixture', sessionId: snapshot.state.sessionId, objective: '校准摘要并完成最终核验', status: 'active', ultracode: true,
+        tokensUsed: 90000, tokenBudget: 200000, timeUsedSeconds: 252, iteration: 3,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } } });
   await page.reload();
   const panel = page.locator('#subagent-panel[aria-hidden="false"]');
   await page.locator('.workflow-inline').waitFor();
   assert.match(await page.locator('.working').innerText(), /正在阶跃/);
   assert.equal(await page.locator('.workflow-inline .workflow-count').innerText(), '4 / 8');
+  assert.equal(await page.locator('.composer .launch-status-trigger').count(), 0);
+  assert.equal(await page.locator('.working .launch-status-pulse').count(), 1);
+  assert.equal(await page.locator('.working .launch-status-pulse svg.lucide-network').count(), 0, 'The actual workflow owns the orchestration entry');
+  const entrance = await page.evaluate(async () => {
+    document.querySelector('.working .launch-status-pulse').click();
+    const frames = [], start = performance.now();
+    while (performance.now() - start < 260) {
+      await new Promise(requestAnimationFrame);
+      frames.push(document.querySelector('.launch-inline-reveal')?.getBoundingClientRect().height ?? 0);
+    }
+    return frames;
+  });
+  assert.ok(entrance.some(height => height > 1 && height < entrance.at(-1) - 2), 'Details unfold through intermediate heights');
+  await page.getByRole('dialog', { name: '任务状态', exact: true }).waitFor();
+  assert.equal(await page.getByLabel('Token 预算', { exact: true }).inputValue(), '200000');
+  await page.waitForTimeout(250);
+  const anchorBounds = await page.locator('.working .launch-status-pulse').boundingBox();
+  const detailBounds = await page.getByRole('dialog', { name: '任务状态', exact: true }).boundingBox();
+  assert.ok(detailBounds.y >= anchorBounds.y + anchorBounds.height && Math.abs(detailBounds.x - anchorBounds.x) <= 1,
+    'Details open below the original pulse anchor, not over the preceding conversation');
+  await page.screenshot({ path: 'test-results/launch-goal-workflow-details-dark.png' });
+  const exit = await page.evaluate(async () => {
+    const full = document.querySelector('.launch-inline-reveal').getBoundingClientRect().height;
+    document.querySelector('.launch-status-panel header button').click();
+    const frames = [], start = performance.now();
+    while (performance.now() - start < 260) {
+      await new Promise(requestAnimationFrame);
+      frames.push(document.querySelector('.launch-inline-reveal')?.getBoundingClientRect().height ?? 0);
+    }
+    return { full, frames };
+  });
+  assert.equal(exit.frames.at(-1), 0);
+  assert.ok(exit.frames.some(height => height > 1 && height < exit.full - 2), 'Details fold back through intermediate heights');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.locator('.working .launch-status-pulse').click();
+  await page.getByRole('dialog', { name: '任务状态', exact: true }).waitFor();
+  assert.equal(await page.locator('.launch-inline-reveal').evaluate(element => getComputedStyle(element).animationName), 'none');
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.launch-inline-reveal'));
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.locator('.working .workflow-trigger').click();
   await panel.waitFor();
   assert.equal(await panel.locator('.workflow-agent').count(), 8);
@@ -101,6 +145,76 @@ try {
     BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'message_end', message });
   });
   assert.equal(await page.locator('.working .workflow-trigger').count(), 1);
+  await app.evaluate(() => {
+    const model = globalThis.workflowFixture;
+    globalThis.savedWorkflowLaunch = model.launch;
+    model.launch = { plan: false, ultracode: false, goalArmed: false };
+    model.state.isStreaming = false;
+  });
+  await page.reload();
+  const settledTrigger = page.locator('.working-idle .workflow-settled');
+  await settledTrigger.waitFor();
+  assert.match(await settledTrigger.innerText(), /编排已完成/);
+  assert.equal(await page.locator('.working-idle .working-dot').count(), 0);
+  assert.equal(await page.locator('.composer .launch-status-trigger').count(), 0, 'Finished workflow never arms the next send');
+  assert.ok(await settledTrigger.evaluate(element => {
+    const row = element.closest('.working').getBoundingClientRect();
+    return Math.abs(row.right - element.getBoundingClientRect().right) <= 1;
+  }), 'Standalone workflow summary anchors at the transcript right edge');
+  await page.mouse.move(20, 50);
+  await page.waitForTimeout(350);
+  const footerLayout = await settledTrigger.evaluate(element => {
+    const row = element.closest('.assistant-footer-row');
+    const actions = row?.querySelector('.assistant-actions');
+    if (!actions) return undefined;
+    const left = actions.getBoundingClientRect(), right = element.getBoundingClientRect();
+    return { hidden: getComputedStyle(actions).opacity, visible: getComputedStyle(element).opacity,
+      centerDifference: Math.abs(left.y + left.height / 2 - right.y - right.height / 2), separate: left.right <= right.left };
+  });
+  assert.ok(footerLayout?.hidden === '0' && footerLayout.visible === '1'
+    && footerLayout.centerDifference <= 1 && footerLayout.separate, `Hidden actions and persistent workflow share one footer row: ${JSON.stringify(footerLayout)}`);
+  await page.screenshot({ path: 'test-results/workflow-settled-dark.png' });
+  await page.locator('.assistant-footer-row .assistant-actions').hover();
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator('.assistant-footer-row .assistant-actions').evaluate(element => getComputedStyle(element).opacity), '1');
+  await page.screenshot({ path: 'test-results/workflow-settled-footer-hover.png' });
+  await page.mouse.move(20, 50);
+  await settledTrigger.click();
+  await panel.waitFor();
+  assert.equal(await panel.locator('.workflow-agent').count(), 8);
+  await settledTrigger.click();
+  await page.locator('#subagent-panel').waitFor({ state: 'detached' });
+  await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
+  await page.reload();
+  await settledTrigger.waitFor();
+  await page.waitForTimeout(350);
+  await page.screenshot({ path: 'test-results/workflow-settled-light.png' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(420, 700));
+  await page.waitForTimeout(350);
+  assert.ok(await settledTrigger.evaluate(element => {
+    const row = element.closest('.working').getBoundingClientRect();
+    const trigger = element.getBoundingClientRect();
+    return Math.abs(row.right - trigger.right) <= 1 && trigger.left >= row.left - 1;
+  }), 'Idle workflow summary fits the narrow transcript and remains right-aligned');
+  await page.screenshot({ path: 'test-results/workflow-settled-narrow.png' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1500, 1000));
+  await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
+  for (const [status, label] of [['failed', '编排失败'], ['aborted', '编排已中断'], ['budget_exceeded', '编排预算耗尽'], ['unknown', '编排状态待确认'], ['running', '编排状态待确认']]) {
+    await app.evaluate(({ BrowserWindow }, status) => {
+      const model = globalThis.workflowFixture;
+      const result = model.messages[2];
+      result.desktopWorkflow = { ...result.desktopWorkflow, status };
+      BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_history', messages: model.messages });
+    }, status);
+    await settledTrigger.getByText(label, { exact: true }).waitFor();
+    assert.equal(await settledTrigger.locator('[data-state="running"]').count(), 0, 'An ended parent turn never shows a running summary');
+  }
+  await app.evaluate(() => {
+    const model = globalThis.workflowFixture;
+    model.messages[2].desktopWorkflow.status = 'completed';
+    model.launch = globalThis.savedWorkflowLaunch;
+    model.state.isStreaming = true;
+  });
   await page.reload();
   await page.locator('.workflow-inline').waitFor();
   await page.locator('.workflow-heading').click();
@@ -175,6 +289,11 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 790));
   await page.waitForTimeout(300);
   await page.screenshot({ path: 'test-results/workflow-orchestration-narrow.png' });
+  const pulseBounds = await page.locator('.working').boundingBox();
+  for (const child of await page.locator('.working > button').all()) {
+    const bounds = await child.boundingBox();
+    assert.ok(bounds.x >= pulseBounds.x - 1 && bounds.x + bounds.width <= pulseBounds.x + pulseBounds.width + 1, 'Task controls fit the narrow pulse row');
+  }
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await app.evaluate(() => {
     const model = globalThis.workflowFixture;
@@ -197,9 +316,11 @@ try {
     const model = globalThis.workflowFixture;
     model.messages = [{ role: 'user', content: '新的普通任务' }];
     model.state.isStreaming = false;
+    model.launch = { plan: false, ultracode: false, goalArmed: false };
     BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_history', messages: model.messages });
   });
   await page.waitForFunction(() => !document.querySelector('.workflow-inline'));
+  assert.equal(await page.locator('.working .workflow-trigger').count(), 0, 'An unrelated ordinary turn does not retain the prior workflow summary');
   assert.equal(await panel.locator('.workflow-agent').count(), 0, 'history change does not leave another workflow visible');
   assert.deepEqual(errors, []);
   console.log('Workflow UI passed: pulse toggle, fixed rail entry, overview/agent, final snapshot preservation, subsequent tools, history, failure/interruption/cache/budget, light/narrow and session isolation.');

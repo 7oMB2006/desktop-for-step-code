@@ -6,6 +6,8 @@ import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/prom
 import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
+import { LaunchControls } from './launch-controls';
+import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
 import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
@@ -77,7 +79,7 @@ function showMainWindow() {
 let startup: Promise<void> = Promise.resolve();
 let startupError: string | undefined;
 let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Model[]; thinkingLevel?: string;
-  permissionPreset?: PermissionPreset; modelChanged?: boolean; permissionChanged?: boolean; thinkingChanged?: boolean } | undefined = { id: randomUUID() };
+  permissionPreset?: PermissionPreset; launch?: LaunchState; modelChanged?: boolean; permissionChanged?: boolean; thinkingChanged?: boolean } | undefined = { id: randomUUID() };
 let undoBusy = false;
 const undoStore = new TurnUndoStore(join(app.getPath('userData'), 'turn-undo'));
 // One agent_end can cover SEVERAL response entries: the runtime drains its queued
@@ -221,6 +223,7 @@ const pendingMessages = new PendingMessages(worker => {
 }, (worker, error) => emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) }),
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
   (worker, message) => runtimes.preparePrompt(worker, message));
+const launchControls = new LaunchControls(runtimes);
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
   (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
 setInterval(() => { if (!transition) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error)); }, 60000).unref();
@@ -296,6 +299,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     modelSelection: worker ? modelSelections.selection(worker) : undefined,
     modelChanges: worker ? modelSelections.changes(worker) : [],
     permissionPreset: draft?.permissionPreset ?? worker?.permissionPreset, runtimeRevision: worker?.revision,
+    launch: draft?.launch ?? worker?.launch ?? emptyLaunch(),
     messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: providerModelNames(draft?.models ?? worker?.models ?? [], appliedAuthData), stats: worker?.stats,
     pendingMessages: worker ? pendingMessages.list(worker) : [],
     requests: worker ? [...worker.pendingUI.values()] : [],
@@ -348,6 +352,7 @@ async function performProviderSettings() {
         sessionDraft.thinkingLevel = draft.thinkingLevel; sessionDraft.thinkingChanged = draft.thinkingChanged;
       }
       sessionDraft.permissionPreset = draft.permissionPreset; sessionDraft.permissionChanged = draft.permissionChanged;
+      sessionDraft.launch = draft.launch;
     }
   }
   providerSettingsPending = false;
@@ -447,7 +452,8 @@ async function beginSession(workspace?: string) {
     const previous = sessionDraft;
     const options = await admin.request('session_options', { cwd: selected ?? app.getPath('documents') });
     const next: NonNullable<typeof sessionDraft> = { id: previous?.id ?? randomUUID(), workspace: selected, ...options,
-      permissionPreset: previous?.permissionPreset ?? options.permissionPreset, permissionChanged: previous?.permissionChanged };
+      permissionPreset: previous?.permissionPreset ?? options.permissionPreset, permissionChanged: previous?.permissionChanged,
+      launch: previous?.launch ?? emptyLaunch() };
     const selectedModel = previous?.modelChanged
       ? options.models.find((m: Model) => m.provider === previous.model?.provider && m.id === previous.model?.id) : undefined;
     if (selectedModel) {
@@ -574,6 +580,8 @@ async function handle(method: string, args: any[]) {
           await handle('command', ['set_model', { provider: draft.model.provider, modelId: draft.model.id }, created.runtimeId]);
         if (draft.thinkingChanged) await handle('command', ['set_thinking_level', { level: draft.thinkingLevel }, created.runtimeId]);
         if (draft.permissionChanged) await handle('command', ['set_permission_preset', { preset: draft.permissionPreset }, created.runtimeId]);
+        for (const change of draftLaunchChanges(runtimes.require(created.runtimeId).launch, draft.launch))
+          await handle('command', ['set_launch_mode', change, created.runtimeId]);
         return await snapshot(runtimes.require(created.runtimeId));
       } catch (error) {
         const worker = created.runtimeId && runtimes.workers.get(created.runtimeId);
@@ -947,6 +955,14 @@ async function handle(method: string, args: any[]) {
           sessionDraft.permissionPreset = data.preset; sessionDraft.permissionChanged = true;
           return;
         }
+        if (type === 'set_launch_mode') {
+          if (!['plan', 'goal', 'ultracode'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
+          const launch = sessionDraft.launch ??= emptyLaunch();
+          if (data.mode === 'ultracode') launch.ultracodeArmed = data.enabled;
+          else if (data.mode === 'plan') { launch.plan = data.enabled; launch.planArmed = data.enabled; if (data.enabled) launch.goalArmed = false; }
+          else { launch.goalArmed = data.enabled; if (data.enabled) { launch.plan = false; launch.planArmed = false; } }
+          return;
+        }
         throw new Error('Send a message to create this session first');
       }
       const runtimeId = args[2] === undefined ? runtimes.activeId : text(args[2], 80);
@@ -955,13 +971,19 @@ async function handle(method: string, args: any[]) {
       if (worker.stopping && ['prompt', 'queue_steer', 'queue_steer_first', 'abort'].includes(type))
         throw new Error('Wait for this session to stop');
       if (worker.mutating && !['abort', 'extension_ui_response', 'get_commands', 'get_available_thinking_levels', 'get_session_stats'].includes(type)) throw new Error('Session operation in progress');
-      const mutating = ['set_permission_preset', 'compact', 'queue_recover'].includes(type);
+      const mutating = ['set_permission_preset', 'set_launch_mode', 'goal_action', 'disable_standing_ultracode', 'compact', 'queue_recover'].includes(type);
       if (mutating) worker.mutating = true;
       const wasStreaming = worker.busy || worker.submissions > 0;
       if (type === 'prompt') worker.submissions++;
       try {
         const rpc = worker.rpc;
         const pendingUI = worker.pendingUI;
+        if (type === 'set_launch_mode') {
+          if (!['plan', 'goal', 'ultracode'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
+          return await launchControls.set(worker, data.mode, data.enabled);
+        }
+        if (type === 'goal_action') return await launchControls.goal(worker, text(data.action, 20), data.value);
+        if (type === 'disable_standing_ultracode') return await launchControls.disableStandingUltracode(worker);
         if (type === 'set_model' || type === 'set_thinking_level') {
           if (type === 'set_model') {
             const provider = text(data.provider, 200), modelId = text(data.modelId, 300);
@@ -1007,7 +1029,7 @@ async function handle(method: string, args: any[]) {
           if (!Number.isInteger(data.version) || data.version < 0) throw new Error('Invalid queued message version');
           if (type === 'queue_edit') {
             const message = text(data.message);
-            if (/^\s*\/_desktop_retry\b/.test(message)) throw new Error('Reserved Desktop command');
+            if (/^\s*\/_desktop_(?:retry|goal_input)\b/.test(message)) throw new Error('Reserved Desktop command');
             pendingMessages.edit(worker, id, data.version, message);
           } else if (type === 'queue_remove') pendingMessages.remove(worker, id, data.version);
           else await pendingMessages.steer(worker, id, data.version);
@@ -1026,10 +1048,11 @@ async function handle(method: string, args: any[]) {
           return await rpc.request('prompt', { message: `/permissions ${preset}` });
         }
         let payload: Record<string, unknown> = {};
+        let promptLaunch: LaunchState | undefined;
         let filePaths: string[] = [];
         if (type === 'prompt') {
           payload.message = text(data.message);
-          if (/^\s*\/_desktop_retry\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
+          if (/^\s*\/_desktop_(?:retry|goal_input)\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
           if (data.files !== undefined) {
             if (!Array.isArray(data.files) || data.files.length > MAX_ATTACHMENTS || new Set(data.files).size !== data.files.length) throw new Error('Invalid attachments');
             const paths = await Promise.all(data.files.map(async (id: unknown) => {
@@ -1049,8 +1072,11 @@ async function handle(method: string, args: any[]) {
               return { type: 'image', mimeType: i.mimeType, data: text(i.data, 14000000) };
             });
           }
+          promptLaunch = { ...worker.launch ?? emptyLaunch() };
           if (wasStreaming) {
-            const id = pendingMessages.enqueue(worker, text(data.message), payload, filePaths);
+            if (worker.launch?.goalArmed) throw new Error('Finish the current task before starting a new goal');
+            const id = pendingMessages.enqueue(worker, text(data.message), launchControls.input(worker, payload), filePaths);
+            launchControls.consume(worker);
             if (Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
             return { queued: true, id, version: 0 };
           }
@@ -1064,8 +1090,21 @@ async function handle(method: string, args: any[]) {
         worker.operations++;
         if (type === 'prompt') runtimes.publish();
         try {
-          if (type === 'prompt' && !(payload.message as string).trimStart().startsWith('/')) await runtimes.preparePrompt(worker, payload.message as string);
-          const response = await rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
+          let response;
+          if (type === 'prompt' && promptLaunch?.goalArmed) {
+            launchControls.consume(worker);
+            await runtimes.preparePrompt(worker, payload.message as string);
+            if (!await launchControls.startGoal(worker, payload, promptLaunch)) throw new Error('Goal state changed before submission');
+            response = { goal: true };
+          } else {
+            if (type === 'prompt' && !(payload.message as string).trimStart().startsWith('/')) {
+              payload = launchControls.input(worker, payload, promptLaunch);
+              launchControls.consume(worker);
+              await runtimes.preparePrompt(worker, payload.message as string);
+            }
+            const submission = rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
+            response = await submission;
+          }
           if (type === 'abort') {
             // Abort waits for idle; clear accepted steers before making them editable.
             await rpc.request('clear_queue');

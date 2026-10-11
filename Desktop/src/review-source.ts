@@ -1,12 +1,13 @@
 import type { Message } from './contracts';
 import { conversationEntries } from './conversation-presentation';
+import { isUserMessage } from './user-message';
 
 export function lastCompletedResponse(messages: Message[], busy: boolean) {
   const entries = conversationEntries(messages);
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index];
     if (entry.type !== 'response' || busy && index === entries.length - 1) continue;
-    const users = messages.slice(0, entry.index).filter(message => message.role === 'user');
+    const users = messages.slice(0, entry.index).filter(isUserMessage);
     return { items: entry.items, number: users.length, timestamp: users.at(-1)?.timestamp };
   }
   return undefined;

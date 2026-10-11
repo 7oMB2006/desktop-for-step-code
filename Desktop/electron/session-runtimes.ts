@@ -3,6 +3,10 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RpcProcess } from './runtime';
 import { permissionFromStatus } from './permission-status';
+import { projectLaunch, ultracodeNotification } from './launch-state';
+import { emptyLaunch, type LaunchState } from '../src/launch-state';
+import { isUltracodeInput, originalUltracodeInput } from '../src/ultracode-input';
+import { isUserMessage } from '../src/user-message';
 import { WORKSPACE_POLICY } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
@@ -26,6 +30,7 @@ export interface SessionRuntime {
   state?: RuntimeState;
   leafId?: string;
   permissionPreset?: PermissionPreset;
+  launch?: LaunchState;
   messages: Message[];
   models: Model[];
   pendingModel?: ModelSelection;
@@ -41,8 +46,8 @@ export interface SessionRuntime {
   stopping?: boolean;
 }
 export function firstUserText(messages: Message[]) {
-  const content = messages.find(message => message.role === 'user')?.content;
-  return (typeof content === 'string' ? content : content?.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') ?? '').slice(0, 200);
+  const content = messages.find(isUserMessage)?.content;
+  return originalUltracodeInput(typeof content === 'string' ? content : content?.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') ?? '').slice(0, 200);
 }
 export function taskOutcome(messages: Message[]) {
   const last = messages.at(-1);
@@ -63,6 +68,8 @@ export class SessionRuntimes {
   activeId?: string;
   private openingEmpty = new Map<string, Promise<SessionRuntime>>();
   private reads = new Map<SessionRuntime, Set<Promise<void>>>();
+  private launchReads = new Map<SessionRuntime, Promise<void>>();
+  private launchDirty = new Set<SessionRuntime>();
   private confirmations = new Map<string, { worker: SessionRuntime; resolve: (approved: boolean) => void }>();
   constructor(
     private emit: (event: RuntimeEvent) => void,
@@ -73,7 +80,8 @@ export class SessionRuntimes {
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
-  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || worker.queued); }
+  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || worker.queued
+    || worker.status === 'connected' && worker.launch?.goal?.status === 'active'); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
   async preparePrompt(worker: SessionRuntime, message: string) { await this.hooks.beforePrompt?.(worker, message); }
   summaries() {
@@ -128,20 +136,46 @@ export class SessionRuntimes {
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
     };
     worker.status = 'connecting';
+    worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false };
+    let runGeneration = 0;
+    let notifiedGeneration = 0;
     const transport = this.create(event => {
       if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected') return;
       event = this.hooks.event?.(worker, event) ?? event;
       worker.revision++;
-      if (event.type === 'agent_start') { worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
+      if (event.type === 'agent_start') { if (!worker.runActive) runGeneration++; worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
+      if (event.type === 'message_start' && event.message?.role === 'user') {
+        const content = event.message.content;
+        const text = typeof content === 'string' ? content : content?.find((block: any) => block.type === 'text')?.text ?? '';
+        if (isUltracodeInput(text)) {
+          worker.launch = { ...worker.launch ?? emptyLaunch(), ultracodeTurn: true };
+          this.publishLaunch(worker);
+        }
+      }
       if (event.type === 'auto_compaction_start' && worker.state) worker.state = { ...worker.state, isCompacting: true };
       if (event.type === 'auto_compaction_end' && worker.state) worker.state = { ...worker.state, isCompacting: false };
       if (event.type === 'agent_end') {
+        const completedGeneration = runGeneration;
         const completed = worker.runActive && !worker.failed && !worker.interrupted && taskOutcome(worker.messages) === 'completed';
         worker.runActive = false; worker.busy = false; worker.touched = Date.now();
         if (worker.state) worker.state = { ...worker.state, isStreaming: false, pendingMessageCount: 0 };
-        if (completed) {
+        if (worker.launch?.ultracodeTurn) { worker.launch.ultracodeTurn = false; this.publishLaunch(worker); }
+        const notifyCompleted = () => {
+          // A shared launch read can settle after several runs; only its latest owner may notify.
+          if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status !== 'connected'
+            || worker.runActive || completedGeneration !== runGeneration || notifiedGeneration === completedGeneration) return;
+          notifiedGeneration = completedGeneration;
           if (worker.id !== this.activeId && worker.state?.sessionId) this.unreadSessionIds.add(worker.state.sessionId);
           this.emit({ type: 'desktop_task_completed', runtimeId: worker.id, sessionId: worker.state?.sessionId });
+        };
+        if (completed && worker.launch?.goal?.status !== 'active') notifyCompleted();
+        else if (completed) {
+          const goalId = worker.launch?.goal?.id;
+          void this.readLaunch(worker).then(() => {
+            if (this.workers.get(worker.id) === worker && worker.rpc === transport
+              && !worker.runActive && worker.launch?.goal?.id === goalId
+              && ['complete', 'blocked', 'usage_limited', 'budget_limited'].includes(worker.launch?.goal?.status ?? '')) { notifyCompleted(); this.publish(); }
+          }).catch(() => {});
         }
       }
       if (['message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
@@ -153,6 +187,11 @@ export class SessionRuntimes {
         for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
       }
       if (event.type === 'extension_ui_request') {
+        const ultra = ultracodeNotification({ method: event.method, message: event.message });
+        if (ultra !== undefined) {
+          worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: ultra };
+          this.publishLaunch(worker);
+        }
         // Preparing a branch is not an active chat. Decline hidden extension prompts.
         if (branch && worker.status === 'connecting' && ['select', 'confirm', 'input', 'editor'].includes(event.method)) {
           worker.rpc.respond({ id: event.id, cancelled: true });
@@ -176,6 +215,11 @@ export class SessionRuntimes {
         }
       }
       this.emit({ ...event, runtimeId: worker.id, runtimeRevision: worker.revision, sessionId: worker.state?.sessionId });
+      if (worker.state?.sessionId && (event.type === 'agent_end'
+        || event.type === 'tool_execution_end' && ['create_goal', 'get_goal', 'update_goal', 'enter_plan_mode', 'exit_plan_mode'].includes(event.toolName)
+        || event.type === 'extension_ui_request' && (event.method === 'setStatus' && ['step-goal', 'plan-mode'].includes(event.statusKey)
+          || event.method === 'notify' && /^(?:Goal|Plan mode|Ultraloop)/.test(event.message ?? ''))))
+        void this.readLaunch(worker).catch(() => {});
       if (['agent_start', 'agent_end', 'desktop_exit', 'extension_ui_request'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
     });
     worker.rpc = transport;
@@ -244,6 +288,8 @@ export class SessionRuntimes {
       worker.rpc.request('get_entries'),
     ]);
     const savedMessages = messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null);
+    if (revision === worker.revision && state.sessionId)
+      worker.launch = projectLaunch(history.entries ?? [], history.leafId ?? null, state.sessionId, worker.launch);
     const decorated = this.hooks.messages ? await this.hooks.messages(worker, savedMessages) : savedMessages;
     // Never replace newly received deltas with an older asynchronous snapshot.
     if (revision === worker.revision) {
@@ -257,7 +303,29 @@ export class SessionRuntimes {
     }
     worker.models = models; worker.stats = stats; worker.touched = Date.now();
   }
+  publishLaunch(worker: SessionRuntime) {
+    this.emit({ type: 'desktop_launch', runtimeId: worker.id, sessionId: worker.state?.sessionId, launch: worker.launch });
+  }
+  readLaunch(worker: SessionRuntime): Promise<void> {
+    this.launchDirty.add(worker);
+    const existing = this.launchReads.get(worker);
+    if (existing) return existing;
+    const rpc = worker.rpc;
+    const sessionId = worker.state?.sessionId;
+    const read = (async () => {
+      while (this.launchDirty.delete(worker)) {
+        if (!sessionId || this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.status !== 'connected') return;
+        const history = await rpc.request('get_entries');
+        if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.state?.sessionId !== sessionId) return;
+        const next = projectLaunch(history.entries ?? [], history.leafId ?? null, sessionId, worker.launch);
+        if (JSON.stringify(next) !== JSON.stringify(worker.launch)) { worker.launch = next; this.publishLaunch(worker); }
+      }
+    })().finally(() => { this.launchReads.delete(worker); this.launchDirty.delete(worker); });
+    this.launchReads.set(worker, read);
+    return read;
+  }
   async assertIdle(worker: SessionRuntime) {
+    if (worker.launch?.goal?.status === 'active') throw new Error('Pause the active goal first');
     if (worker.queued) throw new Error('Send or withdraw the pending messages first');
     if (this.isBusy(worker)) throw new Error('Stop this session task first');
     if (worker.status === 'connected') {
@@ -407,6 +475,7 @@ export class SessionRuntimes {
   async recycle() {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
       worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
+      worker.launch?.goal?.status !== 'active' &&
       !worker.operations && !worker.mutating && !worker.pendingModel && !worker.queued && worker.messages.length > 0;
     const idle = [...this.workers.values()].filter(recyclable);
     idle.sort((a, b) => b.touched - a.touched);

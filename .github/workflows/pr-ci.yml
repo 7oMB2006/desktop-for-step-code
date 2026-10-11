@@ -191,6 +191,12 @@ jobs:
           node scripts/verify-subagent-status.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Subagent status acceptance failed' }
 
+      - name: Workflow orchestration acceptance
+        working-directory: Desktop
+        run: |
+          node scripts/verify-workflow.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Workflow acceptance failed' }
+
       - name: Chain runtime acceptance
         working-directory: Desktop
         run: |

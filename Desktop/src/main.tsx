@@ -57,6 +57,8 @@ import type { FilePreviewData, FileTarget } from './contracts';
 import { SubagentPanel } from './SubagentPanel';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
+import { currentTurnWorkflows, workflowsFromMessages } from './workflow-state';
+import { WorkflowTrigger } from './WorkflowView';
 import './appearance.css';
 import './settings-dialog.css';
 
@@ -174,18 +176,32 @@ function App() {
     setDetails(''); setRightPanel('browser');
   }, [rightPanel, details]);
   const [selectedSubagent, setSelectedSubagent] = useState<SubagentTaskKey | null>(null);
+  const [subagentView, setSubagentView] = useState<'overview' | 'agent'>('agent');
+  const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null);
+  const [selectedWorkflowAgent, setSelectedWorkflowAgent] = useState<string | null>(null);
+  const workflows = useMemo(() => workflowsFromMessages(data.messages), [data.messages]);
+  const turnWorkflows = useMemo(() => currentTurnWorkflows(data.messages), [data.messages]);
+  const runningWorkflow = busy ? [...turnWorkflows].reverse().find(flow => flow.status === 'running') : undefined;
+  const latestWorkflow = runningWorkflow ?? workflows.at(-1);
+  const currentTurnWorkflow = runningWorkflow ?? turnWorkflows.at(-1);
+  const openWorkflow = useCallback((id: string) => {
+    const same = rightPanel === 'subagent' && !details && subagentView === 'overview' && selectedWorkflow === id;
+    if (selectedWorkflow !== id) setSelectedWorkflowAgent(null);
+    setSelectedWorkflow(id); setSubagentView('overview'); setDetails(''); setRightPanel(same ? null : 'subagent');
+  }, [rightPanel, details, subagentView, selectedWorkflow]);
   const [repositoryRequest, setRepositoryRequest] = useState<{ runtimeId?: string; sequence: number }>();
   // The panel reads from live messages, so a subagent that finishes while it stays open keeps
   // updating instead of freezing on the status captured when the row was clicked.
   const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent), [data.messages, selectedSubagent]);
   const openSubagent = useCallback((task: SubagentTask) => {
-    const alreadyOpen = rightPanel === 'subagent' && !details
+    const alreadyOpen = rightPanel === 'subagent' && !details && subagentView === 'agent' && !selectedWorkflowAgent
       && selectedSubagent?.toolCallId === task.toolCallId && selectedSubagent?.taskIndex === task.taskIndex
       && selectedSubagent?.agent === task.agent && selectedSubagent.task === task.task;
     setSelectedSubagent({ agent: task.agent, task: task.task, toolCallId: task.toolCallId, taskIndex: task.taskIndex });
+    setSubagentView('agent'); setSelectedWorkflowAgent(null);
     setDetails('');
     setRightPanel(alreadyOpen ? null : 'subagent');
-  }, [rightPanel, details, selectedSubagent]);
+  }, [rightPanel, details, selectedSubagent, subagentView, selectedWorkflowAgent]);
   const [summarySpace, setSummarySpace] = useState(false);
   const appLayout = useRef<HTMLDivElement>(null);
   const rightRail = useRef<HTMLElement>(null);
@@ -381,6 +397,7 @@ function App() {
   const applySnapshot = async (action: () => Promise<Snapshot | null>) => {
     // A subagent record belongs to the session that spawned it; switching must not leave it open.
     setSelectedSubagent(null);
+    setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
     if (switching.current) return;
     switching.current = true; setLoading(true);
     let succeeded = false;
@@ -400,7 +417,7 @@ function App() {
     readingRestore.current = undefined;
     switching.current = true; setLoading(true);
     setNavigationTarget({ session, reading }); setError(''); setRequests([]);
-    setSelectedSubagent(null); setRightPanel(null); setContextMenu(null);
+    setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); setRightPanel(null); setContextMenu(null);
     setQueuePreviewOpen(false); setLiveChangesOpen(false);
     let failed = false;
     try {
@@ -1117,8 +1134,10 @@ function App() {
             title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
             onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
-            <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent}/>
-            {busy && <div className="working"><span className="working-dot"/>{requests.length ? t('等待你的确认', 'Awaiting your decision') : t('正在执行', 'Working')}</div>}
+            <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}/>
+            {busy && <div className="working"><span className="working-dot"/>{requests.length ? t('等待你的确认', 'Awaiting your decision') : t('正在阶跃', 'Working')}
+              {currentTurnWorkflow && <WorkflowTrigger flow={currentTurnWorkflow} language={data.preferences.language} onOpen={openWorkflow}/>}
+            </div>}
             <PendingUserMessages messages={data.pendingMessages ?? []} connected={connected} busy={busy}
               onRecover={() => bridge!.command('queue_recover', undefined, data.runtimeId)}
               language={data.preferences.language} openImage={openImage} onError={setError} onLayoutChange={followLayout}/>
@@ -1241,6 +1260,10 @@ function App() {
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'subagent'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'subagent')}
       overlay={!summarySpace} task={openSubagentTask} language={data.preferences.language}
+      workflows={workflows} workflowId={selectedWorkflow} view={subagentView} agentId={selectedWorkflowAgent}
+      onView={view => { if (view === 'overview' && !selectedWorkflow && latestWorkflow) setSelectedWorkflow(latestWorkflow.toolCallId); setSubagentView(view); }}
+      onWorkflow={id => { setSelectedWorkflow(id); setSelectedWorkflowAgent(null); }}
+      onAgent={id => { setSelectedWorkflowAgent(id); setSubagentView('agent'); }}
       openImage={openImage} onClose={closeRightPanel} onError={setError}/>
     <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
@@ -1264,7 +1287,11 @@ function App() {
       <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>
       <IconButton title={t('文件预览', 'File preview')} data-tooltip-side="left" aria-controls="file-panel" aria-pressed={!details && visibleRightPanel === 'file'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'file' ? null : 'file'); }}><FileText size={18}/></IconButton>
-        <IconButton title={t('子代理', 'Subagents')} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'subagent' ? null : 'subagent'); }}><Bot size={18}/></IconButton>
+        <IconButton title={t('子代理', 'Subagents')} data-workflow-running={Boolean(runningWorkflow) || undefined} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent && !latestWorkflow} onClick={() => {
+          if (!details && visibleRightPanel === 'subagent') { setRightPanel(null); return; }
+          if (latestWorkflow) { setSelectedWorkflow(latestWorkflow.toolCallId); setSubagentView('overview'); setSelectedWorkflowAgent(null); }
+          setDetails(''); setRightPanel('subagent');
+        }}><Bot size={18}/></IconButton>
       <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-controls="conversation-navigation-panel" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
     </nav>
     {preview && <div className="attachment-preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>

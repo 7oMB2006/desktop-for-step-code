@@ -22,6 +22,7 @@ import { permissionPresets } from './permission-status';
 import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
+import { hydrateWorkflowHistory } from './workflow-history';
 import { TerminalSessions } from './terminal-sessions';
 import { BrowserTabs } from './browser-tabs';
 import { linkPreview } from './link-preview';
@@ -202,7 +203,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   messages: async (worker, messages) => {
     if (!worker.state?.sessionId) return messages;
     await modelSelections.load(worker.state.sessionId);
-    return conversationTiming.decorate(worker.state.sessionId, messages);
+    return hydrateWorkflowHistory(worker.cwd, await conversationTiming.decorate(worker.state.sessionId, messages));
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
   launch: worker => collaboration.attach(worker),

@@ -1,3 +1,5 @@
+import type { WorkflowState } from './workflow-state';
+export interface Message { desktopWorkflow?: WorkflowState }
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
 export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }

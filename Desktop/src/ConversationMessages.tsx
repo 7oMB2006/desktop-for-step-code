@@ -9,6 +9,8 @@ import type { BackgroundSubagentStates, ResponseItem, SubagentTask } from './con
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
+import { WorkflowBlock } from './WorkflowView';
+import { workflowsFromMessages } from './workflow-state';
 import { ElapsedLabel } from './ElapsedLabel';
 import { quotePresentation } from './chat-quotes';
 import { ScrollThumb } from './ConversationScrollThumb';
@@ -28,6 +30,7 @@ type Props = {
   branch: (message: Message) => void;
   onLayoutChange?: () => void;
   onOpenSubagent: (task: SubagentTask) => void;
+  onOpenWorkflow?: (id: string) => void;
   arrivingUser?: Message | null;
 };
 type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls'>;
@@ -235,13 +238,14 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     </span>
   </div>;
 }
-  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, background, modelChange, ...props }: {
+  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, ...props }: {
     items: { message: Message; index: number }[]; active: boolean;
     canBranch: boolean; branch: Props['branch'];
     runtimeId?: string;
     modelChange?: ModelChange;
     background: BackgroundSubagentStates;
     onOpenSubagent: (task: SubagentTask) => void;
+    onOpenWorkflow?: (id: string) => void;
   } & BodyProps) {
     const { content, text, lastTextIndex } = responsePresentation(items);
     const changes = useMemo(() => turnChanges(active ? [] : items), [items, active]);
@@ -256,7 +260,16 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
           item.type === 'tool'
             ? item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
               ? <SubagentLane key={item.key} item={item} active={active} background={background} onOpen={onOpenSubagent} {...props}/>
-              : <Tool key={item.key} item={item} active={active} {...props}/>
+              : (item.call?.name === 'workflow' || item.result?.toolName === 'workflow') && onOpenWorkflow
+                ? (() => {
+                  const flow = workflowsFromMessages([
+                    ...(item.call ? [{ role: 'assistant', content: [item.call] }] : []),
+                    ...(item.result ? [item.result] : []),
+                  ])[0];
+                  return flow ? <WorkflowBlock key={item.key} flow={flow} language={props.language} onOpen={onOpenWorkflow}/>
+                    : <Tool key={item.key} item={item} active={active} {...props}/>;
+                })()
+                : <Tool key={item.key} item={item} active={active} {...props}/>
           : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
             elapsed={<ElapsedLabel timing={items.find(entry => entry.index === item.index)?.message.desktopTiming?.thinking[item.key.split(':')[1]]}
               active={active} language={props.language}/>}

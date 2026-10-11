@@ -4,9 +4,10 @@ import { Check } from 'lucide-react';
 import './app-menu.css';
 
 export interface AppMenuItem { id: string; label: string; icon?: ReactNode; disabled?: boolean }
-export function AppMenu({ anchor, open, label, items, selected, onSelect, onClose }: {
+export function AppMenu({ anchor, open, label, items, selected, onSelect, onClose, maxVisibleItems }: {
   anchor: RefObject<HTMLButtonElement | null>; open: boolean; label: string;
   items: AppMenuItem[]; selected?: string; onSelect: (id: string) => void; onClose: () => void;
+  maxVisibleItems?: number;
 }) {
   const id = useId();
   const panel = useRef<HTMLDivElement>(null);
@@ -38,9 +39,10 @@ export function AppMenu({ anchor, open, label, items, selected, onSelect, onClos
     });
     return () => { cancelAnimationFrame(focus); observer.disconnect(); window.removeEventListener('resize', place); document.removeEventListener('scroll', place, true); };
   }, [open, anchor, onClose]);
-  return createPortal(<div ref={panel} id={id} popover="auto" className="app-menu" role="menu" aria-label={label}
+  return createPortal(<div ref={panel} id={id} popover="auto" className={`app-menu${maxVisibleItems ? ' app-menu-bounded' : ''}`} role="menu" aria-label={label}
     aria-hidden={!open} inert={!open} onToggle={event => { if (event.newState === 'closed') onClose(); }}
-    style={{ left: position?.left ?? 0, top: position?.top ?? 0, visibility: position ? undefined : 'hidden', transformOrigin: position?.origin }}
+    style={{ left: position?.left ?? 0, top: position?.top ?? 0, visibility: position ? undefined : 'hidden', transformOrigin: position?.origin,
+      ...(maxVisibleItems ? { maxHeight: `min(${maxVisibleItems * 33 + 12}px, calc(100dvh - 76px))` } : {}) }}
     onKeyDown={event => {
       const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
       const index = buttons.indexOf(document.activeElement as HTMLButtonElement);

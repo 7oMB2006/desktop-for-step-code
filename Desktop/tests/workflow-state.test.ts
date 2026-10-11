@@ -1,0 +1,76 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { projectWorkflow, workflowsFromMessages } from '../src/workflow-state';
+import { applyToolResult, applyMessageEvent } from '../src/message-events';
+import { hydrateWorkflowHistory } from '../electron/workflow-history';
+import type { Message } from '../src/contracts';
+
+const progress = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: 'running', startedAt: 100,
+  totalAgents: 2, completedAgents: 0, agents: [
+    { id: 'a', label: '审查', task: '检查限定词', status: 'running', startedAt: 101 },
+    { id: 'b', label: '核验', task: '核对结果', status: 'queued' },
+  ] };
+const final = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: 'completed', startedAt: 100,
+  finishedAt: 200, agentCalls: 2, spentTokens: 50 };
+
+test('workflow final result and duplicate persisted messages preserve the latest agent snapshot', () => {
+  let messages: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'call' }] }];
+  messages = applyToolResult(messages, { type: 'tool_execution_update', toolCallId: 'call', toolName: 'workflow', partialResult: { content: '', details: progress } });
+  const settled = { ...progress, status: 'completed', agents: progress.agents.map(a => ({ ...a, status: 'completed', finishedAt: 200 })) };
+  messages = applyToolResult(messages, { type: 'tool_execution_update', toolCallId: 'call', toolName: 'workflow', partialResult: { content: '', details: settled } });
+  messages = applyToolResult(messages, { type: 'tool_execution_end', toolCallId: 'call', toolName: 'workflow', result: { content: '', details: final } });
+  messages = applyMessageEvent(messages, { type: 'message_start', message: { role: 'toolResult', toolCallId: 'call', toolName: 'workflow', content: '', details: final } });
+  messages = applyMessageEvent(messages, { type: 'message_end', message: { role: 'toolResult', toolCallId: 'call', toolName: 'workflow', content: '', details: final } });
+  const flows = workflowsFromMessages(messages);
+  assert.equal(flows.length, 1);
+  assert.equal(messages.length, 2);
+  assert.equal(flows[0].status, 'completed');
+  assert.deepEqual(flows[0].agents.map(a => a.status), ['completed', 'completed']);
+  assert.equal(flows[0].spentTokens, 50);
+});
+
+test('projection rejects malformed progress, deduplicates ids and redacts new task surfaces', () => {
+  assert.equal(projectWorkflow({ ...progress, runId: '../escape' }, 'call'), undefined);
+  assert.equal(projectWorkflow({ ...progress, schemaVersion: 2 }, 'call'), undefined);
+  const flow = projectWorkflow({ ...progress, agents: [progress.agents[0], progress.agents[0],
+    { id: 'bad', status: 'mystery' }, { id: 'secret', status: 'failed', task: 'API_KEY=private' }] }, 'call')!;
+  assert.equal(flow.agents.length, 2);
+  assert.equal(flow.agents[1].task, '[redacted]');
+});
+
+test('different runs on the same call never inherit another run agents', () => {
+  const first = applyToolResult([], { type: 'tool_execution_update', toolCallId: 'call', toolName: 'workflow', partialResult: { details: progress } });
+  const next = applyToolResult(first, { type: 'tool_execution_end', toolCallId: 'call', toolName: 'workflow', result: { details: { ...final, runId: 'wf_other' } } });
+  assert.equal(next[0].desktopWorkflow?.agents.length, 0);
+});
+
+test('a final result never leaves stale progress spinning or invents agent success', () => {
+  const first = applyToolResult([], { type: 'tool_execution_update', toolCallId: 'call', toolName: 'workflow', partialResult: { details: progress } });
+  const ended = applyToolResult(first, { type: 'tool_execution_end', toolCallId: 'call', toolName: 'workflow', result: { details: final } });
+  assert.deepEqual(ended[0].desktopWorkflow?.agents.map(agent => agent.status), ['unknown', 'unknown']);
+  const failed = applyToolResult(first, { type: 'tool_execution_end', toolCallId: 'call', toolName: 'workflow', isError: true, result: { content: 'Failed' } });
+  assert.equal(failed[0].desktopWorkflow?.status, 'failed');
+  assert.deepEqual(failed[0].desktopWorkflow?.agents.map(agent => agent.status), ['unknown', 'unknown']);
+});
+
+test('history reads only bounded progress inside the session workspace and binds it to the final result', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'workflow-history-'));
+  try {
+    const directory = join(root, '.stepcode', 'workflows', 'runs', 'wf_test');
+    await mkdir(directory, { recursive: true });
+    const message: Message = { role: 'toolResult', toolName: 'workflow', toolCallId: 'call', content: '', details: { ...final, scriptPath: 'C:/unrelated/script.js' } };
+    await writeFile(join(directory, 'progress.json'), JSON.stringify({ ...progress, status: 'completed', agents: progress.agents.map(a => ({ ...a, status: 'completed' })) }));
+    const restored = await hydrateWorkflowHistory(root, [message]);
+    assert.equal(restored[0].desktopWorkflow?.agents.length, 2);
+    assert.equal(restored[0].desktopWorkflow?.status, 'completed');
+    await writeFile(join(directory, 'progress.json'), JSON.stringify({ ...progress, startedAt: 999 }));
+    assert.equal((await hydrateWorkflowHistory(root, [message]))[0].desktopWorkflow, undefined);
+    await writeFile(join(directory, 'progress.json'), 'x'.repeat(1024 * 1024 + 1));
+    assert.equal((await hydrateWorkflowHistory(root, [message]))[0].desktopWorkflow, undefined);
+    await writeFile(join(directory, 'progress.json'), 'broken json');
+    assert.equal((await hydrateWorkflowHistory(root, [message]))[0].desktopWorkflow?.agents.length, 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

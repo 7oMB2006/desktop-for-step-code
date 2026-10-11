@@ -1,5 +1,6 @@
 import type { Content, Message, RuntimeEvent } from './contracts';
 import { applyElapsedTimings } from './elapsed-time';
+import { preserveWorkflow } from './workflow-state';
 
 export function applyMessageEvent(messages: Message[], event: RuntimeEvent): Message[] {
   messages = applyElapsedTimings(messages, event);
@@ -11,10 +12,10 @@ export function applyMessageEvent(messages: Message[], event: RuntimeEvent): Mes
       message.role === 'toolResult' && message.toolCallId === event.message!.toolCallId);
     if (existing >= 0) {
       const next = [...messages];
-      next[existing] = event.message;
+      next[existing] = preserveWorkflow(messages[existing], event.message);
       return next;
     }
-    return [...messages, event.message];
+    return [...messages, preserveWorkflow(undefined, event.message)];
   }
   if (event.type === 'message_start') return event.message ? [...messages, event.message] : messages;
   if (event.type === 'message_end' || (event.type === 'message_update' && event.message)) {
@@ -72,8 +73,8 @@ export function applyToolResult(messages: Message[], event: RuntimeEvent): Messa
   const existing = messages.findIndex(message => message.role === 'toolResult' && message.toolCallId === toolCallId);
   if (existing >= 0) {
     const next = [...messages];
-    next[existing] = { ...next[existing], ...result, details: result.details };
+    next[existing] = preserveWorkflow(next[existing], { ...next[existing], ...result, details: result.details });
     return next;
   }
-  return [...messages, result];
+  return [...messages, preserveWorkflow(undefined, result)];
 }

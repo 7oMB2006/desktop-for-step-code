@@ -8,6 +8,8 @@
 .app-menu-icon, .app-menu-check { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex: 0 0 16px; }
 .app-menu-icon > :is(svg,img) { width: 16px; height: 16px; object-fit: contain; }
 .app-menu-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.app-menu-bounded > button { height: 33px; min-height: 33px; padding-top: 0; padding-bottom: 0; }
+.app-menu-bounded .app-menu-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .app-menu-check { color: var(--primary); }
 @starting-style { .app-menu:popover-open { opacity: 0; transform: translateY(-4px) scale(.985); } }
 @media (prefers-reduced-motion: reduce) { .app-menu { transition: none; } }

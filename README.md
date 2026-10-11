@@ -22,6 +22,7 @@ The original idea was to explore a community-built desktop client for Step Code 
 ### Features
 
 - Streaming conversations, model and thinking-level selection
+- Custom providers (Beta), model discovery, capability settings and connection diagnostics
 - Independent sessions and project workspaces, ordering, pinning, archiving and branching
 - Concurrent sessions, queued sends, steering, quotes and cross-session links
 - Image attachments, tool approvals, subagent status and elapsed-time feedback
@@ -43,19 +44,21 @@ The built-in StepPage MCP server cannot start on Windows: the command the upstre
 
 ### Download and Run
 
-The latest Windows x64 community preview, **v0.2.0**, is available, adding update notifications, a background tray and reading typography settings.
+The latest Windows x64 community preview, **v0.3.0**, follows the pinned upstream Step Code revision `f7392089`, incorporating background-progress handling and parent-agent wake-up improvements. It fixes chained Subagent result propagation and client status presentation, and adds custom providers (Beta), next-task model selection, right-panel controls and a fixed-size settings dialog.
 
-**[Download the Windows x64 installer](https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.2.0/Desktop.for.Step.Code.Setup.0.2.0.exe)** · [Release notes and checksums](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.2.0) · [All releases](https://github.com/7oMB2006/desktop-for-step-code/releases)
+**[Download the Windows x64 installer](https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.3.0/Desktop.for.Step.Code.Setup.0.3.0.exe)** · [Release notes and checksums](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.3.0) · [All releases](https://github.com/7oMB2006/desktop-for-step-code/releases)
 
 1. Download the installer, verify its SHA-256 against the release notes, and run it.
-2. Launch the app and sign in under Account Settings with your own Step Plan account or Step Platform API key.
+2. Launch the app and sign in under Account Settings with your own Step Plan account or Step Platform API key, or configure a custom provider.
 3. Open a local project or choose an independent session, select a model, and start a conversation.
 
 The installer includes Electron and pinned Step Code and Node runtimes; the development dependencies below are not required. Git/Bash, project-specific tools, and MCP server dependencies must be installed separately. Model access and usage limits depend on your account.
 
-**Installation notice:** The v0.2.0 installer is unsigned. Windows may display SmartScreen or an "unknown publisher" warning. Verify the download source and checksum; do not disable system security protections.
+**Custom providers (Beta):** Chat Completions, Responses and Anthropic Messages are supported through generic protocol configuration. Compatibility depends on the provider and model; a successful short-request diagnostic does not establish streaming, tool-use, image-input or long-task compatibility. Dedicated integrations for well-known providers currently have low priority, with no promised date.
 
-**Updates:** v0.2.0 checks for updates after startup and every six hours. You can also check manually or disable automatic checks under Settings → Updates. The default channel includes releases and previews; the releases-only channel excludes community previews. Downloads open in your system browser, and you run installers yourself; the app does not silently install updates or restart automatically. v0.1.0 users must download this upgrade manually from [Releases](https://github.com/7oMB2006/desktop-for-step-code/releases).
+**Installation notice:** The v0.3.0 installer is unsigned. Windows may display SmartScreen or an "unknown publisher" warning. Verify the download source and checksum; do not disable system security protections.
+
+**Updates:** Since v0.2.0, the app checks for updates after startup and every six hours. You can also check manually or disable automatic checks under Settings → Updates. The default channel includes releases and previews; **v0.3.0 is a GitHub Pre-release and will not appear on the releases-only channel.** Downloads open in your system browser, and you run installers yourself; the app does not silently install updates or restart automatically. v0.1.0 users must download this upgrade manually from [Releases](https://github.com/7oMB2006/desktop-for-step-code/releases).
 
 **Exit and upgrade:** Closing the window keeps the app in the tray and lets running tasks continue. Before upgrading, finish tasks and explicitly quit through File → Exit App or the tray menu, then run the installer over the existing installation.
 
@@ -99,7 +102,7 @@ node scripts/checksums.mjs
 
 See the [Development TODO](TODO.md) (Chinese) for planned work and priorities.
 
-v0.2.0 remains a community preview, not an official StepFun product or a stability guarantee. First-release preparation included testing on one Windows Server 2022 cloud desktop: real-account conversations, tool edits and approvals, artifact opening, restart recovery, installation, installation over an existing build, uninstall, and reinstall. A cloud-desktop upgrade to the v0.2.0 RC was also confirmed by the user. This does not establish coverage of every Windows 10/11 configuration, model, or MCP scenario.
+v0.3.0 remains a community preview, not an official StepFun product or a stability guarantee. First-release preparation included testing on one Windows Server 2022 cloud desktop: real-account conversations, tool edits and approvals, artifact opening, restart recovery, installation, installation over an existing build, uninstall, and reinstall. For v0.3.0, the user confirmed cloud-desktop upgrade installation, login/history, basic chat and return-to-bottom behavior. This does not establish coverage of every Windows 10/11 configuration, provider, model, or MCP scenario, nor that every multi-agent issue is resolved.
 
 See [VERIFICATION.md](docs/VERIFICATION.md) and the [release preparation record](docs/RELEASE.md) (Chinese) for the evidence and scope. The Summary board shows MCP connection states supplied by the runtime; enabled configuration alone is not a health check, and connection status does not establish successful service calls.
 

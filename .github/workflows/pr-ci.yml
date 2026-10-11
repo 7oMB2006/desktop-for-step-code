@@ -11,8 +11,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.classify.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - name: Test CI policy
+        run: node --test scripts/ci-policy.test.mjs
+      - name: Classify changed paths
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci-policy.mjs classify
+
+  documentation:
+    name: Documentation checks
+    needs: changes
+    if: needs.changes.outputs.docs-only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check documentation whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "$BASE_SHA...$HEAD_SHA"
+
   windows:
     name: Windows integration
+    needs: changes
+    if: needs.changes.outputs.docs-only == 'false'
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -71,83 +113,231 @@ jobs:
           node node_modules/electron/install.js
           if ($LASTEXITCODE -ne 0) { throw 'Electron install failed' }
 
-      - name: Stage runtime and check Desktop
+      - name: Runtime staging
         working-directory: Desktop
         run: |
           corepack pnpm stage:runtime
           if ($LASTEXITCODE -ne 0) { throw 'Runtime staging failed' }
+
+      - name: Typecheck
+        working-directory: Desktop
+        run: |
           corepack pnpm typecheck
           if ($LASTEXITCODE -ne 0) { throw 'Typecheck failed' }
+
+      - name: Protocol tests
+        working-directory: Desktop
+        run: |
           corepack pnpm test
           if ($LASTEXITCODE -ne 0) { throw 'Protocol tests failed' }
+
+      - name: Desktop build
+        working-directory: Desktop
+        run: |
           corepack pnpm build
           if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
+
+      - name: Electron acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-electron.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Electron acceptance failed' }
+
+      - name: New session draft acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-new-session.mjs
           if ($LASTEXITCODE -ne 0) { throw 'New session draft acceptance failed' }
+
+      - name: App update acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-app-updates.mjs
           if ($LASTEXITCODE -ne 0) { throw 'App update acceptance failed' }
+
+      - name: Appearance acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-appearance.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Appearance acceptance failed' }
+
+      - name: Settings dialog acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-settings-dialog.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Settings dialog acceptance failed' }
+
+      - name: Desktop tray acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-desktop-tray.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Desktop tray acceptance failed' }
+
+      - name: Permission approval acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-permission-approval.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Permission approval acceptance failed' }
+
+      - name: Conversation timing acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-conversation-timing.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Conversation timing acceptance failed' }
+
+      - name: Subagent status acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-subagent-status.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Subagent status acceptance failed' }
+
+      - name: Chain runtime acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-chain-runtime.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Chain runtime acceptance failed' }
+
+      - name: Workflow runtime acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-workflow-runtime.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Workflow runtime acceptance failed' }
+
+      - name: Summary runtime acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-summary-runtime.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Summary runtime acceptance failed' }
+
+      - name: Background subagent acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-background-subagents.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Background subagent acceptance failed' }
+
+      - name: Hidden message acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-hidden-messages.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Hidden message acceptance failed' }
+
+      - name: Terminal acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-terminal-panel.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Terminal acceptance failed' }
+
+      - name: Browser acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-browser-panel.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Browser acceptance failed' }
+
+      - name: Message links acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-message-links.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Message links acceptance failed' }
+
+      - name: Turn artifacts acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-turn-artifacts.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Turn artifacts acceptance failed' }
+
+      - name: File preview acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-file-preview.mjs
           if ($LASTEXITCODE -ne 0) { throw 'File preview acceptance failed' }
+
+      - name: Sidebar scrollbar acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-sidebar-scrollbar.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Sidebar scrollbar acceptance failed' }
+
+      - name: Sidebar ordering acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-sidebar-order.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Sidebar ordering acceptance failed' }
+
+      - name: Archived sessions acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-archived-sessions.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Archived sessions acceptance failed' }
+
+      - name: Session concurrency acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-session-concurrency.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Session concurrency acceptance failed' }
+
+      - name: Session navigation acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-session-navigation.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Session navigation acceptance failed' }
+
+      - name: Session branching acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-session-branching.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Session branching acceptance failed' }
+
+      - name: Message ordering acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-message-order.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Message ordering acceptance failed' }
+
+      - name: Send queue acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-send-queue.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Send queue acceptance failed' }
+
+      - name: Model switch acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-model-switch.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Model switch acceptance failed' }
+
+      - name: Cross-session tool acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-cross-session.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Cross-session tool acceptance failed' }
+
+      - name: Auth vault acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-auth-vault.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Auth vault acceptance failed' }
+
+      - name: Account settings acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-account-settings.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Account settings acceptance failed' }
+
+      - name: Custom provider acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-custom-providers.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Custom provider acceptance failed' }
+
+      - name: Crash log acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-crash-log.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Crash log acceptance failed' }
+
+      - name: StepPage registration acceptance
+        working-directory: Desktop
+        run: |
           node scripts/verify-steppage-registration.mjs
           if ($LASTEXITCODE -ne 0) { throw 'StepPage registration acceptance failed' }
 
@@ -166,3 +356,21 @@ jobs:
           path: Desktop/test-results/*.png
           if-no-files-found: ignore
           retention-days: 7
+
+  result:
+    name: CI result
+    needs: [changes, documentation, windows]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - name: Require the selected checks to succeed
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-policy.mjs conclude

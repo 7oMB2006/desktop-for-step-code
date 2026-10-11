@@ -16,9 +16,10 @@ interface Props {
   disabled: boolean;
   supported: boolean;
   onSelect: (preset: PermissionPreset) => Promise<unknown>;
+  onReview?: () => void;
 }
 
-export function PermissionPicker({ preset, language, disabled, supported, onSelect }: Props) {
+export function PermissionPicker({ preset, language, disabled, supported, onSelect, onReview }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -34,14 +35,18 @@ export function PermissionPicker({ preset, language, disabled, supported, onSele
     document.addEventListener('keydown', escape);
     return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape); };
   }, [open]);
-  useEffect(() => { if (disabled || !supported) setOpen(false); }, [disabled, supported]);
+  useEffect(() => { if (disabled || !supported || onReview) setOpen(false); }, [disabled, supported, Boolean(onReview)]);
   const active = presets.find(item => item.id === preset);
-  const ActiveIcon = preset ? icons[preset] : Shield;
+  const ActiveIcon = onReview ? Hand : preset ? icons[preset] : Shield;
   return <div className="permission-picker" ref={root}>
-    <button ref={trigger} type="button" className={`permission-trigger${preset ? ` permission-${preset}` : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={zh ? '访问权限' : 'Access permissions'} data-tooltip={!supported ? (zh ? '当前运行时不支持权限切换' : 'Permission switching unavailable') : undefined} disabled={disabled || !supported || pending} onClick={() => setOpen(value => !value)}>
-      <ActiveIcon size={16}/><span>{active ? (zh ? active.zh : active.en) : (zh ? '访问权限' : 'Permissions')}</span>
+    <button ref={trigger} type="button" className={`permission-trigger${onReview ? ' permission-review' : preset ? ` permission-${preset}` : ''}`}
+      aria-haspopup={onReview ? 'dialog' : 'menu'} aria-expanded={onReview ? false : open}
+      aria-label={onReview ? (zh ? '处理审批' : 'Review approval') : (zh ? '访问权限' : 'Access permissions')}
+      data-tooltip={!onReview && !supported ? (zh ? '当前运行时不支持权限切换' : 'Permission switching unavailable') : undefined}
+      disabled={disabled || (!onReview && (!supported || pending))} onClick={() => onReview ? onReview() : setOpen(value => !value)}>
+      <ActiveIcon size={16}/><span>{onReview ? (zh ? '处理审批' : 'Review approval') : active ? (zh ? active.zh : active.en) : (zh ? '访问权限' : 'Permissions')}</span>
     </button>
-    {open && <div className="permission-menu" role="menu" aria-label={zh ? '访问权限' : 'Access permissions'}>
+    {open && !onReview && <div className="permission-menu" role="menu" aria-label={zh ? '访问权限' : 'Access permissions'}>
       {presets.map(item => {
         const Icon = icons[item.id];
         return <button type="button" role="menuitemradio" aria-checked={item.id === preset} className={`permission-option-${item.id}`} key={item.id} disabled={pending} onClick={async () => {

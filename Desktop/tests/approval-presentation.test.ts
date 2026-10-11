@@ -106,3 +106,80 @@ test('unknown extensions and malformed or conflicting permission envelopes stay 
   for (const r of variants) assert.equal(permissionApprovalPresentation(r, [], 'zh', 'worker-1'), undefined);
   assert.equal(permissionApprovalPresentation(undefined, [], 'zh'), undefined);
 });
+
+test('describes a command from its exact arguments and preserves its working directory', () => {
+  const result = permissionApprovalPresentation(request(), messages({
+    command: 'npm install', cwd: 'D:\\项目', env: { TOKEN: 'private' },
+  }), 'zh', 'worker-1')!;
+  assert.equal(result.action, '执行以下命令');
+  assert.equal(result.target, 'D:\\项目');
+  assert.equal(result.preview, 'npm install');
+  assert.doesNotMatch(JSON.stringify(result), /private/);
+});
+
+test('writes and edits describe actual paths and payloads, never invent a diff', () => {
+  for (const name of ['write_file', 'edit_file']) {
+    const r = request(`Policy override for ${name}: confirm`, 'Approve', name);
+    const result = permissionApprovalPresentation(r, messages({
+      path: 'README.md', content: 'new content', oldText: 'before', newText: 'after',
+    }, callId, name), 'zh', 'worker-1')!;
+    assert.equal(result.operation, 'file');
+    assert.equal(result.target, 'README.md');
+    assert.equal(result.preview, name === 'write_file' ? 'new content' : '替换前\nbefore\n\n替换后\nafter');
+  }
+  const r = request('Policy override for edit_file: confirm', 'Approve', 'edit_file');
+  const unknown = permissionApprovalPresentation(r, messages({ path: 'README.md', patch: 'unknown' }, callId, 'edit_file'), 'zh', 'worker-1')!;
+  assert.equal(unknown.preview, undefined);
+});
+
+test('question permissions preview the question without treating choices as approval actions', () => {
+  const r = request('Policy override for clarify_user: confirm', 'Approve', 'clarify_user');
+  const result = permissionApprovalPresentation(r, messages({
+    question: '继续吗？', options: [{ label: '同意', description: '写入文件' }, null],
+  }, callId, 'clarify_user'), 'zh', 'worker-1')!;
+  assert.equal(result.operation, 'question');
+  assert.equal(result.preview, '继续吗？');
+  assert.deepEqual(result.choices, [{ label: '同意', description: '写入文件' }]);
+  const wrongRuntime = permissionApprovalPresentation(r, messages({ question: 'wrong' }, callId, 'clarify_user'), 'zh', 'worker-2')!;
+  assert.equal(wrongRuntime.preview, undefined);
+});
+
+test('unknown tools retain their identity and redacted parameters, not an invented purpose', () => {
+  const r = request('Policy override for mcp__service__publish: confirm', 'Approve', 'mcp__service__publish');
+  const result = permissionApprovalPresentation(r, messages({
+    url: 'https://example.test?token=private', authorization: 'hidden', task: 'publish',
+  }, callId, 'mcp__service__publish'), 'zh', 'worker-1')!;
+  assert.equal(result.action, '调用工具 mcp__service__publish');
+  assert.equal(result.operation, 'tool');
+  assert.doesNotMatch(JSON.stringify(result), /private|hidden/);
+});
+
+test('upstream batch edits preserve each replacement, including empty replacement text', () => {
+  const r = request('Policy override for edit_file: confirm', 'Approve', 'edit_file');
+  const result = permissionApprovalPresentation(r, messages({
+    path: 'note.md', edits: [{ oldText: 'before', newText: '' }, { oldText: 'api_key=secret', newText: 'safe' }],
+  }, callId, 'edit_file'), 'zh', 'worker-1')!;
+  assert.equal(result.action, '修改文件 · 2 处替换');
+  assert.match(result.preview!, /1\. 替换前\nbefore\n\n替换后\n/);
+  assert.match(result.preview!, /2\. 替换前\napi_key=\[redacted\]/);
+  assert.doesNotMatch(JSON.stringify(result), /secret/);
+  const malformed = permissionApprovalPresentation(r, messages({
+    path: 'note.md', edits: [{ oldText: 'before', newText: 'after' }, {}],
+  }, callId, 'edit_file'), 'zh', 'worker-1')!;
+  assert.equal(malformed.preview, undefined);
+});
+
+test('agent notes use only prose before the exact call in the same message and runtime', () => {
+  const history: Message[] = [{ role: 'assistant', content: [
+    { type: 'text', text: 'Other call explanation' },
+    { type: 'toolCall', id: 'another-call', name: 'run_command', arguments: { command: 'wrong' } },
+    { type: 'thinking', thinking: 'private reasoning' },
+    { type: 'text', text: '统计 Markdown 文件。api_key=private-value' },
+    { type: 'toolCall', id: callId, name: 'run_command', arguments: { command: 'Get-ChildItem *.md' } },
+    { type: 'text', text: 'Later explanation' },
+  ] }];
+  const result = permissionApprovalPresentation(request(), history, 'zh', 'worker-1')!;
+  assert.equal(result.agentNote, '统计 Markdown 文件。api_key=[redacted]');
+  assert.doesNotMatch(JSON.stringify(result), /Other call explanation|private reasoning|private-value|Later explanation/);
+  assert.equal(permissionApprovalPresentation(request(), history, 'zh', 'worker-2')!.agentNote, undefined);
+});

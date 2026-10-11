@@ -11,6 +11,13 @@ export interface PermissionApprovalPresentation {
   inputKind: 'command' | 'parameters' | 'summary';
   otherParameters?: string;
   rawMessage: string;
+  operation: 'command' | 'file' | 'question' | 'tool';
+  action: string;
+  target?: string;
+  preview?: string;
+  previewLabel?: string;
+  choices?: { label: string; description?: string }[];
+  agentNote?: string;
 }
 
 const dangerousRules: Record<string, [string, string]> = {
@@ -49,13 +56,75 @@ function redactApprovalValue(value: unknown, key?: string): unknown {
   return value;
 }
 
-function callInput(messages: Message[], callId: string, toolName: string): Record<string, unknown> | undefined {
+function callContext(messages: Message[], callId: string, toolName: string): { input: Record<string, unknown>; note?: string } | undefined {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (message.role !== 'assistant' || !Array.isArray(message.content)) continue;
-    const call = message.content.find(block => block.type === 'toolCall' && block.id === callId && block.name === toolName);
-    const input = call?.arguments;
-    if (input && typeof input === 'object' && !Array.isArray(input)) return input as Record<string, unknown>;
+    const position = message.content.findIndex(block => block.type === 'toolCall' && block.id === callId && block.name === toolName);
+    if (position < 0) continue;
+    const input = message.content[position].arguments;
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+      const before = message.content.slice(0, position);
+      let priorCall = -1;
+      for (let cursor = before.length - 1; cursor >= 0; cursor--) {
+        if (before[cursor].type === 'toolCall') { priorCall = cursor; break; }
+      }
+      const note = before.slice(priorCall + 1).filter(block => block.type === 'text')
+        .map(block => block.text ?? '').join('\n').trim();
+      return { input: input as Record<string, unknown>, note: note ? redactApprovalText(note) : undefined };
+    }
+  }
+}
+
+function describeOperation(result: PermissionApprovalPresentation, input: Record<string, unknown>, zh: boolean) {
+  const t = (cn: string, en: string) => zh ? cn : en;
+  const text = (...keys: string[]) => {
+    const value = keys.map(key => input[key]).find(value => typeof value === 'string');
+    return typeof value === 'string' ? redactApprovalText(value) : undefined;
+  };
+  if (['run_command', 'bash', 'powershell'].includes(result.toolName)) {
+    result.operation = 'command';
+    result.action = t('执行以下命令', 'Execute this command');
+    result.target = text('cwd', 'working_directory', 'workdir');
+    result.preview = result.inputKind === 'command' ? result.input : undefined;
+    result.previewLabel = t('命令', 'Command');
+  } else if (['write_file', 'write', 'edit_file', 'edit'].includes(result.toolName)) {
+    const write = ['write_file', 'write'].includes(result.toolName);
+    result.operation = 'file';
+    result.action = write ? t('写入文件', 'Write a file') : t('修改文件', 'Edit a file');
+    result.target = text('path', 'file_path', 'filePath');
+    if (write) result.preview = text('content');
+    else {
+      if (Array.isArray(input.edits) && input.edits.length && input.edits.every(edit =>
+        edit && typeof edit === 'object' && typeof edit.oldText === 'string' && typeof edit.newText === 'string')) {
+        result.action = `${t('修改文件', 'Edit a file')} · ${input.edits.length} ${t('处替换', 'replacements')}`;
+        result.preview = input.edits.map((edit, index) =>
+          `${index + 1}. ${t('替换前', 'Before')}\n${redactApprovalText(edit.oldText)}\n\n${t('替换后', 'After')}\n${redactApprovalText(edit.newText)}`).join('\n\n');
+      } else if (!Array.isArray(input.edits)) {
+        const before = text('oldText', 'old_text', 'old_string');
+        const after = text('newText', 'new_text', 'new_string');
+        if (before !== undefined && after !== undefined) {
+          result.preview = `${t('替换前', 'Before')}\n${before}\n\n${t('替换后', 'After')}\n${after}`;
+        }
+      }
+    }
+    result.previewLabel = write ? t('写入内容', 'Content to write') : t('替换内容', 'Replacement');
+  } else if (result.toolName === 'clarify_user') {
+    result.operation = 'question';
+    result.action = t('向你发起询问', 'Ask you a question');
+    result.preview = text('question');
+    result.previewLabel = t('问题', 'Question');
+    if (Array.isArray(input.options)) result.choices = input.options.flatMap(value => {
+      if (!value || typeof value !== 'object') return [];
+      const option = value as Record<string, unknown>;
+      return typeof option.label === 'string' ? [{
+        label: redactApprovalText(option.label),
+        description: typeof option.description === 'string' ? redactApprovalText(option.description) : undefined,
+      }] : [];
+    });
+  } else {
+    result.action = `${t('调用工具', 'Call tool')} ${result.toolName}`;
+    result.target = text('path', 'file_path', 'url', 'query');
   }
 }
 
@@ -107,12 +176,16 @@ export function permissionApprovalPresentation(
       : commandTool ? t('批准执行命令', 'Approve command execution')
         : writingTool ? t('批准文件修改', 'Approve file changes') : t('批准工具操作', 'Approve tool call'),
     category, reason, reasonCode, toolName, callId, input: redactApprovalText(summary),
+    operation: commandTool ? 'command' : writingTool ? 'file' : 'tool',
+    action: commandTool ? t('执行命令', 'Execute a command') : writingTool ? t('修改文件', 'Change a file') : `${t('调用工具', 'Call tool')} ${toolName}`,
     inputKind: 'summary', rawMessage: redactApprovalText(rawMessage),
   };
   // Never recover inputs by the short display ID or from another runtime.
   if (request.runtimeId && request.runtimeId !== runtimeId) return result;
-  const input = callInput(messages, callId, toolName);
-  if (!input) return result;
+  const context = callContext(messages, callId, toolName);
+  if (!context) return result;
+  const { input } = context;
+  result.agentNote = context.note;
   try {
     const commandKey = ['command', 'cmd', 'script'].find(key => typeof input[key] === 'string');
     if (commandKey) {
@@ -126,6 +199,7 @@ export function permissionApprovalPresentation(
       result.input = JSON.stringify(redactApprovalValue(input), null, 2);
       result.inputKind = 'parameters';
     }
+    describeOperation(result, input, zh);
   } catch { return { ...result, input: redactApprovalText(summary), inputKind: 'summary', otherParameters: undefined }; }
   return result;
 }

@@ -20,6 +20,7 @@ import { localReference, turnOutputPaths } from './turn-artifacts';
 
 type Props = {
   runtimeId?: string;
+  awaitingToolCalls?: string[];
   modelChanges?: ModelChange[];
   messages: Message[]; language: 'zh' | 'en'; busy: boolean; canEdit: boolean;
   openImage: (src: string, name: string, anchor: HTMLElement) => void;
@@ -29,7 +30,7 @@ type Props = {
   onOpenSubagent: (task: SubagentTask) => void;
   arrivingUser?: Message | null;
 };
-type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange'>;
+type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls'>;
 type EditState = { entryId: string; text: string; submitting: boolean };
 
 function CopyButton({ text, getText, language, onError }: { text: string; getText?: () => string } & Pick<Props, 'language' | 'onError'>) {
@@ -164,12 +165,16 @@ export function Tool({ item, active, ...props }: {
   const zh = props.language === 'zh';
   const name = item.call?.name ?? item.result?.toolName ?? (zh ? '工具' : 'Tool');
   const subject = toolSubject(item.call);
-  const { state, kind, label, status } = toolPresentation(name, item.result, active, props.language);
+  const presentation = toolPresentation(name, item.result, active, props.language);
+  const waiting = !item.result && Boolean(item.call?.id && props.awaitingToolCalls?.includes(item.call.id));
+  const { kind, status } = presentation;
+  const state = waiting ? 'waiting' : presentation.state;
+  const label = waiting ? (zh ? `等待批准 · ${name}` : `Awaiting approval · ${name}`) : presentation.label;
   const Icon = { command: Terminal, read: FileText, write: FilePenLine, edit: FilePenLine,
     search: Search, folder: FolderSearch, web: Globe, sessions: MessagesSquare, 'session-read': MessageSquare, 'session-send': Send, other: Wrench }[kind];
   return <details className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state}>
     <summary><Icon size={14}/>
-      <span className="process-tool-label">{label}<span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/></span>
+      <span className="process-tool-label">{label}{!waiting && <span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/>}</span>
       <ChevronRight size={13} className="disclosure-chevron"/>
     </summary>
     <div className="process-tool-content">

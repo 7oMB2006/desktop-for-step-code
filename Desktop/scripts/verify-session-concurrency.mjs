@@ -193,7 +193,7 @@ try {
   await page.locator('.session-row').filter({ hasText: 'RUN-A' }).locator('button').first().click();
   const approval = page.getByRole('dialog');
   await approval.waitFor();
-  assert.equal(await input.inputValue(), 'Draft A');
+  assert.equal(await page.locator('.composer textarea').inputValue(), 'Draft A');
   await approval.getByRole('button', { name: '稍后处理', exact: true }).click();
   await page.getByText('此会话有待确认的操作', { exact: true }).waitFor();
   await page.locator('.session-row').filter({ hasText: 'RUN-B' }).locator('button').first().click();

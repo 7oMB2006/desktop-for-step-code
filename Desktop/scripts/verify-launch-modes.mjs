@@ -1,6 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -35,9 +35,10 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const profile = await mkdtemp(join(tmpdir(), 'desktop-launch-modes-'));
 const root = join(profile, 'step-runtime');
-const reuseWorkspace = join(profile, 'reuse-workspace');
+const reuseDirectory = join(profile, 'reuse-workspace');
 await mkdir(root, { recursive: true });
-await mkdir(reuseWorkspace);
+await mkdir(reuseDirectory);
+const reuseWorkspace = await realpath(reuseDirectory);
 await mkdir('test-results', { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [reuseWorkspace] }));
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');

@@ -153,6 +153,14 @@ try {
   assert.ok(menuGeometry.rowHeights.every(height => Math.abs(height - 33) < .1)
     && Math.abs(menuGeometry.contentHeight - 5 * 33) < 1 && menuGeometry.scrollHeight > menuGeometry.clientHeight,
     `history viewport shows exactly five fixed-height rows and scrolls the remainder: ${JSON.stringify(menuGeometry)}`);
+  assert.ok(await menu.evaluate(element => {
+    const bar = getComputedStyle(element, '::-webkit-scrollbar');
+    const track = getComputedStyle(element, '::-webkit-scrollbar-track');
+    const thumb = getComputedStyle(element, '::-webkit-scrollbar-thumb');
+    const arrows = getComputedStyle(element, '::-webkit-scrollbar-button');
+    return bar.width === '4px' && track.backgroundColor === 'rgba(0, 0, 0, 0)'
+      && thumb.borderRadius === '3px' && arrows.display === 'none';
+  }), 'workflow history uses the quote-style slim thumb without track or arrows');
   await page.waitForTimeout(250);
   await page.screenshot({ path: 'test-results/workflow-history-menu.png' });
   await page.keyboard.press('Home');

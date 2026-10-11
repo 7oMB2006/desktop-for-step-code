@@ -11,19 +11,34 @@ const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
   choices: [{ index: 0, delta, finish_reason }],
 })}\n\n`;
 let finishLive;
+let liveEditServed = false;
+const liveReleased = new Promise(resolve => { finishLive = resolve; });
 const server = createServer(async (req, res) => {
   let body = '';
   for await (const part of req) body += part;
   const payload = JSON.parse(body);
   res.writeHead(200, { 'content-type': 'text/event-stream' });
-  const lastUser = payload.messages.filter(message => message.role === 'user').at(-1)?.content;
-  const userText = typeof lastUser === 'string' ? lastUser : lastUser?.filter(part => part.type === 'text').map(part => part.text).join('\n');
+  // The pinned runtime injects a <system-reminder> as its own user message, so the
+  // last user entry is no longer the prompt. Take the last real one instead.
+  const textOf = content => typeof content === 'string' ? content
+    : Array.isArray(content) ? content.filter(part => part.type === 'text').map(part => part.text).join('\n') : '';
+  const userText = textOf(payload.messages
+    .filter(message => message.role === 'user' && !textOf(message.content).startsWith('<system-reminder>'))
+    .at(-1)?.content ?? '');
   if (userText === 'KEEP-BUSY') { res.write(chunk({ role: 'assistant', content: 'Peer is running.' })); return; }
+  if (userText === 'WARMUP') { res.end(chunk({ role: 'assistant', content: 'Ready.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n'); return; }
   const statusTools = payload.messages.slice(payload.messages.findLastIndex(message => message.role === 'user') + 1)
     .filter(message => message.role === 'tool').length;
+  // The pinned runtime injects a system reminder as the last user message, so the
+  // prompt text can no longer identify a turn. Identify the live-edit flow by the
+  // tool call already served instead, and hold every follow-up request until the
+  // test has finished asserting on the running-changes chip.
+  if (liveEditServed && statusTools > 0) await liveReleased;
   if (userText === 'Update the live file.' && statusTools) {
+    // The follow-up hold above already waited for the test to finish with the
+    // chip, so this reply can end the stream itself.
     res.write(chunk({ role: 'assistant', content: 'Live edit finished.' }));
-    finishLive = () => res.end(chunk({}, 'stop') + 'data: [DONE]\n\n');
+    res.end(chunk({}, 'stop') + 'data: [DONE]\n\n');
   } else if (statusTools && (userText !== 'FIXTURE-STATUS' || statusTools >= 2)) {
     res.end(chunk({ role: 'assistant', content: 'Live edit finished.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
   } else {
@@ -36,6 +51,7 @@ const server = createServer(async (req, res) => {
     const oldText = retry ? 'export const retryLimit = 1;' : status ? (statusTools ? "'ready'" : "'idle'") : 'const value = 1;';
     const newText = retry ? 'export const retryLimit = 3;' : status ? (statusTools ? "'Ready'" : "'ready'") : 'const value = 2;';
     const id = retry ? 'fixture-retry' : status ? `fixture-status-${statusTools + 1}` : 'live-edit';
+    if (!retry && !status) liveEditServed = true;
     const args = parameters.properties?.search
       ? { path, search: oldText, replace: newText }
       : { path, edits: [{ oldText, newText }] };
@@ -75,9 +91,10 @@ try {
   await writeFile(livePath, 'const value = 1;\n');
   await page.locator('.composer > textarea').fill('Update the live file.');
   await page.locator('.composer > textarea').press('Enter');
-  await page.getByText('Live edit finished.', { exact: true }).waitFor({ timeout: 60000 });
+  // The running-changes chip only exists while the turn is still open, so assert
+  // on it before releasing the reply that ends the turn.
   const chip = page.getByRole('button', { name: '查看运行中的变更', exact: true });
-  await chip.waitFor();
+  await chip.waitFor({ timeout: 60000 });
   assert.equal(await chip.locator('.diff-added').getAttribute('data-count'), '1');
   const stripBefore = await page.locator('.composer-context-bar').boundingBox();
   const chipBox = await chip.boundingBox();
@@ -96,6 +113,7 @@ try {
   assert.equal(await chip.evaluate(element => document.activeElement === element), true);
   assert.ok(finishLive);
   finishLive();
+  await page.getByText('Live edit finished.', { exact: true }).waitFor({ timeout: 60000 });
   await chip.waitFor({ state: 'hidden' });
   assert.equal((await page.locator('.composer-context-bar').boundingBox()).height, stripBefore.height);
   const liveUndo = page.locator('.turn-changes').last().getByRole('button', { name: '撤销', exact: true });
@@ -113,11 +131,24 @@ try {
   assert.equal(await page.evaluate(() => 'createChangeDemo' in window.desktop), false);
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   async function fixtureSession() {
-    const next = await page.evaluate(() => window.desktop.newIndependentSession());
+    // An independent session has no sidebar entry, so the only supported way to
+    // view one is the draft flow: the menu creates a draft and the first send
+    // turns it into a real session. The warm-up send also reveals the workspace
+    // path, which the fixture files below need before the editing prompts run.
+    await page.locator('.new-chat').click();
+    await page.locator('.composer > textarea').fill('WARMUP');
+    await page.locator('.composer > textarea').press('Enter');
+    // Poll from the test process: the in-page predicate observes a state that
+    // flips between the draft and the created session.
+    let next;
+    for (let attempt = 0; attempt < 120; attempt++) {
+      next = await page.evaluate(() => window.desktop.snapshot());
+      if (next.runtimeId && next.preferences?.workspace) break;
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
     await mkdir(join(next.preferences.workspace, 'src'), { recursive: true });
     await writeFile(join(next.preferences.workspace, 'src/retry.ts'), 'export const retryLimit = 1;\n');
     await writeFile(join(next.preferences.workspace, 'src/status.ts'), "export function statusLabel() {\n  return 'idle';\n}\n");
-    await page.reload();
     for (const [text, ids] of [['FIXTURE-RETRY', ['fixture-retry']], ['FIXTURE-STATUS', ['fixture-status-1', 'fixture-status-2']]]) {
       await page.locator('.composer > textarea').fill(text);
       await page.locator('.composer > textarea').press('Enter');

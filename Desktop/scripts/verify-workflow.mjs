@@ -176,6 +176,23 @@ try {
   await page.waitForTimeout(300);
   await page.screenshot({ path: 'test-results/workflow-orchestration-narrow.png' });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await app.evaluate(() => {
+    const model = globalThis.workflowFixture;
+    model.messages.unshift(
+      { role: 'user', content: '旧任务' },
+      { role: 'assistant', content: [{ type: 'toolCall', id: 'unfinished-old', name: 'workflow', arguments: { name: '旧的未结束编排' } }] },
+    );
+    model.messages.push({ role: 'user', content: '与编排无关的新任务' });
+    model.state.isStreaming = true;
+  });
+  await page.reload();
+  await page.locator('.working').waitFor();
+  assert.equal(await page.locator('.working .workflow-trigger').count(), 0, 'unrelated busy turn never links to a stale workflow');
+  const rail = page.locator('button.icon-button[aria-controls="subagent-panel"]');
+  assert.equal(await rail.getAttribute('data-workflow-running'), null, 'stale workflow never activates the rail indicator');
+  await rail.click();
+  await panel.waitFor();
+  assert.match(await panel.locator('.workflow-run-picker > button').innerText(), /第 17 次/, 'rail opens latest history instead of oldest unfinished run');
   await app.evaluate(({ BrowserWindow }) => {
     const model = globalThis.workflowFixture;
     model.messages = [{ role: 'user', content: '新的普通任务' }];

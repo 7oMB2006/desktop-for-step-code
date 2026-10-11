@@ -57,7 +57,7 @@ import type { FilePreviewData, FileTarget } from './contracts';
 import { SubagentPanel } from './SubagentPanel';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
-import { workflowsFromMessages } from './workflow-state';
+import { currentTurnWorkflows, workflowsFromMessages } from './workflow-state';
 import { WorkflowTrigger } from './WorkflowView';
 import './appearance.css';
 import './settings-dialog.css';
@@ -180,12 +180,10 @@ function App() {
   const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null);
   const [selectedWorkflowAgent, setSelectedWorkflowAgent] = useState<string | null>(null);
   const workflows = useMemo(() => workflowsFromMessages(data.messages), [data.messages]);
-  const latestWorkflow = [...workflows].reverse().find(flow => flow.status === 'running') ?? workflows.at(-1);
-  const currentTurnWorkflow = useMemo(() => {
-    const lastUser = data.messages.reduce((last, message, index) => message.role === 'user' ? index : last, -1);
-    return [...workflowsFromMessages(data.messages)].reverse().find(flow => flow.status === 'running')
-      ?? workflowsFromMessages(data.messages.slice(lastUser + 1)).at(-1);
-  }, [data.messages]);
+  const turnWorkflows = useMemo(() => currentTurnWorkflows(data.messages), [data.messages]);
+  const runningWorkflow = busy ? [...turnWorkflows].reverse().find(flow => flow.status === 'running') : undefined;
+  const latestWorkflow = runningWorkflow ?? workflows.at(-1);
+  const currentTurnWorkflow = runningWorkflow ?? turnWorkflows.at(-1);
   const openWorkflow = useCallback((id: string) => {
     const same = rightPanel === 'subagent' && !details && subagentView === 'overview' && selectedWorkflow === id;
     if (selectedWorkflow !== id) setSelectedWorkflowAgent(null);
@@ -1289,7 +1287,7 @@ function App() {
       <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>
       <IconButton title={t('文件预览', 'File preview')} data-tooltip-side="left" aria-controls="file-panel" aria-pressed={!details && visibleRightPanel === 'file'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'file' ? null : 'file'); }}><FileText size={18}/></IconButton>
-        <IconButton title={t('子代理', 'Subagents')} data-workflow-running={workflows.some(flow => flow.status === 'running') || undefined} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent && !latestWorkflow} onClick={() => {
+        <IconButton title={t('子代理', 'Subagents')} data-workflow-running={Boolean(runningWorkflow) || undefined} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent && !latestWorkflow} onClick={() => {
           if (!details && visibleRightPanel === 'subagent') { setRightPanel(null); return; }
           if (latestWorkflow) { setSelectedWorkflow(latestWorkflow.toolCallId); setSubagentView('overview'); setSelectedWorkflowAgent(null); }
           setDetails(''); setRightPanel('subagent');

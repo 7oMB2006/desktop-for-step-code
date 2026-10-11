@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { projectWorkflow, workflowsFromMessages } from '../src/workflow-state';
+import { currentTurnWorkflows, projectWorkflow, workflowsFromMessages } from '../src/workflow-state';
 import { applyToolResult, applyMessageEvent } from '../src/message-events';
 import { hydrateWorkflowHistory } from '../electron/workflow-history';
 import type { Message } from '../src/contracts';
@@ -15,6 +15,21 @@ const progress = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: '
   ] };
 const final = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: 'completed', startedAt: 100,
   finishedAt: 200, agentCalls: 2, spentTokens: 50 };
+
+test('current turn excludes unfinished historical workflows without removing history', () => {
+  const messages: Message[] = [
+    { role: 'user', content: 'old turn' },
+    { role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'stale' }] },
+    { role: 'user', content: 'unrelated next turn' },
+  ];
+  assert.equal(workflowsFromMessages(messages)[0].status, 'running');
+  assert.deepEqual(currentTurnWorkflows(messages), []);
+  messages.push({ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'new' }] });
+  assert.deepEqual(currentTurnWorkflows(messages).map(flow => flow.toolCallId), ['new']);
+  messages.push({ role: 'toolResult', toolName: 'workflow', toolCallId: 'new', content: '', details: final });
+  assert.equal(currentTurnWorkflows(messages)[0].status, 'completed');
+  assert.equal(workflowsFromMessages(messages).length, 2);
+});
 
 test('workflow final result and duplicate persisted messages preserve the latest agent snapshot', () => {
   let messages: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'call' }] }];

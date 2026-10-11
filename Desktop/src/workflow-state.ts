@@ -86,6 +86,11 @@ export function workflowIcon(status: WorkflowState['status'] | WorkflowAgent['st
   return status === 'running' ? 'running' : status === 'completed' || status === 'cached' ? 'done'
     : status === 'aborted' ? 'stopped' : status === 'queued' || status === 'unknown' ? 'pending' : 'failed';
 }
+
+export function currentTurnWorkflows(messages: Message[]): WorkflowState[] {
+  const lastUser = messages.reduce((last, message, index) => message.role === 'user' ? index : last, -1);
+  return workflowsFromMessages(messages.slice(lastUser + 1));
+}
 export function workflowCount(flow: WorkflowState) {
   const done = flow.agents.filter(a => a.status === 'completed' || a.status === 'cached').length;
   return flow.agents.length ? `${done} / ${flow.totalAgents ?? flow.agents.length}`

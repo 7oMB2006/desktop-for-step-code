@@ -137,11 +137,13 @@ export class SessionRuntimes {
     };
     worker.status = 'connecting';
     worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false };
+    let runGeneration = 0;
+    let notifiedGeneration = 0;
     const transport = this.create(event => {
       if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected') return;
       event = this.hooks.event?.(worker, event) ?? event;
       worker.revision++;
-      if (event.type === 'agent_start') { worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
+      if (event.type === 'agent_start') { if (!worker.runActive) runGeneration++; worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
       if (event.type === 'message_start' && event.message?.role === 'user') {
         const content = event.message.content;
         const text = typeof content === 'string' ? content : content?.find((block: any) => block.type === 'text')?.text ?? '';
@@ -153,11 +155,16 @@ export class SessionRuntimes {
       if (event.type === 'auto_compaction_start' && worker.state) worker.state = { ...worker.state, isCompacting: true };
       if (event.type === 'auto_compaction_end' && worker.state) worker.state = { ...worker.state, isCompacting: false };
       if (event.type === 'agent_end') {
+        const completedGeneration = runGeneration;
         const completed = worker.runActive && !worker.failed && !worker.interrupted && taskOutcome(worker.messages) === 'completed';
         worker.runActive = false; worker.busy = false; worker.touched = Date.now();
         if (worker.state) worker.state = { ...worker.state, isStreaming: false, pendingMessageCount: 0 };
         if (worker.launch?.ultracodeTurn) { worker.launch.ultracodeTurn = false; this.publishLaunch(worker); }
         const notifyCompleted = () => {
+          // A shared launch read can settle after several runs; only its latest owner may notify.
+          if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status !== 'connected'
+            || worker.runActive || completedGeneration !== runGeneration || notifiedGeneration === completedGeneration) return;
+          notifiedGeneration = completedGeneration;
           if (worker.id !== this.activeId && worker.state?.sessionId) this.unreadSessionIds.add(worker.state.sessionId);
           this.emit({ type: 'desktop_task_completed', runtimeId: worker.id, sessionId: worker.state?.sessionId });
         };

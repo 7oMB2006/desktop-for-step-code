@@ -4,6 +4,7 @@
 
 ## P0
 
+- [ ] [Step-Code PR #235](https://github.com/stepfun-ai/Step-Code/pull/235)：钉新上游并修改权限档位
 - [ ] 指令集与附件界面优化
 - [ ] 指令集与链接在聊天栏优化
 - [ ] 5 模式映射：Goal

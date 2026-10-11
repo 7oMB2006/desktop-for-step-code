@@ -606,7 +606,7 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
   box-shadow: 0 2px 6px oklch(0 0 0 / .12);
 }
 .composer { border-radius: 8px; box-shadow: none; background: var(--side); }
-.composer:focus-within { background: var(--bg); border-color: var(--muted); }
+.composer:focus-within { background: var(--side); border-color: var(--border); }
 .composer-file-drop { outline: 2px solid var(--primary); outline-offset: 2px; }
 .attachments { display: flex; gap: 9px; padding: 12px 14px 3px; overflow-x: auto; }
 .attachment-card { position: relative; flex: 0 0 116px; width: 116px; height: 104px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
@@ -697,7 +697,7 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .context-ring { width: 19px; height: 19px; margin: 0 5px; flex-shrink: 0; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(var(--primary) var(--context-percent), var(--border) var(--context-percent)); }
 .context-ring-hole { width: 13px; height: 13px; border-radius: 50%; background: var(--side); }
 .context-ring:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
-.composer:focus-within .context-ring-hole { background: var(--bg); }
+.composer:focus-within .context-ring-hole { background: var(--side); }
 .context-ring.is-unknown { background: var(--border); }
 .app-tooltip { position: fixed; z-index: 75; max-width: min(300px, calc(100vw - 16px)); padding: 7px 10px; border: 1px solid oklch(.37 0 0); border-radius: 8px; background: oklch(.20 0 0); color: oklch(.96 0 0); box-shadow: 0 5px 18px oklch(0 0 0 / .20); white-space: pre-line; overflow-wrap: anywhere; text-align: center; font-size: 12px; line-height: 1.4; pointer-events: none; animation: app-tooltip-in .14s ease-out; }
 @keyframes app-tooltip-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }

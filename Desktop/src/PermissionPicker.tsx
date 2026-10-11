@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Eye, Hand, ShieldAlert, RefreshCw, Shield } from 'lucide-react';
+import { Check, Eye, Goal, Hand, ShieldAlert, RefreshCw, Shield, Lightbulb, Network } from 'lucide-react';
 import type { PermissionPreset } from './contracts';
+import { emptyLaunch, type LaunchMode, type LaunchState } from './launch-state';
 
 const presets: { id: PermissionPreset; zh: string; en: string; descriptionZh: string; descriptionEn: string }[] = [
   { id: 'ask', zh: '请求批准', en: 'Ask', descriptionZh: '写入与命令执行先确认', descriptionEn: 'Confirm writes and commands' },
@@ -17,9 +18,14 @@ interface Props {
   supported: boolean;
   onSelect: (preset: PermissionPreset) => Promise<unknown>;
   onReview?: () => void;
+  launch?: LaunchState;
+  launchSupported?: Record<LaunchMode, boolean>;
+  busy?: boolean;
+  onLaunch?: (mode: LaunchMode, enabled: boolean) => Promise<unknown>;
 }
 
-export function PermissionPicker({ preset, language, disabled, supported, onSelect, onReview }: Props) {
+export function PermissionPicker({ preset, language, disabled, supported, onSelect, onReview,
+  launch = emptyLaunch(), launchSupported, busy, onLaunch }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -33,7 +39,11 @@ export function PermissionPicker({ preset, language, disabled, supported, onSele
     };
     document.addEventListener('pointerdown', dismiss);
     document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape); };
+    const frame = requestAnimationFrame(() => {
+      (root.current?.querySelector<HTMLButtonElement>('.permission-menu button[aria-checked="true"]:not(:disabled)')
+        ?? root.current?.querySelector<HTMLButtonElement>('.permission-menu button:not(:disabled)'))?.focus();
+    });
+    return () => { cancelAnimationFrame(frame); document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape); };
   }, [open]);
   useEffect(() => { if (disabled || !supported || onReview) setOpen(false); }, [disabled, supported, Boolean(onReview)]);
   const active = presets.find(item => item.id === preset);
@@ -46,7 +56,33 @@ export function PermissionPicker({ preset, language, disabled, supported, onSele
       disabled={disabled || (!onReview && (!supported || pending))} onClick={() => onReview ? onReview() : setOpen(value => !value)}>
       <ActiveIcon size={16}/><span>{onReview ? (zh ? '处理审批' : 'Review approval') : active ? (zh ? active.zh : active.en) : (zh ? '访问权限' : 'Permissions')}</span>
     </button>
-    {open && !onReview && <div className="permission-menu" role="menu" aria-label={zh ? '访问权限' : 'Access permissions'}>
+    {open && !onReview && <div className="permission-menu" role="menu" aria-label={zh ? '访问权限' : 'Access permissions'}
+      onKeyDown={event => {
+        const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+          event.preventDefault();
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+            : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+          buttons[next]?.focus();
+        } else if (event.key === 'Tab') { setOpen(false); trigger.current?.focus(); }
+      }}>
+      {onLaunch && <>
+        <div className="permission-launch-heading" role="presentation">{zh ? '任务' : 'Task'}</div>
+        {([
+          { id: 'plan', Icon: Lightbulb, zh: '计划模式', en: 'Plan', selected: Boolean(launch.planArmed) },
+          { id: 'goal', Icon: Goal, zh: '目标模式', en: 'Goal', selected: launch.goalArmed },
+          { id: 'ultracode', Icon: Network, zh: 'Ultracode', en: 'Ultracode', selected: Boolean(launch.ultracodeArmed) },
+        ] as const).map(({ id, Icon, selected, ...item }) => <button type="button" role="menuitemcheckbox" aria-checked={selected}
+          key={id} className="permission-launch-option" disabled={pending || !launchSupported?.[id]
+            || id === 'goal' && (Boolean(launch.goal && launch.goal.status !== 'complete') || busy)}
+          onClick={async () => { setOpen(false); setPending(true); try { await onLaunch(id, !selected); } finally { setPending(false); } }}>
+          <Icon size={17}/><span className="permission-option"><strong>{zh ? item.zh : item.en}</strong></span>
+          {selected && <Check size={15}/>}
+        </button>)}
+        <div className="permission-launch-divider" role="separator"/>
+        <div className="permission-launch-heading" role="presentation">{zh ? '权限审批' : 'Permissions'}</div>
+      </>}
       {presets.map(item => {
         const Icon = icons[item.id];
         return <button type="button" role="menuitemradio" aria-checked={item.id === preset} className={`permission-option-${item.id}`} key={item.id} disabled={pending} onClick={async () => {

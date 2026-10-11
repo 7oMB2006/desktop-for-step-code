@@ -11,6 +11,12 @@
 .workflow-trigger { color: var(--muted); padding: 3px 7px; border-radius: 4px; font-size: 12px; }
 .workflow-trigger::before { content: '·'; margin-right: 3px; }
 .workflow-trigger:hover { color: var(--ink); }
+.workflow-settled { min-height: 24px; height: 24px; }
+.workflow-settled::before { content: none; }
+.workflow-settled[data-workflow-state="completed"] { color: var(--green); }
+.workflow-settled:is([data-workflow-state="failed"],[data-workflow-state="budget_exceeded"]) { color: var(--danger); }
+.workflow-settled[data-workflow-state="aborted"] { color: oklch(.48 .10 80); }
+:root[data-theme="dark"] .workflow-settled[data-workflow-state="aborted"] { color: oklch(.80 .15 85); }
 .workflow-tabs { display: flex; gap: 2px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
 .workflow-tabs button { padding: 6px 14px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; }
 .workflow-tabs button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }

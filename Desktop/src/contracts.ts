@@ -1,4 +1,5 @@
 import type { WorkflowState } from './workflow-state';
+import type { LaunchState } from './launch-state';
 export interface Message { desktopWorkflow?: WorkflowState }
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
 export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
@@ -18,7 +19,7 @@ export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId
 export type RuntimeEvent = { type: string; [key: string]: any };
 export interface Preferences { appearance?: import('./appearance').Appearance; theme: 'system' | 'light' | 'dark'; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide'; updateChannel?: UpdateChannel; autoCheckUpdates?: boolean }
 export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
-export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
+export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }

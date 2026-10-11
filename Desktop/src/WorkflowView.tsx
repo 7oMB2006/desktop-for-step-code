@@ -16,9 +16,18 @@ export function WorkflowElapsed({ startedAt, finishedAt, running }: { startedAt?
   return startedAt !== undefined && (running || finishedAt !== undefined)
     ? <span className="workflow-elapsed">{elapsedTime({ startedAt, endedAt: finishedAt }, now)}</span> : null;
 }
-export function WorkflowTrigger({ flow, language, onOpen }: { flow: WorkflowState; language: 'zh' | 'en'; onOpen: (id: string) => void }) {
-  return <button type="button" className="workflow-trigger" onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel">
-    <SubagentStatusIcon state={workflowIcon(flow.status)} language={language}/><span>{flow.currentPhase || (language === 'zh' ? '多代理协作' : 'Multi-agent workflow')}</span>
+export function WorkflowTrigger({ flow, language, onOpen, settled = false }: { flow: WorkflowState; language: 'zh' | 'en'; onOpen: (id: string) => void; settled?: boolean }) {
+  const status = settled && flow.status === 'running' ? 'unknown' : flow.status;
+  const labels = {
+    completed: ['编排已完成', 'Workflow completed'], failed: ['编排失败', 'Workflow failed'],
+    aborted: ['编排已中断', 'Workflow interrupted'], budget_exceeded: ['编排预算耗尽', 'Workflow budget reached'],
+    unknown: ['编排状态待确认', 'Workflow state unknown'], running: ['多代理协作', 'Multi-agent workflow'],
+  };
+  return <button type="button" className={`workflow-trigger${settled ? ' workflow-settled' : ''}`} data-workflow-state={status}
+    onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel">
+    <SubagentStatusIcon state={workflowIcon(status)} language={language}
+      detail={settled && flow.status === 'running' ? language === 'zh' ? '本轮已结束，编排最终状态未返回' : 'Turn ended without a final workflow state' : undefined}/>
+    <span>{settled ? labels[status][language === 'zh' ? 0 : 1] : flow.currentPhase || (language === 'zh' ? '多代理协作' : 'Multi-agent workflow')}</span>
     <span className="workflow-count">{workflowCount(flow)}</span><ChevronRight size={12}/>
   </button>;
 }

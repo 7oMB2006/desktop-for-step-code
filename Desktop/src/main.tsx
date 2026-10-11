@@ -15,6 +15,8 @@ import { NoticeToast, type NoticeToastItem } from './NoticeToast';
 import { PerformanceBar } from './PerformanceBar';
 import { ModelEffortPicker } from './ModelEffortPicker';
 import { PermissionPicker } from './PermissionPicker';
+import { LaunchStatus } from './LaunchStatus';
+import { goalCompletionResponse } from './launch-state';
 import { PermissionApproval } from './PermissionApproval';
 import { permissionApprovalPresentation } from './approval-presentation';
 import { ContextRing } from './ContextRing';
@@ -184,6 +186,12 @@ function App() {
   const runningWorkflow = busy ? [...turnWorkflows].reverse().find(flow => flow.status === 'running') : undefined;
   const latestWorkflow = runningWorkflow ?? workflows.at(-1);
   const currentTurnWorkflow = runningWorkflow ?? turnWorkflows.at(-1);
+  const currentGoal = data.launch?.goal?.status === 'complete' ? undefined : data.launch?.goal;
+  const completedGoalResponse = useMemo(() => goalCompletionResponse(data.messages, data.launch?.goal), [data.messages, data.launch?.goal]);
+  const hasTaskStatus = Boolean(currentGoal || data.launch?.plan && !data.launch.planArmed || data.launch?.ultracode || currentTurnWorkflow);
+  const [taskStatusOpen, setTaskStatusOpen] = useState(false);
+  useEffect(() => { setTaskStatusOpen(false); }, [data.runtimeId]);
+  const turnUltracode = Boolean(busy && (data.launch?.ultracodeTurn || currentGoal?.status === 'active' && currentGoal.ultracode));
   const openWorkflow = useCallback((id: string) => {
     const same = rightPanel === 'subagent' && !details && subagentView === 'overview' && selectedWorkflow === id;
     if (selectedWorkflow !== id) setSelectedWorkflowAgent(null);
@@ -451,14 +459,15 @@ function App() {
       }
     }
   };
-  const command = async (type: string, args?: Record<string, unknown>) => run(async () => {
+  const rawCommand = async (type: string, args?: Record<string, unknown>) => {
     if (navigationPending.current) throw new Error(t('请等待会话打开', 'Wait for the conversation to open'));
     const id = viewId.current;
     const result = await bridge!.command(type, args, id);
     if (type === 'new_session') installSnapshot(result);
     else if (!['prompt', 'abort', 'extension_ui_response'].includes(type) && id === viewId.current) await refresh();
     return result;
-  });
+  };
+  const command = async (type: string, args?: Record<string, unknown>) => run(() => rawCommand(type, args));
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
@@ -510,6 +519,7 @@ function App() {
       if (event.type === 'agent_end') { setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh); }
       if (event.type === 'desktop_exit') { setBusy(false); stoppingRef.current = false; setStopping(false); setRunMetrics(null); setNotice(null); setData(d => ({ ...d, status: 'disconnected', stats: undefined, permissionPreset: undefined })); setRequests([]); }
       if (event.type === 'desktop_permission') setData(d => ({ ...d, permissionPreset: event.preset }));
+      if (event.type === 'desktop_launch') setData(d => ({ ...d, launch: event.launch }));
       if (event.type === 'desktop_status') {
         if (event.status === 'connecting') notifiedMcp.current.clear();
         setData(d => ({ ...d, status: event.status }));
@@ -525,6 +535,7 @@ function App() {
         if (['select', 'input', 'editor', 'confirm'].includes(event.method)) setRequests(r => [...r.filter(v => v.id !== event.id), event as UIRequest]);
         if (event.method === 'notify' && event.message) {
           if (event.notifyType === 'info' && /^Permission mode: (Ask|Read Only|Bypass|Autopilot)$/.test(event.message)) return;
+          if (event.notifyType === 'info' && /^(?:Goal commands:|Goal set:|Goal (?:resumed|updated|cleared)\.|Goal paused[.;]|Goal token budget:|Plan mode (?:enabled|disabled)\.|Ultra(?:code|loop) (?:is on for the session\.|session mode))/.test(event.message)) return;
           if (event.notifyType === 'warning' || event.notifyType === 'info') {
             const mcpServer = event.notifyType === 'warning' ? mcpFailureName(event.message) : undefined;
             if (mcpServer) {
@@ -562,7 +573,7 @@ function App() {
     const id = data.runtimeId;
     void run(async () => {
       const [effort, available] = await Promise.all([bridge!.command('get_available_thinking_levels', undefined, id), bridge!.command('get_commands', undefined, id)]);
-      if (viewId.current === id) { setLevels((data.modelSelection?.model ?? data.state?.model)?.thinkingServiceDefault ? [] : effort.levels); setCommands(available.commands.filter((c: { name: string }) => c.name !== '_desktop_retry')); }
+      if (viewId.current === id) { setLevels((data.modelSelection?.model ?? data.state?.model)?.thinkingServiceDefault ? [] : effort.levels); setCommands(available.commands.filter((c: { name: string }) => !c.name.startsWith('_desktop_'))); }
     });
   }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.provider, data.state?.model?.thinkingLevels, data.state?.model?.thinkingServiceDefault, data.modelSelection?.model]);
   useLayoutEffect(followLayout, [data.messages, data.pendingMessages, busy, followLayout]);
@@ -1027,6 +1038,22 @@ function App() {
     });
   };
   const permissionApproval = !renaming ? permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId) : undefined;
+  const taskStatusControls = <>
+    <LaunchStatus key={`task-${data.runtimeId}`} placement="pulse" align={busy ? 'start' : 'end'}
+      expanded={taskStatusOpen} onExpandedChange={setTaskStatusOpen}
+      state={{ plan: Boolean(data.launch?.plan && !data.launch.planArmed), ultracode: Boolean(data.launch?.ultracode), goalArmed: false, goal: currentGoal }}
+      turnUltracode={turnUltracode && !currentTurnWorkflow} language={data.preferences.language} disabled={!connected || loading}
+      onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
+      onAction={(action, value) => rawCommand('goal_action', { action, value })}
+      onDisableStanding={() => rawCommand('disable_standing_ultracode')}/>
+    {currentTurnWorkflow && <WorkflowTrigger flow={currentTurnWorkflow} language={data.preferences.language} onOpen={openWorkflow} settled={!busy}/>}
+  </>;
+  const completedStatus = completedGoalResponse === undefined ? undefined : { responseIndex: completedGoalResponse,
+    content: <LaunchStatus key={`completed-${data.launch?.goal?.id}`} placement="pulse" align="end"
+      state={{ plan: false, ultracode: false, goalArmed: false, goal: data.launch?.goal }}
+      language={data.preferences.language} disabled={!connected || loading}
+      onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
+      onAction={(action, value) => rawCommand('goal_action', { action, value })}/> };
   return <FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
@@ -1134,9 +1161,11 @@ function App() {
             title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
             onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
-            <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}/>
-            {busy && <div className="working"><span className="working-dot"/>{requests.length ? t('等待你的确认', 'Awaiting your decision') : t('正在阶跃', 'Working')}
-              {currentTurnWorkflow && <WorkflowTrigger flow={currentTurnWorkflow} language={data.preferences.language} onOpen={openWorkflow}/>}
+            <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
+              settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
+            {busy && <div className="working">
+              {busy && <><span className="working-dot"/><span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : t('正在阶跃', 'Working')}</span></>}
+              {taskStatusControls}
             </div>}
             <PendingUserMessages messages={data.pendingMessages ?? []} connected={connected} busy={busy}
               onRecover={() => bridge!.command('queue_recover', undefined, data.runtimeId)}
@@ -1189,7 +1218,17 @@ function App() {
               void run(async () => addAttachments(await bridge!.chooseAttachments(), scope));
             }}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}
+              launch={data.launch} busy={busy} launchSupported={{
+                plan: Boolean(data.draftId) || commands.some(c => c.name === 'plan' && c.source === 'extension'),
+                goal: Boolean(data.draftId) || commands.some(c => c.name === 'goal' && c.source === 'extension'),
+                ultracode: Boolean(data.draftId) || commands.some(c => c.name === 'ultraloop' && c.source === 'extension'),
+              }} onLaunch={(mode, enabled) => command('set_launch_mode', { mode, enabled })}
               onReview={requests.length && !approvalOpen && !renaming ? () => setApprovalOpen(true) : undefined}/>
+            <LaunchStatus key={data.runtimeId ?? data.draftId}
+              state={{ plan: Boolean(data.launch?.planArmed), ultracode: Boolean(data.launch?.ultracodeArmed), goalArmed: Boolean(data.launch?.goalArmed) }}
+              language={data.preferences.language} disabled={!connected || loading}
+              onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
+              onAction={(action, value) => rawCommand('goal_action', { action, value })}/>
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
             <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>

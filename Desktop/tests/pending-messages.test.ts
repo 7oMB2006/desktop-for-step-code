@@ -57,6 +57,19 @@ test('editing retains attachment payload and queue position; stale edits and wit
   assert.equal(requests[0].args.streamingBehavior, 'steer');
   assert.equal(queue.list(worker).length, 0);
 });
+test('queued one-shot Ultracode stays with the edited message and never leaks to later FIFO messages', async () => {
+  const { worker, queue, requests } = fixture();
+  const first = queue.enqueue(worker, 'first', { message: 'ultracode:\n\nfirst', images: [{ data: 'image' }] }, ['a']);
+  queue.enqueue(worker, 'second', { message: 'second' });
+  queue.edit(worker, first, 0, 'updated');
+  assert.equal(queue.list(worker)[0].message, 'updated');
+  await queue.steer(worker, first, 1);
+  assert.equal(requests[0].args.message, 'ultracode:\n\nupdated\nfiles:a');
+  assert.deepEqual(requests[0].args.images, [{ data: 'image' }]);
+  worker.busy = false;
+  await queue.drain(worker);
+  assert.equal(requests[1].args.message, 'second');
+});
 test('completion drains FIFO, failures and interruption retain undelivered drafts', async () => {
   const { worker, queue, requests, fail, errors } = fixture();
   queue.enqueue(worker, 'first', { message: 'first' }); queue.enqueue(worker, 'second', { message: 'second' });

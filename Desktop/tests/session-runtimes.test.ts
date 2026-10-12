@@ -120,7 +120,35 @@ test('unanswered Full Access consent expires without granting and cannot accept 
     assert.equal(worker.pendingUI.has('full-risk'), false);
     assert.deepEqual(transports[0].answers, [{ id: 'full-risk', cancelled: true }]);
     assert.equal(worker.permissionPreset, 'ask');
+    assert.equal(worker.fullAccessCancellationRevision, 0, 'Expiry is not an intentional user cancellation');
     assert.throws(() => pool.respondToRequest(worker, { id: 'full-risk', value: 'grant' }), /expired/);
+  } finally { await pool.stopAll(); }
+});
+test('only explicit native Full Access cancellation records a cancellation result', async () => {
+  const { pool, transports, open } = fixture();
+  const options = [
+    'Yes, continue anyway \u2014 apply full access for this session',
+    "Yes, and don't ask again \u2014 enable full access and remember this choice",
+    'Cancel \u2014 go back without enabling full access',
+  ];
+  try {
+    const worker = await open();
+    for (const value of options.slice(0, 2)) {
+      transports[0].receive({ type: 'extension_ui_request', id: 'risk', method: 'select', title: 'Enable full access?\n\nRisk', options });
+      pool.respondToRequest(worker, { id: 'risk', value });
+      assert.equal(worker.fullAccessCancellationRevision, 0);
+    }
+    for (const answer of [{ value: options[2] }, { cancelled: true }]) {
+      const before = worker.fullAccessCancellationRevision!;
+      transports[0].receive({ type: 'extension_ui_request', id: 'risk', method: 'select', title: 'Enable full access?\n\nRisk', options });
+      pool.respondToRequest(worker, { id: 'risk', ...answer });
+      assert.equal(worker.fullAccessCancellationRevision, before + 1);
+    }
+    transports[0].receive({ type: 'extension_ui_request', id: 'other', method: 'select', title: 'Another choice', options });
+    pool.respondToRequest(worker, { id: 'other', cancelled: true });
+    assert.equal(worker.fullAccessCancellationRevision, 2, 'Unrelated dialogs do not cancel permission activation');
+    assert.throws(() => pool.respondToRequest(worker, { id: 'risk', cancelled: true }), /expired/);
+    assert.equal(worker.fullAccessCancellationRevision, 2);
   } finally { await pool.stopAll(); }
 });
 

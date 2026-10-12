@@ -96,6 +96,24 @@ try {
   const cancelled = await snapshot();
   assert.equal(cancelled.messages.length, 0);
   assert.equal(cancelled.permissionPreset, 'ask');
+  assert.equal(await page.locator('.error-banner, .modal-error').count(), 0, 'Intentional draft cancellation is not an error');
+
+  for (const cancel of ['option', 'escape']) {
+    await choose('完全访问');
+    await risk().waitFor();
+    if (cancel === 'option') await risk().getByRole('button', { name: '取消，保持当前权限', exact: true }).click();
+    else await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('.permission-trigger')?.disabled
+      && !document.querySelector('[role="dialog"]'));
+    assert.equal((await snapshot()).permissionPreset, 'ask');
+    assert.equal(modelCalls, 0, 'Cancelling a live permission change never calls the model');
+    assert.equal(await input().inputValue(), 'VERIFY-WRITE-CANCELLED');
+    assert.equal(await page.locator('.error-banner, .modal-error').count(), 0, `${cancel} cancellation is not an error`);
+  }
+  const changing = page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'full-access' }, id), cancelled.runtimeId);
+  await risk().waitFor();
+  await risk().getByRole('button', { name: '取消，保持当前权限', exact: true }).click();
+  assert.deepEqual(await changing, { cancelled: true }, 'IPC preserves cancellation as a distinct result');
 
   await choose('代我批准');
   await send('VERIFY-WRITE-AUTO');

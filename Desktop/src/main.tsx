@@ -797,6 +797,25 @@ function App() {
       setError(t('消息与引用合计过长，请减少引用或分次发送', 'Message and quotes are too long; remove quotes or send in smaller parts'));
       return;
     }
+    const restoreInput = (error?: unknown) => {
+      if (quoteScopeRef.current !== deliveryScope) {
+        if (sessionId) {
+          const saved = composerBySession.current.get(sessionId);
+          if (error !== undefined) errorsBySession.current.set(sessionId, String(error instanceof Error ? error.message : error));
+          composerBySession.current.set(sessionId, {
+            draft: saved?.draft ? `${message}\n${saved.draft}` : message,
+            quotes: restoreQuotes(sentQuotes, saved?.quotes ?? []),
+            attachments: [...attached, ...saved?.attachments ?? []],
+            follow: saved?.follow ?? true, top: saved?.top ?? 0,
+          });
+        }
+        return false;
+      }
+      setDraft(value => value ? `${message}\n${value}` : message);
+      setQuotes(value => restoreQuotes(sentQuotes, value));
+      setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
+      return true;
+    };
     setDraft(''); setQuotes([]); setAttachments([]); attachmentsRef.current = []; follow.current = true; setAwayFromBottom(false);
     await run(async () => {
       try {
@@ -811,7 +830,8 @@ function App() {
             quoteScopeRef.current = deliveryScope;
             switching.current = false;
             if (data.permissionPreset === 'full-access') {
-              await bridge!.command('set_permission_preset', { preset: 'full-access' }, id);
+              const permission = await bridge!.command('set_permission_preset', { preset: 'full-access' }, id);
+              if (permission?.cancelled) { restoreInput(); return; }
               await refresh();
             }
           } finally {
@@ -822,23 +842,7 @@ function App() {
         if (busy) queueSend.current = submission;
         try { await submission; } finally { if (queueSend.current === submission) queueSend.current = null; }
       } catch (e) {
-        if (quoteScopeRef.current !== deliveryScope) {
-          if (sessionId) {
-            const saved = composerBySession.current.get(sessionId);
-            errorsBySession.current.set(sessionId, String(e instanceof Error ? e.message : e));
-            composerBySession.current.set(sessionId, {
-              draft: saved?.draft ? `${message}\n${saved.draft}` : message,
-              quotes: restoreQuotes(sentQuotes, saved?.quotes ?? []),
-              attachments: [...attached, ...saved?.attachments ?? []],
-              follow: saved?.follow ?? true, top: saved?.top ?? 0,
-            });
-          }
-          return;
-        }
-        setDraft(value => value ? `${message}\n${value}` : message);
-        setQuotes(value => restoreQuotes(sentQuotes, value));
-        setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
-        throw e;
+        if (restoreInput(e)) throw e;
       }
     });
   };

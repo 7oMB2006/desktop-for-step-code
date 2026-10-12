@@ -1043,6 +1043,7 @@ async function handle(method: string, args: any[]) {
           if (!permissionPresets.includes(preset as typeof permissionPresets[number])) throw new Error('Unknown permission preset');
           if ([...pendingUI.values()].some(isFullAccessRisk)) throw new Error(preferences.language === 'zh'
             ? '请先完成已有的权限风险确认，再重新发送。' : 'Resolve the existing permission acknowledgment before sending again.');
+          const cancellationRevision = worker.fullAccessCancellationRevision ?? 0;
           // Preset switching stays allowed while a turn runs: it only governs
           // later approvals, so it must not assert an idle session.
           const { commands } = await rpc.request('get_commands');
@@ -1050,6 +1051,8 @@ async function handle(method: string, args: any[]) {
             throw new Error('This Step Code runtime does not support permission switching');
           }
           await rpc.request('prompt', { message: `/permissions ${preset}` }, 125000);
+          if (preset === 'full-access' && (worker.fullAccessCancellationRevision ?? 0) !== cancellationRevision)
+            return { cancelled: true };
           if (worker.permissionPreset !== preset) throw new Error(preferences.language === 'zh'
             ? '未启用所选权限。' : 'The selected permission tier was not enabled.');
           return;

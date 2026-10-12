@@ -31,6 +31,7 @@ export interface SessionRuntime {
   state?: RuntimeState;
   leafId?: string;
   permissionPreset?: PermissionPreset;
+  fullAccessCancellationRevision?: number;
   launch?: LaunchState;
   messages: Message[];
   models: Model[];
@@ -134,7 +135,7 @@ export class SessionRuntimes {
   private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation, activate = true, existing?: SessionRuntime) {
     const worker: SessionRuntime = existing ?? {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
-      submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
+      submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), fullAccessCancellationRevision: 0, failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
     };
     worker.status = 'connecting';
     // A transport-local Full Access grant must not survive process replacement.
@@ -460,12 +461,17 @@ export class SessionRuntimes {
   }
   respondToRequest(worker: SessionRuntime, answer: Record<string, unknown>) {
     const id = String(answer.id);
-    if (!worker.pendingUI.has(id)) throw new Error('This request has expired');
+    const request = worker.pendingUI.get(id);
+    if (!request) throw new Error('This request has expired');
     const confirmation = this.confirmations.get(id);
     if (confirmation?.worker === worker) {
       this.confirmations.delete(id);
       confirmation.resolve(answer.confirmed === true && answer.cancelled !== true);
-    } else worker.rpc.respond(answer);
+    } else {
+      worker.rpc.respond(answer);
+      if (isFullAccessRisk(request) && (answer.cancelled === true || answer.value === request.options?.[2]))
+        worker.fullAccessCancellationRevision = (worker.fullAccessCancellationRevision ?? 0) + 1;
+    }
     this.clearRequest(worker, id);
     this.publish();
   }

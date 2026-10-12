@@ -17,6 +17,8 @@ if (commit !== PINNED_COMMIT) {
 // patch itself; CI does it separately, and an unpatched checkout staged locally would
 // ship a runtime whose manifest claims patches that are not there.
 const patchedFiles = [
+  ['step-plan.ts', 'packages/coding-agent/src/features/step-plan.ts', '31fcf9db425d54bdba864630488ca7b8aef838bd'],
+  ['plan-mode-tools.ts', 'packages/coding-agent/src/features/plan-mode-tools.ts', '671e70c74ad4ca9614fd641db8597649d6121cb4'],
   ['auth-storage.ts', 'packages/coding-agent/src/core/auth-storage.ts', 'a25fff15510b1bd9f009483717727f2fe19dc442'],
   ['index.ts', 'packages/coding-agent/src/index.ts', '8c4e177db7bf1c45b4ea4c9c9508e2be6c1f39a3'],
   ['build-coding-agent-bundle.mjs', 'scripts/build-coding-agent-bundle.mjs', '93aaca8db784bd66e45d0a1e4f177567a7c35272'],
@@ -38,6 +40,11 @@ for (const [name, relative, expected] of patchedFiles) {
 }
 
 const source = join(upstream, 'packages/coding-agent');
+// Source hashes alone do not prove that dist/bundle contains those sources.
+// Recompile the agent before bundling; the bundle helper only rebuilds the CLI.
+const npmEntry = join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
+await readFile(npmEntry);
+execFileSync(process.execPath, [npmEntry, '--prefix', source, 'run', 'build'], { cwd: upstream, stdio: 'inherit' });
 const currentNode = await readFile(process.execPath);
 const nodeSha256 = createHash('sha256').update(currentNode).digest('hex');
 let matchingLicense = false;
@@ -79,5 +86,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc'], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review'], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

@@ -1,0 +1,16 @@
+.plan-review-drawer { bottom: 0; }
+.plan-review-path { display: block; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; margin-bottom: 14px; }
+.plan-review-content .markdown { font-size: var(--chat-font-size, 14px); line-height: 1.65; overflow-wrap: anywhere; }
+.plan-review-content .markdown h1 { font-size: 21px; }
+.plan-review-content .markdown h2 { font-size: 18px; }
+.plan-review-content .markdown h3 { font-size: 16px; }
+.plan-review-content .markdown pre { overflow-x: auto; }
+.plan-review-content .markdown table { display: block; overflow-x: auto; }
+.plan-review-content textarea { width: 100%; height: 100%; min-height: 100px; resize: none; }
+.plan-review-content textarea:focus, .plan-review-content textarea:focus-visible { outline: none; border-color: var(--border); box-shadow: none; }
+.plan-review-actions { flex-shrink: 0; padding: 10px 20px 14px; margin: 0; border-top: 1px solid var(--border); }
+.plan-review-trigger { border: 0; background: transparent; gap: 6px; font-size: 12px; }
+.plan-review-trigger span { background: linear-gradient(110deg, var(--primary), var(--ink), var(--primary)); background-size: 200% 100%; background-clip: text; -webkit-text-fill-color: transparent; animation: permission-review-flow 4.8s linear infinite, permission-review-content-breathe 3.4s ease-in-out infinite; }
+.plan-review-trigger svg { color: var(--primary); }
+@media (prefers-reduced-motion: reduce) { .plan-review-trigger span { animation: none; } }
+@media (max-width: 700px) { .plan-review-actions { gap: 5px; padding: 8px 12px; } .plan-review-actions button { font-size: 11px; padding: 6px 8px; } }

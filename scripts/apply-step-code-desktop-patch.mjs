@@ -53,5 +53,12 @@ for (const [relative, expected] of [
 		throw new Error(`Unexpected pinned source content: ${relative}`);
 	}
 }
-execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], applyOptions);
-execFileSync("git", ["-C", upstreamDir, "apply", "-"], applyOptions);
+const planPatch = Buffer.from((await readFile(path.join(path.dirname(resolvedPatchPath), "step-code-desktop-plan.patch"), "utf8")).replace(/\r\n/g, "\n"));
+if (gitBlobHash(planPatch) !== "2dcb49e6e9f0082c57d9a4ceae05a49ce6c6e763") throw new Error("Unexpected Desktop Plan integration patch");
+for (const [relative, hash] of [
+	["packages/coding-agent/src/features/step-plan.ts", "cf56888872efcd6e00999a2cbf7681959d0fc4a0"],
+	["packages/coding-agent/src/features/plan-mode-tools.ts", "54c7da072038c16567f4a58efb13063208b14c32"],
+]) if (gitBlobHash(await readFile(path.join(upstreamDir, relative))) !== hash) throw new Error(`Unexpected Plan source: ${relative}`);
+const combined = Buffer.concat([patchBytes, planPatch]);
+execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], { ...applyOptions, input: combined });
+execFileSync("git", ["-C", upstreamDir, "apply", "-"], { ...applyOptions, input: combined });

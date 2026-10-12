@@ -113,6 +113,12 @@ jobs:
           node node_modules/electron/install.js
           if ($LASTEXITCODE -ne 0) { throw 'Electron install failed' }
 
+      - name: Upstream Plan integration tests
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream Plan integration tests failed' }
+
       - name: Runtime staging
         working-directory: Desktop
         run: |
@@ -154,6 +160,12 @@ jobs:
         run: |
           node scripts/verify-launch-modes.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Goal and launch state acceptance failed' }
+
+      - name: Plan review acceptance
+        working-directory: Desktop
+        run: |
+          node scripts/verify-plan-review.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Plan review acceptance failed' }
 
       - name: App update acceptance
         working-directory: Desktop

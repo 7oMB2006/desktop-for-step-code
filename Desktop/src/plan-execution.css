@@ -1,0 +1,29 @@
+.plan-approval-trigger { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 13px; text-align: left; max-width: 100%; }
+.plan-approval-trigger:hover { background: transparent; }
+.plan-approval-trigger > svg { flex-shrink: 0; }
+.plan-approval-trigger > strong { color: var(--primary); font-style: italic; font-weight: 650; white-space: nowrap; }
+.plan-approved-title { min-width: 0; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.plan-execution-chevron { display: inline-flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform 160ms ease; }
+.plan-execution-chevron[data-open="true"] { transform: none; }
+.plan-execution-status { display: contents; }
+.plan-execution-status > button { max-width: 100%; }
+.plan-execution-status strong { font-weight: 400; font-size: 12px; }
+.plan-execution-status[data-state="completed"] > button { color: var(--green); }
+.plan-execution-status[data-state="failed"] > button { color: var(--danger); }
+.plan-execution-status[data-state="interrupted"] > button { color: oklch(.48 .10 80); }
+:root[data-theme="dark"] .plan-execution-status[data-state="interrupted"] > button { color: oklch(.80 .15 85); }
+.plan-approved-snapshot { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 6px 0; max-height: 360px; overflow: auto; width: min(650px, 100%); background: var(--surface); }
+.plan-approved-snapshot > code { display: block; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; margin-bottom: 10px; }
+.plan-approved-snapshot .markdown { font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.plan-approved-snapshot .markdown h1 { font-size: 18px; }
+.plan-approved-snapshot .markdown h2 { font-size: 16px; }
+.plan-approved-snapshot .markdown h3 { font-size: 14px; }
+.plan-approved-snapshot .markdown pre, .plan-approved-snapshot .markdown table { display: block; overflow-x: auto; }
+.assistant-footer-row .plan-approved-snapshot { margin-left: auto; }
+.assistant-footer-row > .plan-execution-status > button { opacity: 0; pointer-events: none; transition: opacity 150ms ease; }
+.message:hover .assistant-footer-row > .plan-execution-status > button,
+.message:focus-within .assistant-footer-row > .plan-execution-status > button,
+.assistant-footer-row > .plan-execution-status[data-open="true"] > button { opacity: 1; pointer-events: auto; }
+@media (max-width: 700px) { .plan-approval-trigger { flex-wrap: wrap; } .plan-approved-title { flex: 1 1 160px; } }
+@media (hover: none) { .assistant-footer-row > .plan-execution-status > button { opacity: 1; pointer-events: auto; } }
+@media (prefers-reduced-motion: reduce) { .plan-execution-chevron, .assistant-footer-row > .plan-execution-status > button { transition: none; } }

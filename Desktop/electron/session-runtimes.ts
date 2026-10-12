@@ -215,7 +215,7 @@ export class SessionRuntimes {
             if (this.workers.get(worker.id) !== worker || !worker.pendingUI.has(event.id)) return;
             try { worker.rpc.respond({ id: event.id, cancelled: true }); } catch {}
             this.clearRequest(worker, event.id);
-            this.emit({ type: 'desktop_ui_expired', id: event.id, runtimeId: worker.id });
+            this.emit({ type: 'desktop_ui_expired', id: event.id, runtimeId: worker.id, runtimeRevision: ++worker.revision });
             this.publish();
           }, Math.min(timeout, 2147483647)).unref());
         }

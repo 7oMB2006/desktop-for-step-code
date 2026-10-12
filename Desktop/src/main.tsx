@@ -4,6 +4,12 @@ import { flushSync } from 'react-dom';
 import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
 import { fullAccessRiskPresentation } from './full-access-risk';
+import { pendingPlanReview, planReview } from './plan-review';
+import { conversationEntries } from './conversation-presentation';
+import { planExecutionResponses } from './plan-execution';
+import { PlanExecution } from './PlanExecution';
+import { PlanReview } from './PlanReview';
+import { ClipboardCheck } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
@@ -217,6 +223,8 @@ function App() {
   const rightRail = useRef<HTMLElement>(null);
   const [requests, setRequests] = useState<UIRequest[]>([]);
   const [approvalOpen, setApprovalOpen] = useState(true);
+  const [resubmittingPlan, setResubmittingPlan] = useState(false);
+  const resubmitPlanLock = useRef(false);
   const [answer, setAnswer] = useState('');
   const [levels, setLevels] = useState<string[]>([]);
   const [commands, setCommands] = useState<{ name: string; description?: string; source?: string }[]>([]);
@@ -511,7 +519,7 @@ function App() {
         return;
       }
       if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current)) return;
-      if (['desktop_model_selection', 'desktop_queue', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
+      if (['extension_ui_request', 'desktop_ui_expired', 'desktop_model_selection', 'desktop_queue', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
         && !messageRevision.current.acceptEvent(event)) return;
       if (event.type === 'desktop_model_selection') setData(d => ({ ...d, modelSelection: event.modelSelection, modelChanges: event.modelChanges, state: event.state ?? d.state }));
       if (event.type === 'desktop_queue') setData(d => ({ ...d, pendingMessages: event.pendingMessages }));
@@ -675,12 +683,13 @@ function App() {
     return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape); window.removeEventListener('resize', dismiss); };
   }, [contextMenu]);
   useEffect(() => {
-    if (!settingsOpen && !mcpEdit && !(requests.length && approvalOpen && !permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId)) && !renaming) return;
+    if (!settingsOpen && !mcpEdit && !(requests.length && approvalOpen && !planReview(requests[0]) && requests[0]?.title !== 'Desktop Plan refinements' && !permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId)) && !renaming) return;
     const previous = document.activeElement as HTMLElement | null;
     const dialog = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1);
     const controls = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') ?? [])];
     const risk = fullAccessRiskPresentation(requests[0], data.preferences.language);
-    (risk ? controls().at(-1) : controls()[0])?.focus();
+    const plan = planReview(requests[0]);
+    (plan ? dialog?.querySelector<HTMLElement>('button') : risk ? controls().at(-1) : controls()[0])?.focus();
     const handler = (e: KeyboardEvent) => {
       if (risk && e.key === 'Escape') {
         e.preventDefault();
@@ -1060,6 +1069,16 @@ function App() {
   };
   const permissionApproval = !renaming ? permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId) : undefined;
   const accessRisk = !renaming ? fullAccessRiskPresentation(requests[0], data.preferences.language) : undefined;
+  const reviewPlan = !renaming ? planReview(requests[0]) : undefined;
+  const canResubmitPlan = pendingPlanReview(data.messages, Boolean(data.launch?.plan));
+  const resubmitPlan = async () => {
+    if (resubmitPlanLock.current || busy || requests.length || !canResubmitPlan) return;
+    resubmitPlanLock.current = true; setResubmittingPlan(true);
+    try {
+      await command('prompt', { message: t('请重新调用 exit_plan_mode 提交当前计划供我批阅。重新读取当前计划文件；在我批准前不要实施，也不要把这条请求视为批准。', 'Call exit_plan_mode again to submit the current proposal for review. Re-read the current plan file. Do not implement before my approval; this request is not approval.') });
+    } finally { resubmitPlanLock.current = false; setResubmittingPlan(false); }
+  };
+  const planFeedback = !renaming && requests[0]?.method === 'input' && requests[0].title === 'Desktop Plan refinements';
   const taskStatusControls = <>
     <LaunchStatus key={`task-${data.runtimeId}`} placement="pulse" align={busy ? 'start' : 'end'}
       expanded={taskStatusOpen} onExpandedChange={setTaskStatusOpen}
@@ -1070,6 +1089,9 @@ function App() {
       onDisableStanding={() => rawCommand('disable_standing_ultracode')}/>
     {currentTurnWorkflow && <WorkflowTrigger flow={currentTurnWorkflow} language={data.preferences.language} onOpen={openWorkflow} settled={!busy}/>}
   </>;
+  const lastConversationEntry = conversationEntries(data.messages).at(-1);
+  const activePlanExecution = busy && lastConversationEntry?.type === 'response'
+    ? planExecutionResponses(data.messages, busy).get(lastConversationEntry.index) : undefined;
   const completedStatus = completedGoalResponse === undefined ? undefined : { responseIndex: completedGoalResponse,
     content: <LaunchStatus key={`completed-${data.launch?.goal?.id}`} placement="pulse" align="end"
       state={{ plan: false, ultracode: false, goalArmed: false, goal: data.launch?.goal }}
@@ -1151,7 +1173,7 @@ function App() {
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
-      {!!requests.length && !approvalOpen && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
+      {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
       {error && <div className="error-banner" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title={t('关闭', 'Dismiss')} onClick={() => setError('')}><X size={14}/></IconButton></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
@@ -1186,8 +1208,10 @@ function App() {
             <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
               settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
             {busy && <div className="working">
-              {busy && <><span className="working-dot"/><span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : t('正在阶跃', 'Working')}</span></>}
+              {busy && <><span className="working-dot"/>{reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : t('正在阶跃', 'Working')}</span>}</>}
               {taskStatusControls}
+              {activePlanExecution && <PlanExecution key={lastConversationEntry?.type === 'response' ? lastConversationEntry.index : undefined}
+                plan={activePlanExecution.plan} state="running" language={data.preferences.language}/>}
             </div>}
             <PendingUserMessages messages={data.pendingMessages ?? []} connected={connected} busy={busy}
               onRecover={() => bridge!.command('queue_recover', undefined, data.runtimeId)}
@@ -1245,7 +1269,9 @@ function App() {
                 goal: Boolean(data.draftId) || commands.some(c => c.name === 'goal' && c.source === 'extension'),
                 ultracode: Boolean(data.draftId) || commands.some(c => c.name === 'ultraloop' && c.source === 'extension'),
               }} onLaunch={(mode, enabled) => command('set_launch_mode', { mode, enabled })}
-              onReview={requests.length && !approvalOpen && !renaming ? () => setApprovalOpen(true) : undefined}/>
+              onReview={requests.length && !approvalOpen && !renaming && !reviewPlan && !planFeedback ? () => setApprovalOpen(true) : undefined}/>
+            {(reviewPlan || planFeedback) && <button className="permission-trigger permission-review plan-review-trigger" aria-expanded={approvalOpen} onClick={() => setApprovalOpen(v => !v)}><ClipboardCheck size={16}/><span>{t('批阅计划', 'Review plan')}</span></button>}
+            {!requests.length && canResubmitPlan && <button className="permission-trigger permission-review plan-review-trigger" disabled={!connected || loading || busy || resubmittingPlan} onClick={() => void resubmitPlan()}><ClipboardCheck size={16}/><span>{t('重新批阅计划', 'Review plan again')}</span></button>}
             <LaunchStatus key={data.runtimeId ?? data.draftId}
               state={{ plan: Boolean(data.launch?.planArmed), ultracode: Boolean(data.launch?.ultracodeArmed), goalArmed: Boolean(data.launch?.goalArmed) }}
               language={data.preferences.language} disabled={!connected || loading}
@@ -1263,6 +1289,8 @@ function App() {
         </div>
         <PermissionApproval key={data.runtimeId ?? 'empty'} requestId={requests[0]?.id} presentation={permissionApproval} open={Boolean(permissionApproval && approvalOpen && !navigationTarget)}
           language={data.preferences.language} onLater={() => setApprovalOpen(false)} onRespond={respond}/>
+        <PlanReview key={`plan-${data.runtimeId ?? 'empty'}`} plan={reviewPlan} feedback={Boolean(planFeedback)} requestId={requests[0]?.id}
+          open={Boolean((reviewPlan || planFeedback) && approvalOpen && !navigationTarget)} zh={data.preferences.language === 'zh'} onLater={() => setApprovalOpen(false)} onRespond={respond}/>
       </div>
       <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
         sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
@@ -1427,7 +1455,7 @@ function App() {
       </>}
     </div></div></section></div>}
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
-    {((requests[0] && approvalOpen && !permissionApproval) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={accessRisk?.title ?? requests[0]?.title ?? 'Rename'}><h2>{accessRisk?.title ?? requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{accessRisk ? <p className="full-access-risk-message"><ShieldAlert size={20}/>{accessRisk.message}</p> : requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map((o, index) => <button className="option" key={o} onClick={() => void respond({ value: o })}>{accessRisk?.labels[index] ?? o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && !accessRisk && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}{!accessRisk && <button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>}{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
+    {((requests[0] && approvalOpen && !permissionApproval && !reviewPlan && !planFeedback) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={accessRisk?.title ?? requests[0]?.title ?? 'Rename'}><h2>{accessRisk?.title ?? requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{accessRisk ? <p className="full-access-risk-message"><ShieldAlert size={20}/>{accessRisk.message}</p> : requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map((o, index) => <button className="option" key={o} onClick={() => void respond({ value: o })}>{accessRisk?.labels[index] ?? o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && !accessRisk && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}{!accessRisk && <button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>}{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
   </div></FileOpeningContext.Provider>;
 }
 class RenderBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {

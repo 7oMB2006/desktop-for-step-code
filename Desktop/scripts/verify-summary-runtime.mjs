@@ -27,7 +27,7 @@ const history = join(runtimeProfile, 'sessions');
 await mkdir(history, { recursive: true });
 await mkdir(join(runtimeProfile, 'agent', 'skills', 'summary-fixture'), { recursive: true });
 await writeFile(join(runtimeProfile, 'agent', 'skills', 'summary-fixture', 'SKILL.md'), '---\nname: summary-fixture\ndescription: Local summary fixture\n---\nRead-only fixture.\n');
-await writeFile(join(runtimeProfile, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "bypass"\n[telemetry]\nenabled = false\n[mcp_servers.reference-library]\ncommand = "disabled-fixture"\nenabled = false\n[mcp_servers.local-search]\ncommand = "does-not-exist-summary-fixture"\n');
+await writeFile(join(runtimeProfile, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.reference-library]\ncommand = "disabled-fixture"\nenabled = false\n[mcp_servers.local-search]\ncommand = "does-not-exist-summary-fixture"\n');
 const timestamp = new Date().toISOString();
 const task = (id, subject, status) => ({ id, subject, status, description: '核对真实运行时数据、会话隔离与界面状态，完成后保留验收结果。', blocks: [], blockedBy: [], createdAt: Date.now(), updatedAt: Date.now() });
 await writeFile(join(history, 'summary-fixture.jsonl'), [

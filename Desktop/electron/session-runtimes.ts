@@ -11,6 +11,7 @@ import { WORKSPACE_POLICY } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
 import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
+import { isFullAccessRisk } from '../src/full-access-risk';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -30,6 +31,7 @@ export interface SessionRuntime {
   state?: RuntimeState;
   leafId?: string;
   permissionPreset?: PermissionPreset;
+  fullAccessCancellationRevision?: number;
   launch?: LaunchState;
   messages: Message[];
   models: Model[];
@@ -133,9 +135,11 @@ export class SessionRuntimes {
   private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation, activate = true, existing?: SessionRuntime) {
     const worker: SessionRuntime = existing ?? {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
-      submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
+      submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), fullAccessCancellationRevision: 0, failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
     };
     worker.status = 'connecting';
+    // A transport-local Full Access grant must not survive process replacement.
+    if (existing?.permissionPreset === 'full-access') worker.permissionPreset = undefined;
     worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false };
     let runGeneration = 0;
     let notifiedGeneration = 0;
@@ -205,13 +209,15 @@ export class SessionRuntimes {
         if (['select', 'confirm', 'input', 'editor'].includes(event.method)) {
           this.clearRequest(worker, event.id);
           worker.pendingUI.set(event.id, { ...event, runtimeId: worker.id } as UIRequest);
-          if (Number.isFinite(event.timeout) && event.timeout > 0) worker.uiTimers.set(event.id, setTimeout(() => {
+          const timeout = isFullAccessRisk({ method: event.method, title: event.title, options: event.options })
+            ? Math.min(Number.isFinite(event.timeout) && event.timeout > 0 ? event.timeout : 120000, 120000) : event.timeout;
+          if (Number.isFinite(timeout) && timeout > 0) worker.uiTimers.set(event.id, setTimeout(() => {
             if (this.workers.get(worker.id) !== worker || !worker.pendingUI.has(event.id)) return;
             try { worker.rpc.respond({ id: event.id, cancelled: true }); } catch {}
             this.clearRequest(worker, event.id);
             this.emit({ type: 'desktop_ui_expired', id: event.id, runtimeId: worker.id });
             this.publish();
-          }, Math.min(event.timeout, 2147483647)).unref());
+          }, Math.min(timeout, 2147483647)).unref());
         }
       }
       this.emit({ ...event, runtimeId: worker.id, runtimeRevision: worker.revision, sessionId: worker.state?.sessionId });
@@ -247,7 +253,7 @@ export class SessionRuntimes {
           if (!nextState.sessionId || nextState.sessionId === sourceState.sessionId) throw new Error('Runtime did not create a new session');
         }
         const permissionPreset = branch.permissionPreset ?? worker.permissionPreset;
-        if (permissionPreset) {
+        if (permissionPreset && permissionPreset !== 'full-access') {
           const { commands } = await worker.rpc.request('get_commands');
           if (!commands?.some((command: { name: string; source: string }) => command.name === 'permissions' && command.source === 'extension')) throw new Error('Cannot preserve session permissions');
           await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
@@ -369,7 +375,7 @@ export class SessionRuntimes {
       if ((current.leafId ?? null) === selected.parentId && sessionFile) {
         const restored = await worker.rpc.request('switch_session', { sessionPath: sessionFile }, 60000);
         if (restored.cancelled) throw new Error('Submission failed and history restoration was cancelled');
-        if (permissionPreset) await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
+        if (permissionPreset && permissionPreset !== 'full-access') await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
         await this.read(worker);
         if (worker.state?.sessionId !== sessionId || worker.leafId !== history.leafId) throw new Error('Submission failed and history could not be restored');
         this.emit({ type: 'desktop_history', runtimeId: worker.id, runtimeRevision: ++worker.revision, sessionId, messages: worker.messages });
@@ -406,7 +412,7 @@ export class SessionRuntimes {
         const { levels } = await worker.rpc.request('get_available_thinking_levels');
         if (levels?.includes(thinkingLevel)) await worker.rpc.request('set_thinking_level', { level: thinkingLevel });
       }
-      if (permissionPreset) await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
+      if (permissionPreset && permissionPreset !== 'full-access') await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
       await this.read(worker);
     } catch (error) {
       worker.state = previousState;
@@ -455,12 +461,17 @@ export class SessionRuntimes {
   }
   respondToRequest(worker: SessionRuntime, answer: Record<string, unknown>) {
     const id = String(answer.id);
-    if (!worker.pendingUI.has(id)) throw new Error('This request has expired');
+    const request = worker.pendingUI.get(id);
+    if (!request) throw new Error('This request has expired');
     const confirmation = this.confirmations.get(id);
     if (confirmation?.worker === worker) {
       this.confirmations.delete(id);
       confirmation.resolve(answer.confirmed === true && answer.cancelled !== true);
-    } else worker.rpc.respond(answer);
+    } else {
+      worker.rpc.respond(answer);
+      if (isFullAccessRisk(request) && (answer.cancelled === true || answer.value === request.options?.[2]))
+        worker.fullAccessCancellationRevision = (worker.fullAccessCancellationRevision ?? 0) + 1;
+    }
     this.clearRequest(worker, id);
     this.publish();
   }

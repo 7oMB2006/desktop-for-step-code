@@ -80,10 +80,10 @@ test('read/list are snapshots and do not switch sessions, stop workers, or clear
   } finally { await f.close(); }
 });
 
-test('each cross-session message requires source-scoped approval including bypass mode', async () => {
+test('each cross-session message requires source-scoped approval even with Full Access', async () => {
   const f = await fixture();
   try {
-    f.a.permissionPreset = 'bypass';
+    f.a.permissionPreset = 'full-access';
     f.b.busy = true;
     const pending = f.broker.dispatch(f.a, { action: 'send', sessionId: 'session-1', message: 'Keep your diff separate.' });
     assert.equal(f.a.pendingUI.size, 1);
@@ -142,8 +142,8 @@ test('queued peer turns prepare the next model before dispatch and retain FIFO o
   } finally { await f.close(); }
 });
 
-test('pending approval cannot deliver after target removal, source cancellation or read-only change', async () => {
-  for (const reason of ['removed', 'cancelled', 'read-only']) {
+test('pending approval cannot deliver after target removal or source cancellation', async () => {
+  for (const reason of ['removed', 'cancelled']) {
     const f = await fixture();
     try {
       const controller = new AbortController();
@@ -152,10 +152,6 @@ test('pending approval cannot deliver after target removal, source cancellation 
         await f.pool.remove(f.b);
         f.approve(true);
         await assert.rejects(pending, /not connected/);
-      } else if (reason === 'read-only') {
-        f.a.permissionPreset = 'read-only';
-        f.approve(true);
-        await assert.rejects(pending, /read-only/);
       } else {
         controller.abort();
         assert.equal((await pending as any).delivered, false);

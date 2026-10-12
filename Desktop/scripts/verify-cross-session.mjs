@@ -204,10 +204,13 @@ try {
   assert.ok(replies.at(-1).text.includes('Peer receipt 2'));
 
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
-  await page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'read-only' }, id), source.runtimeId);
+  await page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, id), source.runtimeId);
   await send('PROBE-SEND-READONLY');
+  const automaticApproval = page.getByRole('dialog', { name: '向另一会话发送消息？' });
+  await automaticApproval.waitFor();
+  await automaticApproval.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByText('PROBE-SEND-READONLY COMPLETE', { exact: true }).waitFor();
-  assert.ok(replies.at(-1).text.includes('read-only'));
+  assert.ok(replies.at(-1).text.includes('declined'));
   assert.equal(peerDeliveries, 2);
   assert.equal(await page.getByRole('dialog').count(), 0);
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
@@ -233,7 +236,7 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.sessionId, source.state.sessionId);
   assert.deepEqual(errors, []);
   assert.ok(calls.includes('desktop_sessions') && calls.includes('desktop_read_session') && calls.includes('desktop_send_message'));
-  console.log('Cross-session real RPC/SSE passed: sidebar reference copy without navigation/read-marking, Chinese/English menus, reference-based read/send, registered tools, source-scoped deferred approval, cancel, idle delivery, busy queue, read-only rejection, peer provenance, abort cleanup, narrow layout and English confirmation.');
+  console.log('Cross-session real RPC/SSE passed: sidebar reference copy without navigation/read-marking, Chinese/English menus, reference-based read/send, registered tools, source-scoped deferred approval, cancel, idle delivery, busy queue, automatic-tier explicit approval, peer provenance, abort cleanup, narrow layout and English confirmation.');
 } catch (error) {
   const page = app.windows()[0];
   if (page) {

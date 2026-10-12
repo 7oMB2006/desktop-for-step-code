@@ -21,6 +21,7 @@ import { testProvider } from './provider-diagnostic';
 let providerTestController: AbortController | undefined;
 import { installCrashLog } from './crash-log';
 import { permissionPresets } from './permission-status';
+import { isFullAccessRisk } from '../src/full-access-risk';
 import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
@@ -579,7 +580,9 @@ async function handle(method: string, args: any[]) {
         if (draft.model && (draft.modelChanged || draft.model.provider !== created.state?.model?.provider || draft.model.id !== created.state?.model?.id))
           await handle('command', ['set_model', { provider: draft.model.provider, modelId: draft.model.id }, created.runtimeId]);
         if (draft.thinkingChanged) await handle('command', ['set_thinking_level', { level: draft.thinkingLevel }, created.runtimeId]);
-        if (draft.permissionChanged) await handle('command', ['set_permission_preset', { preset: draft.permissionPreset }, created.runtimeId]);
+        // Risk acknowledgment needs the renderer to own the new runtime first.
+        if (draft.permissionChanged && draft.permissionPreset !== 'full-access')
+          await handle('command', ['set_permission_preset', { preset: draft.permissionPreset }, created.runtimeId]);
         for (const change of draftLaunchChanges(runtimes.require(created.runtimeId).launch, draft.launch))
           await handle('command', ['set_launch_mode', change, created.runtimeId]);
         return await snapshot(runtimes.require(created.runtimeId));
@@ -698,7 +701,6 @@ async function handle(method: string, args: any[]) {
       if (entry?.type !== 'response' || !worker.state?.sessionId) throw new Error('Turn not found');
       const sessionId = worker.state.sessionId;
       if (action === 'status') return undoStore.status(sessionId, worker.cwd, entry.items);
-      if (worker.permissionPreset === 'read-only') throw new Error('Read-only session cannot undo files');
       if (action === 'prepare') return undoStore.prepare(sessionId, worker.cwd, entry.items);
       const token = text(args[3], 80);
       undoBusy = true;
@@ -1039,13 +1041,21 @@ async function handle(method: string, args: any[]) {
         if (type === 'set_permission_preset') {
           const preset = text(data.preset, 30);
           if (!permissionPresets.includes(preset as typeof permissionPresets[number])) throw new Error('Unknown permission preset');
+          if ([...pendingUI.values()].some(isFullAccessRisk)) throw new Error(preferences.language === 'zh'
+            ? '请先完成已有的权限风险确认，再重新发送。' : 'Resolve the existing permission acknowledgment before sending again.');
+          const cancellationRevision = worker.fullAccessCancellationRevision ?? 0;
           // Preset switching stays allowed while a turn runs: it only governs
           // later approvals, so it must not assert an idle session.
           const { commands } = await rpc.request('get_commands');
           if (!Array.isArray(commands) || !commands.some((command: { name?: string; source?: string }) => command.name === 'permissions' && command.source === 'extension')) {
             throw new Error('This Step Code runtime does not support permission switching');
           }
-          return await rpc.request('prompt', { message: `/permissions ${preset}` });
+          await rpc.request('prompt', { message: `/permissions ${preset}` }, 125000);
+          if (preset === 'full-access' && (worker.fullAccessCancellationRevision ?? 0) !== cancellationRevision)
+            return { cancelled: true };
+          if (worker.permissionPreset !== preset) throw new Error(preferences.language === 'zh'
+            ? '未启用所选权限。' : 'The selected permission tier was not enabled.');
+          return;
         }
         let payload: Record<string, unknown> = {};
         let promptLaunch: LaunchState | undefined;

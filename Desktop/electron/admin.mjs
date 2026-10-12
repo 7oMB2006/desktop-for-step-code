@@ -43,7 +43,9 @@ async function dispatch(message) {
       return {
         models,
         model, thinkingLevel: model.thinkingLevels?.includes(requested) ? requested : model.thinkingLevels?.[0],
-        permissionPreset: upstream.readGlobalStepConfig().permissionPreset ?? upstream.resolveInitialStepPermissionPreset(),
+        permissionPreset: settings.getStepPermissionPreset() ?? upstream.resolveInitialStepPermissionPreset({
+          initialPreset: upstream.readGlobalStepConfig().permissionPreset,
+        }),
       };
     }
     case 'sessions': return (await upstream.SessionManager.listAll(sessions)).map(({ allMessagesText, ...s }) => s);

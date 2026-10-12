@@ -89,6 +89,70 @@ test('isolated runtime removes inherited provider credentials and legacy profile
   assert.equal(env.PATH, 'tools'); assert.equal(env.STEP_API_KEY, undefined); assert.equal(env.OPENAI_API_KEY, undefined);
   assert.equal(env.STEPCODE_AUTH_PATH, 'D:/isolated/auth.json'); assert.equal(env.STEPCODE_LEGACY_AUTH_PATH, 'D:/isolated/legacy-auth.json'); assert.equal(env.NODE_OPTIONS, undefined);
 });
+test('legacy approval presets are projected as Ask by both draft management and the actual runtime', { timeout: 60000 }, async () => {
+  for (const preset of ['read-only', 'bypass', 'autopilot']) {
+    const profile = await mkdtemp(join(tmpdir(), 'desktop-permission-migrate-'));
+    await mkdir(join(profile, 'sessions'));
+    await writeFile(join(profile, 'config.toml'), `permissionPreset = "${preset}"\n[telemetry]\nenabled = false\n`);
+    const events: any[] = [];
+    const env = isolatedEnvironment(profile);
+    const rpc = new RpcProcess(event => events.push(event));
+    const admin = new RpcProcess(() => {});
+    try {
+      admin.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), profile, env);
+      assert.equal((await admin.request('session_options', { cwd: profile })).permissionPreset, 'ask');
+      rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), profile, env);
+      await rpc.request('get_state', {}, 30000);
+      assert.equal(permissionFromStatus(events.filter(event => permissionFromStatus(event)).at(-1)), 'ask');
+      assert.equal(events.some(event => event.method === 'select'), false, 'Legacy permissions never imply a Full Access grant');
+    } finally { await rpc.stop(); await admin.stop(); }
+  }
+});
+test('acknowledged Full Access still honors explicit deny and confirm tool overrides', { timeout: 60000 }, async () => {
+  let calls = 0;
+  const server = createServer(async (req, res) => {
+    let body = ''; for await (const part of req) body += part;
+    const payload = JSON.parse(body);
+    const tool = payload.messages.at(-1)?.role !== 'tool';
+    const delta = tool ? { tool_calls: [{ index: 0, id: `override-${++calls}`, type: 'function',
+      function: { name: 'write_file', arguments: '{"path":"override-proof.txt","content":"must not be written"}' } }] }
+      : { role: 'assistant', content: 'Override verified.' };
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.end(`data: ${JSON.stringify({ id: 'override', object: 'chat.completion.chunk', model: 'fixture',
+      choices: [{ index: 0, delta, finish_reason: tool ? 'tool_calls' : 'stop' }] })}\n\ndata: [DONE]\n\n`);
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    for (const override of ['deny', 'confirm']) {
+      const profile = await mkdtemp(join(tmpdir(), 'desktop-full-access-override-'));
+      await writeFile(join(profile, 'config.toml'), 'permissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+      await writeFile(join(profile, 'models.json'), JSON.stringify({ defaultProvider: 'fixture', defaultModel: 'fixture', providers: {
+        fixture: { baseUrl: `http://127.0.0.1:${(server.address() as any).port}/v1`, api: 'openai-completions', apiKey: 'isolated-test',
+          models: [{ id: 'fixture', name: 'Fixture', contextWindow: 32768, maxTokens: 2048 }] },
+      } }));
+      const events: any[] = [];
+      const rpc = new RpcProcess(event => {
+        events.push(event);
+        if (event.method === 'select' && event.title?.startsWith('Enable full access?')) rpc.respond({ id: event.id, value: event.options[0] });
+        if (event.method === 'confirm') rpc.respond({ id: event.id, confirmed: false });
+      });
+      try {
+        rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), profile,
+          isolatedEnvironment(profile), ['--provider', 'fixture', '--model', 'fixture', '--tool-override', `write_file=${override}`]);
+        await rpc.request('get_state');
+        await rpc.request('prompt', { message: '/permissions full-access' });
+        assert.equal(permissionFromStatus(events.filter(event => permissionFromStatus(event)).at(-1)), 'full-access');
+        await rpc.request('prompt', { message: 'Verify explicit tool policy.' });
+        const deadline = Date.now() + 15000;
+        while (!events.some(event => event.type === 'agent_end') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+        assert.ok(events.some(event => event.type === 'agent_end'));
+        assert.equal(events.filter(event => event.method === 'confirm').length, override === 'confirm' ? 1 : 0);
+        await assert.rejects(readFile(join(profile, 'override-proof.txt')), /ENOENT/);
+      } finally { await rpc.stop(); }
+    }
+    assert.equal(calls, 2, 'Both policy cases received actual model tool calls');
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+});
 test('staged runtime answers RPC and management uses isolated sessions and configuration', { timeout: 90000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'desktop-step-test-'));
   const workspace = join(dir, '项目 with spaces'); await mkdir(workspace);
@@ -102,12 +166,17 @@ test('staged runtime answers RPC and management uses isolated sessions and confi
     const commands = (await rpc.request('get_commands')).commands;
     assert.ok(commands.some((command: { name: string; source: string }) => command.name === 'permissions' && command.source === 'extension'));
     assert.ok(events.some(event => permissionFromStatus(event)), 'Startup publishes an upstream permission preset');
-    await rpc.request('prompt', { message: '/permissions read-only' });
-    assert.ok(events.some(event => permissionFromStatus(event) === 'read-only'));
-    await rpc.request('prompt', { message: '/permissions bypass' });
-    assert.ok(events.some(event => permissionFromStatus(event) === 'bypass'));
-    await rpc.request('prompt', { message: '/permissions autopilot' });
-    assert.ok(events.some(event => permissionFromStatus(event) === 'autopilot'));
+    await rpc.request('prompt', { message: '/permissions approve-for-me' });
+    assert.ok(events.some(event => permissionFromStatus(event) === 'approve-for-me'));
+    const enabling = rpc.request('prompt', { message: '/permissions full-access' });
+    const deadline = Date.now() + 15000;
+    while (!events.some(event => event.method === 'select' && event.title?.startsWith('Enable full access?')) && Date.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 25));
+    const risk = events.find(event => event.method === 'select' && event.title?.startsWith('Enable full access?'));
+    assert.ok(risk, 'Full Access must require risk acknowledgment');
+    rpc.respond({ id: risk.id, value: risk.options[0] });
+    await enabling;
+    assert.equal(permissionFromStatus(events.filter(event => permissionFromStatus(event)).at(-1)), 'full-access');
     await rpc.request('prompt', { message: '/permissions ask' });
     assert.equal(permissionFromStatus(events.filter(event => permissionFromStatus(event)).at(-1)), 'ask');
     assert.deepEqual((await rpc.request('get_messages')).messages, []);

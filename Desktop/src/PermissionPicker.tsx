@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Eye, Goal, Hand, ShieldAlert, RefreshCw, Shield, Lightbulb, Network } from 'lucide-react';
+import { Check, Goal, Hand, ShieldAlert, ShieldCheck, Shield, Lightbulb, Network } from 'lucide-react';
 import type { PermissionPreset } from './contracts';
 import { emptyLaunch, type LaunchMode, type LaunchState } from './launch-state';
 
 const presets: { id: PermissionPreset; zh: string; en: string; descriptionZh: string; descriptionEn: string }[] = [
   { id: 'ask', zh: '请求批准', en: 'Ask', descriptionZh: '写入与命令执行先确认', descriptionEn: 'Confirm writes and commands' },
-  { id: 'read-only', zh: '只读', en: 'Read Only', descriptionZh: '只允许读取与查找', descriptionEn: 'Read and discover only' },
-  { id: 'bypass', zh: '常规免确认', en: 'Bypass', descriptionZh: '常规操作免确认，危险命令仍需批准', descriptionEn: 'Ordinary tools run; dangerous commands still ask' },
-  { id: 'autopilot', zh: '自动驾驶', en: 'Autopilot', descriptionZh: '常规免确认，失败后可自动续跑', descriptionEn: 'Ordinary tools run; retries transient failures' },
+  { id: 'approve-for-me', zh: '代我批准', en: 'Approve for Me', descriptionZh: '常规操作自动执行，风险操作仍需确认', descriptionEn: 'Routine actions run; risky actions still ask' },
+  { id: 'full-access', zh: '完全访问', en: 'Full Access', descriptionZh: '包括危险命令也免确认，启用前需确认风险', descriptionEn: 'Dangerous commands run too; risk acknowledgment required' },
 ];
-const icons = { ask: Hand, 'read-only': Eye, bypass: ShieldAlert, autopilot: RefreshCw };
+const icons = { ask: Hand, 'approve-for-me': ShieldCheck, 'full-access': ShieldAlert };
 
 interface Props {
   preset?: PermissionPreset;

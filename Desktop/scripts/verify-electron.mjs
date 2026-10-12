@@ -553,21 +553,20 @@ try {
   assert.equal(await permissionTrigger.locator('svg.lucide-hand').count(), 1);
   await permissionTrigger.click();
   const permissionMenu = page.getByRole('menu', { name: '访问权限' });
-  for (const [preset, icon] of [['ask', 'hand'], ['read-only', 'eye'], ['bypass', 'shield-alert'], ['autopilot', 'refresh-cw']]) {
+  for (const [preset, icon] of [['ask', 'hand'], ['approve-for-me', 'shield-check'], ['full-access', 'shield-alert']]) {
     assert.equal(await permissionMenu.locator(`.permission-option-${preset} svg.lucide-${icon}`).count(), 1);
   }
   assert.deepEqual(await permissionMenu.getByRole('menuitemradio').allTextContents(), [
     '请求批准写入与命令执行先确认',
-    '只读只允许读取与查找',
-    '常规免确认常规操作免确认，危险命令仍需批准',
-    '自动驾驶常规免确认，失败后可自动续跑',
+    '代我批准常规操作自动执行，风险操作仍需确认',
+    '完全访问包括危险命令也免确认，启用前需确认风险',
   ]);
-  await permissionMenu.getByRole('menuitemradio', { name: /只读/ }).click();
-  await page.waitForFunction(() => document.querySelector('.permission-trigger span')?.textContent === '只读');
-  assert.equal(await permissionTrigger.locator('svg.lucide-eye').count(), 1);
-  assert.equal((await page.evaluate(() => window.desktop.snapshot())).permissionPreset, 'read-only');
+  await permissionMenu.getByRole('menuitemradio', { name: /代我批准/ }).click();
+  await page.waitForFunction(() => document.querySelector('.permission-trigger span')?.textContent === '代我批准');
+  assert.equal(await permissionTrigger.locator('svg.lucide-shield-check').count(), 1);
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).permissionPreset, 'approve-for-me');
   await page.waitForTimeout(100);
-  assert.equal(await page.getByText('Permission mode: Read Only', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('Permission mode: Approve for Me', { exact: true }).count(), 0);
   await permissionTrigger.click();
   await page.keyboard.press('Escape');
   assert.equal(await permissionMenu.count(), 0);

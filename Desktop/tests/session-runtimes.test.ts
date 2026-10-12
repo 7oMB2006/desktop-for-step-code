@@ -42,12 +42,12 @@ test('idle configuration refresh preserves runtime identity and ignores the reti
   });
   const worker = await pool.open('node', 'step', 'workspace', {});
   const id = worker.id;
-  worker.permissionPreset = 'read-only';
+  worker.permissionPreset = 'approve-for-me';
   await pool.refresh(worker, 'node', 'step', { NEW_CONFIG: '1' });
   assert.equal(pool.active, worker);
   assert.equal(worker.id, id);
   assert.equal(worker.state?.sessionId, 'same-session');
-  assert.equal(worker.permissionPreset, 'read-only');
+  assert.equal(worker.permissionPreset, 'approve-for-me');
   assert.equal(transports[0].stopped, true);
   assert.deepEqual(transports[1].startArgs.slice(2, 4), ['--session-id', 'same-session']);
   assert.equal(transports[1].calls.includes('new_session'), false, 'unpersisted empty session is not recreated');
@@ -71,6 +71,85 @@ test('configuration refresh never stops running, queued or mutating workers', as
     assert.equal(transports[0].stopped, false, field);
     await pool.stopAll();
   }
+});
+test('configuration refresh never replays a session-only Full Access grant or hides the new native tier', async () => {
+  for (const nativeTier of ['Ask', 'Full Access']) {
+    const transports: Transport[] = [];
+    const prompts: string[] = [];
+    const pool = new SessionRuntimes(() => {}, receive => {
+      const transport = new Transport(receive, 'same-session');
+      const index = transports.length;
+      transport.start = () => {
+        if (index) receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'step-permission', statusText: `Mode: ${nativeTier}` });
+      };
+      const request = transport.request.bind(transport);
+      transport.request = async (type, args) => {
+        if (type === 'prompt') prompts.push(String(args?.message));
+        return request(type, args);
+      };
+      transports.push(transport);
+      return transport;
+    });
+    try {
+      const worker = await pool.open('node', 'step', 'workspace', {});
+      worker.permissionPreset = 'full-access';
+      await pool.refresh(worker, 'node', 'step', {});
+      assert.deepEqual(prompts, [], 'Reconstruction must not request a fresh Full Access grant');
+      assert.equal(worker.permissionPreset, nativeTier === 'Ask' ? 'ask' : 'full-access');
+      transports[0].receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'step-permission', statusText: 'Mode: Full Access' });
+      assert.equal(worker.permissionPreset, nativeTier === 'Ask' ? 'ask' : 'full-access', 'Old transport cannot restore its grant');
+    } finally { await pool.stopAll(); }
+  }
+});
+test('unanswered Full Access consent expires without granting and cannot accept a late response', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { pool, transports, open } = fixture();
+  try {
+    const worker = await open();
+    worker.permissionPreset = 'ask';
+    transports[0].receive({ type: 'extension_ui_request', id: 'full-risk', method: 'select',
+      title: 'Enable full access?\n\nRisk message', options: [
+        'Yes, continue anyway \u2014 apply full access for this session',
+        "Yes, and don't ask again \u2014 enable full access and remember this choice",
+        'Cancel \u2014 go back without enabling full access',
+      ] });
+    assert.equal(worker.pendingUI.has('full-risk'), true);
+    t.mock.timers.tick(119999);
+    assert.equal(worker.pendingUI.has('full-risk'), true);
+    t.mock.timers.tick(1);
+    assert.equal(worker.pendingUI.has('full-risk'), false);
+    assert.deepEqual(transports[0].answers, [{ id: 'full-risk', cancelled: true }]);
+    assert.equal(worker.permissionPreset, 'ask');
+    assert.equal(worker.fullAccessCancellationRevision, 0, 'Expiry is not an intentional user cancellation');
+    assert.throws(() => pool.respondToRequest(worker, { id: 'full-risk', value: 'grant' }), /expired/);
+  } finally { await pool.stopAll(); }
+});
+test('only explicit native Full Access cancellation records a cancellation result', async () => {
+  const { pool, transports, open } = fixture();
+  const options = [
+    'Yes, continue anyway \u2014 apply full access for this session',
+    "Yes, and don't ask again \u2014 enable full access and remember this choice",
+    'Cancel \u2014 go back without enabling full access',
+  ];
+  try {
+    const worker = await open();
+    for (const value of options.slice(0, 2)) {
+      transports[0].receive({ type: 'extension_ui_request', id: 'risk', method: 'select', title: 'Enable full access?\n\nRisk', options });
+      pool.respondToRequest(worker, { id: 'risk', value });
+      assert.equal(worker.fullAccessCancellationRevision, 0);
+    }
+    for (const answer of [{ value: options[2] }, { cancelled: true }]) {
+      const before = worker.fullAccessCancellationRevision!;
+      transports[0].receive({ type: 'extension_ui_request', id: 'risk', method: 'select', title: 'Enable full access?\n\nRisk', options });
+      pool.respondToRequest(worker, { id: 'risk', ...answer });
+      assert.equal(worker.fullAccessCancellationRevision, before + 1);
+    }
+    transports[0].receive({ type: 'extension_ui_request', id: 'other', method: 'select', title: 'Another choice', options });
+    pool.respondToRequest(worker, { id: 'other', cancelled: true });
+    assert.equal(worker.fullAccessCancellationRevision, 2, 'Unrelated dialogs do not cancel permission activation');
+    assert.throws(() => pool.respondToRequest(worker, { id: 'risk', cancelled: true }), /expired/);
+    assert.equal(worker.fullAccessCancellationRevision, 2);
+  } finally { await pool.stopAll(); }
 });
 
 test('failed replacement preserves the active session and suspends all configuration peers', async () => {
@@ -157,14 +236,14 @@ test('recycling rechecks activation and pending operations after awaiting anothe
 test('repeated new-session requests reuse one empty worker without resetting it', async () => {
   const { pool, transports, open } = fixture();
   const empty = await open('workspace');
-  empty.permissionPreset = 'read-only';
+  empty.permissionPreset = 'approve-for-me';
   const calls = transports[0].calls.length;
   for (let i = 0; i < 5; i++) assert.equal(await open('workspace'), empty);
   assert.equal(pool.active, empty);
   assert.equal(pool.workers.size, 1);
   assert.equal(transports.length, 1);
   assert.equal(transports[0].calls.length, calls);
-  assert.equal(empty.permissionPreset, 'read-only');
+  assert.equal(empty.permissionPreset, 'approve-for-me');
   await pool.stopAll();
 });
 
@@ -369,7 +448,7 @@ function branchFixture(outcome: 'success' | 'cancelled' | 'changed' = 'success')
       if (type === 'get_entries') return { entries: history, leafId: outcome === 'changed' && transports.length > 1 ? 'u1' : 'a1' };
       if (type === 'get_available_models') return { models: [] };
       if (type === 'get_commands') return { commands: [{ name: 'permissions', source: 'extension' }] };
-      if (type === 'prompt') assert.equal(args?.message, '/permissions read-only');
+      if (type === 'prompt') assert.equal(args?.message, '/permissions approve-for-me');
       if (type === 'clone' || type === 'fork') {
         branched = outcome !== 'cancelled';
         return { cancelled: outcome === 'cancelled' };
@@ -405,7 +484,7 @@ function retryFixture(outcome: 'success' | 'cancelled' | 'unsupported' | 'reject
       if (type === 'prompt') {
         if (args?.message === '/_desktop_retry u2') {
           if (outcome !== 'cancelled') leafId = 'a1';
-        } else if (args?.message !== '/permissions read-only') {
+        } else if (args?.message !== '/permissions approve-for-me') {
           submitted.push(args!);
           if (outcome === 'rejected') throw new Error('Submission rejected');
           assert.equal(events.some(event => event.type === 'desktop_history'), true);
@@ -421,12 +500,12 @@ function retryFixture(outcome: 'success' | 'cancelled' | 'unsupported' | 'reject
 test('retry stays in the same worker/session, excludes the old turn and retains images', async () => {
   const { pool, events, submitted, image } = retryFixture();
   const worker = await pool.open('node', 'step', 'cwd', {});
-  worker.permissionPreset = 'read-only';
+  worker.permissionPreset = 'approve-for-me';
   await pool.retryLatest(worker, 'u2', 'edited');
   assert.equal(pool.active, worker);
   assert.equal(pool.workers.size, 1);
   assert.equal(worker.state?.sessionId, 'source');
-  assert.equal(worker.permissionPreset, 'read-only');
+  assert.equal(worker.permissionPreset, 'approve-for-me');
   assert.deepEqual(events.find(event => event.type === 'desktop_history')?.messages.map((message: { content: unknown }) => message.content), ['same', 'earlier']);
   assert.deepEqual(submitted, [{ message: 'edited', images: [image] }]);
   assert.equal(worker.submissions, 0);
@@ -458,7 +537,7 @@ test('missing edit extension and busy workers fail before history changes', asyn
 test('rejected submission without a persisted user turn restores history and permissions', async () => {
   const { pool, events } = retryFixture('rejected');
   const worker = await pool.open('node', 'step', 'cwd', {});
-  worker.permissionPreset = 'read-only';
+  worker.permissionPreset = 'approve-for-me';
   await assert.rejects(pool.retryLatest(worker, 'u2', 'edited'), /Submission rejected/);
   assert.equal(worker.leafId, 'a2');
   assert.equal(worker.messages.length, 4);
@@ -471,7 +550,7 @@ test('clone is prepared in a different worker and preserves the source and permi
   const source = await pool.open('node', 'step', 'cwd', {});
   const originalMessages = source.messages;
   const branch = await pool.open('node', 'step', 'cwd', {}, 'source.jsonl',
-    { kind: 'clone', entryId: 'a1', leafId: 'a1', permissionPreset: 'read-only' });
+    { kind: 'clone', entryId: 'a1', leafId: 'a1', permissionPreset: 'approve-for-me' });
   assert.notEqual(branch.id, source.id);
   assert.equal(pool.active, branch);
   assert.equal(source.state?.sessionId, 'source');

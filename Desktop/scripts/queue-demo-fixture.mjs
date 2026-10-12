@@ -64,7 +64,7 @@ export async function queueFixture(profile, { duration = 40000 } = {}) {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspaces: [workspace] }));
-  await writeFile(join(root, 'config.toml'), 'defaultProvider = "queue-demo"\ndefaultModel = "queue-demo"\npermissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
+  await writeFile(join(root, 'config.toml'), 'defaultProvider = "queue-demo"\ndefaultModel = "queue-demo"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
   await writeFile(join(root, 'models.json'), JSON.stringify({
     providers: { 'queue-demo': { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-demo-only',
       models: [{ id: 'queue-demo', name: '本地队列示例', contextWindow: 32768, maxTokens: 2048 }] } },

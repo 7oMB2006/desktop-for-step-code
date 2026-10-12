@@ -69,7 +69,7 @@ https://github.com/7oMB2006/desktop-for-step-code/actions/runs/37619401736/job/1
 
 当前 main 的 `pnpm package` 会 build、stage runtime，再调用 electron-builder。不能假设旧工作区的 `scripts/package.mjs` 已合并，也不能跳过固定 runtime 校验复用未知来源的 dist。
 
-运行时预期：Step Code `f7392089e67d80232b73c87f894dec8100c6c20a`，Node `v24.15.0`，应用仓库维护的 Desktop 集成补丁。独立 `Step-Code/` checkout 与 staged runtime 分开管理；此次整理不修改该 checkout。
+当前构建运行时预期：Step Code `7d86143586f7b5d0458ffd5e4b90642d7c22459b`（上游 PR #235 权限三档），Node `v24.15.0`，应用仓库维护的 Desktop 集成补丁。独立 `Step-Code/` checkout 与 staged runtime 分开管理，不修改用户已有 checkout。已发布 v0.3.0 的历史钉点与验收记录仍保留在对应版本文档中。
 
 候选证据记录应包含：
 

@@ -56,7 +56,7 @@ const server = createServer(async (req, res) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspaces: [] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "chain-fixture"\ndefaultModel = "chain-fixture"\npermissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "chain-fixture"\ndefaultModel = "chain-fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { 'chain-fixture': {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-fixture',
   models: [{ id: 'chain-fixture', name: 'Local chain fixture', contextWindow: 32768, maxTokens: 2048 }],

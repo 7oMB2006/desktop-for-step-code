@@ -64,7 +64,7 @@ try {
   const mode = name => page.getByRole('menuitemcheckbox', { name, exact: true });
   await permissions.click();
   assert.equal(await page.getByRole('menuitemcheckbox').count(), 3);
-  assert.equal(await page.getByRole('menuitemradio').count(), 4);
+  assert.equal(await page.getByRole('menuitemradio').count(), 3);
   assert.equal(await page.getByText('普通', { exact: true }).count(), 0);
   await page.waitForTimeout(250);
   await page.screenshot({ path: 'test-results/launch-permissions-dark.png' });
@@ -334,7 +334,7 @@ try {
   await menu.press('Home');
   assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Plan');
   await menu.press('End');
-  assert.match(await page.evaluate(() => document.activeElement.textContent), /Autopilot/);
+  assert.match(await page.evaluate(() => document.activeElement.textContent), /Full Access/);
   await menu.press('Escape');
   assert.equal(await menu.count(), 0);
   assert.deepEqual(errors, []);

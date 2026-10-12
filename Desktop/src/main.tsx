@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
+import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
+import { fullAccessRiskPresentation } from './full-access-risk';
 import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
@@ -535,7 +536,7 @@ function App() {
       if (event.type === 'extension_ui_request') {
         if (['select', 'input', 'editor', 'confirm'].includes(event.method)) setRequests(r => [...r.filter(v => v.id !== event.id), event as UIRequest]);
         if (event.method === 'notify' && event.message) {
-          if (event.notifyType === 'info' && /^Permission mode: (Ask|Read Only|Bypass|Autopilot)$/.test(event.message)) return;
+          if (event.notifyType === 'info' && /^Permission mode: (Ask|Approve for Me|Full Access)$/.test(event.message)) return;
           if (event.notifyType === 'info' && /^(?:Goal commands:|Goal set:|Goal (?:resumed|updated|cleared)\.|Goal paused[.;]|Goal token budget:|Plan mode (?:enabled|disabled)\.|Ultra(?:code|loop) (?:is on for the session\.|session mode))/.test(event.message)) return;
           if (event.notifyType === 'warning' || event.notifyType === 'info') {
             const mcpServer = event.notifyType === 'warning' ? mcpFailureName(event.message) : undefined;
@@ -678,8 +679,18 @@ function App() {
     const previous = document.activeElement as HTMLElement | null;
     const dialog = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1);
     const controls = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') ?? [])];
-    controls()[0]?.focus();
+    const risk = fullAccessRiskPresentation(requests[0], data.preferences.language);
+    (risk ? controls().at(-1) : controls()[0])?.focus();
     const handler = (e: KeyboardEvent) => {
+      if (risk && e.key === 'Escape') {
+        e.preventDefault();
+        const request = requests[0];
+        void run(async () => {
+          await bridge!.command('extension_ui_response', { id: request.id, cancelled: true }, request.runtimeId ?? viewId.current);
+          setRequests(previous => previous.filter(item => item.id !== request.id));
+        });
+        return;
+      }
       if (e.key !== 'Tab') return;
       const items = controls(); if (!items.length) return;
       if (e.shiftKey && document.activeElement === items[0]) { e.preventDefault(); items.at(-1)?.focus(); }
@@ -786,6 +797,25 @@ function App() {
       setError(t('消息与引用合计过长，请减少引用或分次发送', 'Message and quotes are too long; remove quotes or send in smaller parts'));
       return;
     }
+    const restoreInput = (error?: unknown) => {
+      if (quoteScopeRef.current !== deliveryScope) {
+        if (sessionId) {
+          const saved = composerBySession.current.get(sessionId);
+          if (error !== undefined) errorsBySession.current.set(sessionId, String(error instanceof Error ? error.message : error));
+          composerBySession.current.set(sessionId, {
+            draft: saved?.draft ? `${message}\n${saved.draft}` : message,
+            quotes: restoreQuotes(sentQuotes, saved?.quotes ?? []),
+            attachments: [...attached, ...saved?.attachments ?? []],
+            follow: saved?.follow ?? true, top: saved?.top ?? 0,
+          });
+        }
+        return false;
+      }
+      setDraft(value => value ? `${message}\n${value}` : message);
+      setQuotes(value => restoreQuotes(sentQuotes, value));
+      setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
+      return true;
+    };
     setDraft(''); setQuotes([]); setAttachments([]); attachmentsRef.current = []; follow.current = true; setAwayFromBottom(false);
     await run(async () => {
       try {
@@ -798,6 +828,12 @@ function App() {
             sessionId = created.state?.sessionId;
             deliveryScope = `${created.preferences.workspace ?? ''}:${sessionId ?? ''}`;
             quoteScopeRef.current = deliveryScope;
+            switching.current = false;
+            if (data.permissionPreset === 'full-access') {
+              const permission = await bridge!.command('set_permission_preset', { preset: 'full-access' }, id);
+              if (permission?.cancelled) { restoreInput(); return; }
+              await refresh();
+            }
           } finally {
             firstSend.current = false; switching.current = false; setLoading(false);
           }
@@ -806,23 +842,7 @@ function App() {
         if (busy) queueSend.current = submission;
         try { await submission; } finally { if (queueSend.current === submission) queueSend.current = null; }
       } catch (e) {
-        if (quoteScopeRef.current !== deliveryScope) {
-          if (sessionId) {
-            const saved = composerBySession.current.get(sessionId);
-            errorsBySession.current.set(sessionId, String(e instanceof Error ? e.message : e));
-            composerBySession.current.set(sessionId, {
-              draft: saved?.draft ? `${message}\n${saved.draft}` : message,
-              quotes: restoreQuotes(sentQuotes, saved?.quotes ?? []),
-              attachments: [...attached, ...saved?.attachments ?? []],
-              follow: saved?.follow ?? true, top: saved?.top ?? 0,
-            });
-          }
-          return;
-        }
-        setDraft(value => value ? `${message}\n${value}` : message);
-        setQuotes(value => restoreQuotes(sentQuotes, value));
-        setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
-        throw e;
+        if (restoreInput(e)) throw e;
       }
     });
   };
@@ -1039,6 +1059,7 @@ function App() {
     });
   };
   const permissionApproval = !renaming ? permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId) : undefined;
+  const accessRisk = !renaming ? fullAccessRiskPresentation(requests[0], data.preferences.language) : undefined;
   const taskStatusControls = <>
     <LaunchStatus key={`task-${data.runtimeId}`} placement="pulse" align={busy ? 'start' : 'end'}
       expanded={taskStatusOpen} onExpandedChange={setTaskStatusOpen}
@@ -1406,7 +1427,7 @@ function App() {
       </>}
     </div></div></section></div>}
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
-    {((requests[0] && approvalOpen && !permissionApproval) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={requests[0]?.title ?? 'Rename'}><h2>{requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map(o => <button className="option" key={o} onClick={() => void respond({ value: o })}>{o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}<button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
+    {((requests[0] && approvalOpen && !permissionApproval) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={accessRisk?.title ?? requests[0]?.title ?? 'Rename'}><h2>{accessRisk?.title ?? requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{accessRisk ? <p className="full-access-risk-message"><ShieldAlert size={20}/>{accessRisk.message}</p> : requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map((o, index) => <button className="option" key={o} onClick={() => void respond({ value: o })}>{accessRisk?.labels[index] ?? o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && !accessRisk && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}{!accessRisk && <button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>}{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
   </div></FileOpeningContext.Provider>;
 }
 class RenderBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {

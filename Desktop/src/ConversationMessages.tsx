@@ -20,6 +20,9 @@ import { MessageLink } from './MessageLink';
 import { ArtifactContext, FileReference, TurnArtifacts } from './TurnArtifacts';
 import { localReference, turnOutputPaths } from './turn-artifacts';
 import { isUserMessage } from './user-message';
+import { approvedPlan, planExecutionResponses } from './plan-execution';
+import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
+import { PlanExecution } from './PlanExecution';
 
 type Props = {
   runtimeId?: string;
@@ -241,12 +244,13 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     </span>
   </div>;
 }
-  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, ...props }: {
+  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, execution, ...props }: {
     items: { message: Message; index: number }[]; active: boolean;
     canBranch: boolean; branch: Props['branch'];
     runtimeId?: string;
     modelChange?: ModelChange;
     settledStatus?: ReactNode;
+    execution?: { plan: ApprovedPlan; state: PlanExecutionState };
     background: BackgroundSubagentStates;
     onOpenSubagent: (task: SubagentTask) => void;
     onOpenWorkflow?: (id: string) => void;
@@ -272,7 +276,9 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
       <div className="response-content message-body">{content.map((item, position) =>
           item.type === 'tool'
-            ? item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
+            ? approvedPlan(item.result)
+              ? <PlanExecution key={item.key} plan={approvedPlan(item.result)!} state={execution?.state ?? 'interrupted'} note language={props.language}/>
+              : item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
               ? <SubagentLane key={item.key} item={item} active={active} background={background} onOpen={onOpenSubagent} {...props}/>
               : (item.call?.name === 'workflow' || item.result?.toolName === 'workflow') && onOpenWorkflow
                 ? (() => {
@@ -295,7 +301,9 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
       )}</div>
       {!active && <TurnArtifacts text={finalProse} outputPaths={outputPaths} language={props.language}/>}
       {!active && <TurnChanges changes={changes} runtimeId={runtimeId} language={props.language} onError={props.onError}/>}
-    {actions && settledStatus ? <div className="assistant-footer-row working working-idle">{actions}{settledStatus}</div> : actions}
+    {actions && (settledStatus || execution) ? <div className="assistant-footer-row working working-idle">{actions}
+      {execution && <PlanExecution plan={execution.plan} state={execution.state} language={props.language}/>}
+      {settledStatus}</div> : actions}
   </article></ArtifactContext.Provider>;
 }
 function UserMessage({ message, index, arriving, editState, setEditState, ...props }: {
@@ -375,6 +383,7 @@ function UserMessage({ message, index, arriving, editState, setEditState, ...pro
 export function ConversationMessages(props: Props) {
   const [editState, setEditState] = useState<EditState | null>(null);
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
+  const executions = useMemo(() => planExecutionResponses(props.messages, props.busy), [props.messages, props.busy]);
   const background = useMemo(() => backgroundSubagentStates(props.messages), [props.messages]);
   const latestUser = [...props.messages].reverse().find(isUserMessage);
   const lastEntry = entries.at(-1);
@@ -392,7 +401,7 @@ export function ConversationMessages(props: Props) {
     const settledStatus = hasSettledFooter && index === entries.length - 1 ? props.settledStatus : undefined;
     const completedStatus = props.completedStatus?.responseIndex === entry.index ? props.completedStatus.content : undefined;
     return <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
-      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props}
+      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props} execution={executions.get(entry.index)}
       settledStatus={completedStatus ? <>{completedStatus}{settledStatus}</> : settledStatus}/>;
   })}{props.settledStatus && !hasSettledFooter && <div className="working working-idle">{props.settledStatus}</div>}</>;
 }

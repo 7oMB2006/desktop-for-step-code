@@ -1,5 +1,137 @@
 # Verification
 
+## Desktop Plan integration
+
+2026-10-12 PR preparation: the final source passed typecheck/build, all 331
+Desktop tests, 133 tests across the pinned runtime's four Plan test files,
+general Electron, Goal/launch and Plan review acceptance. Both runtime Plan
+tests and dedicated Plan Electron acceptance are included in full Windows CI,
+with independent exit-code checks. Latest local refinement navigation and
+execution-disclosure anchoring remain source-only; no new installer was built
+for this PR preparation and no cloud-CI success is inferred from local results.
+
+2026-10-12 execution-disclosure anchoring follow-up: the status trigger stays in
+the existing pulse/footer flex line while only its disclosure occupies the next
+line. Running details align below the trigger; settled details retain right-edge
+alignment. Hidden footer visibility applies to the trigger rather than a layout
+wrapper. Source typecheck/build and Plan Electron acceptance passed with relative
+anchor-position assertions for opening/closing, narrow containment, hover-hidden
+footer and the refinement/recovery regressions. Screenshots are
+`plan-execution-running-anchored.png` and `plan-execution-completed-anchored.png`
+under `Desktop/test-results/`. A first acceptance attempt timed out starting the
+next Plan turn; explicitly awaiting the armed state before sending passed the
+rerun. This frontend follow-up is not in the existing installer.
+
+2026-10-12 local refinement navigation follow-up: opening the feedback editor no
+longer answers the native review request. Back to review preserves the pending
+approval and draft without resuming the model or ending the turn. Only submission
+advances the native select/input handshake. Source typecheck/build and Plan Electron
+acceptance passed, including back-to-approval, draft retention, defer/reopen and
+actual refinement submission. This follow-up is not in the package below.
+
+2026-10-12 execution-status follow-up: successful native Plan approval adds an
+inline approval note, an active execution pulse and a hover-hidden settled footer.
+Each disclosure renders the approved Markdown snapshot, not a later file version.
+Ordinary new turns clear ownership; steered messages retain it. Failed/interrupted
+execution has separate labels. A normal execution-turn end is not independent
+verification that every Plan requirement was fulfilled.
+
+Typecheck/build and 331 Desktop tests passed. The package at
+`Desktop/release/plan-execution-status-20261012` passed Plan and general Electron
+acceptance with isolated profiles and a deterministic provider. Coverage includes
+single approval-note rendering, snapshot immutability, running light/dark/narrow
+layouts, disclosure bounds, hover-hidden footer, next-turn isolation and the prior
+stale-snapshot/expiry/fresh-review regressions. The ordinary desktop shortcut
+targets this build without interrupting the running application. Installer SHA256:
+`7055f155acae790dbde3aa384e512eb9166bca6d91c6a2ba4dafdd9f656198dc`.
+No new paid-model acceptance, installer lifecycle test or PR is claimed. Fourteen
+release directories total approximately 9.5 GiB; they were inventoried, not deleted.
+
+2026-10-12 review-loss follow-up: the real notes session ended review after exactly
+120 seconds. The previous motion package contained a stale two-minute compiled
+runtime even though source advertised four minutes. Staging now recompiles the
+coding agent before bundling; source hashes are not treated as compiled provenance.
+Expiry/cancellation wording no longer falsely attributes expiry to the user.
+
+A deterministic delayed pre-request snapshot reproduces drawer disappearance in
+the previous packaged renderer (`--legacy-repro` fails the drawer-preservation
+assertion). UI request/expiry events now advance the renderer revision watermark.
+This confirms the race exists, not that it uniquely explains the user's incident.
+Ended reviews retain a history-derived reentry while Plan remains enabled. A click
+sends a visible request to resubmit the current proposal, requiring new runtime
+approval rather than reviving expired authorization.
+
+Typecheck/build, 327 Desktop tests, 80 upstream Plan-extension tests, general
+Electron and permission-drawer acceptance passed. Real-runtime Plan acceptance
+with the user's complete Chinese proposal and acknowledged Full Access passed:
+delayed snapshots, approval/refinement, ordinary follow-up reentry, reload/restart,
+changed-proposal rejection and accelerated main-process expiry. This is isolated
+deterministic-provider evidence, not a new paid-model acceptance.
+
+The replacement `Desktop/release/plan-review-recovery-20261012` passed packaged
+Plan acceptance (complete Chinese proposal plus acknowledged Full Access) and
+general Electron acceptance. All staged bundle chunks, entry, native Plan
+implementation, manifest, Node and Desktop helpers match the package. Installer
+SHA256: `433c4f16e540cfe79a2de829a38727c803ebca585d1ff13f0105776cca03eaab`.
+The ordinary desktop shortcut now targets this replacement; the running user
+application was preserved. No paid-model retest, installer execution or PR.
+
+Motion/coverage follow-up: dragging now changes the drawer height continuously,
+then settles to the chosen size with the existing approval easing. The review
+entry reuses permission-review flow/breathing animations. The drawer covers the
+composer and runtime metrics through its exit animation; feedback focus retains
+the normal border without an accent outline or shadow. Typecheck, build and Plan
+Electron acceptance passed, including continuous drag, animated entry, full
+underlay coverage and feedback focus-style assertions. This source follow-up
+is packaged in `plan-drawer-motion-20261012`. Packaged Plan and general Electron
+acceptance passed, and runtime file hashes match staging. The ordinary desktop
+shortcut points to this build. Installer SHA256:
+`a8e304ead8b1063055d43f887ec65b661b9a0c14f344e590ce4f5a9ee7da007b`.
+
+Drawer follow-up: source typecheck/build, all 96 upstream Plan/review tests,
+Plan Electron acceptance and existing permission-approval Electron acceptance
+passed. The Plan fixture verifies non-modal composer anchoring, rendered Markdown,
+two sizes, defer/reopen without runtime continuation, narrow bounds and the prior
+approval/refinement/cancellation/restart boundaries. Review/feedback waits are
+four minutes each in source; the compiled-package freshness issue above was found
+later. The follow-up package `Desktop/release/plan-drawer-20261012`
+passed packaged Plan and general Electron acceptance. Packaged runtime hashes
+match staging. The ordinary desktop shortcut points to its unpacked executable.
+Installer SHA256: `10f6734d5cb4a50f49ee3689a57ae7d735bd62dc33b374a1e73fc3b5ada2ab67`.
+
+Plan remains on the `7d86143586f7b5d0458ffd5e4b90642d7c22459b` baseline.
+The guarded Desktop integration patch enables model-visible, ephemeral Plan
+context on every model call and a blocking main-worker RPC review. Ordinary RPC
+children do not receive the opt-in flag. Proposal approval is checked against
+the current history leaf, path and full contents before editing tools are restored.
+Commands retain upstream permissions; Plan is not a read-only sandbox.
+
+Local validation: Desktop typecheck/build and 325 serial tests passed. The pinned
+runtime's Plan/review tests passed 96/96, including pending approval, cancellation,
+changed proposals, changed history, abort and refinement feedback. Electron Plan
+acceptance uses the real runtime with a deterministic local SSE model: an ordinary
+file write is blocked during Plan; the proposal can be written; review prevents
+model continuation until approved; approval resumes execution; refinement returns
+feedback; cancellation terminates without repeated review. Stale responses and
+changed-file approvals are rejected. Renderer reload and application restart
+retain Plan without restoring an approval, and the resumed request receives Plan
+context. Dark/light/narrow captures are in `Desktop/test-results/plan-review-*.png`.
+
+Existing launch modes, permission tiers and general Electron acceptance passed.
+Upstream child environment and chain-result tests passed; the broader workflow
+runtime suite had one Windows EPERM failure creating a symlink (31/32 combined
+tests passed), which was not bypassed. The guarded patch was reconstructed from
+clean pinned sources and matched the prepared Plan files after LF normalization.
+
+This is local deterministic acceptance, not a paid-model, cloud CI or installer
+acceptance claim. No public PR was created.
+
+The local preview `Desktop/release/plan-review-20261012` contains the Plan
+integration and the PR #99 permission-cancellation fix. Packaged Plan Electron
+acceptance passed, including application restart and review cancellation. Runtime
+manifest, Node, Step bundle and management/session helpers match staging by SHA256.
+Installer SHA256: `41f1fc8cbfa3b5eacedd7ccc54d5205f198f6ef2b356614ef2330b6b32c1df8f`.
+
 ## Permission Tiers
 
 The PR #99 P2 follow-up reproduces an error banner after deliberately cancelling Full Access. The main process now distinguishes explicit native cancel-option/Escape responses from expiry or an unexpected activation failure. Cancellation returns a separate IPC result; draft first-send restores its input, quotes and attachments and stops without calling the model or reporting an error. Other activation failures remain errors. Unit coverage distinguishes grants, cancellation, unrelated dialogs, expiry and late responses; actual RPC/Electron acceptance checks draft cancellation, both existing-session cancel paths, unchanged permissions, preserved input and no error banner. Typecheck, build, all 324 serial tests, permission-tier and new-session acceptance passed locally. This source-only follow-up does not update the prior installer or shortcut; the original head's cloud CI passed, and the replacement head requires its own CI result.

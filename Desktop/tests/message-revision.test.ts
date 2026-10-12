@@ -42,3 +42,12 @@ test('unversioned fixture events remain supported without lowering the watermark
   assert.equal(revision.acceptSnapshot({ runtimeId: 'a' }), true);
   assert.equal(revision.acceptSnapshot({ runtimeId: 'a', runtimeRevision: 9 }), false);
 });
+
+test('UI request arrival and expiry reject snapshots from before that transition', () => {
+  const revision = new MessageRevision();
+  revision.acceptSnapshot({ runtimeId: 'a', runtimeRevision: 10 });
+  assert.equal(revision.acceptEvent({ type: 'extension_ui_request', runtimeId: 'a', runtimeRevision: 11 }), true);
+  assert.equal(revision.acceptSnapshot({ runtimeId: 'a', runtimeRevision: 10 }), false);
+  assert.equal(revision.acceptEvent({ type: 'desktop_ui_expired', runtimeId: 'a', runtimeRevision: 12 }), true);
+  assert.equal(revision.acceptSnapshot({ runtimeId: 'a', runtimeRevision: 11 }), false);
+});

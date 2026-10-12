@@ -200,7 +200,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (modelChanged) publishModelSelection(queueWorker!);
   // Deliver the authoritative message before publishing the newer queue revision.
   if (consumed) pendingMessages.publish(queueWorker!);
-  if (queueWorker && event.type === 'agent_end') pendingMessages.completed(queueWorker);
+  if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
   event: (worker, event) => conversationTiming.event(worker, event),
   messages: async (worker, messages) => {

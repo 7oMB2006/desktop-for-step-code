@@ -1,5 +1,23 @@
 # Verification
 
+## PR #101 Queue and CI Follow-Up
+
+The P1 review fix routes `auto_clm_end` and `auto_compaction_end`, as well as
+`agent_end`, through the existing pending-message completion path. Maintenance
+ends after the busy flag is cleared, allowing blocked follow-ups to drain without
+an unrelated user action. Existing pause, failure, interruption, reservation and
+receipt guards remain in place. Transport-driven regression tests exercise both
+blocked completion attempts, maintenance completion, duplicate events and
+explicitly paused queues.
+
+The Windows CI failure at the concurrent-session fixture's dialog-count assertion
+is addressed by awaiting the destination composer draft and the outgoing approval
+drawer's removal before asserting zero dialogs. The assertions still require a
+background request to remain invisible and reappear when its owning session opens.
+Source typecheck/build, all 336 tests, two consecutive concurrency acceptances
+and send-queue acceptance passed locally. This follow-up is not in the preview
+installer above; cloud CI must validate the replacement commit independently.
+
 ## Step-Code v0.1.4 baseline integration
 
 2026-10-12 source upgrade from merged PR #100 (`af40f5b`): the runtime is

@@ -4,8 +4,76 @@ import { PendingMessages } from '../electron/pending-messages';
 import type { SessionRuntime } from '../electron/session-runtimes';
 import { MessageRevision } from '../src/message-revision';
 import { applyMessageEvent } from '../src/message-events';
+import { SessionRuntimes, type WorkerTransport } from '../electron/session-runtimes';
+import type { RuntimeEvent } from '../src/contracts';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
+for (const maintenance of ['auto_clm', 'auto_compaction']) {
+  test(`${maintenance} completion resumes queued prompts once after agent completion was blocked`, async () => {
+    let receive!: (event: RuntimeEvent) => void;
+    const requests: string[] = [];
+    let finish!: () => void;
+    const queue = new PendingMessages(() => {}, (_worker, error) => assert.fail(String(error)));
+    const pool = new SessionRuntimes(event => {
+      const worker = pool.workers.get(event.runtimeId);
+      if (worker) queue.runtimeEvent(worker, event);
+    }, callback => {
+      receive = callback;
+      return {
+        start() {},
+        stop: async () => {},
+        respond() {},
+        request: async (type, args) => {
+          if (type === 'get_state') return { sessionId: 'maintenance-session', isStreaming: false };
+          if (type === 'get_messages') return { messages: [] };
+          if (type === 'get_available_models') return { models: [] };
+          if (type === 'prompt') {
+            requests.push(String(args?.message));
+            await new Promise<void>(resolve => { finish = resolve; });
+          }
+          return {};
+        },
+      } satisfies WorkerTransport;
+    });
+    const worker = await pool.open('node', 'step', 'workspace', {});
+    try {
+      receive({ type: 'agent_start' });
+      queue.enqueue(worker, 'next turn', { message: 'next turn' });
+      receive({ type: `${maintenance}_start` });
+      receive({ type: 'agent_end' });
+      await tick();
+      await queue.drain(worker);
+      assert.deepEqual(requests, [], 'Both end-of-turn drain attempts must remain blocked during maintenance');
+      assert.equal(worker.state?.isCompacting, true);
+      assert.equal(queue.list(worker).length, 1);
+      receive({ type: `${maintenance}_end` });
+      await tick();
+      assert.equal(worker.state?.isCompacting, false);
+      assert.deepEqual(requests, ['next turn'], 'Maintenance completion retries the queue without another user action');
+      receive({ type: `${maintenance}_end` });
+      await tick();
+      assert.deepEqual(requests, ['next turn'], 'Duplicate completion cannot dispatch the receipt twice');
+      queue.delivered(worker, 'next turn');
+      finish();
+      await tick();
+      assert.equal(queue.list(worker).length, 0);
+    } finally {
+      finish?.();
+      await pool.stopAll();
+    }
+  });
+  test(`${maintenance} completion never resumes a user-paused queue`, async () => {
+    const { worker, queue, requests } = fixture();
+    queue.enqueue(worker, 'paused', { message: 'paused' });
+    worker.busy = false;
+    worker.state = { isStreaming: false, isCompacting: false };
+    queue.pause(worker);
+    queue.runtimeEvent(worker, { type: `${maintenance}_end` });
+    await tick();
+    assert.deepEqual(requests, []);
+    assert.equal(queue.list(worker).length, 1);
+  });
+}
 test('queued new tasks prepare configuration before dispatch, while active steering skips preparation', async () => {
   const { worker } = fixture();
   const calls: string[] = [];

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Message, PendingMessage } from '../src/contracts';
+import type { Message, PendingMessage, RuntimeEvent } from '../src/contracts';
 import type { SessionRuntime } from './session-runtimes';
 import { isUltracodeInput, ultracodeInput } from '../src/ultracode-input';
 
@@ -93,6 +93,9 @@ export class PendingMessages {
     if (worker.failed || worker.interrupted || ['error', 'aborted', 'length'].includes(worker.messages?.at(-1)?.stopReason ?? '') || worker.status !== 'connected') { this.pause(worker); return; }
     // Let the original prompt's RPC settlement finish before starting another run.
     setTimeout(() => void this.drain(worker), 0).unref();
+  }
+  runtimeEvent(worker: SessionRuntime, event: RuntimeEvent) {
+    if (['agent_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
   }
   resumed(worker: SessionRuntime) { this.paused.delete(worker); }
   async drain(worker: SessionRuntime) {

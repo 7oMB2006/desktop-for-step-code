@@ -197,6 +197,8 @@ try {
   await approval.getByRole('button', { name: '稍后处理', exact: true }).click();
   await page.getByText('此会话有待确认的操作', { exact: true }).waitFor();
   await page.locator('.session-row').filter({ hasText: 'RUN-B' }).locator('button').first().click();
+  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === 'Idle draft B');
+  await approval.waitFor({ state: 'hidden' });
   assert.equal(await page.getByRole('dialog').count(), 0);
   await page.locator('.session-row').filter({ hasText: 'RUN-A' }).locator('button').first().click();
   await approval.waitFor();

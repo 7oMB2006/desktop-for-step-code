@@ -147,14 +147,21 @@ try {
   await page.waitForTimeout(250);
   finishNext = true;
   await page.getByRole('button', { name: '恢复目标', exact: true }).click();
-  await page.waitForFunction(async () => {
-    const snapshot = await window.desktop.snapshot();
-    return snapshot.requests?.length || snapshot.launch.goal.status === 'complete';
-  }, undefined, { timeout: 60000 });
-  const approval = await page.evaluate(() => window.desktop.snapshot());
-  if (approval.requests?.length) {
-    assert.match(approval.requests[0].message ?? approval.requests[0].title ?? '', /update_goal/);
-    await page.getByRole('button', { name: '批准本次操作', exact: true }).click();
+  // Poll IPC in the test process: browser polling can treat its Promise as truthy.
+  let approval;
+  const approvalDeadline = Date.now() + 60000;
+  while (!approval && Date.now() < approvalDeadline) {
+    const snapshot = await page.evaluate(() => window.desktop.snapshot());
+    approval = snapshot.requests?.find(request => request.method === 'confirm' && /update_goal/.test(request.title ?? '') && request.message?.includes('Call: finish-goal'));
+    if (!approval) await page.waitForTimeout(100);
+  }
+  assert.ok(approval, 'The specific Goal completion approval must arrive');
+  assert.match(approval.message, /Call: finish-goal/);
+  await page.getByRole('button', { name: '批准本次操作', exact: true }).click();
+  const removalDeadline = Date.now() + 15000;
+  while ((await page.evaluate(() => window.desktop.snapshot())).requests?.some(request => request.id === approval.id)) {
+    assert.ok(Date.now() < removalDeadline, 'The clicked approval must be consumed');
+    await page.waitForTimeout(100);
   }
   await page.waitForFunction(() => document.querySelector('.launch-status-pulse')?.getAttribute('data-goal-state') === 'complete', undefined, { timeout: 60000 });
   snapshot = await page.evaluate(() => window.desktop.snapshot());
@@ -259,6 +266,8 @@ try {
   await page.screenshot({ path: 'test-results/launch-ultracode-pulse-dark.png' });
   await page.evaluate(() => window.desktop.command('abort'));
   await page.waitForFunction(() => !document.querySelector('.working .launch-status-pulse'));
+  const remindersBeforeOrdinary = (await page.evaluate(() => window.desktop.snapshot())).messages
+    .filter(message => ['ultraloop-opt-in', 'ultraloop-discovery'].includes(message.customType)).length;
   plainNext = true;
   await input.fill('下一条普通任务。');
   await input.press('Enter');
@@ -269,7 +278,8 @@ try {
   snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(snapshot.launch.ultracode, false);
   assert.equal(snapshot.launch.ultracodeArmed, false);
-  assert.equal(snapshot.messages.filter(message => ['ultraloop-opt-in', 'ultraloop-discovery'].includes(message.customType)).at(-1).customType, 'ultraloop-discovery');
+  assert.equal(snapshot.messages.filter(message => ['ultraloop-opt-in', 'ultraloop-discovery'].includes(message.customType)).length,
+    remindersBeforeOrdinary, 'Ordinary next turn neither repeats discovery guidance nor adds orchestration consent');
   await input.fill('先执行普通任务，等待插队。');
   await input.press('Enter');
   await page.waitForFunction(async () => (await window.desktop.snapshot()).state.isStreaming);
@@ -347,6 +357,7 @@ try {
       return {
         launch: snapshot.launch,
         state: snapshot.state,
+        requests: snapshot.requests,
         messages: snapshot.messages,
         statuses: [...document.querySelectorAll('.launch-status-pulse')].map(node => ({
           text: node.textContent, goalState: node.getAttribute('data-goal-state'),

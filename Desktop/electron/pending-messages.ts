@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { Message, PendingMessage } from '../src/contracts';
+import type { Message, PendingMessage, RuntimeEvent } from '../src/contracts';
 import type { SessionRuntime } from './session-runtimes';
 import { isUltracodeInput, ultracodeInput } from '../src/ultracode-input';
 
 interface Entry extends PendingMessage { payload: Record<string, unknown>; files: string[]; bytes: number }
+export function promptNeedsQueue(worker: Pick<SessionRuntime, 'busy' | 'submissions' | 'state'>) {
+  return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting);
+}
 // Undelivered drafts remain editable here; once dispatched, Step owns execution.
 export class PendingMessages {
   private entries = new Map<SessionRuntime, Entry[]>();
@@ -85,7 +88,7 @@ export class PendingMessages {
   clear(worker: SessionRuntime) { this.entries.delete(worker); this.paused.delete(worker); worker.queued = false; }
   async steer(worker: SessionRuntime, id: string, version: number) {
     const entry = this.require(worker, id, version);
-    if (worker.mutating || worker.stopping || worker.status !== 'connected') throw new Error('This session cannot send right now');
+    if (worker.mutating || worker.stopping || worker.state?.isCompacting || worker.status !== 'connected') throw new Error('This session cannot send right now');
     this.resumed(worker);
     return this.dispatch(worker, entry, true);
   }
@@ -93,6 +96,9 @@ export class PendingMessages {
     if (worker.failed || worker.interrupted || ['error', 'aborted', 'length'].includes(worker.messages?.at(-1)?.stopReason ?? '') || worker.status !== 'connected') { this.pause(worker); return; }
     // Let the original prompt's RPC settlement finish before starting another run.
     setTimeout(() => void this.drain(worker), 0).unref();
+  }
+  runtimeEvent(worker: SessionRuntime, event: RuntimeEvent) {
+    if (['agent_end', 'compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
   }
   resumed(worker: SessionRuntime) { this.paused.delete(worker); }
   async drain(worker: SessionRuntime) {

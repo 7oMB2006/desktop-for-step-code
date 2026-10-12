@@ -367,7 +367,8 @@ function App() {
   const t = (cn: string, en: string) => zh ? cn : en;
   const connected = data.status === 'connected' || data.status === 'ready';
   const anyBusy = data.runtimes?.some(runtime => runtime.status === 'running' || runtime.status === 'waiting') ?? busy;
-  const action = composerAction(busy, draft, attachments.length + quotes.length);
+  const composerBusy = busy || Boolean(data.state?.isCompacting);
+  const action = composerAction(composerBusy, draft, attachments.length + quotes.length);
   const current = data.sessions.find(s => s.id === data.state?.sessionId);
   const queuedMessages = useMemo(() => data.pendingMessages?.filter(item => !item.sending) ?? [], [data.pendingMessages]);
   const hasPendingReceipt = data.pendingMessages?.some(item => item.sending);
@@ -526,6 +527,8 @@ function App() {
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
       if (event.type === 'agent_start') setBusy(true);
+      if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
+        setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
       if (event.type === 'agent_end') { setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh); }
       if (event.type === 'desktop_exit') { setBusy(false); stoppingRef.current = false; setStopping(false); setRunMetrics(null); setNotice(null); setData(d => ({ ...d, status: 'disconnected', stats: undefined, permissionPreset: undefined })); setRequests([]); }
       if (event.type === 'desktop_permission') setData(d => ({ ...d, permissionPreset: event.preset }));
@@ -848,7 +851,7 @@ function App() {
           }
         }
         const submission = bridge!.command('prompt', { message: prompt, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
-        if (busy) queueSend.current = submission;
+        if (composerBusy) queueSend.current = submission;
         try { await submission; } finally { if (queueSend.current === submission) queueSend.current = null; }
       } catch (e) {
         if (restoreInput(e)) throw e;
@@ -1207,8 +1210,8 @@ function App() {
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
             <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
               settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
-            {busy && <div className="working">
-              {busy && <><span className="working-dot"/>{reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : t('正在阶跃', 'Working')}</span>}</>}
+            {(busy || data.state?.isCompacting) && <div className="working">
+              <><span className="working-dot"/>{reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : data.state?.isCompacting ? t('正在整理上下文', 'Organizing context') : t('正在阶跃', 'Working')}</span>}</>
               {taskStatusControls}
               {activePlanExecution && <PlanExecution key={lastConversationEntry?.type === 'response' ? lastConversationEntry.index : undefined}
                 plan={activePlanExecution.plan} state="running" language={data.preferences.language}/>}
@@ -1280,9 +1283,9 @@ function App() {
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
             <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
-            <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : busy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
+            <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
-              disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}
+              disabled={!connected || loading || (action.mode === 'stop' ? stopping || Boolean(data.state?.isCompacting) : !action.hasContent)}
               onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
         </div><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>

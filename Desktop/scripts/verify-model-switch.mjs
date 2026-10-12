@@ -104,7 +104,12 @@ try {
   await command('queue_steer_first');
   await command('prompt', { message: 'SECOND: a fresh queued task.' });
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  const proposal = await snapshot();
+  const draftDeadline = Date.now() + 30000;
+  let proposal = await snapshot();
+  while (!proposal.draftId && Date.now() < draftDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 25));
+    proposal = await snapshot();
+  }
   assert.ok(proposal.draftId); assert.equal(proposal.modelSelection, undefined);
   await page.locator('.session-row > button:first-child').filter({ hasText: 'FIRST:' }).click();
   await page.waitForFunction(() => document.querySelector('.model-effort-name')?.textContent === 'Step-3.5-Pro');
@@ -177,6 +182,15 @@ try {
   console.error(error);
   throw error;
 } finally {
-  finish(); await app.close();
-  server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
+  const cleanupTimeout = setTimeout(() => {
+    console.error('Model switch acceptance cleanup exceeded 15 seconds');
+    app.process()?.kill();
+    process.exit(1);
+  }, 15000);
+  try {
+    finish();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await app.close();
+  } finally { clearTimeout(cleanupTimeout); }
 }

@@ -2,6 +2,16 @@
 
 ## PR #101 Queue and CI Follow-Up
 
+The second P1 fix treats context maintenance as a queued-send condition in both
+the main-process prompt router and the composer. Maintenance beginning during
+asynchronous attachment validation is rechecked before dispatch. Steering is
+rejected while maintenance is active, preserving the queued receipt for later
+delivery. Empty input cannot issue an ineffective stop during maintenance.
+Focused queue tests, typecheck/build, maintenance presentation and real send-queue
+acceptance passed locally. The presentation fixture checks Queue message and the
+disabled stop state separately from the transport-driven queue lifecycle tests.
+This fix remains source-only pending its replacement cloud CI.
+
 The P1 review fix routes `auto_clm_end` and `auto_compaction_end`, as well as
 `agent_end`, through the existing pending-message completion path. Maintenance
 ends after the busy flag is cleared, allowing blocked follow-ups to drain without

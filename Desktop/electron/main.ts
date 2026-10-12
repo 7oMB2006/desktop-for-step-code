@@ -11,7 +11,7 @@ import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch
 import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
-import { PendingMessages } from './pending-messages';
+import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
@@ -975,7 +975,7 @@ async function handle(method: string, args: any[]) {
       if (worker.mutating && !['abort', 'extension_ui_response', 'get_commands', 'get_available_thinking_levels', 'get_session_stats'].includes(type)) throw new Error('Session operation in progress');
       const mutating = ['set_permission_preset', 'set_launch_mode', 'goal_action', 'disable_standing_ultracode', 'compact', 'queue_recover'].includes(type);
       if (mutating) worker.mutating = true;
-      const wasStreaming = worker.busy || worker.submissions > 0;
+      const wasStreaming = promptNeedsQueue(worker);
       if (type === 'prompt') worker.submissions++;
       try {
         const rpc = worker.rpc;
@@ -1083,7 +1083,7 @@ async function handle(method: string, args: any[]) {
             });
           }
           promptLaunch = { ...worker.launch ?? emptyLaunch() };
-          if (wasStreaming) {
+          if (wasStreaming || worker.state?.isCompacting) {
             if (worker.launch?.goalArmed) throw new Error('Finish the current task before starting a new goal');
             const id = pendingMessages.enqueue(worker, text(data.message), launchControls.input(worker, payload), filePaths);
             launchControls.consume(worker);

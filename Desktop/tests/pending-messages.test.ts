@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PendingMessages } from '../electron/pending-messages';
+import { PendingMessages, promptNeedsQueue } from '../electron/pending-messages';
 import type { SessionRuntime } from '../electron/session-runtimes';
 import { MessageRevision } from '../src/message-revision';
 import { applyMessageEvent } from '../src/message-events';
@@ -8,6 +8,22 @@ import { SessionRuntimes, type WorkerTransport } from '../electron/session-runti
 import type { RuntimeEvent } from '../src/contracts';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
+test('maintenance routes new prompts to the queue and refuses steering until it ends', async () => {
+  const { worker, queue, requests } = fixture();
+  worker.busy = false;
+  worker.state = { isStreaming: false, isCompacting: true };
+  assert.equal(promptNeedsQueue(worker), true);
+  const id = queue.enqueue(worker, 'during maintenance', { message: 'during maintenance' });
+  await assert.rejects(queue.steer(worker, id, 0), /cannot send/);
+  await queue.drain(worker);
+  assert.equal(requests.length, 0);
+  assert.equal(queue.list(worker)[0].sending, undefined);
+  worker.state.isCompacting = false;
+  assert.equal(promptNeedsQueue(worker), false);
+  queue.runtimeEvent(worker, { type: 'auto_clm_end' });
+  await tick();
+  assert.deepEqual(requests.map(request => request.args.message), ['during maintenance']);
+});
 for (const maintenance of ['auto_clm', 'auto_compaction']) {
   test(`${maintenance} completion resumes queued prompts once after agent completion was blocked`, async () => {
     let receive!: (event: RuntimeEvent) => void;

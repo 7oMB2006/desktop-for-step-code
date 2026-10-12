@@ -367,7 +367,8 @@ function App() {
   const t = (cn: string, en: string) => zh ? cn : en;
   const connected = data.status === 'connected' || data.status === 'ready';
   const anyBusy = data.runtimes?.some(runtime => runtime.status === 'running' || runtime.status === 'waiting') ?? busy;
-  const action = composerAction(busy, draft, attachments.length + quotes.length);
+  const composerBusy = busy || Boolean(data.state?.isCompacting);
+  const action = composerAction(composerBusy, draft, attachments.length + quotes.length);
   const current = data.sessions.find(s => s.id === data.state?.sessionId);
   const queuedMessages = useMemo(() => data.pendingMessages?.filter(item => !item.sending) ?? [], [data.pendingMessages]);
   const hasPendingReceipt = data.pendingMessages?.some(item => item.sending);
@@ -850,7 +851,7 @@ function App() {
           }
         }
         const submission = bridge!.command('prompt', { message: prompt, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
-        if (busy) queueSend.current = submission;
+        if (composerBusy) queueSend.current = submission;
         try { await submission; } finally { if (queueSend.current === submission) queueSend.current = null; }
       } catch (e) {
         if (restoreInput(e)) throw e;
@@ -1282,9 +1283,9 @@ function App() {
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
             <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
-            <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : busy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
+            <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
-              disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}
+              disabled={!connected || loading || (action.mode === 'stop' ? stopping || Boolean(data.state?.isCompacting) : !action.hasContent)}
               onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
         </div><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>

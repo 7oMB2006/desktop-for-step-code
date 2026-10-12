@@ -2,9 +2,9 @@
 
 Repository: https://github.com/stepfun-ai/Step-Code
 
-Pinned commit: `7d86143586f7b5d0458ffd5e4b90642d7c22459b` (upstream PR #235, three permission tiers).
+Pinned commit: `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` (v0.1.4 announcement baseline, including default CLM, Ultracode persistence and native Windows shell fixes).
 
-Permissions, risk acknowledgment, legacy migration and bounded model-error continuation remain upstream behavior. This baseline precedes the separate default-CLM change.
+Permissions, risk acknowledgment, legacy migration, bounded model-error continuation and default CLM remain upstream behavior. The existing integration patches apply unchanged; their source-content guards still match this baseline. This commit is a reproducible source baseline, not a GitHub release tag.
 
 The applier also installs `step-code-desktop-plan.patch`. Its explicit
 `--desktop-plan-review` flag is supplied only to Desktop main workers. It adds

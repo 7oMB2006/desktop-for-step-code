@@ -526,6 +526,8 @@ function App() {
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
       if (event.type === 'agent_start') setBusy(true);
+      if (['auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
+        setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
       if (event.type === 'agent_end') { setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh); }
       if (event.type === 'desktop_exit') { setBusy(false); stoppingRef.current = false; setStopping(false); setRunMetrics(null); setNotice(null); setData(d => ({ ...d, status: 'disconnected', stats: undefined, permissionPreset: undefined })); setRequests([]); }
       if (event.type === 'desktop_permission') setData(d => ({ ...d, permissionPreset: event.preset }));
@@ -1207,8 +1209,8 @@ function App() {
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
             <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
               settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
-            {busy && <div className="working">
-              {busy && <><span className="working-dot"/>{reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : t('正在阶跃', 'Working')}</span>}</>}
+            {(busy || data.state?.isCompacting) && <div className="working">
+              <><span className="working-dot"/>{reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : data.state?.isCompacting ? t('正在整理上下文', 'Organizing context') : t('正在阶跃', 'Working')}</span>}</>
               {taskStatusControls}
               {activePlanExecution && <PlanExecution key={lastConversationEntry?.type === 'response' ? lastConversationEntry.index : undefined}
                 plan={activePlanExecution.plan} state="running" language={data.preferences.language}/>}

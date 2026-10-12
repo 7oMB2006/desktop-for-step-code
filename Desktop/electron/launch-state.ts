@@ -38,7 +38,12 @@ export function projectLaunch(entries: HistoryEntry[], leafId: string | null, se
   return next;
 }
 
-export function ultracodeNotification(event: { method?: string; message?: string }): boolean | undefined {
+export function ultracodeNotification(event: { method?: string; message?: string; statusKey?: string; statusText?: string }): boolean | undefined {
+  if (event.method === 'setStatus' && event.statusKey === 'ultracode') {
+    if (event.statusText === 'Ultracode on') return true;
+    if (event.statusText === undefined || event.statusText === '') return false;
+    return;
+  }
   if (event.method !== 'notify') return;
   if (/^Ultra(?:code|loop) is on for the session\./.test(event.message ?? '') || /^Ultra(?:code|loop) session mode: on\.$/.test(event.message ?? '')) return true;
   if (/^Ultra(?:code|loop) session mode is off\./.test(event.message ?? '') || /^Ultra(?:code|loop) session mode: off\.$/.test(event.message ?? '')) return false;

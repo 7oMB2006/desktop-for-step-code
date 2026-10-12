@@ -78,11 +78,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code line endings' }
           git -C $upstream remote add origin https://github.com/stepfun-ai/Step-Code.git
           if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code remote' }
-          git -C $upstream fetch --depth 1 --no-tags origin 7d86143586f7b5d0458ffd5e4b90642d7c22459b
+          git -C $upstream fetch --depth 1 --no-tags origin 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
           if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned Step Code revision' }
           git -C $upstream checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Unable to check out pinned Step Code revision' }
-          if ((git -C $upstream rev-parse HEAD).Trim() -ne '7d86143586f7b5d0458ffd5e4b90642d7c22459b') {
+          if ((git -C $upstream rev-parse HEAD).Trim() -ne '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8') {
             throw 'Unexpected Step Code revision'
           }
 
@@ -118,6 +118,18 @@ jobs:
         run: |
           corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream Plan integration tests failed' }
+
+      - name: Upstream Windows shell and Ultracode tests
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/shell-discovery.test.ts test/resolve-config-value.test.ts test/workflow-ultraloop-opt-in.test.ts test/suite/ultracode-discovery.test.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream Windows shell and Ultracode tests failed' }
+
+      - name: Upstream automatic CLM tests
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream automatic CLM tests failed' }
 
       - name: Runtime staging
         working-directory: Desktop
@@ -166,6 +178,12 @@ jobs:
         run: |
           node scripts/verify-plan-review.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Plan review acceptance failed' }
+
+      - name: Ultracode session restore acceptance
+        working-directory: Desktop
+        run: |
+          node scripts/verify-ultracode-restore.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Ultracode session restore acceptance failed' }
 
       - name: App update acceptance
         working-directory: Desktop

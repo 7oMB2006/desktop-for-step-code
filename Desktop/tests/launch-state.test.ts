@@ -58,6 +58,11 @@ test('Ultracode notifications are exact runtime confirmations, not free-form pro
   assert.equal(ultracodeNotification({ method: 'notify', message: 'Ultracode session mode: off.' }), false);
   assert.equal(ultracodeNotification({ method: 'notify', message: 'Agent says Ultracode session mode: on.' }), undefined);
   assert.equal(ultracodeNotification({ method: 'setStatus', message: 'Ultracode session mode: on.' }), undefined);
+  assert.equal(ultracodeNotification({ method: 'setStatus', statusKey: 'ultracode', statusText: 'Ultracode on' }), true);
+  assert.equal(ultracodeNotification({ method: 'setStatus', statusKey: 'ultracode' }), false);
+  assert.equal(ultracodeNotification({ method: 'setStatus', statusKey: 'ultracode', statusText: '' }), false);
+  assert.equal(ultracodeNotification({ method: 'setStatus', statusKey: 'ultracode', statusText: 'unknown' }), undefined);
+  assert.equal(ultracodeNotification({ method: 'setStatus', statusKey: 'other', statusText: 'Ultracode on' }), undefined);
 });
 test('Goal input is a visible user entry, while continuation reminders remain hidden', () => {
   const entries = conversationEntries([

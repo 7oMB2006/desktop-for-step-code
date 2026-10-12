@@ -72,7 +72,7 @@ Run these commands in PowerShell from the repository root:
 
 ```powershell
 git clone https://github.com/stepfun-ai/Step-Code.git Step-Code
-git -C Step-Code checkout 7d86143586f7b5d0458ffd5e4b90642d7c22459b
+git -C Step-Code checkout 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
 node scripts/apply-step-code-desktop-patch.mjs ..\Step-Code patches\step-code-desktop.patch
 
 Push-Location Step-Code

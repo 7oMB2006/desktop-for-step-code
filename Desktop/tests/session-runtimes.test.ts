@@ -33,6 +33,24 @@ function fixture() {
   return { pool, transports, events, open };
 }
 
+test('native Ultracode restore and CLM maintenance update worker state without granting one-turn consent', async () => {
+  const { pool, transports, open } = fixture();
+  const worker = await open();
+  try {
+    transports[0].receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'ultracode', statusText: 'Ultracode on' });
+    assert.equal(worker.launch?.ultracode, true);
+    assert.equal(Boolean(worker.launch?.ultracodeTurn), false);
+    transports[0].receive({ type: 'auto_clm_start', reason: 'native-threshold' });
+    assert.equal(worker.state?.isCompacting, true);
+    assert.equal(pool.isBusy(worker), true);
+    await assert.rejects(pool.refresh(worker, 'node', 'step', {}));
+    transports[0].receive({ type: 'auto_clm_end', result: { attempted: true, accepted: false, fallback: true } });
+    assert.equal(worker.state?.isCompacting, false);
+    transports[0].receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'ultracode' });
+    assert.equal(worker.launch?.ultracode, false);
+  } finally { await pool.stopAll(); }
+});
+
 test('idle configuration refresh preserves runtime identity and ignores the retired transport', async () => {
   const transports: Transport[] = [];
   const pool = new SessionRuntimes(() => {}, receive => {

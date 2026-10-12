@@ -1,5 +1,59 @@
 # Verification
 
+## Step-Code v0.1.4 baseline integration
+
+2026-10-12 source upgrade from merged PR #100 (`af40f5b`): the runtime is
+pinned to upstream commit `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`.
+This is a commit baseline containing the announced v0.1.4 changes, not a
+verified upstream release tag. Both Desktop patch files apply unchanged;
+existing source and patched-source hash guards still pass. Frozen dependency
+installation, upstream build and runtime staging passed with Node v24.15.0.
+The optional `cpu-features` native build failed locally without preventing
+installation or the runtime build.
+
+Desktop now consumes native Ultracode standing-status notifications, including
+restoration after runtime restart, and automatic CLM maintenance events. CLM
+uses the existing compaction busy guard and a visible context-maintenance pulse;
+it does not enable orchestration or mark old conversations as new model output.
+The launch fixture checks that ordinary follow-up turns do not repeat capability
+guidance or inherit single-turn orchestration consent. Goal completion approval
+waits for the specific fixture request and verifies its removal after a real
+approval-button click, avoiding an early exit on a transient completion snapshot.
+
+Source typecheck/build and all 332 Desktop tests passed. General Electron,
+permission tiers, real chain/workflow runtime, session concurrency, Plan review,
+Goal/launch and Ultracode restart acceptance passed using isolated profiles and
+local deterministic providers. A separate injected-event presentation check
+verifies that CLM maintenance appears while the model is not streaming and clears
+on completion; actual CLM lifecycle behavior is covered by upstream tests.
+CI policy tests passed, and full Windows CI includes Plan, shell, Ultracode,
+focused automatic CLM suites and the restart acceptance with independent exits.
+
+The focused nine upstream files passed 185 tests. Broader exploratory upstream
+runs were not fully green: one 19-file run passed 492 and failed five; an
+additional six-file CLM run passed 59, failed one and skipped one. The six
+failures comprise two Windows escaped-path guidance assertions, three symlink
+permission cases and one Git quoted-path assertion. These failures have not
+been hidden or fixed by weakening upstream tests. They remain limitations of
+this host's broader upstream validation.
+
+This upgrade does not establish paid-model CLM behavior across every combination
+of Plan, Goal, steering and branching, installer lifecycle acceptance or release
+readiness. Initial source verification did not package or publish the upgrade.
+Existing application processes, packages, the personal upstream
+checkout and the previous staged upstream build were preserved.
+
+2026-10-12 packaging follow-up: `Desktop/release/upstream-v014-preview/`
+contains a local `0.3.0` preview installer and unpacked application. Packaged
+general Electron, Goal/launch, Ultracode restart (including CLM presentation)
+and Plan review acceptance all passed with isolated profiles. Packaged manifest,
+Node, Step Code bundle, both Desktop helpers and terminal host match staged
+resources. The ordinary desktop shortcut now targets this preview with no demo
+arguments; running application processes were not stopped. Installer SHA-256 is
+`2d34a0121563d6bdfeee7d3a3c1c9b9afbc25819dafce1ae65ab40094f6e1af9`.
+The new directory totals about 715.73 MiB and was inventoried without deleting
+previous packages. This is not an installer execution or public release check.
+
 ## Desktop Plan integration
 
 2026-10-12 PR preparation: the final source passed typecheck/build, all 331

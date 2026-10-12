@@ -2,6 +2,16 @@
 
 ## PR #101 Queue and CI Follow-Up
 
+Local review identified that the pinned runtime emits `compaction_start/end`,
+not the legacy `auto_compaction_start/end` names. Desktop now handles the native
+events in worker busy-state projection, snapshot publication, queue completion
+and renderer maintenance presentation, while retaining legacy compatibility.
+Transport regressions cover native success, failure, cancellation and CLM
+fallback, including duplicate completion and paused-queue guards. All 342
+Desktop tests, typecheck, build and Ultracode restart/presentation acceptance
+passed locally; replacement
+cloud CI is required before treating this source follow-up as validated remotely.
+
 The second P1 fix treats context maintenance as a queued-send condition in both
 the main-process prompt router and the composer. Maintenance beginning during
 asynchronous attachment validation is rechecked before dispatch. Steering is

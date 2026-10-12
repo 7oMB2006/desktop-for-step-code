@@ -52,11 +52,11 @@ try {
   assert.equal(enabled.state.isStreaming, false);
   await page.reload();
   await page.locator('.messages .message').first().waitFor();
-  for (const type of ['auto_clm_start', 'auto_clm_end']) {
+  for (const type of ['auto_clm_start', 'auto_clm_end', 'compaction_start', 'compaction_end']) {
     await app.evaluate(({ BrowserWindow }, event) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', event), {
       type, runtimeId: enabled.runtimeId, sessionId: enabled.state.sessionId,
     });
-    if (type === 'auto_clm_start') {
+    if (type.endsWith('_start')) {
       await page.getByText('正在整理上下文', { exact: true }).waitFor();
       await page.getByRole('textbox', { name: '消息', exact: true }).fill('Next task after maintenance');
       await page.getByRole('button', { name: '加入队列', exact: true }).waitFor();

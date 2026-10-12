@@ -24,7 +24,7 @@ test('maintenance routes new prompts to the queue and refuses steering until it 
   await tick();
   assert.deepEqual(requests.map(request => request.args.message), ['during maintenance']);
 });
-for (const maintenance of ['auto_clm', 'auto_compaction']) {
+for (const maintenance of ['auto_clm', 'compaction', 'auto_compaction']) {
   test(`${maintenance} completion resumes queued prompts once after agent completion was blocked`, async () => {
     let receive!: (event: RuntimeEvent) => void;
     const requests: string[] = [];
@@ -62,6 +62,13 @@ for (const maintenance of ['auto_clm', 'auto_compaction']) {
       assert.deepEqual(requests, [], 'Both end-of-turn drain attempts must remain blocked during maintenance');
       assert.equal(worker.state?.isCompacting, true);
       assert.equal(queue.list(worker).length, 1);
+      if (maintenance === 'compaction') {
+        receive({ type: 'auto_clm_start' });
+        receive({ type: 'auto_clm_end', result: { attempted: true, accepted: false, fallback: true } });
+        receive({ type: 'compaction_start', reason: 'threshold' });
+        await tick();
+        assert.deepEqual(requests, [], 'CLM fallback must stay blocked until native compaction ends');
+      }
       receive({ type: `${maintenance}_end` });
       await tick();
       assert.equal(worker.state?.isCompacting, false);

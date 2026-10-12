@@ -98,7 +98,7 @@ export class PendingMessages {
     setTimeout(() => void this.drain(worker), 0).unref();
   }
   runtimeEvent(worker: SessionRuntime, event: RuntimeEvent) {
-    if (['agent_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
+    if (['agent_end', 'compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
   }
   resumed(worker: SessionRuntime) { this.paused.delete(worker); }
   async drain(worker: SessionRuntime) {

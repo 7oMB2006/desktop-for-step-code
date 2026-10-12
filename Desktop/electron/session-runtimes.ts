@@ -156,8 +156,8 @@ export class SessionRuntimes {
           this.publishLaunch(worker);
         }
       }
-      if (['auto_compaction_start', 'auto_clm_start'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: true };
-      if (['auto_compaction_end', 'auto_clm_end'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: false };
+      if (['compaction_start', 'auto_compaction_start', 'auto_clm_start'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: true };
+      if (['compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: false };
       if (event.type === 'agent_end') {
         const completedGeneration = runGeneration;
         const completed = worker.runActive && !worker.failed && !worker.interrupted && taskOutcome(worker.messages) === 'completed';
@@ -226,7 +226,7 @@ export class SessionRuntimes {
         || event.type === 'extension_ui_request' && (event.method === 'setStatus' && ['step-goal', 'plan-mode'].includes(event.statusKey)
           || event.method === 'notify' && /^(?:Goal|Plan mode|Ultraloop)/.test(event.message ?? ''))))
         void this.readLaunch(worker).catch(() => {});
-      if (['agent_start', 'agent_end', 'desktop_exit', 'extension_ui_request', 'auto_compaction_start', 'auto_compaction_end', 'auto_clm_start', 'auto_clm_end'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
+      if (['agent_start', 'agent_end', 'desktop_exit', 'extension_ui_request', 'compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_compaction_end', 'auto_clm_start', 'auto_clm_end'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
     });
     worker.rpc = transport;
     this.workers.set(worker.id, worker);

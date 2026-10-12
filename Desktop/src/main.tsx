@@ -527,7 +527,7 @@ function App() {
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
       if (event.type === 'agent_start') setBusy(true);
-      if (['auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
+      if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
       if (event.type === 'agent_end') { setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh); }
       if (event.type === 'desktop_exit') { setBusy(false); stoppingRef.current = false; setStopping(false); setRunMetrics(null); setNotice(null); setData(d => ({ ...d, status: 'disconnected', stats: undefined, permissionPreset: undefined })); setRequests([]); }

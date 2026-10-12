@@ -147,14 +147,22 @@ try {
   await page.waitForTimeout(250);
   finishNext = true;
   await page.getByRole('button', { name: '恢复目标', exact: true }).click();
-  await page.waitForFunction(async () => {
-    const snapshot = await window.desktop.snapshot();
-    return snapshot.requests?.some(request => request.method === 'confirm' && /update_goal/.test(request.title ?? '') && request.message?.includes('Call: finish-goal'));
-  }, undefined, { timeout: 60000 });
-  const approval = await page.evaluate(() => window.desktop.snapshot());
-  assert.match(approval.requests[0]?.message ?? '', /Call: finish-goal/);
+  // Poll IPC in the test process: browser polling can treat its Promise as truthy.
+  let approval;
+  const approvalDeadline = Date.now() + 60000;
+  while (!approval && Date.now() < approvalDeadline) {
+    const snapshot = await page.evaluate(() => window.desktop.snapshot());
+    approval = snapshot.requests?.find(request => request.method === 'confirm' && /update_goal/.test(request.title ?? '') && request.message?.includes('Call: finish-goal'));
+    if (!approval) await page.waitForTimeout(100);
+  }
+  assert.ok(approval, 'The specific Goal completion approval must arrive');
+  assert.match(approval.message, /Call: finish-goal/);
   await page.getByRole('button', { name: '批准本次操作', exact: true }).click();
-  await page.waitForFunction(async id => !(await window.desktop.snapshot()).requests?.some(request => request.id === id), approval.requests[0].id, { timeout: 15000 });
+  const removalDeadline = Date.now() + 15000;
+  while ((await page.evaluate(() => window.desktop.snapshot())).requests?.some(request => request.id === approval.id)) {
+    assert.ok(Date.now() < removalDeadline, 'The clicked approval must be consumed');
+    await page.waitForTimeout(100);
+  }
   await page.waitForFunction(() => document.querySelector('.launch-status-pulse')?.getAttribute('data-goal-state') === 'complete', undefined, { timeout: 60000 });
   snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(snapshot.launch.plan, false);

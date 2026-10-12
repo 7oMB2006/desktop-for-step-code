@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 const profile = await mkdtemp(join(tmpdir(), 'desktop-custom-providers-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
-await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
+await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
 const requests = [];
 const textOfMessage = message => typeof message.content === 'string' ? message.content
   : message.content?.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') ?? '';
@@ -259,7 +259,7 @@ try {
   await context.waitFor();
   assert.equal(await context.locator('[title="自定义模型尚未配置价格"] strong').textContent(), '--');
   await context.getByRole('button', { name: '关闭上下文', exact: true }).click();
-  await page.evaluate(runtimeId => window.desktop.command('set_permission_preset', { preset: 'read-only' }, runtimeId), state.runtimeId);
+  await page.evaluate(runtimeId => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, runtimeId), state.runtimeId);
   await settings();
   await page.getByLabel('名称', { exact: true }).fill('重新命名的供应商');
   expectedKey = '!literal$VALUE';
@@ -267,7 +267,7 @@ try {
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('已保存', { exact: true }).waitFor();
   assert.equal((await snapshot()).state.sessionId, sessionId);
-  assert.equal((await snapshot()).permissionPreset, 'read-only');
+  assert.equal((await snapshot()).permissionPreset, 'approve-for-me');
   await page.evaluate(async () => {
     await window.desktop.logout();
     if (!(await window.desktop.settings()).providers[0].hasKey) throw new Error('Step logout erased provider key');

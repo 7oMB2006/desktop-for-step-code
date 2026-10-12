@@ -172,9 +172,9 @@ try {
   assert.equal(await page.locator('.session-activity.interrupted').evaluate(dot => getComputedStyle(dot).animationName), 'none');
   assert.ok(stopped.has('RUN-B'));
   assert.ok(!stopped.has('RUN-A'));
-  await page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'read-only' }, id), b.runtimeId);
+  await page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, id), b.runtimeId);
   const scopedPermissions = await page.evaluate(() => window.desktop.snapshot());
-  assert.equal(scopedPermissions.permissionPreset, 'read-only');
+  assert.equal(scopedPermissions.permissionPreset, 'approve-for-me');
   assert.equal(scopedPermissions.runtimes.find(runtime => runtime.runtimeId === a.runtimeId).status, 'running');
   await page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'ask' }, id), b.runtimeId);
   await input.fill('Idle draft B');

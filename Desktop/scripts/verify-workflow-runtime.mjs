@@ -11,7 +11,7 @@ const workspace = join(profile, 'workspace');
 await mkdir(workspace, { recursive: true });
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [workspace] }));
-await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
+await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
 const text = message => typeof message.content === 'string' ? message.content
   : message.content?.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') ?? '';
 const requests = [];

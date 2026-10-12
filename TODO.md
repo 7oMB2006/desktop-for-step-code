@@ -4,7 +4,7 @@
 
 ## P0
 
-- [ ] [Step-Code PR #235](https://github.com/stepfun-ai/Step-Code/pull/235)：钉新上游并修改权限档位
+- [ ] [Step-Code PR #235](https://github.com/stepfun-ai/Step-Code/pull/235)：钉新上游并修改权限档位。三档权限、完全访问风险确认与旧配置迁移已实现，本地隔离验收通过；待用户体验确认及 PR 合并。
 - [ ] 指令集与附件界面优化
 - [ ] 指令集与链接在聊天栏优化
 - [ ] 5 模式映射：Goal

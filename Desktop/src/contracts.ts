@@ -8,7 +8,7 @@ export type ComposerAttachment = { kind: 'image'; name: string; content: Content
 export interface PendingMessage { id: string; message: string; attachmentCount: number; version: number; sending?: boolean; steered?: boolean }
 export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number; totalTokens?: number; cost?: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number } }
 export interface SessionStats { toolCalls: number; assistantMessages: number; userMessages?: number; toolResults?: number; totalMessages?: number; cost?: number; tokens: Usage & { total: number }; contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null } }
-export type PermissionPreset = 'ask' | 'read-only' | 'bypass' | 'autopilot';
+export type PermissionPreset = 'ask' | 'approve-for-me' | 'full-access';
 export interface ElapsedTiming { startedAt: number; endedAt?: number }
 export interface MessageTiming { run: ElapsedTiming; thinking: Record<string, ElapsedTiming> }
 export interface Message { role: string; content: string | Content[]; customType?: string; display?: boolean; timestamp?: number; desktopTiming?: MessageTiming; desktopSteered?: boolean; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string; entryId?: string; provider?: string; model?: string; errorMessage?: string; summary?: string; command?: string; output?: string; excludeFromContext?: boolean; details?: { patch?: string; diff?: string; results?: unknown[]; [key: string]: unknown } }

@@ -88,7 +88,7 @@ const server = createServer(async (request, response) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: [repo] }));
 await mkdir(join(profile, 'step-runtime', 'sessions'), { recursive: true });
-await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
+await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
 await writeFile(join(profile, 'step-runtime', 'models.json'), JSON.stringify({
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-test-only',
     models: [{ id: 'fixture', name: 'Review fixture', contextWindow: 32768, maxTokens: 2048 }] } },

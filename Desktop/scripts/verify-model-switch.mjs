@@ -30,7 +30,7 @@ const server = createServer(async (req, res) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "switch-fixture"\ndefaultModel = "model-a"\npermissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "switch-fixture"\ndefaultModel = "model-a"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { 'switch-fixture': {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-fixture',
   models: ['a', 'b'].map(id => ({ id: `model-${id}`, name: id === 'a' ? 'Step-3.5-Flash' : 'Step-3.5-Pro',

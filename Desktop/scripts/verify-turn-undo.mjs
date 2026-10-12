@@ -54,7 +54,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const profile = await mkdtemp(join(tmpdir(), 'step-undo-electron-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: [] }));
 await mkdir(join(profile, 'step-runtime', 'sessions'), { recursive: true });
-await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
+await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
 await writeFile(join(profile, 'step-runtime', 'models.json'), JSON.stringify({
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-test-only',
     models: [{ id: 'fixture', name: 'Undo fixture', contextWindow: 32768, maxTokens: 1024 }] } },
@@ -218,10 +218,9 @@ try {
     window.desktop.turnUndo(runtimeId, ['fixture-status-1', 'fixture-status-2'], 'undo', 'forged'), { runtimeId: next.runtimeId }), /expired/);
   await assert.rejects(page.evaluate(({ runtimeId }) =>
     window.desktop.turnUndo(runtimeId, ['unknown'], 'prepare'), { runtimeId: next.runtimeId }), /not found/);
-  await page.evaluate(({ runtimeId }) => window.desktop.command('set_permission_preset', { preset: 'read-only' }, runtimeId), { runtimeId: next.runtimeId });
   await assert.rejects(page.evaluate(({ runtimeId }) =>
-    window.desktop.turnUndo(runtimeId, ['fixture-status-1', 'fixture-status-2'], 'prepare'), { runtimeId: next.runtimeId }), /Read-only/);
-  await page.evaluate(({ runtimeId }) => window.desktop.command('set_permission_preset', { preset: 'bypass' }, runtimeId), { runtimeId: next.runtimeId });
+    window.desktop.command('set_permission_preset', { preset: 'read-only' }, runtimeId), { runtimeId: next.runtimeId }), /Unknown permission preset/);
+  await page.evaluate(({ runtimeId }) => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, runtimeId), { runtimeId: next.runtimeId });
   const peer = await page.evaluate(id => window.desktop.cloneSession(id), next.state.sessionId);
   await page.evaluate(id => window.desktop.switchSession(id), next.state.sessionId);
   await page.evaluate(({ runtimeId }) => { void window.desktop.command('prompt', { message: 'KEEP-BUSY' }, runtimeId).catch(() => {}); }, { runtimeId: peer.runtimeId });
@@ -254,5 +253,5 @@ try {
   await page.getByRole('dialog', { name: 'Undo recorded changes?', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.deepEqual(errors, []);
-  console.log('Turn undo passed: real RPC edits/live composer file list/agent_end capture, test-only fixture sessions, removed demo entry, exact button placement, confirmation/cancel/Escape/focus, conflict-before-write, repeated-edit restore, untouched conflicting file/history, persistent undo state, IPC identity/token/read-only rejection, same-workspace running-peer exclusion, light/dark/narrow/English. No paid model or real profile used.');
+  console.log('Turn undo passed: real RPC edits/live composer file list/agent_end capture, test-only fixture sessions, removed demo entry, exact button placement, confirmation/cancel/Escape/focus, conflict-before-write, repeated-edit restore, untouched conflicting file/history, persistent undo state, IPC identity/token/automatic-tier explicit approval, same-workspace running-peer exclusion, light/dark/narrow/English. No paid model or real profile used.');
 } finally { await app.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

@@ -642,8 +642,8 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .composer-tools { min-height: 40px; gap: 4px; padding: 3px 10px 9px; }
 .permission-picker { position: relative; flex-shrink: 0; }
 .permission-trigger { height: 29px; min-height: 29px; max-width: 160px; gap: 6px; padding: 3px 8px; border: 0; background: transparent; font-size: 12px; }
-.permission-trigger.permission-bypass, .permission-trigger.permission-autopilot { color: oklch(.49 .15 55); }
-:root[data-theme=dark] .permission-trigger.permission-bypass, :root[data-theme=dark] .permission-trigger.permission-autopilot { color: oklch(.78 .13 70); }
+.permission-trigger.permission-full-access { color: oklch(.49 .15 55); }
+:root[data-theme=dark] .permission-trigger.permission-full-access { color: oklch(.78 .13 70); }
 .permission-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .permission-trigger.permission-review {
   --review-flow: linear-gradient(110deg, transparent 38%, color-mix(in oklch, var(--primary) 14%, transparent) 50%, transparent 62%);
@@ -686,8 +686,11 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .permission-menu button { width: 100%; justify-content: flex-start; text-align: left; gap: 10px; min-width: 0; padding: 8px 9px; border: 0; background: transparent; }
 .permission-menu button[aria-checked="true"] { background: var(--surface); }
 .permission-menu button > svg:last-child:not(:first-child) { margin-left: auto; }
-.permission-option-bypass > svg:first-child, .permission-option-autopilot > svg:first-child { color: oklch(.49 .15 55); }
-:root[data-theme=dark] .permission-option-bypass > svg:first-child, :root[data-theme=dark] .permission-option-autopilot > svg:first-child { color: oklch(.78 .13 70); }
+.permission-option-full-access > svg:first-child { color: oklch(.49 .15 55); }
+:root[data-theme=dark] .permission-option-full-access > svg:first-child { color: oklch(.78 .13 70); }
+.full-access-risk-message { line-height: 1.65; }
+.full-access-risk-message > svg { float: left; margin: 3px 10px 2px 0; color: oklch(.49 .15 55); }
+:root[data-theme=dark] .full-access-risk-message > svg { color: oklch(.78 .13 70); }
 .permission-option { display: grid; gap: 3px; min-width: 0; flex: 1; }
 .permission-option strong { font-size: 12px; font-weight: 600; }
 .permission-option small { font-size: 11px; line-height: 1.35; white-space: normal; }

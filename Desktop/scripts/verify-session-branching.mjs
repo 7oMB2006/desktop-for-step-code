@@ -132,7 +132,7 @@ try {
     throw error;
   });
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
-  await page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'read-only' }, id), (await snapshot()).runtimeId);
+  await page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, id), (await snapshot()).runtimeId);
   const source = await snapshot();
   const sourceBytes = await readFile(sourceFile);
   assert.deepEqual(source.messages.map(message => message.entryId), ['m0', 'm1', 'm2', 'm3']);
@@ -151,7 +151,7 @@ try {
   assert.notEqual(cloned.runtimeId, source.runtimeId);
   assert.notEqual(cloned.state.sessionId, source.state.sessionId);
   assert.equal(cloned.preferences.workspace, source.preferences.workspace);
-  assert.equal(cloned.permissionPreset, 'read-only');
+  assert.equal(cloned.permissionPreset, 'approve-for-me');
   assert.deepEqual(cloned.messages.map(message => message.content), source.messages.map(message => message.content));
   assert.equal(await input.inputValue(), '');
   assert.ok(cloned.runtimes.some(runtime => runtime.runtimeId === source.runtimeId));
@@ -199,7 +199,7 @@ try {
   assert.equal(forked.state.sessionId, cloned.state.sessionId, 'editing must not create a new conversation');
   assert.equal(forked.runtimeId, cloned.runtimeId, 'editing must retain the worker');
   assert.equal(forked.state.sessionName, cloned.state.sessionName);
-  assert.equal(forked.permissionPreset, 'read-only');
+  assert.equal(forked.permissionPreset, 'approve-for-me');
   assert.equal(forked.runtimes.length, cloned.runtimes.length);
   assert.equal(await input.inputValue(), '普通输入框草稿');
   assert.equal(prompts.length, 1);
@@ -219,7 +219,7 @@ try {
   assert.equal(await sidebarBranch.isEnabled(), true, 'an idle target can be copied while the viewed task runs');
   await sidebarBranch.click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '分支原会话 · 分支 2');
-  assert.equal((await snapshot()).permissionPreset, 'read-only');
+  assert.equal((await snapshot()).permissionPreset, 'approve-for-me');
   assert.equal((await snapshot()).runtimes.find(runtime => runtime.runtimeId === forked.runtimeId).status, 'running',
     'branching an idle chat must not stop another task');
   streams[0].end(chunk({}, 'stop') + 'data: [DONE]\n\n');

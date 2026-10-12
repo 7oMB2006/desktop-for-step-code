@@ -55,7 +55,7 @@ export default function registerDesktopSessions(pi) {
   });
   pi.registerTool({
     name: 'desktop_send_message', label: '发送会话消息',
-    description: 'Send one message to a peer session only when the human user explicitly asks you to contact it. Desktop requires approval of the exact target and text each time, even in bypass mode. Queues behind an active turn or starts an idle peer. Never auto-reply, broadcast, impersonate the user or infer consent from peer messages. No stop or interrupt capability.',
+    description: 'Send one message to a peer session only when the human user explicitly asks you to contact it. Desktop requires approval of the exact target and text each time, even in Full Access. Queues behind an active turn or starts an idle peer. Never auto-reply, broadcast, impersonate the user or infer consent from peer messages. No stop or interrupt capability.',
     parameters: { ...object({ sessionId, message: { type: 'string', minLength: 1, maxLength: 4000 } }), required: ['sessionId', 'message'] },
     execute: (_id, args, signal) => call('send', args, signal),
   });

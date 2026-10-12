@@ -78,11 +78,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code line endings' }
           git -C $upstream remote add origin https://github.com/stepfun-ai/Step-Code.git
           if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code remote' }
-          git -C $upstream fetch --depth 1 --no-tags origin f7392089e67d80232b73c87f894dec8100c6c20a
+          git -C $upstream fetch --depth 1 --no-tags origin 7d86143586f7b5d0458ffd5e4b90642d7c22459b
           if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned Step Code revision' }
           git -C $upstream checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Unable to check out pinned Step Code revision' }
-          if ((git -C $upstream rev-parse HEAD).Trim() -ne 'f7392089e67d80232b73c87f894dec8100c6c20a') {
+          if ((git -C $upstream rev-parse HEAD).Trim() -ne '7d86143586f7b5d0458ffd5e4b90642d7c22459b') {
             throw 'Unexpected Step Code revision'
           }
 
@@ -184,6 +184,12 @@ jobs:
         run: |
           node scripts/verify-permission-approval.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Permission approval acceptance failed' }
+
+      - name: Permission tiers acceptance
+        working-directory: Desktop
+        run: |
+          node scripts/verify-permission-tiers.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Permission tiers acceptance failed' }
 
       - name: Conversation timing acceptance
         working-directory: Desktop

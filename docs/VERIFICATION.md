@@ -2,6 +2,14 @@
 
 ## PR #101 Queue and CI Follow-Up
 
+The `79d6f79` Windows run finished earlier checks in approximately ten minutes,
+then model-switch acceptance asserted before the new-session draft was ready.
+Its failure cleanup remained blocked until the next push cancelled the run.
+The fixture now polls IPC snapshots for draft readiness before the unchanged
+assertion, closes provider connections before Electron, and bounds cleanup to
+15 seconds. The CI step also has a five-minute limit. Model-switch acceptance
+passed locally and exited normally; full replacement cloud CI remains required.
+
 Local review identified that the pinned runtime emits `compaction_start/end`,
 not the legacy `auto_compaction_start/end` names. Desktop now handles the native
 events in worker busy-state projection, snapshot publication, queue completion

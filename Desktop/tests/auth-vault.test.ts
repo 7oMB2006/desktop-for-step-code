@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, readdir, writeFile, stat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AuthVault } from '../electron/auth-vault';
+import { AuthVault, CredentialStorageUnavailableError } from '../electron/auth-vault';
 
 // Plain node has no Electron safeStorage backend; a deterministic byte-wise
 // stand-in keeps the ciphertext free of any readable credential text. These
@@ -25,6 +25,94 @@ const vault = (root: string) => new AuthVault(root, safeStorageMock);
 
 const marker = 'fixture-only-vault-key';
 const credentials = { step: { type: 'oauth', access: marker, refresh: 'fixture', expires: Number.MAX_SAFE_INTEGER, profile: 'platform_cn' } };
+
+test('explicit Linux availability checks use only secure-backend readiness and leave files untouched', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auth-vault-readiness-'));
+  try {
+    const files = ['auth.dpapi', 'auth.json', 'legacy-auth.json'];
+    for (const file of files) await writeFile(join(root, file), 'not a credential store');
+    for (const backend of ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'] as const) {
+      const checked: string[] = [];
+      const vault = new AuthVault(root, {
+        isEncryptionAvailable: () => { checked.push('available'); return true; },
+        getSelectedStorageBackend: () => { checked.push('backend'); return backend; },
+        encryptString: () => { throw new Error('Readiness must not encrypt'); },
+        decryptString: () => { throw new Error('Readiness must not decrypt'); },
+      }, 'linux');
+      assert.equal(await vault.availability(), true);
+      assert.equal(await vault.assertAvailable(), undefined);
+      assert.deepEqual(checked, ['available', 'backend', 'available', 'backend']);
+    }
+    assert.deepEqual((await readdir(root)).sort(), files.sort());
+    for (const file of files) assert.equal(await readFile(join(root, file), 'utf8'), 'not a credential store');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('Linux availability rejects unavailable, basic_text, unknown and missing keyring backends', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auth-vault-readiness-unavailable-'));
+  try {
+    for (const [available, backend] of [[false, 'gnome_libsecret'], [true, 'basic_text'],
+      [true, 'unknown'], [true, undefined]] as const) {
+      const vault = new AuthVault(root, {
+        isEncryptionAvailable: () => available,
+        getSelectedStorageBackend: backend === undefined ? undefined : () => backend,
+        encryptString: () => { throw new Error('Readiness must not encrypt'); },
+        decryptString: () => { throw new Error('Readiness must not decrypt'); },
+      }, 'linux');
+      assert.equal(await vault.availability(), false);
+      await assert.rejects(vault.assertAvailable(), CredentialStorageUnavailableError);
+    }
+    assert.deepEqual(await readdir(root), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('availability errors fail closed while assertAvailable preserves the underlying unexpected error', async () => {
+  const failure = new Error('Native backend readiness failed');
+  const vault = new AuthVault('unused-readiness-root', {
+    ...safeStorageMock,
+    isEncryptionAvailable: () => { throw failure; },
+  }, 'linux');
+  assert.equal(await vault.availability(), false);
+  await assert.rejects(vault.assertAvailable(), error => error === failure);
+});
+
+test('a successful availability result is not cached by assertAvailable or save', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auth-vault-readiness-race-'));
+  try {
+    let available = true;
+    let encryptions = 0;
+    const vault = new AuthVault(root, {
+      ...safeStorageMock,
+      isEncryptionAvailable: () => available,
+      encryptString: plain => { encryptions++; return safeStorageMock.encryptString(plain); },
+    }, 'linux');
+    assert.equal(await vault.availability(), true);
+    available = false;
+    await assert.rejects(vault.assertAvailable(), CredentialStorageUnavailableError);
+    await assert.rejects(vault.save(credentials), CredentialStorageUnavailableError);
+    assert.equal(await vault.availability(), false);
+    assert.equal(encryptions, 0);
+    assert.deepEqual(await readdir(root), []);
+    available = true;
+    assert.equal(await vault.availability(), true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('Windows readiness retains the encryption-availability rule without querying Linux backends', async () => {
+  let available = true;
+  const vault = new AuthVault('unused-readiness-root', {
+    ...safeStorageMock,
+    isEncryptionAvailable: () => available,
+    getSelectedStorageBackend: () => { throw new Error('Windows must not query the Linux backend'); },
+  }, 'win32');
+  assert.equal(await vault.availability(), true);
+  await vault.assertAvailable();
+  available = false;
+  assert.equal(await vault.availability(), false);
+  await assert.rejects(vault.assertAvailable(), {
+    name: 'CredentialStorageUnavailableError', message: 'Secure credential storage is unavailable',
+  });
+});
 
 test('dpapi credentials with an empty plaintext store keep the vault and drop the plaintext', async () => {
   const root = await mkdtemp(join(tmpdir(), 'auth-vault-empty-plain-'));

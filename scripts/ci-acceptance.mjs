@@ -25,6 +25,8 @@ export const acceptanceGroups = {
     'verify-launch-modes.mjs',
     'verify-plan-review.mjs',
     'verify-ultracode-restore.mjs',
+    'verify-context-maintenance.mjs',
+    'verify-clm-cancellation.mjs',
     'verify-hidden-messages.mjs',
     'verify-session-concurrency.mjs',
     'verify-session-navigation.mjs',
@@ -72,6 +74,8 @@ export const localOnly = [
 
 // Retain the two existing per-step timeout limits; other scripts retain the job limit.
 export const acceptanceTimeouts = {
+  'verify-context-maintenance.mjs': 300_000,
+  'verify-clm-cancellation.mjs': 300_000,
   'verify-model-switch.mjs': 300_000,
   'verify-theme-bootstrap.mjs': 300_000,
 };

@@ -70,7 +70,15 @@ try {
     await page.getByRole('menuitemradio', { name: new RegExp(`^${name}`) }).click();
   };
   const input = () => page.getByRole('textbox', { name: '消息', exact: true });
-  const send = async text => { await input().fill(text); await input().press('Enter'); };
+  const send = async text => {
+    await input().fill(text);
+    // A menu click can return before the permission RPC releases composer loading.
+    await page.waitForFunction(() => {
+      const button = document.querySelector('.composer-action-button');
+      return button && !button.disabled && button.dataset.action === 'send';
+    });
+    await input().press('Enter');
+  };
   const settled = async label => {
     await page.getByText(`${label} COMPLETE`, { exact: true }).waitFor({ timeout: 60000 });
     await page.waitForFunction(async () => !(await window.desktop.snapshot()).state?.isStreaming);

@@ -5,7 +5,7 @@ import { RpcProcess } from './runtime';
 import { permissionFromStatus } from './permission-status';
 import { projectLaunch, ultracodeNotification } from './launch-state';
 import { emptyLaunch, type LaunchState } from '../src/launch-state';
-import { isUltracodeInput, originalUltracodeInput } from '../src/ultracode-input';
+import { isUltracodeInput, visibleInputBlocks } from '../src/ultracode-input';
 import { isUserMessage } from '../src/user-message';
 import { WORKSPACE_POLICY } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
@@ -48,8 +48,8 @@ export interface SessionRuntime {
   stopping?: boolean;
 }
 export function firstUserText(messages: Message[]) {
-  const content = messages.find(isUserMessage)?.content;
-  return originalUltracodeInput(typeof content === 'string' ? content : content?.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') ?? '').slice(0, 200);
+  const message = messages.find(isUserMessage);
+  return message ? visibleInputBlocks({ ...message, role: 'user' }).filter(block => block.type === 'text').map(block => block.text ?? '').join('\n').slice(0, 200) : '';
 }
 export function taskOutcome(messages: Message[]) {
   const last = messages.at(-1);
@@ -70,6 +70,7 @@ export class SessionRuntimes {
   activeId?: string;
   private openingEmpty = new Map<string, Promise<SessionRuntime>>();
   private reads = new Map<SessionRuntime, Set<Promise<void>>>();
+  private statsVersions = new WeakMap<SessionRuntime, number>();
   private launchReads = new Map<SessionRuntime, Promise<void>>();
   private launchDirty = new Set<SessionRuntime>();
   private confirmations = new Map<string, { worker: SessionRuntime; resolve: (approved: boolean) => void }>();
@@ -221,6 +222,8 @@ export class SessionRuntimes {
         }
       }
       this.emit({ ...event, runtimeId: worker.id, runtimeRevision: worker.revision, sessionId: worker.state?.sessionId });
+      if (['compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
+        void this.refreshStats(worker).catch(() => {});
       if (worker.state?.sessionId && (event.type === 'agent_end'
         || event.type === 'tool_execution_end' && ['create_goal', 'get_goal', 'update_goal', 'enter_plan_mode', 'exit_plan_mode'].includes(event.toolName)
         || event.type === 'extension_ui_request' && (event.method === 'setStatus' && ['step-goal', 'plan-mode'].includes(event.statusKey)
@@ -288,15 +291,19 @@ export class SessionRuntimes {
   }
   private async readSnapshot(worker: SessionRuntime) {
     const revision = worker.revision;
+    const rpc = worker.rpc;
+    const statsVersion = this.nextStatsVersion(worker);
     const [state, { messages }, { models }, stats, history] = await Promise.all([
       worker.rpc.request('get_state'), worker.rpc.request('get_messages'),
       worker.rpc.request('get_available_models'), worker.rpc.request('get_session_stats'),
       worker.rpc.request('get_entries'),
     ]);
+    if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker) return;
     const savedMessages = messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null);
     if (revision === worker.revision && state.sessionId)
       worker.launch = projectLaunch(history.entries ?? [], history.leafId ?? null, state.sessionId, worker.launch);
     const decorated = this.hooks.messages ? await this.hooks.messages(worker, savedMessages) : savedMessages;
+    if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker) return;
     // Never replace newly received deltas with an older asynchronous snapshot.
     if (revision === worker.revision) {
       worker.state = state;
@@ -307,7 +314,29 @@ export class SessionRuntimes {
       }
       worker.busy = Boolean(state.isStreaming);
     }
-    worker.models = models; worker.stats = stats; worker.touched = Date.now();
+    worker.models = models;
+    if (this.statsVersions.get(worker) === statsVersion) worker.stats = stats;
+    worker.touched = Date.now();
+  }
+  private nextStatsVersion(worker: SessionRuntime) {
+    const version = (this.statsVersions.get(worker) ?? 0) + 1;
+    this.statsVersions.set(worker, version);
+    return version;
+  }
+  private async refreshStats(worker: SessionRuntime) {
+    if (worker.status !== 'connected' || !worker.state?.sessionId) return;
+    const rpc = worker.rpc;
+    const sessionId = worker.state.sessionId;
+    const version = this.nextStatsVersion(worker);
+    worker.operations++;
+    try {
+      // Upstream includes maintenance usage in these totals; never add it again locally.
+      const stats = await rpc.request('get_session_stats');
+      if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.status !== 'connected'
+        || worker.state?.sessionId !== sessionId || this.statsVersions.get(worker) !== version) return;
+      worker.stats = stats;
+      this.emit({ type: 'desktop_stats', runtimeId: worker.id, sessionId, stats });
+    } finally { worker.operations--; }
   }
   publishLaunch(worker: SessionRuntime) {
     this.emit({ type: 'desktop_launch', runtimeId: worker.id, sessionId: worker.state?.sessionId, launch: worker.launch });

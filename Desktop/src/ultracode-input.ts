@@ -1,4 +1,5 @@
 import type { Content, Message } from './contracts';
+import { manualClmInput } from './manual-clm-input';
 
 const prefix = 'ultracode:\n\n';
 export const isUltracodeInput = (text: string) => text.startsWith(prefix);
@@ -11,6 +12,7 @@ export function visibleInputBlocks(message: Message): Content[] {
   return blocks.map(block => {
     if (block.type !== 'text' || !firstText) return block;
     firstText = false;
-    return { ...block, text: originalUltracodeInput(block.text ?? '') };
+    const text = block.text ?? '';
+    return { ...block, text: manualClmInput(text) ?? originalUltracodeInput(text) };
   });
 }

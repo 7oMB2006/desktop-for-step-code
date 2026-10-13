@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import assert from 'node:assert/strict';
+import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 
 const text = value => typeof value === 'string' ? value : value?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
 const requests = [];
@@ -190,7 +191,10 @@ try {
   await page.mouse.move(0, 0);
   await page.locator('.composer .composer-input').focus();
   await page.waitForTimeout(200);
-  assert.equal(await executedPlan.evaluate(el => getComputedStyle(el).opacity), '0', 'Settled plan status is hidden until hover or focus');
+  await assertPersistentTurnStatus(executedPlan);
+  assert.equal(await executedPlan.evaluate(el =>
+    getComputedStyle(el.closest('.assistant-footer-row').querySelector('.assistant-actions')).opacity), '0',
+  'Persistent Plan status does not reveal ordinary response actions');
   await page.locator('.message.assistant').last().hover();
   await page.waitForTimeout(200);
   assert.equal(await executedPlan.evaluate(el => getComputedStyle(el).opacity), '1');

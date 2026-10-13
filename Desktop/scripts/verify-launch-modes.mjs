@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
+import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 
 const requests = [];
 const streams = new Set();
@@ -202,6 +203,10 @@ try {
     const left = actions.getBoundingClientRect(), right = element.getBoundingClientRect();
     return Math.abs(left.y + left.height / 2 - right.y - right.height / 2) <= 1 && left.right <= right.left;
   }), 'Goal shares the final response footer rather than adding another row');
+  await page.mouse.move(0, 0);
+  await page.locator('.composer > .composer-input').focus();
+  await page.waitForTimeout(200);
+  await assertPersistentTurnStatus(page.locator('.working-idle .launch-status-pulse'));
   await page.screenshot({ path: 'test-results/launch-goal-completed-dark.png' });
   // Completion persists across renderer reload and session navigation.
   await page.reload();

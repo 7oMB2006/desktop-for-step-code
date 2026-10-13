@@ -1,5 +1,42 @@
 # Verification
 
+## Persistent turn status follow-up (2026-10-13)
+
+Source now shares `TurnStatusTrigger` across Plan, Goal and Ultracode footer
+entries. The old Plan-only hover visibility rule was removed; ordinary response
+actions still appear on hover/focus. Typecheck, production build, 376 serial
+unit/protocol tests and Plan-review, launch-mode and workflow Electron acceptance
+passed with isolated profiles. Combined real UI component fixtures verify all
+three persistent triggers at dark/light 1360px and dark 640px without overlap;
+existing detail, keyboard, workflow outcome and history checks remain enabled.
+Screenshots: `Desktop/test-results/turn-status-unified-{theme}-{width}.png`.
+This is source acceptance only: the frozen rc.1 installer and desktop shortcut
+have not been rebuilt or changed and do not contain this follow-up.
+
+An isolated local HTTP capture of the pinned provider also confirmed a thinking
+capability risk. A reasoning model without `thinkingLevelMap` exposes
+`off/minimal/low/medium/high`, but selecting `off` omits `reasoning_effort` and
+does not send a thinking-disable field. With explicit `off` metadata it sends
+`reasoning_effort: "off"`; with only `low/medium/high` metadata an unsupported
+`off` request clamps to `low`. Evidence:
+`Desktop/test-results/investigate-thinking-off.mjs`. These synthetic transport
+cases do not establish the real Step 5 endpoint's metadata, accepted parameters
+or the cause of the user's live request. No account, credential, paid request
+or upstream source change was involved.
+
+The same four local HTTP cases were repeated using the actual v0.3.0 packaged
+Node, provider adapter and supported-level enumeration, not rebuilt old source
+(`investigate-thinking-off.mjs --release-030`). Its installer SHA-256 matches the
+retained release checksum:
+`85974def08be515c12b026eee22082df64c48ac77e03a837adbe88b22f2b2fbb`.
+The old runtime manifest pins `f7392089e67d80232b73c87f894dec8100c6c20a`.
+All four enumeration/request results match the current runtime. Desktop's
+`ModelEffortPicker`, `model-selection` and `auth-vault` have no diff from v0.3.0;
+the management helper's only change is permission-preset resolution. This
+establishes unchanged behavior for these controlled cases, not a successful
+live-account metadata query or proof that the service honors `off`. The existing
+user application, profile, installer and shortcut were not replaced.
+
 ## v0.4.0-rc.1 packaged acceptance (2026-10-13)
 
 Candidate application source is frozen at

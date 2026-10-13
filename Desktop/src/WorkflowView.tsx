@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import type { WorkflowAgent, WorkflowState } from './workflow-state';
 import { workflowCount, workflowIcon } from './workflow-state';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
+import { TurnStatusTrigger } from './TurnStatusTrigger';
 import { elapsedTime } from './elapsed-time';
 import { useEffect, useState } from 'react';
 import './workflow-view.css';
@@ -23,11 +24,16 @@ export function WorkflowTrigger({ flow, language, onOpen, settled = false }: { f
     aborted: ['编排已中断', 'Workflow interrupted'], budget_exceeded: ['编排预算耗尽', 'Workflow budget reached'],
     unknown: ['编排状态待确认', 'Workflow state unknown'], running: ['多代理协作', 'Multi-agent workflow'],
   };
-  return <button type="button" className={`workflow-trigger${settled ? ' workflow-settled' : ''}`} data-workflow-state={status}
+  const icon = <SubagentStatusIcon state={workflowIcon(status)} language={language}
+    detail={settled && flow.status === 'running' ? language === 'zh' ? '本轮已结束，编排最终状态未返回' : 'Turn ended without a final workflow state' : undefined}/>;
+  if (settled) return <TurnStatusTrigger className="workflow-trigger workflow-settled" data-workflow-state={status}
+    icon={icon} label={labels[status][language === 'zh' ? 0 : 1]} detail={workflowCount(flow)}
+    tone={status === 'completed' ? 'success' : status === 'failed' || status === 'budget_exceeded' ? 'danger' : status === 'aborted' ? 'warning' : 'neutral'}
+    onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel"/>;
+  return <button type="button" className="workflow-trigger" data-workflow-state={status}
     onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel">
-    <SubagentStatusIcon state={workflowIcon(status)} language={language}
-      detail={settled && flow.status === 'running' ? language === 'zh' ? '本轮已结束，编排最终状态未返回' : 'Turn ended without a final workflow state' : undefined}/>
-    <span>{settled ? labels[status][language === 'zh' ? 0 : 1] : flow.currentPhase || (language === 'zh' ? '多代理协作' : 'Multi-agent workflow')}</span>
+    {icon}
+    <span>{flow.currentPhase || (language === 'zh' ? '多代理协作' : 'Multi-agent workflow')}</span>
     <span className="workflow-count">{workflowCount(flow)}</span><ChevronRight size={12}/>
   </button>;
 }

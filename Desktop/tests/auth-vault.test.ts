@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, stat, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, writeFile, stat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AuthVault } from '../electron/auth-vault';
@@ -130,6 +130,69 @@ test('an unavailable keyring permits an empty Linux profile but cannot save secr
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('clearing Linux credentials removes the vault and permits the next launch without a keyring', async () => {
+  const emptyStores = [{}, { step: null }, { step: ' \n\t' },
+    { step: {}, providers: [] }, { step: { tokens: [null, ' ', {}, []] } }];
+  for (const empty of emptyStores) {
+    const root = await mkdtemp(join(tmpdir(), 'auth-vault-linux-clear-'));
+    try {
+      const vault = new AuthVault(root, safeStorageMock, 'linux');
+      await vault.save(credentials);
+      await vault.save(empty);
+      await assert.rejects(readFile(join(root, 'auth.dpapi')), { code: 'ENOENT' });
+      const unavailable = { ...safeStorageMock, isEncryptionAvailable: () => false,
+        decryptString: () => { throw new Error('Decryption must not be attempted'); } };
+      assert.deepEqual(await new AuthVault(root, unavailable, 'linux').load(), {});
+      assert.deepEqual(await readdir(root), [], 'clearing must not leave ciphertext or temporary files');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+});
+
+test('clearing an empty Linux store never needs a backend and is idempotent', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auth-vault-linux-clear-unavailable-'));
+  try {
+    const storage = { ...safeStorageMock,
+      isEncryptionAvailable: () => { throw new Error('The backend must not be consulted'); },
+      encryptString: () => { throw new Error('Encryption must not be attempted'); } };
+    const vault = new AuthVault(root, storage, 'linux');
+    await vault.save({});
+    await writeFile(join(root, 'auth.dpapi'), safeStorageMock.encryptString(JSON.stringify(credentials)));
+    await vault.save({ step: { access: null, refresh: '', providers: [] } });
+    await vault.save({});
+    assert.deepEqual(await vault.load(), {});
+    assert.deepEqual(await readdir(root), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('a failed Linux vault deletion rejects the save instead of reporting a successful clear', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auth-vault-linux-clear-failure-'));
+  try {
+    const path = join(root, 'auth.dpapi');
+    await mkdir(path);
+    await writeFile(join(path, 'preserve'), marker);
+    const storage = { ...safeStorageMock,
+      isEncryptionAvailable: () => { throw new Error('The backend must not be consulted'); } };
+    await assert.rejects(new AuthVault(root, storage, 'linux').save({}),
+      (error: NodeJS.ErrnoException) => error.path === path && error.code !== 'ENOENT');
+    assert.equal(await readFile(join(path, 'preserve'), 'utf8'), marker);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('nonempty Linux data still requires a keyring and cannot erase an existing vault', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auth-vault-linux-nonempty-'));
+  try {
+    const encrypted = safeStorageMock.encryptString(JSON.stringify(credentials));
+    await writeFile(join(root, 'auth.dpapi'), encrypted);
+    const vault = new AuthVault(root, { ...safeStorageMock, isEncryptionAvailable: () => false }, 'linux');
+    for (const data of [credentials, { step: 0 }, { step: false }, { step: { tokens: ['', marker] } }]) {
+      await assert.rejects(vault.save(data), /Secure credential storage/);
+      assert.deepEqual(await readFile(join(root, 'auth.dpapi')), encrypted);
+    }
+    await assert.rejects(vault.load(), /Secure credential storage/);
+    assert.deepEqual(await readFile(join(root, 'auth.dpapi')), encrypted);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('Windows retains DPAPI behavior without a Linux backend API', async () => {
   const root = await mkdtemp(join(tmpdir(), 'auth-vault-windows-'));
   try {
@@ -139,5 +202,22 @@ test('Windows retains DPAPI behavior without a Linux backend API', async () => {
     assert.deepEqual(await vault.load(), credentials);
     await assert.rejects(new AuthVault(root, { ...storage, isEncryptionAvailable: () => false }, 'win32').load(),
       /Secure credential storage is unavailable/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('Windows continues to encrypt empty stores and require DPAPI for saving or loading them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auth-vault-windows-empty-'));
+  try {
+    const storage = { ...safeStorageMock, getSelectedStorageBackend: undefined };
+    const vault = new AuthVault(root, storage, 'win32');
+    await vault.save(credentials);
+    await vault.save({});
+    const encrypted = await readFile(join(root, 'auth.dpapi'));
+    assert.deepEqual(JSON.parse(storage.decryptString(encrypted)), {});
+    assert.deepEqual(await vault.load(), {});
+    const unavailable = new AuthVault(root, { ...storage, isEncryptionAvailable: () => false }, 'win32');
+    await assert.rejects(unavailable.save({}), /Secure credential storage is unavailable/);
+    await assert.rejects(unavailable.load(), /Secure credential storage is unavailable/);
+    assert.deepEqual(await readFile(join(root, 'auth.dpapi')), encrypted);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

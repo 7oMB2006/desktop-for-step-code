@@ -16,6 +16,15 @@ test('unknown renderer platforms do not merge distinct paths', () => {
   assert.notEqual(platformPathKey('/Project', 'unknown'), platformPathKey('/project', 'unknown'));
 });
 
+test('POSIX root remains a nonempty identity distinct from a missing path', () => {
+  for (const platform of ['linux', 'unknown']) {
+    assert.equal(platformPathKey('/', platform), '/');
+    assert.equal(platformPathKey('///', platform), '/');
+    assert.equal(platformPathKey('', platform), '');
+    assert.notEqual(platformPathKey('/', platform), platformPathKey('', platform));
+  }
+});
+
 test('platform defaults use Node only outside the renderer', () => {
   assert.equal(currentPlatform(), process.platform);
   const original = Object.getOwnPropertyDescriptor(globalThis, 'window');

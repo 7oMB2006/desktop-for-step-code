@@ -80,7 +80,7 @@ try {
   assert.equal(await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).animationName), 'settings-backdrop-exit');
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.window-bar').evaluate(element => element.inert), false);
-  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), 'Unsent settings fixture');
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Unsent settings fixture');
   await page.locator('.sidebar-bottom > button').click();
   await dialog.waitFor();
   await page.waitForTimeout(250);
@@ -104,7 +104,7 @@ try {
   assert.equal(await page.locator('.settings-content').evaluate(element => element.scrollWidth > element.clientWidth), false);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   assert.equal(await page.locator('.settings-backdrop').count(), 0, 'Reduced motion dismisses without a delayed exit');
-  assert.equal(await page.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), 'Unsent settings fixture');
+  assert.equal(await page.getByRole('textbox', { name: 'Message', exact: true }).evaluate(element => element.value), 'Unsent settings fixture');
   assert.deepEqual(errors, []);
   console.log('Fixed settings dialog: all categories, provider editor, light/dark, narrow windows, English, reduced motion and draft retention passed.');
 } finally {

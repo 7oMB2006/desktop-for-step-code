@@ -3,6 +3,7 @@ import { Paperclip, Goal, Lightbulb, ListTodo, Network, Plug, BookOpen, Terminal
 import type { Message } from './contracts';
 import { messageText } from './conversation-presentation';
 import './composer-menu.css';
+import { composerInput } from './composer-input';
 
 import type { ComposerCommand } from './composer-commands';
 export type { ComposerCommand } from './composer-commands';
@@ -49,7 +50,7 @@ export function ComposerMenu(props: Props) {
   const [dismissed, setDismissed] = useState(false);
   const [selected, setSelected] = useState(0);
   const zh = language === 'zh';
-  const input = () => root.current?.querySelector<HTMLTextAreaElement>('textarea');
+  const input = () => root.current ? composerInput(root.current) : null;
   const close = () => { setDismissed(true); setReferencesOpen(false); };
   const readToken = () => {
     const textarea = input();
@@ -117,8 +118,8 @@ export function ComposerMenu(props: Props) {
     }
   };
   return <div className={`composer-menu-anchor${open ? ' has-composer-menu' : ''}`} ref={root} onKeyDownCapture={keyboard}
-    onSelectCapture={e => { if (e.target instanceof HTMLTextAreaElement) readToken(); }}
-    onClickCapture={e => { if (e.target instanceof HTMLTextAreaElement) { readToken(); setDismissed(false); } }}>
+    onSelectCapture={e => { if (e.target === input()) readToken(); }}
+    onClickCapture={e => { if (input()?.contains(e.target as Node)) { readToken(); setDismissed(false); } }}>
     {open && <div className="composer-discovery" id="composer-discovery" role="listbox" aria-label={mode === '/' ? (zh ? '操作与指令' : 'Actions and commands') : (zh ? '附件与引用' : 'Attachments and references')}>
       <div className="composer-discovery-scroll">{filtered.length ? filtered.map((row, index) => <div key={row.id}>
         {(index === 0 || filtered[index - 1].group !== row.group) && <div className="composer-discovery-group">{row.group}</div>}

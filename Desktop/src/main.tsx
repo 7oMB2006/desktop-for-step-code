@@ -38,7 +38,8 @@ import { ConversationMessages, PendingUserMessages } from './ConversationMessage
 import { messageBlocks, messageText } from './conversation-presentation';
 import { ComposerActionIcon } from './ComposerActionIcon';
 import { ComposerMenu } from './ComposerMenu';
-import { CommandCatalog, ComposerCommandReference } from './CommandReference';
+import { CommandCatalog } from './CommandReference';
+import { ComposerInput } from './ComposerInput';
 import { clmNotice } from './clm-notice';
 import { desktopCommands } from './composer-commands';
 import { composerAction } from './composer-action';
@@ -606,10 +607,6 @@ function App() {
     observer.observe(viewport);
     return () => observer.disconnect();
   }, [data.messages.length > 0, followLayout]);
-  useEffect(() => {
-    const input = document.querySelector<HTMLTextAreaElement>('.composer > textarea');
-    if (input) { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; }
-  }, [draft]);
   useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
   const openImage = useCallback((src: string, name: string, anchor: HTMLElement) => {
     previewTrigger.current = anchor;
@@ -1072,7 +1069,7 @@ function App() {
         const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(target.src);
         if (!match) throw new Error(t('不支持的图片', 'Unsupported image'));
         addAttachments([await bridge.importClipboardImage(match[2], match[1], target.name)]);
-        document.querySelector<HTMLTextAreaElement>('.composer > textarea')?.focus();
+        document.querySelector<HTMLElement>('.composer > .composer-input')?.focus();
       } else await bridge.imageAction(action, target.src, target.name);
     });
   };
@@ -1281,14 +1278,13 @@ function App() {
             {item.kind === 'image' ? <button type="button" className="attachment-open" aria-label={t(`预览 ${item.name}`, `Preview ${item.name}`)} onClick={e => openImage(`data:${item.content.mimeType};base64,${item.content.data}`, item.name, e.currentTarget)}><img src={`data:${item.content.mimeType};base64,${item.content.data}`} alt={item.name}/></button> : <div className="attachment-file"><FileText size={27}/><span>{item.name}</span><small>{t('本地文件引用', 'Local file reference')}</small></div>}
             <IconButton title={t('移除附件', 'Remove attachment')} tooltip={false} className="attachment-remove" onClick={() => { const next = attachmentsRef.current.filter((_, n) => n !== i); attachmentsRef.current = next; setAttachments(next); }}><X size={13}/></IconButton>
           </div>)}</div>}
-          <textarea aria-label={t('消息', 'Message')} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={navigationTarget ? composerBySession.current.get(navigationTarget.session.id)?.draft ?? '' : draft} disabled={!connected || loading} onChange={e => setDraft(e.target.value)} onPaste={e => { const files = Array.from(e.clipboardData.files); if (files.length) { e.preventDefault(); void importFiles(files); } }} onKeyDown={e => {
+          <ComposerInput key={data.runtimeId ?? data.draftId ?? 'empty'} label={t('消息', 'Message')} language={data.preferences.language} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={navigationTarget ? composerBySession.current.get(navigationTarget.session.id)?.draft ?? '' : draft} disabled={!connected || loading} onChange={setDraft} onPaste={e => { const files = Array.from(e.clipboardData.files); if (files.length) { e.preventDefault(); e.stopPropagation(); void importFiles(files); } }} onKeyDown={e => {
             if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || e.repeat) return;
             e.preventDefault();
             if (!draft.trim() && !attachments.length && !quotes.length && !loading && connected && !stopping) {
               void shortcutSteer();
             } else void send();
           }}/>
-          <ComposerCommandReference draft={navigationTarget ? composerBySession.current.get(navigationTarget.session.id)?.draft ?? '' : draft}/>
           <div className="composer-tools">
             <IconButton title={t('添加附件', 'Add attachments')} aria-expanded={referencesOpen} disabled={!connected || loading} onClick={() => setReferencesOpen(value => !value)}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}

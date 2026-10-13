@@ -99,7 +99,7 @@ const launch = async () => {
     const w = BrowserWindow.getAllWindows()[0];
     w.setOpacity(0); w.setIgnoreMouseEvents(true); w.showInactive(); w.setSize(1360, 900);
   });
-  await page.waitForFunction(() => document.querySelector('.composer textarea') && !document.querySelector('.composer textarea').disabled);
+  await page.waitForFunction(() => document.querySelector('.composer .composer-input') && !document.querySelector('.composer .composer-input').disabled);
 };
 const settings = async () => {
   await page.locator('.sidebar-bottom > button').click();
@@ -131,8 +131,8 @@ try {
   await page.screenshot({ path: 'test-results/custom-providers-discovery.png' });
   await page.locator('.provider-discovery label').filter({ hasText: 'fixture-custom' }).getByRole('checkbox').check();
   await page.locator('.provider-discovery').getByRole('button', { name: '加入 1', exact: true }).click();
-  assert.equal(await page.getByLabel('模型 ID 1', { exact: true }).inputValue(), 'fixture-custom');
-  assert.equal(await page.getByLabel('显示名 1', { exact: true }).inputValue(), 'Fixture Custom');
+  assert.equal(await page.getByLabel('模型 ID 1', { exact: true }).evaluate(element => element.value), 'fixture-custom');
+  assert.equal(await page.getByLabel('显示名 1', { exact: true }).evaluate(element => element.value), 'Fixture Custom');
   assert.equal(await page.locator('.provider-model-advanced').first().getAttribute('open'), null);
   assert.match(await page.locator('.provider-thinking-summary').first().textContent(), /上游声明.*3 档/);
   await page.getByRole('button', { name: '从上游获取', exact: true }).click();
@@ -185,7 +185,7 @@ try {
   assert.equal(encrypted.includes(Buffer.from('isolated-provider-fixture')), false);
   assert.equal((await readFile(join(profile, 'step-runtime/models.json'), 'utf8')).includes('isolated-provider-fixture'), false);
   assert.equal(JSON.stringify(provider).includes('isolated-provider-fixture'), false);
-  assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), '');
+  assert.equal(await page.getByLabel('API Key', { exact: true }).evaluate(element => element.value), '');
   await mkdir('test-results', { recursive: true });
   await page.locator('.provider-editor fieldset').evaluate(e => { e.scrollTop = 0; });
   const verifyFocusGutter = async (label, file) => {

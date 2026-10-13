@@ -1,0 +1,14 @@
+.composer > .composer-input { display: block; width: 100%; min-height: 58px; max-height: 180px; padding: 14px 16px 8px; overflow-y: auto; scrollbar-gutter: stable; outline: none; border: 0; background: transparent; color: var(--ink); font-family: var(--body-font); font-size: var(--body-size); line-height: var(--body-leading); letter-spacing: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.composer-input .composer-text { margin: 0; padding: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.composer-input[data-empty="true"]::before { content: attr(data-placeholder); position: absolute; color: var(--muted); pointer-events: none; }
+.composer-input[aria-disabled="true"] { opacity: .45; }
+.composer-inline-link-text { color: oklch(.47 .13 250); }
+:root[data-theme="dark"] .composer-inline-link-text { color: oklch(.77 .10 250); }
+.composer-command-name { color: var(--primary); }
+.composer-inline-link-text:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
+.composer-inline-link-icon, .composer-inline-command-icon { display: inline; user-select: none; }
+.composer-inline-link-icon .message-link { display: inline-flex; width: 1.05em; margin-right: .2em; vertical-align: -.1em; line-height: 1; text-decoration: none; }
+.composer-inline-link-icon .message-link-site, .composer-inline-link-icon .message-link-site svg { width: .95em; height: .95em; }
+.composer-inline-link-icon .message-link-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.composer-inline-command-icon .command-reference > span:last-child { display: none; }
+.composer-command-slash { font-size: 0; }

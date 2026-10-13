@@ -114,10 +114,10 @@ try {
   assert.equal(coldHeader.parentSession, coldFile);
   assert.ok(coldBytes.equals(await readFile(coldFile)));
   assert.ok(!coldClone.runtimes.some(runtime => runtime.sessionId === 'sidebar-cold-source'), 'cold source must not be activated');
-  assert.equal(await composer.inputValue(), '');
+  assert.equal(await composer.evaluate(element => element.value), '');
   await page.screenshot({ path: 'test-results/branch-sidebar-created.png' });
   await page.locator(`[data-reorder-kind="session"][data-reorder-id="${initialView.state.sessionId}"]`).locator('button').first().click();
-  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === '保留当前会话的草稿');
+  await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === '保留当前会话的草稿');
   checkpoint('latest reply clone and permission inheritance');
   const originalRow = () => page.locator('.session-row').filter({ hasText: /^分支原会话$/ }).locator('button').first();
   await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
@@ -153,7 +153,7 @@ try {
   assert.equal(cloned.preferences.workspace, source.preferences.workspace);
   assert.equal(cloned.permissionPreset, 'approve-for-me');
   assert.deepEqual(cloned.messages.map(message => message.content), source.messages.map(message => message.content));
-  assert.equal(await input.inputValue(), '');
+  assert.equal(await input.evaluate(element => element.value), '');
   assert.ok(cloned.runtimes.some(runtime => runtime.runtimeId === source.runtimeId));
   const cloneHeader = (await readFile(cloned.state.sessionFile, 'utf8')).split('\n').map(line => line && JSON.parse(line)).find(entry => entry?.type === 'session');
   assert.equal(cloneHeader.parentSession, sourceFile);
@@ -161,7 +161,7 @@ try {
   await page.locator('.message.assistant').last().hover();
   await page.screenshot({ path: 'test-results/branch-latest-reply.png' });
   await originalRow().click();
-  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === '保留原会话草稿');
+  await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === '保留原会话草稿');
   assert.equal((await snapshot()).runtimeId, source.runtimeId);
   await page.evaluate(id => window.desktop.switchSession(id), cloned.state.sessionId);
   await page.reload();
@@ -176,9 +176,9 @@ try {
   await page.locator('.message.user').last().hover();
   await editLatest.click();
   const editor = page.getByRole('textbox', { name: '编辑消息', exact: true });
-  assert.equal(await editor.inputValue(), '重复的问题。');
+  assert.equal(await editor.evaluate(element => element.value), '重复的问题。');
   assert.equal(await editor.evaluate(element => element === document.activeElement), true);
-  assert.equal(await input.inputValue(), '普通输入框草稿');
+  assert.equal(await input.evaluate(element => element.value), '普通输入框草稿');
   assert.equal(await page.locator('.user-message-editor img').count(), 1);
   assert.equal((await snapshot()).messages.length, 4, 'opening edit must retain the old answer');
   assert.ok(beforeEdit.equals(await readFile(cloned.state.sessionFile)));
@@ -189,7 +189,7 @@ try {
   assert.equal(prompts.length, 0);
   await page.locator('.message.user').last().hover();
   await editLatest.click();
-  assert.equal(await editor.inputValue(), '重复的问题。');
+  assert.equal(await editor.evaluate(element => element.value), '重复的问题。');
   await editor.fill('修改后的问题。');
   await page.screenshot({ path: 'test-results/branch-edit-inline.png' });
   await page.locator('.user-message-editor').getByRole('button', { name: '发送', exact: true }).click();
@@ -201,7 +201,7 @@ try {
   assert.equal(forked.state.sessionName, cloned.state.sessionName);
   assert.equal(forked.permissionPreset, 'approve-for-me');
   assert.equal(forked.runtimes.length, cloned.runtimes.length);
-  assert.equal(await input.inputValue(), '普通输入框草稿');
+  assert.equal(await input.evaluate(element => element.value), '普通输入框草稿');
   assert.equal(prompts.length, 1);
   assert.ok(!JSON.stringify(prompts[0]).includes('最新一轮旧回复'));
   assert.ok(JSON.stringify(prompts[0]).includes('第一轮旧回复'));
@@ -321,8 +321,8 @@ try {
   await englishEditor.fill('Keep this edited draft after failure');
   await page.locator('.user-message-editor').getByRole('button', { name: 'Send', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'Fixture edit send failure' }).waitFor();
-  assert.equal(await englishEditor.inputValue(), 'Keep this edited draft after failure');
-  assert.equal(await englishInput.inputValue(), 'Keep the ordinary composer draft');
+  assert.equal(await englishEditor.evaluate(element => element.value), 'Keep this edited draft after failure');
+  assert.equal(await englishInput.evaluate(element => element.value), 'Keep the ordinary composer draft');
   assert.equal(await page.locator('.user-message-editor').getByRole('button', { name: 'Send', exact: true }).isEnabled(), true);
   await englishEditor.press('Escape');
   assert.deepEqual(errors, []);

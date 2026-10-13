@@ -33,7 +33,7 @@ const open = async () => {
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setOpacity(0); w.setIgnoreMouseEvents(true); w.showInactive(); });
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled, undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await page.waitForFunction(async () => (await window.desktop.snapshot()).status === 'connected', undefined, { timeout: 60000 });
   console.log(`[ultracode-restore] connected ${generation}`);
   return page;

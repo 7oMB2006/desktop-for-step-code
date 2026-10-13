@@ -83,7 +83,7 @@ try {
   await page.reload();
   await page.locator('.lane-row').first().waitFor();
   if (process.env.DESKTOP_STATUS_DEMO_CHECK === '1') {
-    const input = page.locator('.composer textarea');
+    const input = page.locator('.composer .composer-input');
     await input.fill('重放状态动画'); await input.press('Enter');
     await page.locator('.lane-row .subagent-status-icon[data-state="running"]').first().waitFor();
     await page.locator('.lane-row .subagent-status-icon[data-state="stopped"]').waitFor();

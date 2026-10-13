@@ -64,7 +64,7 @@ const errors = [];
 try {
   const page = await app.firstWindow(); page.setDefaultTimeout(30000); page.on('pageerror', e => errors.push(e.message));
   await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setOpacity(0); w.setIgnoreMouseEvents(true); w.showInactive(); w.setSize(1360, 900); });
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled, undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   if (process.env.DESKTOP_VERIFY_FULL_ACCESS) {
     await page.evaluate(() => window.desktop.command('set_permission_preset', { preset: 'full-access' }));
@@ -188,7 +188,7 @@ try {
   const executedPlan = page.getByRole('button', { name: '计划已执行', exact: true });
   await executedPlan.waitFor({ state: 'attached' });
   await page.mouse.move(0, 0);
-  await page.locator('.composer textarea').focus();
+  await page.locator('.composer .composer-input').focus();
   await page.waitForTimeout(200);
   assert.equal(await executedPlan.evaluate(el => getComputedStyle(el).opacity), '0', 'Settled plan status is hidden until hover or focus');
   await page.locator('.message.assistant').last().hover();
@@ -230,12 +230,12 @@ try {
   assert.equal(requests.length, callsBeforeBack, 'Back does not resume the model');
   await dialog.getByRole('button', { name: '提出修改', exact: true }).click();
   await feedback.waitFor();
-  assert.equal(await feedback.locator('textarea').inputValue(), 'Add validation', 'Back retains the unsubmitted draft');
+  assert.equal(await feedback.locator('textarea').evaluate(element => element.value), 'Add validation', 'Back retains the unsubmitted draft');
   await feedback.getByRole('button', { name: '稍后批阅', exact: true }).click();
   await feedback.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: '批阅计划', exact: true }).click();
   await feedback.waitFor();
-  assert.equal(await feedback.locator('textarea').inputValue(), 'Add validation');
+  assert.equal(await feedback.locator('textarea').evaluate(element => element.value), 'Add validation');
   await feedback.getByRole('button', { name: '提交修改意见', exact: true }).click();
   await dialog.waitFor();
   await dialog.getByText('Revised proposal', { exact: false }).waitFor();
@@ -270,10 +270,10 @@ try {
   app = await electron.launch(launchOptions);
   const restored = await app.firstWindow();
   restored.setDefaultTimeout(30000);
-  await restored.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled, undefined, { timeout: 60000 });
+  await restored.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await restored.evaluate(id => window.desktop.switchSession(id), sessionId);
   await restored.reload();
-  await restored.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled, undefined, { timeout: 60000 });
+  await restored.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await restored.waitForFunction(async id => {
     const s = await window.desktop.snapshot(); return s.state?.sessionId === id && s.launch.plan === true;
   }, sessionId, { timeout: 60000 });

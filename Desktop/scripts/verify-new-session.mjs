@@ -86,7 +86,7 @@ try {
   await selector.click();
   await picker.getByRole('button', { name: '独立会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.new-session-project-trigger')?.textContent.includes('独立会话'));
-  assert.equal(await input.inputValue(), 'A draft preserved while choosing a project');
+  assert.equal(await input.evaluate(element => element.value), 'A draft preserved while choosing a project');
   assert.deepEqual(await readdir(join(profile, 'step-runtime', 'sessions')), historyBefore);
   await page.reload();
   await heading.waitFor();

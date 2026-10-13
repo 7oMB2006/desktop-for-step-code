@@ -1,5 +1,109 @@
 # Verification
 
+## Next Windows release readiness (2026-10-13)
+
+PR #107 merged as main `969efee30253c9ef62f23f5ac6bb51a862076f55`.
+Its exact reviewed head `294cd883c60ee9f51711d0aa16834541fb16b4fd`
+passed cloud run `38376159467`: sessions in 5m42s, interface in 6m41s,
+runtime in 7m44s, and the final CI gate. The complete protocol suite passed
+368 tests. Cloud logs explicitly confirm Goal launch acceptance, model-switch
+acceptance and all five Windows command profiles passed. The PATH review
+finding was fixed and its review thread resolved before merge.
+
+This supersedes earlier pending-cloud-CI notes for PR #107, not the boundaries
+of those historical tests. The earlier native crash did not recur in this run;
+its underlying cause is not claimed fixed. Source and deterministic-runtime
+acceptance do not establish paid-model summarization quality or installer
+lifecycle readiness.
+
+No new release version, frozen installer, package checksum, desktop shortcut
+update or cloud-machine installation has been produced after this merge.
+The next release still requires a frozen main candidate, packaged acceptance,
+real-model smoke (including CLM requirement retention), and disposable-machine
+upgrade/restart/uninstall/reinstall checks. Older local 0.3.0 previews do not
+contain every subsequent source fix and are not the next release candidate.
+Task-list retention through CLM/native compaction now has the local regression
+evidence below; its changes remain unmerged.
+Host-restricted symlink coverage and exploratory upstream Unix-path test
+failures remain recorded below, not silently treated as passed.
+
+Composer links are explicitly included in this release's finishing scope, with
+source-only implementation below. User-tier frontend capabilities retain P0
+priority but are deferred to the following release.
+No unmerged Linux work is included in this Windows readiness record.
+
+## Composer links and task-list retention (2026-10-13, source only)
+
+The composer displays HTTP(S) links in place in the editable text, with a web
+icon and the existing web-link colors, rather than adding a separate reference
+row. A plain-text ProseMirror schema preserves whitespace, line breaks and raw
+Markdown; link/command icons are view-only decorations, not prompt or clipboard
+bytes. The existing Markdown/GFM parser identifies links, excluding code,
+images, credential-bearing URLs and non-web schemes. Recognition never sends
+the draft or automatically fetches webpage metadata. Hover/focus of the icon
+reuses the existing preview; activating it toggles the built-in browser without
+submitting the message. Text remains selectable and editable at raw offsets.
+
+The pinned upstream already persists `step-tasks` independently of editable
+conversation bodies and injects a fresh bounded, read-only `step-tasks-state`
+snapshot into actor requests. No upstream source change is needed here.
+Seven upstream context/task-state tests passed. Extended Desktop real-RPC
+tests verify task IDs, states, owners, blockers and plan identity through CLM,
+native failure fallback, cancellation/recovery, explicit native compaction and
+runtime restart, alongside the existing Plan/Goal coverage. Earlier branches
+do not inherit later task snapshots; request-local metadata neither accumulates
+in conversation history nor enters editable CLM bodies. The Desktop Summary
+projection continues to show the same task list.
+
+Local type checking, production build, all 375 serial unit/protocol tests,
+12 CI policy/inventory tests and all 44 Windows acceptance checks passed.
+The initial sessions-group attempt inherited an older shared Desktop helper
+and failed the persisted Goal identity assertion. That group was rerun in a
+separate application directory with the identical renderer build and current
+Desktop helpers; all 14 session checks then passed. The shared runtime and
+running user applications were not changed.
+
+Composer acceptance verifies untouched draft/transport bytes, deferred preview,
+keyboard opening without sending, same-link browser toggle, narrow wrapping and
+bounded vertical scrolling, selection replacement across links, undo/redo,
+plain-text paste/copy, and CDP-driven IME composition both beside and inside a
+URL. The existing command discovery and model controls still pass. Additional
+message-feedback and chat-quote checks verify scrolling, failure restoration,
+and real native prose dragging from a focused editor back to quote insertion.
+Programmatic quote fixtures blur the editor before creating a prose selection,
+matching the native drag behavior. Focus/selection assertions remain intact.
+Screenshots are `Desktop/test-results/composer-inline-links-{light,dark,narrow}.png`
+and `Desktop/test-results/composer-links-preview-dark.png`.
+These are isolated fixtures and deterministic-model evidence, not paid-model
+semantic retention, cloud CI or packaged release acceptance. The user approved
+the inline screenshot design on 2026-10-13; installer experience remains pending.
+This follow-up is being submitted for source review. No package, shortcut update,
+version bump or public release is included; its cloud CI remains to be verified.
+
+## PR #108 review and CI follow-up (2026-10-13)
+
+The P2 review identified controlled draft synchronization incorrectly emitting
+the user-edit callback. Prop-originated editor transactions now carry explicit
+metadata and do not update App draft state. User edits continue to emit changes.
+The redundant asynchronous composition-end callback was removed so it cannot
+bypass this transaction boundary; actual IME acceptance still passes.
+A unit regression distinguishes both transaction sources; real Electron
+navigation acceptance previews another cached draft, rejects navigation and its
+recovery snapshot, then verifies the original draft survives both the immediate
+failure and a later navigation/cache round trip.
+
+The original head passed cloud interface and sessions checks, but run
+`38387265685` exited natively with `3221226505` during the default Windows
+command profile, without a JavaScript exception or assertion failure. The
+command fixture now reports launch, environment, session readiness, submission,
+execution and cleanup stages, plus Electron exits. All five Windows command
+profiles and the extended navigation acceptance passed locally. This is not a
+confirmed native-crash root-cause fix; replacement-head cloud CI must complete
+before reporting the failed check recovered. No assertion, profile or check was
+removed, no shared runtime was changed, and no installer was produced.
+The follow-up passed type checking, production build, all 376 serial
+unit/protocol tests, composer acceptance and `git diff --check` locally.
+
 ## Windows command integration acceptance (2026-10-13)
 
 Based on main `8b35512` (including merged PR #105), the new

@@ -53,7 +53,7 @@ export function PermissionApproval({ presentation, requestId, open, language, on
     const timer = setTimeout(() => {
       const wrap = panel.current?.closest('.composer-wrap');
       wrap?.removeAttribute('data-approval-covered');
-      const composer = wrap?.querySelector<HTMLTextAreaElement>('.composer textarea');
+      const composer = wrap?.querySelector<HTMLElement>('.composer .composer-input');
       if (document.activeElement === document.body || panel.current?.contains(document.activeElement)) composer?.focus();
       setVisible(false);
     }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 140);

@@ -78,8 +78,8 @@ try {
   const live = await prepareSessionFixture(page);
   const livePath = join(live.preferences.workspace, 'live.ts');
   await writeFile(livePath, 'const value = 1;\n');
-  await page.locator('.composer > textarea').fill('Update the live file.');
-  await page.locator('.composer > textarea').press('Enter');
+  await page.locator('.composer > .composer-input').fill('Update the live file.');
+  await page.locator('.composer > .composer-input').press('Enter');
   await page.getByText('Live edit finished.', { exact: true }).waitFor({ timeout: 60000 });
   const chip = page.getByRole('button', { name: '查看运行中的变更', exact: true });
   try {
@@ -136,8 +136,8 @@ try {
     await writeFile(join(next.preferences.workspace, 'src/status.ts'), "export function statusLabel() {\n  return 'idle';\n}\n");
     await page.reload();
     for (const [text, ids] of [['FIXTURE-RETRY', ['fixture-retry']], ['FIXTURE-STATUS', ['fixture-status-1', 'fixture-status-2']]]) {
-      await page.locator('.composer > textarea').fill(text);
-      await page.locator('.composer > textarea').press('Enter');
+      await page.locator('.composer > .composer-input').fill(text);
+      await page.locator('.composer > .composer-input').press('Enter');
       await page.waitForFunction(async ({ runtimeId, ids }) => {
         try { return (await window.desktop.turnUndo(runtimeId, ids, 'status')).state === 'available'; } catch { return false; }
       }, { runtimeId: next.runtimeId, ids }, { timeout: 60000 });

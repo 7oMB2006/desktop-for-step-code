@@ -65,7 +65,7 @@ try {
   await page.locator('.account-channel').nth(2).click();
   await page.getByLabel('API Key', { exact: true }).fill('fixture-key-to-discard');
   await page.locator('.account-channel').nth(3).click();
-  assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), '');
+  assert.equal(await page.getByLabel('API Key', { exact: true }).evaluate(element => element.value), '');
   assert.equal(await page.getByRole('button', { name: '登录', exact: true }).isEnabled(), false);
   await page.getByLabel('API Key', { exact: true }).fill('isolated-api-fixture-only');
   const proposedBefore = await page.evaluate(() => window.desktop.snapshot());
@@ -90,7 +90,7 @@ try {
   assert.deepEqual(proposedAfter.state.model.thinkingLevels, ['low', 'medium', 'high']);
   assert.equal(proposedAfter.state.thinkingLevel, 'medium');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), 'Keep this unsent draft through login');
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Keep this unsent draft through login');
   await page.getByRole('button', { name: '模型与思考强度', exact: true }).click();
   const effort = page.getByRole('slider', { name: '思考强度', exact: true });
   await effort.waitFor();
@@ -210,7 +210,7 @@ try {
   await app.evaluate(() => globalThis.accountFixture.release());
   await page.getByText('API Key · Mainland China', { exact: true }).waitFor();
   assert.match(await page.locator('.account-channel.is-selected').innerText(), /International/);
-  assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), 'overseas-race-fixture');
+  assert.equal(await page.getByLabel('API Key', { exact: true }).evaluate(element => element.value), 'overseas-race-fixture');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.locator('.error-banner').filter({ hasText: 'Fixture login intercepted' }).waitFor();
   assert.deepEqual(await app.evaluate(() => globalThis.accountFixture.login), { profile: 'platform_oversea', matches: true });

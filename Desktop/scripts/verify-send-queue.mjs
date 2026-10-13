@@ -229,7 +229,7 @@ try {
   assert.ok(Math.abs(returnPosition.right - returnPosition.barRight) < 2,
     'return-to-bottom stays at the right edge with a queue and no diff');
   await page.screenshot({ path: 'test-results/queue-narrow-light.png' });
-  await page.evaluate(() => { window.queueKeyTests = []; const input = document.querySelector('.composer > textarea'); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })); });
+  await page.evaluate(() => { window.queueKeyTests = []; const input = document.querySelector('.composer > .composer-input'); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })); });
   assert.equal((await snapshot()).pendingMessages.length, 2, 'repeated/IME Enter cannot steer');
   if (process.platform === 'win32') {
     await input.press('Enter');

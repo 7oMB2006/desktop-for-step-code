@@ -59,7 +59,7 @@ try {
   const row = index => page.locator(`[data-reorder-id="navigation-${index}"] > button`).first();
   const opened = async index => {
     await page.waitForFunction(index => document.querySelector('.window-session-title')?.textContent === `Navigation ${index}` &&
-      !document.querySelector('.composer > textarea')?.disabled, index, { timeout: 60000 });
+      !document.querySelector('.composer > .composer-input')?.disabled, index, { timeout: 60000 });
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.sessionId, `navigation-${index}`);
   };
   phase = 'cold latest-target navigation';
@@ -99,7 +99,7 @@ try {
     for (const index of [0, 1, 3]) document.querySelector(`[data-reorder-id="navigation-${index}"] > button`).click();
     window.navigationImmediate = {
       selected: document.querySelector('.session-row.selected')?.dataset.reorderId,
-      sendingDisabled: document.querySelector('.composer > textarea')?.disabled,
+      sendingDisabled: document.querySelector('.composer > .composer-input')?.disabled,
     };
   });
   await opened(3);
@@ -124,7 +124,7 @@ try {
     const observer = new MutationObserver(() => {
       const preview = document.querySelector('.session-reading-preview');
       if (preview) window.previewEvidence.push({
-        inert: preview.inert, disabled: document.querySelector('.composer > textarea').disabled,
+        inert: preview.inert, disabled: document.querySelector('.composer > .composer-input').disabled,
         text: preview.textContent.includes('Answer 0/'),
       });
     });
@@ -135,7 +135,7 @@ try {
   await opened(0);
   const preview = await page.evaluate(() => { window.navigationPreviewObserver.disconnect(); return window.previewEvidence; });
   assert.ok(preview.some(value => value.inert && value.disabled && value.text), 'Recycled history appears as an inert cached transcript before reconnection');
-  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), 'Retained draft zero');
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Retained draft zero');
   const restored = await page.evaluate(() => {
     const viewport = document.querySelector('#conversation-scroll');
     const article = document.querySelector('.messages > article[data-message-index="12"]');
@@ -143,6 +143,56 @@ try {
   });
   assert.ok(Math.abs(restored - reading.offset) < 3, `Reading anchor drifted: ${restored} vs ${reading.offset}`);
   await page.screenshot({ path: 'test-results/session-navigation-light.png' });
+  phase = 'controlled draft preview and dual navigation/snapshot failure';
+  await row(1).click();
+  await opened(1);
+  await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained draft one');
+  await row(0).click();
+  await opened(0);
+  await app.evaluate(({ ipcMain }) => {
+    globalThis.navigationOriginalHandler = ipcMain._invokeHandlers.get('desktop');
+    globalThis.navigationSnapshotFailures = 0;
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      if (method === 'navigateSession') {
+        await new Promise(done => { globalThis.navigationReleaseFailure = done; });
+        throw new Error('NAVIGATION_DOUBLE_FAILURE');
+      }
+      if (method === 'snapshot') {
+        globalThis.navigationSnapshotFailures++;
+        throw new Error('SNAPSHOT_DOUBLE_FAILURE');
+      }
+      return globalThis.navigationOriginalHandler(event, method, ...args);
+    });
+  });
+  try {
+    await row(1).click();
+    await page.waitForFunction(() => {
+      const input = document.querySelector('.composer > .composer-input');
+      return input?.disabled && input.value === 'Retained draft one';
+    });
+    await app.evaluate(() => globalThis.navigationReleaseFailure());
+    await page.getByRole('alert').filter({ hasText: 'NAVIGATION_DOUBLE_FAILURE' }).waitFor();
+    await page.waitForFunction(() => {
+      const input = document.querySelector('.composer > .composer-input');
+      return !input?.disabled && input?.value === 'Retained draft zero';
+    });
+    assert.equal(await app.evaluate(() => globalThis.navigationSnapshotFailures), 1);
+  } finally {
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('desktop');
+      ipcMain.handle('desktop', globalThis.navigationOriginalHandler);
+      delete globalThis.navigationOriginalHandler;
+      delete globalThis.navigationReleaseFailure;
+    });
+  }
+  await opened(0);
+  await row(2).click();
+  await opened(2);
+  await row(0).click();
+  await opened(0);
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value),
+    'Retained draft zero', 'Failed target preview must not overwrite the source draft or its later cache');
   phase = 'cold failure retains authoritative identity';
   await rename(failureProject, `${failureProject}-unavailable`);
   try {

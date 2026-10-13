@@ -20,3 +20,6 @@ images.forEach((image, index) => {
 });
 await mkdir(new URL('../build/', import.meta.url), { recursive: true });
 await writeFile(new URL('../build/icon.ico', import.meta.url), Buffer.concat([header, ...images]));
+// Linux window managers and electron-builder consume PNG rather than ICO.
+await writeFile(new URL('../build/icon.png', import.meta.url),
+  new Resvg(svg, { fitTo: { mode: 'width', value: 512 } }).render().asPng());

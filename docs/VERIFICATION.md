@@ -1,5 +1,16 @@
 # Verification
 
+## v0.4.0 candidate confirmation (2026-10-14)
+
+The maintainer reported no apparent problems with RC2 and authorized continuing
+release preparation. Source version is now `0.4.0`; the delivered installer and
+desktop shortcut remain RC2. This confirmation is not a per-item cloud
+real-model or installer-lifecycle result. Those gates remain pending.
+The final installer must be rebuilt from frozen merged main; RC2 must not be
+renamed or represented as the final artifact.
+Typecheck, production build and all 376 serial unit/protocol tests passed
+again with the final source version; `git diff --check` passed.
+
 ## v0.4.0-rc.2 packaged acceptance (2026-10-13)
 
 Replacement candidate application source is frozen at

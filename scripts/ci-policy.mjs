@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { windowsGroups } from './ci-acceptance.mjs';
 
 const documents = new Set([
   'README.md', 'README.zh-CN.md', 'TODO.md', 'DESIGN.md', 'PRODUCT.md',
@@ -35,12 +36,17 @@ export function docsOnly(paths) {
   return paths.length > 0 && paths.every(isDocumentation);
 }
 
-export function checkConclusion({ classification, documentation, windows, route }) {
-  return classification === 'success' && (
-    route === 'true'
-      ? documentation === 'success' && windows === 'skipped'
-      : route === 'false' && windows === 'success' && documentation === 'skipped'
-  );
+export function checkConclusion(results) {
+  const route = results?.changes?.outputs?.['docs-only'];
+  const expected = ['changes', 'documentation', ...windowsGroups.map(group => `windows-${group}`)];
+  if (!results || Object.keys(results).sort().join() !== expected.sort().join()) return false;
+  if (results.changes?.result !== 'success' || !['true', 'false'].includes(route)) return false;
+  return results.documentation?.result === (route === 'true' ? 'success' : 'skipped')
+    && windowsGroups.every(group => {
+      const job = results[`windows-${group}`];
+      return route === 'true' ? job?.result === 'skipped'
+        : job?.result === 'success' && job.outputs?.group === group && job.outputs?.complete === 'true';
+    });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -56,12 +62,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`${paths.length} changed paths: ${route ? 'documentation checks' : 'full Windows integration'}`);
   } else if (process.argv[2] === 'conclude') {
     const results = JSON.parse(process.env.CI_NEEDS);
-    const passed = checkConclusion({
-      classification: results.changes.result,
-      documentation: results.documentation.result,
-      windows: results.windows.result,
-      route: results.changes.outputs['docs-only'],
-    });
+    const passed = checkConclusion(results);
     console.log(JSON.stringify(results, null, 2));
     if (!passed) throw new Error('Required CI checks did not complete successfully');
   } else {

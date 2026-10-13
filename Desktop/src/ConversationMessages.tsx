@@ -285,7 +285,7 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
                   const flow = workflowsFromMessages([
                     ...(item.call ? [{ role: 'assistant', content: [item.call] }] : []),
                     ...(item.result ? [item.result] : []),
-                  ])[0];
+                  ], active)[0];
                   return flow ? <WorkflowBlock key={item.key} flow={flow} language={props.language} onOpen={onOpenWorkflow}/>
                     : <Tool key={item.key} item={item} active={active} {...props}/>;
                 })()

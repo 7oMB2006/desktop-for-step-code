@@ -189,8 +189,8 @@ function App() {
   const [subagentView, setSubagentView] = useState<'overview' | 'agent'>('agent');
   const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null);
   const [selectedWorkflowAgent, setSelectedWorkflowAgent] = useState<string | null>(null);
-  const workflows = useMemo(() => workflowsFromMessages(data.messages), [data.messages]);
-  const turnWorkflows = useMemo(() => currentTurnWorkflows(data.messages), [data.messages]);
+  const workflows = useMemo(() => workflowsFromMessages(data.messages, busy), [data.messages, busy]);
+  const turnWorkflows = useMemo(() => currentTurnWorkflows(data.messages, busy), [data.messages, busy]);
   const runningWorkflow = busy ? [...turnWorkflows].reverse().find(flow => flow.status === 'running') : undefined;
   const latestWorkflow = runningWorkflow ?? workflows.at(-1);
   const currentTurnWorkflow = runningWorkflow ?? turnWorkflows.at(-1);

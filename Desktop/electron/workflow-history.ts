@@ -1,17 +1,65 @@
-import { open, realpath } from 'node:fs/promises';
+import { open, realpath, mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
 import { join, relative, isAbsolute } from 'node:path';
 import type { Message } from '../src/contracts';
 import { projectWorkflow, preserveWorkflow } from '../src/workflow-state';
+import type { RuntimeEvent } from '../src/contracts';
+
+type Binding = { runId: string; startedAt: number };
+export class WorkflowBindings {
+  private writes = new Map<string, Promise<void>>();
+  constructor(private directory: string, private report: (error: unknown) => void = () => {}) {}
+  private file(sessionId: string) { return join(this.directory, createHash('sha256').update(sessionId).digest('hex') + '.json'); }
+  async load(sessionId: string): Promise<Record<string, Binding>> {
+    await this.writes.get(sessionId);
+    try {
+      const data = JSON.parse(await readFile(this.file(sessionId), 'utf8'));
+      return data.sessionId === sessionId && data.bindings && typeof data.bindings === 'object' ? data.bindings : {};
+    } catch { return {}; }
+  }
+  event(sessionId: string | undefined, event: RuntimeEvent) {
+    if (!sessionId || event.toolName !== 'workflow' || typeof event.toolCallId !== 'string'
+      || !['tool_execution_update', 'tool_execution_end'].includes(event.type)) return;
+    const value = event.type === 'tool_execution_update' ? event.partialResult : event.result;
+    const flow = projectWorkflow(value?.details, event.toolCallId);
+    if (!flow?.runId || flow.startedAt === undefined) return;
+    const callId = event.toolCallId;
+    const previous = this.writes.get(sessionId) ?? Promise.resolve();
+    const writing = previous.then(async () => {
+      let bindings: Record<string, Binding> = {};
+      try {
+        const data = JSON.parse(await readFile(this.file(sessionId), 'utf8'));
+        if (data.sessionId === sessionId) bindings = data.bindings ?? {};
+      } catch {}
+      if (Object.hasOwn(bindings, callId) && bindings[callId].runId === flow.runId
+        && bindings[callId].startedAt === flow.startedAt) return;
+      // IDs are data, not object prototype setters; only the most recent bounded catalog is retained.
+      const entries = new Map(Object.entries(bindings));
+      entries.set(callId, { runId: flow.runId!, startedAt: flow.startedAt! });
+      await mkdir(this.directory, { recursive: true });
+      const temporary = this.file(sessionId) + '.' + randomUUID() + '.tmp';
+      try {
+        await writeFile(temporary, JSON.stringify({ sessionId, bindings: Object.fromEntries([...entries].slice(-2000)) }), 'utf8');
+        await rename(temporary, this.file(sessionId));
+      } finally { await rm(temporary, { force: true }).catch(() => {}); }
+    }).catch(error => this.report(error));
+    this.writes.set(sessionId, writing);
+    void writing.finally(() => { if (this.writes.get(sessionId) === writing) this.writes.delete(sessionId); });
+  }
+}
 
 /** Read only the bounded, runtime-owned progress file; never follow result scriptPath. */
-export async function hydrateWorkflowHistory(cwd: string, messages: Message[]): Promise<Message[]> {
+export async function hydrateWorkflowHistory(cwd: string, messages: Message[], bindings: Record<string, Binding> = {}): Promise<Message[]> {
   return Promise.all(messages.map(async message => {
     if (message.role !== 'toolResult' || message.toolName !== 'workflow' || !message.toolCallId) return message;
     const current = projectWorkflow(message.details, message.toolCallId);
-    if (!current?.runId) return message;
+    const binding = Object.hasOwn(bindings, message.toolCallId) ? bindings[message.toolCallId] : undefined;
+    const identity = current ?? (binding && projectWorkflow({ schemaVersion: 1, status: 'running',
+      runId: binding.runId, startedAt: binding.startedAt }, message.toolCallId));
+    if (!identity?.runId) return message;
     try {
       const root = await realpath(cwd);
-      const file = await realpath(join(root, '.stepcode', 'workflows', 'runs', current.runId, 'progress.json'));
+      const file = await realpath(join(root, '.stepcode', 'workflows', 'runs', identity.runId, 'progress.json'));
       const rel = relative(root, file);
       if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..\\`) || rel.startsWith('../')) return message;
       const handle = await open(file, 'r');
@@ -22,7 +70,9 @@ export async function hydrateWorkflowHistory(cwd: string, messages: Message[]): 
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
         if (bytesRead > 1024 * 1024) return message;
         const saved = projectWorkflow(JSON.parse(buffer.subarray(0, bytesRead).toString('utf8')), message.toolCallId);
-        if (saved?.runId !== current.runId || (current.startedAt !== undefined && saved.startedAt !== current.startedAt)) return message;
+        if (saved?.runId !== identity.runId || (identity.startedAt !== undefined && saved.startedAt !== identity.startedAt)) return message;
+        // An error without structured details cannot replace a bound terminal progress state.
+        if (!current && saved.status !== 'running') return { ...message, desktopWorkflow: saved };
         return preserveWorkflow({ ...message, desktopWorkflow: saved }, message);
       } finally { await handle.close(); }
     } catch { return preserveWorkflow(undefined, message); }

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { currentTurnWorkflows, projectWorkflow, workflowsFromMessages } from '../src/workflow-state';
 import { applyToolResult, applyMessageEvent } from '../src/message-events';
-import { hydrateWorkflowHistory } from '../electron/workflow-history';
+import { hydrateWorkflowHistory, WorkflowBindings } from '../electron/workflow-history';
 import type { Message } from '../src/contracts';
 
 const progress = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: 'running', startedAt: 100,
@@ -16,13 +16,26 @@ const progress = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: '
 const final = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: 'completed', startedAt: 100,
   finishedAt: 200, agentCalls: 2, spentTokens: 50 };
 
+test('idle orphan workflow calls are unknown rather than spinning after a crash', () => {
+  const messages: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'orphan' }] }];
+  assert.equal(workflowsFromMessages(messages, true)[0].status, 'running');
+  assert.equal(workflowsFromMessages(messages, false)[0].status, 'unknown');
+  assert.equal(currentTurnWorkflows(messages, false)[0].status, 'unknown');
+  const partial: Message[] = [...messages, { role: 'toolResult', content: '', toolName: 'workflow', toolCallId: 'orphan', details: progress }];
+  assert.deepEqual(workflowsFromMessages(partial, false)[0].agents.map(agent => agent.status), ['unknown', 'unknown']);
+  assert.equal(workflowsFromMessages(partial, true)[0].status, 'running');
+  assert.equal(progress.agents[0].status, 'running');
+  partial.push({ role: 'user', content: 'next turn' }, { role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'new' }] });
+  assert.deepEqual(workflowsFromMessages(partial, true).map(flow => flow.status), ['unknown', 'running']);
+});
+
 test('current turn excludes unfinished historical workflows without removing history', () => {
   const messages: Message[] = [
     { role: 'user', content: 'old turn' },
     { role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'stale' }] },
     { role: 'user', content: 'unrelated next turn' },
   ];
-  assert.equal(workflowsFromMessages(messages)[0].status, 'running');
+  assert.equal(workflowsFromMessages(messages)[0].status, 'unknown');
   assert.deepEqual(currentTurnWorkflows(messages), []);
   messages.push({ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'new' }] });
   assert.deepEqual(currentTurnWorkflows(messages).map(flow => flow.toolCallId), ['new']);
@@ -100,5 +113,32 @@ test('history reads only bounded progress inside the session workspace and binds
     assert.equal((await hydrateWorkflowHistory(root, [message]))[0].desktopWorkflow, undefined);
     await writeFile(join(directory, 'progress.json'), 'broken json');
     assert.equal((await hydrateWorkflowHistory(root, [message]))[0].desktopWorkflow?.agents.length, 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('persisted call bindings recover interruption without matching error prose or another session', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'workflow-binding-'));
+  try {
+    const directory = join(root, '.stepcode', 'workflows', 'runs', 'wf_test');
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'progress.json'), JSON.stringify({ ...progress, status: 'aborted',
+      agents: [{ ...progress.agents[0], status: 'completed' }, { ...progress.agents[1], status: 'aborted' }] }));
+    const store = new WorkflowBindings(join(root, 'bindings'));
+    store.event('parent', { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'call', partialResult: { details: progress } });
+    const binding = await store.load('parent');
+    const reopened = new WorkflowBindings(join(root, 'bindings'));
+    assert.deepEqual(await reopened.load('parent'), binding);
+    const message: Message = { role: 'toolResult', toolName: 'workflow', toolCallId: 'call', content: 'unstructured error', isError: true, details: {} };
+    const hydrated = await hydrateWorkflowHistory(root, [message], binding);
+    assert.equal(hydrated[0].desktopWorkflow?.status, 'aborted');
+    assert.deepEqual(hydrated[0].desktopWorkflow?.agents.map(agent => agent.status), ['completed', 'aborted']);
+    assert.equal(hydrated[0].isError, true);
+    assert.equal(message.desktopWorkflow, undefined);
+    assert.equal((await hydrateWorkflowHistory(root, [message], await store.load('other-session')))[0].desktopWorkflow, undefined);
+    assert.equal((await hydrateWorkflowHistory(root, [{ ...message, toolCallId: 'other-call' }], binding))[0].desktopWorkflow, undefined);
+    await writeFile(join(directory, 'progress.json'), JSON.stringify({ ...progress, status: 'failed' }));
+    assert.equal((await hydrateWorkflowHistory(root, [message], binding))[0].desktopWorkflow?.status, 'failed');
+    await writeFile(join(directory, 'progress.json'), JSON.stringify({ ...progress, startedAt: 999, status: 'aborted' }));
+    assert.equal((await hydrateWorkflowHistory(root, [message], binding))[0].desktopWorkflow, undefined);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

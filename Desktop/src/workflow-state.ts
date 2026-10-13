@@ -62,7 +62,10 @@ export function preserveWorkflow(previous: Message | undefined, next: Message): 
   } };
 }
 
-export function workflowsFromMessages(messages: Message[]): WorkflowState[] {
+export function workflowsFromMessages(messages: Message[], active = true): WorkflowState[] {
+  const lastUser = messages.reduce((last, message, index) => isUserMessage(message) ? index : last, -1);
+  const activeCalls = new Set(messages.slice(lastUser + 1).flatMap(message => Array.isArray(message.content)
+    ? message.content.filter(block => block.type === 'toolCall' && block.name === 'workflow').map(block => block.id) : []));
   const results = new Map(messages.filter(m => m.role === 'toolResult' && m.toolCallId).map(m => [m.toolCallId!, m]));
   const flows = new Map<string, WorkflowState>();
   for (const message of messages) {
@@ -80,7 +83,9 @@ export function workflowsFromMessages(messages: Message[]): WorkflowState[] {
       if (state) flows.set(message.toolCallId, state);
     }
   }
-  return [...flows.values()];
+  return [...flows.values()].map(flow => (!active || !activeCalls.has(flow.toolCallId)) && flow.status === 'running'
+    ? { ...flow, status: 'unknown' as const, agents: flow.agents.map(agent => agent.status === 'running' || agent.status === 'queued'
+      ? { ...agent, status: 'unknown' as const } : agent) } : flow);
 }
 
 export function workflowIcon(status: WorkflowState['status'] | WorkflowAgent['status']) {
@@ -88,9 +93,9 @@ export function workflowIcon(status: WorkflowState['status'] | WorkflowAgent['st
     : status === 'aborted' ? 'stopped' : status === 'queued' || status === 'unknown' ? 'pending' : 'failed';
 }
 
-export function currentTurnWorkflows(messages: Message[]): WorkflowState[] {
+export function currentTurnWorkflows(messages: Message[], active = true): WorkflowState[] {
   const lastUser = messages.reduce((last, message, index) => isUserMessage(message) ? index : last, -1);
-  return workflowsFromMessages(messages.slice(lastUser + 1));
+  return workflowsFromMessages(messages.slice(lastUser + 1), active);
 }
 export function workflowCount(flow: WorkflowState) {
   const done = flow.agents.filter(a => a.status === 'completed' || a.status === 'cached').length;

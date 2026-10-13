@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { SessionRuntimes } from '../electron/session-runtimes';
-import { isolatedEnvironment } from '../electron/runtime';
+import { isolatedEnvironment, runtimeNodePath } from '../electron/runtime';
 import { PendingMessages, promptNeedsQueue } from '../electron/pending-messages';
 
 const oldText = 'obsolete successful observation; no new failure\n'.repeat(3500);
@@ -126,7 +126,7 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
     }, undefined, {
       launch: () => ({ env: {}, args: ['--desktop-plan-review'] }),
     });
-    const node = resolve('runtime/node/node.exe');
+    const node = runtimeNodePath(resolve('runtime'));
     const step = resolve('runtime/step/dist/bundle/step.js');
     const env = isolatedEnvironment(profile);
     const waitFor = async (condition: () => boolean, label: string) => {

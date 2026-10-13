@@ -154,7 +154,8 @@ export class AppUpdates {
   private results = new Map<UpdateChannel, AppUpdateState>();
   private blockedUntil = 0;
   constructor(currentVersion: string, private request: (url: string, options: RequestInit) => Promise<Response>,
-    private changed: (state: AppUpdateState) => void, private now = Date.now, private timeout = 15_000) {
+    private changed: (state: AppUpdateState) => void, private now = Date.now, private timeout = 15_000,
+    private platform = process.platform) {
     this.state = { currentVersion, channel: 'preview', status: 'idle' };
   }
   snapshot(): AppUpdateState { return structuredClone(this.state); }
@@ -222,6 +223,9 @@ export class AppUpdates {
           catch (error) { if (error instanceof UpdateFailure) throw error; throw new UpdateFailure('invalid-response'); }
           release = parseUpdateManifest(manifest, channel);
         }
+        // The current feed describes Windows installers. Keep release discovery
+        // on Linux, but never offer an executable for the wrong operating system.
+        if (release && this.platform !== 'win32') delete release.installer;
         if (revision === this.revision) this.publish({
           currentVersion, channel, checkedAt: this.now(), source, updateAvailable: Boolean(release && gt(release.version, currentVersion)),
           status: !release ? 'no-release' : gt(release.version, currentVersion) ? 'available' : 'current', release,

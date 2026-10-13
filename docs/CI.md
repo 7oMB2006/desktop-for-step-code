@@ -109,3 +109,19 @@ must each install/build/stage independently. The local build produced about
 6.6 MiB in `Desktop/dist` and 16.7 MiB of reports/screenshots in
 `Desktop/test-results`. No installer, shortcut change, upstream source edit,
 publication or cleanup of existing packages was performed.
+
+## Experimental Linux x64 integration
+
+Code changes also run the Linux x64 job on Ubuntu 22.04. It installs pinned
+runtime dependencies, builds/stages the real runtime, runs typecheck and all
+protocol tests, builds Desktop, runs sandboxed Xvfb acceptance, creates a portable
+archive, and repeats acceptance against the unpacked package. It runs beside the
+three Windows groups; their existing inventory, completion outputs, and isolation
+are preserved. The strict final gate requires all three Windows groups and Linux
+to succeed, or requires every integration job to be skipped for documentation-only
+changes. Missing or unexpected jobs cannot pass.
+
+Linux acceptance uses a local deterministic provider and disposable profile.
+It does not disable sandboxing or change OS security settings, and does not
+qualify real account login, every Linux desktop, or public release readiness.
+See [LINUX.md](LINUX.md) for platform behavior and actual verification boundaries.

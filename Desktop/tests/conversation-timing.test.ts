@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 import { SessionRuntimes } from '../electron/session-runtimes';
-import { isolatedEnvironment } from '../electron/runtime';
+import { runtimeNodePath, isolatedEnvironment } from '../electron/runtime';
 import { ConversationTiming } from '../electron/conversation-timing';
 import type { SessionRuntime } from '../electron/session-runtimes';
 import type { RuntimeEvent } from '../src/contracts';
@@ -157,7 +157,7 @@ test('real RPC thinking events retain timing through authoritative messages and 
     messages: (worker, messages) => timing.decorate(worker.state!.sessionId!, messages),
   });
   try {
-    const target = await runtimes.open(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), root,
+    const target = await runtimes.open(runtimeNodePath(resolve('runtime')), resolve('runtime/step/dist/bundle/step.js'), root,
       { ...isolatedEnvironment(profile), STEPCODE_CONFIG_PATH: config });
     await target.rpc.request('prompt', { message: 'Acknowledge the fixture.' });
     const deadline = Date.now() + 15000;

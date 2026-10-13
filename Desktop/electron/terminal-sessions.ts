@@ -1,12 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TerminalEvent, TerminalInfo, TerminalSnapshot } from '../src/contracts';
-import { terminalEnvironment, terminalInput, terminalSize } from './terminal-policy';
+import { terminalEnvironment, terminalInput, terminalSize, terminalShell } from './terminal-policy';
+import { runtimePathKey, terminateLinuxProcessTree, terminateLinuxProcessSession, type LinuxProcessSession } from './runtime';
 
-type Entry = { info: TerminalInfo; chunks: { seq: number; data: string }[]; bytes: number; seq: number; child?: ChildProcess; cancel?: () => void; closing?: Promise<void> };
-const key = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+type Entry = { info: TerminalInfo; chunks: { seq: number; data: string }[]; bytes: number; seq: number; child?: ChildProcess; linuxSession?: LinuxProcessSession; cancel?: () => void; closing?: Promise<void> };
+const key = runtimePathKey;
 
 function taskkill(pid: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -19,10 +19,11 @@ function taskkill(pid: number): Promise<boolean> {
   });
 }
 
-export async function terminateTerminalHost(child: ChildProcess, killTree = taskkill, timeout = 3000) {
+export async function terminateTerminalHost(child: ChildProcess,
+  killTree = process.platform === 'linux' ? terminateLinuxProcessTree : taskkill, timeout = 3000) {
   const exited = () => child.exitCode !== null || child.signalCode !== null;
   if (!child.pid || exited()) return;
-  // A successful taskkill invocation is not itself confirmation that the host exited.
+  // A successful termination request is not itself confirmation that the host exited.
   const stopped = new Promise<boolean>(resolve => {
     const finish = (success: boolean) => {
       clearTimeout(timer); child.removeListener('exit', onExit); resolve(success);
@@ -54,9 +55,8 @@ export class TerminalSessions {
     const directory = key(cwd);
     const number = (this.numbers.get(directory) ?? 0) + 1;
     this.numbers.set(directory, number);
-    const pwsh = join(process.env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe');
-    const shell = existsSync(pwsh) ? pwsh : join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    const entry: Entry = { info: { id: randomUUID(), cwd, title: `PowerShell ${number}`, status: 'starting', cols, rows }, chunks: [], bytes: 0, seq: 0 };
+    const shell = terminalShell();
+    const entry: Entry = { info: { id: randomUUID(), cwd, title: `${shell.title} ${number}`, status: 'starting', cols, rows }, chunks: [], bytes: 0, seq: 0 };
     this.entries.set(entry.info.id, entry);
     const child = spawn(this.node, [this.host], { cwd, env: terminalEnvironment(process.env),
       windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
@@ -78,6 +78,10 @@ export class TerminalSessions {
       child.on('message', (message: any) => {
         if (entry.child !== child || entry.closing) return;
         if (message.type === 'ready') {
+          if (process.platform === 'linux' && Number.isSafeInteger(message.linuxSession?.leader)
+            && message.linuxSession.leader > 1 && typeof message.linuxSession.started === 'string' && /^\d+$/.test(message.linuxSession.started)) {
+            entry.linuxSession = { leader: message.linuxSession.leader, started: message.linuxSession.started };
+          }
           entry.info.status = 'running';
           child.send({ type: 'resize', cols: entry.info.cols, rows: entry.info.rows });
           this.emit({ type: 'state', terminal: { ...entry.info } });
@@ -90,6 +94,8 @@ export class TerminalSessions {
             entry.bytes -= Buffer.byteLength(entry.chunks.shift()!.data);
           this.emit({ type: 'data', id: entry.info.id, seq: message.seq, data: message.data });
         } else if (message.type === 'exit') {
+          // The real host reports exit only after cleaning the captured session.
+          entry.linuxSession = undefined;
           entry.info.status = 'exited'; entry.info.exitCode = Number.isInteger(message.exitCode) ? message.exitCode : undefined;
           this.emit({ type: 'state', terminal: { ...entry.info } });
         } else if (message.type === 'failed') fail();
@@ -101,7 +107,7 @@ export class TerminalSessions {
         if (!entry.closing && entry.info.status !== 'exited') fail();
         entry.child = undefined;
       });
-      child.send({ type: 'start', shell, cwd, cols, rows });
+      child.send({ type: 'start', shell: shell.file, args: shell.args, cwd, cols, rows });
     });
   }
   private require(id: string) {
@@ -144,8 +150,14 @@ export class TerminalSessions {
     entry.cancel?.();
     entry.cancel = undefined;
     const child = entry.child;
-    if (!child) return;
-    await this.terminate(child);
+    if (child) await this.terminate(child);
+    // A forced host shutdown may race the shell's natural-exit cleanup. Keep
+    // ownership here until session members are confirmed gone, even if the
+    // host already exited and its child processes were reparented to init.
+    if (entry.linuxSession) {
+      if (!(await terminateLinuxProcessSession(entry.linuxSession))) throw new Error('Could not stop terminal jobs');
+      entry.linuxSession = undefined;
+    }
     entry.child = undefined;
   }
   async stopAll() {

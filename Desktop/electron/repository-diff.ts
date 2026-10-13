@@ -1,3 +1,4 @@
+import { runtimePathKey } from './runtime';
 import { execFile } from 'node:child_process';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -55,7 +56,7 @@ async function regularPath(root: string, path: string) {
     current = join(current, part);
     if ((await lstat(current)).isSymbolicLink()) throw new Error('Unsupported file');
   }
-  if (!(await lstat(target)).isFile() || resolve(await realpath(target)).toLowerCase() !== target.toLowerCase())
+  if (!(await lstat(target)).isFile() || runtimePathKey(resolve(await realpath(target))) !== runtimePathKey(target))
     throw new Error('Unsupported file');
   return target;
 }

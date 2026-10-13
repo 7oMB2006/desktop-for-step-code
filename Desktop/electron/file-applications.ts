@@ -3,7 +3,23 @@ import { join } from 'node:path';
 import type { FileDestination } from '../src/contracts';
 
 const cache = new Map<string, Promise<FileDestination[]>>();
+export function assertFileAssociationSupport(platform: string = process.platform): void {
+  if (platform !== 'win32') throw new Error('Choosing a specific application is only available on Windows');
+}
+
+export async function externalFileDestinations(script: string, extension: string, language: string,
+  platform: string = process.platform, list = fileApplications): Promise<FileDestination[]> {
+  const zh = language === 'zh';
+  const choices: FileDestination[] = [{ id: 'system', label: zh ? '系统默认应用' : 'System default app' }];
+  if (platform === 'win32') {
+    choices.push(...await list(script, extension));
+    choices.push({ id: 'other', label: zh ? '选择其他应用…' : 'Choose another app…' });
+  }
+  return choices;
+}
+
 export function associationRequest(script: string, request: object, timeout = 15000): Promise<unknown> {
+  if (process.platform !== 'win32') return Promise.reject(new Error('Choosing a specific application is only available on Windows'));
   const env: NodeJS.ProcessEnv = {};
   for (const name of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP'])
     for (const key of Object.keys(process.env)) if (key.toLowerCase() === name.toLowerCase()) env[key] = process.env[key];

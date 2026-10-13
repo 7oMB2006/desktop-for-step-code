@@ -2,9 +2,9 @@
 
 ## Project Boundary
 
-- This repository contains the Windows desktop client in `Desktop/`.
+- This repository contains the desktop client in `Desktop/`; Windows is the published target and Linux x64 is an experimental native-build target.
 - `Step-Code/` is a separate upstream checkout and is intentionally excluded from this repository.
-- Keep the first release boundary at Windows Desktop plus the Windows Step Code runtime. WSL support is a later compatibility target, not a current dependency.
+- Preserve the Windows release boundary and behavior. Linux work follows `docs/LINUX.md` and must preserve renderer sandboxing and fail-closed credential storage. WSL is not a current dependency.
 - Preserve changes already present in the Step Code checkout. Do not edit it unless an integration need requires a narrowly scoped change.
 
 ## Runtime Boundary

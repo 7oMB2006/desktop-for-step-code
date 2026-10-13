@@ -1,5 +1,138 @@
 # Verification
 
+## Experimental Linux x64 port (2026-10-13)
+
+### Sign-in storage preflight follow-up
+
+Native account QA found that the selected `gnome_libsecret` backend could report
+encryption unavailable while Account settings still offered browser sign-in.
+The old login flow requested authorization before checking whether the resulting
+credential could be saved. No real OAuth request was made to reproduce this gap.
+
+Linux Account settings now requires an explicit secure-storage check, with
+Chinese/English status and recovery guidance. Opening settings does not probe
+the keyring, since a readiness call may open a blocking native unlock/setup
+dialog. The main process checks again immediately before OAuth; credential
+saving retains its independent fail-closed checks. Windows login is unchanged.
+
+All 431 Desktop tests, typecheck and production build passed locally. Coverage
+includes no login callback for unavailable/insecure backends, uncached readiness,
+loss of the keyring during login, encryption failure without overwriting a vault,
+localized account status and the unchanged Windows UI. CI policy/runner checks
+passed 11 tests, with one Windows-only test skipped. The real RPC-only fixture
+passed its file tool, reply, history restart and two clean runtime exits.
+
+A separate guarded unpacked Linux QA build was checked against all 94 dist files
+and 1,181 runtime/terminal files. On the supported native Xfce desktop, QA passed
+the Chinese initial gate, disabled Login, explicit unavailable result/retry,
+Settings close/reopen, English guidance, account-region switching, clean quit
+and restart. Restart preserved the language but reset readiness to unchecked.
+No automatic keyring prompt, authorization tab, account vault or model request
+was created. The sampled renderer retained `NoNewPrivs=1` and `Seccomp=2`; sampled
+owned processes had no disabled-sandbox flags. This native desktop is distinct
+from the shell executor's earlier socket-restricted launch environment.
+
+This follow-up is local validation, not a new remote CI pass. A configured,
+unlocked real keyring, actual OAuth, credential persistence across real login,
+and real-model acceptance remain unverified. Native wallet setup was cancelled
+without entering credentials; the app does not auto-configure a keyring.
+
+### PR #106 review follow-up
+
+The review follow-up clears logically empty Linux credential vaults without
+requiring a keyring, while preserving nonempty fail-closed and Windows DPAPI
+behavior. Renderer workspace, archive and file-preview identity now uses the
+shared platform key, preserving Linux case, literal backslashes and `/`.
+Linux opening choices retain internal/system handlers and reject Windows-only
+application-picker requests at IPC and helper boundaries. Update presentation
+identifies Linux and explains that the current feed offers Windows installers.
+
+Combined typecheck, production build and all 413 Desktop tests passed locally,
+with no skips. CI policy/inventory/runner checks passed 11 tests, with the
+Windows-only process-cancellation check skipped. The real runtime-only fixture
+again passed its tool call, history restart, three provider requests and two
+clean exits. New GUI acceptance covers renderer workspace rename/pin/grouping,
+archives/filter/restore/reload, file-opening policy and update presentation;
+those added GUI checks require the next remote CI run.
+
+Subsequently, final remote head `cbe3a666ecbed5f6bd5d8044e99c024e09587943`
+passed [PR CI #203](https://github.com/7oMB2006/desktop-for-step-code/actions/runs/38365796354):
+the Linux job, all three Windows groups and the strict result gate succeeded.
+Linux source and packaged Xvfb acceptance passed with the renderer sandbox,
+real runtime/local provider, native PTY, history restart and new workspace and
+platform UI regressions. That pass covers the review follow-up, but not the
+subsequent sign-in preflight change above.
+
+Earlier PR #106 run `38362262011` at `2e4d158` passed the full Linux job,
+including sandboxed source and packaged Electron acceptance, native PTY,
+history restart and portable archive creation. Its runtime-process detector was
+corrected for the pinned Step CLI's `process.title = 'step'`, retaining descendant
+ownership, executable identity and process-generation checks. That earlier
+Linux result does not validate the subsequent review follow-up or establish an
+all-platform pass for its final commit. Release gates below still apply.
+
+### Publication integration with PR #105
+
+The publication branch was subsequently reconciled onto main
+`c71546339eb671b6606ed656847c0bdfa51249bf` (PR #105). Its CLM changes and both
+new session acceptance scripts are retained, bringing Windows coverage to 43
+checks with the original groups and timeouts. The new CLM runtime fixture uses
+`runtimeNodePath` so it selects the native staged Node on Windows and Linux.
+
+The combined source passed typecheck, all 393 Desktop tests without skips, the
+production build, and 11 CI policy/inventory/runner checks; the Windows-only
+process-cancellation check remains skipped on this Linux host. The earlier
+archive below was built before PR #105 and is not an artifact of this combined
+source. Full GUI, packaged acceptance and Windows behavior for this revision
+remain subject to remote CI and the separate release gates below.
+
+### Initial local verification on PR #104
+
+Initial source baseline was `45ff68e4884ffb3dbb5fdd27788986350a1d35ec`
+(PR #103, after the public v0.3.0 tag). Local port baseline `0e7dffd` is
+retained. Integration was then reconciled onto main
+`0bb02725e9710b7d7ff81af7eede7cd5f5b3c029` (PR #104), preserving all 41
+Windows acceptance scripts, their three groups, runner, timeouts and required
+completion outputs. Linux is a separate required integration job.
+The packaged application source is local commit `e936947`.
+
+Verified on Debian 13.6 x64 with Node v24.19.0 and pnpm 9.15.9:
+
+- Frozen dependency installation, native node-pty compilation, pinned upstream
+  `build:offline`, exact-patch guarded staging, Desktop typecheck and build passed.
+- All 372 Desktop tests passed, with no skips. CI policy/inventory/runner tests
+  passed 11 checks; the Windows-only process-cancellation test was skipped.
+- Actual native PTYs passed shell output and lifecycle tests, including resistant
+  foreground/background jobs, setsid descendants, natural shell exit, concurrent
+  close, parent IPC disconnect, PID-generation protection and unrelated-process
+  preservation. Case-sensitive workspaces/files and fail-closed keyring behavior
+  have regression coverage. Keyring coverage uses mocks, not an actual keyring.
+- The source-staged and packaged real Step Code runtimes each passed the isolated
+  local-provider fixture: a real file-read tool call, reply, persisted JSONL
+  history restored by a fresh runtime, three provider requests and two clean
+  runtime exits. This is deterministic provider evidence, not real-model quality
+  or real-account acceptance.
+- The packaged standalone Node and native PTY produced output and exited normally.
+  Packaged main bundle, runtime manifest/Node/bundle/helpers and terminal host/
+  native module hashes match their built/staged sources.
+- `package:linux` and the actual beforePack guard passed. The portable tar.gz
+  passed gzip integrity and archive-content checks; expected Electron, Node and
+  native PTY files are present, and no resource symlinks point to the build tree.
+
+Archive: `Desktop-for-Step-Code-0.3.0-linux-x64.tar.gz`, 178,561,919 bytes.
+SHA-256: `6e496af9b83cf5a0664572acd96150d0d9f02e8d6d9149d7381f4a556c54cee5`.
+
+GUI acceptance is blocked on this cloud host. Xorg cannot create its Unix sockets;
+the final Electron acceptance attempted the supported Ozone headless backend and
+failed in `process_singleton_posix.cc` with `socket() failed: Operation not
+permitted`. No disabled-sandbox flag or OS security change was used. This does
+not establish GUI startup, renderer sandbox execution, tray/desktop integration,
+X11/Wayland, keyring login, real-account/provider behavior, Windows native
+regressions or remote CI success. Linux CI is prepared but was not published/run.
+No push, PR, merge, release or deployment was performed. See [LINUX.md](LINUX.md)
+for build instructions and the intentionally-daemonized process cleanup limit.
+
+
 ## Windows command integration acceptance (2026-10-13)
 
 Based on main `8b35512` (including merged PR #105), the new

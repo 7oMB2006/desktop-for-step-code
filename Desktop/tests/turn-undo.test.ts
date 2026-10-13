@@ -94,3 +94,17 @@ test('linked files and directory junctions cannot be undone', async () => {
   await symlink(external, join(cwd, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(store.capture('s', cwd, edit('linked/a', 'old\n', 'new\n', 'linked')), /Linked/);
 });
+
+
+test('Linux undo records cannot cross case-distinct workspace roots', { skip: process.platform !== 'linux' }, async () => {
+  const { cwd, dir, store } = await setup();
+  const other = join(dir, 'Workspace');
+  await mkdir(other);
+  const items = edit('a', 'old\n', 'new\n', 'case-sensitive');
+  await writeFile(join(cwd, 'a'), 'new\n');
+  await writeFile(join(other, 'a'), 'new\n');
+  await store.capture('same-session', cwd, items);
+  assert.equal((await store.status('same-session', cwd, items)).state, 'available');
+  assert.equal((await store.status('same-session', other, items)).state, 'unavailable');
+  assert.equal(await readFile(join(other, 'a'), 'utf8'), 'new\n');
+});

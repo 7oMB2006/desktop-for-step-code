@@ -77,7 +77,7 @@ test('checks coalesce, throttle requests and reject arbitrary open targets', asy
     assert.equal(options.redirect, 'error');
     assert.equal((options.headers as Record<string, string>).Authorization, undefined);
     return response([release('0.2.0')]);
-  }, state => states.push(state), () => now);
+  }, state => states.push(state), () => now, 15_000, 'win32');
   assert.equal(updates.openTarget('release'), RELEASES_URL);
   assert.throws(() => updates.openTarget('download'));
   assert.throws(() => updates.openTarget('https://evil.com'));
@@ -201,7 +201,7 @@ test('confirmed update remains visible during checks and transient errors, but c
   const updates = new AppUpdates('0.1.0', async () => {
     if (fail) throw new Error('offline');
     return response([release(now === 1000 ? '0.2.0' : '0.1.0')]);
-  }, state => states.push(state), () => now);
+  }, state => states.push(state), () => now, 15_000, 'win32');
   assert.equal((await updates.check()).updateAvailable, true);
   now += 60_001;
   fail = true;
@@ -259,4 +259,15 @@ test('update preferences validate IPC input without accepting coercions', () => 
   assert.deepEqual(updatePreferences({ updateChannel: 'stable', autoCheckUpdates: false }), { updateChannel: 'stable', autoCheckUpdates: false });
   for (const value of ['yes', 1, null, {}]) assert.throws(() => updatePreferences({ autoCheckUpdates: value }));
   for (const value of ['nightly', true, null, {}]) assert.throws(() => updatePreferences({ updateChannel: value }));
+});
+
+test('Linux release discovery never offers the Windows installer', async () => {
+  const updates = new AppUpdates('0.1.0', async () => response([release('0.2.0')]),
+    () => {}, Date.now, 15_000, 'linux');
+  const result = await updates.check();
+  assert.equal(result.status, 'available');
+  assert.equal(result.release?.version, '0.2.0');
+  assert.equal(result.release?.installer, undefined);
+  assert.equal(updates.openTarget('release'), `${RELEASES_URL}/tag/v0.2.0`);
+  assert.throws(() => updates.openTarget('download'), /No verified update download/);
 });

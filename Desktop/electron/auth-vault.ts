@@ -5,7 +5,16 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 type AuthData = Record<string, unknown>;
-type SafeStorageLike = Pick<typeof safeStorageType, 'isEncryptionAvailable' | 'encryptString' | 'decryptString'>;
+type SafeStorageLike = Pick<typeof safeStorageType, 'isEncryptionAvailable' | 'encryptString' | 'decryptString'>
+  & Partial<Pick<typeof safeStorageType, 'getSelectedStorageBackend'>>;
+const LINUX_KEYRINGS = new Set(['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6']);
+
+export class CredentialStorageUnavailableError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'CredentialStorageUnavailableError';
+  }
+}
 
 async function optionalFile(path: string): Promise<Buffer | undefined> {
   try { return await readFile(path); }
@@ -54,7 +63,9 @@ export class AuthVault {
 
   // The optional storage parameter keeps the vault unit-testable outside
   // Electron; production always passes Electron safeStorage resolved here.
-  constructor(root: string, storage?: SafeStorageLike) {
+  constructor(root: string, storage?: SafeStorageLike, private readonly platform: NodeJS.Platform = process.platform) {
+    // Keep the original filename on every platform; the bytes belong to the
+    // current OS safeStorage backend, not necessarily Windows DPAPI.
     this.path = join(root, 'auth.dpapi');
     this.legacyPath = join(root, 'auth.json');
     this.retiredPath = join(root, 'legacy-auth.json');
@@ -65,13 +76,41 @@ export class AuthVault {
     if (this.storage) return this.storage;
     const electron = await import('electron');
     const safeStorage = (electron as { safeStorage?: SafeStorageLike }).safeStorage;
-    if (!safeStorage) throw new Error('Windows credential protection is unavailable');
+    if (!safeStorage) throw this.unavailable();
     return safeStorage;
   }
 
+  private unavailable() {
+    return new CredentialStorageUnavailableError(this.platform === 'linux'
+      ? 'Secure credential storage is unavailable. Unlock or configure GNOME Keyring or KWallet and restart the app.'
+      : 'Secure credential storage is unavailable');
+  }
+
+  private async secureBackend(): Promise<SafeStorageLike> {
+    const storage = await this.backend();
+    if (!storage.isEncryptionAvailable()) throw this.unavailable();
+    // Electron can report encryption available while using a hard-coded
+    // password on Linux. Never accept that basic_text fallback.
+    if (this.platform === 'linux' && !LINUX_KEYRINGS.has(storage.getSelectedStorageBackend?.() ?? 'unknown')) {
+      throw this.unavailable();
+    }
+    return storage;
+  }
+
+  // Query only backend readiness, without reading, writing or encrypting any
+  // credentials. Electron may prompt to initialize/unlock the native wallet,
+  // so callers must use an explicit user action rather than background polling.
+  // This is a point-in-time check, not a guarantee that a later save will work.
+  async availability(): Promise<boolean> {
+    try { await this.assertAvailable(); return true; }
+    catch { return false; }
+  }
+
+  async assertAvailable(): Promise<void> {
+    await this.secureBackend();
+  }
+
   async load(): Promise<AuthData> {
-    const safeStorage = await this.backend();
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential protection is unavailable');
     const retired = await optionalFile(this.retiredPath);
     if (retired) {
       if (Object.keys(parseAuth(retired.toString('utf8'))).length !== 0) {
@@ -81,6 +120,13 @@ export class AuthVault {
     }
     const encrypted = await optionalFile(this.path);
     const legacy = await optionalAuthData(this.legacyPath);
+    // A desktop without an unlocked keyring may open an empty profile, but
+    // must never read or persist credentials through an insecure backend.
+    if (this.platform === 'linux' && !encrypted && (!legacy || legacy.empty)) {
+      if (legacy) await unlink(this.legacyPath);
+      return {};
+    }
+    const safeStorage = await this.secureBackend();
     if (encrypted) {
       let data: AuthData;
       try { data = parseAuth(safeStorage.decryptString(encrypted)); }
@@ -105,12 +151,19 @@ export class AuthVault {
   }
 
   async save(data: AuthData): Promise<void> {
-    const safeStorage = await this.backend();
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential protection is unavailable');
+    // Logout or removal of the last provider must restore an empty Linux
+    // profile, which can launch without an unlocked keyring. Do not encrypt
+    // an empty store or require the backend just to remove saved credentials.
+    if (this.platform === 'linux' && isEmptyAuthData(data)) {
+      try { await unlink(this.path); }
+      catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+      return;
+    }
+    const safeStorage = await this.secureBackend();
     const encrypted = safeStorage.encryptString(JSON.stringify(data));
     const temp = `${this.path}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temp, encrypted, { flag: 'wx' });
+      await writeFile(temp, encrypted, { flag: 'wx', mode: 0o600 });
       await rename(temp, this.path);
     } catch (error) {
       await unlink(temp).catch(() => {});

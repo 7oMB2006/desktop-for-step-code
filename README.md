@@ -62,7 +62,7 @@ The installer includes Electron and pinned Step Code and Node runtimes; the deve
 
 **Exit and upgrade:** Closing the window keeps the app in the tray and lets running tasks continue. Before upgrading, finish tasks and explicitly quit through File → Exit App or the tray menu, then run the installer over the existing installation.
 
-This release targets Windows x64, with no compatibility commitment for macOS, Linux, or WSL. To run from source, follow the build instructions below.
+This public release targets Windows x64. An experimental Linux x64 source-build target is documented in [LINUX.md](docs/LINUX.md), with its verification limits. There is no macOS or WSL compatibility commitment. For Windows source builds, follow the instructions below.
 
 ### Build from Source
 

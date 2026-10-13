@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { terminalEnvironment, terminalInput, terminalSize } from '../electron/terminal-policy';
+import { terminalEnvironment, terminalInput, terminalSize, terminalShell } from '../electron/terminal-policy';
 
 test('terminal environment retains OS paths but not desktop settings or secrets', () => {
   const env = terminalEnvironment({ PATH: 'bin', SystemRoot: 'C:\\Windows', TEMP: 'temp', TERM: 'xterm',
@@ -26,4 +26,29 @@ test('terminal resize and input have finite bounded shapes', () => {
   assert.equal(terminalInput('x'.repeat(65536)).length, 65536);
   assert.throws(() => terminalInput('x'.repeat(65537)));
   assert.throws(() => terminalInput({ command: 'hello' }));
+});
+
+test('Linux terminals use a profile-free interactive shell without PowerShell arguments', () => {
+  assert.deepEqual(terminalShell('linux', { SHELL: '/untrusted/profile-shell' }, path => path === '/bin/bash'),
+    { file: '/bin/bash', args: ['--noprofile', '--norc', '-i'], title: 'Bash' });
+  assert.deepEqual(terminalShell('linux', {}, () => false), { file: '/bin/sh', args: ['-i'], title: 'Shell' });
+});
+
+test('Windows terminal shell selection retains PowerShell and disabled persistent history', () => {
+  const modern = terminalShell('win32', { ProgramFiles: 'C:\\Program Files' }, () => true);
+  assert.equal(modern.file, 'C:\\Program Files\\PowerShell\\7\\pwsh.exe');
+  assert.equal(modern.title, 'PowerShell');
+  assert.deepEqual(modern.args.slice(0, 4), ['-NoLogo', '-NoProfile', '-NoExit', '-Command']);
+  assert.match(modern.args[4], /HistorySaveStyle SaveNothing/);
+  assert.equal(terminalShell('win32', { SystemRoot: 'C:\\Windows' }, () => false).file,
+    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+});
+
+test('Linux terminal keeps desktop session paths while excluding shell hooks and credentials', () => {
+  assert.deepEqual(terminalEnvironment({ HOME: '/home/test', USER: 'test', LOGNAME: 'test', TMPDIR: '/tmp',
+    DISPLAY: ':0', WAYLAND_DISPLAY: 'wayland-0', XDG_RUNTIME_DIR: '/run/user/1000',
+    BASH_ENV: '/private/startup', ENV: '/private/startup', HISTFILE: '/private/history',
+    STEPCODE_DESKTOP_AUTH_DATA: 'private', DB_PASSWORD: 'private', NODE_OPTIONS: '--inspect' }),
+  { HOME: '/home/test', USER: 'test', LOGNAME: 'test', TMPDIR: '/tmp', DISPLAY: ':0',
+    WAYLAND_DISPLAY: 'wayland-0', XDG_RUNTIME_DIR: '/run/user/1000' });
 });

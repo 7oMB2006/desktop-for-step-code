@@ -2,6 +2,8 @@ import { Check, Cloud, ExternalLink, KeyRound, LogOut } from 'lucide-react';
 import type { Settings } from './contracts';
 import './account-settings.css';
 import { StepPlatformIcon } from './ProviderBrand';
+import { CredentialStorageNotice } from './CredentialStorageNotice';
+import { loginStorageReady, type CredentialStorageState } from './credential-storage';
 export { StepPlatformIcon } from './ProviderBrand';
 
 export function ProviderIcon({ size = 17 }: { size?: number }) {
@@ -15,10 +17,11 @@ const channels: Record<string, { title: string; zh: string; en: string }> = {
   platform_oversea: { title: 'API Key', zh: '海外', en: 'International' },
 };
 
-export function AccountSettings({ settings, profile, onProfile, apiKey, onKey, loggingIn, busy, language, onLogin, onCancel, onLogout }: {
+export function AccountSettings({ settings, profile, onProfile, apiKey, onKey, loggingIn, busy, language, onLogin, onCancel, onLogout, platform = 'unknown', storageState = 'unchecked', onCheckStorage = () => {} }: {
   settings: Settings; profile: string; onProfile: (id: string) => void;
   apiKey: string; onKey: (key: string) => void; loggingIn: boolean; busy: boolean;
   language: string; onLogin: () => void; onCancel: () => void; onLogout: () => void;
+  platform?: string; storageState?: CredentialStorageState; onCheckStorage?: () => void;
 }) {
   const t = (zh: string, en: string) => language === 'en' ? en : zh;
   const { account } = settings;
@@ -46,8 +49,9 @@ export function AccountSettings({ settings, profile, onProfile, apiKey, onKey, l
       })}
     </div>
     <div className="account-login-area">
+      {platform === 'linux' && <CredentialStorageNotice state={storageState} language={language} disabled={busy || loggingIn} onCheck={onCheckStorage}/>}
       {selected?.credentialSource === 'apiKey' && <label>API Key<input type="password" autoComplete="off" value={apiKey} onChange={event => onKey(event.target.value)}/></label>}
-      <div className="button-row"><button className="primary" disabled={loggingIn || busy || !selected || (selected.credentialSource === 'apiKey' && !apiKey.trim())} onClick={onLogin}><ExternalLink size={15}/>{loggingIn ? t('等待授权…', 'Waiting for sign-in…') : t('登录', 'Sign in')}</button>{loggingIn && <button onClick={onCancel}>{t('取消', 'Cancel')}</button>}</div>
+      <div className="button-row"><button className="primary" disabled={loggingIn || busy || !selected || !loginStorageReady(platform, storageState) || (selected.credentialSource === 'apiKey' && !apiKey.trim())} onClick={onLogin}><ExternalLink size={15}/>{loggingIn ? t('等待授权…', 'Waiting for sign-in…') : t('登录', 'Sign in')}</button>{loggingIn && <button onClick={onCancel}>{t('取消', 'Cancel')}</button>}</div>
     </div>
   </section>;
 }

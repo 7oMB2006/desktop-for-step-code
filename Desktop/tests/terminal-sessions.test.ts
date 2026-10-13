@@ -102,3 +102,20 @@ test('a reported taskkill success still requires host exit confirmation', async 
     assert.equal(sessions.list(cwd).length, 0);
   } finally { fakeSuccess = false; await sessions.stopAll(); await rm(cwd, { recursive: true, force: true }); }
 });
+
+test('Linux terminal directories retain case-sensitive identity', { skip: process.platform !== 'linux' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'terminal-case-'));
+  const upper = join(root, 'Project'); const lower = join(root, 'project');
+  await mkdir(upper); await mkdir(lower);
+  const sessions = new TerminalSessions(process.execPath, resolve('tests/fixtures/terminal-host.cjs'), () => {});
+  try {
+    const first = await sessions.create(upper);
+    const second = await sessions.create(lower);
+    assert.equal(first.title.endsWith(' 1'), true);
+    assert.equal(second.title.endsWith(' 1'), true);
+    assert.equal(sessions.list(upper)[0].id, first.id);
+    assert.equal(sessions.list(lower)[0].id, second.id);
+    assert.equal(sessions.list(upper).length, 1);
+    assert.equal(sessions.list(lower).length, 1);
+  } finally { await sessions.stopAll(); await rm(root, { recursive: true, force: true }); }
+});

@@ -35,6 +35,7 @@ export interface ProviderDiagnostic {
 }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[]; providers?: ProviderInfo[] }
 export interface DesktopBridge {
+  readonly platform: string;
   updateState(): Promise<AppUpdateState>;
   checkUpdates(): Promise<AppUpdateState>;
   openUpdate(action: 'release' | 'download'): Promise<void>;
@@ -88,6 +89,7 @@ export interface DesktopBridge {
   deleteArchivedSessions(ids: string[]): Promise<boolean>;
   restart(): Promise<Snapshot>;
   settings(): Promise<Settings>;
+  credentialStorage(): Promise<{ available: boolean }>;
   saveProvider(provider: CustomProvider, key?: string): Promise<Snapshot>;
   discoverProviderModels(provider: CustomProvider, key?: string): Promise<DiscoveredProviderModel[]>;
   testProvider(provider: CustomProvider, modelId: string, key?: string): Promise<ProviderDiagnostic>;

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } from 'lucide-react';
 import type { Preferences, RuntimeSummary, Session } from './contracts';
 import { turnTime } from './ConversationNavigation';
+import { currentPlatform, platformPathKey } from './platform-path';
 
 export function ArchivedSessions({ sessions, preferences, runtimes, activeId, onOpen, onRestore, onDelete }: {
   sessions: Session[]; preferences: Preferences; runtimes: RuntimeSummary[]; activeId?: string;
@@ -9,7 +10,7 @@ export function ArchivedSessions({ sessions, preferences, runtimes, activeId, on
 }) {
   const zh = preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
-  const key = (path: string) => path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+  const key = (path: string) => platformPathKey(path, currentPlatform());
   const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
   const groupId = (session: Session) => session.independent ? '__independent__' : key(session.workspacePath ?? session.cwd);
   const groupTitle = (session: Session) => session.independent ? t('独立会话', 'Independent sessions')

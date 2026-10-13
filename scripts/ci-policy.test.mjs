@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { changedPaths, checkConclusion, docsOnly, isDocumentation } from './ci-policy.mjs';
 
 test('only explicitly scoped documentation skips integration', () => {
-  for (const path of ['README.md', 'TODO.md', 'docs/releases/v0.3.0.zh-CN.md', 'docs/acceptance/issue-5/README.md', 'assets/readme/screenshot.svg']) {
+  for (const path of ['README.md', 'TODO.md', 'docs/LINUX.md', 'docs/releases/v0.3.0.zh-CN.md', 'docs/acceptance/issue-5/README.md', 'assets/readme/screenshot.svg']) {
     assert.equal(isDocumentation(path), true, path);
   }
   for (const path of ['Desktop/README.md', 'Desktop/build/icon.png', 'scripts/test.md', 'assets/icon.svg', 'docs/unknown.md', '.github/workflows/pr-ci.yml', 'Desktop/package.json', 'patches/step-code-desktop.patch', 'AGENTS.md']) {
@@ -26,15 +26,16 @@ test('renames and copies inspect both paths; unusual filenames remain intact', (
 test('only the two valid dependency outcomes pass the final gate', () => {
   const states = ['success', 'failure', 'cancelled', 'skipped', undefined];
   for (const classification of states) for (const documentation of states)
-    for (const ui of states) for (const sessions of states) for (const runtime of states) {
+    for (const ui of states) for (const sessions of states) for (const runtime of states) for (const linux of states) {
     for (const route of ['true', 'false', '', undefined]) {
       const expected = classification === 'success' && (
-        route === 'true' && documentation === 'success' && [ui, sessions, runtime].every(status => status === 'skipped')
-        || route === 'false' && documentation === 'skipped' && [ui, sessions, runtime].every(status => status === 'success')
+        route === 'true' && documentation === 'success' && [ui, sessions, runtime, linux].every(status => status === 'skipped')
+        || route === 'false' && documentation === 'skipped' && [ui, sessions, runtime, linux].every(status => status === 'success')
       );
       assert.equal(checkConclusion({
         changes: { result: classification, outputs: { 'docs-only': route } },
         documentation: { result: documentation },
+        linux: { result: linux },
         'windows-interface': { result: ui, outputs: { group: 'interface', complete: 'true' } },
         'windows-sessions': { result: sessions, outputs: { group: 'sessions', complete: 'true' } },
         'windows-runtime': { result: runtime, outputs: { group: 'runtime', complete: 'true' } },
@@ -47,6 +48,7 @@ test('missing, renamed, malformed and unexpected jobs cannot pass the gate', () 
   const valid = {
     changes: { result: 'success', outputs: { 'docs-only': 'false' } },
     documentation: { result: 'skipped' },
+    linux: { result: 'success' },
     'windows-interface': { result: 'success', outputs: { group: 'interface', complete: 'true' } },
     'windows-sessions': { result: 'success', outputs: { group: 'sessions', complete: 'true' } },
     'windows-runtime': { result: 'success', outputs: { group: 'runtime', complete: 'true' } },

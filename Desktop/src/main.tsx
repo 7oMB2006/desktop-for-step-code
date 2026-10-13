@@ -48,6 +48,7 @@ import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, quotePrompt, restoreQu
 import { playCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
+import { currentPlatform, platformPathKey } from './platform-path';
 import { useSidebarReorder } from './use-sidebar-reorder';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
@@ -56,6 +57,7 @@ import { ComposerContextBar } from './ComposerContextBar';
 import { ReviewPanel } from './ReviewPanel';
 import { SummaryBoard } from './SummaryBoard';
 import { AccountSettings, ProviderIcon, StepPlatformIcon } from './AccountSettings';
+import { credentialStorageText, type CredentialStorageState } from './credential-storage';
 import { ProviderSettings } from './ProviderSettings';
 import { NewSession } from './NewSession';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
@@ -82,7 +84,7 @@ const bridge = window.desktop;
 // real snapshot arrives.
 const initial: Snapshot = { preferences: { theme: window.desktopTheme?.resolved ?? 'system', language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
 const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
-const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const workspaceKey = (path: string) => platformPathKey(path, currentPlatform());
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
@@ -171,7 +173,7 @@ function App() {
     if (sequence !== openingSequence.current || !result || result.destination === 'external') return;
     setDetails('');
     if (result.destination === 'preview') {
-      const same = previewFile?.path.toLowerCase() === result.file.path.toLowerCase();
+      const same = previewFile !== undefined && workspaceKey(previewFile.path) === workspaceKey(result.file.path);
       if (toggle && target && same && rightPanel === 'file' && !details) { setRightPanel(null); return; }
       setPreviewFile(result.file); setRightPanel('file');
     } else {
@@ -256,6 +258,16 @@ function App() {
   const [loginProfile, setLoginProfile] = useState('step_plan');
   const [key, setKey] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
+  const [credentialStorageState, setCredentialStorageState] = useState<CredentialStorageState>('unchecked');
+  const credentialStorageCheck = useRef(false);
+  const checkCredentialStorage = async () => {
+    if (credentialStorageCheck.current) return;
+    credentialStorageCheck.current = true;
+    setCredentialStorageState('checking');
+    try { setCredentialStorageState((await bridge!.credentialStorage()).available ? 'ready' : 'unavailable'); }
+    catch { setCredentialStorageState('unavailable'); }
+    finally { credentialStorageCheck.current = false; }
+  };
   const [mcpEdit, setMcpEdit] = useState<{ name: string; original?: string; config: McpServer; args: string; secrets: string } | null>(null);
   const transcript = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
@@ -1472,7 +1484,12 @@ function App() {
         activeModel={data.state?.model}
         onSave={async (provider, key) => { installSnapshot(await bridge!.saveProvider(provider, key)); const next = await bridge!.settings(); setSettings(next); return next.providers ?? []; }}
         onDelete={async id => { installSnapshot(await bridge!.deleteProvider(id)); const next = await bridge!.settings(); setSettings(next); return next.providers ?? []; }}/>
-      : tab === 'account' ? <AccountSettings settings={settings} profile={loginProfile} onProfile={chooseLoginProfile} apiKey={key} onKey={setKey} loggingIn={loggingIn} busy={anyBusy} language={data.preferences.language} onLogin={() => void run(async () => { setLoggingIn(true); try { await bridge!.login(loginProfile, key); setKey(''); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); } finally { setLoggingIn(false); } })} onCancel={() => void run(() => bridge!.cancelLogin())} onLogout={() => void run(async () => { await bridge!.logout(); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); })}/>
+      : tab === 'account' ? <AccountSettings settings={settings} profile={loginProfile} onProfile={chooseLoginProfile} apiKey={key} onKey={setKey} loggingIn={loggingIn} busy={anyBusy} language={data.preferences.language}
+        platform={bridge?.platform} storageState={credentialStorageState} onCheckStorage={() => void checkCredentialStorage()}
+        onLogin={() => void run(async () => { setLoggingIn(true); try { await bridge!.login(loginProfile, key); setKey(''); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); }
+          catch (error) { if (bridge?.platform === 'linux' && error instanceof Error && error.message.includes(credentialStorageText(data.preferences.language).unavailable)) setCredentialStorageState('unavailable'); throw error; }
+          finally { setLoggingIn(false); } })}
+        onCancel={() => void run(() => bridge!.cancelLogin())} onLogout={() => void run(async () => { await bridge!.logout(); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); })}/>
       : tab === 'mcp' ? <><div className="section-heading"><h3>MCP servers</h3><IconButton title="Add MCP" onClick={() => setMcpEdit({ name: '', config: { command: '', args: [], enabled: true }, args: '[]', secrets: '{}' })}><Plus size={18}/></IconButton></div>
         {Object.entries(settings.mcp).map(([n, c]) => <div className="resource-row" key={n}><Plug size={18}/><div><strong>{n}</strong><small>{c.url || c.command}</small><small>{c.enabled ? t('已启用，重启后生效', 'Enabled; applies after restart') : t('已停用', 'Disabled')}</small></div><IconButton title="Edit" onClick={() => setMcpEdit({ name: n, original: n, config: c, args: JSON.stringify(c.args ?? []), secrets: '{}' })}><Pencil size={14}/></IconButton><IconButton title="Remove" onClick={() => { if (confirm(t(`移除 ${n}？`, `Remove ${n}?`))) void run(async () => { await bridge!.saveMcp(n, null); setSettings(await bridge!.settings()); }); }}><Trash2 size={14}/></IconButton></div>)}
         {!Object.keys(settings.mcp).length && <p className="muted">{t('尚未配置服务器', 'No servers configured')}</p>}<button disabled={!connected || busy} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={15}/>{t('重启并应用', 'Restart to apply')}</button></>

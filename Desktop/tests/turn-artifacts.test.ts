@@ -90,3 +90,26 @@ test('ambiguous basenames are not guessed and explicit links retain their label'
   assert.equal(outputs[0].label, 'Animation');
   assert.equal(outputs[0].inferred, undefined);
 });
+
+test('Linux delivery outputs preserve case and literal backslashes; Windows retains deduplication', () => {
+  const paths = ['README.md', 'readme.md', 'folder\\readme.md', 'folder/readme.md'];
+  const items = paths.flatMap((path, index) => [
+    { index: index * 2, message: { role: 'assistant', content: [{ type: 'toolCall', id: `write-${index}`, name: 'write', arguments: { path } }] } },
+    { index: index * 2 + 1, message: { role: 'toolResult', toolCallId: `write-${index}`, content: 'Done' } },
+  ]);
+  assert.deepEqual(turnOutputPaths(items, 'linux'), paths);
+  assert.deepEqual(turnArtifacts('', paths, 'linux').map(item => item.path), paths);
+  assert.deepEqual(turnArtifacts('', paths, 'win32').map(item => item.path), ['README.md', 'folder\\readme.md']);
+  assert.deepEqual(turnOutputPaths(items, 'win32'), ['readme.md', 'folder/readme.md']);
+});
+
+test('Linux inline artifact basenames resolve case-sensitively and preserve literal-backslash labels', () => {
+  const paths = ['a/README.md', 'b/readme.md'];
+  const linux = turnArtifacts('`readme.md`', paths, 'linux');
+  assert.equal(linux[0].path, 'b/readme.md');
+  assert.equal(linux.length, 2);
+  assert.deepEqual(turnArtifacts('`readme.md`', paths, 'win32').map(item => item.path), paths, 'ambiguous Windows basenames are not guessed');
+  const literal = turnArtifacts('', ['folder\\readme.md'], 'linux')[0];
+  assert.equal(literal.label, 'folder\\readme.md');
+  assert.equal(turnArtifacts('', ['folder\\readme.md'], 'win32')[0].label, 'readme.md');
+});

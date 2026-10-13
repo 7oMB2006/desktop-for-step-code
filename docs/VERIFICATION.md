@@ -1,5 +1,69 @@
 # Verification
 
+## Experimental Linux x64 port (2026-10-13)
+
+### Publication integration with PR #105
+
+The publication branch was subsequently reconciled onto main
+`c71546339eb671b6606ed656847c0bdfa51249bf` (PR #105). Its CLM changes and both
+new session acceptance scripts are retained, bringing Windows coverage to 43
+checks with the original groups and timeouts. The new CLM runtime fixture uses
+`runtimeNodePath` so it selects the native staged Node on Windows and Linux.
+
+The combined source passed typecheck, all 393 Desktop tests without skips, the
+production build, and 11 CI policy/inventory/runner checks; the Windows-only
+process-cancellation check remains skipped on this Linux host. The earlier
+archive below was built before PR #105 and is not an artifact of this combined
+source. Full GUI, packaged acceptance and Windows behavior for this revision
+remain subject to remote CI and the separate release gates below.
+
+### Initial local verification on PR #104
+
+Initial source baseline was `45ff68e4884ffb3dbb5fdd27788986350a1d35ec`
+(PR #103, after the public v0.3.0 tag). Local port baseline `0e7dffd` is
+retained. Integration was then reconciled onto main
+`0bb02725e9710b7d7ff81af7eede7cd5f5b3c029` (PR #104), preserving all 41
+Windows acceptance scripts, their three groups, runner, timeouts and required
+completion outputs. Linux is a separate required integration job.
+The packaged application source is local commit `e936947`.
+
+Verified on Debian 13.6 x64 with Node v24.19.0 and pnpm 9.15.9:
+
+- Frozen dependency installation, native node-pty compilation, pinned upstream
+  `build:offline`, exact-patch guarded staging, Desktop typecheck and build passed.
+- All 372 Desktop tests passed, with no skips. CI policy/inventory/runner tests
+  passed 11 checks; the Windows-only process-cancellation test was skipped.
+- Actual native PTYs passed shell output and lifecycle tests, including resistant
+  foreground/background jobs, setsid descendants, natural shell exit, concurrent
+  close, parent IPC disconnect, PID-generation protection and unrelated-process
+  preservation. Case-sensitive workspaces/files and fail-closed keyring behavior
+  have regression coverage. Keyring coverage uses mocks, not an actual keyring.
+- The source-staged and packaged real Step Code runtimes each passed the isolated
+  local-provider fixture: a real file-read tool call, reply, persisted JSONL
+  history restored by a fresh runtime, three provider requests and two clean
+  runtime exits. This is deterministic provider evidence, not real-model quality
+  or real-account acceptance.
+- The packaged standalone Node and native PTY produced output and exited normally.
+  Packaged main bundle, runtime manifest/Node/bundle/helpers and terminal host/
+  native module hashes match their built/staged sources.
+- `package:linux` and the actual beforePack guard passed. The portable tar.gz
+  passed gzip integrity and archive-content checks; expected Electron, Node and
+  native PTY files are present, and no resource symlinks point to the build tree.
+
+Archive: `Desktop-for-Step-Code-0.3.0-linux-x64.tar.gz`, 178,561,919 bytes.
+SHA-256: `6e496af9b83cf5a0664572acd96150d0d9f02e8d6d9149d7381f4a556c54cee5`.
+
+GUI acceptance is blocked on this cloud host. Xorg cannot create its Unix sockets;
+the final Electron acceptance attempted the supported Ozone headless backend and
+failed in `process_singleton_posix.cc` with `socket() failed: Operation not
+permitted`. No disabled-sandbox flag or OS security change was used. This does
+not establish GUI startup, renderer sandbox execution, tray/desktop integration,
+X11/Wayland, keyring login, real-account/provider behavior, Windows native
+regressions or remote CI success. Linux CI is prepared but was not published/run.
+No push, PR, merge, release or deployment was performed. See [LINUX.md](LINUX.md)
+for build instructions and the intentionally-daemonized process cleanup limit.
+
+
 ## CLM inline references preview (2026-10-13)
 
 PR #105's first cloud run passed interface and sessions, but runtime acceptance

@@ -53,6 +53,9 @@ export const acceptanceGroups = {
   ],
 };
 
+// This native check belongs to the dedicated Linux CI job, never a Windows group.
+export const linuxAcceptance = ['verify-linux.mjs'];
+
 // These scripts already existed outside PR CI. This split neither adds nor removes coverage.
 // A new verify-*.mjs must be explicitly assigned; never silently default to local-only.
 export const localOnly = [
@@ -85,7 +88,7 @@ export function validateInventory(files, groups = acceptanceGroups, excluded = l
     throw new Error('Expected exactly the three Windows acceptance groups');
   }
   const registered = new Set();
-  for (const [group, scripts] of [...Object.entries(groups), ['local-only', excluded]]) {
+  for (const [group, scripts] of [...Object.entries(groups), ['linux', linuxAcceptance], ['local-only', excluded]]) {
     if (!Array.isArray(scripts) || (group !== 'local-only' && scripts.length === 0)) throw new Error(`Empty acceptance group: ${group}`);
     for (const script of scripts) {
       if (!/^verify-[a-z0-9-]+\.mjs$/.test(script)) throw new Error(`Invalid acceptance script: ${script}`);

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { acceptanceGroups, acceptanceTimeouts, localOnly, validateInventory, windowsGroups } from './ci-acceptance.mjs';
+import { acceptanceGroups, acceptanceTimeouts, linuxAcceptance, localOnly, validateInventory, windowsGroups } from './ci-acceptance.mjs';
 import { executeScript, groupScripts, runGroup } from './ci-windows.mjs';
 
 const files = readdirSync(new URL('../Desktop/scripts/', import.meta.url)).filter(file => /^verify-.*\.mjs$/.test(file));
@@ -14,6 +14,9 @@ test('every acceptance script is assigned exactly once or explicitly remains out
   validateInventory(files);
   assert.equal(Object.values(acceptanceGroups).flat().length, 43);
   assert.deepEqual(windowsGroups, ['interface', 'sessions', 'runtime']);
+  assert.deepEqual(linuxAcceptance, ['verify-linux.mjs']);
+  const workflow = readFileSync(new URL('../.github/workflows/pr-ci.yml', import.meta.url), 'utf8');
+  assert.equal(workflow.match(/xvfb-run -a node scripts\/verify-linux\.mjs/g)?.length, 2, 'Linux source and packaged checks stay in CI');
   for (const [script, timeout] of Object.entries(acceptanceTimeouts)) {
     assert.ok(Object.values(acceptanceGroups).flat().includes(script));
     assert.equal(timeout, 300000);

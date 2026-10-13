@@ -5,7 +5,7 @@ import { windowsGroups } from './ci-acceptance.mjs';
 
 const documents = new Set([
   'README.md', 'README.zh-CN.md', 'TODO.md', 'DESIGN.md', 'PRODUCT.md',
-  'docs/CI.md', 'docs/RELEASE.md', 'docs/UPDATES.md', 'docs/VERIFICATION.md', 'docs/VERSIONING.md',
+  'docs/CI.md', 'docs/LINUX.md', 'docs/RELEASE.md', 'docs/UPDATES.md', 'docs/VERIFICATION.md', 'docs/VERSIONING.md',
 ]);
 
 export function isDocumentation(path) {
@@ -38,10 +38,11 @@ export function docsOnly(paths) {
 
 export function checkConclusion(results) {
   const route = results?.changes?.outputs?.['docs-only'];
-  const expected = ['changes', 'documentation', ...windowsGroups.map(group => `windows-${group}`)];
+  const expected = ['changes', 'documentation', 'linux', ...windowsGroups.map(group => `windows-${group}`)];
   if (!results || Object.keys(results).sort().join() !== expected.sort().join()) return false;
   if (results.changes?.result !== 'success' || !['true', 'false'].includes(route)) return false;
   return results.documentation?.result === (route === 'true' ? 'success' : 'skipped')
+    && results.linux?.result === (route === 'true' ? 'skipped' : 'success')
     && windowsGroups.every(group => {
       const job = results[`windows-${group}`];
       return route === 'true' ? job?.result === 'skipped'
@@ -59,7 +60,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const paths = changedPaths(output);
     const route = docsOnly(paths);
     appendFileSync(GITHUB_OUTPUT, `docs-only=${route}\n`);
-    console.log(`${paths.length} changed paths: ${route ? 'documentation checks' : 'full Windows integration'}`);
+    console.log(`${paths.length} changed paths: ${route ? 'documentation checks' : 'Windows and Linux integration'}`);
   } else if (process.argv[2] === 'conclude') {
     const results = JSON.parse(process.env.CI_NEEDS);
     const passed = checkConclusion(results);

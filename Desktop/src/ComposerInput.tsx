@@ -72,12 +72,6 @@ export function ComposerInput(props: Props) {
       },
       handleDrop: (_editor, event) => Boolean(event.dataTransfer?.files.length),
       clipboardTextSerializer: slice => slice.content.textBetween(0, slice.content.size, ''),
-      // Arrow navigation and native IME are owned by ProseMirror, not an overlay.
-      handleDOMEvents: { compositionend: () => {
-        requestAnimationFrame(() => {
-          if (!editor.isDestroyed) latest.current.onChange(editor.state.doc.textContent);
-        });
-      } },
     });
     view.current = editor;
     Object.defineProperties(element, {

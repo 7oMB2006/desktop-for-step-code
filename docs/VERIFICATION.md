@@ -85,6 +85,8 @@ version bump or public release is included; its cloud CI remains to be verified.
 The P2 review identified controlled draft synchronization incorrectly emitting
 the user-edit callback. Prop-originated editor transactions now carry explicit
 metadata and do not update App draft state. User edits continue to emit changes.
+The redundant asynchronous composition-end callback was removed so it cannot
+bypass this transaction boundary; actual IME acceptance still passes.
 A unit regression distinguishes both transaction sources; real Electron
 navigation acceptance previews another cached draft, rejects navigation and its
 recovery snapshot, then verifies the original draft survives both the immediate

@@ -92,6 +92,36 @@ try {
   const fresh = await page.evaluate(() => window.desktop.beginSession());
   const created = await page.evaluate(id => window.desktop.createDraftSession(id), fresh.draftId);
   assert.equal(created.launch.ultracode, false, 'New sessions never inherit standing consent');
+  await page.evaluate(() => window.desktop.command('prompt', { message: 'ultracode:\n\nOne task only' }));
+  await page.waitForFunction(async () => {
+    const state = await window.desktop.snapshot();
+    return !state.state.isStreaming && state.messages.some(message => message.role === 'assistant');
+  });
+  const oneTurn = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(oneTurn.launch.ultracode, false);
+  assert.equal(Boolean(oneTurn.launch.ultracodeTurn), false, 'Single-turn launch clears after settlement');
+  const reminderText = message => typeof message.content === 'string' ? message.content
+    : message.content?.filter(block => block.type === 'text').map(block => block.text).join('\n') ?? '';
+  assert.equal(requests.at(-1).messages.filter(message => reminderText(message).includes('opting this turn into multi-agent orchestration')).length, 1);
+  await page.evaluate(() => window.desktop.command('prompt', { message: 'Ordinary follow-up' }));
+  await page.waitForFunction(async () => {
+    const state = await window.desktop.snapshot();
+    return !state.state.isStreaming && state.messages.filter(message => message.role === 'assistant').length === 2;
+  });
+  const followUp = requests.at(-1).messages;
+  const latestUser = followUp.findLastIndex(message => message.role === 'user' && reminderText(message) === 'Ordinary follow-up');
+  assert.ok(latestUser >= 0);
+  assert.equal(followUp.slice(latestUser + 1).some(message => reminderText(message).includes('opting this turn into multi-agent orchestration')), false,
+    'Ordinary follow-up receives no new single-turn authorization reminder');
+  assert.equal(followUp.filter(message => reminderText(message).includes('opting this turn into multi-agent orchestration')).length, 1,
+    'Historical opt-in remains in its original turn without duplication');
+  const oneTurnSessionId = oneTurn.state.sessionId;
+  await close();
+  page = await open();
+  await page.evaluate(id => window.desktop.switchSession(id), oneTurnSessionId);
+  const reopened = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(reopened.launch.ultracode, false);
+  assert.equal(Boolean(reopened.launch.ultracodeTurn), false, 'Restart does not restore expired single-turn consent');
   console.log('Ultracode on/off survives real runtime restart, reminders are not repeated, new sessions remain opted out.');
 } finally {
   if (app) await close().catch(() => {});

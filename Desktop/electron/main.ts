@@ -25,7 +25,7 @@ import { isFullAccessRisk } from '../src/full-access-risk';
 import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
-import { hydrateWorkflowHistory } from './workflow-history';
+import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { TerminalSessions } from './terminal-sessions';
 import { BrowserTabs } from './browser-tabs';
 import { linkPreview } from './link-preview';
@@ -49,6 +49,7 @@ app.setAppUserModelId('community.stepcode.desktop');
 if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
+const workflowBindings = new WorkflowBindings(join(app.getPath('userData'), 'workflow-bindings'));
 const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 'conversation-timing'),
   error => { void crashLog.record('conversation-timing', error); });
 const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model-changes'),
@@ -202,11 +203,15 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (consumed) pendingMessages.publish(queueWorker!);
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
-  event: (worker, event) => conversationTiming.event(worker, event),
+  event: (worker, event) => {
+    workflowBindings.event(worker.state?.sessionId, event);
+    return conversationTiming.event(worker, event);
+  },
   messages: async (worker, messages) => {
     if (!worker.state?.sessionId) return messages;
     await modelSelections.load(worker.state.sessionId);
-    return hydrateWorkflowHistory(worker.cwd, await conversationTiming.decorate(worker.state.sessionId, messages));
+    return hydrateWorkflowHistory(worker.cwd, await conversationTiming.decorate(worker.state.sessionId, messages),
+      await workflowBindings.load(worker.state.sessionId));
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
   launch: worker => collaboration.attach(worker),
@@ -825,6 +830,8 @@ async function handle(method: string, args: any[]) {
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
         await modelSelections.copyHistory(sessionId, worker.state!.sessionId!);
+        await workflowBindings.copyHistory(sessionId, worker.state!.sessionId!, worker.messages);
+        await runtimes.read(worker);
         preferences.workspace = worker.cwd;
         await savePreferences();
         return await snapshot(worker);
@@ -857,6 +864,8 @@ async function handle(method: string, args: any[]) {
           sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
             name });
         await modelSelections.copyHistory(source.state!.sessionId!, worker.state!.sessionId!);
+        await workflowBindings.copyHistory(source.state!.sessionId!, worker.state!.sessionId!, worker.messages);
+        await runtimes.read(worker);
         return await snapshot(worker);
       } finally { source.mutating = false; transition = false; }
     }
@@ -908,6 +917,7 @@ async function handle(method: string, args: any[]) {
             await deleteManagedSessionFile(join(dataRoot, 'sessions'), target.path);
             await conversationTiming.remove(target.id);
             await modelSelections.remove(target.id);
+            await workflowBindings.remove(target.id);
             sessionCatalog = sessionCatalog.filter(session => session.id !== target.id);
             runtimes.unreadSessionIds.delete(target.id);
             preferences.archivedSessionIds = preferences.archivedSessionIds?.filter(id => id !== target.id);
@@ -933,7 +943,9 @@ async function handle(method: string, args: any[]) {
       const response = await dialog.showMessageBox(window, { type: 'question', message: preferences.language === 'zh' ? '将此会话移到回收站？' : 'Move this session to the Recycle Bin?', buttons: ['Cancel', 'Move to Recycle Bin'], defaultId: 0, cancelId: 0 });
       if (response.response !== 1) return false;
       if (worker) await runtimes.remove(worker);
-      if (target.path) await shell.trashItem(target.path); return true;
+      if (target.path) await shell.trashItem(target.path);
+      await workflowBindings.remove(target.id);
+      return true;
     }
     case 'command': {
       const type = text(args[0], 80); const data = args[1] ?? {};
@@ -1314,6 +1326,7 @@ app.on('before-quit', event => {
       await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
+      await workflowBindings.flush();
       browser?.dispose();
       quitting = true;
       app.quit();

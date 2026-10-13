@@ -1,5 +1,119 @@
 # Verification
 
+## PR #102 review lifecycle follow-up (2026-10-13)
+
+Workflow binding metadata now follows session lifecycle: clone/fork copies only
+workflow calls present in the new transcript and immediately rehydrates the new
+worker; normal quit flushes pending writes after runtime shutdown; individual
+and bulk archived deletion removes the matching binding file. Unit regression
+covers retained/excluded calls, flushed writes readable by a new store, deletion
+with a pending write and preservation of the source when removing a branch.
+The real-runtime fixture verifies cloned interrupted history immediately retains
+aborted status. Build, typecheck, nine focused tests, workflow recovery, session
+branching and tray quit acceptances passed locally. Replacement cloud CI remains
+required; no new package or merge was performed.
+
+## Bound workflow interruption history (2026-10-13)
+
+Real-model session acceptance confirmed identical original/resumed script hashes,
+two cached steps and a completed third step. The original run's progress was
+aborted while the parent tool error returned empty details. Desktop now persists
+a session/call-to-run binding from structured runtime progress events under
+userData. History hydration uses that binding and the matching startedAt to read
+only bounded progress inside the workspace. Bound terminal progress supplies the
+presentation status without rewriting the tool result or journal. No error-text,
+script-name or timestamp-only matching is used; historical runs without a binding
+are not retrospectively guessed.
+
+Regressions cover persisted bindings after store restart, session/call isolation,
+aborted versus failed state, mismatched startedAt and immutable original results.
+The real-runtime stop/replay/crash fixture also checks that the aborted workflow
+is hydrated as aborted despite empty error details. This follow-up is source-only
+and is not included in the earlier local package documented below.
+
+## Ultracode recovery local package (2026-10-13)
+
+The isolated worktree was fast-forwarded to main `9422c94` before building
+`Desktop/release/ultracode-recovery-20261013/`. This local 0.3.0 preview includes
+the recovery presentation fix below. Frozen dependency installation and build
+passed. Its unpacked executable passed workflow stop/replay/changed-script/crash
+recovery, Ultracode restart/one-turn consent and workflow UI acceptance.
+Packaged Node, Step bundle, manifest and both Desktop runtime helpers match the
+staged v0.1.4 resources. The normal desktop shortcut now targets this package
+with empty arguments. Existing user processes were left running.
+
+Installer SHA256: `efd7be3207c229ec8c127512d605e3649129ecc24745a67c37756e0e7b68c310`.
+Package output totals 750,504,202 bytes. No old packages were deleted. This build
+does not include another agent's unmerged context-maintenance work. No installer
+lifecycle, real-model acceptance, external review, PR or public release was performed.
+
+## Workflow interruption and replay follow-up (2026-10-13)
+
+The real-runtime fixture now aborts a sequential workflow during its second
+child, resumes its journal and verifies actual provider request counts. The
+completed first child is cached, the aborted second child runs again, and the
+third child executes once. Changing the second call preserves the first cached
+result but reruns both the changed call and its successor. Cached agent status
+is also verified in the hydrated Desktop snapshot.
+
+Forced termination of the fixture-owned Electron process tree reproduced a
+presentation defect: the parent transcript has a workflow call without a final
+tool result, while the on-disk progress still says running. Desktop inferred a
+running orchestration after reopening an idle session. The presentation projection
+now marks unresolved workflows and queued/running agents as unknown outside an
+active turn. A new turn cannot reactivate unresolved workflows from older turns.
+The transcript block and right-panel projection use the same rule. Stored history,
+upstream sources and compaction/queued-message implementation are unchanged.
+
+The forced-crash acceptance checks pending/unknown icons in both the transcript
+and orchestration panel, then explicitly resumes the persisted run. Request counts
+prove the committed prefix is reused and the remaining children execute. Child
+sessions remain excluded from the main catalog. Screenshot:
+`Desktop/test-results/workflow-crash-restored-unknown.png`.
+
+Build, typecheck, all 343 serial tests, workflow presentation acceptance and the
+extended real-runtime recovery acceptance passed locally. Tests use disposable
+profiles and a local HTTP model fixture; only the fixture PID tree is terminated.
+Recovery is explicitly invoked through `resumeFromRunId`, not automatic background
+execution after startup. Real-model orchestration acceptance, replacement cloud CI,
+packaging and release qualification remain outstanding.
+
+## Ultracode / Subagent v0.1.4专项验收（2026-10-12）
+
+Based on merged main `1cbbc11`, with staged upstream baseline
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`. No upstream runtime or
+compaction/queued-message implementation was changed. Existing runtime resources
+were copied into the isolated worktree; acceptance uses disposable profiles and
+local HTTP model fixtures, without accessing the user's live sessions.
+
+The real workflow acceptance now closes and relaunches Electron, opens the parent
+session and compares all three persisted agent records against the settled
+snapshot. It also verifies no new provider requests, no standing consent grant
+and no child sessions in the conversation catalog. Readiness waits distinguish
+the initial proposed-session screen from a connected worker and allow asynchronous
+workflow history hydration to finish before comparing records.
+
+The Ultracode restart acceptance now covers one-turn input, cleared launch state
+after settlement, an ordinary follow-up without a new opt-in reminder, and restart
+without restoring expired one-turn consent. The historical reminder remains in
+its original turn; its presence is not a fresh authorization. Existing checks
+cover persisted session on/off, one standing reminder and new sessions opted out.
+
+Build, typecheck and 19 focused workflow/subagent tests passed. Real-runtime
+workflow restart acceptance passed twice with its final assertions; the extended
+Ultracode restart acceptance also passed.
+Real-runtime chain acceptance passed success, failure and cancellation, including
+previous-result handoff and skipped successors. Background-subagent acceptance
+passed cross-turn updates, reload, failure, interruption and follow-up. Workflow
+UI acceptance passed final history, failure/interruption/cache/budget states,
+panel interaction, light/narrow layout and session isolation. `git diff --check`
+passed. No product defect requiring an implementation change was reproduced.
+
+This evidence does not establish abrupt-process-crash recovery, explicit
+`resumeFromRunId` cache replay and changed-script invalidation, or real-model
+orchestration quality. No installer, shortcut change, PR or release qualification
+is included. The full Ultracode P0 remains open pending those remaining checks.
+
 ## PR #101 Queue and CI Follow-Up
 
 The `79d6f79` Windows run finished earlier checks in approximately ten minutes,

@@ -8,7 +8,8 @@ Step Code runtime through actual Electron preload/IPC/RPC and a local
 deterministic HTTP model. No upstream source, personal profile or running
 user application is changed.
 
-The five isolated profiles verify default native Git Bash discovery,
+The five isolated profiles verify default native Git Bash discovery without
+Git on PATH,
 non-default Git discovery through a cmd-only PATH, explicit `shellPath` in
 Desktop-owned `step-runtime/config.toml`, rejection of a missing explicit
 path without fallback, and a clear error when no native Bash is discoverable.
@@ -27,10 +28,17 @@ and the actual `read_file` tool returns it to the actor. Any tool confirmation
 is clicked in the isolated application; this is not evidence of unattended
 permission bypass. Background probes are finite and finish before shutdown.
 
-The complete five-profile acceptance passed twice locally. The report is
+The initial complete five-profile acceptance passed twice locally. The report is
 `Desktop/test-results/windows-commands.json`. The new check is registered in
 the full Windows runtime CI group with a five-minute timeout; all 43 previous
 checks remain, bringing the inventory to 44.
+
+PR #107's P2 review correctly identified that the initial default-location
+profile could also discover Git on the host PATH. All profiles now restrict
+PATH to Windows system directories, with only the path-install profile adding
+the copied Git cmd directory; the default profile retains standard-location
+variables and cannot fall back to PATH Git. The corrected five-profile
+acceptance and all 12 CI policy/inventory/executor tests passed locally.
 
 The pinned upstream shell-discovery, run-command-timeout and tool-profile
 suites passed 73 tests with one skipped. An additional exploratory

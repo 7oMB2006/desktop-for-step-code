@@ -95,6 +95,9 @@ for (const mode of ['default', 'path-install', 'explicit', 'missing-explicit', '
   } } }));
   const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', TMP: profile, TEMP: profile };
   delete env.ELECTRON_RUN_AS_NODE;
+  // Default-location discovery must not pass through a Git installation on PATH.
+  for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key];
+  env.PATH = [join(system, 'System32'), system, ...(mode === 'path-install' ? [join(portable, 'cmd')] : [])].join(';');
   if (mode !== 'default') {
     // Windows regenerates ProgramFiles for inherited architecture environments.
     for (const key of ['PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432', 'ProgramW6432', 'CommonProgramW6432'])
@@ -102,13 +105,12 @@ for (const mode of ['default', 'path-install', 'explicit', 'missing-explicit', '
     env.ProgramFiles = join(profile, 'empty-program-files');
     env['ProgramFiles(x86)'] = join(profile, 'empty-program-files-x86');
     env.LOCALAPPDATA = join(profile, 'empty-local');
-    for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key];
-    env.PATH = [join(system, 'System32'), system, ...(mode === 'path-install' ? [join(portable, 'cmd')] : [])].join(';');
   }
   let app;
   try {
     app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE
       ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
+    assert.equal(await app.evaluate(() => process.env.PATH), env.PATH);
     if (mode !== 'default') {
       const actual = await app.evaluate(() => ({
         programFiles: process.env.ProgramFiles, path: process.env.PATH, local: process.env.LOCALAPPDATA,

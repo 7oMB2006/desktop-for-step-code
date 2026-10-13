@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { SessionRuntimes } from '../electron/session-runtimes';
 import { isolatedEnvironment } from '../electron/runtime';
 import { PendingMessages, promptNeedsQueue } from '../electron/pending-messages';
+import { sessionSummary } from '../electron/session-summary';
 
 const oldText = 'obsolete successful observation; no new failure\n'.repeat(3500);
 const retained = 'KEEP: protocol magic=d371; preserve public API; implementation remains.';
@@ -26,6 +27,26 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
     let planStage = -1;
     let releaseMaintenance: (() => void) | undefined;
     const recovery = mode === 'fallback' || mode === 'cancel';
+    const tasks = ['Already checked', 'TASK_STATE_SENTINEL_IMPLEMENT', 'Verify pending work'].map((subject, index) => ({
+      id: String(index + 1), subject, description: subject,
+      status: ['completed', 'in_progress', 'pending'][index],
+      ...(index === 1 ? { owner: 'worker-A' } : {}),
+      blocks: index === 1 ? ['3'] : [], blockedBy: index === 2 ? ['2'] : [],
+      createdAt: 1, updatedAt: 1,
+    }));
+    const taskPlan = { id: 'plan-1', title: 'Retain the existing checklist' };
+    const assertActorTasks = (payload: any) => {
+      const content = payload.messages.map((message: any) => text(message.content))
+        .find((body: string) => body.startsWith('Current task state (read-only'));
+      assert.ok(content, 'Actor receives fresh authoritative task metadata after maintenance');
+      const value = JSON.parse(content.split('\n')[1]);
+      assert.deepEqual(value.plan, taskPlan);
+      assert.deepEqual(value.counts, { total: 3, inProgress: 1, pending: 1, completed: 1 });
+      assert.deepEqual(value.openTasks, [
+        { id: '2', subject: tasks[1].subject, status: 'in_progress', owner: 'worker-A', blockedBy: [] },
+        { id: '3', subject: tasks[2].subject, status: 'pending', blockedBy: ['2'] },
+      ]);
+    };
     const server = createServer(async (req, res) => {
       try {
         let body = ''; for await (const part of req) body += part;
@@ -37,6 +58,7 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
             choices: [{ index: 0, delta, finish_reason }], ...(usage ? { usage } : {}) })}\n\n`;
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         if (maintenance) {
+          assert.ok(!all.includes('TASK_STATE_SENTINEL_IMPLEMENT'), 'Request-local task metadata is not editable CLM text');
           const id = /- id=([^ ]+) role=assistant chars=/.exec(all)?.[1];
           assert.ok(id, 'Maintenance must offer an actual editable assistant body');
           const replacements = [{ id: mode === 'fallback' ? 'not-an-offered-id' : id, text: retained }];
@@ -54,6 +76,8 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
               { prompt_tokens: 200, completion_tokens: 30, total_tokens: 230 }) + 'data: [DONE]\n\n');
             return;
           }
+          if (!forkRequest) assertActorTasks(payload);
+          else assert.ok(!all.includes('TASK_STATE_SENTINEL_IMPLEMENT'), 'Earlier branches do not inherit later task state');
           assert.equal(all.includes(retained), !forkRequest, `Working revision must follow the active branch: ${mode}, request ${requests.length}, fork=${forkRequest}, tail=${text(payload.messages.at(-1)?.content).slice(0, 180)}`);
           assert.ok(!all.includes(oldText), 'Old editable body must be replaced in actor context');
           if (!forkRequest) assert.ok(all.includes('PROTECTED USER REQUIREMENT'));
@@ -103,6 +127,7 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
     for (const [index, body] of [oldText, 'Current state; implementation and verification remain'].entries())
       append({ type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: body }], timestamp: index + 2,
         provider: 'fixture', model: 'fixture', api: 'openai-completions', stopReason: 'stop', usage: zeroUsage } });
+    append({ type: 'custom', customType: 'step-tasks', data: { tasks, nextId: 4, activePlan: taskPlan, archivedPlans: [] } });
     if (mode === 'goal' || mode === 'active-goal') append({ type: 'custom', customType: 'step-goal', data: {
       id: 'fixture-goal', sessionId, objective: 'Preserve protocol d371', status: mode === 'goal' ? 'paused' : 'active', tokenBudget: 100000,
       tokensUsed: 0, timeUsedSeconds: 0, iteration: 0, createdAt: timestamp, updatedAt: timestamp,
@@ -129,6 +154,16 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
     const node = resolve('runtime/node/node.exe');
     const step = resolve('runtime/step/dist/bundle/step.js');
     const env = isolatedEnvironment(profile);
+    const assertTaskSummary = async (worker: Awaited<ReturnType<typeof pool.open>>, expectedSessionId = sessionId) => {
+      const raw = await worker.rpc.request('get_desktop_summary');
+      assert.deepEqual(raw.tasks.tasks, tasks, 'Canonical task IDs, statuses, owners and dependencies survive maintenance');
+      const summary = sessionSummary(raw, expectedSessionId);
+      assert.deepEqual(summary.plan, taskPlan);
+      assert.deepEqual(summary.tasks, tasks.map(({ id, subject, description, status }) => ({ id, subject, description, status })));
+      const history = await worker.rpc.request('get_messages');
+      assert.ok(!history.messages.some((message: any) => message.customType === 'step-tasks-state'),
+        'Request-local task snapshots do not accumulate in the conversation');
+    };
     const waitFor = async (condition: () => boolean, label: string) => {
       const deadline = Date.now() + 30000;
       while (!condition() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
@@ -212,12 +247,41 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
           assert.equal(history.messages.filter((message: any) => message.role === 'user'
             && text(message.content) === 'RECOVERY QUEUED MESSAGE').length, 1);
         }
+        await assertTaskSummary(worker);
+        await pool.stopAll();
+        const reopened = await pool.open(node, step, workspace, env, sessionPath);
+        await assertTaskSummary(reopened);
+        if (mode === 'fallback') {
+          // The already-compacted session can be too small. Use the original long
+          // fixture in a separate session to exercise explicit native compaction.
+          const nativeSessionId = randomUUID();
+          const nativePath = join(profile, 'sessions', `${nativeSessionId}.jsonl`);
+          await writeFile(nativePath, entries.map(item => JSON.stringify(item.type === 'session'
+            ? { ...item, id: nativeSessionId } : item)).join('\n') + '\n');
+          const native = await pool.open(node, step, workspace, env, nativePath);
+          await native.rpc.request('prompt', { message: '/clm off' });
+          await native.rpc.request('compact', {}, 60000);
+          const history = await native.rpc.request('get_entries');
+          assert.equal(history.entries.filter((item: any) => item.type === 'compaction').length, 1);
+          await assertTaskSummary(native, nativeSessionId);
+          const ends = events.filter(event => event.type === 'agent_end' && event.runtimeId === native.id).length;
+          await native.rpc.request('prompt', { message: 'Verify tasks after explicit native compact.' }, 60000);
+          await settled(native, ends);
+          assertActorTasks(requests.at(-1));
+          await assertTaskSummary(native, nativeSessionId);
+          await pool.stopAll();
+          const restored = await pool.open(node, step, workspace, env, nativePath);
+          await assertTaskSummary(restored, nativeSessionId);
+        } else {
+          assertActorTasks(requests.at(-1));
+        }
         assert.deepEqual(errors, []);
         return;
       }
       await settled(worker, 0);
       if (mode === 'active-goal') assert.equal(goalCompleted, true, 'Restored Goal must complete through its automatic continuation');
       await pool.read(worker);
+      await assertTaskSummary(worker);
       assert.deepEqual(errors, []);
       assert.ok(events.some(event => event.type === 'auto_clm_start'));
       const result = events.find(event => event.type === 'auto_clm_end')?.result;
@@ -248,12 +312,14 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
       }
       await pool.stopAll();
       const reopened = await pool.open(node, step, workspace, env, sessionPath);
+      await assertTaskSummary(reopened);
       assert.equal(mode === 'plan' ? reopened.launch?.plan : reopened.launch?.goal?.status,
         mode === 'plan' ? true : mode === 'goal' ? 'paused' : 'complete');
       if (mode === 'plan') planStage = 0;
       await reopened.rpc.request('prompt', { message: 'Check retained evidence after restart.' }, 60000);
       await settled(reopened, 0);
       await pool.read(reopened);
+      await assertTaskSummary(reopened);
       if (mode === 'plan') {
         assert.equal(reopened.launch?.plan, false, 'Approved plan exits planning after CLM and restart');
         assert.ok(events.some(event => event.type === 'extension_ui_request' && event.title?.startsWith('Desktop Plan review')));

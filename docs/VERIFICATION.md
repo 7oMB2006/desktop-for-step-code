@@ -19,6 +19,14 @@ selection, ordinary text, Ultracode compatibility and title length.
 Build, typecheck and the final full serial run passed all 365 tests. One earlier
 run reported attachment-utils test-file startup failure; its isolated four-test
 run and full rerun passed without attachment-code changes.
+The next cloud run encountered a separate permission-fixture send race
+(no user messages were dispatched after selecting Approve for Me). Its send
+helper now waits for the enabled send action after filling the input; all
+permission assertions remain intact. Three consecutive local runs passed.
+That run also reported native exit `3221226505` in Ultracode restore without
+a JavaScript stack; its local rerun passed. Restore phase diagnostics were
+added without retries or weakened assertions; the native cause is not claimed
+to be diagnosed.
 
 The subsequent source-only anchor correction keeps the recognized icon at the
 textarea's original text start rather than extending it into the left gutter.

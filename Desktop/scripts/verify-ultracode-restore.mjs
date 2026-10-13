@@ -26,18 +26,23 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
+let generation = 0;
 const open = async () => {
+  console.log(`[ultracode-restore] launch ${++generation}`);
   const executablePath = process.env.DESKTOP_VERIFY_EXE;
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setOpacity(0); w.setIgnoreMouseEvents(true); w.showInactive(); });
   await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled, undefined, { timeout: 60000 });
   await page.waitForFunction(async () => (await window.desktop.snapshot()).status === 'connected', undefined, { timeout: 60000 });
+  console.log(`[ultracode-restore] connected ${generation}`);
   return page;
 };
 const close = async () => {
+  console.log(`[ultracode-restore] closing ${generation}`);
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
   await app.close(); app = undefined;
+  console.log(`[ultracode-restore] closed ${generation}`);
 };
 try {
   let page = await open();
@@ -53,6 +58,7 @@ try {
   await page.reload();
   await page.locator('.messages .message').first().waitFor();
   for (const type of ['auto_clm_start', 'auto_clm_end', 'compaction_start', 'compaction_end']) {
+    console.log(`[ultracode-restore] ${type}`);
     await app.evaluate(({ BrowserWindow }, event) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', event), {
       type, runtimeId: enabled.runtimeId, sessionId: enabled.state.sessionId,
     });

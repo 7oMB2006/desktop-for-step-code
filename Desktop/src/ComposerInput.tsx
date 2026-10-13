@@ -8,7 +8,7 @@ import { selectAll } from 'prosemirror-commands';
 import { CommandCatalog, CommandReference, commandReference } from './CommandReference';
 import { MessageLink } from './MessageLink';
 import { composerLinkRanges } from './composer-links';
-import { composerDocument, composerSchema, composerSelection, selectComposer, type ComposerInputElement } from './composer-input';
+import { composerDocument, composerSchema, composerSelection, composerValueSync, isComposerInputChange, selectComposer, type ComposerInputElement } from './composer-input';
 import './composer-input.css';
 
 interface Props {
@@ -60,7 +60,7 @@ export function ComposerInput(props: Props) {
       editable: () => !latest.current.disabled,
       dispatchTransaction(transaction) {
         editor.updateState(editor.state.apply(transaction));
-        if (transaction.docChanged) latest.current.onChange(editor.state.doc.textContent);
+        if (isComposerInputChange(transaction)) latest.current.onChange(editor.state.doc.textContent);
         if (transaction.selectionSet) element.dispatchEvent(new Event('select', { bubbles: true }));
       },
       handlePaste(editor, event) {
@@ -95,7 +95,8 @@ export function ComposerInput(props: Props) {
     if (!editor) return;
     const current = editor.state.doc.textContent;
     if (current !== props.value && !editor.composing) {
-      editor.dispatch(editor.state.tr.insertText(props.value, 1, current.length + 1).setMeta('addToHistory', false));
+      editor.dispatch(editor.state.tr.insertText(props.value, 1, current.length + 1)
+        .setMeta(composerValueSync, true).setMeta('addToHistory', false));
     }
     const document = editor.state.doc;
     const set = DecorationSet.create(document, decorations.items);

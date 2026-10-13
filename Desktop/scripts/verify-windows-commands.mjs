@@ -107,9 +107,15 @@ for (const mode of ['default', 'path-install', 'explicit', 'missing-explicit', '
     env.LOCALAPPDATA = join(profile, 'empty-local');
   }
   let app;
+  let phase = 'Electron launch';
+  const progress = label => { phase = label; console.log(`[windows-commands] ${mode}: ${label}`); };
   try {
+    progress('Electron launch');
     app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE
       ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
+    app.process().once('exit', (code, signal) =>
+      console.log(`[windows-commands] ${mode}: Electron exited code=${code} signal=${signal} phase=${phase}`));
+    progress('environment assertions');
     assert.equal(await app.evaluate(() => process.env.PATH), env.PATH);
     if (mode !== 'default') {
       const actual = await app.evaluate(() => ({
@@ -123,9 +129,12 @@ for (const mode of ['default', 'path-install', 'explicit', 'missing-explicit', '
     await app.evaluate(({ BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0]; win.setOpacity(0); win.setIgnoreMouseEvents(true); win.showInactive();
     });
+    progress('session readiness');
     await prepareSessionFixture(page);
+    progress('prompt submission');
     const snap = await page.evaluate(() => window.desktop.snapshot());
     await page.evaluate(runtimeId => window.desktop.command('prompt', { message: 'WINDOWS_COMMAND_PROBE' }, runtimeId), snap.runtimeId);
+    progress('command execution and completion');
     const approved = new Set();
     const final = await waitFor(async () => {
       assert.deepEqual(errors, [], 'Local model fixture must not fail silently');
@@ -168,8 +177,12 @@ for (const mode of ['default', 'path-install', 'explicit', 'missing-explicit', '
     }
     report.push({ mode, passed: true, toolResults: results.length });
     console.log(`[windows-commands] ${mode}: passed`);
+  } catch (error) {
+    console.error(`[windows-commands] ${mode}: failed during ${phase}`, error);
+    throw error;
   } finally {
     if (app) {
+      progress('Electron cleanup');
       await app.evaluate(({ BrowserWindow }) => { for (const win of BrowserWindow.getAllWindows()) win.destroy(); }).catch(() => {});
       await app.close();
     }

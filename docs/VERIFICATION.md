@@ -80,6 +80,28 @@ the inline screenshot design on 2026-10-13; installer experience remains pending
 This follow-up is being submitted for source review. No package, shortcut update,
 version bump or public release is included; its cloud CI remains to be verified.
 
+## PR #108 review and CI follow-up (2026-10-13)
+
+The P2 review identified controlled draft synchronization incorrectly emitting
+the user-edit callback. Prop-originated editor transactions now carry explicit
+metadata and do not update App draft state. User edits continue to emit changes.
+A unit regression distinguishes both transaction sources; real Electron
+navigation acceptance previews another cached draft, rejects navigation and its
+recovery snapshot, then verifies the original draft survives both the immediate
+failure and a later navigation/cache round trip.
+
+The original head passed cloud interface and sessions checks, but run
+`38387265685` exited natively with `3221226505` during the default Windows
+command profile, without a JavaScript exception or assertion failure. The
+command fixture now reports launch, environment, session readiness, submission,
+execution and cleanup stages, plus Electron exits. All five Windows command
+profiles and the extended navigation acceptance passed locally. This is not a
+confirmed native-crash root-cause fix; replacement-head cloud CI must complete
+before reporting the failed check recovered. No assertion, profile or check was
+removed, no shared runtime was changed, and no installer was produced.
+The follow-up passed type checking, production build, all 376 serial
+unit/protocol tests, composer acceptance and `git diff --check` locally.
+
 ## Windows command integration acceptance (2026-10-13)
 
 Based on main `8b35512` (including merged PR #105), the new

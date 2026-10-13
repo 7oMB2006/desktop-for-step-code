@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EditorState } from 'prosemirror-state';
+import { EditorState, TextSelection } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
-import { composerDocument, composerSchema, composerSelection, selectComposer } from '../src/composer-input';
+import { composerDocument, composerSchema, composerSelection, composerValueSync, isComposerInputChange, selectComposer } from '../src/composer-input';
 import { composerLinkRanges } from '../src/composer-links';
 
 test('plain composer documents preserve newlines, spaces, Markdown and Unicode without decoration bytes', () => {
@@ -27,4 +27,17 @@ test('composer selection uses bounded canonical UTF-16 offsets, not icon DOM tex
   assert.equal(state.selection.anchor, 24);
   selectComposer(view, -3, 1000);
   assert.deepEqual(composerSelection(state), { start: 0, end: state.doc.textContent.length });
+});
+test('controlled draft synchronization never emits a user edit but subsequent edits do', () => {
+  let state = EditorState.create({ schema: composerSchema, doc: composerDocument('current draft') });
+  const sync = state.tr.insertText('target draft', 1, state.doc.textContent.length + 1)
+    .setMeta(composerValueSync, true).setMeta('addToHistory', false);
+  assert.equal(sync.docChanged, true);
+  assert.equal(isComposerInputChange(sync), false);
+  state = state.apply(sync);
+  assert.equal(state.doc.textContent, 'target draft');
+  assert.equal(isComposerInputChange(state.tr.setSelection(TextSelection.create(state.doc, 2))), false);
+  const edit = state.tr.insertText('!', state.doc.textContent.length + 1);
+  assert.equal(isComposerInputChange(edit), true);
+  assert.equal(edit.doc.textContent, 'target draft!');
 });

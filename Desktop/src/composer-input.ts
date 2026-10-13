@@ -1,5 +1,5 @@
 import { Schema } from 'prosemirror-model';
-import { TextSelection, type EditorState } from 'prosemirror-state';
+import { TextSelection, type EditorState, type Transaction } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 
 // A single text block preserves the plain prompt exactly; icons are view-only.
@@ -14,6 +14,10 @@ export const composerSchema = new Schema({
 });
 export function composerDocument(text: string) {
   return composerSchema.node('doc', null, composerSchema.node('textblock', null, text ? composerSchema.text(text) : undefined));
+}
+export const composerValueSync = 'composerValueSync';
+export function isComposerInputChange(transaction: Transaction) {
+  return transaction.docChanged && !transaction.getMeta(composerValueSync);
 }
 export function composerSelection(state: EditorState) {
   return { start: state.selection.from - 1, end: state.selection.to - 1 };

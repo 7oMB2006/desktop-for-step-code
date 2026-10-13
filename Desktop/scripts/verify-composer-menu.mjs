@@ -75,6 +75,44 @@ try {
   assert.equal(await page.locator('.composer').evaluate(element => getComputedStyle(element).borderTopLeftRadius), '8px');
   assert.equal(await menu.evaluate(element => getComputedStyle(element).borderBottomLeftRadius), '8px');
   await page.screenshot({ path: 'test-results/composer-slash-dark.png' });
+  await input.fill('/cl');
+  assert.equal(await menu.getByRole('option').count(), 2, 'Core CLM commands are discoverable even when get_commands omits them');
+  assert.equal(await menu.getByText('/clm', { exact: true }).count(), 1);
+  assert.equal(await menu.getByText('/clm-compact', { exact: true }).count(), 1);
+  await page.screenshot({ path: 'test-results/composer-clm-dark.png' });
+  await input.press('Enter');
+  assert.equal(await input.inputValue(), '/clm ');
+  assert.equal(await menu.count(), 0);
+  assert.equal(await app.evaluate(() => globalThis.menuPrompts), 0, 'Selecting CLM does not execute it');
+  await input.fill('/clm-compact');
+  await input.press('Enter');
+  assert.equal(await input.inputValue(), '/clm-compact ');
+  await input.fill('/clm-compact 保留项目名和关键要求');
+  await input.press('End');
+  await page.locator('.composer-command-reference .command-reference').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('.composer-command-reference svg.lucide-command').count(), 1);
+  const prefixGeometry = await input.evaluate(element => {
+    const style = getComputedStyle(element);
+    const marker = element.parentElement.querySelector('.composer-command-reference');
+    return { expected: element.getBoundingClientRect().left + parseFloat(style.paddingLeft),
+      actual: marker.getBoundingClientRect().left, indent: parseFloat(style.textIndent) };
+  });
+  assert.ok(Math.abs(prefixGeometry.actual - prefixGeometry.expected) < 1, 'recognized icon keeps the original text anchor');
+  assert.ok(prefixGeometry.indent > 0, 'first-line text reserves the wider icon without covering guidance or caret');
+  await page.screenshot({ path: 'test-results/composer-command-reference.png' });
+  await input.fill('ordinary text');
+  assert.equal(await input.evaluate(element => element.style.textIndent), '', 'plain text restores its original indent');
+  await input.fill('/clm-compact 保留项目名和关键要求');
+  await input.press('End');
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'extension_ui_request', method: 'notify', notifyType: 'info',
+      message: 'CLM revision 0; ~21089 context tokens.\nIndex: C:/internal/index\nMirror: C:/internal/mirror\nArchive: C:/internal/archive',
+    });
+  });
+  await page.getByText('工作上下文 · 修订 0 · 约 21,089 tokens', { exact: true }).waitFor();
+  assert.equal(await page.locator('.notice-toast').innerText().then(text => text.includes('C:/internal')), false);
+  assert.equal(await app.evaluate(() => globalThis.menuPrompts), 0, 'Selecting maintenance does not execute it');
   await input.fill('/goal');
   await input.press('Enter');
   assert.equal(await input.inputValue(), '/goal ');
@@ -132,13 +170,51 @@ try {
   await input.press('Enter');
   await page.locator('.model-effort-trigger[aria-expanded="true"]').waitFor();
   await page.keyboard.press('Escape');
+  const verifyModelLayer = async (theme, size) => {
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), size);
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await input.fill('/');
+    await input.click();
+    await menu.waitFor();
+    await page.locator('.model-effort-trigger').click();
+    const popover = page.locator('.model-effort-popover');
+    await popover.waitFor();
+    await page.waitForTimeout(240);
+    const hits = await popover.evaluate(element => {
+      const panel = element.getBoundingClientRect();
+      const menu = document.querySelector('.composer-discovery').getBoundingClientRect();
+      const top = Math.max(panel.top, menu.top), bottom = Math.min(panel.bottom, menu.bottom);
+      const left = Math.max(panel.left, menu.left), right = Math.min(panel.right, menu.right);
+      if (bottom <= top || right <= left) return [];
+      return [.2, .5, .8].map(fraction => element.contains(document.elementFromPoint(
+        left + (right - left) * fraction, top + (bottom - top) * .3)));
+    });
+    assert.equal(hits.length, 3, 'Fixture must overlap discovery and model surfaces');
+    assert.ok(hits.every(Boolean), `Model panel must receive pointer hits above discovery: ${hits}`);
+    await page.screenshot({ path: `test-results/composer-model-layer-${theme}-${size[0]}.png` });
+    const slider = popover.getByRole('slider');
+    await slider.focus();
+    await slider.press('End');
+    assert.equal(await slider.getAttribute('aria-valuenow'), '2', 'Discovery cannot intercept thinking slider keys');
+    await popover.getByRole('button', { name: '选择模型', exact: true }).click();
+    await popover.locator('.model-effort-list').waitFor({ state: 'visible' });
+    await page.keyboard.press('Escape');
+    assert.equal(await popover.count(), 0);
+    assert.equal(await menu.count(), 1, 'Picker Escape closes only the foreground picker');
+    await input.focus();
+    await input.press('Escape');
+  };
+  await verifyModelLayer('dark', [1300, 900]);
+  await verifyModelLayer('light', [1300, 900]);
+  await verifyModelLayer('dark', [840, 760]);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(840, 760));
   await input.fill('/');
+  await input.click();
   await menu.waitFor();
   await page.waitForTimeout(220);
   await page.screenshot({ path: 'test-results/composer-slash-narrow.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1300, 900));
-  await page.evaluate(async () => window.desktop.preferences({ theme: 'light' }));
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await page.waitForTimeout(220);
   await page.screenshot({ path: 'test-results/composer-slash-light.png' });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);

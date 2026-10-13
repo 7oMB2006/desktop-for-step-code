@@ -88,6 +88,9 @@ const launch = () => electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE
 let app = await launch();
 let page;
 const waitSnapshot = async predicate => {
+  // firstWindow can resolve before the restarted renderer finishes navigation.
+  await page.waitForFunction(() => typeof window.desktop?.snapshot === 'function'
+    && document.querySelector('.composer textarea'), undefined, { timeout: 60000 });
   const until = Date.now() + 60000;
   while (Date.now() < until) {
     const state = await page.evaluate(() => window.desktop.snapshot());

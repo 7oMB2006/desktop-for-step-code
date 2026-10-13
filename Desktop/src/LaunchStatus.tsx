@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Check, Goal, Lightbulb, Network, Pause, Pencil, Play, Trash2, X } from 'lucide-react';
 import { emptyLaunch, goalStatusLabel, type LaunchMode, type LaunchState } from './launch-state';
 import { elapsedTime } from './elapsed-time';
+import { TurnStatusTrigger } from './TurnStatusTrigger';
 import './launch-status.css';
 
 export function LaunchStatus({ state = emptyLaunch(), language, disabled, onMode, onAction, placement = 'composer', align = 'start', turnUltracode = false, onDisableStanding, expanded, onExpandedChange }: {
@@ -143,16 +144,25 @@ export function LaunchStatus({ state = emptyLaunch(), language, disabled, onMode
       {(turnUltracode || goal?.ultracode) && !state.ultracode && <div className="launch-state-row"><Network size={16}/><span>Ultracode</span><small>{goal?.ultracode ? zh ? '本次目标' : 'This goal' : zh ? '本次任务' : 'This task'}</small></div>}
       {error && <p className="launch-action-error" role="alert">{error}</p>}
     </div>;
+  const triggerIcons = <>{state.plan && <Lightbulb size={16}/>}
+    {(state.goalArmed || goal) && <Goal size={16}/>}
+    {(state.ultracode || turnUltracode) && <Network size={16}/>}</>;
+  const pulseLabel = goal ? zh ? `目标${goal.status === 'active' ? '推进' : status}` : `Goal: ${status}`
+    : state.plan ? zh ? '计划中' : 'Planning' : 'Ultracode';
   return <>
-    <button ref={anchor} type="button" className={`launch-status-trigger launch-status-${placement}`} aria-label={label}
+    {placement === 'pulse' && align === 'end' ? <TurnStatusTrigger ref={anchor}
+      className="launch-status-trigger launch-status-pulse" aria-label={label}
+      icon={triggerIcons} label={pulseLabel}
+      tone={goal?.status === 'complete' ? 'success' : goal?.status === 'blocked' || goal?.status === 'usage_limited' ? 'danger'
+        : goal?.status === 'paused' || goal?.status === 'budget_limited' ? 'warning' : 'neutral'}
+      aria-haspopup="dialog" aria-expanded={open} disabled={disabled} data-goal-state={goal?.status}
+      onClick={() => setOpen(value => !value)}/>
+      : <button ref={anchor} type="button" className={`launch-status-trigger launch-status-${placement}`} aria-label={label}
       aria-haspopup="dialog" aria-expanded={open} disabled={disabled} data-goal-state={goal?.status}
       data-tooltip={label} onClick={() => setOpen(value => !value)}>
-      {state.plan && <Lightbulb size={16}/>}
-      {(state.goalArmed || goal) && <Goal size={16}/>}
-      {(state.ultracode || turnUltracode) && <Network size={16}/>}
-      {placement === 'pulse' && <span className="launch-status-label">{goal ? zh ? `目标${goal.status === 'active' ? '推进' : status}` : `Goal: ${status}`
-        : state.plan ? zh ? '计划中' : 'Planning' : 'Ultracode'}</span>}
-    </button>
+      {triggerIcons}
+      {placement === 'pulse' && <span className="launch-status-label">{pulseLabel}</span>}
+    </button>}
     {placement === 'pulse' ? (open || retained) && <div className="launch-inline-reveal" data-open={open} data-align={align} inert={!open}
       style={align === 'start' ? { marginLeft: position.left, maxWidth: `calc(100% - ${position.left}px)` } : undefined}>
       <div className="launch-inline-clip">{content}</div>

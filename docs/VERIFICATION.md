@@ -1,5 +1,166 @@
 # Verification
 
+## v0.4.0 candidate confirmation (2026-10-14)
+
+The maintainer reported no apparent problems with RC2 and authorized continuing
+release preparation. Source version is now `0.4.0`; the delivered installer and
+desktop shortcut remain RC2. This confirmation is not a per-item cloud
+real-model or installer-lifecycle result. Those gates remain pending.
+The final installer must be rebuilt from frozen merged main; RC2 must not be
+renamed or represented as the final artifact.
+Typecheck, production build and all 376 serial unit/protocol tests passed
+again with the final source version; `git diff --check` passed.
+
+## v0.4.0-rc.2 packaged acceptance (2026-10-13)
+
+Replacement candidate application source is frozen at
+`2c431fc97bac6978aa5095709dda5e259096adc0`, including the persistent shared
+Plan/Goal/Ultracode footer triggers. Typecheck/build and fresh staging passed;
+the upstream pin remains `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` with
+Node v24.15.0. This supersedes the source-only package status below.
+
+Installer: `Desktop for Step Code Setup 0.4.0-rc.2.exe`, 152695170 bytes.
+SHA-256: `8d12cec4ee8796bfd953e84ba42a88968250aebc8d6fe9054aa570dae2797dd6`.
+Installer and unpacked application are both `NotSigned`. All 94 Desktop
+build files and 1157 runtime files match their sources; resource helpers,
+Node hash, runtime notices and six ProseMirror versions/licenses passed.
+The asar roots remain only `dist`, `node_modules` and `package.json`.
+
+All 44 Windows checks passed against the new unpacked executable: interface
+16, sessions 14, runtime 14. Seven supplementary checks passed: chat quotes,
+Context, Review/Diff, turn undo, feedback, Summary board and turn changes.
+StepPage's seven launches passed without the earlier native driver exit;
+this does not establish that its historical cause is fixed. Fixtures and
+local deterministic services use isolated profiles, not real paid accounts.
+
+The first report driver stopped after the successful 44 checks because it
+looked for the old supplementary records at the wrong JSON property. The driver
+was corrected, resources/hash rechecked, and exact candidate identity plus all
+three complete script inventories/success records validated before running the
+seven previously unexecuted supplementary checks. No product assertion was
+weakened or test skipped.
+
+Evidence: `Desktop/test-results/rc2-package-resources.json`,
+`rc2-acceptance.json`, current screenshots and `rc2-shortcut.json`.
+The normal desktop shortcut was backed up and points to RC2, with matching
+working directory and empty arguments verified by readback. The currently
+running RC1 application was not interrupted; its package remains preserved.
+No tag, GitHub Release, upload or final installer was created. Cloud real-model
+and installer-lifecycle acceptance remain pending.
+
+## Persistent turn status follow-up (2026-10-13)
+
+Source now shares `TurnStatusTrigger` across Plan, Goal and Ultracode footer
+entries. The old Plan-only hover visibility rule was removed; ordinary response
+actions still appear on hover/focus. Typecheck, production build, 376 serial
+unit/protocol tests and Plan-review, launch-mode and workflow Electron acceptance
+passed with isolated profiles. Combined real UI component fixtures verify all
+three persistent triggers at dark/light 1360px and dark 640px without overlap;
+existing detail, keyboard, workflow outcome and history checks remain enabled.
+Screenshots: `Desktop/test-results/turn-status-unified-{theme}-{width}.png`.
+This is source acceptance only: the frozen rc.1 installer and desktop shortcut
+have not been rebuilt or changed and do not contain this follow-up.
+
+An isolated local HTTP capture of the pinned provider also confirmed a thinking
+capability risk. A reasoning model without `thinkingLevelMap` exposes
+`off/minimal/low/medium/high`, but selecting `off` omits `reasoning_effort` and
+does not send a thinking-disable field. With explicit `off` metadata it sends
+`reasoning_effort: "off"`; with only `low/medium/high` metadata an unsupported
+`off` request clamps to `low`. Evidence:
+`Desktop/test-results/investigate-thinking-off.mjs`. These synthetic transport
+cases do not establish the real Step 5 endpoint's metadata, accepted parameters
+or the cause of the user's live request. No account, credential, paid request
+or upstream source change was involved.
+
+The same four local HTTP cases were repeated using the actual v0.3.0 packaged
+Node, provider adapter and supported-level enumeration, not rebuilt old source
+(`investigate-thinking-off.mjs --release-030`). Its installer SHA-256 matches the
+retained release checksum:
+`85974def08be515c12b026eee22082df64c48ac77e03a837adbe88b22f2b2fbb`.
+The old runtime manifest pins `f7392089e67d80232b73c87f894dec8100c6c20a`.
+All four enumeration/request results match the current runtime. Desktop's
+`ModelEffortPicker`, `model-selection` and `auth-vault` have no diff from v0.3.0;
+the management helper's only change is permission-preset resolution. This
+establishes unchanged behavior for these controlled cases, not a successful
+live-account metadata query or proof that the service honors `off`. The existing
+user application, profile, installer and shortcut were not replaced.
+
+## v0.4.0-rc.1 packaged acceptance (2026-10-13)
+
+Candidate application source is frozen at
+`b67ed5e896936f2a2de674862990b41cb248265d`, based on merged main `cd47b0a`.
+The isolated runtime was freshly staged from pinned upstream
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` with Node v24.15.0.
+The original shared junction was preserved outside the repository; its target
+and running user applications were not changed.
+
+Installer: `Desktop for Step Code Setup 0.4.0-rc.1.exe`, 152694872 bytes.
+SHA-256: `6e59798c15dda333e4450431a3b03643d357e3efdf4b8b1e6101e45195337d17`.
+The installer and unpacked application both report Authenticode `NotSigned`.
+Package checks match all 94 Desktop build files and 1157 runtime files,
+including current Desktop helpers, terminal/file-opening helpers, Node hash,
+runtime notices and six ProseMirror package versions/licenses. The asar roots
+contain only `dist`, `node_modules` and `package.json`.
+Frozen-lockfile installation, typecheck, production build and 376 serial
+unit/protocol tests passed before packaging.
+
+All 44 Windows checks passed against the candidate unpacked executable:
+interface 16, sessions 14, runtime 14. Seven additional packaged checks passed:
+chat quotes, Context, Review/Diff, turn undo, message feedback, Summary board
+and turn changes. Test profiles and local deterministic services are isolated.
+These results do not establish paid-model semantic quality or installer lifecycle.
+
+At 150% Windows scaling, test-only geometry corrections preserve the existing
+five-row menu assertion/tolerance and compare picker/trigger widths numerically
+within 0.001px, rather than comparing differently serialized CSS/layout strings.
+The first full attempt passed 43 checks but its StepPage test driver exited
+with native code `3221226505` during launch 3. An isolated seven-launch retry
+passed, then the complete 14-check runtime group passed. The first attempt is
+retained; the native-exit root cause is unconfirmed, and no corresponding
+Application event was retrieved. Only the identified orphan test process tree
+was terminated before retry.
+
+Evidence is under `Desktop/test-results/`: `rc-package-resources.json`,
+`rc-acceptance-first-attempt.json`, `rc-acceptance.json`, screenshots and
+`rc-shortcut.json`. The normal desktop shortcut was backed up and updated to
+the candidate executable, with matching working directory and empty arguments;
+other desktop shortcuts were left unchanged. The installer hash was rechecked
+after all tests. Test-only corrections and documentation do not change the
+frozen application build or binary.
+
+This supersedes the preparation-only status immediately below. No new tag,
+GitHub Release, upload or final 0.4.0 installer has been created. Disposable
+cloud-machine upgrade/restart/uninstall/reinstall and real-model Plan, Goal,
+Ultracode and CLM checks remain required before final release preparation.
+
+## v0.4.0 release preparation (2026-10-13)
+
+PR #108 merged into main `cd47b0a88cac447b353e3038f649c6b1f03f0fed`.
+Its exact final head `7a35a77c263f5fb635c698fd246b4da1c562248f` passed
+cloud run `38389960338`: interface in 5m06s, sessions in 5m21s, runtime in
+7m26s and the final CI gate. All 376 unit/protocol tests and the 44 Windows
+acceptance checks passed; cloud logs confirm all five Windows command profiles.
+The P2 controlled-draft review was fixed and its thread resolved before merge.
+This supersedes pending merge/cloud notes for #108 below, not historical
+installer or real-model acceptance boundaries.
+
+An additional local runtime-group rerun stopped at the workflow history-menu
+geometry assertion: all 16 rows were 33px tall, but measured content height was
+166px rather than 165px. A standalone rerun reproduced that local difference;
+the same head passed this check in cloud CI. No assertion was weakened and
+no unrelated menu behavior changed. Candidate acceptance must inspect display
+scaling/geometry rather than counting that local group as passed. The earlier
+native exit `3221226505` did not recur in the successful cloud run; its root
+cause is still unconfirmed.
+
+Published `v0.3.0` remains the previous community preview. Release scope and
+draft prose for proposed `v0.4.0` are recorded under `docs/releases/`.
+No application version bump, new installer, checksum, shortcut update, tag
+or GitHub release is part of this documentation preparation. Real-model smoke,
+packaged acceptance and disposable-machine upgrade/restart/uninstall/reinstall
+remain required. The shared runtime junction was inspected and preserved;
+future packaging must stage current Desktop helpers independently.
+
 ## Next Windows release readiness (2026-10-13)
 
 PR #107 merged as main `969efee30253c9ef62f23f5ac6bb51a862076f55`.

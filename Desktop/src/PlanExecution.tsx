@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { ClipboardCheck } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
+import { TurnStatusTrigger } from './TurnStatusTrigger';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
 import './plan-execution.css';
@@ -40,12 +41,16 @@ export function PlanExecution({ plan, state, note = false, language }: {
       : { running: 'Executing plan', completed: 'Plan executed', failed: 'Plan execution failed', interrupted: 'Plan execution interrupted' })[state];
   return <div className={`plan-execution ${note ? 'plan-approval-note' : 'plan-execution-status'}`} data-state={state} data-open={open}
     onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}>
-    <button ref={anchor} className={note ? 'plan-approval-trigger' : 'launch-status-trigger launch-status-pulse'}
+    {!note && state !== 'running' ? <TurnStatusTrigger ref={anchor}
+      icon={<ClipboardCheck size={14}/>} label={label}
+      tone={state === 'completed' ? 'success' : state === 'failed' ? 'danger' : 'warning'}
+      aria-expanded={open} aria-controls={id} onClick={() => { setPresent(true); setOpen(value => !value); }}/>
+      : <button ref={anchor} className={note ? 'plan-approval-trigger' : 'launch-status-trigger launch-status-pulse'}
       aria-expanded={open} aria-controls={id} onClick={() => { setPresent(true); setOpen(value => !value); }}>
       <ClipboardCheck size={14}/><strong>{label}</strong>
       {note && <span className="plan-approved-title">{plan.title}</span>}
       <span className="plan-execution-chevron" data-open={open}><DisclosureChevron/></span>
-    </button>
+    </button>}
     {present && <div className="launch-inline-reveal" data-open={open} id={id} inert={!open}
       style={!note ? { marginLeft: offset, maxWidth: `calc(100% - ${offset}px)` } : undefined}>
       <div className="launch-inline-clip"><section className="plan-approved-snapshot" aria-label={zh ? '已批准的计划快照' : 'Approved plan snapshot'}>

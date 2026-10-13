@@ -1,6 +1,7 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
+import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -173,7 +174,51 @@ try {
   });
   assert.ok(footerLayout?.hidden === '0' && footerLayout.visible === '1'
     && footerLayout.centerDifference <= 1 && footerLayout.separate, `Hidden actions and persistent workflow share one footer row: ${JSON.stringify(footerLayout)}`);
+  await assertPersistentTurnStatus(settledTrigger);
   await page.screenshot({ path: 'test-results/workflow-settled-dark.png' });
+  // Keep all three real status components in one response footer.
+  await app.evaluate(() => {
+    const model = globalThis.workflowFixture;
+    globalThis.savedTurnStatusFixture = structuredClone({ messages: model.messages, launch: model.launch });
+    model.messages[0].entryId = 'turn-status-user';
+    model.messages.splice(-1, 0, { role: 'toolResult', toolName: 'exit_plan_mode', toolCallId: 'turn-status-plan',
+      content: 'Approved plan', details: { outcome: 'approved', planFilePath: 'cloud-smoke-040/plan.md',
+        planContents: '# Cloud smoke test\n\nVerify Plan, Goal and Ultracode footer controls.' } });
+    model.messages.at(-1).stopReason = 'stop';
+    model.launch = { ...model.launch, goal: { ...globalThis.savedWorkflowLaunch.goal, status: 'complete',
+      completion: { userEntryId: 'turn-status-user' } } };
+  });
+  await page.reload();
+  const tailStatuses = page.locator('.assistant-footer-row .turn-status-trigger');
+  await page.waitForFunction(() => document.querySelectorAll('.assistant-footer-row .turn-status-trigger').length === 3)
+    .catch(async error => {
+      console.error('Combined footer:', await page.locator('.assistant-footer-row').allTextContents());
+      throw error;
+    });
+  for (const [theme, width] of [['dark', 1360], ['light', 1360], ['dark', 640]]) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 900), width);
+    await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
+    await page.reload();
+    await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await page.mouse.move(0, 0);
+    await page.locator('.composer > .composer-input').focus();
+    await page.waitForTimeout(220);
+    for (const trigger of await tailStatuses.all()) await assertPersistentTurnStatus(trigger);
+    assert.ok(await tailStatuses.evaluateAll(elements => {
+      const boxes = elements.map(element => element.getBoundingClientRect());
+      return boxes.every((box, index) => box.left >= 0 && box.right <= innerWidth
+        && boxes.slice(index + 1).every(other => box.right <= other.left || other.right <= box.left
+          || box.bottom <= other.top || other.bottom <= box.top));
+    }), 'Coexisting Plan, Goal and Ultracode statuses stay in bounds without overlap');
+    await page.screenshot({ path: `test-results/turn-status-unified-${theme}-${width}.png` });
+  }
+  await app.evaluate(({ BrowserWindow }) => {
+    Object.assign(globalThis.workflowFixture, globalThis.savedTurnStatusFixture);
+    globalThis.workflowFixture.preferences.theme = 'dark';
+    BrowserWindow.getAllWindows()[0].setSize(1500, 1000);
+  });
+  await page.reload();
+  await settledTrigger.waitFor();
   await page.locator('.assistant-footer-row .assistant-actions').hover();
   await page.waitForTimeout(200);
   assert.equal(await page.locator('.assistant-footer-row .assistant-actions').evaluate(element => getComputedStyle(element).opacity), '1');
@@ -261,8 +306,13 @@ try {
   const menuGeometry = await menu.evaluate(element => {
     const rows = [...element.querySelectorAll('button')];
     const style = getComputedStyle(element);
-    const contentHeight = element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-    return { rowHeights: rows.map(row => row.getBoundingClientRect().height), contentHeight, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight };
+    // clientHeight rounds fractional borders at Windows display scaling.
+    const contentHeight = parseFloat(style.height) - parseFloat(style.borderTopWidth) - parseFloat(style.borderBottomWidth)
+      - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    return { rowHeights: rows.map(row => row.getBoundingClientRect().height), contentHeight, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight,
+      scale: devicePixelRatio, boxHeight: element.getBoundingClientRect().height, cssHeight: style.height,
+      borderTop: style.borderTopWidth, borderBottom: style.borderBottomWidth,
+      paddingTop: style.paddingTop, paddingBottom: style.paddingBottom };
   });
   assert.ok(menuGeometry.rowHeights.every(height => Math.abs(height - 33) < .1)
     && Math.abs(menuGeometry.contentHeight - 5 * 33) < 1 && menuGeometry.scrollHeight > menuGeometry.clientHeight,

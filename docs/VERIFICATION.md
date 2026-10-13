@@ -2,6 +2,41 @@
 
 ## Experimental Linux x64 port (2026-10-13)
 
+### Sign-in storage preflight follow-up
+
+Native account QA found that the selected `gnome_libsecret` backend could report
+encryption unavailable while Account settings still offered browser sign-in.
+The old login flow requested authorization before checking whether the resulting
+credential could be saved. No real OAuth request was made to reproduce this gap.
+
+Linux Account settings now requires an explicit secure-storage check, with
+Chinese/English status and recovery guidance. Opening settings does not probe
+the keyring, since a readiness call may open a blocking native unlock/setup
+dialog. The main process checks again immediately before OAuth; credential
+saving retains its independent fail-closed checks. Windows login is unchanged.
+
+All 431 Desktop tests, typecheck and production build passed locally. Coverage
+includes no login callback for unavailable/insecure backends, uncached readiness,
+loss of the keyring during login, encryption failure without overwriting a vault,
+localized account status and the unchanged Windows UI. CI policy/runner checks
+passed 11 tests, with one Windows-only test skipped. The real RPC-only fixture
+passed its file tool, reply, history restart and two clean runtime exits.
+
+A separate guarded unpacked Linux QA build was checked against all 94 dist files
+and 1,181 runtime/terminal files. On the supported native Xfce desktop, QA passed
+the Chinese initial gate, disabled Login, explicit unavailable result/retry,
+Settings close/reopen, English guidance, account-region switching, clean quit
+and restart. Restart preserved the language but reset readiness to unchecked.
+No automatic keyring prompt, authorization tab, account vault or model request
+was created. The sampled renderer retained `NoNewPrivs=1` and `Seccomp=2`; sampled
+owned processes had no disabled-sandbox flags. This native desktop is distinct
+from the shell executor's earlier socket-restricted launch environment.
+
+This follow-up is local validation, not a new remote CI pass. A configured,
+unlocked real keyring, actual OAuth, credential persistence across real login,
+and real-model acceptance remain unverified. Native wallet setup was cancelled
+without entering credentials; the app does not auto-configure a keyring.
+
 ### PR #106 review follow-up
 
 The review follow-up clears logically empty Linux credential vaults without
@@ -19,6 +54,14 @@ again passed its tool call, history restart, three provider requests and two
 clean exits. New GUI acceptance covers renderer workspace rename/pin/grouping,
 archives/filter/restore/reload, file-opening policy and update presentation;
 those added GUI checks require the next remote CI run.
+
+Subsequently, final remote head `cbe3a666ecbed5f6bd5d8044e99c024e09587943`
+passed [PR CI #203](https://github.com/7oMB2006/desktop-for-step-code/actions/runs/38365796354):
+the Linux job, all three Windows groups and the strict result gate succeeded.
+Linux source and packaged Xvfb acceptance passed with the renderer sandbox,
+real runtime/local provider, native PTY, history restart and new workspace and
+platform UI regressions. That pass covers the review follow-up, but not the
+subsequent sign-in preflight change above.
 
 Earlier PR #106 run `38362262011` at `2e4d158` passed the full Linux job,
 including sandboxed source and packaged Electron acceptance, native PTY,

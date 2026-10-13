@@ -98,6 +98,42 @@ cross-platform or stale runtime packages.
   application enumeration and the "Choose another app" picker are not offered;
   direct requests for those unsupported destinations are rejected.
 
+## Sign-in and secure-storage troubleshooting
+
+On Linux, Account settings requires an explicit **Check secure storage** before
+enabling Sign in. The main process rechecks immediately before requesting browser
+authorization, and saving credentials still fails closed if the keyring becomes
+unavailable later. A successful check is a point-in-time result, not a guarantee
+that an unlocked keyring remains available throughout sign-in.
+
+The check does not read or write account credentials. The system keyring may
+nevertheless open its own unlock or first-time setup dialog and pause the check
+until that dialog is completed or cancelled. There is no background polling or
+automatic switch to another storage backend. Passwords belong in the native
+keyring dialog, never in chat, command-line arguments or logs.
+
+If the check reports unavailable:
+
+1. Use a normal logged-in graphical session. Ensure the selected keyring service
+   is installed and available on that session's D-Bus, then unlock it with the
+   desktop's native keyring manager. A client library alone is insufficient.
+2. On minimal desktops such as Xfce, do not assume a selected `gnome_libsecret`
+   backend means GNOME Keyring is running. On KDE, configure/unlock the installed
+   KWallet. Install missing components only through your distribution's supported
+   package manager; package/service names differ by distribution.
+3. Completely quit Desktop, reopen it in that same graphical session and check
+   again. If the native keyring dialog was cancelled, sign-in stays disabled.
+
+Desktop does not configure keyring services or migrate between backends. Do not
+switch an existing credential-bearing profile's backend as a workaround: its
+old vault may no longer decrypt.
+
+`basic_text`, `--password-store=basic` and plaintext-encryption overrides are
+not supported solutions. Renderer sandboxing must remain enabled. See
+[Electron's safeStorage documentation](https://www.electronjs.org/docs/latest/api/safe-storage)
+for backend selection, availability and native prompt behavior. This guidance
+does not establish successful real-account login on an unconfigured host.
+
 ## Verification boundary
 
 `verify-linux.mjs` creates a disposable profile/project and local deterministic

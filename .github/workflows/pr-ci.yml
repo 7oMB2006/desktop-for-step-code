@@ -25,8 +25,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.15.0
-      - name: Test CI policy
-        run: node --test scripts/ci-policy.test.mjs
+      - name: Test CI policy and acceptance inventory
+        run: node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs
       - name: Classify changed paths
         id: classify
         env:
@@ -51,370 +51,33 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: git diff --check "$BASE_SHA...$HEAD_SHA"
 
-  windows:
-    name: Windows integration
+  windows-interface:
+    name: Windows interface
     needs: changes
     if: needs.changes.outputs.docs-only == 'false'
-    runs-on: windows-2025
-    timeout-minutes: 45
-    steps:
-      - name: Check out Desktop
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
+    uses: ./.github/workflows/windows-integration.yml
+    with:
+      group: interface
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.15.0
+  windows-sessions:
+    name: Windows sessions
+    needs: changes
+    if: needs.changes.outputs.docs-only == 'false'
+    uses: ./.github/workflows/windows-integration.yml
+    with:
+      group: sessions
 
-      - name: Fetch pinned Step Code
-        shell: pwsh
-        run: |
-          $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
-          git init $upstream
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize Step Code checkout' }
-          git -C $upstream config core.autocrlf false
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code line endings' }
-          git -C $upstream remote add origin https://github.com/stepfun-ai/Step-Code.git
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code remote' }
-          git -C $upstream fetch --depth 1 --no-tags origin 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned Step Code revision' }
-          git -C $upstream checkout --detach FETCH_HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to check out pinned Step Code revision' }
-          if ((git -C $upstream rev-parse HEAD).Trim() -ne '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8') {
-            throw 'Unexpected Step Code revision'
-          }
-
-      - name: Apply Desktop integration patch
-        shell: pwsh
-        run: |
-          $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
-          $patch = Join-Path $env:GITHUB_WORKSPACE 'patches/step-code-desktop.patch'
-          $applyScript = Join-Path $env:GITHUB_WORKSPACE 'scripts/apply-step-code-desktop-patch.mjs'
-          node $applyScript $upstream $patch
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to apply the pinned Step Code integration changes' }
-          git -C $upstream diff --check
-          if ($LASTEXITCODE -ne 0) { throw 'Step Code integration changes contain whitespace errors' }
-
-      - name: Install and build Step Code
-        working-directory: Step-Code
-        run: |
-          corepack pnpm install --frozen-lockfile
-          if ($LASTEXITCODE -ne 0) { throw 'Step Code install failed' }
-          corepack pnpm build
-          if ($LASTEXITCODE -ne 0) { throw 'Step Code build failed' }
-
-      - name: Install Desktop dependencies
-        working-directory: Desktop
-        run: |
-          corepack pnpm install --frozen-lockfile
-          if ($LASTEXITCODE -ne 0) { throw 'Desktop install failed' }
-          node node_modules/electron/install.js
-          if ($LASTEXITCODE -ne 0) { throw 'Electron install failed' }
-
-      - name: Upstream Plan integration tests
-        working-directory: Step-Code/packages/coding-agent
-        run: |
-          corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts
-          if ($LASTEXITCODE -ne 0) { throw 'Upstream Plan integration tests failed' }
-
-      - name: Upstream Windows shell and Ultracode tests
-        working-directory: Step-Code/packages/coding-agent
-        run: |
-          corepack pnpm exec vitest run test/shell-discovery.test.ts test/resolve-config-value.test.ts test/workflow-ultraloop-opt-in.test.ts test/suite/ultracode-discovery.test.ts
-          if ($LASTEXITCODE -ne 0) { throw 'Upstream Windows shell and Ultracode tests failed' }
-
-      - name: Upstream automatic CLM tests
-        working-directory: Step-Code/packages/coding-agent
-        run: |
-          corepack pnpm exec vitest run test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts
-          if ($LASTEXITCODE -ne 0) { throw 'Upstream automatic CLM tests failed' }
-
-      - name: Runtime staging
-        working-directory: Desktop
-        run: |
-          corepack pnpm stage:runtime
-          if ($LASTEXITCODE -ne 0) { throw 'Runtime staging failed' }
-
-      - name: Typecheck
-        working-directory: Desktop
-        run: |
-          corepack pnpm typecheck
-          if ($LASTEXITCODE -ne 0) { throw 'Typecheck failed' }
-
-      - name: Protocol tests
-        working-directory: Desktop
-        run: |
-          corepack pnpm test
-          if ($LASTEXITCODE -ne 0) { throw 'Protocol tests failed' }
-
-      - name: Desktop build
-        working-directory: Desktop
-        run: |
-          corepack pnpm build
-          if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
-
-      - name: Electron acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-electron.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Electron acceptance failed' }
-
-      - name: New session draft acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-new-session.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'New session draft acceptance failed' }
-
-      - name: Goal and launch state acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-launch-modes.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Goal and launch state acceptance failed' }
-
-      - name: Plan review acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-plan-review.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Plan review acceptance failed' }
-
-      - name: Ultracode session restore acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-ultracode-restore.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Ultracode session restore acceptance failed' }
-
-      - name: App update acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-app-updates.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'App update acceptance failed' }
-
-      - name: Appearance acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-appearance.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Appearance acceptance failed' }
-
-      - name: Settings dialog acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-settings-dialog.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Settings dialog acceptance failed' }
-
-      - name: Desktop tray acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-desktop-tray.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Desktop tray acceptance failed' }
-
-      - name: Permission approval acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-permission-approval.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Permission approval acceptance failed' }
-
-      - name: Permission tiers acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-permission-tiers.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Permission tiers acceptance failed' }
-
-      - name: Conversation timing acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-conversation-timing.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Conversation timing acceptance failed' }
-
-      - name: Subagent status acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-subagent-status.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Subagent status acceptance failed' }
-
-      - name: Workflow orchestration acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-workflow.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Workflow acceptance failed' }
-
-      - name: Composer discovery acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-composer-menu.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Composer discovery acceptance failed' }
-
-      - name: Chain runtime acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-chain-runtime.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Chain runtime acceptance failed' }
-
-      - name: Workflow runtime acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-workflow-runtime.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Workflow runtime acceptance failed' }
-
-      - name: Summary runtime acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-summary-runtime.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Summary runtime acceptance failed' }
-
-      - name: Background subagent acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-background-subagents.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Background subagent acceptance failed' }
-
-      - name: Hidden message acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-hidden-messages.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Hidden message acceptance failed' }
-
-      - name: Terminal acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-terminal-panel.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Terminal acceptance failed' }
-
-      - name: Browser acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-browser-panel.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Browser acceptance failed' }
-
-      - name: Message links acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-message-links.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Message links acceptance failed' }
-
-      - name: Turn artifacts acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-turn-artifacts.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Turn artifacts acceptance failed' }
-
-      - name: File preview acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-file-preview.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'File preview acceptance failed' }
-
-      - name: Sidebar scrollbar acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-sidebar-scrollbar.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Sidebar scrollbar acceptance failed' }
-
-      - name: Sidebar ordering acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-sidebar-order.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Sidebar ordering acceptance failed' }
-
-      - name: Archived sessions acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-archived-sessions.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Archived sessions acceptance failed' }
-
-      - name: Session concurrency acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-session-concurrency.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Session concurrency acceptance failed' }
-
-      - name: Session navigation acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-session-navigation.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Session navigation acceptance failed' }
-
-      - name: Session branching acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-session-branching.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Session branching acceptance failed' }
-
-      - name: Message ordering acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-message-order.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Message ordering acceptance failed' }
-
-      - name: Send queue acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-send-queue.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Send queue acceptance failed' }
-
-      - name: Model switch acceptance
-        timeout-minutes: 5
-        working-directory: Desktop
-        run: |
-          node scripts/verify-model-switch.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Model switch acceptance failed' }
-
-      - name: Cross-session tool acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-cross-session.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Cross-session tool acceptance failed' }
-
-      - name: Auth vault acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-auth-vault.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Auth vault acceptance failed' }
-
-      - name: Account settings acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-account-settings.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Account settings acceptance failed' }
-
-      - name: Custom provider acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-custom-providers.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Custom provider acceptance failed' }
-
-      - name: Crash log acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-crash-log.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Crash log acceptance failed' }
-
-      - name: StepPage registration acceptance
-        working-directory: Desktop
-        run: |
-          node scripts/verify-steppage-registration.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'StepPage registration acceptance failed' }
-
-      - name: Check theme bootstrap
-        working-directory: Desktop
-        timeout-minutes: 5
-        run: |
-          node scripts/verify-theme-bootstrap.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Theme bootstrap acceptance failed' }
-
-      - name: Upload Electron failure screenshots
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: electron-failure-screenshots
-          path: Desktop/test-results/*.png
-          if-no-files-found: ignore
-          retention-days: 7
+  windows-runtime:
+    name: Windows runtime
+    needs: changes
+    if: needs.changes.outputs.docs-only == 'false'
+    uses: ./.github/workflows/windows-integration.yml
+    with:
+      group: runtime
 
   result:
     name: CI result
-    needs: [changes, documentation, windows]
+    needs: [changes, documentation, windows-interface, windows-sessions, windows-runtime]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

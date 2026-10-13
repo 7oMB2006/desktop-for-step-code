@@ -1,0 +1,157 @@
+name: Windows integration group
+
+on:
+  workflow_call:
+    inputs:
+      group:
+        required: true
+        type: string
+    outputs:
+      group:
+        description: Acceptance group that actually completed
+        value: ${{ jobs.acceptance.outputs.group }}
+      complete:
+        description: True only after every assigned check passed
+        value: ${{ jobs.acceptance.outputs.complete }}
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: Build and acceptance
+    runs-on: windows-2025
+    timeout-minutes: 45
+    outputs:
+      group: ${{ steps.acceptance.outputs.group }}
+      complete: ${{ steps.acceptance.outputs.complete }}
+    steps:
+      - name: Check out Desktop
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+
+      - name: Validate acceptance group
+        env:
+          CI_WINDOWS_GROUP: ${{ inputs.group }}
+        run: |
+          node --test scripts/ci-windows.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows acceptance runner tests failed' }
+          node scripts/ci-windows.mjs --list
+          if ($LASTEXITCODE -ne 0) { throw 'Invalid Windows acceptance group' }
+
+      - name: Fetch pinned Step Code
+        shell: pwsh
+        run: |
+          $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
+          git init $upstream
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize Step Code checkout' }
+          git -C $upstream config core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code line endings' }
+          git -C $upstream remote add origin https://github.com/stepfun-ai/Step-Code.git
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code remote' }
+          git -C $upstream fetch --depth 1 --no-tags origin 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned Step Code revision' }
+          git -C $upstream checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check out pinned Step Code revision' }
+          if ((git -C $upstream rev-parse HEAD).Trim() -ne '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8') {
+            throw 'Unexpected Step Code revision'
+          }
+
+      - name: Apply Desktop integration patch
+        shell: pwsh
+        run: |
+          $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
+          $patch = Join-Path $env:GITHUB_WORKSPACE 'patches/step-code-desktop.patch'
+          $applyScript = Join-Path $env:GITHUB_WORKSPACE 'scripts/apply-step-code-desktop-patch.mjs'
+          node $applyScript $upstream $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to apply the pinned Step Code integration changes' }
+          git -C $upstream diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'Step Code integration changes contain whitespace errors' }
+
+      - name: Install and build Step Code
+        working-directory: Step-Code
+        run: |
+          corepack pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { throw 'Step Code install failed' }
+          corepack pnpm build
+          if ($LASTEXITCODE -ne 0) { throw 'Step Code build failed' }
+
+      - name: Install Desktop dependencies
+        working-directory: Desktop
+        run: |
+          corepack pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop install failed' }
+          node node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0) { throw 'Electron install failed' }
+
+      - name: Upstream Plan integration tests
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream Plan integration tests failed' }
+
+      - name: Upstream Windows shell and Ultracode tests
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/shell-discovery.test.ts test/resolve-config-value.test.ts test/workflow-ultraloop-opt-in.test.ts test/suite/ultracode-discovery.test.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream Windows shell and Ultracode tests failed' }
+
+      - name: Upstream automatic CLM tests
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream automatic CLM tests failed' }
+
+      - name: Runtime staging
+        working-directory: Desktop
+        run: |
+          corepack pnpm stage:runtime
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime staging failed' }
+
+      - name: Typecheck
+        working-directory: Desktop
+        run: |
+          corepack pnpm typecheck
+          if ($LASTEXITCODE -ne 0) { throw 'Typecheck failed' }
+
+      - name: Protocol tests
+        working-directory: Desktop
+        run: |
+          corepack pnpm test
+          if ($LASTEXITCODE -ne 0) { throw 'Protocol tests failed' }
+
+      - name: Desktop build
+        working-directory: Desktop
+        run: |
+          corepack pnpm build
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
+
+      - name: Serial Electron acceptance
+        id: acceptance
+        env:
+          CI_WINDOWS_GROUP: ${{ inputs.group }}
+        run: node scripts/ci-windows.mjs
+
+      - name: Upload acceptance timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-timings-${{ inputs.group }}-${{ github.run_attempt }}
+          path: Desktop/test-results/ci-*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload Electron failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-failure-screenshots-${{ inputs.group }}-${{ github.run_attempt }}
+          path: Desktop/test-results/*.png
+          if-no-files-found: ignore
+          retention-days: 7

@@ -50,6 +50,29 @@ two skipped. Those upstream tests and assertions were not changed.
 Desktop production build, typecheck and all 365 serial unit/protocol tests
 passed. All 12 CI policy/inventory/executor tests passed.
 
+PR #107's corrected PATH head `840e7c2` passed the cloud interface and
+runtime groups, including the five Windows command profiles. Sessions first
+exited natively during model-switch acceptance (`3221226505`, no JavaScript
+stack); a single failed-job rerun instead exposed a Goal completion mapping
+failure. Upstream generates the live custom message timestamp and persisted
+custom entry timestamp independently. A one-millisecond difference prevented
+Desktop from assigning the custom input's history entry ID, hiding the Goal
+completion footer despite the completed runtime state.
+
+Desktop Goal inputs now carry a unique persisted metadata ID. Mapping requires
+this ID, exact content and custom type on the active history branch; it does
+not guess by text or clock tolerance. Legacy inputs without an ID retain exact
+timestamp matching. Regressions cover independent timestamps, runtime reload,
+later identical tasks, ambiguous IDs, foreign branches and the real input
+producer. All 368 serial unit/protocol tests, typecheck, production build and
+12 CI tests passed. Local acceptance uses an isolated Desktop extension
+staging directory: the shared runtime junction initially loaded the previous
+extension, which the added persistent-ID assertion detected. Those earlier
+passes do not validate this repair. With the current extension, real Goal
+launch acceptance passed twice consecutively, including the persistent-ID
+assertion; model-switch acceptance also passed. The native crash remains
+unexplained; local passes do not establish its cloud resolution.
+
 This is source/staged-runtime acceptance, not fresh Windows installation,
 real paid-model, packaged installer or release qualification. Remote CI and a
 latest-source package still need verification before release.

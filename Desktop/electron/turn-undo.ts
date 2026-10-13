@@ -1,3 +1,4 @@
+import { runtimePathKey } from './runtime';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, open, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -51,7 +52,7 @@ async function guardedPath(root: string, path: string) {
   }
   const info = await lstat(target);
   if (!info.isFile() || info.nlink !== 1 || info.size > MAX_FILE) throw new Error('File is not eligible for undo');
-  if (resolve(await realpath(target)).toLowerCase() !== target.toLowerCase()) throw new Error('File path changed');
+  if (runtimePathKey(resolve(await realpath(target))) !== runtimePathKey(target)) throw new Error('File path changed');
   return target;
 }
 
@@ -108,7 +109,7 @@ export class TurnUndoStore {
   private async checked(session: string, cwd: string, items: IndexedMessage[]) {
     const { key, changes } = identity(session, items);
     const record = await this.load(key);
-    if (!record || record.root.toLowerCase() !== (await realpath(cwd)).toLowerCase()) return;
+    if (!record || runtimePathKey(record.root) !== runtimePathKey(await realpath(cwd))) return;
     // An empty file list means capture could not reconstruct this turn. The key already binds
     // the record to it, so it must not be rejected by the path comparison below.
     if (record.files.length &&

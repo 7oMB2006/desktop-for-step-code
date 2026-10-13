@@ -28,6 +28,7 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  platform: process.platform,
   updateState: () => invoke('updateState'),
   checkUpdates: () => invoke('checkUpdates'),
   openUpdate: action => invoke('openUpdate', action),

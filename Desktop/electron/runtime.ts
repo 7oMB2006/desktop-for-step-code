@@ -1,6 +1,109 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { randomUUID } from 'node:crypto';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { platformPathKey } from '../src/platform-path';
+
+export function runtimeNodePath(root: string, platform: NodeJS.Platform = process.platform): string {
+  return join(root, 'node', platform === 'win32' ? 'node.exe' : 'node');
+}
+
+export function runtimePathKey(path: string, platform: NodeJS.Platform = process.platform): string {
+  return platformPathKey(path, platform);
+}
+
+type LinuxProcess = { pid: number; parent: number; session: number; started: string; state: string };
+export type LinuxProcessSession = { leader: number; started: string };
+async function linuxProcess(pid: number): Promise<LinuxProcess | undefined> {
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+    // comm is parenthesized and may itself contain spaces or parentheses.
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/);
+    return { pid, parent: Number(fields[1]), session: Number(fields[3]), state: fields[0], started: fields[19] };
+  } catch (error: any) { if (error.code === 'ENOENT' || error.code === 'ESRCH') return undefined; throw error; }
+}
+
+/** Stop only this owned Linux process and its descendants, including PTY jobs
+ * in separate process groups. PID start times prevent signalling reused PIDs. */
+export async function terminateLinuxProcessTree(pid: number, timeout = 1500, expectedStart?: string): Promise<boolean> {
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) throw new Error('Invalid child process');
+  const root = await linuxProcess(pid);
+  if (!root || (expectedStart !== undefined && root.started !== expectedStart)) return true;
+  const snapshot = await linuxProcesses();
+  if ((await linuxProcess(pid))?.started !== root.started) return true;
+  const processes: LinuxProcess[] = [];
+  const visited = new Set<number>();
+  const collect = (entry: LinuxProcess) => {
+    if (visited.has(entry.pid)) return;
+    visited.add(entry.pid);
+    for (const child of snapshot) if (child.parent === entry.pid) collect(child);
+    processes.push(entry); // Signal descendants before the parent can exit/reparent them.
+  };
+  collect(root);
+  return terminateLinuxProcesses(processes, timeout);
+}
+
+async function linuxProcesses(): Promise<LinuxProcess[]> {
+  // /proc/<pid>/task/<tid>/children is optional on some Linux kernels. The
+  // process table's parent IDs also cover children created by non-main threads.
+  return (await Promise.all((await readdir('/proc')).filter(name => /^\d+$/.test(name))
+    .map(name => linuxProcess(Number(name)).catch((error: NodeJS.ErrnoException) => {
+      // hidepid can expose directory names but deny another user's stat file.
+      // The owned root is read separately and must remain accessible.
+      if (error.code === 'EACCES' || error.code === 'EPERM') return undefined;
+      throw error;
+    })))).filter((entry): entry is LinuxProcess => Boolean(entry));
+}
+
+async function terminateLinuxProcesses(processes: LinuxProcess[], timeout: number): Promise<boolean> {
+  const live = async (entry: LinuxProcess) => {
+    const current = await linuxProcess(entry.pid);
+    return current?.started === entry.started && current.state !== 'Z' && current.state !== 'X';
+  };
+  const signal = async (signal: NodeJS.Signals) => {
+    for (const entry of processes) {
+      if (!(await live(entry))) continue;
+      try { process.kill(entry.pid, signal); }
+      catch (error: any) { if (error.code !== 'ESRCH') throw error; }
+    }
+  };
+  const wait = async (milliseconds: number) => {
+    const deadline = Date.now() + milliseconds;
+    do {
+      if (!(await Promise.all(processes.map(live))).some(Boolean)) return true;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    } while (Date.now() < deadline);
+    return false;
+  };
+  await signal('SIGTERM');
+  if (await wait(timeout)) return true;
+  await signal('SIGKILL');
+  return wait(1000);
+}
+
+/** Capture only a PTY-owned session leader while it is alive, before accepting input. */
+export async function captureLinuxProcessSession(pid: number): Promise<LinuxProcessSession> {
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) throw new Error('Invalid terminal session');
+  const leader = await linuxProcess(pid);
+  if (!leader || leader.session !== pid) throw new Error('Could not identify the terminal session');
+  return { leader: pid, started: leader.started };
+}
+
+/** Jobs can be reparented to init after the PTY shell exits. Its session ID
+ * persists until the last member exits. Enumerate and signal individual owned
+ * session members; never signal a whole process group or another session.
+ * Jobs already reparented AND moved into another session are outside this fallback. */
+export async function terminateLinuxProcessSession(session: LinuxProcessSession, timeout = 1500): Promise<boolean> {
+  if (!Number.isSafeInteger(session.leader) || session.leader <= 1 || session.leader === process.pid || !/^\d+$/.test(session.started)) {
+    throw new Error('Invalid terminal session');
+  }
+  const leader = await linuxProcess(session.leader);
+  if (leader && leader.started !== session.started) return true; // The original session has ended and its PID was reused.
+  const members = (await linuxProcesses()).filter(entry => entry.session === session.leader && entry.pid !== process.pid
+    && BigInt(entry.started) >= BigInt(session.started));
+  return terminateLinuxProcesses(members, timeout);
+}
 
 export class JsonLines {
   private decoder = new StringDecoder('utf8');
@@ -42,12 +145,13 @@ function stderrForLog(text: string, lines = 40): string {
 
 export class RpcProcess {
   private child?: ChildProcessWithoutNullStreams;
+  private stopping?: Promise<void>;
   private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   get hasPendingRequests() { return this.pending.size > 0; }
   constructor(private event: (value: any) => void) {}
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) {
-    if (this.child) throw new Error('Runtime already started');
+    if (this.child || this.stopping) throw new Error('Runtime already started');
     this.stderr = '';
     const child = spawn(node, [entry, '--mode', 'rpc', ...args], { cwd, env, windowsHide: true, stdio: 'pipe' });
     this.child = child;
@@ -109,6 +213,7 @@ export class RpcProcess {
     this.pending.clear();
   }
   async stop() {
+    if (this.stopping) return this.stopping;
     const child = this.child;
     if (!child) return;
     this.child = undefined;
@@ -118,6 +223,14 @@ export class RpcProcess {
         const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
         killer.on('error', () => { child.kill(); resolve(); }); killer.on('exit', () => resolve());
       });
+    } else if (process.platform === 'linux' && child.pid) {
+      this.stopping = terminateLinuxProcessTree(child.pid).then(stopped => {
+        if (!stopped) throw new Error('Could not stop the runtime process tree');
+      }).catch(error => {
+        if (child.exitCode === null && child.signalCode === null) this.child = child;
+        throw error;
+      }).finally(() => { this.stopping = undefined; });
+      await this.stopping;
     } else child.kill();
   }
 }

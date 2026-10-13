@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { RpcProcess, isolatedEnvironment } from './runtime';
+import { RpcProcess, isolatedEnvironment, runtimeNodePath, runtimePathKey } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
@@ -45,7 +45,7 @@ import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile }
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
 app.setName('Desktop for Step Code');
-app.setAppUserModelId('community.stepcode.desktop');
+if (process.platform === 'win32') app.setAppUserModelId('community.stepcode.desktop');
 if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
@@ -114,7 +114,7 @@ async function importAttachment(path: string) {
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
-const pathKey = (path: string) => resolve(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const pathKey = (path: string) => runtimePathKey(resolve(path));
 async function samePath(a: string, b: string) {
   if (pathKey(a) === pathKey(b)) return true;
   try {
@@ -135,7 +135,9 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
   return matches.find(match => match.same)?.workspace;
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
-const nodePath = join(runtimeRoot, 'node/node.exe');
+const nodePath = runtimeNodePath(runtimeRoot);
+const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+const appIcon = app.isPackaged ? join(process.resourcesPath, iconName) : resolve('build', iconName);
 const terminals = new TerminalSessions(nodePath,
   app.isPackaged ? join(process.resourcesPath, 'terminal-runtime/host.cjs') : resolve('terminal-runtime/host.cjs'),
   event => { if (window && !window.isDestroyed()) window.webContents.send('terminal-event', event); });
@@ -1342,7 +1344,7 @@ app.on('second-instance', showMainWindow);
 app.on('activate', showMainWindow);
 if (!app.requestSingleInstanceLock()) { quitting = true; app.quit(); }
 else app.whenReady().then(async () => {
-  await mkdir(dataRoot, { recursive: true });
+  await mkdir(dataRoot, { recursive: true, mode: 0o700 });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
   await collaboration.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;
@@ -1376,7 +1378,7 @@ else app.whenReady().then(async () => {
   try {
     const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim() || join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs');
     const steppageName = 'steppage';
-    if (existsSync(steppageBundle)) {
+    if (process.platform === 'win32' && existsSync(steppageBundle)) {
       const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
       const existing = settings?.mcp?.[steppageName];
       const looksDesktopWritten = /runtime[/\\]node[/\\]node\.exe$/i.test(String(existing?.command ?? ''));
@@ -1406,7 +1408,7 @@ else app.whenReady().then(async () => {
     return { systemDark: nativeTheme.shouldUseDarkColors };
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
-  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: '#171717', autoHideMenuBar: true, show: !backgroundAcceptance, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
+  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: appIcon, frame: false, backgroundColor: '#171717', autoHideMenuBar: true, show: !backgroundAcceptance, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
   nativeTheme.on('updated', () => { tray?.relabel(); if (window && !window.isDestroyed()) window.webContents.send('runtime-event', { type: 'desktop_system_theme', dark: nativeTheme.shouldUseDarkColors }); });
   crashLog.setPhase('window created');
   browser = new BrowserTabs(window, event => {
@@ -1420,7 +1422,9 @@ else app.whenReady().then(async () => {
   window.webContents.setWindowOpenHandler(({ url }) => { try { const u = new URL(url); if (['https:', 'http:'].includes(u.protocol)) void shell.openExternal(u.href); } catch {} return { action: 'deny' }; });
   window.webContents.on('will-navigate', event => event.preventDefault());
   try {
-    tray = new DesktopTray(app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'),
+    // Linux desktops do not all expose a tray. Keep Close as Quit there so
+    // the application cannot become an inaccessible background process.
+    if (process.platform === 'win32') tray = new DesktopTray(appIcon,
       () => preferences.language, showMainWindow, () => app.quit(), {
         theme: resolvedTheme, quitting: () => quitting, noFocus: backgroundAcceptance,
         devUrl: !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined,

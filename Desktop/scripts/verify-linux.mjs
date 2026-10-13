@@ -16,6 +16,8 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { runtimeProcessKind } from './linux-runtime-processes.mjs';
+import { verifyLinuxPlatformUi } from './linux-platform-ui.mjs';
+import { verifyLinuxWorkspaceIdentity } from './linux-workspace-acceptance.mjs';
 
 const runtimeOnly = process.env.DESKTOP_VERIFY_RUNTIME_ONLY === '1';
 const headless = process.env.DESKTOP_VERIFY_HEADLESS === '1';
@@ -496,6 +498,9 @@ try {
     assert.equal(requests.length, 3);
     assert.equal(resumed.sessions.length, 1, 'Resume must not create a second conversation');
     await page.screenshot({ path: join(results, 'linux-session-restored.png') });
+    await verifyLinuxPlatformUi({ app, page, project, runtimeId: resumed.runtimeId });
+    phase('Linux file-opening policy and platform-aware update presentation passed');
+    await verifyLinuxWorkspaceIdentity({ app, page, fixture, project, storage, profile });
     // Linux window Close must quit, including environments without a system tray.
     await quit('close');
     assert.deepEqual(serverErrors, []);

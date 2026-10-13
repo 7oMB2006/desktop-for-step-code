@@ -38,6 +38,9 @@ import { ConversationMessages, PendingUserMessages } from './ConversationMessage
 import { messageBlocks, messageText } from './conversation-presentation';
 import { ComposerActionIcon } from './ComposerActionIcon';
 import { ComposerMenu } from './ComposerMenu';
+import { CommandCatalog, ComposerCommandReference } from './CommandReference';
+import { clmNotice } from './clm-notice';
+import { desktopCommands } from './composer-commands';
 import { composerAction } from './composer-action';
 import { SelectionToolbar } from './SelectionToolbar';
 import { QuotePreview } from './QuotePreview';
@@ -526,6 +529,7 @@ function App() {
         && !messageRevision.current.acceptEvent(event)) return;
       if (event.type === 'desktop_model_selection') setData(d => ({ ...d, modelSelection: event.modelSelection, modelChanges: event.modelChanges, state: event.state ?? d.state }));
       if (event.type === 'desktop_queue') setData(d => ({ ...d, pendingMessages: event.pendingMessages }));
+      if (event.type === 'desktop_stats') setData(d => ({ ...d, stats: event.stats }));
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
       if (event.type === 'agent_start') setBusy(true);
@@ -561,7 +565,7 @@ function App() {
             }
             if (!mcpServer || !notifiedMcp.current.has(mcpServer)) {
               if (mcpServer) notifiedMcp.current.add(mcpServer);
-              setNotice({ id: ++nextNoticeId.current, message: event.message, type: event.notifyType, mcpServer });
+              setNotice({ id: ++nextNoticeId.current, message: clmNotice(event.message, latestData.current.preferences.language), type: event.notifyType, mcpServer });
             }
           }
           else setError(event.message);
@@ -588,7 +592,7 @@ function App() {
     const id = data.runtimeId;
     void run(async () => {
       const [effort, available] = await Promise.all([bridge!.command('get_available_thinking_levels', undefined, id), bridge!.command('get_commands', undefined, id)]);
-      if (viewId.current === id) { setLevels((data.modelSelection?.model ?? data.state?.model)?.thinkingServiceDefault ? [] : effort.levels); setCommands(available.commands.filter((c: { name: string }) => !c.name.startsWith('_desktop_'))); }
+      if (viewId.current === id) { setLevels((data.modelSelection?.model ?? data.state?.model)?.thinkingServiceDefault ? [] : effort.levels); setCommands(desktopCommands(available.commands)); }
     });
   }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.provider, data.state?.model?.thinkingLevels, data.state?.model?.thinkingServiceDefault, data.modelSelection?.model]);
   useLayoutEffect(followLayout, [data.messages, data.pendingMessages, busy, followLayout]);
@@ -790,7 +794,7 @@ function App() {
     addAttachments(added, id);
   });
   const stop = async () => {
-    if (!busy || !connected || stoppingRef.current) return;
+    if (!composerBusy || !connected || stoppingRef.current) return;
     stoppingRef.current = true;
     setStopping(true);
     const id = viewId.current;
@@ -1103,7 +1107,7 @@ function App() {
       language={data.preferences.language} disabled={!connected || loading}
       onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
       onAction={(action, value) => rawCommand('goal_action', { action, value })}/> };
-  return <FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
+  return <CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
     if (!image || !image.closest('.attachment-open, .attachment-preview-image, .messages')) return;
@@ -1284,6 +1288,7 @@ function App() {
               void shortcutSteer();
             } else void send();
           }}/>
+          <ComposerCommandReference draft={navigationTarget ? composerBySession.current.get(navigationTarget.session.id)?.draft ?? '' : draft}/>
           <div className="composer-tools">
             <IconButton title={t('添加附件', 'Add attachments')} aria-expanded={referencesOpen} disabled={!connected || loading} onClick={() => setReferencesOpen(value => !value)}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}
@@ -1305,7 +1310,7 @@ function App() {
             <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
             <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
-              disabled={!connected || loading || (action.mode === 'stop' ? stopping || Boolean(data.state?.isCompacting) : !action.hasContent)}
+              disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}
               onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
         </div></ComposerMenu><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>
@@ -1479,7 +1484,7 @@ function App() {
     </div></div></section></div>}
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
     {((requests[0] && approvalOpen && !permissionApproval && !reviewPlan && !planFeedback) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={accessRisk?.title ?? requests[0]?.title ?? 'Rename'}><h2>{accessRisk?.title ?? requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{accessRisk ? <p className="full-access-risk-message"><ShieldAlert size={20}/>{accessRisk.message}</p> : requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map((o, index) => <button className="option" key={o} onClick={() => void respond({ value: o })}>{accessRisk?.labels[index] ?? o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && !accessRisk && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}{!accessRisk && <button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>}{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
-  </div></FileOpeningContext.Provider>;
+  </div></FileOpeningContext.Provider></CommandCatalog.Provider>;
 }
 class RenderBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
   state = { failed: false };

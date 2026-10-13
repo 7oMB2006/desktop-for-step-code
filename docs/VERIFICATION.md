@@ -1,5 +1,173 @@
 # Verification
 
+## CLM inline references preview (2026-10-13)
+
+The subsequent source-only anchor correction keeps the recognized icon at the
+textarea's original text start rather than extending it into the left gutter.
+First-line indentation reserves its extra width and restores on ordinary text.
+Build, typecheck and composer acceptance passed, including an explicit anchor
+position regression, IME, selection, model controls and narrow layout.
+Screenshot: `Desktop/test-results/composer-command-reference.png`.
+This correction is not included in the preview package recorded below.
+
+Command references now use an icon and accented name in the composer and sent
+user text. The native textarea remains authoritative for selection, IME,
+clipboard and transport; the visual prefix hides while selecting or editing
+inside it. Command icon proportions and spacing follow the text size, including
+the textarea's configured font. The strict known `/clm` status notification is
+localized without internal paths; unrelated or incomplete notices remain
+literal. This adds presentation only, not a CLM summary checklist.
+
+Build and typecheck passed, as did all 364 serial tests. The local package
+`Desktop/release/clm-command-reference-20261013/` passed packaged composer
+discovery/command-marker/status, hidden-message history replay, maintenance
+statistics/isolation and real CLM cancellation with explicit queued recovery.
+Packaged manifest, Node, Step bundle, both runtime helpers, keyless-fetch and
+terminal host match staging. Installer SHA256:
+`9cfeccbfc055ac3f8ad7a2dfb6eed6c18801c331626a65c1c971eafa872dd1f3`.
+Output before the checksum file totals 750,545,277 bytes. The desktop shortcut
+targets this unpacked executable with no arguments and its own icon.
+Five generated package directories were inventoried; none were deleted.
+Existing user windows and canonical session files were preserved. This remains
+a local 0.3.0 preview, not a public release, successful real-model manual CLM
+reduction claim, installer lifecycle test, commit, push or PR.
+
+## Manual CLM command presentation (2026-10-13)
+
+The pinned runtime implements `/clm-compact` by submitting a generated ordinary
+user message containing its mirror path, read-only index and edit recipe.
+It does not provide a distinct message type or provenance flag. Desktop now
+projects an exact known template to `/clm-compact` plus additional guidance
+through its existing visible-input path. Matching validates the JSON-quoted
+mirror path, matching index metadata and complete pinned recipe; ordinary,
+partial and mismatched templates remain unchanged. This is a presentation
+recognizer, not an authoritative origin signal. Model requests and canonical
+JSONL history are untouched; assistant and tool messages remain literal.
+
+Unit coverage verifies command restoration, no history mutation, multi-block
+input and literal fallback. Electron hidden-message acceptance verifies live
+delivery, history replay and preservation of raw fixture content. Evidence:
+`Desktop/test-results/manual-clm-compact-replay.png`.
+The user's requested session was inspected read-only without interrupting it.
+Its generated manual command matches the projection, and the final answer
+correctly recalled the fixed project requirements. However, the manual attempt
+produced no persisted CLM checkpoint: its initial index had zero editable
+plain-text bodies and prior assistant messages contained immutable thinking
+blocks. The actor explicitly declined edits. This establishes retained
+requirements in an unchanged conversation, not successful manual reduction.
+The actor also performed diagnostic reads, so this is not a tools-free
+maintenance sample. The clickable command reference/right-rail raw preview
+was discussed as a later refinement and has not been implemented.
+
+Build, typecheck and the final full serial run passed all 362 tests. An earlier
+run failed at startup of the existing custom-provider test file; its isolated
+13-test rerun and the subsequent full run passed without provider-code changes.
+The new local preview is `Desktop/release/clm-manual-input-20261013/`.
+Packaged acceptance passed hidden/manual-message live and replay presentation,
+composer CLM discovery and model-layer interactions, and real CLM cancellation
+with explicit queued recovery. Packaged Node, Step bundle, manifest, both
+runtime helpers, keyless-fetch adapter and terminal host match staged/current
+resources. The desktop shortcut now targets this preview with no arguments and
+its own icon. Installer SHA256:
+`980bdc6996be6593bc2f822c47b5d3c70670653be6e7613eb3ca50e007153388`.
+Output totals 750,541,375 bytes. Four package directories were inventoried and
+preserved without deletion. Existing user processes and session files were not
+changed. No installer lifecycle, successful real-model manual reduction,
+commit, push or public release is claimed.
+
+## CLM discovery on PR #103 component (2026-10-13)
+
+With user approval, the isolated CLM worktree was fast-forwarded to PR #103
+head `d26f53a73ca43a4e4d2a5e9cc9cc6444d7373199`, retaining local CLM changes.
+This is local integration of an unmerged PR, not a merge of that PR on GitHub.
+The new composer menu exposes `/clm` and `/clm-compact` with localized labels
+and existing menu styling. The pinned runtime handles these core commands but
+omits them from `get_commands`; Desktop supplements the successful catalog
+response and gives core names precedence without duplicate entries.
+Selection fills the input only and does not dispatch a prompt.
+
+Build, typecheck and all 360 serial Desktop tests passed. Composer-menu Electron
+acceptance passed filtering, keyboard selection, no automatic dispatch, IME,
+attachment references, cancellation, model picker and narrow layout.
+Screenshot: `Desktop/test-results/composer-clm-dark.png`.
+Context-maintenance presentation and real CLM cancellation/explicit queue
+recovery acceptance also passed. The active-Goal RPC fixture now observes the
+automatic continuation on session restore rather than racing it with an
+additional ordinary prompt; CLM retention, completion and restart assertions
+remain in place.
+
+No upstream sources or another agent's branch were edited. No package, shortcut
+update, commit, push or PR merge was performed for this component follow-up.
+The shortcut still targets the PR #102 experience build recorded below.
+These local-fixture results do not establish cloud CI or real-model acceptance.
+
+The user subsequently requested packaging. The combined preview at
+`Desktop/release/clm-composer-pr103-20261013/` passed packaged composer discovery,
+real CLM UI cancellation/queued recovery, context-maintenance statistics and
+Ultracode restart acceptance. Packaged Node, Step bundle, manifest, both runtime
+helpers, keyless-fetch adapter and terminal host match current staged resources.
+The ordinary desktop shortcut now targets its unpacked executable, with empty
+arguments and its own icon. Existing running user windows were not stopped.
+Installer SHA256:
+`15e1ff806f2297324737e41ffdc0799e2372ec9868338537b242a77ecb8ad6b7`.
+The output totals 750,537,788 bytes; this worktree's two package directories
+were inventoried and preserved without cleanup. No installer lifecycle or
+real-model acceptance, commit, push, PR merge or public release was performed.
+
+The subsequent source-only overlap fix puts the model/effort popover above
+composer discovery and limits discovery keyboard handling to its textarea.
+The new regression failed against the previous build because all three
+overlap hit-test points reached discovery instead of the model panel.
+After the fix, composer acceptance verifies overlapping pointer hits, thinking
+slider keys, secondary model-list access and foreground-only Escape in dark,
+light and narrow layouts. Build, typecheck and command projection tests passed.
+Screenshots are `Desktop/test-results/composer-model-layer-{dark,light}-1300.png`
+and `Desktop/test-results/composer-model-layer-dark-840.png`.
+This follow-up is not included in the package above and is reserved for the
+next CLM PR; the other agent's PR and the desktop shortcut were not changed.
+
+The user then requested a new combined package. The preview at
+`Desktop/release/clm-menu-layer-20261013/` includes CLM discovery and the overlap
+fix. Packaged composer acceptance passed both CLM entries, no dispatch on
+selection, overlap pointer hits, slider keys, model-list access and Escape
+scoping across dark/light/narrow layouts. Packaged real CLM cancellation/queued
+recovery and context-maintenance statistics acceptance also passed.
+Packaged Node, Step bundle, manifest, both runtime helpers, keyless-fetch
+adapter and terminal host match staged/current resources.
+The ordinary desktop shortcut targets this preview with empty arguments and
+its own icon. Existing user windows and all three local package directories
+were preserved. Output totals 750,537,772 bytes. Installer SHA256:
+`4cd777f0a934a76097d5046f3a13f14803f9d55f3716c459114aa0d99e55b241`.
+No installer lifecycle, real-model acceptance, commit, push or PR merge was
+performed; this is a local experience build, not a public release.
+
+## Combined CLM / PR #102 package (2026-10-13)
+
+The CLM worktree was fast-forwarded to merged main `76ee986` (PR #102,
+reviewed head `c94dc68`) and local CLM changes were reapplied. The only merge
+conflict was additive verification documentation; both records were retained.
+The local 0.3.0 preview is `Desktop/release/clm-latest-pr102-20261013/`.
+It includes the latest merged Ultracode recovery work and the uncommitted CLM
+statistics/cancellation changes described below. Typecheck/build and all 358
+serial Desktop tests passed after integration.
+
+Packaging first failed while dependencies were shared via a junction. A
+worktree-local frozen-lockfile pnpm installation succeeded, and NSIS packaging
+then succeeded without dependency version changes. Packaged acceptance passed
+real CLM UI cancellation/queued recovery, context presentation, Ultracode
+restart/one-turn consent, and workflow parallel/chain/history/stop-resume/cache/
+changed-script/forced-crash recovery. These checks use local HTTP model fixtures.
+Packaged Node, Step bundle, manifest and both runtime helpers match the staged
+v0.1.4 resources (`3ba89e0`). No upstream source was edited for this package.
+
+The ordinary desktop shortcut targets this package's unpacked executable with
+empty arguments and its own icon. Existing user applications were not stopped.
+Installer SHA256:
+`095cb2996d2763ec2dfa5eabcdfda46f7b59b5c799e86588551f6e621ff904cb`.
+Package output totals 750,566,814 bytes. Old packages were not deleted.
+No installer lifecycle test, real-model semantic retention acceptance, new PR or
+public release was performed; this is a local experience build.
+
 ## PR #102 review lifecycle follow-up (2026-10-13)
 
 Workflow binding metadata now follows session lifecycle: clone/fork copies only
@@ -113,6 +281,93 @@ This evidence does not establish abrupt-process-crash recovery, explicit
 `resumeFromRunId` cache replay and changed-script invalidation, or real-model
 orchestration quality. No installer, shortcut change, PR or release qualification
 is included. The full Ultracode P0 remains open pending those remaining checks.
+
+## CLM v0.1.4 adaptation (2026-10-12)
+
+The final Electron follow-up identified and fixed a renderer-only cancellation
+gap: the composer disabled Stop while maintaining context, and its stop handler
+required ordinary streaming. Stop now accepts the existing composer busy state
+and invokes the existing IPC abort path during maintenance. No upstream changes
+are needed. The previous presentation assertion is updated to require enabled
+Stop rather than preserving the inaccessible cancellation behavior.
+
+New real Electron acceptance seeds isolated long history and holds an actual CLM
+HTTP request, sends a draft through the composer into the Desktop queue, then
+clicks Stop. It checks maintenance ends, no CLM checkpoint or native compaction
+is committed during cancellation, and the undelivered draft remains paused.
+Explicit queue recovery uses the public preload/IPC bridge with CLM still enabled.
+The cancelled attempt enters upstream cooldown; native threshold compaction
+remains available and occurs once during recovery. The actor receives fixture
+summary evidence and the queued user message is persisted once. Native compaction
+may retain recent canonical text; replacement of that text is not asserted.
+This is real UI/IPC/runtime lifecycle evidence with a deterministic model, not
+proof of semantic summarization quality. The check runs under the full Windows CI
+path with a five-minute step limit and bounded process/server cleanup.
+After the Stop fix, final build/typecheck, real Electron CLM cancellation,
+context-maintenance presentation, Ultracode restart acceptance, diff whitespace
+validation and all three CI policy tests passed. The preceding 356-test full
+suite remains the unit/protocol result; the final change is the renderer stop
+guard, covered by these final Electron checks.
+
+2026-10-13 follow-up adds three real staged-runtime RPC tests using a local
+deterministic HTTP model. They seed editable long history, trigger automatic CLM
+without an explicit projection setting, assert an accepted edit and no native
+fallback, and inspect actual actor payloads for the projected evidence and
+protected user requirement. Canonical JSONL history remains intact. Maintenance
+and actor usage (including Goal completion review) each contribute once.
+All three passed: Plan survives maintenance/restart and submits a proposal for
+approval before exiting planning; paused Goal survives restart; active Goal
+completes and restores as complete. A Desktop fork before the old user message
+does not inherit the later Goal or CLM checkpoint, and reopening the source
+still uses its original accepted projection. These tests run in the normal
+Desktop protocol suite and do not modify upstream source or personal profiles.
+Two subsequent staged-runtime recovery tests also passed. An invalid offered ID
+is rejected with maxRequests=1, triggers exactly one successful native compaction,
+persists one compaction entry and continues the actor and queued follow-up.
+A held maintenance stream is cancelled via abort after the Desktop queue is paused;
+maintenance ends without fallback or an accepted working-context checkpoint.
+The undelivered draft stays paused and is delivered exactly once after explicit
+recovery. Recovery uses /clm off to avoid re-entering the deliberately held
+maintenance fixture; it does not prove a second CLM attempt after cancellation.
+These tests use actual SessionRuntimes, PendingMessages and the staged RPC child,
+not the Electron IPC command handler or injected maintenance events.
+Final typecheck, diff whitespace validation and the full serial Desktop suite
+passed with all 356 tests, including all five real-CLM scenarios.
+
+Based on merged PR #101, maintenance completion now requests authoritative
+`get_session_stats` totals without reloading messages or ending the running turn.
+The renderer updates both the context ring and inspector. Desktop does not add
+maintenance usage itself: the pinned runtime already includes it in totals.
+Request ordering prevents older snapshots from overwriting newer statistics;
+disconnected workers, replaced transports and changed session identities discard
+late results. Read failures preserve the last known totals. Late provider usage
+that arrives after maintenance completion is still picked up by the next ordinary
+snapshot refresh; this change does not introduce continuous usage polling.
+
+Local validation: typecheck/build, all 350 Desktop unit/protocol tests, the new
+Electron context-maintenance presentation acceptance, and real-RPC send-queue
+acceptance passed. Presentation injection verifies maintenance labels, occupancy
+updates and background-session isolation; it does not cause real CLM maintenance.
+Nine new transport tests cover usage refresh, duplicate completion, fallback
+ordering, stale snapshots, disconnect, replacement, session change and read errors.
+After adding the final asynchronous history-decoration guard, typecheck and all
+77 focused maintenance/runtime/queue tests passed, as did the three CI policy tests.
+
+Read-only testing against the pinned upstream checkout ran six suites covering
+automatic CLM, completion, live context, task-context snapshots, maintenance
+controller and defaults: 83 passed, one Python-dependent test skipped. Three
+additional suites (Plan extension, Goal abort regression, bounded context reads)
+returned 22 passed and one failed. The failing test creates a file symlink;
+an isolated OS probe also returns EPERM on this host. No upstream source or test
+was changed to bypass that restriction.
+
+P0 remains open. These are deterministic local tests, not real-model acceptance
+of semantic retention. Remaining acceptance includes real long-context retention,
+task-list
+retention through maintenance, and the symlink case on a capable Windows host.
+No installer, shortcut update, PR, cloud CI result or release qualification is
+included. Runtime and dependencies are reused through local junctions; generated
+build/terminal output is retained for acceptance and no old packages were deleted.
 
 ## PR #101 Queue and CI Follow-Up
 

@@ -1,4 +1,5 @@
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CommandCatalog, CommandReference, commandReference } from './CommandReference';
 import type { ComponentProps, Dispatch, ReactNode, SetStateAction } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import { ArrowRight, ArrowRightLeft, Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
@@ -119,7 +120,10 @@ function Body({ blocks, ...props }: { blocks: Content[] } & BodyProps) {
       : block.type === 'image' ? <Image key={index} block={block} {...props}/> : null)}</div>;
 }
 function UserText({ text, ...props }: { text: string } & BodyProps) {
+  const commands = useContext(CommandCatalog);
+  const reference = commandReference(text, commands);
   const presentation = useMemo(() => quotePresentation(text), [text]);
+  if (reference) return <p className="command-reference-text"><CommandReference {...reference}/>{text.slice(reference.length)}</p>;
   if (!presentation) return <Text text={text} {...props}/>;
   const zh = props.language === 'zh';
   return <div className="sent-quote-message">

@@ -1,0 +1,7 @@
+.command-reference { display: inline-flex; align-items: baseline; color: var(--primary); white-space: nowrap; font: inherit; vertical-align: baseline; }
+.command-reference-icon { display: inline-flex; align-self: center; width: .95em; margin-right: .2em; flex-shrink: 0; }
+.command-reference-icon svg { width: .95em; height: .95em; overflow: visible; }
+.composer { position: relative; }
+.composer-command-reference { position: absolute; pointer-events: none; z-index: 1; background: var(--side); font: inherit; font-size: 13px; line-height: 1.6; }
+.composer-command-reference .command-reference { display: flex; width: 100%; height: 100%; align-items: center; }
+.command-reference-text { white-space: pre-wrap; overflow-wrap: anywhere; }

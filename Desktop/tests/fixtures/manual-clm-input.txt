@@ -1,0 +1,30 @@
+Organize your working context using the current index below. The conversation is already in context; no preliminary mirror read is needed. Select useful reductions and make one atomic batched edit of "C:\\fixture\\agent\\live-context\\session\\mirror-fixture\\LIVE_CONTEXT.md" with ordinary tools. Read and write the current file inside the same tool call, preserving metadata and headers. Retain the user's requirements, exact findings, failed approaches and remaining work. Keep protected messages and tool-call groups intact. Use actual IDs and your own summaries in the example. Once an edit is accepted, finish briefly. If no useful safe edit is available, explain that briefly. Additional guidance: KEEP-CLM-731
+
+# Working context index (read-only)
+Editable file: "C:\\fixture\\agent\\live-context\\session\\mirror-fixture\\LIVE_CONTEXT.md"
+Revision: 0; document: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Total messages: 6; editable plain-text blocks: 0.
+This index lists the largest editable text bodies. Other blocks, including user/control text and current tool groups, must stay intact.
+Use the IDs below to select bodies. Read the full file locally and perform one read-modify-write operation in the same tool call; do not print the full file or copy it into a tool result.
+Keep the current metadata and every retained header unchanged. Replace selected text bodies with concise findings; preserve exact errors, decisions and useful values. Preview text is only a locator, not a complete summary.
+Read only a small selected body range if you need evidence beyond the conversation already in context.
+
+No editable plain-text bodies. No context edit is needed.
+
+Example atomic body replacement in a Python-capable shell (equivalent code in another available runtime is fine):
+from pathlib import Path
+import re
+p = Path("C:\\fixture\\agent\\live-context\\session\\mirror-fixture\\LIVE_CONTEXT.md")
+replacements = {"ID_FROM_INDEX": "Your concise summary preserving exact useful findings"}
+text = p.read_bytes().decode("utf-8")
+parts = re.split(r"(?m)(^\[\[CTX_TURN [^\n]*\]\]\n)", text)
+seen = set()
+for i in range(1, len(parts), 2):
+    key = re.search(r" id=([A-Za-z0-9-]+) ", parts[i]).group(1)
+    if key in replacements:
+        assert "protected=false" in parts[i]
+        parts[i + 1] = replacements[key] + ("\n\n" if i + 2 < len(parts) else "")
+        seen.add(key)
+assert seen == set(replacements), 'Re-read the index if selected IDs changed'
+p.write_bytes("".join(parts).encode("utf-8"))
+print('Updated', len(seen), 'context blocks')

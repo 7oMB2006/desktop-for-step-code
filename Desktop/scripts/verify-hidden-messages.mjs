@@ -1,7 +1,7 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -90,6 +90,15 @@ try {
   assert.equal(await page.locator('.message.assistant').getAttribute('data-message-index'), '2');
   assert.equal(await page.getByText(/HIDDEN_.*_SENTINEL/).count(), 0, 'saved hidden records do not reappear after reload');
   await page.screenshot({ path: 'test-results/hidden-messages-replay.png' });
+  const manualClm = (await readFile(new URL('../tests/fixtures/manual-clm-input.txt', import.meta.url), 'utf8')).trimEnd();
+  await send({ role: 'user', content: manualClm, entryId: 'manual-clm' });
+  await page.locator('.message.user .command-reference').filter({ hasText: 'clm-compact' }).waitFor();
+  assert.equal(await page.getByText('Working context index (read-only)', { exact: true }).count(), 0);
+  assert.equal(await app.evaluate(() => globalThis.hiddenFixture.messages.at(-1).content), manualClm, 'Canonical content is retained');
+  await page.reload();
+  await page.locator('.message.user .command-reference').filter({ hasText: 'clm-compact' }).waitFor();
+  assert.equal(await page.getByText('Working context index (read-only)', { exact: true }).count(), 0);
+  await page.screenshot({ path: 'test-results/manual-clm-compact-replay.png' });
   await send({ role: 'toolResult', toolName: 'subagent', toolCallId: 's1', content: 'Failed', entryId: 'dispatch',
     details: { status: 'failed', results: [{ agent: 'explore', task: 'Check files',
       status: 'failed', messages: [{ role: 'user', content: 'Check files' }, childHidden] }] } });

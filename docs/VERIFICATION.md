@@ -8,7 +8,17 @@ navigation settled (`Execution context was destroyed`). Workflow snapshot
 polling now waits for the preload bridge and composer DOM before reading.
 All original crash, unknown-state, cache reuse and explicit resume assertions
 remain intact. The corrected workflow-runtime acceptance passed three
-consecutive local runs; replacement cloud CI is tracked separately.
+consecutive local runs. Replacement cloud run `38353668743` for `5517a43`
+passed all three Windows groups and the final gate.
+
+The subsequent Codex P2 fix reuses `visibleInputBlocks` when extracting the
+first user title, before truncating to 200 characters. The regression first
+failed on the raw manual-CLM envelope, then passed with the compact command.
+It covers string/multi-block input, unchanged canonical content, role
+selection, ordinary text, Ultracode compatibility and title length.
+Build, typecheck and the final full serial run passed all 365 tests. One earlier
+run reported attachment-utils test-file startup failure; its isolated four-test
+run and full rerun passed without attachment-code changes.
 
 The subsequent source-only anchor correction keeps the recognized icon at the
 textarea's original text start rather than extending it into the left gutter.

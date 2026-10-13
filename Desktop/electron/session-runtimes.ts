@@ -5,7 +5,7 @@ import { RpcProcess } from './runtime';
 import { permissionFromStatus } from './permission-status';
 import { projectLaunch, ultracodeNotification } from './launch-state';
 import { emptyLaunch, type LaunchState } from '../src/launch-state';
-import { isUltracodeInput, originalUltracodeInput } from '../src/ultracode-input';
+import { isUltracodeInput, visibleInputBlocks } from '../src/ultracode-input';
 import { isUserMessage } from '../src/user-message';
 import { WORKSPACE_POLICY } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
@@ -48,8 +48,8 @@ export interface SessionRuntime {
   stopping?: boolean;
 }
 export function firstUserText(messages: Message[]) {
-  const content = messages.find(isUserMessage)?.content;
-  return originalUltracodeInput(typeof content === 'string' ? content : content?.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') ?? '').slice(0, 200);
+  const message = messages.find(isUserMessage);
+  return message ? visibleInputBlocks({ ...message, role: 'user' }).filter(block => block.type === 'text').map(block => block.text ?? '').join('\n').slice(0, 200) : '';
 }
 export function taskOutcome(messages: Message[]) {
   const last = messages.at(-1);

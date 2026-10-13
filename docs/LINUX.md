@@ -77,7 +77,7 @@ cross-platform or stale runtime packages.
   Deliberately daemonized jobs that have both reparented and entered another
   session can escape that fallback; this is not a general OS process supervisor.
 - Workspace paths are case-sensitive on Linux. Case-distinct projects and terminal
-  scopes must stay independent.
+  scopes stay independent, including sidebar rename/pin, archives and file previews.
 - Closing the Linux window quits the application and its managed runtimes/terminals.
   Windows retains its existing tray behavior. Linux tray integration is deferred.
 - Electron owns the profile under its Linux `userData` location, normally
@@ -87,13 +87,16 @@ cross-platform or stale runtime packages.
   New vault files are owner-readable/writable only. `basic_text`, unknown or missing
   secure storage backends fail closed. An empty profile can open without a keyring;
   saving or unlocking credentials cannot silently fall back to weak storage.
+  Clearing the last credential removes the Linux vault without requiring a keyring,
+  so the next empty-profile launch retains that no-keyring behavior.
   Windows vaults are not portable to Linux. Other configured provider/MCP secrets
   retain their existing storage behavior; this is not a general secret migration.
 - The current public update feed is Windows-oriented. Linux can open release notes
   but is never offered its Windows installer. Linux update artifacts/feed support
   is deferred. Windows-only StepPage registration is not applied on Linux.
 - Linux file launching uses Electron's default application. Windows-specific
-  application enumeration is not offered.
+  application enumeration and the "Choose another app" picker are not offered;
+  direct requests for those unsupported destinations are rejected.
 
 ## Verification boundary
 

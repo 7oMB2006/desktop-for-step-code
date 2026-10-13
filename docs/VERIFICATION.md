@@ -2,6 +2,32 @@
 
 ## Experimental Linux x64 port (2026-10-13)
 
+### PR #106 review follow-up
+
+The review follow-up clears logically empty Linux credential vaults without
+requiring a keyring, while preserving nonempty fail-closed and Windows DPAPI
+behavior. Renderer workspace, archive and file-preview identity now uses the
+shared platform key, preserving Linux case, literal backslashes and `/`.
+Linux opening choices retain internal/system handlers and reject Windows-only
+application-picker requests at IPC and helper boundaries. Update presentation
+identifies Linux and explains that the current feed offers Windows installers.
+
+Combined typecheck, production build and all 413 Desktop tests passed locally,
+with no skips. CI policy/inventory/runner checks passed 11 tests, with the
+Windows-only process-cancellation check skipped. The real runtime-only fixture
+again passed its tool call, history restart, three provider requests and two
+clean exits. New GUI acceptance covers renderer workspace rename/pin/grouping,
+archives/filter/restore/reload, file-opening policy and update presentation;
+those added GUI checks require the next remote CI run.
+
+Earlier PR #106 run `38362262011` at `2e4d158` passed the full Linux job,
+including sandboxed source and packaged Electron acceptance, native PTY,
+history restart and portable archive creation. Its runtime-process detector was
+corrected for the pinned Step CLI's `process.title = 'step'`, retaining descendant
+ownership, executable identity and process-generation checks. That earlier
+Linux result does not validate the subsequent review follow-up or establish an
+all-platform pass for its final commit. Release gates below still apply.
+
 ### Publication integration with PR #105
 
 The publication branch was subsequently reconciled onto main

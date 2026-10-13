@@ -1,5 +1,51 @@
 # Verification
 
+## Windows command integration acceptance (2026-10-13)
+
+Based on main `8b35512` (including merged PR #105), the new
+`Desktop/scripts/verify-windows-commands.mjs` exercises the staged, pinned
+Step Code runtime through actual Electron preload/IPC/RPC and a local
+deterministic HTTP model. No upstream source, personal profile or running
+user application is changed.
+
+The five isolated profiles verify default native Git Bash discovery,
+non-default Git discovery through a cmd-only PATH, explicit `shellPath` in
+Desktop-owned `step-runtime/config.toml`, rejection of a missing explicit
+path without fallback, and a clear error when no native Bash is discoverable.
+The non-default fixture copies actual Git Bash executables and DLLs to a path
+with spaces, masks standard install locations, and asserts the actual native
+Bash path. It is a shell fixture, not a complete portable Git installation.
+Windows architecture environment entries are omitted in these profiles so
+CreateProcess does not restore the default ProgramFiles locations.
+
+Successful profiles cover explicit cwd with spaces, stdout/stderr, MSYS
+utilities on the non-login shell PATH, and exit-code 7 failure propagation.
+Background commands return a PID, isolated absolute log path and Windows
+process-tree stop advice before a fixture-owned release file allows completion.
+The log captures both streams and delayed output,
+and the actual `read_file` tool returns it to the actor. Any tool confirmation
+is clicked in the isolated application; this is not evidence of unattended
+permission bypass. Background probes are finite and finish before shutdown.
+
+The complete five-profile acceptance passed twice locally. The report is
+`Desktop/test-results/windows-commands.json`. The new check is registered in
+the full Windows runtime CI group with a five-minute timeout; all 43 previous
+checks remain, bringing the inventory to 44.
+
+The pinned upstream shell-discovery, run-command-timeout and tool-profile
+suites passed 73 tests with one skipped. An additional exploratory
+`step-shell-path.test.ts` run failed five Unix-profile migration cases because
+their simulated Unix inputs contain Windows backslashes and trigger the safe
+path rejection. The combined exploratory run was 74 passed, five failed and
+two skipped. Those upstream tests and assertions were not changed.
+
+Desktop production build, typecheck and all 365 serial unit/protocol tests
+passed. All 12 CI policy/inventory/executor tests passed.
+
+This is source/staged-runtime acceptance, not fresh Windows installation,
+real paid-model, packaged installer or release qualification. Remote CI and a
+latest-source package still need verification before release.
+
 ## CLM inline references preview (2026-10-13)
 
 PR #105's first cloud run passed interface and sessions, but runtime acceptance

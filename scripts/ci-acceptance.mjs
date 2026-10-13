@@ -44,6 +44,7 @@ export const acceptanceGroups = {
     'verify-subagent-status.mjs',
     'verify-workflow.mjs',
     'verify-chain-runtime.mjs',
+    'verify-windows-commands.mjs',
     'verify-workflow-runtime.mjs',
     'verify-summary-runtime.mjs',
     'verify-background-subagents.mjs',
@@ -74,6 +75,7 @@ export const localOnly = [
 
 // Retain the two existing per-step timeout limits; other scripts retain the job limit.
 export const acceptanceTimeouts = {
+  'verify-windows-commands.mjs': 300_000,
   'verify-context-maintenance.mjs': 300_000,
   'verify-clm-cancellation.mjs': 300_000,
   'verify-model-switch.mjs': 300_000,

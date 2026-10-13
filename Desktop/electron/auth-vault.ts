@@ -9,6 +9,13 @@ type SafeStorageLike = Pick<typeof safeStorageType, 'isEncryptionAvailable' | 'e
   & Partial<Pick<typeof safeStorageType, 'getSelectedStorageBackend'>>;
 const LINUX_KEYRINGS = new Set(['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6']);
 
+export class CredentialStorageUnavailableError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'CredentialStorageUnavailableError';
+  }
+}
+
 async function optionalFile(path: string): Promise<Buffer | undefined> {
   try { return await readFile(path); }
   catch (error: any) { if (error.code === 'ENOENT') return undefined; throw error; }
@@ -74,7 +81,7 @@ export class AuthVault {
   }
 
   private unavailable() {
-    return new Error(this.platform === 'linux'
+    return new CredentialStorageUnavailableError(this.platform === 'linux'
       ? 'Secure credential storage is unavailable. Unlock or configure GNOME Keyring or KWallet and restart the app.'
       : 'Secure credential storage is unavailable');
   }
@@ -88,6 +95,19 @@ export class AuthVault {
       throw this.unavailable();
     }
     return storage;
+  }
+
+  // Query only backend readiness, without reading, writing or encrypting any
+  // credentials. Electron may prompt to initialize/unlock the native wallet,
+  // so callers must use an explicit user action rather than background polling.
+  // This is a point-in-time check, not a guarantee that a later save will work.
+  async availability(): Promise<boolean> {
+    try { await this.assertAvailable(); return true; }
+    catch { return false; }
+  }
+
+  async assertAvailable(): Promise<void> {
+    await this.secureBackend();
   }
 
   async load(): Promise<AuthData> {

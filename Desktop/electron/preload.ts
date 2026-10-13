@@ -85,6 +85,7 @@ const bridge: DesktopBridge = {
   cloneSession: id => invoke('cloneSession', id),
   retryMessage: (entryId, message, runtimeId) => invoke('retryMessage', entryId, message, runtimeId),
   deleteSession: id => invoke('deleteSession', id), restart: () => invoke('restart'), settings: () => invoke('settings'),
+  credentialStorage: () => invoke('credentialStorage'),
   deleteArchivedSessions: ids => invoke('deleteArchivedSessions', ids),
   login: (profile, key) => invoke('login', profile, key), cancelLogin: () => invoke('cancelLogin'), logout: () => invoke('logout'),
   saveProvider: (provider, key) => invoke('saveProvider', provider, key),

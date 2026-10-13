@@ -16,6 +16,7 @@ import { normalizeAppearance } from '../src/appearance';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { AuthVault } from './auth-vault';
+import { withLoginPreflight } from './login-preflight';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
 let providerTestController: AbortController | undefined;
@@ -1151,6 +1152,8 @@ async function handle(method: string, args: any[]) {
       }
     }
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
+    // Explicit user action only: safeStorage may open a native unlock/setup dialog.
+    case 'credentialStorage': return { available: await vault.availability() };
     case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
     case 'cancelProviderTest': providerTestController?.abort(); return;
     case 'testProvider': {
@@ -1174,15 +1177,18 @@ async function handle(method: string, args: any[]) {
     case 'login': {
       await guardIdle();
       await applyProviderSettings();
-      const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
-      await persistAuth(mergeRuntimeAuth(authData, next));
-      appliedAuthData = authData;
-      const current = runtimes.active;
-      const draft = sessionDraft;
-      await runtimes.stopAll();
-      if (draft) await beginSession(draft.workspace);
-      else if (current) await connect(current.cwd, current.state?.sessionFile, false);
-      return null;
+      const login = async () => {
+        const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
+        await persistAuth(mergeRuntimeAuth(authData, next));
+        appliedAuthData = authData;
+        const current = runtimes.active;
+        const draft = sessionDraft;
+        await runtimes.stopAll();
+        if (draft) await beginSession(draft.workspace);
+        else if (current) await connect(current.cwd, current.state?.sessionFile, false);
+        return null;
+      };
+      return process.platform === 'linux' ? withLoginPreflight(vault, preferences.language, login) : login();
     }
     case 'cancelLogin': return admin.request('cancel_login');
     case 'logout': {

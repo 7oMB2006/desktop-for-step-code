@@ -75,9 +75,72 @@ jobs:
     with:
       group: runtime
 
+  linux:
+    name: Linux x64 integration
+    needs: changes
+    if: needs.changes.outputs.docs-only == 'false'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - name: Enable pinned package-manager shims
+        working-directory: Desktop
+        run: |
+          corepack enable
+          corepack pnpm --version
+      - name: Fetch and patch pinned Step Code
+        run: |
+          git init Step-Code
+          git -C Step-Code remote add origin https://github.com/stepfun-ai/Step-Code.git
+          git -C Step-Code fetch --depth 1 --no-tags origin 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
+          git -C Step-Code checkout --detach FETCH_HEAD
+          node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/step-code-desktop.patch
+          git -C Step-Code diff --check
+      - name: Build pinned runtime from checked-in model data
+        working-directory: Step-Code
+        run: |
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm build:offline
+      - name: Install Desktop dependencies
+        working-directory: Desktop
+        run: |
+          corepack pnpm install --frozen-lockfile
+          node node_modules/electron/install.js
+      - name: Stage and check Desktop
+        working-directory: Desktop
+        run: |
+          corepack pnpm stage:runtime
+          corepack pnpm typecheck
+          corepack pnpm test
+          corepack pnpm build
+      - name: Linux Electron and real runtime fixture
+        working-directory: Desktop
+        run: xvfb-run -a node scripts/verify-linux.mjs
+      - name: Package Linux portable archive
+        working-directory: Desktop
+        run: corepack pnpm exec electron-builder --linux tar.gz --x64
+      - name: Verify packaged Linux application
+        working-directory: Desktop
+        env:
+          DESKTOP_VERIFY_EXE: ./release/linux-unpacked/desktop-for-step-code
+        run: xvfb-run -a node scripts/verify-linux.mjs
+      - name: Upload Linux failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-failure-evidence
+          path: Desktop/test-results/linux-*
+          if-no-files-found: ignore
+          retention-days: 7
+
   result:
     name: CI result
-    needs: [changes, documentation, windows-interface, windows-sessions, windows-runtime]
+    needs: [changes, documentation, windows-interface, windows-sessions, windows-runtime, linux]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

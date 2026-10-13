@@ -12,10 +12,12 @@
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "node scripts/build-terminal.mjs && node --import tsx --test tests/*.test.ts",
     "stage:runtime": "node scripts/stage-runtime.mjs",
     "package": "pnpm build && pnpm stage:runtime && electron-builder --win nsis --x64",
-    "start": "electron ."
+    "start": "electron .",
+    "package:linux": "pnpm build && pnpm stage:runtime && electron-builder --linux tar.gz --x64",
+    "verify:linux": "node scripts/verify-linux.mjs"
   },
   "dependencies": {
     "@number-flow/react": "0.6.2",
@@ -95,6 +97,10 @@
         "to": "icon.ico"
       },
       {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
         "from": "runtime",
         "to": "runtime"
       },
@@ -109,7 +115,10 @@
           "package.json",
           "LICENSE",
           "lib/**",
-          "prebuilds/win32-x64/**",
+          "prebuilds/win32-${arch}/**",
+          "prebuilds/linux-${arch}/**",
+          "build/Release/*.node",
+          "build/Release/spawn-helper",
           "!**/*.pdb",
           "!**/*.test.js",
           "!**/*.map"
@@ -131,6 +140,15 @@
       "allowToChangeInstallationDirectory": true,
       "include": "build/uninstall-credentials.nsh",
       "deleteAppDataOnUninstall": false
-    }
+    },
+    "linux": {
+      "target": [
+        "tar.gz"
+      ],
+      "icon": "build/icon.png",
+      "category": "Development",
+      "artifactName": "Desktop-for-Step-Code-${version}-linux-${arch}.${ext}"
+    },
+    "beforePack": "scripts/verify-package-runtime.cjs"
   }
 }

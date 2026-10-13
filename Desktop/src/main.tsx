@@ -37,10 +37,11 @@ import { updateRunMetrics, type RunMetrics } from './performance';
 import { ConversationMessages, PendingUserMessages } from './ConversationMessages';
 import { messageBlocks, messageText } from './conversation-presentation';
 import { ComposerActionIcon } from './ComposerActionIcon';
+import { ComposerMenu } from './ComposerMenu';
 import { composerAction } from './composer-action';
 import { SelectionToolbar } from './SelectionToolbar';
 import { QuotePreview } from './QuotePreview';
-import { MAX_QUOTES, MAX_PROMPT_LENGTH, quotePrompt, restoreQuotes, type ChatQuote } from './chat-quotes';
+import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, quotePrompt, restoreQuotes, type ChatQuote } from './chat-quotes';
 import { playCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
@@ -97,6 +98,7 @@ function App() {
   const sessionActivity = useRef(new Map<string, RuntimeSummary['status']>());
   const nextNoticeId = useRef(0);
   const [draft, setDraft] = useState('');
+  const [referencesOpen, setReferencesOpen] = useState(false);
   const [quotes, setQuotes] = useState<ChatQuote[]>([]);
   const quoteScope = `${data.preferences.workspace ?? ''}:${data.state?.sessionId ?? ''}`;
   const quoteScopeRef = useRef(quoteScope);
@@ -1225,7 +1227,6 @@ function App() {
       </div>
       <div className={`composer-wrap${navigationTarget ? ' session-navigation-pending' : ''}`} inert={Boolean(navigationTarget)}>
         <div className="composer-underlay" inert={Boolean(permissionApproval && approvalOpen)}>
-        {draft.startsWith('/') && commands.filter(c => c.name.startsWith(draft.slice(1))).length > 0 && <div className="command-menu">{commands.filter(c => c.name.startsWith(draft.slice(1))).slice(0, 6).map(c => <button key={c.name} onClick={() => setDraft(`/${c.name} `)}><code>/{c.name}</code><span>{c.description}</span></button>)}</div>}
         {!navigationTarget && <ComposerContextBar queued={queuedMessages.length > 0}>
         <QuotePreview quotes={quotes} language={data.preferences.language}
           clear={() => setQuotes([])}
@@ -1245,6 +1246,28 @@ function App() {
           docked={queuedMessages.length > 0} onOpenChange={setLiveChangesOpen}/>
         {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { readingRestore.current = undefined; follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
         </ComposerContextBar>}
+        <ComposerMenu key={data.state?.sessionId ?? data.draftId ?? ''} draft={draft} setDraft={setDraft} commands={commands} language={data.preferences.language}
+          scope={data.state?.sessionId ?? data.draftId ?? ''} disabled={!connected || loading || Boolean(navigationTarget)}
+          referencesOpen={referencesOpen} setReferencesOpen={setReferencesOpen} messages={data.messages}
+          canAddFiles={attachments.length < 10}
+          permissionsSupported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')}
+          onFiles={async () => {
+            const scope = view.current.sessionId ?? view.current.draftId;
+            try { const added = await bridge!.chooseAttachments(); addAttachments(added, scope); return added.length > 0 && scope === (view.current.sessionId ?? view.current.draftId); }
+            catch (error) { setError(error instanceof Error ? error.message : String(error)); return false; }
+          }}
+          onQuote={index => {
+            const message = data.messages[index]; const text = messageText(message);
+            if (quotes.some(quote => quote.messageIndex === index && quote.text === text)) return true;
+            if (quotes.length >= MAX_QUOTES || text.length > MAX_QUOTE_LENGTH || text.length + draft.length + quotes.reduce((sum, quote) => sum + quote.markdown.length, 0) > MAX_PROMPT_LENGTH - 1000) {
+              setError(t('引用过多或内容过长，请选取较短的片段', 'Too many quotes or too much content; select a shorter excerpt')); return false;
+            }
+            setQuotes(value => [...value, { id: crypto.randomUUID(), messageIndex: index, role: message.role === 'user' ? 'user' : 'assistant', text, markdown: text, startOffset: 0, endOffset: text.length }]); return true;
+          }}
+          onAction={action => {
+            if (action === 'mcp') { setTab('mcp'); void openSettings(); }
+            else requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(action === 'model' ? '.model-effort-trigger' : '.permission-trigger')?.click());
+          }}>
         <div className={`composer ${draggingFiles ? 'composer-file-drop' : ''}`}
           onDragEnter={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); dragDepth.current++; setDraggingFiles(true); } }}
           onDragOver={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
@@ -1262,10 +1285,7 @@ function App() {
             } else void send();
           }}/>
           <div className="composer-tools">
-            <IconButton title={t('添加附件', 'Add attachments')} disabled={!connected || loading || attachments.length >= 10} onClick={() => {
-              const scope = view.current.sessionId ?? view.current.draftId;
-              void run(async () => addAttachments(await bridge!.chooseAttachments(), scope));
-            }}><Plus size={17}/></IconButton>
+            <IconButton title={t('添加附件', 'Add attachments')} aria-expanded={referencesOpen} disabled={!connected || loading} onClick={() => setReferencesOpen(value => !value)}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}
               launch={data.launch} busy={busy} launchSupported={{
                 plan: Boolean(data.draftId) || commands.some(c => c.name === 'plan' && c.source === 'extension'),
@@ -1288,7 +1308,7 @@ function App() {
               disabled={!connected || loading || (action.mode === 'stop' ? stopping || Boolean(data.state?.isCompacting) : !action.hasContent)}
               onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
-        </div><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>
+        </div></ComposerMenu><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>
         </div>
         <PermissionApproval key={data.runtimeId ?? 'empty'} requestId={requests[0]?.id} presentation={permissionApproval} open={Boolean(permissionApproval && approvalOpen && !navigationTarget)}
           language={data.preferences.language} onLater={() => setApprovalOpen(false)} onRespond={respond}/>

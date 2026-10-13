@@ -239,6 +239,12 @@ jobs:
           node scripts/verify-workflow.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Workflow acceptance failed' }
 
+      - name: Composer discovery acceptance
+        working-directory: Desktop
+        run: |
+          node scripts/verify-composer-menu.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Composer discovery acceptance failed' }
+
       - name: Chain runtime acceptance
         working-directory: Desktop
         run: |

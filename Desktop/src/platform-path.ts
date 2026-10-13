@@ -4,7 +4,7 @@
 export function platformPathKey(path: string, platform: string): string {
   return platform === 'win32'
     ? path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-    : path.replace(/\/+$/, '');
+    : path.replace(/\/+$/, '') || (path.startsWith('/') ? '/' : '');
 }
 
 /** Renderer reads only the readonly preload value; Node consumers use their host. */

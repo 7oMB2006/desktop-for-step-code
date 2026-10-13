@@ -48,6 +48,7 @@ import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, quotePrompt, restoreQu
 import { playCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
+import { currentPlatform, platformPathKey } from './platform-path';
 import { useSidebarReorder } from './use-sidebar-reorder';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
@@ -82,7 +83,7 @@ const bridge = window.desktop;
 // real snapshot arrives.
 const initial: Snapshot = { preferences: { theme: window.desktopTheme?.resolved ?? 'system', language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
 const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
-const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const workspaceKey = (path: string) => platformPathKey(path, currentPlatform());
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
@@ -171,7 +172,7 @@ function App() {
     if (sequence !== openingSequence.current || !result || result.destination === 'external') return;
     setDetails('');
     if (result.destination === 'preview') {
-      const same = previewFile?.path.toLowerCase() === result.file.path.toLowerCase();
+      const same = previewFile !== undefined && workspaceKey(previewFile.path) === workspaceKey(result.file.path);
       if (toggle && target && same && rightPanel === 'file' && !details) { setRightPanel(null); return; }
       setPreviewFile(result.file); setRightPanel('file');
     } else {

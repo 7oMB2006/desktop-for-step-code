@@ -169,6 +169,10 @@ try {
   assert.equal(snapshot.state.sessionId, sessionId);
   assert.equal(snapshot.launch.goal.objective, '核验图片并让测试通过');
   assert.equal(snapshot.launch.goal.tokenBudget, 100000);
+  const goalInput = snapshot.messages.find(message => message.customType === 'desktop-goal-input');
+  assert.ok(goalInput?.details?.desktopGoalInputId, 'Goal input has a persisted Desktop identity');
+  assert.equal(goalInput.entryId, snapshot.launch.goal.completion.userEntryId,
+    'Completed Goal belongs to the exact persisted input, not a coincident timestamp');
   await page.locator('.working-idle .launch-status-pulse').waitFor();
   const assertIdleAnchor = async () => {
     await page.waitForFunction(() => {

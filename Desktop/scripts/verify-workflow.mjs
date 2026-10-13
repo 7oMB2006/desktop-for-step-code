@@ -261,8 +261,13 @@ try {
   const menuGeometry = await menu.evaluate(element => {
     const rows = [...element.querySelectorAll('button')];
     const style = getComputedStyle(element);
-    const contentHeight = element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-    return { rowHeights: rows.map(row => row.getBoundingClientRect().height), contentHeight, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight };
+    // clientHeight rounds fractional borders at Windows display scaling.
+    const contentHeight = parseFloat(style.height) - parseFloat(style.borderTopWidth) - parseFloat(style.borderBottomWidth)
+      - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    return { rowHeights: rows.map(row => row.getBoundingClientRect().height), contentHeight, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight,
+      scale: devicePixelRatio, boxHeight: element.getBoundingClientRect().height, cssHeight: style.height,
+      borderTop: style.borderTopWidth, borderBottom: style.borderBottomWidth,
+      paddingTop: style.paddingTop, paddingBottom: style.paddingBottom };
   });
   assert.ok(menuGeometry.rowHeights.every(height => Math.abs(height - 33) < .1)
     && Math.abs(menuGeometry.contentHeight - 5 * 33) < 1 && menuGeometry.scrollHeight > menuGeometry.clientHeight,

@@ -1,5 +1,33 @@
 # Verification
 
+## v0.4.0 release preparation (2026-10-13)
+
+PR #108 merged into main `cd47b0a88cac447b353e3038f649c6b1f03f0fed`.
+Its exact final head `7a35a77c263f5fb635c698fd246b4da1c562248f` passed
+cloud run `38389960338`: interface in 5m06s, sessions in 5m21s, runtime in
+7m26s and the final CI gate. All 376 unit/protocol tests and the 44 Windows
+acceptance checks passed; cloud logs confirm all five Windows command profiles.
+The P2 controlled-draft review was fixed and its thread resolved before merge.
+This supersedes pending merge/cloud notes for #108 below, not historical
+installer or real-model acceptance boundaries.
+
+An additional local runtime-group rerun stopped at the workflow history-menu
+geometry assertion: all 16 rows were 33px tall, but measured content height was
+166px rather than 165px. A standalone rerun reproduced that local difference;
+the same head passed this check in cloud CI. No assertion was weakened and
+no unrelated menu behavior changed. Candidate acceptance must inspect display
+scaling/geometry rather than counting that local group as passed. The earlier
+native exit `3221226505` did not recur in the successful cloud run; its root
+cause is still unconfirmed.
+
+Published `v0.3.0` remains the previous community preview. Release scope and
+draft prose for proposed `v0.4.0` are recorded under `docs/releases/`.
+No application version bump, new installer, checksum, shortcut update, tag
+or GitHub release is part of this documentation preparation. Real-model smoke,
+packaged acceptance and disposable-machine upgrade/restart/uninstall/reinstall
+remain required. The shared runtime junction was inspected and preserved;
+future packaging must stage current Desktop helpers independently.
+
 ## Next Windows release readiness (2026-10-13)
 
 PR #107 merged as main `969efee30253c9ef62f23f5ac6bb51a862076f55`.

@@ -109,3 +109,7 @@ v0.3.0 仍是社区预览版，不是 StepFun 官方产品，也不代表稳定�
 ### 许可
 
 Desktop for Step Code 源码采用 MIT 许可证。Step Code 及其 Pi 上游组件保留各自许可证和版权声明。
+
+### Linux x64 实验性移植
+
+当前公开安装包仍仅适用于 Windows。Linux x64 源码构建、便携包命令与验证边界见 [LINUX.md](docs/LINUX.md)。尚未完成真实图形桌面、密钥环登录及真实模型验收，不作为 Linux 正式发布声明。

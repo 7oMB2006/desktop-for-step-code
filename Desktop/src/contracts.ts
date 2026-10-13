@@ -89,6 +89,7 @@ export interface DesktopBridge {
   deleteArchivedSessions(ids: string[]): Promise<boolean>;
   restart(): Promise<Snapshot>;
   settings(): Promise<Settings>;
+  credentialStorage(): Promise<{ available: boolean }>;
   saveProvider(provider: CustomProvider, key?: string): Promise<Snapshot>;
   discoverProviderModels(provider: CustomProvider, key?: string): Promise<DiscoveredProviderModel[]>;
   testProvider(provider: CustomProvider, modelId: string, key?: string): Promise<ProviderDiagnostic>;

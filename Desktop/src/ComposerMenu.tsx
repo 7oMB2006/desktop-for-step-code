@@ -35,6 +35,7 @@ interface Props {
   children: ReactNode; draft: string; setDraft: (draft: string) => void; commands: ComposerCommand[];
   language: 'zh' | 'en'; scope: string; disabled: boolean; referencesOpen: boolean; setReferencesOpen: (open: boolean) => void;
   messages: Message[]; onFiles: () => Promise<boolean>; onQuote: (index: number) => boolean;
+  canAddFiles: boolean; permissionsSupported: boolean;
   onAction: (action: 'model' | 'permissions' | 'mcp') => void;
 }
 export function ComposerMenu(props: Props) {
@@ -61,7 +62,7 @@ export function ComposerMenu(props: Props) {
   useEffect(() => { if (referencesOpen) { setDismissed(false); setSelected(0); } }, [referencesOpen]);
   const mode = referencesOpen ? '@' : token?.mode;
   const query = referencesOpen ? '' : token?.query.toLowerCase() ?? '';
-  type Row = { id: string; title: string; detail: string; keyword?: string; Icon: typeof Terminal; group: string; activate: () => void };
+  type Row = { id: string; title: string; detail: string; keyword?: string; Icon: typeof Terminal; group: string; disabled?: boolean; activate: () => void };
   const consumeToken = (text = '') => {
     const next = !referencesOpen && token ? draft.slice(0, token.start) + text + draft.slice(token.end) : draft + text;
     setDraft(next); close();
@@ -73,10 +74,11 @@ export function ComposerMenu(props: Props) {
     { id: 'mcp', title: 'MCP', detail: zh ? '查看与管理服务器' : 'Manage servers', Icon: Plug, group: zh ? '操作' : 'Actions', activate: () => { consumeToken(); props.onAction('mcp'); } },
   ];
   const rows: Row[] = mode === '/' ? [
-    ...actions,
+    ...actions.filter(row => row.id !== 'permissions' || props.permissionsSupported),
     ...commandRows(commands, zh).filter(c => !['mcp', 'model', 'permissions'].includes(c.command)).map(c => ({ ...c, activate: () => consumeToken(`/${c.command} `) })),
   ] : [
-    { id: 'files', title: zh ? '文件和图片' : 'Files and images', detail: zh ? '添加本地附件' : 'Add local attachments', Icon: Paperclip, group: zh ? '添加' : 'Add', activate: () => {
+    { id: 'files', title: zh ? '文件和图片' : 'Files and images', detail: props.canAddFiles ? (zh ? '添加本地附件' : 'Add local attachments') : (zh ? '附件已达上限' : 'Attachment limit reached'), disabled: !props.canAddFiles, Icon: Paperclip, group: zh ? '添加' : 'Add', activate: () => {
+      if (!props.canAddFiles) return;
       close(); const current = draft;
       void props.onFiles().then(added => { if (added && input()?.value === current) consumeToken(); });
     } },
@@ -107,7 +109,7 @@ export function ComposerMenu(props: Props) {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); input()?.focus(); }
     else if (['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); setSelected((active + (e.key === 'ArrowDown' ? 1 : -1) + filtered.length) % Math.max(1, filtered.length)); }
     else if ((e.key === 'Enter' && !e.shiftKey && !e.repeat) || e.key === 'Tab' && !e.shiftKey) {
-      e.preventDefault(); e.stopPropagation(); filtered[active]?.activate();
+      e.preventDefault(); e.stopPropagation(); if (!filtered[active]?.disabled) filtered[active]?.activate();
     }
   };
   return <div className={`composer-menu-anchor${open ? ' has-composer-menu' : ''}`} ref={root} onKeyDownCapture={keyboard}
@@ -116,7 +118,7 @@ export function ComposerMenu(props: Props) {
     {open && <div className="composer-discovery" id="composer-discovery" role="listbox" aria-label={mode === '/' ? (zh ? '操作与指令' : 'Actions and commands') : (zh ? '附件与引用' : 'Attachments and references')}>
       <div className="composer-discovery-scroll">{filtered.length ? filtered.map((row, index) => <div key={row.id}>
         {(index === 0 || filtered[index - 1].group !== row.group) && <div className="composer-discovery-group">{row.group}</div>}
-        <button type="button" id={`composer-option-${index}`} role="option" aria-selected={index === active} onMouseEnter={() => setSelected(index)} onMouseDown={e => e.preventDefault()} onClick={row.activate}>
+        <button type="button" id={`composer-option-${index}`} role="option" disabled={row.disabled} aria-selected={index === active} onMouseEnter={() => setSelected(index)} onMouseDown={e => e.preventDefault()} onClick={row.activate}>
           <row.Icon size={16}/><span className="composer-discovery-title">{row.title}</span>{row.keyword && <code>{row.keyword}</code>}<span className="composer-discovery-detail">{row.detail}</span>
         </button>
       </div>) : <div className="composer-discovery-empty">{zh ? '没有匹配的内容' : 'No matches'}</div>}</div>

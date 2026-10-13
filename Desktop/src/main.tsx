@@ -1249,6 +1249,8 @@ function App() {
         <ComposerMenu key={data.state?.sessionId ?? data.draftId ?? ''} draft={draft} setDraft={setDraft} commands={commands} language={data.preferences.language}
           scope={data.state?.sessionId ?? data.draftId ?? ''} disabled={!connected || loading || Boolean(navigationTarget)}
           referencesOpen={referencesOpen} setReferencesOpen={setReferencesOpen} messages={data.messages}
+          canAddFiles={attachments.length < 10}
+          permissionsSupported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')}
           onFiles={async () => {
             const scope = view.current.sessionId ?? view.current.draftId;
             try { const added = await bridge!.chooseAttachments(); addAttachments(added, scope); return added.length > 0 && scope === (view.current.sessionId ?? view.current.draftId); }
@@ -1283,7 +1285,7 @@ function App() {
             } else void send();
           }}/>
           <div className="composer-tools">
-            <IconButton title={t('添加附件', 'Add attachments')} aria-expanded={referencesOpen} disabled={!connected || loading || attachments.length >= 10} onClick={() => setReferencesOpen(value => !value)}><Plus size={17}/></IconButton>
+            <IconButton title={t('添加附件', 'Add attachments')} aria-expanded={referencesOpen} disabled={!connected || loading} onClick={() => setReferencesOpen(value => !value)}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}
               launch={data.launch} busy={busy} launchSupported={{
                 plan: Boolean(data.draftId) || commands.some(c => c.name === 'plan' && c.source === 'extension'),

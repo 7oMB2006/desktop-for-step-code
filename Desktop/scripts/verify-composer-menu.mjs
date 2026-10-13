@@ -26,18 +26,21 @@ try {
       { role: 'assistant', content: '项目包含桌面界面、运行时桥接和验收脚本。可以先从聊天栏交互开始。' },
     ] };
     globalThis.menuPrompts = 0;
+    globalThis.menuAttachments = [];
+    globalThis.menuPermissionsSupported = false;
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', (_event, method, ...args) => {
       if (method === 'snapshot') return globalThis.menuFixture;
       if (method === 'systemTheme') return { systemDark: true };
       if (method === 'sessions') return snapshot.sessions;
-      if (method === 'chooseAttachments') return [];
+      if (method === 'chooseAttachments') return globalThis.menuAttachments;
       if (method === 'settings') return { account: {}, profiles: [], mcp: {}, skills: [] };
       if (method === 'summary') return { tasks: [], mcp: [], skillCount: 0 };
       if (method === 'command') {
         if (args[0] === 'prompt') globalThis.menuPrompts++;
         if (args[0] === 'get_available_thinking_levels') return { levels: ['low', 'medium', 'high'] };
         if (args[0] === 'get_commands') return { commands: [
+          ...(globalThis.menuPermissionsSupported ? [{ name: 'permissions', source: 'extension' }] : []),
           ...['goal', 'plan', 'todo', 'ultracode', 'compact', 'cron', 'init', 'exit', 'theme', 'llama'].map(name => ({ name, source: 'extension', description: `${name} command` })),
           { name: 'review-code', source: 'skill', description: '审查代码变更' },
           { name: 'daily-note', source: 'prompt', description: '整理每日记录' },
@@ -52,6 +55,12 @@ try {
   await input.fill('/');
   const menu = page.locator('.composer-discovery');
   await menu.waitFor();
+  assert.equal(await page.locator('.permission-trigger').isDisabled(), true);
+  assert.equal(await menu.getByRole('option', { name: /访问权限/ }).count(), 0, 'unsupported permission action is hidden');
+  await input.fill('/permissions');
+  await input.press('Enter');
+  assert.equal(await input.inputValue(), '/permissions', 'unavailable action preserves token');
+  await input.fill('/');
   assert.equal(await menu.getByText('/exit', { exact: true }).count(), 0);
   assert.equal(await menu.locator('svg.lucide-goal').count(), 1);
   assert.equal(await menu.locator('svg.lucide-lightbulb').count(), 1);
@@ -97,6 +106,28 @@ try {
   await menu.waitFor();
   await input.press('Escape');
   assert.equal(await input.inputValue(), '普通消息');
+  await app.evaluate(() => { globalThis.menuAttachments = Array.from({ length: 10 }, (_, index) => ({
+    kind: 'file', id: `fixture-file-${index}`, name: `file-${index}.txt`, size: 1,
+  })); });
+  await page.getByRole('button', { name: '添加附件', exact: true }).click();
+  await menu.getByRole('option', { name: /文件和图片/ }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.attachment-card').length === 10);
+  await page.getByRole('button', { name: '添加附件', exact: true }).click();
+  assert.equal(await menu.getByRole('option', { name: /文件和图片/ }).isDisabled(), true);
+  await input.press('ArrowDown');
+  await input.press('Enter');
+  assert.equal(await page.locator('.composer-quotes').count(), 1, 'references remain accessible at attachment limit');
+  assert.equal(await input.inputValue(), '普通消息');
+  assert.equal(await page.locator('.attachment-card').count(), 10);
+  await app.evaluate(() => { globalThis.menuPermissionsSupported = true; });
+  await page.reload();
+  await input.fill('/permissions');
+  await menu.getByRole('option', { name: /访问权限/ }).click();
+  await page.locator('.permission-trigger[aria-expanded="true"]').waitFor();
+  assert.equal(await input.inputValue(), '', 'supported permission action opens the real picker');
+  await page.waitForFunction(() => document.activeElement?.closest('.permission-menu'));
+  await page.keyboard.press('Escape');
+  await page.locator('.permission-trigger[aria-expanded="false"]').waitFor();
   await input.fill('/模型');
   await input.press('Enter');
   await page.locator('.model-effort-trigger[aria-expanded="true"]').waitFor();

@@ -90,7 +90,7 @@ try {
   assert.equal(await page.locator('.message.assistant').getAttribute('data-message-index'), '2');
   assert.equal(await page.getByText(/HIDDEN_.*_SENTINEL/).count(), 0, 'saved hidden records do not reappear after reload');
   await page.screenshot({ path: 'test-results/hidden-messages-replay.png' });
-  const manualClm = (await readFile(new URL('../tests/fixtures/manual-clm-input.txt', import.meta.url), 'utf8')).trimEnd();
+  const manualClm = (await readFile(new URL('../tests/fixtures/manual-clm-input.txt', import.meta.url), 'utf8')).replace(/\r\n/g, '\n').trimEnd();
   await send({ role: 'user', content: manualClm, entryId: 'manual-clm' });
   await page.locator('.message.user .command-reference').filter({ hasText: 'clm-compact' }).waitFor();
   assert.equal(await page.getByText('Working context index (read-only)', { exact: true }).count(), 0);

@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { manualClmInput } from '../src/manual-clm-input';
 import { messageText } from '../src/conversation-presentation';
 
-const fixture = readFileSync(new URL('./fixtures/manual-clm-input.txt', import.meta.url), 'utf8').trimEnd();
+// Git may check text fixtures out as CRLF; the pinned runtime emits this template with LF.
+const fixture = readFileSync(new URL('./fixtures/manual-clm-input.txt', import.meta.url), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 
 test('Manual CLM display restores the compact command and instructions without changing history', () => {
   assert.equal(manualClmInput(fixture), '/clm-compact KEEP-CLM-731');

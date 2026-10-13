@@ -9,6 +9,11 @@ Build, typecheck and composer acceptance passed, including an explicit anchor
 position regression, IME, selection, model controls and narrow layout.
 Screenshot: `Desktop/test-results/composer-command-reference.png`.
 This correction is not included in the preview package recorded below.
+The PR is based on main `0bb0272`, retaining the merged parallel Windows CI.
+Both maintenance acceptance scripts are registered in its sessions group with
+five-minute limits; all 12 CI policy/inventory tests passed. Manual-template
+fixture readers restore LF after Git CRLF checkout; production recognition
+remains strict and unchanged.
 
 Command references now use an icon and accented name in the composer and sent
 user text. The native textarea remains authoritative for selection, IME,

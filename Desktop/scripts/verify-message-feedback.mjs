@@ -114,7 +114,7 @@ try {
   });
   await input.fill('发送后的轻量落定动画。');
   await input.press('Enter');
-  assert.equal(await input.inputValue(), '', 'sending must clear immediately, without waiting for motion');
+  assert.equal(await input.evaluate(element => element.value), '', 'sending must clear immediately, without waiting for motion');
   assert.equal(await app.evaluate(() => globalThis.feedbackFixture.queue.length), 1);
   await admit();
   const arriving = page.locator('.message.user').last();
@@ -137,7 +137,7 @@ try {
   const userCount = await page.locator('.message.user').count();
   await input.fill('执行中加入队列的消息。');
   await page.locator('.composer-action-button').click();
-  assert.equal(await input.inputValue(), '');
+  assert.equal(await input.evaluate(element => element.value), '');
   assert.equal(await page.locator('.message.user').count(), userCount, 'queued messages must not imply they have entered the transcript');
   await admit();
   await page.locator('.message.user').last().getByText('执行中加入队列的消息。', { exact: true }).waitFor();
@@ -147,7 +147,7 @@ try {
   await input.fill('失败后恢复输入草稿。');
   await input.press('Enter');
   await page.getByRole('alert').filter({ hasText: 'Fixture prompt failure' }).waitFor();
-  assert.equal(await input.inputValue(), '失败后恢复输入草稿。');
+  assert.equal(await input.evaluate(element => element.value), '失败后恢复输入草稿。');
   assert.equal(await page.locator('.message.user').count(), userCount + 1);
   await page.getByRole('button', { name: '关闭', exact: true }).click();
   await app.evaluate(() => { globalThis.feedbackFixture.fail = false; });
@@ -175,7 +175,7 @@ try {
   const inputBounds = await input.boundingBox();
   await page.mouse.move(inputBounds.x + inputBounds.width / 2, inputBounds.y + inputBounds.height / 2);
   await page.mouse.wheel(0, 180);
-  await page.waitForFunction(previous => document.querySelector('.composer > textarea').scrollTop > previous, inputBefore);
+  await page.waitForFunction(previous => document.querySelector('.composer > .composer-input').scrollTop > previous, inputBefore);
   assert.equal(await page.locator('.conversation').evaluate(element => element.scrollTop), conversationBefore);
   for (const theme of ['dark', 'light']) {
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
@@ -187,7 +187,7 @@ try {
   await input.fill('');
   assert.equal(await input.evaluate(element => element.scrollHeight > element.clientHeight), false);
   assert.deepEqual(errors, []);
-  console.log('Message feedback passed: real text-copy IPC/validation/failure, user/assistant/code, history without motion, Enter/click/queue/failure, reduced motion, unchanged pulse and native textarea scrolling.');
+  console.log('Message feedback passed: real text-copy IPC/validation/failure, user/assistant/code, history without motion, Enter/click/queue/failure, reduced motion, unchanged pulse and native input scrolling.');
 } finally {
   await app.close();
 }

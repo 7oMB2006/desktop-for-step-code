@@ -68,7 +68,7 @@ try {
   });
   await page.getByRole('button', { name: '摘要板运行时验收', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-    !document.querySelector('.composer > textarea')?.disabled);
+    !document.querySelector('.composer > .composer-input')?.disabled);
   await page.getByRole('button', { name: '摘要', exact: true }).click();
   const board = page.getByRole('complementary', { name: '摘要', exact: true });
   await board.locator('.sb-plan-title').filter({ hasText: '接入摘要板' }).waitFor();
@@ -105,8 +105,8 @@ try {
     };
     requestAnimationFrame(record);
   });
-  await page.locator('.composer > textarea').fill('完成第二项');
-  await page.locator('.composer > textarea').press('Enter');
+  await page.locator('.composer > .composer-input').fill('完成第二项');
+  await page.locator('.composer > .composer-input').press('Enter');
   await board.getByRole('button', { name: /已完成 3 项/ }).waitFor();
   await page.waitForTimeout(1500);
   const update = await page.evaluate(async () => {

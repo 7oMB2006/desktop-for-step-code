@@ -129,7 +129,7 @@ try {
     const snapshot = await window.desktop.snapshot();
     return Boolean(snapshot.draftId) && !snapshot.runtimeId && snapshot.preferences.workspace === repo;
   }, repo);
-  const input = page.locator('.composer > textarea');
+  const input = page.locator('.composer > .composer-input');
   await input.fill('修复工具结束后正文无法继续输出的问题，保留现有的流式动画。');
   await input.press('Enter');
   await page.getByText('已修复工具结束后正文无法继续输出的问题。', { exact: true }).waitFor({ timeout: 60000 });

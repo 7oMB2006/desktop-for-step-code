@@ -54,7 +54,7 @@ const open = async () => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1360, 900);
   });
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled, undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await page.evaluate(() => window.desktop.snapshot());
   return page;
 };
@@ -99,7 +99,7 @@ try {
   assert.equal((await snapshot()).permissionPreset, 'ask');
   await page.screenshot({ path: 'test-results/permission-tiers-risk-dark.png' });
   await risk().getByRole('button', { name: '取消，保持当前权限', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === 'VERIFY-WRITE-CANCELLED');
+  await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === 'VERIFY-WRITE-CANCELLED');
   assert.equal(modelCalls, 0, 'Cancellation must not submit the task');
   const cancelled = await snapshot();
   assert.equal(cancelled.messages.length, 0);
@@ -115,7 +115,7 @@ try {
       && !document.querySelector('[role="dialog"]'));
     assert.equal((await snapshot()).permissionPreset, 'ask');
     assert.equal(modelCalls, 0, 'Cancelling a live permission change never calls the model');
-    assert.equal(await input().inputValue(), 'VERIFY-WRITE-CANCELLED');
+    assert.equal(await input().evaluate(element => element.value), 'VERIFY-WRITE-CANCELLED');
     assert.equal(await page.locator('.error-banner, .modal-error').count(), 0, `${cancel} cancellation is not an error`);
   }
   const changing = page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'full-access' }, id), cancelled.runtimeId);
@@ -163,7 +163,7 @@ try {
   page = await open();
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload();
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled);
   assert.notEqual((await snapshot()).permissionPreset, 'full-access', 'Session-only grant cannot survive process replacement');
   await choose('完全访问');
   await risk().waitFor();

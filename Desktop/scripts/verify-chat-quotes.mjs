@@ -47,6 +47,8 @@ try {
   }
   const select = async (selector, text) => {
     await page.evaluate(({ selector, text }) => {
+      // Native dragging blurs the composer before selecting prose.
+      document.activeElement?.blur();
       const element = [...document.querySelectorAll(selector)].find(element => !text || element.textContent.includes(text));
       element.scrollIntoView({ block: 'center', behavior: 'instant' });
       const range = document.createRange();
@@ -97,9 +99,21 @@ try {
     await page.waitForFunction(() => document.querySelector('.quote-chip > button')?.getAttribute('aria-expanded') === 'false');
   };
   await input.fill('这一段我想进一步讨论。');
+  await paragraph.scrollIntoViewIfNeeded();
+  const focusedRect = await paragraph.boundingBox();
+  await page.mouse.move(focusedRect.x + 2, focusedRect.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(focusedRect.x + 210, focusedRect.y + 12, { steps: 12 });
+  await page.mouse.up();
+  await toolbar.waitFor({ state: 'visible' });
+  assert.equal(await input.evaluate(element => document.activeElement === element), false, 'Dragging prose releases the editor focus');
+  await toolbar.getByRole('button', { name: '引用', exact: true }).click();
+  assert.equal(await input.evaluate(element => element.value), '这一段我想进一步讨论。', 'Native prose drag and quote preserve the unsent draft');
+  await removeQuote(1);
+  await page.getByRole('dialog', { name: '引用预览', exact: true }).waitFor({ state: 'hidden' });
   await select('.response-text > p', '可读的选区');
   await toolbar.getByRole('button', { name: '引用', exact: true }).click();
-  assert.equal(await input.inputValue(), '这一段我想进一步讨论。');
+  assert.equal(await input.evaluate(element => element.value), '这一段我想进一步讨论。');
   await page.locator('.quote-chip').waitFor();
   assert.equal(await input.evaluate(element => element === document.activeElement), true);
   await select('.response-text > p', '可读的选区');
@@ -217,7 +231,7 @@ try {
   }, snapshot);
   await input.press('Enter');
   await page.getByRole('alert').filter({ hasText: 'Fixture quote send failure' }).waitFor();
-  assert.equal(await input.inputValue(), '这一段我想进一步讨论。');
+  assert.equal(await input.evaluate(element => element.value), '这一段我想进一步讨论。');
   assert.equal(await page.locator('.composer-quote').count(), 1);
   await page.getByRole('button', { name: '关闭', exact: true }).click();
   await app.evaluate(() => { globalThis.quoteFixture.fail = false; });

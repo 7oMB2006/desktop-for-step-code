@@ -74,7 +74,7 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.evaluate(() => { HTMLMediaElement.prototype.play = () => Promise.resolve(); });
-  const input = page.locator('.composer > textarea');
+  const input = page.locator('.composer > .composer-input');
   const send = async text => { await input.fill(text); await input.press('Enter'); };
   const changeLanguage = async (from, to) => {
     await page.locator('.sidebar-bottom > button').click();
@@ -90,7 +90,7 @@ try {
   const target = await page.evaluate(() => window.desktop.snapshot());
   targetId = target.state.sessionId;
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea').disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
   await send('PROBE-LIST');
   await page.getByText('PROBE-LIST COMPLETE', { exact: true }).waitFor();
   const source = await page.evaluate(() => window.desktop.snapshot());

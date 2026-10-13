@@ -22,7 +22,7 @@ const ready = async app => {
   const page = await app.firstWindow();
   // The animated heading is painted before the management process is ready.
   await page.waitForFunction(() => {
-    const composer = document.querySelector('.composer textarea');
+    const composer = document.querySelector('.composer .composer-input');
     return Boolean(window.desktop && composer && !composer.disabled);
   }, undefined, { timeout: 60000 });
   const snapshot = await page.evaluate(() => window.desktop.snapshot());

@@ -90,7 +90,7 @@ let page;
 const waitSnapshot = async predicate => {
   // firstWindow can resolve before the restarted renderer finishes navigation.
   await page.waitForFunction(() => typeof window.desktop?.snapshot === 'function'
-    && document.querySelector('.composer textarea'), undefined, { timeout: 60000 });
+    && document.querySelector('.composer .composer-input'), undefined, { timeout: 60000 });
   const until = Date.now() + 60000;
   while (Date.now() < until) {
     const state = await page.evaluate(() => window.desktop.snapshot());
@@ -105,7 +105,7 @@ try {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
-  await page.waitForFunction(() => document.querySelector('.composer textarea') && !document.querySelector('.composer textarea').disabled);
+  await page.waitForFunction(() => document.querySelector('.composer .composer-input') && !document.querySelector('.composer .composer-input').disabled);
   await page.evaluate(async ({ workspace, baseUrl }) => {
     await window.desktop.saveProvider({ id: '', name: 'Workflow fixture', baseUrl, api: 'openai-completions',
       enabled: true, keyless: false, models: [{ id: 'fixture-workflow', name: 'Workflow', reasoning: false, vision: false,

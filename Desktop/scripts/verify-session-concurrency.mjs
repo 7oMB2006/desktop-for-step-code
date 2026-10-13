@@ -90,7 +90,7 @@ try {
     assert.equal(reused.runtimes.length, initialEmpty.runtimes.length);
     assert.equal(reused.sessions.length, initialEmpty.sessions.length);
   }
-  assert.equal(await input.inputValue(), 'Empty session draft');
+  assert.equal(await input.evaluate(element => element.value), 'Empty session draft');
   await input.fill('RUN-A');
   await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('RUN-A output')).catch(async error => {
@@ -140,16 +140,16 @@ try {
   await page.evaluate(() => {
     const start = performance.now();
     const observer = new MutationObserver(() => {
-      if (document.querySelector('.window-session-title')?.textContent !== 'RUN-A' || document.querySelector('.composer > textarea')?.value !== 'Draft A') return;
+      if (document.querySelector('.window-session-title')?.textContent !== 'RUN-A' || document.querySelector('.composer > .composer-input')?.value !== 'Draft A') return;
       window.residentSwitchPaintMs = performance.now() - start;
       observer.disconnect();
     });
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
   });
   await page.locator('.session-row').filter({ hasText: 'RUN-A' }).locator('button').first().click();
-  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === 'Draft A').catch(async error => {
+  await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === 'Draft A').catch(async error => {
     console.log('Navigation fixture:', await page.evaluate(async () => ({
-      draft: document.querySelector('.composer > textarea')?.value,
+      draft: document.querySelector('.composer > .composer-input')?.value,
       rows: [...document.querySelectorAll('.session-row')].map(row => [row.textContent, row.className]),
       error: document.querySelector('.error-banner')?.textContent,
       active: (await window.desktop.snapshot()).state?.sessionId,
@@ -161,7 +161,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('RUN-A output'));
   assert.ok(!(await page.locator('.messages').textContent()).includes('RUN-B output'));
   await page.locator('.session-row').filter({ hasText: 'RUN-B' }).locator('button').first().click();
-  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === 'Draft B');
+  await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === 'Draft B');
   await input.fill('');
   await page.getByRole('button', { name: '停止此轮', exact: true }).click();
   await page.getByRole('button', { name: '发送', exact: true }).waitFor();
@@ -193,11 +193,11 @@ try {
   await page.locator('.session-row').filter({ hasText: 'RUN-A' }).locator('button').first().click();
   const approval = page.getByRole('dialog');
   await approval.waitFor();
-  assert.equal(await page.locator('.composer textarea').inputValue(), 'Draft A');
+  assert.equal(await page.locator('.composer .composer-input').evaluate(element => element.value), 'Draft A');
   await approval.getByRole('button', { name: '稍后处理', exact: true }).click();
   await page.getByText('此会话有待确认的操作', { exact: true }).waitFor();
   await page.locator('.session-row').filter({ hasText: 'RUN-B' }).locator('button').first().click();
-  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === 'Idle draft B');
+  await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === 'Idle draft B');
   await approval.waitFor({ state: 'hidden' });
   assert.equal(await page.getByRole('dialog').count(), 0);
   await page.locator('.session-row').filter({ hasText: 'RUN-A' }).locator('button').first().click();
@@ -277,23 +277,23 @@ try {
   // More than two idle background workers are recycled; drafts follow sessions,
   // not process identities, and restored history still comes from upstream.
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled);
   await assert.rejects(page.evaluate(id => window.desktop.command('get_session_stats', {}, id), b.runtimeId), /not connected/);
   await page.locator('.session-row').filter({ hasText: 'RUN-B' }).locator('button').first().click();
-  await page.waitForFunction(() => document.querySelector('.composer > textarea')?.value === 'Idle draft B' &&
-    !document.querySelector('.composer > textarea')?.disabled);
+  await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === 'Idle draft B' &&
+    !document.querySelector('.composer > .composer-input')?.disabled);
   const restoredB = await page.evaluate(() => window.desktop.snapshot());
   assert.notEqual(restoredB.runtimeId, b.runtimeId);
   assert.equal(restoredB.state.sessionId, b.state.sessionId);
   assert.ok(JSON.stringify(restoredB.messages).includes('RUN-B output'));
   await page.locator('.session-row').filter({ hasText: 'RUN-A' }).locator('button').first().click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'RUN-A' &&
-    !document.querySelector('.composer > textarea')?.disabled);
+    !document.querySelector('.composer > .composer-input')?.disabled);
   await page.waitForFunction(() => !document.querySelector('.session-activity.completed'));
   const readSnapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(!readSnapshot.unreadSessionIds.includes(a.state.sessionId));
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled);
   assert.equal(await page.locator('.session-activity.completed').count(), 0, 'Leaving the read session does not restore its dot');
   for (const theme of ['dark', 'light']) {
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);

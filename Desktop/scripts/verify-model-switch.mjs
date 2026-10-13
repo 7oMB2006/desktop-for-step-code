@@ -62,7 +62,7 @@ try {
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
   await command('set_thinking_level', { level: 'low' });
   await page.reload();
-  const input = page.locator('.composer > textarea');
+  const input = page.locator('.composer > .composer-input');
   await input.waitFor(); await input.fill('FIRST: keep the current task on its original model.'); await input.press('Enter');
   await waitRequest(1);
   assert.equal(requests[0].model, 'model-a'); assert.equal(requests[0].reasoning_effort, 'low');

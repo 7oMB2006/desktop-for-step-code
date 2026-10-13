@@ -170,7 +170,7 @@ try {
   await dialog.getByRole('button', { name: '原始审批信息' }).click();
   await dialog.getByRole('button', { name: '稍后处理' }).click();
   await page.locator('.permission-approval').waitFor({ state: 'detached' });
-  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), '审批前保留的草稿');
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), '审批前保留的草稿');
   const reviewApproval = page.getByRole('button', { name: '处理审批', exact: true });
   await reviewApproval.waitFor();
   await checkNoticeColor('oklch(.80 .15 85)');
@@ -217,7 +217,7 @@ try {
     { value: { id: request.id, cancelled: true }, runtimeId: request.runtimeId },
   ]);
   await page.locator('.permission-approval').waitFor({ state: 'detached' });
-  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), '审批前保留的草稿');
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), '审批前保留的草稿');
   assert.equal(await reviewApproval.count(), 0);
   await page.getByRole('button', { name: '访问权限', exact: true }).waitFor();
   await load({ ...request, id: 'approval-ui-2' }, history, 'zh', 'light');
@@ -348,7 +348,7 @@ try {
   assert.equal(await reviewApproval.evaluate(element => getComputedStyle(element).backgroundImage), 'none');
   await reviewApproval.hover();
   assert.equal(await reviewApproval.evaluate(element => getComputedStyle(element).backgroundImage), 'none');
-  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), '审批前保留的草稿');
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), '审批前保留的草稿');
   assert.equal(await app.evaluate(() => globalThis.approvalFixture.responses.length), 2);
   assert.deepEqual(errors, []);
   console.log('Permission approval UI passed: Chinese/English, full input, summary fallback, raw details, defer, deny, approve, high-risk and unknown extension. Screenshots: test-results/permission-approval-*.png');

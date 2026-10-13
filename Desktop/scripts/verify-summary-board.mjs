@@ -109,9 +109,9 @@ try {
     assert.equal(await board.isVisible(), true, 'wheel interaction must leave Summary open');
     await page.mouse.click(bounds.x + 30, bounds.y + Math.min(180, bounds.height / 2));
     assert.equal(await board.isVisible(), true, 'reading outside Summary must not dismiss it');
-    const input = page.locator('.composer > textarea');
+    const input = page.locator('.composer > .composer-input');
     await input.fill('摘要打开时仍可输入');
-    assert.equal(await input.inputValue(), '摘要打开时仍可输入');
+    assert.equal(await input.evaluate(element => element.value), '摘要打开时仍可输入');
     assert.equal(await board.isVisible(), true);
     await input.fill('');
   };

@@ -57,7 +57,7 @@ try {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1440, 960);
   });
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled, undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   const initial = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(initial.draftId);
   const permissions = page.getByRole('button', { name: '访问权限', exact: true });
@@ -85,12 +85,12 @@ try {
   assert.equal(snapshot.launch.ultracode, false);
   assert.equal(snapshot.sessions.length, initial.sessions.length);
   await page.reload();
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled);
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ZQAAAABJRU5ErkJggg==';
   await page.evaluate(data => {
     const bytes = Uint8Array.from(atob(data), char => char.charCodeAt(0));
     const clipboard = new DataTransfer(); clipboard.items.add(new File([bytes], 'goal.png', { type: 'image/png' }));
-    document.querySelector('.composer > textarea').dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }));
+    document.querySelector('.composer > .composer-input').dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }));
   }, png);
   await page.locator('.attachments .attachment-card').waitFor();
   const input = page.getByRole('textbox', { name: '消息', exact: true });
@@ -228,8 +228,8 @@ try {
   assert.ok(bounds.x >= 0 && bounds.y >= 54 && bounds.x + bounds.width <= viewport.width + 1 && bounds.y + bounds.height <= viewport.height + 1);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
-  await page.locator('.composer > textarea').fill('目标完成后的新一轮普通任务。');
-  await page.locator('.composer > textarea').press('Enter');
+  await page.locator('.composer > .composer-input').fill('目标完成后的新一轮普通任务。');
+  await page.locator('.composer > .composer-input').press('Enter');
   await page.waitForFunction(async () => (await window.desktop.snapshot()).state.isStreaming);
   assert.equal(await page.locator('.working:not(.assistant-footer-row) .launch-status-pulse').count(), 0,
     'Completed Goal and its Ultracode intent never appear in the next task pulse');

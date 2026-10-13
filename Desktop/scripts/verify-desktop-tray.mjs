@@ -51,7 +51,7 @@ try {
       return { response: globalThis.trayFixture.response };
     };
   });
-  await page.waitForFunction(() => !document.querySelector('.composer > textarea')?.disabled, undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await page.evaluate(() => window.desktop.preferences({ language: 'zh' }));
   assert.equal(await app.evaluate(() => globalThis.trayFixture.tray.isDestroyed()), false);
   const newPopup = app.waitForEvent('window');

@@ -8,12 +8,13 @@
 *::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
 *::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
 *::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
-.message-body::selection, .message-body ::selection, .composer > textarea::selection {
+.message-body::selection, .message-body ::selection, .composer-input::selection, .composer-input ::selection {
   background: oklch(.86 0 0); color: oklch(.22 0 0);
 }
 :root[data-theme=dark] .message-body::selection,
 :root[data-theme=dark] .message-body ::selection,
-:root[data-theme=dark] .composer > textarea::selection {
+:root[data-theme=dark] .composer-input::selection,
+:root[data-theme=dark] .composer-input ::selection {
   background: oklch(.42 0 0); color: oklch(.97 0 0);
 }
 .selection-toolbar {

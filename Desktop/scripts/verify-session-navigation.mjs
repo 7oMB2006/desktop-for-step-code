@@ -59,7 +59,7 @@ try {
   const row = index => page.locator(`[data-reorder-id="navigation-${index}"] > button`).first();
   const opened = async index => {
     await page.waitForFunction(index => document.querySelector('.window-session-title')?.textContent === `Navigation ${index}` &&
-      !document.querySelector('.composer > textarea')?.disabled, index, { timeout: 60000 });
+      !document.querySelector('.composer > .composer-input')?.disabled, index, { timeout: 60000 });
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.sessionId, `navigation-${index}`);
   };
   phase = 'cold latest-target navigation';
@@ -99,7 +99,7 @@ try {
     for (const index of [0, 1, 3]) document.querySelector(`[data-reorder-id="navigation-${index}"] > button`).click();
     window.navigationImmediate = {
       selected: document.querySelector('.session-row.selected')?.dataset.reorderId,
-      sendingDisabled: document.querySelector('.composer > textarea')?.disabled,
+      sendingDisabled: document.querySelector('.composer > .composer-input')?.disabled,
     };
   });
   await opened(3);
@@ -124,7 +124,7 @@ try {
     const observer = new MutationObserver(() => {
       const preview = document.querySelector('.session-reading-preview');
       if (preview) window.previewEvidence.push({
-        inert: preview.inert, disabled: document.querySelector('.composer > textarea').disabled,
+        inert: preview.inert, disabled: document.querySelector('.composer > .composer-input').disabled,
         text: preview.textContent.includes('Answer 0/'),
       });
     });
@@ -135,7 +135,7 @@ try {
   await opened(0);
   const preview = await page.evaluate(() => { window.navigationPreviewObserver.disconnect(); return window.previewEvidence; });
   assert.ok(preview.some(value => value.inert && value.disabled && value.text), 'Recycled history appears as an inert cached transcript before reconnection');
-  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), 'Retained draft zero');
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Retained draft zero');
   const restored = await page.evaluate(() => {
     const viewport = document.querySelector('#conversation-scroll');
     const article = document.querySelector('.messages > article[data-message-index="12"]');

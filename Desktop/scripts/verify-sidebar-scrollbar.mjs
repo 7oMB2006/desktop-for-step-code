@@ -61,7 +61,7 @@ try {
   await page.getByText('Step Code \u5df2\u8fde\u63a5', { exact: true }).waitFor({ timeout: 60000 });
   const tree = page.locator('.workspace-tree');
   await page.waitForFunction(() => {
-    const composer = document.querySelector('.composer textarea');
+    const composer = document.querySelector('.composer .composer-input');
     return composer && !composer.disabled &&
       Array.from({ length: 40 }, (_, index) => `scrollbar-${index}`).every(id =>
         document.querySelector(`[data-reorder-kind="session"][data-reorder-id="${id}"]`));
@@ -77,7 +77,7 @@ try {
     overflow: element.scrollHeight > element.clientHeight,
   }));
   const idle = async () => {
-    await page.locator('.composer textarea').focus();
+    await page.locator('.composer .composer-input').focus();
     await page.mouse.move(700, 400);
   };
   for (const theme of ['light', 'dark']) {

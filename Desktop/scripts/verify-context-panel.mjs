@@ -273,7 +273,7 @@ try {
   await page.mouse.move(navConversation.x + 30, navConversation.y + 120);
   await page.mouse.wheel(0, 260);
   await page.waitForFunction(() => document.querySelector('#conversation-scroll').scrollTop > 100);
-  const input = page.locator('.composer > textarea');
+  const input = page.locator('.composer > .composer-input');
   const inputBounds = await input.boundingBox();
   await page.mouse.click(inputBounds.x + 12, inputBounds.y + 12);
   assert.equal(await input.evaluate(element => element === document.activeElement), true);

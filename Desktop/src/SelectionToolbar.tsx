@@ -130,7 +130,7 @@ export function SelectionToolbar({ root, scope, language, enabled, onQuote, onEr
     if (!selected || !onQuote(selected.quote)) return;
     setSelected(null);
     window.getSelection()?.removeAllRanges();
-    document.querySelector<HTMLTextAreaElement>('.composer > textarea')?.focus({ preventScroll: true });
+    document.querySelector<HTMLElement>('.composer > .composer-input')?.focus({ preventScroll: true });
   };
   const copy = async () => {
     if (!selected) return;

@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
+import { runtimeProcessKind } from './linux-runtime-processes.mjs';
 
 const runtimeOnly = process.env.DESKTOP_VERIFY_RUNTIME_ONLY === '1';
 const headless = process.env.DESKTOP_VERIFY_HEADLESS === '1';
@@ -121,12 +122,15 @@ async function descendants(pid) {
 
 async function runtimeProcesses() {
   const found = [];
+  const expected = { node: await realpath(runtimeNode), entry: runtimeEntry,
+    admin: join(runtimeRoot, 'admin.mjs'), terminal: terminalHost };
   for (const pid of await descendants(app.process().pid)) {
     try {
       const args = (await readFile(`/proc/${pid}/cmdline`, 'utf8')).split('\0');
-      if (args.includes(runtimeEntry) || args.includes(join(runtimeRoot, 'admin.mjs')) || args.includes(terminalHost)) {
+      const kind = runtimeProcessKind(args, await realpath(`/proc/${pid}/exe`), expected);
+      if (kind) {
         const info = await processInfo(pid);
-        if (info) found.push({ ...info, args });
+        if (info) found.push({ ...info, kind });
       }
     } catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ESRCH') throw error; }
   }
@@ -410,8 +414,8 @@ try {
     const sessionFile = complete.state.sessionFile;
     assert.ok(sessionId && sessionFile && inside(join(storage, 'sessions'), sessionFile), 'Session is owned by isolated userData');
     const owned = await runtimeProcesses();
-    assert.ok(owned.some(process => process.args.includes(runtimeEntry)), 'The actual staged Step Code bundle is running');
-    assert.ok(owned.some(process => process.args.includes(join(runtimeRoot, 'admin.mjs'))), 'The actual admin helper is running');
+    assert.ok(owned.some(process => process.kind === 'runtime'), 'The actual staged Step Code runtime is running');
+    assert.ok(owned.some(process => process.kind === 'admin'), 'The actual admin helper is running');
     for (const process of owned) assert.equal(await realpath(`/proc/${process.pid}/exe`), await realpath(runtimeNode));
     await page.screenshot({ path: join(results, 'linux-session.png') });
     phase('Real staged runtime completed local read tool and persisted the reply');

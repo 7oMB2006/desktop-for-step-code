@@ -2,6 +2,14 @@
 
 ## CLM inline references preview (2026-10-13)
 
+PR #105's first cloud run passed interface and sessions, but runtime acceptance
+read a snapshot immediately after forced-crash relaunch before renderer
+navigation settled (`Execution context was destroyed`). Workflow snapshot
+polling now waits for the preload bridge and composer DOM before reading.
+All original crash, unknown-state, cache reuse and explicit resume assertions
+remain intact. The corrected workflow-runtime acceptance passed three
+consecutive local runs; replacement cloud CI is tracked separately.
+
 The subsequent source-only anchor correction keeps the recognized icon at the
 textarea's original text start rather than extending it into the left gutter.
 First-line indentation reserves its extra width and restores on ordinary text.

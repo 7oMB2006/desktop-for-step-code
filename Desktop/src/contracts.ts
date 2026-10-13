@@ -35,6 +35,7 @@ export interface ProviderDiagnostic {
 }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[]; providers?: ProviderInfo[] }
 export interface DesktopBridge {
+  readonly platform: string;
   updateState(): Promise<AppUpdateState>;
   checkUpdates(): Promise<AppUpdateState>;
   openUpdate(action: 'release' | 'download'): Promise<void>;

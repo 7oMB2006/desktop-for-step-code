@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { ClipboardPaste, Copy, Eraser, Plus, X } from 'lucide-react';
 import type { TerminalInfo, TerminalSnapshot } from './contracts';
+import { platformPathKey } from './platform-path';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
 import { RightPanelWidthControl } from './RightPanelWidthControl';
 import '@xterm/xterm/css/xterm.css';
@@ -10,7 +11,8 @@ import './terminal-panel.css';
 
 type Chunk = { seq: number; data: string };
 type Controller = { terminal: Terminal; fit: FitAddon; element: HTMLDivElement; seq: number; info: TerminalInfo; hydrated: boolean; pending: Chunk[] };
-const directoryKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const directoryKey = (value: string) => platformPathKey(value, window.desktop?.platform ?? 'unknown');
+const shellLabel = (title?: string) => title?.replace(/ \d+$/, '') || (window.desktop?.platform === 'win32' ? 'PowerShell' : 'Shell');
 
 export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cwd, language, onClose, onToggleExpanded, onError, width, onWidthChange }: {
   open: boolean; replaced: boolean; overlay: boolean; expanded: boolean; runtimeId?: string; cwd?: string;
@@ -85,7 +87,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     element.hidden = true;
     host.current?.append(element);
     terminal.open(element);
-    terminal.textarea?.setAttribute('aria-label', 'PowerShell');
+    terminal.textarea?.setAttribute('aria-label', shellLabel(info.title));
     terminal.parser.registerOscHandler(52, () => true);
     controller = { terminal, fit, element, seq: 0, info, hydrated: false, pending: orphanChunks.current.get(info.id) ?? [] };
     orphanChunks.current.delete(info.id);
@@ -237,7 +239,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
           onClick={() => runtimeId && void create(runtimeId, scope)}><Plus size={16}/></button>
       </div>
       <div className="terminal-toolbar">
-        <span>PowerShell</span>
+        <span>{shellLabel(selected?.title)}</span>
         <button className="icon-button" disabled={!selected} aria-label={t('复制所选文本', 'Copy selected text')}
           data-tooltip={t('复制所选文本', 'Copy selected text')} onClick={() => void copy(controller)}><Copy size={14}/></button>
         <button className="icon-button" disabled={selected?.status !== 'running'} aria-label={t('粘贴到终端', 'Paste into terminal')}

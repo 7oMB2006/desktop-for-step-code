@@ -1,5 +1,42 @@
 # Verification
 
+## v0.4.0-rc.2 packaged acceptance (2026-10-13)
+
+Replacement candidate application source is frozen at
+`2c431fc97bac6978aa5095709dda5e259096adc0`, including the persistent shared
+Plan/Goal/Ultracode footer triggers. Typecheck/build and fresh staging passed;
+the upstream pin remains `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` with
+Node v24.15.0. This supersedes the source-only package status below.
+
+Installer: `Desktop for Step Code Setup 0.4.0-rc.2.exe`, 152695170 bytes.
+SHA-256: `8d12cec4ee8796bfd953e84ba42a88968250aebc8d6fe9054aa570dae2797dd6`.
+Installer and unpacked application are both `NotSigned`. All 94 Desktop
+build files and 1157 runtime files match their sources; resource helpers,
+Node hash, runtime notices and six ProseMirror versions/licenses passed.
+The asar roots remain only `dist`, `node_modules` and `package.json`.
+
+All 44 Windows checks passed against the new unpacked executable: interface
+16, sessions 14, runtime 14. Seven supplementary checks passed: chat quotes,
+Context, Review/Diff, turn undo, feedback, Summary board and turn changes.
+StepPage's seven launches passed without the earlier native driver exit;
+this does not establish that its historical cause is fixed. Fixtures and
+local deterministic services use isolated profiles, not real paid accounts.
+
+The first report driver stopped after the successful 44 checks because it
+looked for the old supplementary records at the wrong JSON property. The driver
+was corrected, resources/hash rechecked, and exact candidate identity plus all
+three complete script inventories/success records validated before running the
+seven previously unexecuted supplementary checks. No product assertion was
+weakened or test skipped.
+
+Evidence: `Desktop/test-results/rc2-package-resources.json`,
+`rc2-acceptance.json`, current screenshots and `rc2-shortcut.json`.
+The normal desktop shortcut was backed up and points to RC2, with matching
+working directory and empty arguments verified by readback. The currently
+running RC1 application was not interrupted; its package remains preserved.
+No tag, GitHub Release, upload or final installer was created. Cloud real-model
+and installer-lifecycle acceptance remain pending.
+
 ## Persistent turn status follow-up (2026-10-13)
 
 Source now shares `TurnStatusTrigger` across Plan, Goal and Ultracode footer

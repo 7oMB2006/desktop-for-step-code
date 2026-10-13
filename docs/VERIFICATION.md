@@ -1,5 +1,18 @@
 # Verification
 
+## PR #102 review lifecycle follow-up (2026-10-13)
+
+Workflow binding metadata now follows session lifecycle: clone/fork copies only
+workflow calls present in the new transcript and immediately rehydrates the new
+worker; normal quit flushes pending writes after runtime shutdown; individual
+and bulk archived deletion removes the matching binding file. Unit regression
+covers retained/excluded calls, flushed writes readable by a new store, deletion
+with a pending write and preservation of the source when removing a branch.
+The real-runtime fixture verifies cloned interrupted history immediately retains
+aborted status. Build, typecheck, nine focused tests, workflow recovery, session
+branching and tray quit acceptances passed locally. Replacement cloud CI remains
+required; no new package or merge was performed.
+
 ## Bound workflow interruption history (2026-10-13)
 
 Real-model session acceptance confirmed identical original/resumed script hashes,

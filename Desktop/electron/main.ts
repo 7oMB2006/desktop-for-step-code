@@ -830,6 +830,8 @@ async function handle(method: string, args: any[]) {
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
         await modelSelections.copyHistory(sessionId, worker.state!.sessionId!);
+        await workflowBindings.copyHistory(sessionId, worker.state!.sessionId!, worker.messages);
+        await runtimes.read(worker);
         preferences.workspace = worker.cwd;
         await savePreferences();
         return await snapshot(worker);
@@ -862,6 +864,8 @@ async function handle(method: string, args: any[]) {
           sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
             name });
         await modelSelections.copyHistory(source.state!.sessionId!, worker.state!.sessionId!);
+        await workflowBindings.copyHistory(source.state!.sessionId!, worker.state!.sessionId!, worker.messages);
+        await runtimes.read(worker);
         return await snapshot(worker);
       } finally { source.mutating = false; transition = false; }
     }
@@ -913,6 +917,7 @@ async function handle(method: string, args: any[]) {
             await deleteManagedSessionFile(join(dataRoot, 'sessions'), target.path);
             await conversationTiming.remove(target.id);
             await modelSelections.remove(target.id);
+            await workflowBindings.remove(target.id);
             sessionCatalog = sessionCatalog.filter(session => session.id !== target.id);
             runtimes.unreadSessionIds.delete(target.id);
             preferences.archivedSessionIds = preferences.archivedSessionIds?.filter(id => id !== target.id);
@@ -938,7 +943,9 @@ async function handle(method: string, args: any[]) {
       const response = await dialog.showMessageBox(window, { type: 'question', message: preferences.language === 'zh' ? '将此会话移到回收站？' : 'Move this session to the Recycle Bin?', buttons: ['Cancel', 'Move to Recycle Bin'], defaultId: 0, cancelId: 0 });
       if (response.response !== 1) return false;
       if (worker) await runtimes.remove(worker);
-      if (target.path) await shell.trashItem(target.path); return true;
+      if (target.path) await shell.trashItem(target.path);
+      await workflowBindings.remove(target.id);
+      return true;
     }
     case 'command': {
       const type = text(args[0], 80); const data = args[1] ?? {};
@@ -1319,6 +1326,7 @@ app.on('before-quit', event => {
       await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
+      await workflowBindings.flush();
       browser?.dispose();
       quitting = true;
       app.quit();

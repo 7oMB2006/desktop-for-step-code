@@ -10,6 +10,25 @@ export class WorkflowBindings {
   private writes = new Map<string, Promise<void>>();
   constructor(private directory: string, private report: (error: unknown) => void = () => {}) {}
   private file(sessionId: string) { return join(this.directory, createHash('sha256').update(sessionId).digest('hex') + '.json'); }
+  async flush() {
+    while (this.writes.size) await Promise.all([...this.writes.values()]);
+  }
+  async remove(sessionId: string) {
+    await this.writes.get(sessionId);
+    await rm(this.file(sessionId), { force: true });
+  }
+  async copyHistory(sourceId: string, targetId: string, messages: Message[]) {
+    if (sourceId === targetId) return;
+    const source = await this.load(sourceId);
+    const calls = new Set(messages.flatMap(message => Array.isArray(message.content)
+      ? message.content.filter(block => block.type === 'toolCall' && block.name === 'workflow').map(block => block.id) : []));
+    for (const [id, binding] of Object.entries(source)) {
+      if (!calls.has(id)) continue;
+      this.event(targetId, { type: 'tool_execution_update', toolName: 'workflow', toolCallId: id,
+        partialResult: { details: { schemaVersion: 1, status: 'running', runId: binding.runId, startedAt: binding.startedAt } } });
+    }
+    await this.writes.get(targetId);
+  }
   async load(sessionId: string): Promise<Record<string, Binding>> {
     await this.writes.get(sessionId);
     try {

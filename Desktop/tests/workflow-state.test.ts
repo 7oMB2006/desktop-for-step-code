@@ -126,13 +126,20 @@ test('persisted call bindings recover interruption without matching error prose 
     const store = new WorkflowBindings(join(root, 'bindings'));
     store.event('parent', { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'call', partialResult: { details: progress } });
     const binding = await store.load('parent');
+    store.event('parent', { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'excluded', partialResult: { details: progress } });
+    await store.flush();
+    await store.copyHistory('parent', 'branch', [{ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'call' }] }]);
+    assert.deepEqual(await store.load('branch'), binding, 'fork copies only retained calls');
+    await store.copyHistory('parent', 'empty-branch', [{ role: 'user', content: 'before workflow' }]);
+    assert.deepEqual(await store.load('empty-branch'), {});
     const reopened = new WorkflowBindings(join(root, 'bindings'));
-    assert.deepEqual(await reopened.load('parent'), binding);
+    assert.deepEqual(await reopened.load('branch'), binding);
     const message: Message = { role: 'toolResult', toolName: 'workflow', toolCallId: 'call', content: 'unstructured error', isError: true, details: {} };
     const hydrated = await hydrateWorkflowHistory(root, [message], binding);
     assert.equal(hydrated[0].desktopWorkflow?.status, 'aborted');
     assert.deepEqual(hydrated[0].desktopWorkflow?.agents.map(agent => agent.status), ['completed', 'aborted']);
     assert.equal(hydrated[0].isError, true);
+    assert.equal((await hydrateWorkflowHistory(root, [message], await reopened.load('branch')))[0].desktopWorkflow?.status, 'aborted');
     assert.equal(message.desktopWorkflow, undefined);
     assert.equal((await hydrateWorkflowHistory(root, [message], await store.load('other-session')))[0].desktopWorkflow, undefined);
     assert.equal((await hydrateWorkflowHistory(root, [{ ...message, toolCallId: 'other-call' }], binding))[0].desktopWorkflow, undefined);
@@ -140,5 +147,11 @@ test('persisted call bindings recover interruption without matching error prose 
     assert.equal((await hydrateWorkflowHistory(root, [message], binding))[0].desktopWorkflow?.status, 'failed');
     await writeFile(join(directory, 'progress.json'), JSON.stringify({ ...progress, startedAt: 999, status: 'aborted' }));
     assert.equal((await hydrateWorkflowHistory(root, [message], binding))[0].desktopWorkflow, undefined);
+    store.event('delete-me', { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'call', partialResult: { details: progress } });
+    await store.remove('delete-me');
+    assert.deepEqual(await reopened.load('delete-me'), {}, 'delete waits for in-flight writes');
+    await store.remove('branch');
+    assert.deepEqual(await reopened.load('branch'), {});
+    assert.ok((await reopened.load('parent')).call, 'removing a branch preserves the source');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

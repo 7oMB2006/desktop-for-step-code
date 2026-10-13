@@ -222,6 +222,10 @@ try {
   await page.evaluate(() => window.desktop.command('abort'));
   await pending;
   await waitSnapshot(state => state.messages.find(message => message.toolCallId === 'WORKFLOW-STOP')?.desktopWorkflow?.status === 'aborted');
+  const cloned = await page.evaluate(id => window.desktop.cloneSession(id), sessionId);
+  assert.equal(cloned.messages.find(message => message.toolCallId === 'WORKFLOW-STOP')?.desktopWorkflow?.status, 'aborted',
+    'cloned session restores bound interruption immediately');
+  await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   holdRecovery = false;
   releaseRecovery?.();
   const count = task => requests.filter(request => request.task === task).length;

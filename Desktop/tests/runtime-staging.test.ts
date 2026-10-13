@@ -4,8 +4,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 
-test('staging rejects the wrong upstream before touching runtime through every source selector', { skip: process.platform !== 'win32' }, async () => {
+test('staging rejects the wrong upstream before touching runtime through every source selector', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-stage-'));
   try {
     const upstream = join(root, 'Step-Code');
@@ -36,7 +37,7 @@ test('staging rejects the wrong upstream before touching runtime through every s
 // A pin bump moves four things together: the guard, the patch, the apply script and the
 // instructions. The first three are coupled by the guard itself; this couples the fourth so a
 // stale build instruction fails in CI instead of on a contributor's machine.
-test('every documented pin matches the staging guard', { skip: process.platform !== 'win32' }, async () => {
+test('every documented pin matches the staging guard', async () => {
   const guard = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
   const pin = guard.match(/const PINNED_COMMIT = '([0-9a-f]{40})'/)?.[1];
   assert.match(pin ?? '', /^[0-9a-f]{40}$/, 'staging guard declares a pin');
@@ -48,6 +49,43 @@ test('every documented pin matches the staging guard', { skip: process.platform 
   }
   // The workflow already fails when the two drift, because the applier checks the pinned
   // pre-image hashes, but that error blames the upstream source. Checking here names the cause.
-  const workflow = await readFile(resolve('../.github/workflows/windows-integration.yml'), 'utf8');
-  assert.ok(workflow.includes(pin!), '.github/workflows/windows-integration.yml still pins an older Step Code revision');
+  for (const name of ['pr-ci.yml', 'windows-integration.yml']) {
+    const workflow = await readFile(resolve(`../.github/workflows/${name}`), 'utf8');
+    assert.ok(workflow.includes(pin!), `${name} still pins an older Step Code revision`);
+  }
+});
+
+test('Linux packaging includes standalone Node PTY binaries and a PNG icon', async () => {
+  const { scripts, build } = JSON.parse(await readFile(resolve('package.json'), 'utf8'));
+  assert.equal(scripts.package, 'pnpm build && pnpm stage:runtime && electron-builder --win nsis --x64');
+  assert.match(scripts['package:linux'], /electron-builder --linux tar\.gz --x64$/);
+  assert.deepEqual(build.linux.target, ['tar.gz']);
+  assert.equal(build.linux.icon, 'build/icon.png');
+  const pty = build.extraResources.find((item: any) => item.to === 'terminal-runtime/node_modules/node-pty');
+  assert.ok(pty.filter.includes('prebuilds/win32-${arch}/**'));
+  assert.ok(pty.filter.includes('prebuilds/linux-${arch}/**'));
+  assert.ok(!pty.filter.some((pattern: string) => pattern.includes('${os}')));
+  assert.match(scripts.test, /^node scripts\/build-terminal\.mjs && /);
+  assert.ok(pty.filter.includes('build/Release/*.node'));
+  assert.ok(pty.filter.includes('build/Release/spawn-helper'));
+  assert.ok(build.extraResources.some((item: any) => item.to === 'icon.png'));
+});
+
+
+test('packaging refuses cross-platform, stale and unsupported runtime targets', () => {
+  const { assertRuntimeTarget } = createRequire(import.meta.url)('../scripts/verify-package-runtime.cjs');
+  const linux = { platform: 'linux', arch: 'x64', nodeExecutable: 'node' };
+  const windows = { platform: 'win32', arch: 'x64', nodeExecutable: 'node.exe' };
+  assert.doesNotThrow(() => assertRuntimeTarget(linux, 'linux', 1, 'linux', 'x64'));
+  assert.doesNotThrow(() => assertRuntimeTarget(windows, 'win32', 1, 'win32', 'x64'));
+  assert.throws(() => assertRuntimeTarget(linux, 'win32', 1, 'linux', 'x64'), /cross-platform/);
+  assert.throws(() => assertRuntimeTarget(windows, 'linux', 1, 'linux', 'x64'), /does not match/);
+  assert.throws(() => assertRuntimeTarget({}, 'linux', 1, 'linux', 'x64'), /does not match/);
+  assert.throws(() => assertRuntimeTarget(linux, 'linux', 3, 'linux', 'arm64'), /cross-platform/);
+  assert.throws(() => assertRuntimeTarget(linux, 'darwin', 1, 'darwin', 'x64'), /cross-platform/);
+});
+
+test('beforePack accepts electron-builder context and the actual staged runtime', async () => {
+  const verify = createRequire(import.meta.url)('../scripts/verify-package-runtime.cjs');
+  await verify({ packager: { info: { appDir: resolve('.') } }, electronPlatformName: process.platform, arch: 1 });
 });

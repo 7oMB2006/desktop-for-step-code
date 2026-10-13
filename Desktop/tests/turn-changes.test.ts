@@ -90,3 +90,19 @@ test('malformed counts, multi-file patches, overlong lines and oversized payload
   assert.equal(parseToolPatch(createPatch('a', '', 'x'.repeat(12001) + '\n'), 'id'), undefined);
   assert.equal(parseToolPatch(createPatch('a', 'a\n', 'b\n') + createPatch('b', 'a\n', 'b\n'), 'id'), undefined);
 });
+
+test('Linux turn changes keep case-distinct and literal-backslash paths separate', () => {
+  const messages = indexed([
+    ...edit('README.md', 'a\n', 'b\n', 'upper'),
+    ...edit('readme.md', 'c\n', 'd\n', 'lower'),
+    ...edit('folder\\readme.md', 'e\n', 'f\n', 'literal'),
+    ...edit('folder/readme.md', 'g\n', 'h\n', 'nested'),
+  ]);
+  const linux = turnChanges(messages, 'linux');
+  assert.deepEqual(linux.files.map(file => file.path), ['README.md', 'readme.md', 'folder\\readme.md', 'folder/readme.md']);
+  assert.equal(createTurnChangesReader('linux')(messages).files.length, 4);
+  const windows = turnChanges(messages, 'win32');
+  assert.equal(windows.files.length, 2);
+  assert.deepEqual(windows.files.map(file => file.edits.length), [2, 2]);
+  assert.equal(createTurnChangesReader('win32')(messages).files.length, 2);
+});

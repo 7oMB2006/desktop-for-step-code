@@ -4,7 +4,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { RpcProcess, isolatedEnvironment } from '../electron/runtime';
+import { runtimeNodePath, RpcProcess, isolatedEnvironment } from '../electron/runtime';
 
 test('staged Step login persists the access credential in readable auth.json', async () => {
   const { writeStepLoginCredential, logoutStepCredentials } = await import(
@@ -36,7 +36,7 @@ test('desktop-managed credentials stay in child memory and never create auth.jso
   };
   const admin = new RpcProcess(() => {});
   try {
-    admin.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), root, env);
+    admin.start(runtimeNodePath(resolve('runtime')), resolve('runtime/admin.mjs'), root, env);
     const saved = await admin.request('login', { profile: 'platform_cn', key: marker });
     assert.equal(saved.step?.access, marker, `Saved provider IDs: ${Object.keys(saved).join(', ')}`);
     await assert.rejects(readFile(authPath), { code: 'ENOENT' });

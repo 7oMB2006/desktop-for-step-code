@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { RpcProcess, isolatedEnvironment } from '../electron/runtime';
+import { runtimeNodePath, RpcProcess, isolatedEnvironment } from '../electron/runtime';
 
 test('draft management registers Step under its canonical credential/model identity', { timeout: 30000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'draft-step-models-'));
@@ -15,7 +15,7 @@ test('draft management registers Step under its canonical credential/model ident
   } }));
   const rpc = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), root, isolatedEnvironment(root));
+    rpc.start(runtimeNodePath(resolve('runtime')), resolve('runtime/admin.mjs'), root, isolatedEnvironment(root));
     const options = await rpc.request('session_options', { cwd: root }, 20000);
     assert.equal(options.model.provider, 'step');
     assert.equal(options.model.id, 'step-5-preview');

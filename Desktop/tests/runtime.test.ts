@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { JsonLines, RpcProcess, isolatedEnvironment } from '../electron/runtime';
+import { runtimeNodePath, JsonLines, RpcProcess, isolatedEnvironment } from '../electron/runtime';
 import { createServer } from 'node:http';
 import { permissionFromStatus } from '../electron/permission-status';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -20,7 +20,7 @@ test('an RPC pipe error rejects requests and disconnects without an uncaught str
   const events: any[] = [];
   const rpc = new RpcProcess(event => events.push(event));
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), dir, isolatedEnvironment(dir));
+    rpc.start(runtimeNodePath(resolve('runtime')), resolve('runtime/step/dist/bundle/step.js'), dir, isolatedEnvironment(dir));
     await rpc.request('get_state', {}, 30000);
     const child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
     const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
@@ -65,7 +65,7 @@ test('real Step runtime streams a local fixture response and restores its persis
     if (e.type === 'extension_ui_request' && e.method === 'confirm') rpc.respond({ id: e.id, confirmed: true });
   }); const admin = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), dir, env);
+    rpc.start(runtimeNodePath(resolve('runtime')), resolve('runtime/step/dist/bundle/step.js'), dir, env);
     await rpc.request('get_state', {}, 60000);
     await rpc.request('prompt', { message: 'Reply with a short acknowledgement.' });
     const deadline = Date.now() + 20000;
@@ -77,7 +77,7 @@ test('real Step runtime streams a local fixture response and restores its persis
     assert.equal(await readFile(join(dir, 'verified.txt'), 'utf8'), 'tool execution verified');
     const state = await rpc.request('get_state'); assert.ok(state.sessionFile);
     await rpc.request('set_session_name', { name: 'Persisted fixture' });
-    admin.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), profile, env);
+    admin.start(runtimeNodePath(resolve('runtime')), resolve('runtime/admin.mjs'), profile, env);
     const listed = await admin.request('sessions'); assert.ok(listed.some((s: any) => s.id === state.sessionId && s.name === 'Persisted fixture'));
     await rpc.request('new_session'); assert.equal((await rpc.request('get_messages')).messages.length, 0);
     await rpc.request('switch_session', { sessionPath: state.sessionFile });
@@ -99,9 +99,9 @@ test('legacy approval presets are projected as Ask by both draft management and 
     const rpc = new RpcProcess(event => events.push(event));
     const admin = new RpcProcess(() => {});
     try {
-      admin.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), profile, env);
+      admin.start(runtimeNodePath(resolve('runtime')), resolve('runtime/admin.mjs'), profile, env);
       assert.equal((await admin.request('session_options', { cwd: profile })).permissionPreset, 'ask');
-      rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), profile, env);
+      rpc.start(runtimeNodePath(resolve('runtime')), resolve('runtime/step/dist/bundle/step.js'), profile, env);
       await rpc.request('get_state', {}, 30000);
       assert.equal(permissionFromStatus(events.filter(event => permissionFromStatus(event)).at(-1)), 'ask');
       assert.equal(events.some(event => event.method === 'select'), false, 'Legacy permissions never imply a Full Access grant');
@@ -137,7 +137,7 @@ test('acknowledged Full Access still honors explicit deny and confirm tool overr
         if (event.method === 'confirm') rpc.respond({ id: event.id, confirmed: false });
       });
       try {
-        rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), profile,
+        rpc.start(runtimeNodePath(resolve('runtime')), resolve('runtime/step/dist/bundle/step.js'), profile,
           isolatedEnvironment(profile), ['--provider', 'fixture', '--model', 'fixture', '--tool-override', `write_file=${override}`]);
         await rpc.request('get_state');
         await rpc.request('prompt', { message: '/permissions full-access' });
@@ -161,7 +161,7 @@ test('staged runtime answers RPC and management uses isolated sessions and confi
   const env = isolatedEnvironment(profile); const events: any[] = [];
   const rpc = new RpcProcess(e => events.push(e)); const admin = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), workspace, env);
+    rpc.start(runtimeNodePath(resolve('runtime')), resolve('runtime/step/dist/bundle/step.js'), workspace, env);
     const state = await rpc.request('get_state', {}, 60000); assert.equal(state.isStreaming, false); assert.ok(state.sessionId);
     const commands = (await rpc.request('get_commands')).commands;
     assert.ok(commands.some((command: { name: string; source: string }) => command.name === 'permissions' && command.source === 'extension'));
@@ -182,7 +182,7 @@ test('staged runtime answers RPC and management uses isolated sessions and confi
     assert.deepEqual((await rpc.request('get_messages')).messages, []);
     const models = await rpc.request('get_available_models'); assert.ok(Array.isArray(models.models));
     await rpc.request('set_session_name', { name: 'Integration test' });
-    admin.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), profile, env);
+    admin.start(runtimeNodePath(resolve('runtime')), resolve('runtime/admin.mjs'), profile, env);
     const settings = await admin.request('settings', { cwd: workspace }); assert.equal(settings.account.loggedIn, false);
     assert.equal(settings.profiles.length, 4);
     await admin.request('mcp', { name: 'test-server', config: { command: 'node', args: ['server.js'], enabled: false }, secrets: { TOKEN: 'test-secret' } });

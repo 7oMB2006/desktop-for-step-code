@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { RpcProcess, isolatedEnvironment } from '../electron/runtime';
+import { runtimeNodePath, RpcProcess, isolatedEnvironment } from '../electron/runtime';
 
 test('staged summary RPC reads the active task branch and live service catalog without mutating history', { timeout: 90000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'desktop-summary-rpc-'));
@@ -24,7 +24,7 @@ test('staged summary RPC reads the active task branch and live service catalog w
   ].map(value => JSON.stringify(value)).join('\n') + '\n');
   const rpc = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), dir, isolatedEnvironment(profile));
+    rpc.start(runtimeNodePath(resolve('runtime')), resolve('runtime/step/dist/bundle/step.js'), dir, isolatedEnvironment(profile));
     await rpc.request('get_state', {}, 60000);
     await rpc.request('switch_session', { sessionPath });
     const before = await rpc.request('get_messages');

@@ -32,7 +32,7 @@ import { linkPreview } from './link-preview';
 import { artifactFile } from './artifact-files';
 import { FilePreviews, fileMode, canOpenExternally, readPreview } from './file-previews';
 import { LocalPagePreview } from './local-page-preview';
-import { associationRequest, fileApplications } from './file-applications';
+import { associationRequest, fileApplications, assertFileAssociationSupport, externalFileDestinations } from './file-applications';
 import { AppUpdates, updatePreferences } from './app-updates';
 import { DesktopTray } from './desktop-tray';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
@@ -523,9 +523,11 @@ async function handle(method: string, args: any[]) {
         const error = await shell.openPath(file.path);
         if (error) throw new Error(error);
       } else if (destination === 'other') {
+        assertFileAssociationSupport();
         await associationRequest(fileAssociationScript(), { action: 'other', path: file.path,
           window: window.getNativeWindowHandle().readBigUInt64LE().toString() }, 300000);
       } else if (destination.startsWith('app:')) {
+        assertFileAssociationSupport();
         const apps = await fileApplications(fileAssociationScript(), extname(file.path));
         if (!apps.some(item => item.id === destination)) throw new Error('Unknown associated application');
         await associationRequest(fileAssociationScript(), { action: 'open', path: file.path, id: destination.slice(4) });
@@ -540,9 +542,7 @@ async function handle(method: string, args: any[]) {
       const choices: FileDestination[] = [];
       if (mode !== 'external') choices.push({ id: 'internal', label: mode === 'browser' ? (zh ? '内置浏览器' : 'Built-in browser') : (zh ? '文件预览' : 'File preview') });
       if (canOpenExternally(file.path)) {
-        choices.push({ id: 'system', label: zh ? '系统默认应用' : 'System default app' });
-        choices.push(...await fileApplications(fileAssociationScript(), extname(file.path)));
-        choices.push({ id: 'other', label: zh ? '选择其他应用…' : 'Choose another app…' });
+        choices.push(...await externalFileDestinations(fileAssociationScript(), extname(file.path), preferences.language));
       }
       if (!choices.length) throw new Error('No opening options for this file type');
       const saved = preferences.fileOpeningApps?.[extname(file.path).toLowerCase()];

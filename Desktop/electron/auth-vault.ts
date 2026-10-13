@@ -131,6 +131,14 @@ export class AuthVault {
   }
 
   async save(data: AuthData): Promise<void> {
+    // Logout or removal of the last provider must restore an empty Linux
+    // profile, which can launch without an unlocked keyring. Do not encrypt
+    // an empty store or require the backend just to remove saved credentials.
+    if (this.platform === 'linux' && isEmptyAuthData(data)) {
+      try { await unlink(this.path); }
+      catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+      return;
+    }
     const safeStorage = await this.secureBackend();
     const encrypted = safeStorage.encryptString(JSON.stringify(data));
     const temp = `${this.path}.${randomUUID()}.tmp`;

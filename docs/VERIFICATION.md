@@ -1,5 +1,53 @@
 # Verification
 
+## v0.4.0-rc.1 packaged acceptance (2026-10-13)
+
+Candidate application source is frozen at
+`b67ed5e896936f2a2de674862990b41cb248265d`, based on merged main `cd47b0a`.
+The isolated runtime was freshly staged from pinned upstream
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` with Node v24.15.0.
+The original shared junction was preserved outside the repository; its target
+and running user applications were not changed.
+
+Installer: `Desktop for Step Code Setup 0.4.0-rc.1.exe`, 152694872 bytes.
+SHA-256: `6e59798c15dda333e4450431a3b03643d357e3efdf4b8b1e6101e45195337d17`.
+The installer and unpacked application both report Authenticode `NotSigned`.
+Package checks match all 94 Desktop build files and 1157 runtime files,
+including current Desktop helpers, terminal/file-opening helpers, Node hash,
+runtime notices and six ProseMirror package versions/licenses. The asar roots
+contain only `dist`, `node_modules` and `package.json`.
+Frozen-lockfile installation, typecheck, production build and 376 serial
+unit/protocol tests passed before packaging.
+
+All 44 Windows checks passed against the candidate unpacked executable:
+interface 16, sessions 14, runtime 14. Seven additional packaged checks passed:
+chat quotes, Context, Review/Diff, turn undo, message feedback, Summary board
+and turn changes. Test profiles and local deterministic services are isolated.
+These results do not establish paid-model semantic quality or installer lifecycle.
+
+At 150% Windows scaling, test-only geometry corrections preserve the existing
+five-row menu assertion/tolerance and compare picker/trigger widths numerically
+within 0.001px, rather than comparing differently serialized CSS/layout strings.
+The first full attempt passed 43 checks but its StepPage test driver exited
+with native code `3221226505` during launch 3. An isolated seven-launch retry
+passed, then the complete 14-check runtime group passed. The first attempt is
+retained; the native-exit root cause is unconfirmed, and no corresponding
+Application event was retrieved. Only the identified orphan test process tree
+was terminated before retry.
+
+Evidence is under `Desktop/test-results/`: `rc-package-resources.json`,
+`rc-acceptance-first-attempt.json`, `rc-acceptance.json`, screenshots and
+`rc-shortcut.json`. The normal desktop shortcut was backed up and updated to
+the candidate executable, with matching working directory and empty arguments;
+other desktop shortcuts were left unchanged. The installer hash was rechecked
+after all tests. Test-only corrections and documentation do not change the
+frozen application build or binary.
+
+This supersedes the preparation-only status immediately below. No new tag,
+GitHub Release, upload or final 0.4.0 installer has been created. Disposable
+cloud-machine upgrade/restart/uninstall/reinstall and real-model Plan, Goal,
+Ultracode and CLM checks remain required before final release preparation.
+
 ## v0.4.0 release preparation (2026-10-13)
 
 PR #108 merged into main `cd47b0a88cac447b353e3038f649c6b1f03f0fed`.

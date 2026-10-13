@@ -83,7 +83,12 @@ try {
   await channelTrigger.focus();
   await page.keyboard.press('Space');
   await page.waitForFunction(() => document.querySelector('.update-channel-field select')?.matches(':open'));
-  assert.equal(await channelTrigger.evaluate(element => getComputedStyle(element, '::picker(select)').minWidth), `${await channelTrigger.evaluate(element => element.getBoundingClientRect().width)}px`);
+  const channelWidths = await channelTrigger.evaluate(element => ({
+    picker: parseFloat(getComputedStyle(element, '::picker(select)').minWidth),
+    trigger: element.getBoundingClientRect().width,
+  }));
+  assert.ok(Math.abs(channelWidths.picker - channelWidths.trigger) < 0.001,
+    `channel picker minimum width matches trigger: ${JSON.stringify(channelWidths)}`);
   const triggerBox = await channelTrigger.boundingBox();
   const firstOptionBox = await channelTrigger.getByRole('option').first().boundingBox();
   assert.ok(triggerBox && firstOptionBox && firstOptionBox.y >= triggerBox.y + triggerBox.height,

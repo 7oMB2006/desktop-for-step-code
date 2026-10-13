@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 export default function registerDesktopSessions(pi) {
   const url = process.env.DESKTOP_SESSION_URL;
   const token = process.env.DESKTOP_SESSION_TOKEN;
@@ -14,6 +16,7 @@ export default function registerDesktopSessions(pi) {
           || typeof image.data !== 'string' || image.data.length > 14000000))) throw new Error('Invalid Goal images');
       // Preserve the user's original text and attachments without starting a second run.
       pi.sendMessage({ customType: 'desktop-goal-input', display: true,
+        details: { desktopGoalInputId: randomUUID() },
         content: [{ type: 'text', text: value.message }, ...value.images ?? []] });
     },
   });

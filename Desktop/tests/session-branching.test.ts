@@ -25,6 +25,53 @@ test('visible Desktop Goal inputs map to their exact custom history entry', () =
   assert.equal(messagesWithEntryIds([{ ...message, content: 'Other task' }], [saved], saved.id)[0].entryId, undefined);
   assert.equal(messagesWithEntryIds([{ ...message, customType: 'other' }], [saved], saved.id)[0].entryId, undefined);
 });
+test('Goal input identity survives independent live and persisted timestamps', () => {
+  const timestamp = '2026-10-11T00:00:00.001Z';
+  const details = { desktopGoalInputId: 'input-1' };
+  const saved = { id: 'goal-input', parentId: null, type: 'custom_message', timestamp,
+    customType: 'desktop-goal-input', display: true, content: 'Goal task', details };
+  const message = { role: 'custom', customType: 'desktop-goal-input', content: 'Goal task',
+    details, timestamp: Date.parse(timestamp) - 1 };
+  assert.equal(messagesWithEntryIds([message], [saved], saved.id)[0].entryId, saved.id);
+  assert.equal(messagesWithEntryIds([{ ...message, timestamp: Date.parse(timestamp) }], [saved], saved.id)[0].entryId, saved.id);
+  assert.equal(messagesWithEntryIds([{ ...message, content: 'Other task' }], [saved], saved.id)[0].entryId, undefined);
+  assert.equal(messagesWithEntryIds([{ ...message, details: { desktopGoalInputId: 'foreign' } }], [saved], saved.id)[0].entryId, undefined);
+  const other = { ...saved, id: 'other', parentId: saved.id, details: { desktopGoalInputId: 'input-2' } };
+  assert.equal(messagesWithEntryIds([message], [saved, other], other.id)[0].entryId, saved.id);
+  const duplicate = { ...other, details };
+  assert.equal(messagesWithEntryIds([message], [saved, duplicate], other.id)[0].entryId, undefined);
+  assert.equal(messagesWithEntryIds([message], [saved, { ...other, parentId: null }], other.id)[0].entryId, undefined);
+});
+test('Desktop Goal input producer attaches a unique persisted ID without altering user content', async () => {
+  const { default: register } = await import('../electron/' + 'desktop-sessions.mjs');
+  const keys = ['DESKTOP_SESSION_URL', 'DESKTOP_SESSION_TOKEN', 'STEPCODE_SUBAGENT_CHILD'] as const;
+  const previous = keys.map(key => process.env[key]);
+  const commands = new Map<string, { handler: (args: string, ctx: { isIdle: () => boolean }) => Promise<void> }>();
+  const sent: any[] = [];
+  try {
+    process.env.DESKTOP_SESSION_URL = 'http://127.0.0.1:1';
+    process.env.DESKTOP_SESSION_TOKEN = 'fixture';
+    delete process.env.STEPCODE_SUBAGENT_CHILD;
+    register({
+      registerCommand: (name: string, command: any) => commands.set(name, command),
+      registerTool: () => {},
+      sendMessage: (message: any) => sent.push(message),
+    });
+    const handler = commands.get('_desktop_goal_input')!.handler;
+    await handler(JSON.stringify({ message: 'Goal task' }), { isIdle: () => true });
+    await handler(JSON.stringify({ message: 'Goal task' }), { isIdle: () => true });
+    assert.deepEqual(sent[0].content, [{ type: 'text', text: 'Goal task' }]);
+    assert.match(sent[0].details.desktopGoalInputId, /^[0-9a-f-]{36}$/);
+    assert.notEqual(sent[0].details.desktopGoalInputId, sent[1].details.desktopGoalInputId);
+    assert.equal(sent[0].display, true);
+    assert.equal(sent[0].customType, 'desktop-goal-input');
+  } finally {
+    keys.forEach((key, index) => {
+      if (previous[index] === undefined) delete process.env[key];
+      else process.env[key] = previous[index];
+    });
+  }
+});
 test('compacted/synthetic messages never borrow an unrelated or stale entry ID', () => {
   assert.deepEqual(messagesWithEntryIds([{ ...user('summary', 4), entryId: 'stale' }, user('same', 3)],
     entries, 'u2').map(message => message.entryId), [undefined, 'u2']);

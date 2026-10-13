@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { projectLaunch, ultracodeNotification } from '../electron/launch-state';
+import { messagesWithEntryIds } from '../electron/session-branching';
 import { LaunchControls } from '../electron/launch-controls';
 import { SessionRuntimes, type WorkerTransport } from '../electron/session-runtimes';
 import { conversationEntries } from '../src/conversation-presentation';
@@ -10,6 +11,29 @@ import { ultracodeInput, visibleInputBlocks } from '../src/ultracode-input';
 const goal = { id: 'goal-1', sessionId: 'session-1', objective: 'Make tests pass', status: 'active',
   tokensUsed: 12, timeUsedSeconds: 3, iteration: 1, createdAt: '2026-10-11T00:00:00Z', updatedAt: '2026-10-11T00:00:03Z' };
 const entry = (id: string, parentId: string | null, customType: string, data: unknown) => ({ id, parentId, type: 'custom', customType, data });
+test('Goal completion finds the exact input despite live timestamp drift and later identical tasks', () => {
+  const timestamp = '2026-10-11T00:00:00.001Z';
+  const details = { desktopGoalInputId: 'input-1' };
+  const entries = [
+    { id: 'input', parentId: null, type: 'custom_message', customType: 'desktop-goal-input',
+      content: 'Make tests pass', display: true, timestamp, details },
+    entry('start', 'input', 'step-goal', goal),
+    entry('done', 'start', 'step-goal', { ...goal, status: 'complete' }),
+    { id: 'next', parentId: 'done', type: 'custom_message', customType: 'desktop-goal-input',
+      content: 'Make tests pass', display: true, timestamp, details: { desktopGoalInputId: 'input-2' } },
+  ];
+  const messages = [
+    { role: 'custom', customType: 'desktop-goal-input', content: 'Make tests pass', details, timestamp: Date.parse(timestamp) - 1 },
+    { role: 'assistant', content: 'Done' },
+    { role: 'custom', customType: 'desktop-goal-input', content: 'Make tests pass',
+      details: { desktopGoalInputId: 'input-2' }, timestamp: Date.parse(timestamp) - 1 },
+    { role: 'assistant', content: 'Next response' },
+  ];
+  const completed = projectLaunch(entries, 'next', 'session-1').goal!;
+  assert.equal(goalCompletionResponse(messagesWithEntryIds(messages, entries, 'next'), completed), 1);
+  const reloaded = messages.map(message => ({ ...message, timestamp: Date.parse(timestamp) }));
+  assert.equal(goalCompletionResponse(messagesWithEntryIds(reloaded, entries, 'next'), completed), 1);
+});
 test('completed goals keep their original user boundary across later tasks and completed-state updates', () => {
   const entries = [
     { id: 'input', parentId: null, type: 'custom_message', customType: 'desktop-goal-input',

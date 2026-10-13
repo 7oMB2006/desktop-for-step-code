@@ -25,14 +25,21 @@ export function activeHistory(entries: HistoryEntry[], leafId: string | null) {
 
 // Match full user/assistant identity on the active path, never text or array position alone.
 export function messagesWithEntryIds(messages: Message[], entries: HistoryEntry[], leafId: string | null): Message[] {
-  const key = (message: Message) => JSON.stringify([message.role, message.timestamp, message.content, message.customType]);
+  const key = (message: Message) => {
+    const inputId = message.role === 'custom' && message.customType === 'desktop-goal-input'
+      ? message.details?.desktopGoalInputId : undefined;
+    // Custom live messages and persisted entries have independent upstream clocks.
+    if (typeof inputId === 'string' && inputId.length > 0 && inputId.length <= 128)
+      return JSON.stringify(['desktop-goal-input', inputId, message.content]);
+    return JSON.stringify([message.role, message.timestamp, message.content, message.customType]);
+  };
   const matches = new Map<string, string[]>();
   for (const entry of activeHistory(entries, leafId)) {
-    const custom = entry as HistoryEntry & { customType?: string; timestamp?: string; content?: Message['content']; display?: boolean };
+    const custom = entry as HistoryEntry & { customType?: string; timestamp?: string; content?: Message['content']; display?: boolean; details?: Message['details'] };
     if (custom.type === 'custom_message' && custom.customType === 'desktop-goal-input' && custom.content !== undefined) {
       const timestamp = Date.parse(custom.timestamp ?? '');
       if (!Number.isFinite(timestamp)) continue;
-      const identity = key({ role: 'custom', customType: custom.customType, content: custom.content, timestamp });
+      const identity = key({ role: 'custom', customType: custom.customType, content: custom.content, timestamp, details: custom.details });
       matches.set(identity, [...matches.get(identity) ?? [], entry.id]);
       continue;
     }

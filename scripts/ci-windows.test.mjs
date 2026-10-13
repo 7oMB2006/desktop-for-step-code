@@ -12,7 +12,7 @@ const files = readdirSync(new URL('../Desktop/scripts/', import.meta.url)).filte
 
 test('every acceptance script is assigned exactly once or explicitly remains outside CI', () => {
   validateInventory(files);
-  assert.equal(Object.values(acceptanceGroups).flat().length, 43);
+  assert.equal(Object.values(acceptanceGroups).flat().length, 44);
   assert.deepEqual(windowsGroups, ['interface', 'sessions', 'runtime']);
   assert.deepEqual(linuxAcceptance, ['verify-linux.mjs']);
   const workflow = readFileSync(new URL('../.github/workflows/pr-ci.yml', import.meta.url), 'utf8');

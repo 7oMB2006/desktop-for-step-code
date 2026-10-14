@@ -8,7 +8,7 @@
 .update-status strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
 .update-status small { display: block; margin-top: 5px; }
 .update-status.available > svg, .update-status.available strong { color: var(--primary); }
-.update-status.failed > svg { color: var(--danger); }
+.update-status.failed > svg, .update-status.failed strong { color: var(--danger); }
 .update-release { border-top: 1px solid var(--border); padding: 15px 0 4px; }
 .update-release-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .update-release-heading strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
@@ -26,6 +26,11 @@
 .update-actions button { font-size: 11px; min-height: 32px; }
 .update-download-detail, .update-package-missing { font-size: 11px; line-height: 1.7; color: var(--muted); margin: 11px 0 0; overflow-wrap: anywhere; }
 .update-action-error { font-size: 11px; color: var(--danger); margin-top: 10px; }
+.update-progress { padding: 0 0 14px; }
+.update-progress progress { display: block; width: 100%; height: 4px; border: 0; border-radius: 2px; overflow: hidden; }
+.update-progress progress::-webkit-progress-bar { background: var(--border); }
+.update-progress progress::-webkit-progress-value { background: var(--primary); transition: width 180ms cubic-bezier(.215,.61,.355,1); }
+.update-progress > div { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .update-preferences { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
 .update-preferences label { font-size: 12px; }
 .update-preferences .checkbox { margin-bottom: 16px; }
@@ -42,3 +47,4 @@
 @keyframes update-spin { to { transform: rotate(360deg); } }
 @media(max-width:740px) { .update-version { flex-wrap: wrap; gap: 6px; } .update-version .update-edition { margin-top: 0; } }
 @media(prefers-reduced-motion:reduce) { .update-spinning { animation: none; } .update-notes summary svg { transition: none; } }
+@media(prefers-reduced-motion:reduce) { .update-progress progress::-webkit-progress-value { transition: none; } }

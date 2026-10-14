@@ -31,6 +31,9 @@ const bridge: DesktopBridge = {
   updateState: () => invoke('updateState'),
   checkUpdates: () => invoke('checkUpdates'),
   openUpdate: action => invoke('openUpdate', action),
+  downloadUpdate: () => invoke('downloadUpdate'),
+  cancelUpdateDownload: () => invoke('cancelUpdateDownload'),
+  installUpdate: () => invoke('installUpdate'),
   onUpdateEvent: callback => {
     const listener = (_: unknown, state: import('../src/contracts').AppUpdateState) => callback(state);
     ipcRenderer.on('app-update', listener);

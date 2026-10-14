@@ -1,11 +1,11 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 
-const profile = await mkdtemp(join(tmpdir(), 'desktop-account-settings-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-account-settings-')));
 const requests = [];
 const server = createServer(async (req, res) => {
   try {
@@ -47,6 +47,13 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
+  const initial = await page.evaluate(() => window.desktop.snapshot());
+  if (!initial.draftId) {
+    console.log('Account startup diagnostic:', { status: initial.status,
+      errors: await page.locator('.error-banner').allTextContents() });
+    await page.screenshot({ path: 'test-results/account-settings-startup-failure.png' });
+  }
+  assert.ok(initial.draftId, 'Account fixture requires a ready proposal before editing its draft');
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Keep this unsent draft through login');
   await page.locator('.sidebar-bottom > button').click();
   await page.getByText('UID fixture-user-1042', { exact: true }).waitFor();

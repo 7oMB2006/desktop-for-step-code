@@ -23,6 +23,7 @@
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "diff": "8.0.2",
+    "electron-updater": "6.8.3",
     "highlight.js": "11.11.2",
     "katex": "0.16.47",
     "linkedom": "0.18.12",
@@ -66,6 +67,13 @@
     }
   },
   "build": {
+    "artifactName": "Desktop.for.Step.Code.Setup.${version}.${ext}",
+    "publish": {
+      "provider": "generic",
+      "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/latest/download",
+      "channel": "latest"
+    },
+    "detectUpdateChannel": false,
     "appId": "community.stepcode.desktop",
     "productName": "Desktop for Step Code",
     "directories": {
@@ -134,6 +142,7 @@
       "uninstallerIcon": "build/icon.ico",
       "oneClick": false,
       "perMachine": false,
+      "packElevateHelper": true,
       "allowToChangeInstallationDirectory": true,
       "include": "build/uninstall-credentials.nsh",
       "deleteAppDataOnUninstall": false

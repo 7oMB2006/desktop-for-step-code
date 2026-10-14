@@ -34,6 +34,9 @@ import { FilePreviews, fileMode, canOpenExternally, readPreview } from './file-p
 import { LocalPagePreview } from './local-page-preview';
 import { associationRequest, fileApplications } from './file-applications';
 import { AppUpdates, updatePreferences } from './app-updates';
+import { UpdateInstaller, InstallerFailure } from './update-installer';
+import { NativeUpdateDriver } from './native-update-driver';
+import { cleanInstalledUpdate } from './update-cache';
 import { DesktopTray } from './desktop-tray';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
@@ -62,7 +65,21 @@ const localFileGrants = new Map<string, string>();
 const fileAssociationScript = () => join(app.isPackaged ? join(process.resourcesPath, 'file-opening') : join(__dirname, 'file-opening'), 'file-associations.ps1');
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
 const updates = new AppUpdates(app.getVersion(), (url, options) => net.fetch(url, options),
-  state => { if (window && !window.isDestroyed()) window.webContents.send('app-update', state); }, () => Date.now());
+  state => { installer.reconcile(state.release); publishUpdate(); }, () => Date.now());
+const updateRoot = join(app.getPath('userData'), 'app-updates');
+let updateInstalling = false;
+let updateCleanup: Promise<void> | undefined;
+function maintainUpdateCache() {
+  return updateCleanup ??= cleanInstalledUpdate(updateRoot, app.getVersion())
+    .catch(error => { void crashLog.record('update-cache', error); });
+}
+const installer = new UpdateInstaller(app.getVersion(), app.isPackaged && process.platform === 'win32'
+  && existsSync(join(app.getPath('exe'), '..', 'Uninstall Desktop for Step Code.exe'))
+  && existsSync(join(process.resourcesPath, 'app-update.yml')),
+  () => new NativeUpdateDriver(updateRoot), publishUpdate);
+function publishUpdate() {
+  if (window && !window.isDestroyed()) window.webContents.send('app-update', { ...updates.snapshot(), transfer: installer.snapshot() });
+}
 let status = 'disconnected';
 let transition = false;
 let settingsMutation = false;
@@ -480,11 +497,47 @@ async function beginSession(workspace?: string) {
 }
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[]) {
+  if (updateInstalling && !['updateState', 'snapshot', 'systemTheme'].includes(method)) throw new Error('Update installation in progress');
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
-    case 'updateState': return updates.snapshot();
-    case 'checkUpdates': return updates.check();
+    case 'updateState': return { ...updates.snapshot(), transfer: installer.snapshot() };
+    case 'checkUpdates': await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
     case 'openUpdate': return shell.openExternal(updates.openTarget(args[0]));
+    case 'downloadUpdate': {
+      await maintainUpdateCache();
+      const state = updates.snapshot();
+      if (!state.updateAvailable || !state.release) throw new Error('No available update');
+      return installer.download(state.release);
+    }
+    case 'cancelUpdateDownload': return installer.cancel();
+    case 'installUpdate': {
+      if (!window || window.isDestroyed() || quitPending) throw new Error('Window unavailable');
+      const zh = preferences.language === 'zh';
+      const confirmation = await dialog.showMessageBox(window, {
+        type: 'question', message: zh ? '重启并安装更新？' : 'Restart and install the update?',
+        detail: zh ? '未发送的消息和附件不会保留。请先确认所有会话中的草稿已处理。登录、会话历史和设置会保留。'
+          : 'Unsent messages and attachments will not be retained. Check drafts in all sessions first. Sign-in, history and settings will be preserved.',
+        buttons: zh ? ['稍后', '重启并安装'] : ['Later', 'Restart and install'], defaultId: 0, cancelId: 0,
+      });
+      if (confirmation.response !== 1) return;
+      const busy = () => runtimes.running || transition || settingsMutation || deletingArchived || quitPending || providerTestController || providerApplication || undoBusy
+        || terminals.list().some(terminal => terminal.status === 'running' || terminal.status === 'starting')
+        || [...runtimes.workers.values()].some(worker => runtimes.isBusy(worker) || worker.operations || worker.mutating
+          || worker.stopping || worker.queued || worker.status === 'connecting' || pendingMessages.list(worker).length);
+      if (updateInstalling) throw new Error('Update installation in progress');
+      updateInstalling = true;
+      let success = false;
+      try {
+        await installer.install(async () => {
+          if (busy()) throw new InstallerFailure('busy');
+          await conversationTiming.flush(); await modelSelections.flush(); await workflowBindings.flush();
+          await terminals.stopAll();
+          await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
+        });
+        success = true;
+      } finally { if (!success) updateInstalling = false; }
+      return;
+    }
     case 'browserOpenLink': return browser!.open(text(args[0], 4096));
     case 'fileOpen': {
       let target: FileTarget = args[0];
@@ -737,6 +790,7 @@ async function handle(method: string, args: any[]) {
     }
     case 'snapshot': {
       await startup;
+      if (!startupError) await maintainUpdateCache();
       if (startupError) { emit({ type: 'desktop_error', message: startupError }); startupError = undefined; }
       return snapshot();
     }
@@ -1308,7 +1362,7 @@ async function handle(method: string, args: any[]) {
     default: throw new Error('Unknown desktop operation');
   }
 }
-app.on('will-quit', () => { tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); });
+app.on('will-quit', () => { tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose(); });
 app.on('before-quit', event => {
   if (quitting) return;
   event.preventDefault();
@@ -1443,7 +1497,7 @@ else app.whenReady().then(async () => {
       'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
     if (settingsMutation && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
-    if (providerSettingsPending && !settingsMutation && canApplyProviders()) {
+    if (!updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
       await applyProviderSettings();
     }
     if (shared) settingsMutation = true;

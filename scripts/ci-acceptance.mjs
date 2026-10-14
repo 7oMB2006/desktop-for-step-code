@@ -4,6 +4,8 @@ export const windowsGroups = ['interface', 'sessions', 'runtime'];
 export const acceptanceGroups = {
   interface: [
     'verify-app-updates.mjs',
+    'verify-update-installer.mjs',
+    'verify-native-update-download.mjs',
     'verify-appearance.mjs',
     'verify-settings-dialog.mjs',
     'verify-desktop-tray.mjs',

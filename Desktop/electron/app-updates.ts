@@ -48,7 +48,13 @@ export function selectRelease(values: unknown, channel: UpdateChannel): AppRelea
         if (!asset || !names.includes(asset.name) || !Number.isSafeInteger(asset.size) || asset.size <= 0
           || asset.size > 2 * 1024 ** 3 || asset.state !== 'uploaded') continue;
         const url = installerUrl(asset.browser_download_url, item.tag_name, asset.name);
-        if (url) { release.installer = { name: asset.name, url, size: asset.size }; break; }
+        if (url) {
+          const metadata = item.assets.find((entry: any) => entry.name === 'latest.yml' && entry.state === 'uploaded'
+            && Number.isSafeInteger(entry.size) && entry.size > 0 && entry.size <= 128 * 1024
+            && installerUrl(entry.browser_download_url, item.tag_name, 'latest.yml'));
+          release.installer = { name: asset.name, url, size: asset.size, ...(metadata ? { inApp: true } : {}) };
+          break;
+        }
       }
     }
     releases.push(release);
@@ -78,6 +84,10 @@ function manifestRelease(value: any): AppRelease | undefined {
     assets: value.installer === undefined ? [] : [{ ...value.installer, state: 'uploaded', browser_download_url: value.installer?.url }],
   }], 'preview');
   if (!release || value.installer !== undefined && !release.installer) throw new UpdateFailure('invalid-response');
+  if (value.installer?.inApp !== undefined) {
+    if (typeof value.installer.inApp !== 'boolean') throw new UpdateFailure('invalid-response');
+    release!.installer!.inApp = value.installer.inApp;
+  }
   return release;
 }
 

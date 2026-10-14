@@ -1,5 +1,19 @@
 # Verification
 
+## Clarification completion revisions (2026-10-15)
+
+PR #117 review found that synthetic question expiry and the original completion
+shared a revision, causing the renderer to reject the tool result or agent end.
+Expiry now reserves the next revision for the original event. Two regression
+cases failed before the fix and passed afterward through `MessageRevision`,
+covering matching tool completion and multiple pending questions at agent end.
+The tool case also verifies the final error result reaches transcript state.
+
+All 60 focused runtime/revision/questionnaire tests, typecheck, build and source
+Electron/RPC question acceptance passed. The earlier commit's cloud CI passed;
+replacement CI must independently verify this follow-up. The local installer
+and desktop shortcut below remain on the earlier preview, not this fix.
+
 ## Question status placement correction (2026-10-15)
 
 Source now renders the circle-help question control through `TurnStatusTrigger`

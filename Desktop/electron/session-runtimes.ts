@@ -189,7 +189,8 @@ export class SessionRuntimes {
           const question = questionnaire(request);
           if (question && (event.type === 'agent_end' || question.callId === event.toolCallId)) {
             this.clearRequest(worker, id);
-            this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id, runtimeRevision: ++worker.revision });
+            // Reserve a newer revision for the original completion emitted below.
+            this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id, runtimeRevision: worker.revision++ });
           }
         }
       }

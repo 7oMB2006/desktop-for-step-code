@@ -4,6 +4,8 @@ import { SessionRuntimes, taskOutcome, type WorkerTransport } from '../electron/
 import { WORKSPACE_POLICY } from '../electron/workspace-policy';
 import type { RuntimeEvent } from '../src/contracts';
 import { QUESTION_TITLE } from '../src/questionnaire';
+import { MessageRevision } from '../src/message-revision';
+import { applyToolResult } from '../src/message-events';
 
 class Transport implements WorkerTransport {
   stopped = false;
@@ -53,6 +55,41 @@ test('clarification has no implicit expiry and only its matching completion clea
     assert.equal(transports[0].answers.length, 0);
   } finally { await pool.stopAll(); }
 });
+
+for (const type of ['tool_execution_end', 'agent_end'] as const) {
+  test(`clarification expiry preserves renderer acceptance of ${type}`, async () => {
+    const { pool, transports, events, open } = fixture();
+    const worker = await open();
+    try {
+      const count = type === 'agent_end' ? 2 : 1;
+      for (let index = 0; index < count; index++) {
+        transports[0].receive({ type: 'extension_ui_request', method: 'input', id: `question-${index}`,
+          title: QUESTION_TITLE + JSON.stringify({ version: 1, callId: `ask-${index}`, questions: [
+            { id: 'q1', label: 'Question', question: 'Which?', options: [], allowFreeform: true },
+          ] }) });
+      }
+      const revision = new MessageRevision();
+      revision.acceptSnapshot({ runtimeId: worker.id, runtimeRevision: worker.revision });
+      const start = events.length;
+      transports[0].receive({ type, toolCallId: 'ask-0', toolName: 'clarify_user',
+        isError: true, result: { content: [{ type: 'text', text: 'Question cancelled' }] } });
+      const emitted = events.slice(start).filter(event => event.runtimeId === worker.id
+        && (event.type === 'desktop_ui_expired' || event.type === type));
+      assert.equal(emitted.length, count + 1);
+      assert.equal(emitted.at(-1)?.type, type);
+      for (const event of emitted) assert.equal(revision.acceptEvent(event), true,
+        `${event.type} must have a newer revision than every preceding expiry`);
+      assert.equal(emitted.at(-1)?.runtimeRevision, worker.revision);
+      assert.equal(worker.pendingUI.size, 0);
+      if (type === 'tool_execution_end') {
+        const result = applyToolResult([], emitted.at(-1)!)[0];
+        assert.equal(result.toolCallId, 'ask-0');
+        assert.equal(result.isError, true);
+        assert.deepEqual(result.content, [{ type: 'text', text: 'Question cancelled' }]);
+      }
+    } finally { await pool.stopAll(); }
+  });
+}
 
 test('native Ultracode restore and CLM maintenance update worker state without granting one-turn consent', async () => {
   const { pool, transports, open } = fixture();

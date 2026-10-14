@@ -38,6 +38,7 @@ import { UpdateInstaller, InstallerFailure } from './update-installer';
 import { NativeUpdateDriver } from './native-update-driver';
 import { cleanInstalledUpdate } from './update-cache';
 import { DesktopTray } from './desktop-tray';
+import { StartupWindow } from './startup-window';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
 import { conversationEntries } from '../src/conversation-presentation';
@@ -58,6 +59,7 @@ const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 
 const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model-changes'),
   worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); });
 let window: BrowserWindow;
+let startupWindow: StartupWindow | undefined;
 let browser: BrowserTabs | undefined;
 const filePreviews = new FilePreviews(id => runtimes.require(id).cwd);
 const localPages = new LocalPagePreview();
@@ -91,6 +93,7 @@ let sessionEnding = false;
 let restoreRequested = false;
 function showMainWindow() {
   if (!window || window.isDestroyed()) { restoreRequested = true; return; }
+  startupWindow?.destroy();
   if (window.isMinimized()) window.restore();
   window.show();
   if (!backgroundAcceptance) window.focus();
@@ -1362,7 +1365,7 @@ async function handle(method: string, args: any[]) {
     default: throw new Error('Unknown desktop operation');
   }
 }
-app.on('will-quit', () => { tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose(); });
+app.on('will-quit', () => { startupWindow?.destroy(); tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose(); });
 app.on('before-quit', event => {
   if (quitting) return;
   event.preventDefault();
@@ -1396,6 +1399,8 @@ app.on('second-instance', showMainWindow);
 app.on('activate', showMainWindow);
 if (!app.requestSingleInstanceLock()) { quitting = true; app.quit(); }
 else app.whenReady().then(async () => {
+  if (!backgroundAcceptance || process.env.DESKTOP_TEST_STARTUP_WINDOW === '1')
+    startupWindow = new StartupWindow(backgroundAcceptance, !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined);
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
   await collaboration.start();
@@ -1460,7 +1465,25 @@ else app.whenReady().then(async () => {
     return { systemDark: nativeTheme.shouldUseDarkColors };
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
-  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: '#171717', autoHideMenuBar: true, show: !backgroundAcceptance, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
+  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: resolvedTheme() === 'dark' ? '#141414' : '#ffffff', autoHideMenuBar: true, show: false, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
+  let shellShown = false;
+  const revealShell = () => {
+    if (shellShown || quitting || window.isDestroyed()) return;
+    shellShown = true;
+    clearTimeout(shellFallback);
+    const show = () => { if (!quitting && !window.isDestroyed() && !backgroundAcceptance) window.show(); };
+    if (startupWindow) startupWindow.finish(show);
+    else show();
+  };
+  const shellFallback = setTimeout(revealShell, 10000);
+  window.once('closed', () => { clearTimeout(shellFallback); startupWindow?.destroy(); });
+  ipcMain.on('desktop:shell-ready', event => {
+    if (event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame) revealShell();
+  });
+  window.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3) revealShell();
+  });
+  window.webContents.on('render-process-gone', revealShell);
   nativeTheme.on('updated', () => { tray?.relabel(); if (window && !window.isDestroyed()) window.webContents.send('runtime-event', { type: 'desktop_system_theme', dark: nativeTheme.shouldUseDarkColors }); });
   crashLog.setPhase('window created');
   browser = new BrowserTabs(window, event => {
@@ -1527,6 +1550,7 @@ else app.whenReady().then(async () => {
     setInterval(check, 6 * 60 * 60 * 1000).unref();
   }
 }).catch(async error => {
+  startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
   quitting = true; void Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());

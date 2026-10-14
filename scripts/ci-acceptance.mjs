@@ -3,6 +3,7 @@ export const windowsGroups = ['interface', 'sessions', 'runtime'];
 // Preserve the serial CI inventory from main 45ff68e; each script runs in one group.
 export const acceptanceGroups = {
   interface: [
+    'verify-startup.mjs',
     'verify-app-updates.mjs',
     'verify-update-installer.mjs',
     'verify-native-update-download.mjs',

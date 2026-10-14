@@ -130,6 +130,7 @@ function App() {
   const [runMetrics, setRunMetrics] = useState<RunMetrics | null>(null);
   const [clock, setClock] = useState(() => performance.now());
   const [loading, setLoading] = useState(true);
+  useEffect(() => { window.dispatchEvent(new Event('desktop-shell-ready')); }, []);
   const [navigationTarget, setNavigationTarget] = useState<{ session: Session; reading?: SessionReading } | null>(null);
   const [navigationSlow, setNavigationSlow] = useState(false);
   const navigationSequence = useRef(0);
@@ -1485,6 +1486,7 @@ function App() {
 class RenderBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch() { window.dispatchEvent(new Event('desktop-shell-ready')); }
   render() {
     if (this.state.failed) return <><WindowBar language="zh" sidebarVisible={false} toggleSidebar={() => {}} menus={[]}/><div className="empty-state" role="alert"><h1>界面暂时无法显示 / Display error</h1><p>重新加载界面不会重新发送任务。 / Reloading does not resend your task.</p><button onClick={() => location.reload()}>重新加载 / Reload</button></div></>;
     return this.props.children;

@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { DesktopBridge, DesktopTheme } from '../src/contracts';
 
+window.addEventListener('desktop-shell-ready', () => ipcRenderer.send('desktop:shell-ready'), { once: true });
+
 // The main process owns the resolved theme. Asking synchronously here, while the
 // preload runs before every page script, is what makes the first frame correct:
 // the inline bootstrap in index.html reads window.desktopTheme.resolved before

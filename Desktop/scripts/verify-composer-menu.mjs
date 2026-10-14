@@ -363,6 +363,8 @@ try {
   await verifyModelLayer('light', [1300, 900]);
   await verifyModelLayer('dark', [840, 760]);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(840, 760));
+  // The preceding Escape leaves "/" dismissed; start a new draft for this screenshot case.
+  await input.fill('');
   await input.fill('/');
   await input.click();
   await input.press('End');

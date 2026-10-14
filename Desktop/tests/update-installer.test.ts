@@ -101,6 +101,35 @@ test('channel changes invalidate an in-flight or downloaded release', async () =
   f.controller.reconcile({ ...release, version: '0.6.0' });
   await assert.rejects(f.controller.install(async () => {}));
 });
+test('an immediate retry waits for cancellation to settle and starts exactly one new download', async () => {
+  const f = fixture();
+  let finish!: () => void;
+  let attempts = 0;
+  f.driver.download = () => { attempts++; return new Promise(resolve => { finish = resolve; }); };
+  const first = f.controller.download(release); await Promise.resolve();
+  f.controller.cancel();
+  const retry = f.controller.download(release);
+  const duplicate = f.controller.download(release);
+  f.driver.download = async () => { attempts++; };
+  finish(); await Promise.all([first, retry, duplicate]);
+  assert.equal(f.controller.snapshot().status, 'ready');
+  assert.equal(attempts, 2);
+});
+test('a new cancellation or channel change suppresses a queued retry', async () => {
+  for (const changeChannel of [false, true]) {
+    const f = fixture();
+    let finish!: () => void;
+    let attempts = 0;
+    f.driver.download = () => { attempts++; return new Promise(resolve => { finish = resolve; }); };
+    const first = f.controller.download(release); await Promise.resolve();
+    f.controller.cancel();
+    const retry = f.controller.download(release);
+    if (changeChannel) f.controller.reconcile(undefined); else f.controller.cancel();
+    finish(); await Promise.all([first, retry]);
+    assert.equal(attempts, 1);
+    assert.equal(f.controller.snapshot().status, 'cancelled');
+  }
+});
 test('failed downloads expose only a bounded error category and can retry', async () => {
   const f = fixture();
   f.driver.download = async () => { throw new Error('secret private server data'); };
@@ -179,4 +208,25 @@ test('cache preparation rejects nested redirects before any download', async () 
   await prepareUpdateCache(root);
   await symlink(outside, join(root, 'download-cache', 'pending'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(prepareUpdateCache(root), InstallerFailure);
+});
+test('Windows path casing does not prevent preparation or successful-upgrade cleanup', { skip: process.platform !== 'win32' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'step-update-case-'));
+  const alias = root.toUpperCase();
+  await prepareUpdateCache(alias);
+  await writeFile(join(root, 'download-cache', 'installer.exe'), 'cached');
+  await writeFile(join(root, 'installed.json'), JSON.stringify({ version: '0.5.0' }));
+  await cleanInstalledUpdate(alias, '0.5.0');
+  await assert.rejects(readFile(join(root, 'download-cache', 'installer.exe')));
+});
+test('cache preparation and cleanup reject a redirected parent directory', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'step-update-parent-'));
+  const outside = await mkdtemp(join(tmpdir(), 'step-update-parent-outside-'));
+  await symlink(outside, join(parent, 'redirect'), process.platform === 'win32' ? 'junction' : 'dir');
+  const root = join(parent, 'redirect', 'app-updates');
+  await mkdir(join(outside, 'app-updates', 'download-cache'), { recursive: true });
+  await writeFile(join(root, 'download-cache', 'keep.exe'), 'preserve');
+  await writeFile(join(root, 'installed.json'), JSON.stringify({ version: '0.5.0' }));
+  await assert.rejects(prepareUpdateCache(root), InstallerFailure);
+  await assert.rejects(cleanInstalledUpdate(root, '0.5.0'), InstallerFailure);
+  assert.equal(await readFile(join(root, 'download-cache', 'keep.exe'), 'utf8'), 'preserve');
 });

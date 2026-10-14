@@ -18,6 +18,8 @@ try {
     assert.equal(result.outcome, expected, `${mode}: ${JSON.stringify(result)}`);
     assert.ok(result.requests >= 1);
     if (mode === 'metadata') assert.equal(result.requests, 1, 'invalid metadata cannot download the executable');
+    const probes = await app.evaluate(async () => globalThis.updateDownloadFixture.probe());
+    assert.deepEqual(probes, ['probe-ok', 'probe-ok'], `${mode}: download hooks must not remain on either session`);
     console.log(`${mode}: ${JSON.stringify(result)}`);
   }
   console.log('Native update download passed: real NSIS updater parsing, streaming, hashing, cancellation and retry; no installer executed.');

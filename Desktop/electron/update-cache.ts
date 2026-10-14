@@ -1,14 +1,24 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, readFile, realpath, rm, stat, mkdir, readdir } from 'node:fs/promises';
-import { join, relative, resolve, isAbsolute } from 'node:path';
+import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { gte, valid } from 'semver';
 import { InstallerFailure } from './update-installer';
 
+async function checkCacheRoot(root: string) {
+  // Windows realpath expands short names and normalizes case; inspect links instead.
+  let path = resolve(root);
+  for (;;) {
+    const entry = await lstat(path);
+    if (entry.isSymbolicLink() || !entry.isDirectory()) throw new InstallerFailure('integrity');
+    const parent = dirname(path);
+    if (parent === path) return;
+    path = parent;
+  }
+}
 export async function prepareUpdateCache(root: string) {
   await mkdir(root, { recursive: true });
-  const rootEntry = await lstat(root);
-  if (rootEntry.isSymbolicLink() || resolve(await realpath(root)) !== resolve(root)) throw new InstallerFailure('integrity');
+  await checkCacheRoot(root);
   const cache = join(root, 'download-cache');
   await mkdir(cache, { recursive: true });
   const pending = [cache];
@@ -38,8 +48,10 @@ export async function cleanInstalledUpdate(root: string, currentVersion: string)
   if (!valid(marker.version) || !valid(currentVersion) || !gte(currentVersion, marker.version)) return;
   const cache = join(root, 'download-cache');
   try {
+    await checkCacheRoot(root);
     const entry = await lstat(cache);
-    if (entry.isSymbolicLink() || !entry.isDirectory() || resolve(await realpath(cache)) !== resolve(cache)) return;
+    if (entry.isSymbolicLink() || !entry.isDirectory()
+      || relative(await realpath(root), await realpath(cache)) !== 'download-cache') return;
     await rm(cache, { recursive: true, force: true });
   } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
   await rm(join(root, 'installed.json'), { force: true });

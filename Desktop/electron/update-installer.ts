@@ -44,7 +44,13 @@ export class UpdateInstaller {
   snapshot(): UpdateTransfer { return structuredClone(this.state); }
   private publish(patch: Partial<UpdateTransfer>) { this.state = { ...this.state, ...patch }; this.changed(); }
   download(release: AppRelease): Promise<void> {
-    if (this.pending) return this.pending;
+    if (this.pending) {
+      if (this.state.status !== 'cancelled') return this.pending;
+      const revision = this.revision;
+      return this.pending.then(() => {
+        if (revision === this.revision) return this.download(release);
+      });
+    }
     if (!this.state.supported || !release.installer?.inApp || !gt(release.version, this.currentVersion))
       return Promise.reject(new Error('In-app update unavailable'));
     if (this.state.status === 'installing') return Promise.reject(new Error('Installation in progress'));
@@ -79,7 +85,8 @@ export class UpdateInstaller {
   }
   reconcile(release?: AppRelease) {
     if (this.state.status === 'installing') return;
-    if (this.state.version && (release?.version !== this.state.version || !release.installer?.inApp
+    const version = this.state.version ?? (this.pending ? this.release?.version : undefined);
+    if (version && (release?.version !== version || !release.installer?.inApp
       || release.installer.url !== this.release?.installer?.url || release.installer.size !== this.release?.installer?.size)) this.cancel();
   }
   async install(prepare: () => Promise<void>) {

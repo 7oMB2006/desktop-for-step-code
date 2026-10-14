@@ -17,6 +17,10 @@ app.setPath('userData', process.env.DESKTOP_TEST_USER_DATA);
 let mode = 'complete';
 let requests = 0;
 const server = createServer((request, response) => {
+  if (request.url === '/probe') {
+    response.writeHead(200, { 'Content-Length': 8 });
+    response.end('probe-ok'); return;
+  }
   requests++;
   if (request.url?.split('?')[0].endsWith('latest.yml')) {
     const metadata = `version: ${mode === 'metadata' ? '0.6.0' : '0.5.0'}\nfiles:\n  - url: Desktop.for.Step.Code.Setup.0.5.0.exe\n    sha512: ${digest}\n    size: ${payload.length}\n`;
@@ -41,7 +45,7 @@ app.whenReady().then(async () => {
   if (!address || typeof address === 'string') throw new Error('Fixture server unavailable');
   const request = net.request.bind(net);
   const transport = session.fromPartition('update-fixture-transport');
-  net.request = ((options: any) => request({
+  net.request = ((options: any) => options.url ? request(options) : request({
     url: `http://127.0.0.1:${address.port}${options.path}`, method: options.method, headers: options.headers,
     redirect: options.redirect, session: transport,
   })) as typeof net.request;
@@ -55,6 +59,11 @@ app.whenReady().then(async () => {
     installer: { name: 'Desktop.for.Step.Code.Setup.0.5.0.exe', size: payload.length, inApp: true,
       url: 'https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.5.0/Desktop.for.Step.Code.Setup.0.5.0.exe' } };
   (globalThis as any).updateDownloadFixture = {
+    probe: async () => {
+      const url = `http://127.0.0.1:${address.port}/probe`;
+      return Promise.all([session.defaultSession, session.fromPartition('electron-updater', { cache: false })]
+        .map(async network => (await network.fetch(url)).text()));
+    },
     run: async (nextMode: string) => {
       mode = nextMode; requests = 0;
       const driver = new NativeUpdateDriver(join(root, nextMode));

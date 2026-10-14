@@ -49,41 +49,47 @@ export class NativeUpdateDriver implements UpdateDriver {
       const header = Object.entries(details.responseHeaders ?? {}).find(([name]) => name.toLowerCase() === 'content-length')?.[1]?.[0];
       callback({ cancel: !isUpdateResponseAllowed(details.statusCode, header, installer.size, metadata) });
     });
-    this.updater.setFeedURL({ provider: 'generic', channel: 'latest',
-      url: `${installer.url.slice(0, installer.url.lastIndexOf('/'))}/`, useMultipleRangeRequest: false });
-    let stopNetwork!: () => void;
-    const stopped = new Promise<never>((_resolve, reject) => {
-      stopNetwork = () => { void network.closeAllConnections(); reject(new InstallerFailure('download')); };
-    });
-    signal.addEventListener('abort', stopNetwork, { once: true });
-    const timer = setTimeout(stopNetwork, 20_000);
-    let result;
-    try { result = await Promise.race([this.updater.checkForUpdates(), stopped]); }
-    finally { clearTimeout(timer); signal.removeEventListener('abort', stopNetwork); }
-    if (signal.aborted) return;
-    if (!result?.isUpdateAvailable || !result.cancellationToken) throw new InstallerFailure('metadata');
-    validateInstallerMetadata(result.updateInfo, release);
-    this.expected = { version: release.version, size: installer.size, sha512: result.updateInfo.files[0].sha512 };
-    metadata = false;
-    const token = result.cancellationToken;
-    const cancel = () => token.cancel();
-    signal.addEventListener('abort', cancel, { once: true });
-    const onProgress = (value: { percent: number; transferred: number; total: number; bytesPerSecond: number }) => {
-      progress({ percent: Math.max(0, Math.min(100, value.percent)), transferred: value.transferred,
-        total: value.total, bytesPerSecond: value.bytesPerSecond });
-    };
-    this.updater.on('download-progress', onProgress);
     try {
-      const files = await this.updater.downloadUpdate(token);
+      this.updater.setFeedURL({ provider: 'generic', channel: 'latest',
+        url: `${installer.url.slice(0, installer.url.lastIndexOf('/'))}/`, useMultipleRangeRequest: false });
+      let stopNetwork!: () => void;
+      const stopped = new Promise<never>((_resolve, reject) => {
+        stopNetwork = () => { void network.closeAllConnections(); reject(new InstallerFailure('download')); };
+      });
+      signal.addEventListener('abort', stopNetwork, { once: true });
+      const timer = setTimeout(stopNetwork, 20_000);
+      let result;
+      try { result = await Promise.race([this.updater.checkForUpdates(), stopped]); }
+      finally { clearTimeout(timer); signal.removeEventListener('abort', stopNetwork); }
       if (signal.aborted) return;
-      this.file = files[0];
-      await this.verify();
-    } catch (error: any) {
-      if (error?.code === 'ERR_CHECKSUM_MISMATCH' || error?.code === 'ERR_UPDATER_INVALID_SIGNATURE') throw new InstallerFailure('integrity');
-      throw error;
+      if (!result?.isUpdateAvailable || !result.cancellationToken) throw new InstallerFailure('metadata');
+      validateInstallerMetadata(result.updateInfo, release);
+      this.expected = { version: release.version, size: installer.size, sha512: result.updateInfo.files[0].sha512 };
+      metadata = false;
+      const token = result.cancellationToken;
+      const cancel = () => token.cancel();
+      signal.addEventListener('abort', cancel, { once: true });
+      const onProgress = (value: { percent: number; transferred: number; total: number; bytesPerSecond: number }) => {
+        progress({ percent: Math.max(0, Math.min(100, value.percent)), transferred: value.transferred,
+          total: value.total, bytesPerSecond: value.bytesPerSecond });
+      };
+      this.updater.on('download-progress', onProgress);
+      try {
+        const files = await this.updater.downloadUpdate(token);
+        if (signal.aborted) return;
+        this.file = files[0];
+        await this.verify();
+      } catch (error: any) {
+        if (error?.code === 'ERR_CHECKSUM_MISMATCH' || error?.code === 'ERR_UPDATER_INVALID_SIGNATURE') throw new InstallerFailure('integrity');
+        throw error;
+      } finally {
+        signal.removeEventListener('abort', cancel);
+        this.updater.removeListener('download-progress', onProgress);
+      }
     } finally {
-      signal.removeEventListener('abort', cancel);
-      this.updater.removeListener('download-progress', onProgress);
+      network.webRequest.onBeforeRequest(null);
+      network.webRequest.onBeforeSendHeaders(null);
+      network.webRequest.onHeadersReceived(null);
     }
   }
   async verify() {

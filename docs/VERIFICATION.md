@@ -1,5 +1,45 @@
 # Verification
 
+## Performance strip and matrix working states (2026-10-14)
+
+PR #115 follow-up (2026-10-15): the runtime CI failure was an outdated
+verify-electron assertion waiting for the removed "input" text field.
+The general acceptance now checks all four metrics, icon ordering, single-chunk
+unknown TPS, completed-value freeze, centered/contained narrow layout and
+new-session usage reset instead of the removed extended-metric/ellipsis UI.
+TPS excludes length-truncated responses while retaining their reported usage.
+Six focused performance tests, typecheck, build, complete general Electron
+acceptance (including reopened profiles) and real pinned RPC performance
+acceptance passed locally. Replacement cloud CI is pending; the prior full-suite
+terminal cleanup failure below remains a separate historical result.
+
+The centered strip now contains total duration, estimated output TPS,
+input/output tokens and cache-hit rate. TPS uses reported output tokens and
+locally observed first-to-last nonempty output-delta timing for completed
+responses; it is not server decode telemetry. Missing measurements stay unknown.
+The five matrix states follow runtime events and authoritative approval/Plan
+review state. Status text and total run time share a flowing brand gradient.
+Reduced motion and forced-color fallback are covered. Light fills preserve the
+original palette without outlines or shadows and are not 4.5:1 contrast-compliant.
+
+Typecheck, production build, five performance tests, eight CI runner tests,
+browser animation/palette/layout checks and built-renderer real pinned RPC
+acceptance passed. The browser check starts an owned temporary Vite service
+unless an explicit preview URL is supplied. Both new acceptance scripts are
+registered in the interface/runtime CI groups; cloud results remain pending.
+
+The latest full serial suite passed 397 of 398 tests: the terminal-count test
+failed during stopAll cleanup with "Could not terminate the terminal process
+tree"; its isolated retry also failed in cleanup. No terminal assertion or
+production terminal behavior was changed. This is not an all-green full suite
+or paid-model/installer-lifecycle acceptance.
+
+The local unsigned 0.4.0 gradient preview matched 97 Desktop and 1157 runtime
+files. It retains upstream pin 3ba89e0c and Node v24.15.0. Installer SHA-256:
+`53465a5e06caed4f5db66e59b757b23323cc96422c5dfba5103afa7616b3a401`.
+The ordinary desktop shortcut targets this preview. User-tier settings remain
+outside this change, and no upstream source was modified.
+
 ## Transparent Logo startup preview (2026-10-14)
 
 A separate sandboxed, click-through, unfocusable transparent window displays

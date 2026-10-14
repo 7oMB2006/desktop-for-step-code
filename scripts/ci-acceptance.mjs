@@ -22,6 +22,7 @@ export const acceptanceGroups = {
     'verify-auth-vault.mjs',
     'verify-account-settings.mjs',
     'verify-theme-bootstrap.mjs',
+    'verify-performance-matrix.mjs',
   ],
   sessions: [
     'verify-new-session.mjs',
@@ -44,6 +45,7 @@ export const acceptanceGroups = {
     'verify-permission-approval.mjs',
     'verify-permission-tiers.mjs',
     'verify-conversation-timing.mjs',
+    'verify-performance-runtime.mjs',
     'verify-subagent-status.mjs',
     'verify-workflow.mjs',
     'verify-chain-runtime.mjs',

@@ -9,6 +9,7 @@
 <p align="center">Let ideas reach the stars.</p>
 <p align="center">Windows x64 · Electron · React · TypeScript · MIT</p>
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a></p>
+<p align="center"><a href="https://calm-falcon-0dc2.page.stepcloud.com/"><strong>Explore the Showcase Website</strong></a> (Chinese) · Product demos, downloads and the people behind the project</p>
 <p align="center">
   <img src="assets/readme/home-workspace-v0.1.0.png" width="960" alt="Desktop for Step Code v0.1.0 workspace and new conversation screen in Chinese">
 </p>

@@ -1,5 +1,37 @@
 # Verification
 
+## v0.4.0 publication (2026-10-14)
+
+Published as a GitHub Pre-release at 09:15 Australia/Perth. The public tag
+`v0.4.0` resolves to merged main `af1ea3a7b0f485a598fe9050e25d9b557f532c74`.
+The final installer was freshly built from that commit, not renamed from RC2.
+It is 152695099 bytes, SHA-256
+`1036fb426cc9351133ba88a798a0706b2a14cd202e44acd9cfbaafde146281f4`.
+Both installer and unpacked application are `NotSigned`.
+All 94 Desktop and 1157 runtime files matched; helpers, Node hash, notices and
+six ProseMirror versions/licenses passed. The upstream pin remains `3ba89e0c`
+and Node v24.15.0.
+
+The final unpacked executable passed all 44 Windows checks and seven
+supplementary checks with isolated profiles and deterministic services.
+The normal desktop shortcut now targets the final unpacked executable;
+the previous shortcut was backed up and the user's running RC1 was preserved.
+These results do not establish a new paid-model or installer-lifecycle test.
+
+The public installer was downloaded and hashed as a stream, without retaining
+a duplicate installer. Its hash and length matched the build and the public
+`SHA256SUMS.txt`, which names `Desktop.for.Step.Code.Setup.0.4.0.exe`.
+Update-feed run `38494702647` succeeded. The public raw manifest advertises
+preview `0.4.0`, stable `null`. The actual client update logic, supplied with
+this captured public manifest, reports available for `0.3.0` and `0.4.0-rc.2`,
+current for `0.4.0`, and no release on the stable channel. This is isolated
+update-state verification, not observation of the user's live notification.
+Evidence is under `Desktop/test-results/`: `final-040-package-resources.json`,
+`final-040-acceptance.json`, `final-040-shortcut.json`,
+`published-040-download.json`, `published-040-feed.json` and
+`published-040-client-check.json`. Historical failures and pending granular
+cloud/lifecycle records remain below; they were not retroactively marked passed.
+
 ## v0.4.0 candidate confirmation (2026-10-14)
 
 The maintainer reported no apparent problems with RC2 and authorized continuing

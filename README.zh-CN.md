@@ -26,6 +26,8 @@
 - 独立会话和项目工作区，排序、置顶、归档与会话分支
 - 并发会话、排队与插队引导、文本引用和跨会话链接
 - 图片附件、工具调用确认、子代理状态和耗时反馈
+- Plan 批阅与执行、Goal 管理、Ultracode 编排观察与显式恢复
+- CLM 上下文维护、行内指令与链接、常驻轮次尾态
 - 摘要、上下文与 Diff 检查，记录改动的有限撤销
 - 内置终端、用户操作的浏览器、文件预览与交付产物引用
 - Step 账户登录、MCP 配置与资源发现
@@ -44,9 +46,9 @@ Step 登录凭据使用当前 Windows 用户的加密存储机制保存到 `step
 
 ### 下载与运行
 
-最新 Windows x64 社区预览版 **v0.3.0** 已发布，锚定上游 Step Code 提交 `f7392089`，纳入后台进度处理与父代理唤醒改进，修复链式 Subagent 结果传递和客户端状态展示；同时支持自定义供应商（Beta），完善下一轮模型预选、右栏交互与固定设置视窗。
+最新 Windows x64 社区预览版 **v0.4.0** 已发布，锚定上游 Step Code v0.1.4 公告对应源码基线 `3ba89e0c`，纳入 Ultracode 恢复、CLM 上下文维护和 Windows 命令执行改进；桌面端适配三档权限、权限审批与 Plan 批阅抽屉，完善 Plan、Goal、Ultracode 行进态与常驻尾态，并优化指令集与行内链接。自定义供应商继续为 Beta。
 
-**[下载 Windows x64 安装包](https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.3.0/Desktop.for.Step.Code.Setup.0.3.0.exe)** · [版本说明与校验值](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.3.0) · [所有版本](https://github.com/7oMB2006/desktop-for-step-code/releases)
+**[下载 Windows x64 安装包](https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.4.0/Desktop.for.Step.Code.Setup.0.4.0.exe)** · [版本说明与校验值](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.4.0) · [所有版本](https://github.com/7oMB2006/desktop-for-step-code/releases)
 
 1. 下载安装包，按照版本说明核对 SHA-256，再运行安装器。
 2. 启动应用，在账户设置中使用自己的 Step Plan 账户或 Step Platform API Key 登录，或配置自定义供应商。
@@ -56,9 +58,9 @@ Step 登录凭据使用当前 Windows 用户的加密存储机制保存到 `step
 
 **自定义供应商（Beta）：** 通过通用协议配置支持 Chat Completions、Responses 和 Anthropic Messages。兼容性取决于供应商和模型；短请求诊断通过不代表流式输出、工具调用、图片输入或长任务均已验证。后续针对知名供应商的专配目前优先级不高，暂无时间承诺。
 
-**安装提示：** v0.3.0 安装器未进行数字签名，Windows 可能显示 SmartScreen 或“未知发布者”提示。请核对下载来源与哈希，不要关闭系统安全防护。
+**安装提示：** v0.4.0 安装器未进行数字签名，Windows 可能显示 SmartScreen 或“未知发布者”提示。请核对下载来源与哈希，不要关闭系统安全防护。
 
-**后续更新：** 自 v0.2.0 起支持启动后自动检查新版，此后每六小时复查，也可在“设置 → 版本更新”中手动检查或关闭自动检查。默认通道包含正式版与预览版；**v0.3.0 标为 GitHub Pre-release，仅正式版通道不会提示本版。** 下载通过系统浏览器完成，安装包需自行运行，不会静默安装或自动重启。v0.1.0 用户需要手动到 [Releases](https://github.com/7oMB2006/desktop-for-step-code/releases) 下载此次升级。
+**后续更新：** 自 v0.2.0 起支持启动后自动检查新版，此后每六小时复查，也可在“设置 → 版本更新”中手动检查或关闭自动检查。默认通道包含正式版与预览版；**v0.4.0 标为 GitHub Pre-release，仅正式版通道不会提示本版。** 下载通过系统浏览器完成，安装包需自行运行，不会静默安装或自动重启。v0.1.0 用户需要手动到 [Releases](https://github.com/7oMB2006/desktop-for-step-code/releases) 下载此次升级。
 
 **退出与升级：** 关闭窗口会保留应用在托盘中，运行中的任务继续执行。升级前先结束任务，通过“文件 → 退出应用”或托盘菜单明确退出旧版，再运行安装器覆盖安装。
 
@@ -102,7 +104,7 @@ node scripts/checksums.mjs
 
 后续功能与优先级见 [开发待办](TODO.md)。
 
-v0.3.0 仍是社区预览版，不是 StepFun 官方产品，也不代表稳定版承诺。首版发布准备中已在一台 Windows Server 2022 云桌面验证真实账户对话、工具改动与审批、产物打开、重启恢复，以及安装、覆盖安装、卸载和重装；v0.3.0 云桌面覆盖升级、登录与历史、基础对话及回到底部行为也已由用户确认通过。这不等于 Windows 10/11 全配置或所有供应商、模型与 MCP 场景均已验证，也不代表所有多代理问题均已解决。
+v0.4.0 仍是社区预览版，不是 StepFun 官方产品，也不代表稳定版承诺。最终包通过了使用隔离配置和本地确定性服务的 44 项 Windows 验收及 7 项补充回归，维护者已确认此前 RC2 体验无明显问题；这些结果不等于真实付费模型质量或新一轮安装生命周期已验收。此前云桌面与安装测试保留为历史证据，不等于 Windows 10/11 全配置或所有供应商、模型与 MCP 场景均已验证，也不代表所有多代理问题均已解决。
 
 具体验收记录与发布范围见 [VERIFICATION.md](docs/VERIFICATION.md) 和 [发布准备记录](docs/RELEASE.md)。摘要板展示运行时实际提供的 MCP 连接状态；配置启用不等于连接健康，也不代表实际业务调用成功。
 

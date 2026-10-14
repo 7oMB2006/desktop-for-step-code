@@ -4,7 +4,7 @@ import { EditorState } from 'prosemirror-state';
 import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
 import { history, redo, undo } from 'prosemirror-history';
 import { keymap } from 'prosemirror-keymap';
-import { selectAll } from 'prosemirror-commands';
+import { deleteSelection, selectAll } from 'prosemirror-commands';
 import { CommandCatalog, CommandReference, commandReference } from './CommandReference';
 import { MessageLink } from './MessageLink';
 import { composerLinkRanges } from './composer-links';
@@ -56,6 +56,8 @@ export function ComposerInput(props: Props) {
       state: EditorState.create({ schema: composerSchema, doc: composerDocument(latest.current.value),
         plugins: [history(), keymap({
           'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, 'Mod-a': selectAll,
+          'Backspace': deleteSelection, 'Shift-Backspace': deleteSelection, 'Mod-Backspace': deleteSelection,
+          'Delete': deleteSelection, 'Mod-Delete': deleteSelection,
           'Shift-Enter': (state, dispatch) => { dispatch?.(state.tr.insertText('\n').scrollIntoView()); return true; },
         })] }),
       editable: () => !latest.current.disabled,

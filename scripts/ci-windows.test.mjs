@@ -12,7 +12,7 @@ const files = readdirSync(new URL('../Desktop/scripts/', import.meta.url)).filte
 
 test('every acceptance script is assigned exactly once or explicitly remains outside CI', () => {
   validateInventory(files);
-  assert.equal(Object.values(acceptanceGroups).flat().length, 49);
+  assert.equal(Object.values(acceptanceGroups).flat().length, 50);
   assert.deepEqual(windowsGroups, ['interface', 'sessions', 'runtime']);
   for (const [script, timeout] of Object.entries(acceptanceTimeouts)) {
     assert.ok(Object.values(acceptanceGroups).flat().includes(script));

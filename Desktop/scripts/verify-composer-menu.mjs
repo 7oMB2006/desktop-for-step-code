@@ -324,13 +324,26 @@ try {
   await input.press('Enter');
   await page.locator('.model-effort-trigger[aria-expanded="true"]').waitFor();
   await page.keyboard.press('Escape');
+  const openFreshSlashMenu = async () => {
+    // Escape dismisses the existing token; each layout case starts a new draft.
+    await input.press('Control+a');
+    await input.press('Backspace');
+    await page.waitForFunction(() => document.querySelector('.composer-input')?.dataset.empty === 'true');
+    await input.pressSequentially('/');
+    await page.waitForFunction(() => document.querySelector('.composer-input')?.dataset.empty === 'false');
+    await input.focus();
+    await input.evaluate(element => element.setSelectionRange(1, 1));
+    await page.waitForFunction(() => {
+      const element = document.querySelector('.composer-input');
+      return element?.value === '/' && element.selectionStart === 1 && element.selectionEnd === 1;
+    });
+    await menu.waitFor();
+  };
   const verifyModelLayer = async (theme, size) => {
+    console.log(`Composer model layer: ${theme} ${size[0]}x${size[1]}`);
     await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), size);
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
-    await input.fill('/');
-    await input.click();
-    await input.press('End');
-    await menu.waitFor();
+    await openFreshSlashMenu();
     await page.locator('.model-effort-trigger').click();
     const popover = page.locator('.model-effort-popover');
     await popover.waitFor();
@@ -363,12 +376,7 @@ try {
   await verifyModelLayer('light', [1300, 900]);
   await verifyModelLayer('dark', [840, 760]);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(840, 760));
-  // The preceding Escape leaves "/" dismissed; start a new draft for this screenshot case.
-  await input.fill('');
-  await input.fill('/');
-  await input.click();
-  await input.press('End');
-  await menu.waitFor();
+  await openFreshSlashMenu();
   await page.waitForTimeout(220);
   await page.screenshot({ path: 'test-results/composer-slash-narrow.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1300, 900));

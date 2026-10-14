@@ -1,5 +1,16 @@
 # Verification
 
+## PR CI inventory integration (2026-10-15)
+
+The latest PR CI failed in classification before Windows acceptance ran:
+the merge preview added main's composer-editing acceptance, resulting in 51
+assigned scripts while a test still expected 50. Main `1ca45ba` is now merged
+into this branch. The count assertion derives from discovered scripts minus
+the explicit local-only list; duplicate, missing and unassigned checks remain.
+The failure reproduced locally before the change. All 12 CI policy/runner
+tests and 60 runtime/revision/questionnaire tests passed afterward.
+Replacement cloud CI must verify the integrated head independently.
+
 ## Question waiting-action treatment (2026-10-15)
 
 The pending question status now reuses the permission-review treatment: tinted

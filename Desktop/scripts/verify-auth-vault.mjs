@@ -38,6 +38,7 @@ try {
   mark('migration readiness');
   const page = await app.firstWindow();
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
+  await page.locator('.connection .online').waitFor({ timeout: 60000 });
   await page.evaluate(() => window.desktop.snapshot());
   const encrypted = await readFile(join(dataRoot, 'auth.dpapi'));
   assert.equal(encrypted.includes(Buffer.from(marker)), false);
@@ -60,6 +61,7 @@ try {
   mark('restored account');
   const page = await app.firstWindow();
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
+  await page.locator('.connection .online').waitFor({ timeout: 60000 });
   await page.evaluate(() => window.desktop.snapshot());
   assert.equal(await page.evaluate(async () => (await window.desktop.settings()).account.loggedIn), true);
   await assert.rejects(readFile(join(dataRoot, 'auth.json')), { code: 'ENOENT' });

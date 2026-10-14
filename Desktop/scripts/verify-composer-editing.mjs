@@ -43,8 +43,13 @@ try {
   await input.waitFor();
   const value = expected => page.waitForFunction(expected =>
     document.querySelector('.composer-input')?.value === expected, expected, { timeout: 5000 });
+  const caret = expected => page.waitForFunction(expected => {
+    const element = document.querySelector('.composer-input');
+    return element?.selectionStart === expected && element.selectionEnd === expected;
+  }, expected, { timeout: 5000 });
   const longDraft = 'Multiline \u4e2d\u6587 draft 123\n'.repeat(100) + 'end';
   for (const key of ['Backspace', 'Delete', 'Shift+Backspace', 'Control+Backspace', 'Control+Delete']) {
+    console.log(`Composer select-all deletion: ${key}`);
     await input.fill(longDraft);
     await value(longDraft);
     // Keep fixture insertion outside the editor's 500ms undo grouping window.
@@ -68,10 +73,13 @@ try {
     await value('prefix  suffix');
   }
   await input.fill('abc');
+  await value('abc');
   await input.press('End');
+  await caret(3);
   await input.press('Backspace');
   await value('ab');
   await input.press('Home');
+  await caret(0);
   await input.press('Delete');
   await value('b');
   await input.press('Shift+Enter');

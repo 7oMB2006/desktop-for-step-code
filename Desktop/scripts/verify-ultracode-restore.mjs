@@ -66,7 +66,10 @@ try {
       await page.getByText('正在整理上下文', { exact: true }).waitFor();
       await page.getByRole('textbox', { name: '消息', exact: true }).fill('Next task after maintenance');
       await page.getByRole('button', { name: '加入队列', exact: true }).waitFor();
-      await page.getByRole('textbox', { name: '消息', exact: true }).fill('');
+      const input = page.getByRole('textbox', { name: '消息', exact: true });
+      await input.press('Control+a');
+      await input.press('Backspace');
+      await page.waitForFunction(() => document.querySelector('.composer-input')?.dataset.empty === 'true');
       assert.equal(await page.getByRole('button', { name: '停止此轮', exact: true }).isDisabled(), false);
       assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.isStreaming, false);
     } else {

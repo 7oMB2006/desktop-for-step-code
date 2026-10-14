@@ -1,5 +1,42 @@
 # Verification
 
+## In-app updater development (2026-10-14)
+
+Source adds a pinned-release NSIS update driver, SHA-512 verification before
+download/install, isolated bounded update metadata requests, cancellable full
+downloads, explicit restart confirmation, runtime/approval/queue/terminal
+installation guards, and owned-cache cleanup after a successful new-version
+startup. Existing manual-download behavior remains for unpacked/development
+clients and releases without `latest.yml`.
+
+The final serial unit/protocol run passed 391 tests (including 15 updater
+tests); typecheck, production build, existing update-check Electron acceptance
+and the new update UI fixture passed locally. The UI fixture uses the real
+component with simulated transfer states, not a real downloaded installer.
+Screenshots are in `Desktop/test-results/updater-*.png`.
+
+The focused updater/update-check tests total 30 passed, including cache-preflight
+and network-policy regressions. The real NSIS download driver also passed isolated Electron
+acceptance for streamed downloads, metadata mismatch, corrupt SHA-512 payload,
+cancellation and retry. This fixture substitutes the network transport target
+with a local service; it does not execute an installer or validate the public
+GitHub network/signature path. Twelve CI-policy/runner tests passed.
+The NSIS build produced `latest.yml`; the package checker verified its version,
+asset name, byte count and SHA-512 against the installer. The local preview
+retains source version 0.4.0 and must not replace the published v0.4.0 asset.
+The freshly packaged unpacked executable also passed the existing update-check
+Electron acceptance with an isolated profile. This verifies packaged startup,
+IPC, UI, preference/relaunch behavior and the manual fallback; it does not
+establish installed-client self-update or installer lifecycle acceptance.
+
+This is not release readiness. Before publishing: verify an installed old
+version upgrading to a new candidate in the cloud desktop, login/history/
+settings retention, task and approval blocking, cancelled confirmation,
+interrupted downloads and retries, reinstall/relaunch, installation failure
+recovery, and post-success cache cleanup. Current preview installers remain
+unsigned; hash verification is not publisher authentication. No automatic
+rollback is claimed. No live account or original worktree was modified.
+
 ## v0.4.0 publication (2026-10-14)
 
 Published as a GitHub Pre-release at 09:15 Australia/Perth. The public tag

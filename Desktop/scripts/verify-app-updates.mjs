@@ -111,6 +111,9 @@ try {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await app.evaluate(() => { globalThis.updateFixture.mode = 'available'; globalThis.updateFixture.release(); });
   await updates.getByText(`发现新版本 ${nextVersion}`, { exact: true }).waitFor();
+  assert.equal((await page.evaluate(() => window.desktop.updateState())).transfer.supported, false,
+    'development/unpacked clients cannot silently become installed clients');
+  await assert.rejects(page.evaluate(() => window.desktop.downloadUpdate()), /In-app update unavailable/);
   await page.locator('.update-indicator').waitFor();
   await updates.getByText('版本说明', { exact: true }).click();
   assert.equal(await updates.locator('.update-notes script').count(), 0);

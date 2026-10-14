@@ -38,6 +38,9 @@ export interface DesktopBridge {
   updateState(): Promise<AppUpdateState>;
   checkUpdates(): Promise<AppUpdateState>;
   openUpdate(action: 'release' | 'download'): Promise<void>;
+  downloadUpdate(): Promise<void>;
+  cancelUpdateDownload(): Promise<void>;
+  installUpdate(): Promise<void>;
   onUpdateEvent(callback: (state: AppUpdateState) => void): () => void;
   fileOpen(target?: FileTarget, destination?: string): Promise<FileOpenResult | null>;
   fileOpenOptions(target: FileTarget): Promise<FileOpeningOptions>;
@@ -110,7 +113,13 @@ export interface DesktopBridge {
 export type UpdateChannel = 'stable' | 'preview';
 export interface AppRelease {
   version: string; tag: string; name: string; prerelease?: boolean; publishedAt?: string;
-  notes: string; url: string; installer?: { name: string; url: string; size: number };
+  notes: string; url: string; installer?: { name: string; url: string; size: number; inApp?: boolean };
+}
+export interface UpdateTransfer {
+  supported: boolean;
+  status: 'idle' | 'preparing' | 'downloading' | 'cancelled' | 'ready' | 'installing' | 'error';
+  version?: string; percent?: number; transferred?: number; total?: number; bytesPerSecond?: number;
+  error?: 'download' | 'metadata' | 'integrity' | 'busy' | 'install';
 }
 export interface AppUpdateState {
   currentVersion: string; channel: UpdateChannel;
@@ -118,6 +127,7 @@ export interface AppUpdateState {
   checkedAt?: number; release?: AppRelease; source?: 'manifest' | 'release-feed'; updateAvailable?: boolean;
   error?: 'network' | 'rate-limit' | 'invalid-response' | 'unsupported-version' | 'feed-unavailable';
   retryAt?: number;
+  transfer?: UpdateTransfer;
 }
 export interface TurnUndoState { state: 'available' | 'unavailable' | 'conflict' | 'undone' | 'failed'; token?: string }
 export interface LinkPreview { url: string; title?: string; description?: string; icon?: string }

@@ -11,7 +11,7 @@ export class StartupWindow {
 
   constructor(private readonly background: boolean, devUrl?: string) {
     const splash = new BrowserWindow({
-      width: 220, height: 220, center: true, frame: false, transparent: true,
+      width: 256, height: 256, center: true, frame: false, transparent: true,
       backgroundColor: '#00000000', hasShadow: false, resizable: false,
       minimizable: false, maximizable: false, focusable: false, skipTaskbar: true,
       show: false,

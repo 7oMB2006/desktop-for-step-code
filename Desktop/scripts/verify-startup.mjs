@@ -10,7 +10,10 @@ const profile = await mkdtemp(join(tmpdir(), 'step-startup-window-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', DESKTOP_TEST_STARTUP_WINDOW: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
+const app = await electron.launch({
+  ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }),
+  env, timeout: 60000,
+});
 try {
   const splash = await app.firstWindow();
   await splash.waitForURL('**/startup-logo.html');
@@ -20,7 +23,7 @@ try {
     return win && { size: win.getSize(), shadow: win.hasShadow(), focusable: win.isFocusable(),
       preferences: win.webContents.getLastWebPreferences() };
   });
-  assert.deepEqual(state.size, [220, 220]);
+  assert.deepEqual(state.size, [256, 256]);
   assert.equal(state.shadow, false);
   assert.equal(state.focusable, false);
   assert.equal(state.preferences.nodeIntegration, false);
@@ -43,8 +46,8 @@ try {
 const browser = await chromium.launch();
 try {
   const context = await browser.newContext({
-    viewport: { width: 220, height: 220 },
-    recordVideo: { dir: resolve('test-results/startup'), size: { width: 220, height: 220 } },
+    viewport: { width: 256, height: 256 },
+    recordVideo: { dir: resolve('test-results/startup'), size: { width: 256, height: 256 } },
   });
   const page = await context.newPage();
   await page.goto(pathToFileURL(resolve('dist/renderer/startup-logo.html')).href);

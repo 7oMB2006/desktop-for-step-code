@@ -1,0 +1,88 @@
+.working { flex-wrap: wrap; row-gap: 6px; }
+.working-indicator { display: inline-flex; align-items: center; gap: 7px; min-height: 24px; max-width: 100%; flex-shrink: 0; }
+.working-indicator {
+  --pulse-purple: #9E72FB;
+  --pulse-pink: #D58FEF;
+  --pulse-coral: #FDB3A2;
+  --pulse-gold: #FFDC62;
+  --pulse-text-gradient: linear-gradient(110deg, var(--pulse-purple), var(--pulse-pink) 25%, var(--pulse-coral) 50%, var(--pulse-gold) 75%, var(--pulse-purple));
+}
+:root[data-theme="dark"] .working-indicator {
+  --pulse-purple: color-mix(in srgb, #9E72FB 90%, white);
+  --pulse-pink: #D58FEF;
+  --pulse-coral: #FDB3A2;
+  --pulse-gold: #FFDC62;
+}
+.working-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--pulse-purple);
+  background-image: var(--pulse-text-gradient);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: pulse-text-flow 8s linear infinite, pulse-text-breathe 3.2s cubic-bezier(.645,.045,.355,1) infinite;
+}
+.working-text > .plan-review-trigger:hover:not(:disabled) {
+  background-color: transparent;
+}
+@keyframes pulse-text-flow {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+@keyframes pulse-text-breathe {
+  0%, 100% { opacity: .9; }
+  50% { opacity: 1; }
+}
+.matrix-pulse { display: block; flex-shrink: 0; overflow: visible; }
+.matrix-pixel { opacity: .08; }
+.matrix-pixel.is-base { opacity: 1; }
+.matrix-layer { opacity: 0; transform: scale(.88); transform-origin: 9px 9px; transition: opacity .32s cubic-bezier(.215,.61,.355,1), transform .32s cubic-bezier(.215,.61,.355,1); }
+.matrix-layer.is-active { opacity: 1; transform: scale(1); }
+.matrix-executing .matrix-pixel { animation: matrix-clockwise 2.4s linear infinite; }
+.matrix-thinking .matrix-orbit-pixel { opacity: .2; animation: matrix-clockwise 4.8s linear infinite; }
+.matrix-layer:not(.is-active) :is(.matrix-pixel, .matrix-orbit-pixel) { animation-play-state: paused; }
+.matrix-waiting-breath { animation: matrix-breathe 3.2s cubic-bezier(.645,.045,.355,1) infinite; }
+.matrix-waiting:not(.is-active) .matrix-waiting-breath { animation-play-state: paused; }
+.matrix-response-pixel { opacity: .12; animation: matrix-radiate 2.8s cubic-bezier(.645,.045,.355,1) infinite; animation-delay: .45s; }
+.matrix-response-pixel.is-center { animation-delay: 0s; }
+.matrix-compression-pixel { opacity: var(--frame-0); animation: matrix-compress 3.2s cubic-bezier(.215,.61,.355,1) infinite; }
+.matrix-layer:not(.is-active) :is(.matrix-response-pixel, .matrix-compression-pixel) { animation-play-state: paused; }
+@keyframes matrix-radiate {
+  0%, 100% { opacity: .12; }
+  25% { opacity: 1; }
+  60% { opacity: .12; }
+}
+@keyframes matrix-compress {
+  0%, 100% { opacity: var(--frame-0); }
+  25% { opacity: var(--frame-1); }
+  50% { opacity: var(--frame-2); }
+  75% { opacity: var(--frame-3); }
+}
+@keyframes matrix-breathe {
+  0%, 100% { opacity: .45; }
+  50% { opacity: 1; }
+}
+.working-elapsed { display: inline-block; min-width: 8ch; color: inherit; -webkit-text-fill-color: color-mix(in srgb, var(--bg) 6%, transparent); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@keyframes matrix-clockwise {
+  0%, 100% { opacity: var(--phase-0); }
+  12.5% { opacity: var(--phase-1); }
+  25% { opacity: var(--phase-2); }
+  37.5% { opacity: var(--phase-3); }
+  50% { opacity: var(--phase-4); }
+  62.5% { opacity: var(--phase-5); }
+  75% { opacity: var(--phase-6); }
+  87.5% { opacity: var(--phase-7); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .working-text { animation: none; opacity: 1; }
+  .matrix-layer { transition: none; }
+  .matrix-pixel, .matrix-orbit-pixel, .matrix-waiting-breath, .matrix-response-pixel, .matrix-compression-pixel { animation: none !important; }
+  .matrix-response-pixel { opacity: 1; }
+}
+@media (forced-colors: active) {
+  .working-text { background: none; color: CanvasText; -webkit-text-fill-color: currentColor; -webkit-text-stroke-width: 0; animation: none; opacity: 1; }
+  .working-elapsed { -webkit-text-fill-color: currentColor; }
+}

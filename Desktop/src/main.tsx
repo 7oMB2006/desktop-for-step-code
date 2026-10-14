@@ -20,6 +20,7 @@ import './session-navigation.css';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
 import { PerformanceBar } from './PerformanceBar';
+import { WorkingIndicator } from './WorkingIndicator';
 import { ModelEffortPicker } from './ModelEffortPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { LaunchStatus } from './LaunchStatus';
@@ -1215,7 +1216,10 @@ function App() {
             <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
               settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
             {(busy || data.state?.isCompacting) && <div className="working">
-              <><span className="working-dot"/>{reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : data.state?.isCompacting ? t('正在整理上下文', 'Organizing context') : t('正在阶跃', 'Working')}</span>}</>
+              <WorkingIndicator language={data.preferences.language} mode={requests.length || reviewPlan || planFeedback ? 'waiting' : data.state?.isCompacting ? 'compacting' : runMetrics?.phase ?? 'executing'}
+                elapsedMs={runMetrics && runMetrics.finishedAt === undefined ? clock - runMetrics.startedAt : undefined}>
+                {reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : data.state?.isCompacting ? t('正在整理上下文', 'Organizing context') : runMetrics?.phase === 'responding' ? t('等待响应', 'Awaiting response') : runMetrics?.phase === 'thinking' ? t('正在思考', 'Thinking') : t('正在阶跃', 'Working')}</span>}
+              </WorkingIndicator>
               {taskStatusControls}
               {activePlanExecution && <PlanExecution key={lastConversationEntry?.type === 'response' ? lastConversationEntry.index : undefined}
                 plan={activePlanExecution.plan} state="running" language={data.preferences.language}/>}

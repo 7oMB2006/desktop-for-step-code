@@ -105,6 +105,21 @@ try {
     return indicator.getBoundingClientRect().right <= button.getBoundingClientRect().left;
   });
   assert.equal(placement, true, 'Question status follows the working indicator');
+  const treatment = await questionStatus.evaluate(button => {
+    const style = getComputedStyle(button);
+    const label = getComputedStyle(button.querySelector('.turn-status-label'));
+    return { animation: style.animationName, fill: style.backgroundImage,
+      labelFill: label.webkitTextFillColor, labelBackground: label.backgroundImage };
+  });
+  assert.match(treatment.animation, /permission-review-flow/);
+  assert.match(treatment.animation, /permission-review-breathe/);
+  assert.match(treatment.fill, /linear-gradient/);
+  assert.notEqual(treatment.labelFill, 'transparent', 'Question text stays readable instead of flowing through ink colors');
+  assert.equal(treatment.labelBackground, 'none');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await questionStatus.evaluate(button => getComputedStyle(button).animationName), 'none');
+  assert.equal(await questionStatus.locator('.turn-status-label').evaluate(label => getComputedStyle(label).animationName), 'none');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
   const request = snapshot.requests[0];
   assert.equal(request.timeout, undefined, 'No unattended timeout invented by Desktop');
@@ -127,6 +142,11 @@ try {
   await dialog.getByRole('textbox', { name: '你的回答', exact: true }).fill('Retain this draft');
   await dialog.getByRole('button', { name: '稍后回答', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
+  await page.screenshot({ path: 'test-results/questions-approval-status-dark.png' });
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/questions-approval-status-light.png' });
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   const count = payloads.length;
   await page.waitForTimeout(800);
   assert.equal(payloads.length, count, 'Unanswered question blocks the model, not an implicit default');

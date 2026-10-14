@@ -1,5 +1,18 @@
 # Verification
 
+## Question waiting-action treatment (2026-10-15)
+
+The pending question status now reuses the permission-review treatment: tinted
+surface, inset border and flowing highlight, rather than a separate text-only
+gradient. It retains the circle-help icon and its place beside task controls;
+Goal/Plan/Ultracode run and settled controls are unchanged.
+
+Typecheck, build and source Electron/RPC question acceptance passed, including
+computed animation/background assertions and reduced-motion disabling for both
+the container and label. Dark/light screenshots are
+`questions-approval-status-dark.png` and `questions-approval-status-light.png`.
+This source follow-up has not been repackaged; replacement cloud CI is pending.
+
 ## Clarification completion revisions (2026-10-15)
 
 PR #117 review found that synthetic question expiry and the original completion

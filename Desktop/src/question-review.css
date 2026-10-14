@@ -21,13 +21,10 @@
 .question-navigation { display: flex; align-items: center; gap: 6px; margin-right: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .question-navigation button { width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; background: transparent; }
 .question-error { flex-shrink: 0; margin: 0; padding: 0 20px 8px; color: var(--danger); font-size: 12px; }
-.question-review-trigger { border: 0; background: transparent; gap: 6px; font-size: 12px; }
-.question-review-trigger .turn-status-icon > svg { color: var(--primary); }
-.question-review-trigger .turn-status-label { background: linear-gradient(110deg, var(--primary), var(--ink), var(--primary)); background-size: 200% 100%; background-clip: text; -webkit-text-fill-color: transparent; animation: permission-review-flow 4.8s linear infinite; }
 .question-tool-summary { display: flex; align-items: center; gap: 6px; max-width: 100%; text-align: left; }
 .question-tool-summary > button { padding: 0; border: 0; background: transparent; color: inherit; font-size: 12px; text-align: left; min-width: 0; }
 .question-tool-subject { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 12px; }
 .question-record { margin: 12px 0; }
 .question-record p { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 700px) { .question-review-actions { flex-wrap: wrap; gap: 5px; padding: 8px 12px; } .question-review-actions > button { font-size: 11px; padding: 6px 8px; } .question-navigation { width: 100%; } }
-@media (prefers-reduced-motion: reduce) { .question-review-trigger .turn-status-label { animation: none; } .question-option, .question-option-letter { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .question-option, .question-option-letter { transition: none; } }

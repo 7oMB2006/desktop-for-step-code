@@ -1115,7 +1115,7 @@ function App() {
       onAction={(action, value) => rawCommand('goal_action', { action, value })}
       onDisableStanding={() => rawCommand('disable_standing_ultracode')}/>
     {currentTurnWorkflow && <WorkflowTrigger flow={currentTurnWorkflow} language={data.preferences.language} onOpen={openWorkflow} settled={!busy}/>}
-    {reviewQuestion && <TurnStatusTrigger className="launch-status-trigger launch-status-pulse question-review-trigger"
+    {reviewQuestion && <TurnStatusTrigger className="launch-status-trigger launch-status-pulse question-review-trigger permission-trigger permission-review"
       icon={<CircleHelp size={14}/>} label={t('回答问题', 'Answer questions')} detail={<small className="question-beta">Beta</small>}
       aria-label={t('回答问题', 'Answer questions')} aria-haspopup="dialog" aria-expanded={approvalOpen}
       onClick={() => setApprovalOpen(v => !v)}/>}

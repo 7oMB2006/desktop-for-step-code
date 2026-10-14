@@ -113,6 +113,12 @@ function describeOperation(result: PermissionApprovalPresentation, input: Record
     result.operation = 'question';
     result.action = t('向你发起询问', 'Ask you a question');
     result.preview = text('question');
+    if (Array.isArray(input.questions) && input.questions.length) {
+      result.preview = input.questions.slice(0, 12).flatMap((value, index) => {
+        if (!value || typeof value !== 'object' || typeof (value as Record<string, unknown>).question !== 'string') return [];
+        return [`${index + 1}. ${redactApprovalText((value as { question: string }).question)}`];
+      }).join('\n') || result.preview;
+    }
     result.previewLabel = t('问题', 'Question');
     if (Array.isArray(input.options)) result.choices = input.options.flatMap(value => {
       if (!value || typeof value !== 'object') return [];

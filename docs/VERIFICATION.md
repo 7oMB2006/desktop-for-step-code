@@ -1,5 +1,69 @@
 # Verification
 
+## Question status placement correction (2026-10-15)
+
+Source now renders the circle-help question control through `TurnStatusTrigger`
+alongside Goal/Plan/Ultracode controls, outside `WorkingIndicator`. The matrix,
+working label and elapsed clock retain their primary position. Typecheck,
+build and source Electron/RPC question acceptance passed, including Plan and
+question controls together, collapse/reopen and icon/placement assertions.
+Screenshots include `questions-plan-status-dark.png`.
+The corrected unsigned local 0.4.0 installer is now under
+`Desktop/release/clarification-status-beta-20261015/`, based on merged main
+`30c77f2` (PR #115) plus the clarification Beta changes. Packaged Electron/RPC
+question and performance acceptance both passed. All 97 Desktop output files
+and 1157 runtime files matched the package; the pinned commit and patch hashes
+matched. Update metadata, byte count and SHA-512 matched. Installer SHA-256:
+`1d12a0d1d3928dbdc9e154a18144c1ed167b3a65d3d25b5ad8d6967ddfd1d00c`.
+Authenticode status is `NotSigned`. The ordinary desktop shortcut was backed
+up and verified to target this unpacked executable. The user's live client
+was preserved; explicit exit/relaunch is needed to pick up the new build.
+
+The latest full serial suite passed 404 of 405 tests. The unchanged
+`tests/terminal-sessions.test.ts` terminal-count case failed during `stopAll`
+cleanup with "Could not terminate the terminal process tree". Only the nine
+owned fixture children left by that test were stopped; no user client was
+stopped. Focused acceptance does not make this an all-green full regression,
+paid-model, cloud CI or installer-lifecycle claim.
+
+Rebuildable output was inventoried: the new release directory is 726718658
+bytes, local dependencies 531306491 bytes, runtime 116756025 bytes and terminal
+runtime 64762142 bytes. Old packages were not deleted without approval.
+Package evidence is in `test-results/clarification-package-resources.json`
+and the release directory's `update-package-check.json`.
+
+## Combined matrix and clarification preview (2026-10-15)
+
+This preview supersedes the initial clarification-only package below. Its
+baseline is merged main `30c77f2`, including PR #115's matrix working states,
+flowing elapsed time and compact performance strip, plus the uncommitted
+clarification Beta adaptation. At this earlier preview stage, the question
+reopen control stayed inside `WorkingIndicator`; pending questions showed one waiting matrix,
+retain elapsed time and never reintroduce the old pulse dot.
+
+Typecheck, build, 74 focused tests and 12 CI routing tests passed. Matrix
+browser acceptance passed. Packaged Electron/RPC acceptance passed for both
+the question drawer and performance runtime, including waiting matrix,
+thinking/prose transitions, TPS/usage, completion freeze and new-session reset.
+These use isolated profiles and deterministic model services, not paid-model
+or installer-lifecycle acceptance. The earlier terminal cleanup failure
+remains unresolved; this is not an all-green full regression claim.
+
+All 97 Desktop output files and 1157 runtime files matched the package. The
+runtime pin and clarification patch remain unchanged. Installer metadata and
+hashes matched; SHA-256:
+`a1412d11bebb6196106b63a6cb40a307db2285e08a9b0ec654107d0a4c6b9d7f`.
+The unsigned local installer is at
+`Desktop/release/clarification-pulse-beta-20261015/`.
+The ordinary desktop shortcut now targets its unpacked executable, with the
+old shortcut backed up. The user's running clarification-only preview was
+preserved and needs explicit exit/relaunch to pick up this combined build.
+
+Evidence is under `Desktop/test-results/`, including question/matrix/runtime
+screenshots and `clarification-package-resources.json`; update-package evidence
+is alongside the installer. Rebuildable artifacts were inventoried; obsolete
+packages were not deleted without approval. No public release or PR was made.
+
 ## Performance strip and matrix working states (2026-10-14)
 
 PR #115 follow-up (2026-10-15): the runtime CI failure was an outdated
@@ -39,6 +103,63 @@ files. It retains upstream pin 3ba89e0c and Node v24.15.0. Installer SHA-256:
 `53465a5e06caed4f5db66e59b757b23323cc96422c5dfba5103afa7616b3a401`.
 The ordinary desktop shortcut targets this preview. User-tier settings remain
 outside this change, and no upstream source was modified.
+
+## Structured clarification local package (2026-10-15)
+
+The local 0.4.0 preview was packaged from latest main `b4f4625` plus the
+uncommitted clarification Beta changes. It includes the letter-choice UI,
+cubic selection feedback and heavier labels. The 68 focused tests, typecheck,
+runtime staging guards and packaged Electron/RPC question acceptance passed.
+The packaged acceptance uses an isolated profile and simulated model service;
+it does not establish real-model or installer-lifecycle acceptance.
+
+All 97 Desktop output files and 1157 staged runtime files matched the package.
+The runtime remains pinned to `3ba89e0c` with `desktop-clarification-beta`.
+Installer metadata, byte count and SHA-512 matched. Installer SHA-256:
+`f336d9479d5f3485c781e0518e064c41d28f69b35ab6a8b1d23a97e34986d78a`.
+The normal desktop shortcut now targets this unpacked preview; its previous
+shortcut was backed up. The user's running client was not stopped.
+
+The unsigned local installer is under
+`Desktop/release/clarification-beta-20261015/`, not a replacement public release.
+Package evidence is in `Desktop/test-results/clarification-package-resources.json`
+and `Desktop/release/clarification-beta-20261015/update-package-check.json`.
+The earlier terminal cleanup regression below remains unresolved. No Issue,
+commit, PR, cloud CI success or public release is claimed. Rebuildable artifacts
+were inventoried and retained for current preview/testing; no cleanup was
+performed without approval.
+
+## Structured clarification Beta (2026-10-14)
+
+The opt-in Desktop main-worker compatibility patch connects the existing
+`clarify_user` tool to a whole-question-group drawer. The tool contract,
+permissions, native TUI and unflagged child RPC behavior remain unchanged.
+The UI and transport are explicitly Beta; unattended expiry, automatic
+decisions and restart-persistent pending questions are not implemented.
+See `UPSTREAM_QUESTIONNAIRE_BETA.md` for the integration boundary and future
+upstream proposal.
+
+Typecheck, production build, staging source guards and diff checks passed.
+The isolated bridge harness passed opt-in/off behavior, full-group answer
+validation, trusted option-label reconstruction, cancellation/abort signals,
+and the existing TUI fallback. The real Electron/RPC fixture passed question
+visibility, single-choice auto-advance, previous/next navigation, freeform
+draft retention across collapse and session navigation, rejected forged
+answers, submission failure/retry, final explicit submission, Plan clarification
+before separate proposal approval, cancellation, task abort and Ask-tier
+permission approval. Existing Plan and permission-drawer acceptance passed.
+CI routing tests passed; the new acceptance is assigned to the sessions group.
+
+The full serial unit/protocol suite reported 399 passed and one failed out of
+400. The unchanged terminal-count fixture failed when terminating concurrent
+terminal host process trees; a standalone retry reproduced the same cleanup
+failure. Only owned isolated test hosts were stopped to complete cleanup.
+This run is not an all-green regression result. No cloud CI, real-model,
+installer or unattended long-duration acceptance is claimed.
+
+Screenshots are under `Desktop/test-results/questions-*.png`. At this initial
+source-validation stage no installer was generated, no shortcut was changed,
+and no upstream issue was created; see the later local package record above.
 
 ## Transparent Logo startup preview (2026-10-14)
 

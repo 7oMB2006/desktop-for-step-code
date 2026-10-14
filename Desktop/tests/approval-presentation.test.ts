@@ -144,6 +144,16 @@ test('question permissions preview the question without treating choices as appr
   assert.equal(wrongRuntime.preview, undefined);
 });
 
+test('group clarification permission previews questions without authorizing an answer', () => {
+  const r = request('Policy override for clarify_user: confirm', 'Approve', 'clarify_user');
+  const result = permissionApprovalPresentation(r, messages({
+    questions: [{ question: 'Choose scope' }, { question: 'Choose format' }],
+  }, callId, 'clarify_user'), 'zh', 'worker-1')!;
+  assert.equal(result.operation, 'question');
+  assert.equal(result.preview, '1. Choose scope\n2. Choose format');
+  assert.equal(result.choices, undefined);
+});
+
 test('unknown tools retain their identity and redacted parameters, not an invented purpose', () => {
   const r = request('Policy override for mcp__service__publish: confirm', 'Approve', 'mcp__service__publish');
   const result = permissionApprovalPresentation(r, messages({

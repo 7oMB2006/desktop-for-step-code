@@ -12,6 +12,7 @@ import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
 import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
 import { isFullAccessRisk } from '../src/full-access-risk';
+import { questionnaire } from '../src/questionnaire';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -181,6 +182,15 @@ export class SessionRuntimes {
               && !worker.runActive && worker.launch?.goal?.id === goalId
               && ['complete', 'blocked', 'usage_limited', 'budget_limited'].includes(worker.launch?.goal?.status ?? '')) { notifyCompleted(); this.publish(); }
           }).catch(() => {});
+        }
+      }
+      if (event.type === 'tool_execution_end' || event.type === 'agent_end') {
+        for (const [id, request] of worker.pendingUI) {
+          const question = questionnaire(request);
+          if (question && (event.type === 'agent_end' || question.callId === event.toolCallId)) {
+            this.clearRequest(worker, id);
+            this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id, runtimeRevision: ++worker.revision });
+          }
         }
       }
       if (['message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
+import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, CircleHelp, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
 import { fullAccessRiskPresentation } from './full-access-risk';
 import { pendingPlanReview, planReview } from './plan-review';
@@ -9,6 +9,9 @@ import { conversationEntries } from './conversation-presentation';
 import { planExecutionResponses } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
 import { PlanReview } from './PlanReview';
+import { QuestionReview } from './QuestionReview';
+import { QuestionContext } from './QuestionTool';
+import { questionnaire, type QuestionDraft } from './questionnaire';
 import { ClipboardCheck } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import './style.css';
@@ -24,6 +27,7 @@ import { WorkingIndicator } from './WorkingIndicator';
 import { ModelEffortPicker } from './ModelEffortPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { LaunchStatus } from './LaunchStatus';
+import { TurnStatusTrigger } from './TurnStatusTrigger';
 import { goalCompletionResponse } from './launch-state';
 import { isUserMessage } from './user-message';
 import { PermissionApproval } from './PermissionApproval';
@@ -231,6 +235,7 @@ function App() {
   const rightRail = useRef<HTMLElement>(null);
   const [requests, setRequests] = useState<UIRequest[]>([]);
   const [approvalOpen, setApprovalOpen] = useState(true);
+  const questionDrafts = useRef(new Map<string, QuestionDraft>());
   const [resubmittingPlan, setResubmittingPlan] = useState(false);
   const resubmitPlanLock = useRef(false);
   const [answer, setAnswer] = useState('');
@@ -534,7 +539,10 @@ function App() {
       if (event.type === 'desktop_queue') setData(d => ({ ...d, pendingMessages: event.pendingMessages }));
       if (event.type === 'desktop_stats') setData(d => ({ ...d, stats: event.stats }));
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
-      if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
+      if (event.type === 'desktop_ui_expired') {
+        questionDrafts.current.delete(event.id);
+        setRequests(previous => previous.filter(request => request.id !== event.id));
+      }
       if (event.type === 'agent_start') setBusy(true);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
@@ -691,7 +699,7 @@ function App() {
     return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape); window.removeEventListener('resize', dismiss); };
   }, [contextMenu]);
   useEffect(() => {
-    if (!settingsOpen && !mcpEdit && !(requests.length && approvalOpen && !planReview(requests[0]) && requests[0]?.title !== 'Desktop Plan refinements' && !permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId)) && !renaming) return;
+    if (!settingsOpen && !mcpEdit && !(requests.length && approvalOpen && !questionnaire(requests[0]) && !planReview(requests[0]) && requests[0]?.title !== 'Desktop Plan refinements' && !permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId)) && !renaming) return;
     const previous = document.activeElement as HTMLElement | null;
     const dialog = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1);
     const controls = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') ?? [])];
@@ -1078,6 +1086,17 @@ function App() {
   const permissionApproval = !renaming ? permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId) : undefined;
   const accessRisk = !renaming ? fullAccessRiskPresentation(requests[0], data.preferences.language) : undefined;
   const reviewPlan = !renaming ? planReview(requests[0]) : undefined;
+  const reviewQuestion = !renaming ? questionnaire(requests[0]) : undefined;
+  const openQuestion = (callId: string) => {
+    if (questionnaire(requests[0])?.callId === callId && !navigationPending.current) setApprovalOpen(true);
+  };
+  const respondQuestion = async (value: { value: string } | { cancelled: true }) => {
+    const request = requests[0], owner = data.runtimeId;
+    if (!request || !questionnaire(request) || !owner || navigationPending.current
+      || viewId.current !== owner) throw new Error('Question is no longer active');
+    await bridge!.command('extension_ui_response', { id: request.id, ...value }, owner);
+    setRequests(previous => previous.filter(item => item.id !== request.id));
+  };
   const canResubmitPlan = pendingPlanReview(data.messages, Boolean(data.launch?.plan));
   const resubmitPlan = async () => {
     if (resubmitPlanLock.current || busy || requests.length || !canResubmitPlan) return;
@@ -1096,6 +1115,10 @@ function App() {
       onAction={(action, value) => rawCommand('goal_action', { action, value })}
       onDisableStanding={() => rawCommand('disable_standing_ultracode')}/>
     {currentTurnWorkflow && <WorkflowTrigger flow={currentTurnWorkflow} language={data.preferences.language} onOpen={openWorkflow} settled={!busy}/>}
+    {reviewQuestion && <TurnStatusTrigger className="launch-status-trigger launch-status-pulse question-review-trigger"
+      icon={<CircleHelp size={14}/>} label={t('回答问题', 'Answer questions')} detail={<small className="question-beta">Beta</small>}
+      aria-label={t('回答问题', 'Answer questions')} aria-haspopup="dialog" aria-expanded={approvalOpen}
+      onClick={() => setApprovalOpen(v => !v)}/>}
   </>;
   const lastConversationEntry = conversationEntries(data.messages).at(-1);
   const activePlanExecution = busy && lastConversationEntry?.type === 'response'
@@ -1181,7 +1204,7 @@ function App() {
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
-      {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
+      {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && !reviewQuestion && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
       {error && <div className="error-banner" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title={t('关闭', 'Dismiss')} onClick={() => setError('')}><X size={14}/></IconButton></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
@@ -1213,12 +1236,14 @@ function App() {
             title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
             onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
-            <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
-              settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
+            <QuestionContext.Provider value={{ pending: requests.flatMap(request => { const q = questionnaire(request); return q ? [q] : []; }), open: openQuestion }}>
+              <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
+                settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
+            </QuestionContext.Provider>
             {(busy || data.state?.isCompacting) && <div className="working">
               <WorkingIndicator language={data.preferences.language} mode={requests.length || reviewPlan || planFeedback ? 'waiting' : data.state?.isCompacting ? 'compacting' : runMetrics?.phase ?? 'executing'}
                 elapsedMs={runMetrics && runMetrics.finishedAt === undefined ? clock - runMetrics.startedAt : undefined}>
-                {reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : data.state?.isCompacting ? t('正在整理上下文', 'Organizing context') : runMetrics?.phase === 'responding' ? t('等待响应', 'Awaiting response') : runMetrics?.phase === 'thinking' ? t('正在思考', 'Thinking') : t('正在阶跃', 'Working')}</span>}
+                {reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{reviewQuestion ? t('等待回答', 'Awaiting answers') : requests.length ? t('等待你的确认', 'Awaiting your decision') : data.state?.isCompacting ? t('正在整理上下文', 'Organizing context') : runMetrics?.phase === 'responding' ? t('等待响应', 'Awaiting response') : runMetrics?.phase === 'thinking' ? t('正在思考', 'Thinking') : t('正在阶跃', 'Working')}</span>}
               </WorkingIndicator>
               {taskStatusControls}
               {activePlanExecution && <PlanExecution key={lastConversationEntry?.type === 'response' ? lastConversationEntry.index : undefined}
@@ -1298,7 +1323,7 @@ function App() {
                 goal: Boolean(data.draftId) || commands.some(c => c.name === 'goal' && c.source === 'extension'),
                 ultracode: Boolean(data.draftId) || commands.some(c => c.name === 'ultraloop' && c.source === 'extension'),
               }} onLaunch={(mode, enabled) => command('set_launch_mode', { mode, enabled })}
-              onReview={requests.length && !approvalOpen && !renaming && !reviewPlan && !planFeedback ? () => setApprovalOpen(true) : undefined}/>
+              onReview={requests.length && !approvalOpen && !renaming && !reviewPlan && !planFeedback && !reviewQuestion ? () => setApprovalOpen(true) : undefined}/>
             {(reviewPlan || planFeedback) && <button className="permission-trigger permission-review plan-review-trigger" aria-expanded={approvalOpen} onClick={() => setApprovalOpen(v => !v)}><ClipboardCheck size={16}/><span>{t('批阅计划', 'Review plan')}</span></button>}
             {!requests.length && canResubmitPlan && <button className="permission-trigger permission-review plan-review-trigger" disabled={!connected || loading || busy || resubmittingPlan} onClick={() => void resubmitPlan()}><ClipboardCheck size={16}/><span>{t('重新批阅计划', 'Review plan again')}</span></button>}
             <LaunchStatus key={data.runtimeId ?? data.draftId}
@@ -1320,6 +1345,9 @@ function App() {
           language={data.preferences.language} onLater={() => setApprovalOpen(false)} onRespond={respond}/>
         <PlanReview key={`plan-${data.runtimeId ?? 'empty'}`} plan={reviewPlan} feedback={Boolean(planFeedback)} requestId={requests[0]?.id}
           open={Boolean((reviewPlan || planFeedback) && approvalOpen && !navigationTarget)} zh={data.preferences.language === 'zh'} onLater={() => setApprovalOpen(false)} onRespond={respond}/>
+        <QuestionReview key={`question-${data.runtimeId ?? 'empty'}`} question={reviewQuestion} requestId={reviewQuestion ? requests[0]?.id : undefined}
+          open={Boolean(reviewQuestion && approvalOpen && !navigationTarget)} zh={data.preferences.language === 'zh'}
+          drafts={questionDrafts.current} onLater={() => setApprovalOpen(false)} onRespond={respondQuestion}/>
       </div>
       <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
         sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
@@ -1484,7 +1512,7 @@ function App() {
       </>}
     </div></div></section></div>}
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
-    {((requests[0] && approvalOpen && !permissionApproval && !reviewPlan && !planFeedback) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={accessRisk?.title ?? requests[0]?.title ?? 'Rename'}><h2>{accessRisk?.title ?? requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{accessRisk ? <p className="full-access-risk-message"><ShieldAlert size={20}/>{accessRisk.message}</p> : requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map((o, index) => <button className="option" key={o} onClick={() => void respond({ value: o })}>{accessRisk?.labels[index] ?? o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && !accessRisk && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}{!accessRisk && <button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>}{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
+    {((requests[0] && approvalOpen && !permissionApproval && !reviewPlan && !planFeedback && !reviewQuestion) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={accessRisk?.title ?? requests[0]?.title ?? 'Rename'}><h2>{accessRisk?.title ?? requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{accessRisk ? <p className="full-access-risk-message"><ShieldAlert size={20}/>{accessRisk.message}</p> : requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map((o, index) => <button className="option" key={o} onClick={() => void respond({ value: o })}>{accessRisk?.labels[index] ?? o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && !accessRisk && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}{!accessRisk && <button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>}{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
   </div></FileOpeningContext.Provider></CommandCatalog.Provider>;
 }
 class RenderBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {

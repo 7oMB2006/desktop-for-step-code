@@ -15,20 +15,39 @@ const app = await electron.launch({
   env, timeout: 60000,
 });
 try {
+  // Hold the app module while inspecting the short-lived native splash.
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const timeout = setTimeout(() => release(), 5000);
+  await app.context().route('**/assets/*.js', async route => { await gate; await route.continue(); });
   const splash = await app.firstWindow();
-  await splash.waitForURL('**/startup-logo.html');
+  await splash.waitForURL('**/startup-logo.html', { timeout: 10000 });
   assert.ok(splash.url().includes('startup-logo.html'), 'first window must be the isolated splash');
   const state = await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('startup-logo.html'));
-    return win && { size: win.getSize(), shadow: win.hasShadow(), focusable: win.isFocusable(),
+    return win && { size: win.getSize(), contentSize: win.getContentSize(), shadow: win.hasShadow(), focusable: win.isFocusable(),
       preferences: win.webContents.getLastWebPreferences() };
   });
-  assert.deepEqual(state.size, [256, 256]);
+  console.log('Splash geometry', JSON.stringify({ outer: state.size, content: state.contentSize,
+    viewport: await splash.evaluate(() => [innerWidth, innerHeight]) }));
+  // Windows native/DIP bounds round-trips can add 1-2px in the packaged executable.
+  assert.ok(state.size.every(size => Math.abs(size - 256) <= 2), 'splash remains a small 256px window');
+  const geometry = await splash.locator('img').evaluate(img => {
+    const rect = img.getBoundingClientRect();
+    return { width: rect.width, height: rect.height,
+      centerX: rect.x + rect.width / 2 - innerWidth / 2,
+      centerY: rect.y + rect.height / 2 - innerHeight / 2 };
+  });
+  // Use layout dimensions, independent of the temporary entrance transform.
+  assert.deepEqual(await splash.locator('img').evaluate(img => [img.offsetWidth, img.offsetHeight]), [88, 88]);
+  assert.ok(Math.abs(geometry.centerX) < 1, 'logo stays horizontally centered');
   assert.equal(state.shadow, false);
   assert.equal(state.focusable, false);
   assert.equal(state.preferences.nodeIntegration, false);
   assert.equal(state.preferences.sandbox, true);
   assert.equal(state.preferences.preload, undefined);
+  release();
+  clearTimeout(timeout);
   const main = app.windows().find(page => page !== splash)
     ?? await app.waitForEvent('window', { predicate: page => page !== splash, timeout: 30000 });
   await main.waitForSelector('.app', { timeout: 60000 });

@@ -79,9 +79,9 @@ try {
   assert.equal((await list())[0].id, id, 'grip width changes preserve the existing PTY');
   const write = data => page.evaluate(({ id, data }) => window.desktop.terminalWrite(id, data), { id, data });
   const output = async () => (await list()).find(terminal => terminal.id === id)?.chunks.map(chunk => chunk.data).join('') ?? '';
-  async function waitOutput(text) {
+  async function waitOutput(text, since = 0) {
     const start = Date.now();
-    while (!(await output()).includes(text)) {
+    while (!(await output()).slice(since).includes(text)) {
       if (Date.now() - start > 15000) throw new Error(`Terminal output missing: ${text}\n${await output()}`);
       await page.waitForTimeout(100);
     }
@@ -107,11 +107,13 @@ try {
   await waitOutput('KEYBOARD_OK');
   await panel.getByRole('button', { name: '粘贴到终端', exact: true }).click();
   await waitOutput('PASTE_OK');
-  await write("Start-Sleep -Seconds 60\r");
-  await page.waitForTimeout(200);
+  await write("Write-Output ('SLEEP_' + 'STARTED'); Start-Sleep -Seconds 60\r");
+  await waitOutput('SLEEP_STARTED');
+  const sleepOutputEnd = (await output()).lastIndexOf('SLEEP_STARTED') + 'SLEEP_STARTED'.length;
   await page.locator('.terminal-view:not([hidden]) .xterm-helper-textarea').focus();
   await page.keyboard.press('Control+c');
-  await page.waitForTimeout(400);
+  // ConPTY can flush queued input while handling Ctrl+C; wait for the new shell prompt.
+  await waitOutput('PS ', sleepOutputEnd);
   await write("Write-Output ('INTERRUPT_' + 'OK')\r");
   await waitOutput('INTERRUPT_OK');
   await write("Clear-Host; Get-ChildItem; Write-Output ('终端' + '已就绪')\r");

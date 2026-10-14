@@ -58,8 +58,7 @@ export function ComposerMenu(props: Props) {
     const end = textarea.selectionStart;
     const before = textarea.value.slice(0, end);
     const match = /(^|\s)([@/])([^\s@/]*)$/u.exec(before);
-    // Slash commands are only valid at the start of the prompt.
-    setToken(match && (match[2] === '@' || before.slice(0, match.index).trim() === '')
+    setToken(match
       ? { mode: match[2] as '/' | '@', start: end - match[3].length - 1, end, query: match[3] } : null);
   };
   useEffect(() => { readToken(); setDismissed(false); setSelected(0); }, [draft]);

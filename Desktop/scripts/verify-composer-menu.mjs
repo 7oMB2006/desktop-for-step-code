@@ -77,6 +77,7 @@ try {
   await input.press('Enter');
   assert.equal(await input.evaluate(element => element.value), '/permissions', 'unavailable action preserves token');
   await input.fill('/');
+  await menu.locator('svg.lucide-goal').waitFor();
   assert.equal(await menu.getByText('/exit', { exact: true }).count(), 0);
   assert.equal(await menu.locator('svg.lucide-goal').count(), 1);
   assert.equal(await menu.locator('svg.lucide-lightbulb').count(), 1);
@@ -136,6 +137,40 @@ try {
   assert.equal(await app.evaluate(() => globalThis.menuPrompts), 0, 'selection must not send');
   await input.fill('https://example.com/');
   assert.equal(await menu.count(), 0, 'URL slash is not a command');
+  await input.fill('先检查项目 /cl');
+  await menu.waitFor();
+  assert.equal(await menu.getByRole('option').count(), 2, 'Commands complete after whitespace within prose');
+  await page.waitForTimeout(220);
+  await page.screenshot({ path: 'test-results/composer-inline-slash-dark.png' });
+  await input.press('Enter');
+  assert.equal(await input.evaluate(element => element.value), '先检查项目 /clm ', 'Completion preserves preceding prose');
+  assert.equal(await menu.count(), 0);
+  assert.equal(await app.evaluate(() => globalThis.menuPrompts), 0, 'Inline completion never submits the draft');
+  const middleDraft = '先检查 /cl 然后总结';
+  await input.fill(middleDraft);
+  await input.evaluate(element => element.setSelectionRange(7, 7));
+  await menu.waitFor();
+  await input.press('Tab');
+  assert.equal(await input.evaluate(element => element.value), '先检查 /clm  然后总结', 'Middle completion preserves trailing prose');
+  await page.waitForFunction(() => document.querySelector('.composer-input').selectionStart === 9);
+  await input.fill('第一行\n/clm-co');
+  await menu.waitFor();
+  await input.press('Enter');
+  assert.equal(await input.evaluate(element => element.value), '第一行\n/clm-compact ', 'Commands complete after a newline');
+  await input.fill('先检查\t/pl');
+  await menu.waitFor();
+  await input.press('Escape');
+  assert.equal(await menu.count(), 0, 'Escape dismisses an inline command');
+  assert.equal(await input.evaluate(element => element.value), '先检查\t/pl', 'Dismissal preserves the draft');
+  for (const value of ['正文/cl', 'https://example.com/cl', 'C:/cl', '路径 /src/file', '先检查 /cl 后续']) {
+    await input.fill(value);
+    assert.equal(await menu.count(), 0, `Not an active command token: ${value}`);
+  }
+  await input.fill('前面 /cl 后面 /pl');
+  await menu.waitFor();
+  assert.equal(await menu.getByText('/plan', { exact: true }).count(), 1, 'Completion follows the token at the caret');
+  await input.press('Enter');
+  assert.equal(await input.evaluate(element => element.value), '前面 /cl 后面 /plan ', 'Only the current token is replaced');
   await input.fill('对照 [阶跃平台](https://platform.stepfun.com/)');
   assert.equal(await input.locator('.composer-inline-link-text').innerText(), '[阶跃平台](https://platform.stepfun.com/)');
   const linkDraft = '对照 https://platform.stepfun.com/ 和 https://example.com/guide\n'
@@ -292,6 +327,7 @@ try {
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
     await input.fill('/');
     await input.click();
+    await input.press('End');
     await menu.waitFor();
     await page.locator('.model-effort-trigger').click();
     const popover = page.locator('.model-effort-popover');
@@ -327,6 +363,7 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(840, 760));
   await input.fill('/');
   await input.click();
+  await input.press('End');
   await menu.waitFor();
   await page.waitForTimeout(220);
   await page.screenshot({ path: 'test-results/composer-slash-narrow.png' });

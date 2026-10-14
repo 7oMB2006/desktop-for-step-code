@@ -96,6 +96,13 @@ jobs:
           corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream Plan integration tests failed' }
 
+      - name: Install startup preview browser
+        if: inputs.group == 'interface'
+        working-directory: Desktop
+        run: |
+          corepack pnpm exec playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Startup preview browser install failed' }
+
       - name: Upstream Windows shell and Ultracode tests
         working-directory: Step-Code/packages/coding-agent
         run: |

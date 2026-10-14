@@ -68,6 +68,7 @@ try {
   await page.reload();
   const input = page.locator('.composer > .composer-input');
   await input.waitFor();
+  assert.equal(await input.evaluate(element => element.spellcheck), false, 'Composer disables browser spellchecking');
   await input.fill('/');
   const menu = page.locator('.composer-discovery');
   await menu.waitFor();
@@ -107,6 +108,7 @@ try {
   await input.fill('/clm-compact 保留项目名和关键要求');
   await input.press('End');
   await page.locator('.composer-inline-command-icon .command-reference').waitFor({ state: 'visible' });
+  assert.equal(await input.evaluate(element => element.spellcheck), false, 'Command decorations keep spellchecking disabled');
   assert.equal(await page.locator('.composer-inline-command-icon svg.lucide-command').count(), 1);
   const prefixGeometry = await input.evaluate(element => {
     const style = getComputedStyle(element);

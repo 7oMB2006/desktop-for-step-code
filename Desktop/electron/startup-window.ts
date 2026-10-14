@@ -6,15 +6,18 @@ export class StartupWindow {
   private splash: BrowserWindow | undefined;
   private paintedAt = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private hideTimer: ReturnType<typeof setTimeout> | undefined;
   private finishing = false;
   private disposed = false;
 
   constructor(private readonly background: boolean, devUrl?: string) {
     const splash = new BrowserWindow({
-      width: 256, height: 256, center: true, frame: false, transparent: true,
+      width: 256, height: 256, center: true, frame: false, thickFrame: false, transparent: true,
       backgroundColor: '#00000000', hasShadow: false, resizable: false,
       minimizable: false, maximizable: false, focusable: false, skipTaskbar: true,
-      show: false,
+      // On Windows, a non-topmost cold-start window can composite as an opaque
+      // rectangle despite transparent CSS. This overlay never takes focus.
+      show: false, alwaysOnTop: true,
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false },
     });
     this.splash = splash;
@@ -23,7 +26,11 @@ export class StartupWindow {
     splash.webContents.on('will-navigate', event => event.preventDefault());
     splash.once('ready-to-show', () => {
       this.paintedAt = Date.now();
-      if (!this.background && !this.finishing && !this.disposed) splash.showInactive();
+      if (!this.background && !this.finishing && !this.disposed) {
+        splash.showInactive();
+        // A stalled initialization must not leave an indefinitely topmost logo.
+        this.hideTimer = setTimeout(() => { if (!splash.isDestroyed()) splash.hide(); }, 10000);
+      }
     });
     const loaded = devUrl
       ? splash.loadURL(new URL('startup-logo.html', devUrl).href)
@@ -47,6 +54,7 @@ export class StartupWindow {
   destroy() {
     this.disposed = true;
     clearTimeout(this.timer);
+    clearTimeout(this.hideTimer);
     if (this.splash && !this.splash.isDestroyed()) this.splash.destroy();
     this.splash = undefined;
   }

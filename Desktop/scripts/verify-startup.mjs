@@ -26,6 +26,7 @@ try {
   const state = await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('startup-logo.html'));
     return win && { size: win.getSize(), contentSize: win.getContentSize(), shadow: win.hasShadow(), focusable: win.isFocusable(),
+      alwaysOnTop: win.isAlwaysOnTop(),
       preferences: win.webContents.getLastWebPreferences() };
   });
   console.log('Splash geometry', JSON.stringify({ outer: state.size, content: state.contentSize,
@@ -43,6 +44,7 @@ try {
   assert.ok(Math.abs(geometry.centerX) < 1, 'logo stays horizontally centered');
   assert.equal(state.shadow, false);
   assert.equal(state.focusable, false);
+  assert.equal(state.alwaysOnTop, true, 'the temporary splash uses the Windows transparent overlay path');
   assert.equal(state.preferences.nodeIntegration, false);
   assert.equal(state.preferences.sandbox, true);
   assert.equal(state.preferences.preload, undefined);

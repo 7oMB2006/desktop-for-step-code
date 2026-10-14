@@ -1,5 +1,34 @@
 # Verification
 
+## Transparent Logo startup preview (2026-10-14)
+
+A separate sandboxed, click-through, unfocusable transparent window displays
+the existing Logo before the main shell is ready. It has no desktop bridge,
+background panel, text or taskbar entry. Shell readiness and renderer failure
+paths reveal the main window; the splash is destroyed on handoff and quit.
+A ten-second hide safeguard bounds its topmost visibility. Reduced motion
+disables the Logo entrance animation.
+
+Build, typecheck and the 395 serial unit/protocol tests passed locally.
+Source and packaged startup acceptance passed for geometry, bridge isolation,
+shell handoff/disposal, transparent page pixels and reduced motion. A real
+Windows cold-start desktop capture reproduced the earlier opaque square.
+Disabling the thick frame and making the short-lived window topmost removed
+the square on this host. The packaged desktop capture temporarily delayed only
+the shell handoff to allow capture; normal handoff was verified separately.
+This is local native-compositing evidence, not a guarantee for every GPU or
+Windows configuration.
+
+The fixed preview is based on main `feba5b4`, retains version `0.4.0` and
+upstream pin `3ba89e0c`. All 97 Desktop and 1157 runtime files matched the
+package; update metadata matched the installer. Installer SHA-256:
+`669714b6c09d194463f412f089fc77d8219174d387bec991167201310186d17b`.
+The desktop shortcut points to the fixed unpacked preview. The user confirmed
+the visual experience; their running client was not stopped. This unsigned
+local preview is not a published release or installer-lifecycle acceptance.
+The startup script is registered in the interface CI group; cloud results
+remain pending until the PR checks finish.
+
 ## In-app updater development (2026-10-14)
 
 Source adds a pinned-release NSIS update driver, SHA-512 verification before

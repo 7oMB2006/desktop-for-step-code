@@ -381,8 +381,10 @@ try {
     const before = await snapshot();
     const beforeReplies = before.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length;
     const beforeUsers = before.messages.filter(m => m.role === 'user').length;
+    const beforeRequests = requests.length;
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(`Test no-auth ${label}`);
-    await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+    // Protocol labels end in slash tokens; Enter belongs to command completion.
+    await page.getByRole('button', { name: '发送', exact: true }).click();
     try {
       const finished = await waitFor(s => !s.state?.isStreaming && (s.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length > beforeReplies
         || (s.messages.filter(m => m.role === 'user').length > beforeUsers && s.messages.at(-1)?.stopReason === 'error')));
@@ -394,6 +396,7 @@ try {
         lastRequestNoAuth: requests.at(-1)?.noAuth, lastRequestPath: requests.at(-1)?.path?.split('?')[0] });
       throw error;
     }
+    assert.ok(requests.length > beforeRequests, 'a new keyless generation reaches the fixture');
     assert.equal(requests.at(-1).path.split('?')[0], path);
     assert.equal(requests.at(-1).noAuth, true, 'real runtime generation omits authentication');
     await settings();

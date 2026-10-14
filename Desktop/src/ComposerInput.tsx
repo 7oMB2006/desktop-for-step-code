@@ -52,6 +52,7 @@ export function ComposerInput(props: Props) {
   useLayoutEffect(() => {
     const element = root.current!;
     const editor = new EditorView({ mount: element }, {
+      attributes: { spellcheck: 'false' },
       state: EditorState.create({ schema: composerSchema, doc: composerDocument(latest.current.value),
         plugins: [history(), keymap({
           'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, 'Mod-a': selectAll,

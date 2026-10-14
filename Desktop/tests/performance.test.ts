@@ -72,7 +72,7 @@ test('unmeasured, invalid, single-chunk, hidden and interrupted output does not 
     run = updateRunMetrics(run, { type: 'message_end', message: { role: 'assistant', usage } }, 3000);
     assert.equal(outputTokensPerSecond(run), undefined);
   }
-  for (const stopReason of ['aborted', 'error']) {
+  for (const stopReason of ['aborted', 'error', 'length']) {
     let run = updateRunMetrics(null, { type: 'agent_start' }, 0);
     run = updateRunMetrics(run, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'a' } }, 1000);
     run = updateRunMetrics(run, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'b' } }, 2000);
@@ -86,6 +86,22 @@ test('unmeasured, invalid, single-chunk, hidden and interrupted output does not 
   assert.equal(outputTokensPerSecond(run), undefined);
   run = updateRunMetrics(run, { type: 'message_end', message: { role: 'assistant', usage: { output: 48 } } }, 4000);
   assert.equal(outputTokensPerSecond(run), undefined);
+});
+
+test('length-truncated output keeps usage but does not alter previously measured TPS', () => {
+  let run = updateRunMetrics(null, { type: 'agent_start' }, 0);
+  run = updateRunMetrics(run, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'a' } }, 1000);
+  run = updateRunMetrics(run, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'b' } }, 2000);
+  run = updateRunMetrics(run, { type: 'message_end', message: { role: 'assistant', usage: { output: 48 }, stopReason: 'stop' } }, 3000);
+  run = updateRunMetrics(run, { type: 'message_start', message: { role: 'assistant' } }, 4000);
+  run = updateRunMetrics(run, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'c' } }, 5000);
+  run = updateRunMetrics(run, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'd' } }, 8000);
+  run = updateRunMetrics(run, { type: 'message_end', message: { role: 'assistant', usage: { output: 240 }, stopReason: 'length' } }, 9000);
+  assert.equal(outputTokensPerSecond(run), 48);
+  assert.equal(run?.measuredOutputTokens, 48);
+  assert.equal(run?.measuredOutputMs, 1000);
+  assert.equal(displayedUsage(run!).output, 288, 'truncated tokens still count towards usage');
+  assert.equal(run?.outputTiming, undefined, 'truncated stream timing cannot leak into the next response');
 });
 
 test('missing cache usage stays unknown and a new run clears previous metrics', () => {

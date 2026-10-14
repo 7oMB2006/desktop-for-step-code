@@ -1326,17 +1326,18 @@ try {
     send({ type: 'agent_end' });
   });
   const performance = page.getByRole('region', { name: '性能信息' });
-  await performance.getByText('输入 2K').waitFor();
-  assert.equal(await performance.getByText('输出 150').count(), 1);
-  assert.equal(await performance.getByText('1 次工具').count(), 1);
-  assert.equal(await performance.getByText(/^首段文字 \d+\.\ds$/).count(), 1);
-  assert.equal(await performance.getByText(/^工具累计 \d+\.\ds$/).count(), 1);
-  assert.equal(await performance.getByText('缓存读取 1K').count(), 1);
-  assert.equal(await performance.getByText('缓存命中 50%').count(), 1);
-  // stats arrives asynchronously (agent_end triggers a snapshot refresh through the
-  // IPC bridge), so wait for the session total to land before counting it.
-  await performance.getByText('会话累计 0 tok · 0 次工具').waitFor();
-  assert.equal(await performance.getByText('会话累计 0 tok · 0 次工具').count(), 1);
+  const performanceMetrics = performance.locator('.performance-metric');
+  await performanceMetrics.nth(2).getByText('2K / 150', { exact: true }).waitFor();
+  assert.equal(await performanceMetrics.count(), 4);
+  assert.match(await performanceMetrics.nth(0).locator('strong').innerText(), /^\d+(?:\.\d)?s$/);
+  assert.equal(await performanceMetrics.nth(1).locator('strong').innerText(), '—', 'one output delta cannot establish TPS');
+  assert.equal(await performanceMetrics.nth(3).locator('span').innerText(), '缓存命中');
+  assert.equal(await performanceMetrics.nth(3).locator('strong').innerText(), '50%');
+  assert.deepEqual(await performanceMetrics.locator('svg').evaluateAll(icons => icons.map(icon =>
+    ['timer', 'zap', 'database'].find(name => icon.classList.contains(`lucide-${name}`)))), ['timer', 'zap', 'database']);
+  const finalizedPerformance = await performance.locator('.performance-summary').innerText();
+  await page.waitForTimeout(1100);
+  assert.equal(await performance.locator('.performance-summary').innerText(), finalizedPerformance, 'completed metrics stay frozen after the asynchronous snapshot refresh');
   await page.screenshot({ path: 'test-results/performance-wide.png' });
   const geometry = await page.evaluate(() => {
     const transcript = document.querySelector('.messages').getBoundingClientRect();
@@ -1390,36 +1391,22 @@ try {
   });
   assert.ok(narrowPerformance.height <= narrowPerformance.lineHeight * 2 + 15);
   assert.equal(narrowPerformance.overflow, false);
-  assert.equal(await performance.locator('.performance-ellipsis').isVisible(), false);
-  await performance.locator('.performance-summary').evaluate(element => {
-    for (let i = 0; i < 4; i++) {
-      const extra = document.createElement('span');
-      extra.className = 'overflow-fixture';
-      extra.textContent = `附加指标 ${i + 1}：12345`;
-      element.insertBefore(extra, element.querySelector('.performance-ellipsis'));
-    }
+  const metricGeometry = await performance.locator('.performance-summary').evaluate(element => {
+    const box = element.getBoundingClientRect();
+    const items = [...element.children].map(child => child.getBoundingClientRect());
+    return { centered: Math.abs((items[0].left + items.at(-1).right) / 2 - (box.left + box.right) / 2) < 2,
+      contained: items.every(item => item.left >= box.left && item.right <= box.right),
+      rows: new Set(items.map(item => item.top)).size };
   });
-  await page.evaluate(() => dispatchEvent(new Event('resize')));
-  await page.waitForFunction(() => getComputedStyle(document.querySelector('.performance-ellipsis')).display !== 'none');
-  await page.screenshot({ path: 'test-results/performance-truncated.png' });
-  const truncatedPerformance = await performance.locator('.performance-summary').evaluate(element => ({
-    height: element.getBoundingClientRect().height,
-    lineHeight: parseFloat(getComputedStyle(element).lineHeight),
-    centers: Array.from(element.children).filter(child => getComputedStyle(child).display !== 'none').map(child => child.offsetTop + child.offsetHeight / 2).sort((a, b) => a - b),
-    ellipsis: element.querySelector('.performance-ellipsis').getBoundingClientRect(),
-    previous: [...element.children].filter(child => getComputedStyle(child).display !== 'none').at(-2).getBoundingClientRect(),
-  }));
-  assert.ok(truncatedPerformance.height <= truncatedPerformance.lineHeight * 2 + 15);
-  assert.ok(truncatedPerformance.centers.reduce((count, center, index) => count + (index === 0 || center - truncatedPerformance.centers[index - 1] > 8 ? 1 : 0), 0) <= 2);
-  assert.ok(truncatedPerformance.ellipsis.left >= truncatedPerformance.previous.right);
-  assert.ok(truncatedPerformance.ellipsis.left - truncatedPerformance.previous.right < 20);
-  await performance.locator('.performance-summary').evaluate(element => element.querySelectorAll('.overflow-fixture').forEach(extra => extra.remove()));
-  await page.evaluate(() => dispatchEvent(new Event('resize')));
-  await page.waitForFunction(() => getComputedStyle(document.querySelector('.performance-ellipsis')).display === 'none');
+  assert.equal(metricGeometry.centered, true);
+  assert.equal(metricGeometry.contained, true);
+  assert.equal(metricGeometry.rows, 1, 'four compact metrics fit in the narrow window without truncation');
+  assert.equal(await performanceMetrics.count(), 4);
+  assert.equal(await performanceMetrics.nth(2).locator('strong').innerText(), '2K / 150');
   await page.getByRole('button', { name: '侧栏', exact: true }).click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
-  assert.equal(await page.getByRole('region', { name: '性能信息' }).getByText('最近一轮').count(), 0);
+  assert.equal(await page.getByRole('region', { name: '性能信息' }).getByText('2K / 150', { exact: true }).count(), 0, 'new session cannot retain previous run usage');
   assert.deepEqual(errors, []);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()), false);
   console.log('Electron acceptance passed: isolated profile, real RPC, settings, rename, MCP, themes, narrow window, no renderer Node access.');

@@ -2,6 +2,17 @@
 
 ## Performance strip and matrix working states (2026-10-14)
 
+PR #115 follow-up (2026-10-15): the runtime CI failure was an outdated
+verify-electron assertion waiting for the removed "input" text field.
+The general acceptance now checks all four metrics, icon ordering, single-chunk
+unknown TPS, completed-value freeze, centered/contained narrow layout and
+new-session usage reset instead of the removed extended-metric/ellipsis UI.
+TPS excludes length-truncated responses while retaining their reported usage.
+Six focused performance tests, typecheck, build, complete general Electron
+acceptance (including reopened profiles) and real pinned RPC performance
+acceptance passed locally. Replacement cloud CI is pending; the prior full-suite
+terminal cleanup failure below remains a separate historical result.
+
 The centered strip now contains total duration, estimated output TPS,
 input/output tokens and cache-hit rate. TPS uses reported output tokens and
 locally observed first-to-last nonempty output-delta timing for completed

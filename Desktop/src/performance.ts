@@ -86,7 +86,7 @@ export function updateRunMetrics(run: RunMetrics | null, event: RuntimeEvent, no
       const elapsed = run.outputTiming ? run.outputTiming.lastAt - run.outputTiming.firstAt : 0;
       const tokens = amount(event.message?.usage?.output);
       // Measure received output only; never invent a tokenizer for missing usage.
-      const measured = elapsed >= 100 && tokens > 0 && !['error', 'aborted'].includes(event.message?.stopReason);
+      const measured = elapsed >= 100 && tokens > 0 && !['error', 'aborted', 'length'].includes(event.message?.stopReason);
       return event.message?.role === 'assistant'
         ? {
             ...run,

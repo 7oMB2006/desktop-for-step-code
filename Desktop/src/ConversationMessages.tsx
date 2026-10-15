@@ -24,6 +24,7 @@ import { isUserMessage } from './user-message';
 import { approvedPlan, planExecutionResponses } from './plan-execution';
 import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
+import { QuestionTool } from './QuestionTool';
 
 type Props = {
   runtimeId?: string;
@@ -180,6 +181,7 @@ export function Tool({ item, active, ...props }: {
   const subject = toolSubject(item.call);
   const presentation = toolPresentation(name, item.result, active, props.language);
   const waiting = !item.result && Boolean(item.call?.id && props.awaitingToolCalls?.includes(item.call.id));
+  if (name === 'clarify_user') return <QuestionTool item={item} waitingApproval={waiting} zh={zh}/>;
   const { kind, status } = presentation;
   const state = waiting ? 'waiting' : presentation.state;
   const label = waiting ? (zh ? `等待批准 · ${name}` : `Awaiting approval · ${name}`) : presentation.label;

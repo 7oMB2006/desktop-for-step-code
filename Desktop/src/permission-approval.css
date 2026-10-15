@@ -1,4 +1,5 @@
-.composer-wrap[data-approval-covered] .composer-underlay { visibility: hidden; pointer-events: none; }
+.composer-wrap[data-approval-covered] .composer-underlay,
+.composer-wrap:has(> .approval-drawer) .composer-underlay { visibility: hidden; pointer-events: none; }
 .approval-drawer {
   position: absolute; bottom: 0; left: var(--conversation-gutter); right: var(--conversation-gutter); z-index: 8;
   display: flex; flex-direction: column; overflow: hidden;

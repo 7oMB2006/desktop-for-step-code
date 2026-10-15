@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/prom
 import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
+import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
 import { isChildSession } from './session-visibility';
@@ -1079,7 +1080,12 @@ async function handle(method: string, args: any[]) {
           const answer: Record<string, unknown> = { id: request.id };
           if (data.cancelled === true) answer.cancelled = true;
           else if (request.method === 'confirm') { if (typeof data.confirmed !== 'boolean') throw new Error('Confirmation required'); answer.confirmed = data.confirmed; }
-          else { answer.value = text(data.value); if (request.method === 'select' && !request.options?.includes(data.value)) throw new Error('Invalid selection'); }
+          else {
+            const value = text(data.value);
+            const question = questionnaire(request);
+            answer.value = question ? serializeAnswers(question, JSON.parse(value)) : value;
+            if (request.method === 'select' && !request.options?.includes(data.value)) throw new Error('Invalid selection');
+          }
           runtimes.respondToRequest(worker, answer); return null;
         }
         const allowed = ['prompt', 'abort', 'clear_queue', 'new_session', 'set_model', 'set_thinking_level', 'set_session_name', 'set_permission_preset', 'get_commands', 'get_available_thinking_levels', 'get_session_stats', 'compact'];

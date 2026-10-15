@@ -34,4 +34,12 @@ corepack pnpm stage:runtime 'D:\path\to\prepared-step-code'
 `DESKTOP_STEP_CODE_SOURCE` can supply the same source directory when using `pnpm package`. The explicit argument takes precedence, and the default remains `../Step-Code`. Staging refuses a different upstream commit before modifying the runtime. Updating the pinned baseline requires updating the staging check as well as CI and the integration patch applier.
 
 Management operations use upstream SessionManager, configuration locking, skills discovery, and login/logout helpers in a separate process. Agent execution uses the upstream JSONL RPC entry.
+
+The applier additionally installs `step-code-desktop-clarification.patch`, a
+**Beta** opt-in `--desktop-clarification` bridge for `clarify_user` in main RPC
+workers. It transports the unchanged question group and validated answers over
+the existing cancellable input request. CLI/TUI and child RPC behavior remain
+unchanged. No unattended timeout, automatic answer or durable pending-question
+semantics are introduced. See `docs/UPSTREAM_QUESTIONNAIRE_BETA.md` for boundaries,
+Plan integration and the follow-up upstream proposal.
 Electron encrypts the desktop auth snapshot with Windows `safeStorage` before writing it under userData. The runtime and management children receive the decrypted snapshot at launch and do not write `auth.json`. Any future upstream auth write path must be checked against this boundary before updating the pinned patch.

@@ -124,6 +124,7 @@ try {
   };
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.evaluate(() => { HTMLMediaElement.prototype.play = () => Promise.resolve(); });
+  await page.getByRole('region', { name: repo, exact: true }).locator('.workspace-heading').hover();
   await page.getByRole('region', { name: repo, exact: true }).getByRole('button', { name: '在 stream-client 新建会话', exact: true }).click();
   await page.waitForFunction(async repo => {
     const snapshot = await window.desktop.snapshot();

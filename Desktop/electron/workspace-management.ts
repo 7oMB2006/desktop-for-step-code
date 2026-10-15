@@ -1,9 +1,9 @@
-import type { Preferences } from '../src/contracts';
+import type { Preferences, Session } from '../src/contracts';
 
 export const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 
-export function relocatedWorkspace(path: string, preferences: Preferences): string {
-  return preferences.workspaceRedirects?.[workspaceKey(path)] ?? path;
+export function relocatedWorkspace(path: string, preferences: Preferences, sessionId: string): string {
+  return preferences.workspaceSessionRedirects?.[sessionId] ?? path;
 }
 
 export function removeWorkspace(preferences: Preferences, path: string): Preferences {
@@ -16,7 +16,8 @@ export function removeWorkspace(preferences: Preferences, path: string): Prefere
     workspaceNames: names, pinnedWorkspaces: preferences.pinnedWorkspaces?.filter(value => workspaceKey(value) !== key) };
 }
 
-export function relocateWorkspace(preferences: Preferences, path: string, destination: string): Preferences {
+export function relocateWorkspace(preferences: Preferences, path: string, destination: string,
+  sessions: readonly Pick<Session, 'id' | 'cwd'>[]): Preferences {
   const key = workspaceKey(path);
   const nextKey = workspaceKey(destination);
   if (!preferences.workspaces.some(value => workspaceKey(value) === key)) throw new Error('Unknown workspace');
@@ -26,13 +27,14 @@ export function relocateWorkspace(preferences: Preferences, path: string, destin
   const name = names[key];
   delete names[key];
   if (name) names[nextKey] = name;
-  // Flatten prior moves so an old session never depends on a redirect chain.
-  const redirects = Object.fromEntries(Object.entries(preferences.workspaceRedirects ?? {})
+  // Bind existing histories, never future sessions created at a reused path.
+  const redirects = Object.fromEntries(Object.entries(preferences.workspaceSessionRedirects ?? {})
     .map(([source, target]) => [source, workspaceKey(target) === key ? destination : target]));
-  if (key !== nextKey) redirects[key] = destination;
-  delete redirects[nextKey];
+  for (const session of sessions) {
+    if (workspaceKey(session.cwd) === key) redirects[session.id] = destination;
+  }
   return { ...preferences, workspaces: preferences.workspaces.map(value => workspaceKey(value) === key ? destination : value),
     workspace: preferences.workspace && workspaceKey(preferences.workspace) === key ? destination : preferences.workspace,
-    workspaceNames: names, workspaceRedirects: redirects,
+    workspaceNames: names, workspaceSessionRedirects: redirects,
     pinnedWorkspaces: preferences.pinnedWorkspaces?.map(value => workspaceKey(value) === key ? nextKey : value) };
 }

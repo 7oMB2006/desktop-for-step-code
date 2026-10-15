@@ -151,6 +151,7 @@ async function workspaceDirectory(path: string) {
   try {
     const canonical = await realpath(path);
     if (!(await stat(canonical)).isDirectory()) throw new Error('Not a directory');
+    if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
     return canonical;
   } catch {
     unavailableWorkspace = path;
@@ -304,7 +305,7 @@ async function listSessions(): Promise<Session[]> {
     });
   }
   sessionCatalog = await Promise.all(sessions.map(async s => {
-    const cwd = relocatedWorkspace(s.cwd, preferences);
+    const cwd = relocatedWorkspace(s.cwd, preferences, s.id);
     const workspacePath = await sessionWorkspacePath(cwd);
     return { ...s, cwd, workspacePath, independent: !workspacePath };
   }));
@@ -858,7 +859,7 @@ async function handle(method: string, args: any[]) {
         const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
         if (result.canceled) return null;
         const destination = await workspaceDirectory(result.filePaths[0]);
-        const next = relocateWorkspace(preferences, path, destination);
+        const next = relocateWorkspace(preferences, path, destination, await listSessions());
         const active = peers().find(worker => worker.id === runtimes.activeId);
         const activeFile = active?.state?.sessionFile;
         const draftSelected = sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path);

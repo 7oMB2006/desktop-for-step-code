@@ -242,6 +242,34 @@ try {
   await page.reload();
   await page.waitForFunction(path => !!document.querySelector(`[data-reorder-id="${path}"]`), key(relocated));
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).sessions.find(session => session.id === 'sidebar-4').cwd, relocated);
+  mark('recreated old directory keeps new sessions separate');
+  await mkdir(projects[2]);
+  await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, projects[2]);
+  const draft = await page.evaluate(() => window.desktop.chooseSessionProject());
+  assert.equal(draft.preferences.workspace, projects[2]);
+  const freshId = 'sidebar-recreated';
+  const timestamp = new Date().toISOString();
+  await writeFile(join(sessionsDir, `${freshId}.jsonl`), [
+    { type: 'session', version: 3, id: freshId, cwd: projects[2], timestamp },
+    { type: 'message', id: 'user-1', parentId: null, timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'New project at the reused path' }], timestamp: Date.parse(timestamp) } },
+  ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+  const fresh = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(fresh.sessions.find(session => session.id === freshId).cwd, projects[2]);
+  assert.equal(fresh.sessions.find(session => session.id === 'sidebar-4').cwd, relocated);
+  await page.reload();
+  const catalog = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(catalog.sessions.find(session => session.id === freshId).cwd, projects[2]);
+  assert.equal(catalog.sessions.find(session => session.id === freshId).workspacePath, projects[2]);
+  const openedFresh = await page.evaluate(id => window.desktop.navigateSession(id), freshId);
+  assert.equal(openedFresh.state.sessionId, freshId);
+  assert.equal(openedFresh.preferences.workspace, projects[2]);
+  const reopened = await page.evaluate(() => window.desktop.navigateSession('sidebar-4'));
+  assert.equal(reopened.state.sessionId, 'sidebar-4');
+  assert.equal(reopened.preferences.workspace, relocated);
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector('.session-row.selected')?.dataset.reorderId === 'sidebar-4' &&
+    !document.querySelector('.new-chat')?.disabled);
   const relocatedGroup = page.locator(`[data-reorder-kind="workspace"][data-reorder-id="${key(relocated)}"]`);
   await relocatedGroup.locator('.workspace-heading').click({ button: 'right' });
   await page.getByRole('menuitem', { name: '移除项目…', exact: true }).click();

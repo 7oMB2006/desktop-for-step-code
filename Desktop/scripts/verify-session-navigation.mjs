@@ -197,11 +197,16 @@ try {
   await rename(failureProject, `${failureProject}-unavailable`);
   try {
     await row(5).click();
-    await page.getByRole('alert').filter({ hasText: /ENOENT|directory|unavailable/i }).waitFor({ timeout: 60000 });
+    await page.getByRole('alert').filter({ hasText: /项目目录不可用|directory|unavailable/i }).waitFor({ timeout: 60000 });
     await opened(0);
   } finally { await rename(`${failureProject}-unavailable`, failureProject); }
   await row(5).click();
   await opened(5);
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).workspaceIssue, undefined,
+    'restoring the original directory clears its stored warning');
+  await page.reload();
+  await opened(5);
+  await page.getByRole('alert').filter({ hasText: /项目目录不可用|directory|unavailable/i }).waitFor({ state: 'hidden' });
   phase = 'disconnected resident history recovery';
   const crashed = await page.evaluate(() => window.desktop.snapshot());
   await page.evaluate(() => {
@@ -244,7 +249,7 @@ try {
     await page.screenshot({ path: 'test-results/session-navigation-failure.png' }).catch(() => {});
     console.error(await page.evaluate(() => ({
       title: document.querySelector('.window-session-title')?.textContent,
-      error: document.querySelector('.error-banner')?.textContent,
+      error: document.querySelector('.app-error-banner')?.textContent,
       selected: document.querySelector('.session-row.selected')?.dataset.reorderId,
     })).catch(() => null));
   }

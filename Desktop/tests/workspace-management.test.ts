@@ -5,6 +5,7 @@ import type { Preferences } from '../src/contracts';
 
 const base = (): Preferences => ({ theme: 'light', language: 'zh', workspaces: ['D:\\Old', 'D:\\Other'],
   workspace: 'D:\\Old', workspaceNames: { 'd:/old': 'My project' }, pinnedWorkspaces: ['d:/old'] });
+const sessions = [{ id: 'old-session', cwd: 'D:\\Old' }, { id: 'unrelated-session', cwd: 'D:\\Old\\unrelated' }];
 
 test('removal only removes the registered grouping and metadata', () => {
   const source = base();
@@ -17,28 +18,38 @@ test('removal only removes the registered grouping and metadata', () => {
 });
 
 test('relocation preserves position, name, pin and remembered selection', () => {
-  const result = relocateWorkspace(base(), 'd:/old', 'D:\\New');
+  const result = relocateWorkspace(base(), 'd:/old', 'D:\\New', sessions);
   assert.deepEqual(result.workspaces, ['D:\\New', 'D:\\Other']);
   assert.equal(result.workspace, 'D:\\New');
   assert.deepEqual(result.workspaceNames, { 'd:/new': 'My project' });
   assert.deepEqual(result.pinnedWorkspaces, ['d:/new']);
-  assert.equal(relocatedWorkspace('D:\\Old', result), 'D:\\New');
-  assert.equal(relocatedWorkspace('D:\\Old\\unrelated', result), 'D:\\Old\\unrelated');
+  assert.equal(relocatedWorkspace('D:\\Old', result, 'old-session'), 'D:\\New');
+  assert.equal(relocatedWorkspace('D:\\Old\\unrelated', result, 'unrelated-session'), 'D:\\Old\\unrelated');
 });
 
 test('repeated relocation flattens redirects and survives project removal', () => {
-  const first = relocateWorkspace(base(), 'D:\\Old', 'D:\\New');
-  const second = relocateWorkspace(first, 'D:\\New', 'D:\\Final');
-  assert.equal(relocatedWorkspace('D:\\Old', second), 'D:\\Final');
-  assert.equal(relocatedWorkspace('D:\\New', second), 'D:\\Final');
-  assert.equal(relocatedWorkspace('D:\\Old', removeWorkspace(second, 'D:\\Final')), 'D:\\Final');
-  const restored = relocateWorkspace(second, 'D:\\Final', 'D:\\Old');
-  assert.equal(relocatedWorkspace('D:\\Old', restored), 'D:\\Old');
-  assert.equal(relocatedWorkspace('D:\\New', restored), 'D:\\Old');
+  const first = relocateWorkspace(base(), 'D:\\Old', 'D:\\New', sessions);
+  const second = relocateWorkspace(first, 'D:\\New', 'D:\\Final', [{ id: 'new-session', cwd: 'D:\\New' }]);
+  assert.equal(relocatedWorkspace('D:\\Old', second, 'old-session'), 'D:\\Final');
+  assert.equal(relocatedWorkspace('D:\\New', second, 'new-session'), 'D:\\Final');
+  assert.equal(relocatedWorkspace('D:\\Old', removeWorkspace(second, 'D:\\Final'), 'old-session'), 'D:\\Final');
+  const restored = relocateWorkspace(second, 'D:\\Final', 'D:\\Old', []);
+  assert.equal(relocatedWorkspace('D:\\Old', restored, 'old-session'), 'D:\\Old');
+  assert.equal(relocatedWorkspace('D:\\New', restored, 'new-session'), 'D:\\Old');
+});
+
+test('reused source paths never redirect newly created histories', () => {
+  const moved = relocateWorkspace(base(), 'D:\\Old', 'D:\\New', sessions);
+  const reopened = { ...moved, workspaces: [...moved.workspaces, 'D:\\Old'] };
+  assert.equal(relocatedWorkspace('D:\\Old', reopened, 'fresh-session'), 'D:\\Old');
+  assert.equal(relocatedWorkspace('D:\\Old', reopened, 'old-session'), 'D:\\New');
+  const movedAgain = relocateWorkspace(reopened, 'D:\\Old', 'D:\\Third', [{ id: 'fresh-session', cwd: 'D:\\Old' }]);
+  assert.equal(relocatedWorkspace('D:\\Old', movedAgain, 'fresh-session'), 'D:\\Third');
+  assert.equal(relocatedWorkspace('D:\\Old', movedAgain, 'old-session'), 'D:\\New');
 });
 
 test('unknown projects and already registered destinations are rejected', () => {
   assert.throws(() => removeWorkspace(base(), 'D:\\Missing'), /Unknown workspace/);
-  assert.throws(() => relocateWorkspace(base(), 'D:\\Missing', 'D:\\New'), /Unknown workspace/);
-  assert.throws(() => relocateWorkspace(base(), 'D:\\Old', 'D:\\Other'), /already a project/);
+  assert.throws(() => relocateWorkspace(base(), 'D:\\Missing', 'D:\\New', []), /Unknown workspace/);
+  assert.throws(() => relocateWorkspace(base(), 'D:\\Old', 'D:\\Other', []), /already a project/);
 });

@@ -1,5 +1,32 @@
 # Verification
 
+## Sidebar review and CI follow-up (2026-10-15)
+
+PR #122 review identified an unsafe path-wide relocation rule: recreating
+the old directory could redirect new histories into the moved project.
+Relocation now binds the existing session IDs to their destination. Reusing
+the source path does not inherit another session's binding, repeated moves
+update only affected bindings, and removal retains historical bindings.
+Successful validation of the originally missing path clears its stored issue.
+
+The initial cloud run `38662461552` failed on stale warning selectors in
+the main Electron and navigation scripts. These now assert the application
+banner and localized missing-directory message. Scripts using project add
+buttons first hover their heading, matching the intentional disclosure.
+The interface group also had an early native exit in the tray test without
+a JavaScript failure; local tray acceptance passed three consecutive runs.
+Tray readiness now requires an actual enabled composer element, and stage
+diagnostics were added. No retry, timeout increase or skipped assertion was
+introduced. Replacement cloud CI must independently validate these changes.
+
+Typecheck, build, 56 workspace/runtime tests and 12 CI policy/runner tests
+passed. Main Electron, navigation, review-panel and tray acceptance passed
+locally. The new recreated-directory regression checks catalog grouping and
+the actual runtime directory for both new and relocated histories.
+The earlier local installer and desktop shortcut remain on `3d4369c`; this
+follow-up has not been repackaged, and the earlier full-suite terminal cleanup
+failure was not retroactively marked passed.
+
 ## Sidebar project recovery preview (2026-10-15)
 
 This unsigned local 0.4.0 preview is based on fetched main `f4c3d35` plus

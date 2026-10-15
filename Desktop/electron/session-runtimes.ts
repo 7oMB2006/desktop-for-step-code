@@ -72,6 +72,9 @@ export class SessionRuntimes {
   private openingEmpty = new Map<string, Promise<SessionRuntime>>();
   private reads = new Map<SessionRuntime, Set<Promise<void>>>();
   private statsVersions = new WeakMap<SessionRuntime, number>();
+  private statsReads = new WeakMap<SessionRuntime, {
+    rpc: WorkerTransport; sessionId: string; dirty: boolean; reading?: Promise<void>;
+  }>();
   private launchReads = new Map<SessionRuntime, Promise<void>>();
   private launchDirty = new Set<SessionRuntime>();
   private confirmations = new Map<string, { worker: SessionRuntime; resolve: (approved: boolean) => void }>();
@@ -233,7 +236,8 @@ export class SessionRuntimes {
         }
       }
       this.emit({ ...event, runtimeId: worker.id, runtimeRevision: worker.revision, sessionId: worker.state?.sessionId });
-      if (['compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
+      // Long-running turns may contain many model/tool messages before agent_end.
+      if (['message_end', 'agent_end', 'compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         void this.refreshStats(worker).catch(() => {});
       if (worker.state?.sessionId && (event.type === 'agent_end'
         || event.type === 'tool_execution_end' && ['create_goal', 'get_goal', 'update_goal', 'enter_plan_mode', 'exit_plan_mode'].includes(event.toolName)
@@ -338,16 +342,42 @@ export class SessionRuntimes {
     if (worker.status !== 'connected' || !worker.state?.sessionId) return;
     const rpc = worker.rpc;
     const sessionId = worker.state.sessionId;
-    const version = this.nextStatsVersion(worker);
-    worker.operations++;
-    try {
-      // Upstream includes maintenance usage in these totals; never add it again locally.
-      const stats = await rpc.request('get_session_stats');
-      if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.status !== 'connected'
-        || worker.state?.sessionId !== sessionId || this.statsVersions.get(worker) !== version) return;
-      worker.stats = stats;
-      this.emit({ type: 'desktop_stats', runtimeId: worker.id, sessionId, stats });
-    } finally { worker.operations--; }
+    this.nextStatsVersion(worker);
+    const existing = this.statsReads.get(worker);
+    if (existing?.rpc === rpc && existing.sessionId === sessionId) {
+      existing.dirty = true;
+      return existing.reading;
+    }
+    const pending = { rpc, sessionId, dirty: true, reading: undefined as Promise<void> | undefined };
+    this.statsReads.set(worker, pending);
+    pending.reading = (async () => {
+      worker.operations++;
+      try {
+        while (pending.dirty) {
+          if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.status !== 'connected'
+            || worker.state?.sessionId !== sessionId) return;
+          pending.dirty = false;
+          const version = this.nextStatsVersion(worker);
+          let stats: SessionStats;
+          try {
+            // Upstream owns both its working-context estimate and cumulative usage.
+            stats = await rpc.request('get_session_stats');
+          } catch (error) {
+            if (pending.dirty) continue;
+            throw error;
+          }
+          if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.status !== 'connected'
+            || worker.state?.sessionId !== sessionId) return;
+          if (this.statsVersions.get(worker) !== version) continue;
+          worker.stats = stats;
+          this.emit({ type: 'desktop_stats', runtimeId: worker.id, sessionId, stats });
+        }
+      } finally {
+        worker.operations--;
+        if (this.statsReads.get(worker) === pending) this.statsReads.delete(worker);
+      }
+    })();
+    return pending.reading;
   }
   publishLaunch(worker: SessionRuntime) {
     this.emit({ type: 'desktop_launch', runtimeId: worker.id, sessionId: worker.state?.sessionId, launch: worker.launch });

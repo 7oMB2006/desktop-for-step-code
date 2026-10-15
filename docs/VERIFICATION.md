@@ -1,5 +1,32 @@
 # Verification
 
+## Live context statistics refresh (2026-10-15)
+
+The v0.4.0 runtime bridge refreshed statistics after maintenance or a full
+snapshot, but not ordinary message completion. Long-running turns could keep
+showing their initial context occupancy and session totals while per-run
+metrics continued growing. Completed messages now request authoritative
+runtime statistics without ending the turn or refreshing the whole history.
+Turn completion also refreshes partial or final usage. Streaming deltas do not
+request statistics. Automatic refresh requests are serialized per worker and
+coalesce changes received during a pending read into a follow-up read. Each
+actual request gets a new version so a slow full snapshot cannot overwrite a
+newer follow-up. Existing identity guards discard retired-session responses.
+Unknown occupancy remains unknown, and cumulative tokens never supply the
+occupancy numerator.
+
+The initial three message-refresh regressions and the slow-snapshot race
+regression failed before their corresponding fixes and passed afterward.
+Typecheck, production build and 79 focused tests passed. A real pinned-runtime
+test uses an isolated localhost SSE model: a real read_file result reaches the
+next model request while its response is held open, and Desktop publishes
+increased occupancy equal to the runtime's working-context estimate before
+agent_end. Existing CLM Plan/Goal, fallback and cancellation tests also passed.
+Context-panel and context-maintenance Electron acceptance passed, including
+live 2-to-18-percent updates in both surfaces and background-worker isolation.
+These are deterministic local checks, not reproduction of the reporter's
+original session or real-provider acceptance.
+
 ## Supplemental recovery review (2026-10-15)
 
 Relocating a project from its selected draft now refreshes the session catalog

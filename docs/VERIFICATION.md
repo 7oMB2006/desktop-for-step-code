@@ -1,5 +1,38 @@
 # Verification
 
+## Reapplication Preview Package (2026-10-15)
+
+The unsigned local 0.4.0 preview at
+`Desktop/release/interface-presets-reapply-20261015/` contains application
+source `809f116`, including existing-history preset reapplication and main
+`7b46a10` (PR #123 live context statistics). This supersedes the source-only
+and older-package boundaries recorded below. Main integration conflicts were
+resolved without changing the upstream runtime pin or user workspace.
+
+After merging main, typecheck, production build and all 432 serial tests
+passed, as did all 12 CI-policy/runner tests. The final unpacked executable
+passed ten acceptance scripts: interface preferences, general Electron,
+stream motion, permission approval, Subagent, Workflow, structured question
+review, sidebar recovery, context panel and Windows commands. All 97 Desktop
+build files and 1157 runtime files match staged resources; helpers, terminal
+host, keyless adapter and Node hashes also match. Runtime retains pin
+`3ba89e0c` and Node v24.15.0.
+
+Installer `Desktop.for.Step.Code.Setup.0.4.0.exe` is 153376435 bytes, SHA-256
+`c36528e581b8677ebb4f85e42d3ac6f6c300db5786ba691f9fbcf4b495b7f49b`.
+Update metadata matches its size and SHA-512. Installer and unpacked app are
+NotSigned. The normal desktop shortcut targets this package without arguments;
+the prior shortcut is backed up as
+`Desktop/test-results/interface-shortcut-before-reapply-20261015.lnk`.
+The live older application was preserved. Both preview directories total
+about 1386 MiB and were inventoried without deletion.
+
+Package evidence is `Desktop/test-results/interface-package-resources.json`,
+the packaged acceptance logs and installer-adjacent `update-package-check.json`.
+These are local deterministic-fixture results, not paid-model or installer
+lifecycle acceptance. No public version or Release asset was changed; cloud
+CI is tracked independently on PR #124.
+
 ## PR #124 CI Follow-Up (2026-10-15)
 
 The failing interface job used Playwright `check()` on a controlled switch

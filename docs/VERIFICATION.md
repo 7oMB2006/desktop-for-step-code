@@ -1,5 +1,22 @@
 # Verification
 
+## PR #124 CI Follow-Up (2026-10-15)
+
+The failing interface job used Playwright `check()` on a controlled switch
+whose value changes only after asynchronous preference persistence. Acceptance
+now clicks once and waits for both the checked and enabled states, then
+asserts the persisted IPC value. A deterministic 150ms persistence delay
+exercises this path locally; the complete interface regression passed twice.
+No production preference behavior or assertion was disabled.
+
+The runtime job assumed Git's internal `mingw64/bin/git.exe` layout.
+Git for Windows 2.56 moved x64 binaries to `ucrt64`; the portable Bash fixture
+now copies the installation marker from the actual supported prefix and fails
+if none exists. All five native command scenarios passed locally on the
+existing mingw64 installation, retaining real foreground/background execution,
+exit-code, log-ownership and no-fallback assertions. Typecheck and production
+build passed. These local results do not establish the rerun cloud result.
+
 ## Existing-History Preset Reapplication (2026-10-15)
 
 Explicitly applying interface settings now resets existing thinking, ordinary

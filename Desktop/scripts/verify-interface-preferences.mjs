@@ -37,6 +37,16 @@ async function preset(page, name) {
   await button.click();
   await page.waitForFunction(name => document.querySelector('.interface-presets button[aria-pressed="true"]')?.textContent === name && !document.querySelector('.interface-presets button:disabled'), name);
 }
+async function enableToolDetails(page) {
+  const toggle = settings(page).getByRole('switch', { name: '工具详情默认展开' });
+  assert.equal(await toggle.isChecked(), false);
+  await toggle.click();
+  await page.waitForFunction(() => {
+    const input = document.querySelector('.interface-option input[aria-label="工具详情默认展开"]');
+    return input?.checked && !input.disabled;
+  });
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.interfaceSettings.toolsExpanded, true);
+}
 const history = [
   { role: 'user', content: '检查这个项目。', timestamp: 1000 },
   { role: 'assistant', content: [
@@ -65,6 +75,9 @@ try {
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', async (event, method, ...args) => {
       if (method === 'snapshot') return globalThis.interfaceFixture.snapshot;
+      // Keep controlled inputs asynchronous even on a fast local filesystem.
+      if (method === 'preferences' && args[0]?.interfaceSettings)
+        await new Promise(done => setTimeout(done, 150));
       const result = await handler(event, method, ...args);
       if (method === 'preferences') globalThis.interfaceFixture.snapshot.preferences = result;
       return result;
@@ -149,8 +162,7 @@ try {
   await page.screenshot({ path: 'test-results/interface-mapped-simple-light.png' });
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-mapped-simple-detail.png' });
   await openSettings(page);
-  await settings(page).getByRole('switch', { name: '工具详情默认展开' }).check();
-  await page.waitForFunction(() => !document.querySelector('.interface-option input:disabled'));
+  await enableToolDetails(page);
   await closeSettings(page);
   assert.equal(await group.getAttribute('aria-expanded'), 'true', 'custom expansion applies to the group and its records');
   assert.equal(await messages.locator('.process-tool-group .process-tool[open]').count(), 2);
@@ -172,8 +184,7 @@ try {
   await load([...history, { role: 'assistant', content: [{ type: 'text', text: '后续输出不会覆盖手动折叠。' }] }]);
   assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'false');
   await openSettings(page);
-  await settings(page).getByRole('switch', { name: '工具详情默认展开' }).check();
-  await page.waitForFunction(() => !document.querySelector('.interface-option input:disabled'));
+  await enableToolDetails(page);
   await closeSettings(page);
   assert.equal(await messages.locator('.process-tool[open]').count(), 4);
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.interfaceSettings.preset, 'custom');
@@ -217,8 +228,7 @@ try {
     assert.deepEqual((await page.evaluate(() => window.desktop.snapshot())).messages, olderHistory, 'presentation never rewrites history');
   }
   await openSettings(page);
-  await settings(page).getByRole('switch', { name: '工具详情默认展开' }).check();
-  await page.waitForFunction(() => !document.querySelector('.interface-option input:disabled'));
+  await enableToolDetails(page);
   await closeSettings(page);
   assert.equal(await messages.locator('.process-tool[open]').count(), 12, 'custom expansion also applies to every historical round');
   await app.close(); app = undefined;

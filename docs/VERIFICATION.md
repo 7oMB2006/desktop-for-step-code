@@ -1,5 +1,56 @@
 # Verification
 
+## Compact Process and Unified Thinking Preview (2026-10-15)
+
+The local unsigned 0.4.0 preview in
+`Desktop/release/interface-process-20261015/` supersedes the older interface
+packages below. It contains base `b5e98e3`, including current main `7b46a10`,
+plus the working-tree process-group and unified-thinking changes. Exact source
+hashes are recorded in the installer-adjacent `package-resource-check.json`.
+No public Release, upstream pin, permission policy or personal profile changed.
+
+Simple now combines consecutive thinking and ordinary tools into one process
+row between prose segments. It shows current activity while running and actual
+tool counts after completion; expansion retains all original records. Standard
+uses consecutive-tool groups, while Detailed restores individual tools and
+opens thinking only while that thought is active. Tools, prose or turn end
+automatically fold that thought; subsequent manual reopening remains respected.
+Errors, approval waits, missing results and dedicated Plan, question, Subagent,
+Workflow and peer-delivery surfaces remain separate.
+
+All thinking rows now use a Brain icon, the existing designed disclosure SVG,
+elapsed time and the same live/settled label component as tools. Settled children
+do not inherit a live group's shimmer. Previews remain single-line and clipped;
+the underlying Markdown and original history are unchanged.
+
+Final-source typecheck, production build and all 436 serial unit/protocol tests
+passed. Shared settings browser acceptance and general Electron acceptance also
+passed, including Standard's new grouping. General acceptance now explicitly
+opens groups before inspecting tools and waits for thinking's closing animation.
+The final packaged executable passed interface-preference and stream-motion
+acceptance, including active thinking expansion, automatic folding on tool
+arrival, manual reopening, long preview clipping, designed icons, independent
+shimmer, existing-history reapplication, persistence, keyboard and reduced motion.
+Plan review, structured questions and Workflow also passed during this iteration;
+those runs preceded the final shared-label-only polish.
+
+All 97 Desktop build files and 1157 runtime files match packaged resources.
+Runtime pin remains `3ba89e0c`, with Node v24.15.0 and its verified manifest hash.
+Installer size is 153346660 bytes; SHA-256 is
+`fcb15cf1fbd0388a093614be23546c1ff9ffbc9d51378d54100ed4a3bb7d29a0`.
+Update metadata matches installer size and SHA-512. Installer and application
+remain NotSigned. These deterministic local results do not establish paid-model
+acceptance, clean-machine installation or cloud CI for the unpushed changes.
+
+The normal Desktop shortcut now targets this preview with no arguments;
+its predecessor is backed up as
+`Desktop/test-results/interface-shortcut-before-process-20261015.lnk`.
+The running older app was preserved. Three local preview directories total
+approximately 2079 MiB, including two earlier packages of about 693 MiB each.
+No historical package was deleted without authorization. Screenshots include
+`interface-thinking-unified.png`, `interface-compact-process-live.png` and
+`interface-compact-process-dark.png` under `Desktop/test-results/`.
+
 ## Reapplication Preview Package (2026-10-15)
 
 The unsigned local 0.4.0 preview at

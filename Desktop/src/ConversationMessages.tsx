@@ -2,13 +2,14 @@ import { memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, u
 import { CommandCatalog, CommandReference, commandReference } from './CommandReference';
 import type { ComponentProps, Dispatch, ReactNode, SetStateAction } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
-import { ArrowRight, ArrowRightLeft, Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, Bot, Brain, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, ModelChange, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
 import type { BackgroundSubagentStates, ResponseItem, SubagentTask } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
+import { ProcessRowLabel } from './ProcessRowLabel';
 import { DisclosureChevron } from './DisclosureChevron';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import { WorkflowBlock } from './WorkflowView';
@@ -27,6 +28,7 @@ import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
 import { normalizeInterfaceSettings, type InterfacePreferences } from './interface-presets';
 import { groupConsecutiveTools, toolGroupLabel, type ToolItem } from './tool-groups';
+import { groupProcesses, liveThinkingKey, processGroupSummary, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
 import './tool-groups.css';
 import { QuestionTool } from './QuestionTool';
 
@@ -198,7 +200,7 @@ export function Tool({ item, active, ...props }: {
     search: Search, folder: FolderSearch, web: Globe, sessions: MessagesSquare, 'session-read': MessageSquare, 'session-send': Send, other: Wrench }[kind];
   return <details ref={details} className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state} onToggle={props.onLayoutChange}>
     <summary><Icon size={14}/>
-      <span className="process-tool-label">{label}{!waiting && <span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/>}</span>
+      <ProcessRowLabel label={label} running={state === 'running'}/>
       <ChevronRight size={13} className="disclosure-chevron"/>
     </summary>
     <div className="process-tool-content">
@@ -225,12 +227,33 @@ function ToolGroup({ items, active, ...props }: { items: ToolItem[]; active: boo
   return <section className={`process-tool-group${running ? ' running' : ''}`} data-message-index={items[0].index}>
     <button type="button" className="tool-group-trigger" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(value => !value)}>
       {running ? <Wrench size={14}/> : <Check size={14}/>}
-      <span className="process-tool-label">{label}<span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/></span>
+      <ProcessRowLabel label={label} running={running}/>
       <span className="tool-group-chevron"><DisclosureChevron/></span>
     </button>
     <div id={id} className={`tool-group-disclosure${expanded ? ' is-expanded' : ''}`} aria-hidden={!expanded} inert={!expanded}
       onTransitionEnd={event => { if (event.target === event.currentTarget) props.onLayoutChange?.(); }}>
       <div>{items.map(item => <Tool key={item.key} item={item} active={active} {...props}/>)}</div>
+    </div>
+  </section>;
+}
+function ProcessGroup({ group, children, ...props }: { group: ProcessGroupData; children: ReactNode } & BodyProps) {
+  const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const id = useId();
+  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded, props.disclosureReset]);
+  useLayoutEffect(() => { props.onLayoutChange?.(); }, [expanded]);
+  const { label, detail } = processGroupSummary(group, props.language);
+  const runningTool = group.items.some(item => item.type === 'tool' && (!item.result || item.result.desktopToolPending));
+  return <section className={`process-tool-group compact-process${group.running ? ' running' : ''}`} data-message-index={group.index}>
+    <button type="button" className="tool-group-trigger" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(value => !value)}>
+      {group.running ? runningTool ? <Wrench size={14}/> : <Brain size={14}/> : <Check size={14}/>}
+      <ProcessRowLabel label={label} running={group.running}/>
+      {!expanded && detail && <span className="process-group-preview">{detail}</span>}
+      <span className="tool-group-chevron"><DisclosureChevron/></span>
+    </button>
+    <div id={id} className={`tool-group-disclosure${expanded ? ' is-expanded' : ''}`} aria-hidden={!expanded} inert={!expanded}
+      onTransitionEnd={event => { if (event.target === event.currentTarget) props.onLayoutChange?.(); }}>
+      <div>{children}</div>
     </div>
   </section>;
 }
@@ -291,8 +314,10 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     onOpenSubagent: (task: SubagentTask) => void;
     onOpenWorkflow?: (id: string) => void;
   } & BodyProps) {
-    const { content, text, lastTextIndex } = responsePresentation(items);
-    const presentation = props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
+    const { content, text } = responsePresentation(items);
+    const liveThought = liveThinkingKey(content, active);
+    const presentation = props.interfaceSettings?.compactProcess ? groupProcesses(content, active, props.awaitingToolCalls)
+      : props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
     const changes = useMemo(() => turnChanges(active ? [] : items), [items, active]);
     const outputPaths = useMemo(() => active ? [] : turnOutputPaths(items), [items, active]);
     const finalItem = [...content].reverse().find(item => item.type === 'text');
@@ -309,11 +334,7 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
         total language={props.language}/>
       <Timestamp value={stamp} language={props.language}/>
     </footer>;
-    return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
-      {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
-      <div className="response-content message-body">{presentation.map(item =>
-          item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} {...props}/>
-          : item.type === 'tool'
+    const renderItem = (item: ResponseItem): ReactNode => item.type === 'tool'
             ? approvedPlan(item.result)
               ? <PlanExecution key={item.key} plan={approvedPlan(item.result)!} state={execution?.state ?? 'interrupted'} note language={props.language}/>
               : item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
@@ -330,13 +351,20 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
                 : <Tool key={item.key} item={item} active={active} {...props}/>
           : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
             elapsed={<ElapsedLabel timing={items.find(entry => entry.index === item.index)?.message.desktopTiming?.thinking[item.key.split(':')[1]]}
-              active={active} language={props.language}/>}
-            autoOpen={props.interfaceSettings?.thinkingExpanded ?? false} resetKey={props.disclosureReset} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
-            <Text text={item.block.thinking ?? ''} streaming={active && content.indexOf(item) > lastTextIndex} {...props}/>
+              active={item.key === liveThought} language={props.language}/>}
+            autoOpen={Boolean(props.interfaceSettings?.thinkingExpanded && item.key === liveThought)}
+            running={item.key === liveThought} preview={thinkingPreview(item.block.thinking ?? '', item.key === liveThought)}
+            resetKey={props.disclosureReset} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
+            <Text text={item.block.thinking ?? ''} streaming={item.key === liveThought} {...props}/>
           </ThinkingDisclosure>
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
-              : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>
-      )}</div>
+              : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>;
+    return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
+      {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
+      <div className="response-content message-body">{presentation.map(item =>
+        item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} {...props}>{item.items.map(renderItem)}</ProcessGroup>
+          : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} {...props}/>
+            : renderItem(item))}</div>
       {!active && <TurnArtifacts text={finalProse} outputPaths={outputPaths} language={props.language}/>}
       {!active && <TurnChanges changes={changes} runtimeId={runtimeId} language={props.language} onError={props.onError}/>}
     {actions && (settledStatus || execution) ? <div className="assistant-footer-row working working-idle">{actions}

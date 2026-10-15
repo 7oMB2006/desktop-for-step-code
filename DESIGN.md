@@ -135,10 +135,14 @@ Local HTML uses an ephemeral, credential-free browser partition and a loopback s
 
 Interface complexity is a dedicated Settings category, separate from typography.
 Simple, Standard and Detailed are presentation presets, not permission or model
-capability tiers. Simple folds thinking and tool details, combines consecutive
-ordinary tools and hides the performance strip. Standard folds thinking and
-tool details but keeps tools separate and the performance strip visible.
-Detailed expands thinking only; tool details remain folded. Each option is
+capability tiers. Simple folds consecutive thinking and ordinary tools into
+one process row between prose segments and hides the performance strip.
+Its live row shows the current tool or latest thinking preview; its settled
+row summarizes the actual tools, with all original records available inside.
+Standard folds thinking and groups adjacent ordinary tools while keeping
+the performance strip visible. Detailed keeps individual tool rows and opens
+thinking only while that block is receiving output, folding it when a tool,
+prose or turn completion follows. All presets fold tool details. Each option is
 independently customizable, with manual changes retaining the Custom label.
 The default for missing preferences is Standard. Settings are stored in the
 Desktop profile, not browser localStorage or the personal Step Code profile.
@@ -148,13 +152,24 @@ Manual disclosure choices survive subsequent streaming/snapshot updates.
 Choosing any preset (including the active one), resetting or changing a custom
 option reapplies the current defaults to already mounted historical records.
 Only disclosure state is reset; prose and runtime state are not remounted.
-Grouped tools never
-cross prose, thinking, image or turn boundaries. Approval, error, missing-result,
+Ordinary tool groups never cross thinking boundaries; compact process groups
+can contain both thinking and tools. Neither crosses prose, image or turn
+boundaries. Approval, error, missing-result,
 Subagent, Workflow, Plan, structured questions and peer-delivery records remain separate. Group
 summaries count actual operations without model-generated narration or inferred
 validation success. Partial tool output remains pending until the final event.
 Expanding a group retains its trigger and uses cubic motion with a reduced-motion
 fallback. Dedicated right-panel inspectors retain their existing detailed view.
+Single-line thinking previews use the latest nonempty paragraph's first line
+while live and the first paragraph's first line when settled. Markdown emphasis
+markers are omitted only from previews. Automatic completion folding never
+prevents readers from manually reopening a settled thought.
+Thinking and tool rows share the same live/settled label component and shimmer.
+Thinking uses a 14-pixel Brain icon before its label, preserves elapsed time,
+and places the existing designed disclosure SVG after its preview. Running
+labels animate independently, so a live process group never reanimates its
+already-settled children. Reduced motion disables both shimmer and disclosure
+transitions.
 
 # Product Icon
 

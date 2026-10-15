@@ -4,10 +4,20 @@
 .tool-group-trigger:hover:not(:disabled) { background: transparent; color: var(--ink); }
 .tool-group-chevron { display: flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform .24s cubic-bezier(.215,.61,.355,1); }
 .tool-group-trigger[aria-expanded="true"] > .tool-group-chevron { transform: rotate(0); }
-.process-tool-group.running .process-tool-label { transform: skewX(-8deg); }
-.process-tool-group.running .tool-summary-shimmer { opacity: .8; }
-.process-tool-group.running .tool-summary-shimmer::before { animation-play-state: running; }
 .tool-group-disclosure { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows .24s cubic-bezier(.215,.61,.355,1), opacity .2s ease, visibility .24s; }
 .tool-group-disclosure.is-expanded { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
 .tool-group-disclosure > div { min-height: 0; overflow: hidden; padding-left: 18px; }
-@media (prefers-reduced-motion: reduce) { .tool-group-disclosure, .tool-group-chevron { transition: none; } .process-tool-group.running .tool-summary-shimmer { opacity: 0; } }
+.compact-process > .tool-group-trigger { width: 100%; flex-wrap: nowrap; }
+.compact-process > .tool-group-trigger > .process-tool-label { flex-shrink: 0; max-width: calc(100% - 48px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact-process .tool-group-chevron { margin-left: auto; }
+.process-group-preview, .thinking-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; font-weight: 400; }
+.process-group-preview { border-left: 1px solid var(--border); padding-left: 9px; }
+.thinking > summary { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
+.thinking > summary::-webkit-details-marker { display: none; }
+.compact-process .thinking { font-family: var(--ui-font); font-size: calc(13px + var(--ui-delta)); margin: 0 0 12px; }
+.compact-process .thinking > summary { width: 100%; }
+.compact-process .thinking > summary:hover { color: var(--ink); }
+.thinking > summary > .process-tool-label { flex-shrink: 0; }
+.thinking-chevron { display: flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform .24s cubic-bezier(.215,.61,.355,1); }
+.thinking[data-expanded="true"] > summary > .thinking-chevron { transform: rotate(0); }
+@media (prefers-reduced-motion: reduce) { .tool-group-disclosure, .tool-group-chevron, .thinking-chevron { transition: none; } }

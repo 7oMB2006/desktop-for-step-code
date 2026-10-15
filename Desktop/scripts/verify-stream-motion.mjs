@@ -89,7 +89,7 @@ try {
   const fullHeight = await thinking.boundingBox();
   assert.ok(fullHeight.height > 250);
   await delta('正文开始出现，思考区会平滑收起。');
-  await thinking.locator('summary').click();
+  await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.expanded === 'false');
   await thinking.evaluate(element => {
     const tween = element.querySelector('.thinking-body').getAnimations()[0];
     if (!tween) throw new Error('Missing thinking collapse animation');

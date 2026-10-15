@@ -93,11 +93,12 @@ try {
   await load(history);
   const messages = page.locator('.messages');
   await messages.getByText('正文一：先确认项目结构。', { exact: true }).waitFor();
-  assert.equal(await messages.locator('.process-tool-group').count(), 0);
+  assert.equal(await messages.locator('.process-tool-group').count(), 1, 'Standard groups consecutive tools');
   assert.equal(await messages.locator('.process-tool[open]').count(), 0);
   assert.equal(await messages.locator('.thinking[open]').count(), 0);
   await page.screenshot({ path: 'test-results/interface-mapped-standard-light.png' });
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-mapped-standard-detail.png' });
+  await messages.locator('.tool-group-trigger').click();
   await messages.locator('.process-tool > summary').first().click();
   await messages.locator('.thinking > summary').click();
   await page.evaluate(() => {
@@ -111,24 +112,23 @@ try {
   await preset(page, '详细');
   await closeSettings(page);
   assert.equal(await messages.locator('.process-tool[open]').count(), 0, 'switching presets reapplies unchanged folded-tool defaults to old records');
-  assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'true');
+  assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'false');
   assert.equal(await page.evaluate(() =>
     globalThis.interfaceNodes.prose === document.querySelector('.messages .response-text')
-    && globalThis.interfaceNodes.thinking === document.querySelector('.messages .thinking')
-    && globalThis.interfaceNodes.tool === document.querySelector('.messages .process-tool')), true, 'preset changes do not remount prose or ordinary disclosures');
+    && globalThis.interfaceNodes.thinking === document.querySelector('.messages .thinking')), true, 'preset changes do not remount prose or independent thinking');
   await messages.locator('.thinking > summary').click();
   await messages.locator('.process-tool > summary').first().click();
   await openSettings(page);
   await preset(page, '详细');
   await closeSettings(page);
-  assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'true', 'reselecting the active preset reapplies thinking defaults');
+  assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'false', 'reselecting Detailed folds completed thinking');
   assert.equal(await messages.locator('.process-tool[open]').count(), 0, 'reselecting the active preset also resets tool overrides');
   await openSettings(page);
   await preset(page, '简洁');
   await closeSettings(page);
   assert.equal(await page.locator('.composer-wrap .performance-bar').count(), 0);
   assert.equal(await messages.locator('.tool-group-trigger').count(), 1);
-  const group = messages.locator('.tool-group-trigger');
+  const group = messages.locator('.tool-group-trigger').first();
   assert.match(await group.innerText(), /读取文件 2 项/);
   assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), true);
   assert.equal(await messages.locator('.process-tool.missing > summary').isVisible(), true);
@@ -145,7 +145,8 @@ try {
   await closeSettings(page);
   assert.equal(await group.getAttribute('aria-expanded'), 'false', 'reselecting Simple folds the existing group');
   await load(history.map((message, index) => index === 3 ? { ...message, desktopToolPending: true } : message), true);
-  await group.getByText('正在处理工具 · 1 / 2 项已返回', { exact: true }).waitFor();
+  await group.getByText('正在读取文件', { exact: true }).waitFor();
+  assert.equal(await group.locator('.process-group-preview').innerText(), 'package.json');
   assert.equal(await group.getAttribute('aria-expanded'), 'false', 'progress updates retain the same disclosure anchor');
   await load(history, true);
   await group.getByText('已完成：读取文件 2 项', { exact: true }).waitFor();
@@ -169,7 +170,7 @@ try {
   await openSettings(page);
   await preset(page, '详细');
   await closeSettings(page);
-  await messages.locator('.thinking[open]').waitFor();
+  await page.waitForFunction(() => document.querySelector('.messages .thinking')?.dataset.expanded === 'false');
   assert.equal(await page.locator('.composer-wrap .performance-metric').count(), 4);
   assert.equal(await messages.locator('.process-tool-group').count(), 0);
   assert.equal(await messages.locator('.process-tool[open]').count(), 0);
@@ -180,6 +181,7 @@ try {
   assert.equal(await messages.locator('.process-tool[open]').count(), 1);
   await load([...history, { role: 'assistant', content: [{ type: 'text', text: '后续输出不会覆盖手动展开。' }] }]);
   assert.equal(await messages.locator('.process-tool[open]').count(), 1);
+  await messages.locator('.thinking > summary').click();
   await messages.locator('.thinking > summary').click();
   await load([...history, { role: 'assistant', content: [{ type: 'text', text: '后续输出不会覆盖手动折叠。' }] }]);
   assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'false');
@@ -201,6 +203,83 @@ try {
   });
   assert.match(error, /Invalid interface option/);
   assert.deepEqual((await page.evaluate(() => window.desktop.snapshot())).preferences, before);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 900));
+  const longPreview = '最新思考预览，用来检查单行省略与更新。'.repeat(12);
+  const thinkingHistory = [
+    { role: 'user', content: '测试思考到工具到正文的转换。' },
+    { role: 'assistant', content: [
+      { type: 'text', text: '先检查项目。' },
+      { type: 'thinking', thinking: `第一段思考。\n\n${longPreview}` },
+    ] },
+  ];
+  await openSettings(page);
+  await preset(page, '详细');
+  await closeSettings(page);
+  await load(thinkingHistory, true);
+  await page.waitForFunction(() => document.querySelector('.messages .thinking')?.dataset.expanded === 'true');
+  const liveThinking = messages.locator('.thinking');
+  assert.equal(await liveThinking.locator('summary > .lucide-brain').count(), 1, 'thinking uses the same icon-first process-row language');
+  assert.equal(await liveThinking.locator('summary > .thinking-chevron svg').count(), 1, 'thinking uses the existing designed disclosure SVG');
+  assert.equal(await liveThinking.locator('.tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'running');
+  await liveThinking.locator('summary').click();
+  await load(thinkingHistory.map((message, index) => index === 1 ? {
+    ...message, content: [...message.content.slice(0, 1), { type: 'thinking', thinking: '第一段思考。\n\n继续思考，手动折叠保持。' }],
+  } : message), true);
+  assert.equal(await liveThinking.getAttribute('data-expanded'), 'false', 'thinking deltas preserve manual folding');
+  await openSettings(page);
+  await preset(page, '详细');
+  await closeSettings(page);
+  assert.equal(await liveThinking.getAttribute('data-expanded'), 'true', 'explicitly reapplying Detailed opens the current thought');
+  const withTool = [...thinkingHistory, { role: 'assistant', content: [
+    { type: 'toolCall', id: 'live-tool', name: 'read_file', arguments: { path: 'live.ts' } },
+  ] }];
+  await load(withTool, true);
+  await page.waitForFunction(() => document.querySelector('.messages .thinking')?.dataset.expanded === 'false');
+  assert.equal(await liveThinking.locator('.tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused', 'completed thinking stops its label animation when tools start');
+  await messages.locator('.response-content').screenshot({ path: 'test-results/interface-thinking-unified.png' });
+  await liveThinking.locator('summary').click();
+  await load([...withTool, { role: 'toolResult', toolCallId: 'live-tool', toolName: 'read_file', content: 'ok' }], true);
+  assert.equal(await liveThinking.getAttribute('data-expanded'), 'true', 'manual reopening after completion survives subsequent activity');
+  await openSettings(page);
+  await preset(page, '简洁');
+  await closeSettings(page);
+  await load(thinkingHistory, true);
+  const compact = messages.locator('.compact-process');
+  await compact.locator('.process-group-preview').getByText(longPreview, { exact: true }).waitFor();
+  assert.equal(await compact.locator('.process-group-preview').evaluate(element =>
+    getComputedStyle(element).whiteSpace === 'nowrap' && element.scrollWidth > element.clientWidth
+    && element.getBoundingClientRect().right <= element.parentElement.getBoundingClientRect().right), true, 'long live detail stays inside a single clipped row');
+  await messages.locator('.response-content').screenshot({ path: 'test-results/interface-compact-process-live.png' });
+  assert.equal(await compact.locator('.thinking').getAttribute('data-expanded'), 'false');
+  assert.equal(await compact.locator('.tool-group-trigger > .lucide-brain').count(), 1);
+  await compact.locator('.tool-group-trigger').click();
+  await page.evaluate(() => { globalThis.compactTrigger = document.querySelector('.messages .compact-process > button'); });
+  await load(withTool, true);
+  await compact.getByRole('button', { name: /读取文件/ }).waitFor();
+  assert.equal(await compact.locator('.tool-group-trigger').getAttribute('aria-expanded'), 'true');
+  assert.equal(await compact.locator('.tool-group-trigger > .lucide-wrench').count(), 1, 'tool activity does not keep a misleading thinking icon');
+  assert.equal(await compact.locator('.thinking .tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused', 'the running group never reanimates settled children');
+  assert.equal(await page.evaluate(() => globalThis.compactTrigger === document.querySelector('.messages .compact-process > button')), true, 'tool arrival retains the same process trigger');
+  const completedProcess = [...withTool,
+    { role: 'toolResult', toolCallId: 'live-tool', toolName: 'read_file', content: 'ok' },
+    { role: 'assistant', content: [{ type: 'text', text: '检查完成。' }] },
+  ];
+  await load(completedProcess, false);
+  await compact.getByRole('button', { name: /已完成：读取文件 1 项/ }).waitFor();
+  await compact.locator('.tool-group-trigger').click();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/interface-compact-process-light.png' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await compact.locator('.tool-group-disclosure').evaluate(element => getComputedStyle(element).transitionDuration), '0s');
+  await compact.locator('.tool-group-trigger').click();
+  await compact.locator('.thinking > summary').click();
+  assert.equal(await compact.locator('.thinking').getAttribute('data-expanded'), 'true', 'full original thought remains accessible inside the group');
+  assert.equal(await compact.locator('.thinking > summary').evaluate(element => getComputedStyle(element).display), 'flex');
+  assert.equal(await compact.locator('.thinking > summary').evaluate(element => getComputedStyle(element).listStyleType), 'none', 'nested thought uses the designed chevron, not the native marker');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+  await messages.locator('.response-content').screenshot({ path: 'test-results/interface-compact-process-dark.png' });
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
   const olderHistory = Array.from({ length: 8 }, (_, index) => [
     { role: 'user', content: `历史问题 ${index}`, timestamp: index + 1 },
     { role: 'assistant', content: [
@@ -222,7 +301,7 @@ try {
     await preset(page, mode);
     await closeSettings(page);
     assert.equal(await messages.locator('.thinking').count(), 9);
-    assert.equal(await messages.locator('.thinking[data-expanded="true"]').count(), mode === '详细' ? 9 : 0, 'all existing historical rounds adapt immediately');
+    assert.equal(await messages.locator('.thinking[data-expanded="true"]').count(), 0, 'completed historical thinking remains folded in every preset');
     assert.equal(await messages.locator('.process-tool[open]').count(), 0);
     assert.equal(await page.locator('.jump-to-bottom').isVisible(), true, 'changing presentation must not force an old-history reader to the bottom');
     assert.deepEqual((await page.evaluate(() => window.desktop.snapshot())).messages, olderHistory, 'presentation never rewrites history');

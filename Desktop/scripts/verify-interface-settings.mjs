@@ -39,14 +39,14 @@ try {
   await group.press('Enter');
   await page.screenshot({ path: 'test-results/interface-simple-light.png' });
   await modes.getByRole('button', { name: '详细', exact: true }).click();
-  assert.equal(await modes.getByRole('switch', { name: '思考过程默认展开' }).isChecked(), true);
+  assert.equal(await modes.getByRole('switch', { name: '思考时展开，结束后收起' }).isChecked(), true);
   assert.equal(await modes.getByRole('switch', { name: '工具详情默认展开' }).isChecked(), false);
   assert.equal(await modes.getByRole('switch', { name: '显示性能与用量统计' }).isChecked(), true);
   assert.equal(await modes.locator('.process-tool[open]').count(), 0);
   assert.equal(await modes.locator('.tool-group-trigger').count(), 0);
   assert.equal(await modes.locator('.interface-preview-statistics').getAttribute('aria-hidden'), 'false');
   assert.ok(await modes.locator('.interface-preview-statistics').evaluate(el => el.getBoundingClientRect().top >= el.closest('.interface-preview').querySelector('.interface-preview-composer').getBoundingClientRect().bottom), 'statistics belong below the composer');
-  assert.equal(await modes.locator('.thinking').getAttribute('data-expanded'), 'true');
+  assert.equal(await modes.locator('.thinking').getAttribute('data-expanded'), 'false', 'completed thinking stays folded even in Detailed');
   await page.waitForTimeout(300);
   assert.equal(await page.locator('.settings-content').evaluate(el => el.scrollTop), 0, 'preset changes must not shift the settings scroll position');
   await page.screenshot({ path: 'test-results/interface-detailed-light.png' });
@@ -63,7 +63,7 @@ try {
   await tokenMetric.blur();
   await page.mouse.move(0, 0);
   await modes.locator('.interface-preview').screenshot({ path: 'test-results/performance-four-metrics-light.png' });
-  const thinking = modes.getByRole('switch', { name: '思考过程默认展开' });
+  const thinking = modes.getByRole('switch', { name: '思考时展开，结束后收起' });
   await thinking.focus();
   await thinking.press('Space');
   assert.equal(await thinking.isChecked(), false);

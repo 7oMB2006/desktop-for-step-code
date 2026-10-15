@@ -27,9 +27,10 @@ export function InterfaceSettings({ language, value, onChange }: {
   const toggle = (key: keyof InterfaceOptions) => void update({ ...draft, preset: 'custom', [key]: !draft[key] });
   const presets: [InterfacePreset, string][] = [['simple', t('简洁', 'Simple')], ['standard', t('标准', 'Standard')], ['detailed', t('详细', 'Detailed')]];
   const options: [keyof InterfaceOptions, string][] = [
-    ['thinkingExpanded', t('思考过程默认展开', 'Expand thinking by default')],
+    ['thinkingExpanded', t('思考时展开，结束后收起', 'Expand while thinking, fold when finished')],
     ['toolsExpanded', t('工具详情默认展开', 'Expand tool details by default')],
     ['groupTools', t('合并连续工具记录', 'Group consecutive tool records')],
+    ['compactProcess', t('单行汇总思考与工具', 'Summarize thinking and tools in one row')],
     ['performanceVisible', t('显示性能与用量统计', 'Show performance and usage')],
   ];
   const messages: Message[] = [

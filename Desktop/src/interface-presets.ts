@@ -4,14 +4,15 @@ export interface InterfaceOptions {
   toolsExpanded: boolean;
   performanceVisible: boolean;
   groupTools: boolean;
+  compactProcess: boolean;
 }
 export interface InterfacePreferences extends InterfaceOptions {
   preset: InterfacePreset | 'custom';
 }
 export const interfacePresets: Record<InterfacePreset, InterfaceOptions> = {
-  simple: { thinkingExpanded: false, toolsExpanded: false, performanceVisible: false, groupTools: true },
-  standard: { thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: false },
-  detailed: { thinkingExpanded: true, toolsExpanded: false, performanceVisible: true, groupTools: false },
+  simple: { thinkingExpanded: false, toolsExpanded: false, performanceVisible: false, groupTools: true, compactProcess: true },
+  standard: { thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: false },
+  detailed: { thinkingExpanded: true, toolsExpanded: false, performanceVisible: true, groupTools: false, compactProcess: false },
 };
 export function selectInterfacePreset(preset: InterfacePreset): InterfacePreferences {
   return { preset, ...interfacePresets[preset] };
@@ -28,6 +29,7 @@ export function normalizeInterfaceSettings(value: unknown): InterfacePreferences
     toolsExpanded: typeof input.toolsExpanded === 'boolean' ? input.toolsExpanded : fallback.toolsExpanded,
     performanceVisible: typeof input.performanceVisible === 'boolean' ? input.performanceVisible : fallback.performanceVisible,
     groupTools: typeof input.groupTools === 'boolean' ? input.groupTools : fallback.groupTools,
+    compactProcess: typeof input.compactProcess === 'boolean' ? input.compactProcess : fallback.compactProcess,
   };
 }
 

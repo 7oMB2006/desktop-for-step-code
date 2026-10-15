@@ -146,7 +146,8 @@ function App() {
   const previewPosition = useRef<ReadingPosition | undefined>(undefined);
   const readingRestore = useRef<{ runtimeId?: string; position: ReadingPosition; expectedTop?: number } | undefined>(undefined);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
-  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(new Set());
+  const collapsedWorkspaces = new Set(data.preferences.collapsedWorkspaces ?? []);
+  const workspaceDisclosureSave = useRef<Promise<void>>(Promise.resolve());
   const [sidebar, setSidebar] = useState(true);
   const [compactSidebar, setCompactSidebar] = useState(() => window.innerWidth <= 760);
   const [compactSidebarOpen, setCompactSidebarOpen] = useState(false);
@@ -1028,10 +1029,23 @@ function App() {
       <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" disabled={loading} onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'session', id: s.id, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
     </div>;
   };
-  const toggleWorkspace = (key: string) => setCollapsedWorkspaces(previous => { const next = new Set(previous); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  const setWorkspaceExpanded = (key: string, expanded?: boolean) => {
+    // Serialize clicks so rapid toggles cannot overwrite another group's saved state.
+    const pending = workspaceDisclosureSave.current.then(async () => {
+      const next = new Set(latestData.current.preferences.collapsedWorkspaces ?? []);
+      const open = expanded ?? next.has(key);
+      if (open) next.delete(key); else next.add(key);
+      const saved = await bridge!.preferences({ collapsedWorkspaces: [...next] });
+      latestData.current = { ...latestData.current, preferences: { ...latestData.current.preferences, collapsedWorkspaces: saved.collapsedWorkspaces } };
+      setData(previous => ({ ...previous, preferences: { ...previous.preferences, collapsedWorkspaces: saved.collapsedWorkspaces } }));
+    });
+    workspaceDisclosureSave.current = pending.catch(() => {});
+    return pending;
+  };
+  const toggleWorkspace = (key: string) => { void run(() => setWorkspaceExpanded(key)); };
   const independentExpanded = !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, _sessions: typeof data.sessions) => {
-    setCollapsedWorkspaces(previous => { const next = new Set(previous); next.delete(workspaceKey(path)); return next; });
+    await run(() => setWorkspaceExpanded(workspaceKey(path), true));
     await applySnapshot(() => bridge!.beginSession(path));
   };
   const newSession = () => applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace));

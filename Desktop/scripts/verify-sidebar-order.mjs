@@ -170,7 +170,23 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.pinned-projects > .workspace-group').length === 1);
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[2]), key(projects[0])]);
   await assert.rejects(page.evaluate(() => window.desktop.preferences({ workspaces: ['C:/not-remembered'] })), /Invalid workspace order/);
+  mark('persisted project disclosure');
+  await project(page, 1).locator('.workspace-toggle').click();
+  await project(page, 2).locator('.workspace-toggle').click();
+  const independentToggle = page.locator('.independent-group .workspace-toggle');
+  await independentToggle.click();
+  const collapsed = [key(projects[1]), key(projects[2]), '__independent__'];
+  await page.waitForFunction(expected => expected.every(key =>
+    key === '__independent__'
+      ? document.querySelector('.independent-group .workspace-toggle')?.getAttribute('aria-expanded') === 'false'
+      : document.querySelector(`[data-reorder-id="${key}"] .workspace-toggle`)?.getAttribute('aria-expanded') === 'false'), collapsed);
+  await page.reload();
+  await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  for (const index of [1, 2]) assert.equal(await project(page, index).locator('.workspace-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(await independentToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await project(page, 0).locator('.workspace-toggle').getAttribute('aria-expanded'), 'true');
   const beforeRestart = await readFile(join(profile, 'preferences.json'), 'utf8');
+  assert.deepEqual(JSON.parse(beforeRestart).collapsedWorkspaces.sort(), collapsed.sort());
   mark('app restart');
   closing = true;
   await app.close(); app = null;
@@ -180,6 +196,22 @@ try {
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[2]), key(projects[0])]);
   const restoredFixtureOrder = (await rows(project(page, 0))).filter(id => id.startsWith('sidebar-'));
   assert.deepEqual(restoredFixtureOrder, JSON.parse(beforeRestart).sessionOrder.filter(id => ['sidebar-0', 'sidebar-1', 'sidebar-2'].includes(id)));
+  for (const index of [1, 2]) assert.equal(await project(page, index).locator('.workspace-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.locator('.independent-group .workspace-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(await project(page, 0).locator('.workspace-toggle').getAttribute('aria-expanded'), 'true');
+  // Multiple clicks in one frame must compose rather than lose another group's state.
+  await page.evaluate(keys => {
+    for (const key of keys) document.querySelector(`[data-reorder-id="${key}"] .workspace-toggle`).click();
+  }, [key(projects[0]), key(projects[1]), key(projects[0])]);
+  await page.waitForFunction(async expected => {
+    const snapshot = await window.desktop.snapshot();
+    return JSON.stringify([...(snapshot.preferences.collapsedWorkspaces ?? [])].sort()) === JSON.stringify(expected);
+  }, [key(projects[2]), '__independent__'].sort());
+  assert.equal(await project(page, 0).locator('.workspace-toggle').getAttribute('aria-expanded'), 'true');
+  assert.equal(await project(page, 1).locator('.workspace-toggle').getAttribute('aria-expanded'), 'true');
+  await project(page, 2).locator('.workspace-toggle').click();
+  await page.locator('.independent-group .workspace-toggle').click();
+  await page.waitForFunction(async () => (await window.desktop.snapshot()).preferences.collapsedWorkspaces?.length === 0);
   mark('narrow layout and keyboard reorder');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(680, 780));
   await page.waitForFunction(() => document.querySelector('.app').classList.contains('sidebar-compact'));
@@ -200,10 +232,14 @@ try {
   const relocated = join(profile, 'Research renamed');
   const railTop = await page.locator('.right-tool-rail').evaluate(element => element.getBoundingClientRect().top);
   await rename(projects[2], relocated);
+  await project(page, 2).locator('.workspace-toggle').click();
+  await page.waitForFunction(key => document.querySelector(`[data-reorder-id="${key}"] .workspace-toggle`)?.getAttribute('aria-expanded') === 'false', key(projects[2]));
   await project(page, 2).locator('.workspace-heading').hover();
   await project(page, 2).getByRole('button', { name: '在 Research 新建会话', exact: true }).click();
   const banner = page.locator('.app-error-banner');
   await banner.waitFor();
+  assert.equal(await project(page, 2).locator('.workspace-toggle').getAttribute('aria-expanded'), 'true', 'new-session action expands its project');
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.collapsedWorkspaces.includes(key(projects[2])), false);
   assert.equal(await page.locator('.right-tool-rail').evaluate(element => element.getBoundingClientRect().top), railTop,
     'a main-view warning never displaces the fixed right rail');
   assert.equal(await banner.evaluate(element => element.parentElement.tagName), 'MAIN');

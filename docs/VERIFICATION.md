@@ -1,5 +1,20 @@
 # Verification
 
+## Sidebar disclosure persistence (2026-10-15)
+
+Project and independent-group disclosure now lives in Desktop preferences
+instead of renderer-only state. Startup and reload restore the saved groups;
+older profiles without a saved value retain the previous expanded default.
+Disclosure writes are serialized so rapid clicks compose. Creating a session
+explicitly expands its project, relocation carries its collapsed key, and
+project removal clears only that project's key.
+
+Typecheck, production build, 13 sidebar/workspace unit tests and the full
+sidebar Electron acceptance passed locally. Acceptance covers mixed disclosure
+states across renderer reload and a full app restart, independent-group state,
+and rapid multi-group toggles. This follow-up is not repackaged; cloud CI must
+validate its new head independently of the earlier green run.
+
 ## Sidebar review and CI follow-up (2026-10-15)
 
 PR #122 review identified an unsafe path-wide relocation rule: recreating

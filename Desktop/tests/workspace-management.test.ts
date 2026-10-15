@@ -53,3 +53,11 @@ test('unknown projects and already registered destinations are rejected', () => 
   assert.throws(() => relocateWorkspace(base(), 'D:\\Missing', 'D:\\New', []), /Unknown workspace/);
   assert.throws(() => relocateWorkspace(base(), 'D:\\Old', 'D:\\Other', []), /already a project/);
 });
+
+test('relocation carries collapsed state and removal clears only that project', () => {
+  const source = { ...base(), collapsedWorkspaces: ['d:/old', 'd:/other', '__independent__'] };
+  const moved = relocateWorkspace(source, 'D:\\Old', 'D:\\New', sessions);
+  assert.deepEqual(moved.collapsedWorkspaces, ['d:/new', 'd:/other', '__independent__']);
+  assert.deepEqual(removeWorkspace(moved, 'D:\\New').collapsedWorkspaces, ['d:/other', '__independent__']);
+  assert.deepEqual(source.collapsedWorkspaces, ['d:/old', 'd:/other', '__independent__']);
+});

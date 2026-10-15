@@ -45,3 +45,13 @@ test('workspace reorder only accepts permutations of remembered projects', () =>
     assert.throws(() => validateSidebarPreferences({ workspaces: order } as never, sessions, workspaces, key));
   }
 });
+
+test('collapsed groups accept normalized project keys and the independent group only', () => {
+  assert.deepEqual(validateSidebarPreferences({ collapsedWorkspaces: ['C:\\Project', '__independent__'] }, sessions, ['C:/project'], key),
+    { collapsedWorkspaces: ['c:/project', '__independent__'] });
+  assert.deepEqual(validateSidebarPreferences({ collapsedWorkspaces: [] }, sessions, ['C:/project'], key), { collapsedWorkspaces: [] });
+  assert.deepEqual(validateSidebarPreferences({}, sessions, ['C:/project'], key), {});
+  for (const collapsedWorkspaces of ['bad', [null], ['C:/unknown'], ['__archived__'], ['C:/project', '__independent__', 'C:/project']]) {
+    assert.throws(() => validateSidebarPreferences({ collapsedWorkspaces } as never, sessions, ['C:/project'], key));
+  }
+});

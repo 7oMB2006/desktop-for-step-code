@@ -37,6 +37,13 @@ export function validateSidebarPreferences(patch: Partial<Preferences>, sessions
     if (!Array.isArray(patch.pinnedWorkspaces) || patch.pinnedWorkspaces.length > workspaces.length || patch.pinnedWorkspaces.some(path => typeof path !== 'string' || !workspaces.some(workspace => pathKey(workspace) === pathKey(path)))) throw new Error('Invalid pinned workspaces');
     result.pinnedWorkspaces = [...new Set(patch.pinnedWorkspaces.map(pathKey))];
   }
+  if (patch.collapsedWorkspaces !== undefined) {
+    if (!Array.isArray(patch.collapsedWorkspaces) || patch.collapsedWorkspaces.length > workspaces.length + 1 ||
+      patch.collapsedWorkspaces.some(path => typeof path !== 'string' ||
+        (path !== '__independent__' && !workspaces.some(workspace => pathKey(workspace) === pathKey(path)))))
+      throw new Error('Invalid collapsed workspaces');
+    result.collapsedWorkspaces = [...new Set(patch.collapsedWorkspaces.map(path => path === '__independent__' ? path : pathKey(path)))];
+  }
   if (patch.workspaces !== undefined) {
     if (!Array.isArray(patch.workspaces) || patch.workspaces.length !== workspaces.length ||
       patch.workspaces.some(path => typeof path !== 'string') ||

@@ -13,7 +13,8 @@ export function removeWorkspace(preferences: Preferences, path: string): Prefere
   delete names[key];
   return { ...preferences, workspaces: preferences.workspaces.filter(value => workspaceKey(value) !== key),
     workspace: preferences.workspace && workspaceKey(preferences.workspace) === key ? undefined : preferences.workspace,
-    workspaceNames: names, pinnedWorkspaces: preferences.pinnedWorkspaces?.filter(value => workspaceKey(value) !== key) };
+    workspaceNames: names, pinnedWorkspaces: preferences.pinnedWorkspaces?.filter(value => workspaceKey(value) !== key),
+    collapsedWorkspaces: preferences.collapsedWorkspaces?.filter(value => workspaceKey(value) !== key) };
 }
 
 export function relocateWorkspace(preferences: Preferences, path: string, destination: string,
@@ -36,5 +37,6 @@ export function relocateWorkspace(preferences: Preferences, path: string, destin
   return { ...preferences, workspaces: preferences.workspaces.map(value => workspaceKey(value) === key ? destination : value),
     workspace: preferences.workspace && workspaceKey(preferences.workspace) === key ? destination : preferences.workspace,
     workspaceNames: names, workspaceSessionRedirects: redirects,
-    pinnedWorkspaces: preferences.pinnedWorkspaces?.map(value => workspaceKey(value) === key ? nextKey : value) };
+    pinnedWorkspaces: preferences.pinnedWorkspaces?.map(value => workspaceKey(value) === key ? nextKey : value),
+    collapsedWorkspaces: preferences.collapsedWorkspaces?.map(value => workspaceKey(value) === key ? nextKey : value) };
 }

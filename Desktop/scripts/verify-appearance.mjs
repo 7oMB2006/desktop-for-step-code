@@ -15,6 +15,10 @@ async function launch() {
   const executablePath = process.env.DESKTOP_VERIFY_EXE;
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
+  if (process.env.DESKTOP_VERIFY_CPU_RATE) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.DESKTOP_VERIFY_CPU_RATE) });
+  }
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow, dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); const win = BrowserWindow.getAllWindows()[0]; win.setOpacity(0); win.setIgnoreMouseEvents(true); win.showInactive(); win.setSize(1280, 960); });
   await page.waitForFunction(() => {
@@ -44,17 +48,17 @@ try {
   await page.waitForFunction(() => document.documentElement.dataset.themeMotion === 'ready');
   const beforeMotion = (await colors())['--bg'];
   await selectTheme('暗', 'dark');
-  await page.waitForFunction(() => document.documentElement.getAnimations().some(animation => animation.transitionProperty === '--bg'));
-  const motion = await page.evaluate(() => {
+  const motion = await (await page.waitForFunction(() => {
     const root = document.documentElement;
     const animations = root.getAnimations();
     const background = animations.find(animation => animation.transitionProperty === '--bg');
+    if (!background) return false;
     for (const animation of animations) { animation.pause(); animation.currentTime = 120; }
     const intermediate = getComputedStyle(root).getPropertyValue('--bg');
     const easing = background.effect.getTiming().easing;
     for (const animation of animations) animation.finish();
     return { intermediate, easing };
-  });
+  })).jsonValue();
   assert.notEqual(motion.intermediate, beforeMotion);
   assert.notEqual(motion.intermediate, cssColor('#1f222a'));
   assert.match(motion.easing, /cubic-bezier/);
@@ -100,16 +104,62 @@ try {
   const preset = await colors();
   assert.equal(preset['--danger'], semantic['--danger']);
   assert.equal(preset['--green'], semantic['--green']);
-  await page.getByRole('button', { name: '自定义强调色', exact: true }).click();
+  const openEditor = async () => {
+    await page.getByRole('button', { name: '自定义强调色', exact: true }).click();
+    await page.waitForFunction(() => {
+      const disclosure = document.querySelector('.accent-disclosure');
+      const input = document.querySelector('#accent-hex');
+      return disclosure?.classList.contains('is-open') && input &&
+        !disclosure.getAnimations().some(animation => animation.playState === 'running');
+    });
+  };
+  await openEditor();
   const hex = page.getByRole('textbox', { name: 'HEX', exact: true });
   await hex.fill('#ffffff');
-  await page.waitForFunction(() => [...document.querySelectorAll('.accent-editor button')].some(button => button.textContent.includes('应用') && !button.disabled));
+  try {
+    await page.waitForFunction(() => [...document.querySelectorAll('.accent-editor button')].some(button => button.textContent.includes('应用') && !button.disabled));
+  } catch (error) {
+    console.error('HEX editor state', await page.evaluate(() => ({
+      value: document.querySelector('#accent-hex')?.value,
+      invalid: document.querySelector('#accent-hex')?.getAttribute('aria-invalid'),
+      buttons: [...document.querySelectorAll('.accent-editor button')].map(button => ({ text: button.textContent, disabled: button.disabled })),
+      alerts: [...document.querySelectorAll('[role=alert]')].map(element => element.textContent),
+    })));
+    await page.screenshot({ path: 'test-results/theme-hex-failure.png' });
+    throw error;
+  }
   assert.equal(await page.getByRole('button', { name: '应用', exact: true }).isEnabled(), true);
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.accentColor, '#487bd1', 'preview does not write preferences');
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await page.waitForFunction(expected => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() === expected, preset['--primary']);
   await page.locator('.accent-editor').waitFor({ state: 'detached' });
-  await page.getByRole('button', { name: '自定义强调色', exact: true }).click();
+  for (const close of ['cancel', 'toggle']) {
+    await openEditor();
+    await hex.fill('#fefefe');
+    await page.waitForFunction(() => document.querySelector('#accent-hex')?.value === '#fefefe' &&
+      document.querySelector('#accent-hex')?.getAttribute('aria-invalid') === 'false');
+    const reopened = await page.evaluate(async close => {
+      const previous = document.querySelector('#accent-hex');
+      const trigger = document.querySelector('.accent-custom');
+      const disclosure = document.querySelector('.accent-disclosure');
+      for (const animation of disclosure.getAnimations()) animation.finish();
+      if (close === 'cancel') document.querySelector('.accent-editor-actions button').click();
+      else trigger.click();
+      await new Promise(requestAnimationFrame);
+      const retained = document.querySelector('#accent-hex') === previous;
+      const closing = !disclosure.classList.contains('is-open');
+      trigger.click();
+      await new Promise(requestAnimationFrame);
+      return { retained, closing, fresh: document.querySelector('#accent-hex') !== previous, value: document.querySelector('#accent-hex')?.value };
+    }, close);
+    assert.equal(reopened.retained && reopened.closing, true, 'reopen occurs while the exit animation still retains the editor');
+    assert.equal(reopened.fresh, true, `${close} then rapid reopen discards the old editor instance`);
+    assert.equal(reopened.value, '#487bd1', `${close} then rapid reopen restores the saved HEX`);
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    await page.locator('.accent-editor').waitFor({ state: 'detached' });
+    assert.equal((await colors())['--primary'], preset['--primary']);
+  }
+  await openEditor();
   await hex.fill('invalid');
   await page.waitForFunction(() => document.querySelector('#accent-hex')?.getAttribute('aria-invalid') === 'true');
   assert.equal(await page.getByRole('button', { name: '应用', exact: true }).isDisabled(), true);

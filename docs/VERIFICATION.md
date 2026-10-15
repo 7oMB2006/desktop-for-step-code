@@ -1,5 +1,24 @@
 # Verification
 
+## Accent Editor Rapid-Reopen Regression (2026-10-15)
+
+Each explicit custom-color opening now mounts a fresh editor while preserving
+the 220 ms exit animation. Canceling or toggling closed and reopening during
+that exit restores the saved HEX and does not revive the discarded preview.
+Both paths were reproduced against the earlier source before the fix.
+
+Typecheck, production build, three theme tests and Appearance acceptance at
+four-times CPU throttling passed. The acceptance proves the old editor is
+still present during exit, then checks that reopening replaces it and restores
+the saved value. The source change is not in the existing local preview package.
+
+Cloud run 38692811276 failed while waiting for the Apply button after HEX
+input. Normal input checks now wait for the editor's actual opening transition
+to finish; a failure records the input value, validation and button states plus
+a screenshot. Animation capture and pause use one page call to avoid losing
+the transition between separate automation calls. Cloud success must still be
+confirmed on the new commit, not inferred from local acceptance.
+
 ## Original Palettes and Link Accent Follow-Up (2026-10-15)
 
 Source-only follow-up restores the original neutral light/dark palettes as

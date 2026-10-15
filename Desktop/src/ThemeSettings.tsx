@@ -61,6 +61,7 @@ export function ThemeSettings({ preferences, systemDark, onChange, language }: {
   onChange: (patch: Partial<ColorPreferences>) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [editorRevision, setEditorRevision] = useState(0);
   const [editorPresent, setEditorPresent] = useState(false);
   useEffect(() => {
     if (editing) { setEditorPresent(true); return; }
@@ -116,11 +117,14 @@ export function ThemeSettings({ preferences, systemDark, onChange, language }: {
         onClick={() => { setEditing(false); onChange({ accentColor: color }); }}><Check size={14}/></button>)}
       <button ref={customTrigger} type="button" className="accent-custom" aria-expanded={editing} aria-controls="accent-editor-region"
         aria-label={t('自定义强调色', 'Custom accent color')} data-tooltip={t('自定义强调色', 'Custom accent color')}
-        onClick={() => setEditing(value => !value)}><Palette size={17}/></button>
+        onClick={() => {
+          if (!editing) setEditorRevision(value => value + 1);
+          setEditing(value => !value);
+        }}><Palette size={17}/></button>
       <span className="accent-value">{chosen?.toUpperCase() ?? t('主题默认', 'Theme default')}</span>
     </div>
     <div id="accent-editor-region" className={`accent-disclosure${editing ? ' is-open' : ''}`}>
-      <div inert={!editing} aria-hidden={!editing}>{editorPresent && <AccentEditor key={preferences.theme} preferences={preferences} systemDark={systemDark}
+      <div inert={!editing} aria-hidden={!editing}>{editorPresent && <AccentEditor key={`${preferences.theme}:${editorRevision}`} preferences={preferences} systemDark={systemDark}
         active={editing} zh={zh} onChange={onChange} onClose={closeEditor}/>}</div>
     </div>
   </section>;

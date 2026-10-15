@@ -1,5 +1,42 @@
 # Verification
 
+## Six Themes Local Preview Package (2026-10-15)
+
+The local unsigned 0.4.0 preview at
+`Desktop/release/themes-accent-20261015/` contains theme source `0ee67fa`
+rebased onto main `63fb179` (PR #124). Interface complexity settings, compact
+process presentation and unified thinking remain present alongside the new
+Appearance palette controls. The final theme circles are smaller, shifted
+down/right and blended at 48 percent opacity; their centers remain inside
+the tile while both outer edges clip.
+
+Typecheck, production build, 37 focused tests and twelve CI policy/runner
+tests passed. Source Electron checks passed for Appearance, interface
+preferences, general Electron and theme bootstrap. The unpacked package
+passed Appearance, interface preferences, desktop tray, real PowerShell
+terminal and general Electron acceptance using isolated profiles. Appearance
+acceptance covers all palettes, accents, restart and first-frame persistence,
+intermediate cubic color frames, reduced motion, input focus containment and
+the final circle geometry. These checks do not establish full-suite,
+paid-model, installer-lifecycle or cloud CI success.
+
+All 98 built Desktop files and 1159 staged runtime files matched the package.
+Node hash, both Desktop helpers, terminal host, icon and keyless adapter were
+verified. Runtime remains pinned to
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`; it was reused, not restaged.
+Installer metadata size and SHA-512 matched. Installer SHA-256:
+`8e899abd08537f18e3c3c52e5d4a4ccc6168c743a082f36076e74dc7f0a7eb8f`.
+The package is `NotSigned`, and no public release was made.
+
+The ordinary desktop shortcut was backed up and updated to the verified
+unpacked executable, with empty arguments and matching working directory/icon.
+The user's running previous preview was preserved. Package evidence is in
+`Desktop/test-results/themes-package-resources.json`,
+`Desktop/test-results/themes-shortcut.json` and the package's
+`update-package-check.json` / `SHA256SUMS.txt`.
+The new package totals about 703.47 MiB; all local release directories total
+about 9.07 GiB. No existing packages were deleted.
+
 ## Compact Process and Unified Thinking Preview (2026-10-15)
 
 The local unsigned 0.4.0 preview in

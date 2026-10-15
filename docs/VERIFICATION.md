@@ -1,5 +1,45 @@
 # Verification
 
+## Sidebar project recovery preview (2026-10-15)
+
+This unsigned local 0.4.0 preview is based on fetched main `f4c3d35` plus
+the uncommitted sidebar/project recovery changes. It includes the merged
+clarification Beta, performance matrix and composer select-all deletion fixes.
+Project removal only unregisters the grouping; files, histories and running
+workers remain. Relocation preserves project metadata and reopens original
+history with the upstream session host's cwd override. A failed initial
+directory validation clears only the bootstrap draft. The warning belongs
+to the main viewport, sits above the summary overlay and does not displace
+the right tool rail. Sidebar add controls reveal on hover/focus, and reorder
+motion uses cubic easing with reduced-motion support.
+
+Typecheck, production build and 67 focused tests passed. Source and packaged
+sidebar acceptance passed for ordering, pins, missing-directory recovery,
+original session identity/history, startup recovery, removal/cancel, modal
+animation, warning layering/rail geometry, reload and reduced motion.
+Packaged clarification, composer editing and real-RPC performance acceptance
+also passed with isolated profiles and deterministic services. The Beta
+questionnaire bridge validation passed against the patched build source.
+This does not establish paid-model, cloud CI or installer-lifecycle readiness.
+The earlier full-suite terminal process-tree cleanup failure remains unresolved;
+the full suite was not rerun for this package.
+
+The installer is under `Desktop/release/sidebar-project-recovery-20261015/`.
+All 97 Desktop output and 1159 runtime files matched the package; helpers,
+icon, pinned commit `3ba89e0c` and clarification patch metadata were verified.
+Update metadata byte count and SHA-512 matched the 155073386-byte installer.
+Installer SHA-256:
+`ff01d816cacae9dfd71b647275dfdea97b828dc7a79a824629b4a55011722952`.
+Both installer and application are `NotSigned`; this is not a replacement
+for the public v0.4.0 release asset.
+
+The ordinary desktop shortcut was backed up and verified to target the new
+unpacked executable. No live user client was stopped; exit/relaunch is required
+to use it. Package evidence is in `test-results/sidebar-project-package-resources.json`,
+`test-results/sidebar-project-shortcut.json` and the release directory's
+`update-package-check.json`. Rebuildable outputs were inventoried; older packages
+were not deleted without separate approval.
+
 ## PR CI inventory integration (2026-10-15)
 
 The latest PR CI failed in classification before Windows acceptance ran:

@@ -55,6 +55,8 @@ import { playCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
 import { useSidebarReorder } from './use-sidebar-reorder';
+import { useSidebarMotion } from './use-sidebar-motion';
+import { ProjectRemoval } from './ProjectRemoval';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
 import { QueuePreview } from './QueuePreview';
@@ -244,6 +246,11 @@ function App() {
   const [renaming, setRenaming] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ type: 'session' | 'workspace'; id: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'workspace'; id: string; x: number; y: number } | null>(null);
+  const [removeProject, setRemoveProject] = useState<string | null>(null);
+  const [unavailableWorkspace, setUnavailableWorkspace] = useState<string | null>(null);
+  const sidebarTree = useSidebarMotion(JSON.stringify([data.preferences.workspaces, data.preferences.pinnedWorkspaces,
+    data.preferences.sessionOrder, data.preferences.sessionSort, data.preferences.archivedSessionIds,
+    data.sessions.map(session => [session.id, session.cwd, session.modified])]));
   const manualOrder = data.preferences.sessionSort !== 'updated';
   const reorderSession = (id: string, target: string, after: boolean) => {
     const order = reconcileSessionOrder(data.preferences.sessionOrder ?? [], data.sessions);
@@ -414,6 +421,7 @@ function App() {
       readingRestore.current = saved && !saved.follow ? { runtimeId: value.runtimeId, position: saved } : undefined;
     }
     viewId.current = value.runtimeId;
+    setUnavailableWorkspace(value.workspaceIssue ?? null);
     readingCache.current.retain(value.sessions);
     setData(value); setBusy(Boolean(value.state?.isStreaming));
     setRequests(value.requests ?? []);
@@ -496,6 +504,7 @@ function App() {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
     const unsubscribe = bridge.onEvent(event => {
+      if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') { playCompletionSound(); return; }
       if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
       if (event.sessionId && ['desktop_model_selection', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)) {
@@ -1027,6 +1036,18 @@ function App() {
   };
   const newSession = () => applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace));
   const openProject = () => applySnapshot(() => bridge!.chooseSessionProject());
+  const repairProject = async (path: string) => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      await run(async () => {
+        const value = await bridge!.relocateWorkspace(path);
+        if (!value) return;
+        installSnapshot(value); setUnavailableWorkspace(null); setError('');
+      });
+    } finally { setLoading(false); }
+  };
+  const confirmRemoveProject = (path: string) => { setError(''); setRemoveProject(path); };
   const toggleSidebar = () => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open);
   const renderWorkspace = ([key, group]: [string, { path: string; sessions: Session[] }]) => {
     const expanded = !collapsedWorkspaces.has(key);
@@ -1143,7 +1164,13 @@ function App() {
       x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
   }}>
     <AppTooltip/>
-    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen}/>
+    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}/>
+    {removeProject && <ProjectRemoval title={workspaceTitle(removeProject)} path={removeProject} language={data.preferences.language}
+      onCancel={() => setRemoveProject(null)} onConfirm={async () => {
+        const result = await run(() => bridge!.removeWorkspace(removeProject));
+        if (!result) return false;
+        installSnapshot(result); setUnavailableWorkspace(null); setError(''); return true;
+      }}/>}
     {imageMenu && <ImageContextMenu target={imageMenu} language={data.preferences.language}
       canAdd={Boolean(bridge) && attachments.length < 10 && attachments.filter(item => item.kind === 'image').length < 5}
       onAction={imageAction} onClose={() => setImageMenu(null)}/>}
@@ -1157,6 +1184,9 @@ function App() {
         }}>{pinnedWorkspaces.has(workspaceKey(contextMenu.id)) ? <PinOff size={15}/> : <Pin size={15}/>}
           {pinnedWorkspaces.has(workspaceKey(contextMenu.id)) ? t('取消置顶', 'Unpin project') : t('置顶项目', 'Pin project')}</button>
         <button role="menuitem" onClick={() => { const path = contextMenu.id; setContextMenu(null); void run(() => bridge!.openWorkspaceFolder(path)); }}><FolderOpen size={15}/>{t('在资源管理器中打开', 'Open in Explorer')}</button>
+        <button role="menuitem" disabled={!bridge || loading} onClick={() => { const path = contextMenu.id; setContextMenu(null); void repairProject(path); }}><FolderOpen size={15}/>{t('重新定位目录…', 'Locate folder...')}</button>
+        <div className="context-separator"/>
+        <button role="menuitem" className="project-remove-menu" disabled={!bridge || loading} onClick={() => { confirmRemoveProject(contextMenu.id); setContextMenu(null); }}><Trash2 size={15}/>{t('移除项目…', 'Remove project...')}</button>
       </> : <>
         <button role="menuitem" onClick={() => void updateArchive(contextMenu.id, archived.has(contextMenu.id))}><Archive size={15}/>{archived.has(contextMenu.id) ? t('恢复会话', 'Restore session') : t('归档会话', 'Archive session')}</button>
         <div className="context-separator"/>
@@ -1175,12 +1205,12 @@ function App() {
         </button>
       </>}
     </div>}
-    {error && (settingsOpen || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
+    {error && (settingsOpen || removeProject || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
     {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
-    <aside className="sidebar" inert={settingsOpen || !sidebarVisible}>
+    <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
       <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
       <button className="new-chat" disabled={!bridge || loading} onClick={() => void newSession()}><Plus size={17}/>{t('新建会话', 'New session')}</button>
-      <nav className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
+      <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
           <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
           <div className="workspace-disclosure" aria-hidden={!independentExpanded} inert={!independentExpanded}>
@@ -1198,14 +1228,22 @@ function App() {
       <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
-    <main inert={settingsOpen || inspectorExpanded}
+    <main inert={settingsOpen || Boolean(removeProject) || inspectorExpanded}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
+      {(error || unavailableWorkspace) && !settingsOpen && !removeProject && !mcpEdit && !requests.length && <div className="app-error-banner" role="alert">
+        <AlertCircle size={16}/><span>{unavailableWorkspace
+          ? t(`项目目录不可用，可能已改名或移动：${unavailableWorkspace}`, `Project directory unavailable; it may have been renamed or moved: ${unavailableWorkspace}`) : error}</span>
+        {unavailableWorkspace && data.preferences.workspaces.some(path => workspaceKey(path) === workspaceKey(unavailableWorkspace)) && <>
+          <button disabled={loading} onClick={() => void repairProject(unavailableWorkspace)}><FolderOpen size={14}/>{t('重新定位', 'Locate folder')}</button>
+          <button disabled={loading} onClick={() => confirmRemoveProject(unavailableWorkspace)}>{t('移除项目', 'Remove project')}</button>
+        </>}
+        <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
+      </div>}
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
       {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && !reviewQuestion && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
-      {error && <div className="error-banner" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title={t('关闭', 'Dismiss')} onClick={() => setError('')}><X size={14}/></IconButton></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll}
@@ -1381,7 +1419,7 @@ function App() {
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}
@@ -1426,7 +1464,7 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
-    <nav ref={rightRail} className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')} inert={Boolean(navigationTarget)}>
+    <nav ref={rightRail} className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')} inert={Boolean(navigationTarget) || Boolean(removeProject)}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><FileDiff size={18} strokeWidth={1.5}/></IconButton>

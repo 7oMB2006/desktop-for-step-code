@@ -251,6 +251,29 @@ select:disabled { cursor: not-allowed; opacity: .45; }
   color: var(--ink); box-shadow: 0 4px 8px oklch(0 0 0 / .16);
 }
 .sidebar-context button { display: flex; width: 100%; min-height: 34px; justify-content: flex-start; padding: 7px 9px; border: 0; background: transparent; font-size: 12px; text-align: left; }
+.workspace-heading > .icon-button, .workspace-tree > .section-label > .icon-button {
+  opacity: 0; pointer-events: none; transition: opacity 160ms ease-out;
+}
+.workspace-heading:hover > .icon-button, .workspace-heading:focus-within > .icon-button,
+.workspace-tree > .section-label:hover > .icon-button, .workspace-tree > .section-label:focus-within > .icon-button {
+  opacity: 1; pointer-events: auto;
+}
+@media (hover: none) {
+  .workspace-heading > .icon-button, .workspace-tree > .section-label > .icon-button { opacity: 1; pointer-events: auto; }
+}
+.app-error-banner {
+  position: relative; z-index: 18; flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+  background: var(--bg); border-bottom: 1px solid var(--border); color: var(--danger);
+  box-shadow: 0 3px 10px oklch(0 0 0 / .08); font-size: 12px;
+}
+.app-error-banner > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.app-error-banner > button { font-size: 12px; flex-shrink: 0; }
+.sidebar-context .project-remove-menu, .project-remove-confirm { color: var(--danger); }
+@media (max-width: 740px) {
+  .app-error-banner { flex-wrap: wrap; }
+  .app-error-banner > span { flex-basis: calc(100% - 28px); }
+}
 .sidebar-context button:hover:not(:disabled), .sidebar-context button:focus-visible { background: var(--surface); }
 .sidebar-context button:disabled { opacity: .45; }
 .image-context { z-index: 95; width: 240px; max-width: calc(100vw - 16px); }

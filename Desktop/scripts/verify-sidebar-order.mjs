@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, mkdtemp, readFile, realpath, writeFile, utimes } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile, utimes, rename, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -32,7 +32,7 @@ const mark = value => { phase = value; console.log(`Sidebar acceptance: ${phase}
 process.on('exit', code => {
   if (code !== 0) console.error(`Sidebar acceptance exited (${code}) during ${phase}`);
 });
-async function launch() {
+async function launch(unavailable = false) {
   mark('Electron launch');
   closing = false;
   const executablePath = process.env.DESKTOP_VERIFY_EXE;
@@ -50,7 +50,8 @@ async function launch() {
   });
   page.on('pageerror', error => errors.push(error.message));
   mark('runtime ready');
-  await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  if (unavailable) await page.locator('.app-error-banner').waitFor({ timeout: 60000 });
+  else await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled &&
     ['sidebar-0', 'sidebar-1', 'sidebar-2', 'sidebar-3', 'sidebar-4'].every(id =>
       document.querySelector(`[data-reorder-kind="session"][data-reorder-id="${id}"]`)));
@@ -62,7 +63,17 @@ const session = (page, index) => page.locator(`[data-reorder-kind="session"][dat
 const rows = group => group.locator('.session-row').evaluateAll(rows => rows.map(row => row.dataset.reorderId));
 const projectOrder = page => page.locator('[data-reorder-kind="workspace"]').evaluateAll(rows => rows.map(row => row.dataset.reorderId));
 const waitOrder = async (page, expected) => page.waitForFunction(expected => JSON.stringify([...document.querySelectorAll('[data-reorder-kind="workspace"]')].map(row => row.dataset.reorderId)) === JSON.stringify(expected), expected);
+const settle = locator => locator.evaluate(async element => {
+  await Promise.all(element.getAnimations({ subtree: true }).filter(animation => animation.effect?.getTiming().iterations !== Infinity)
+    .map(animation => animation.finished.catch(() => {})));
+});
 async function drag(page, from, to, after = false, cancel = false) {
+  await page.evaluate(async () => {
+    await new Promise(requestAnimationFrame);
+    await Promise.all(document.querySelector('.workspace-tree').getAnimations({ subtree: true })
+      .filter(animation => animation.effect?.getTiming().iterations !== Infinity)
+      .map(animation => animation.finished.catch(() => {})));
+  });
   const source = await from.boundingBox();
   const target = await to.boundingBox();
   await page.mouse.move(source.x + 65, source.y + 17);
@@ -150,6 +161,7 @@ try {
 
   // Reopening a remembered project cannot promote it above its saved siblings.
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, projects[0]);
+  await page.locator('.workspace-tree > .section-label').hover();
   await page.getByRole('button', { name: '添加工作区', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
   assert.deepEqual((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaces.map(key), [key(projects[2]), key(projects[0]), key(projects[1])]);
@@ -177,8 +189,111 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await project(page, 0).locator('.workspace-toggle').press('Alt+ArrowUp');
   await waitOrder(page, [key(projects[1]), key(projects[0]), key(projects[2])]);
+  mark('missing project recovery and removal');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1100, 820));
+  await page.waitForFunction(() => !document.querySelector('.app').classList.contains('sidebar-compact'));
+  await page.mouse.move(600, 400);
+  assert.equal(await project(page, 2).locator('.workspace-heading > .icon-button').first().evaluate(button => getComputedStyle(button).opacity), '0');
+  await project(page, 2).locator('.workspace-heading').hover();
+  await page.waitForFunction(path => getComputedStyle(document.querySelector(`[data-reorder-id="${path}"] .workspace-heading > .icon-button`)).opacity === '1', key(projects[2]));
+  const relocated = join(profile, 'Research renamed');
+  const railTop = await page.locator('.right-tool-rail').evaluate(element => element.getBoundingClientRect().top);
+  await rename(projects[2], relocated);
+  await project(page, 2).locator('.workspace-heading').hover();
+  await project(page, 2).getByRole('button', { name: '在 Research 新建会话', exact: true }).click();
+  const banner = page.locator('.app-error-banner');
+  await banner.waitFor();
+  assert.equal(await page.locator('.right-tool-rail').evaluate(element => element.getBoundingClientRect().top), railTop,
+    'a main-view warning never displaces the fixed right rail');
+  assert.equal(await banner.evaluate(element => element.parentElement.tagName), 'MAIN');
+  assert.match(await banner.innerText(), /项目目录不可用/);
+  assert.doesNotMatch(await banner.innerText(), /Error invoking remote method|ENOENT/);
+  await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
+  await page.locator('.summary-board').waitFor({ state: 'visible' });
+  await settle(page.locator('.summary-board'));
+  assert.equal(await banner.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return document.elementFromPoint(rect.right - 20, rect.top + rect.height / 2)?.closest('.app-error-banner') === element;
+  }), true, 'the warning is above the summary');
+  await page.mouse.move(400, 400);
+  await page.locator('[role="tooltip"]').waitFor({ state: 'hidden' });
+  await page.screenshot({ path: 'test-results/sidebar-project-warning-dark.png' });
+  await page.reload();
+  await banner.waitFor();
+  assert.match(await banner.innerText(), /Research/);
+  await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });
+  await banner.getByRole('button', { name: '重新定位', exact: true }).click();
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaces.includes(projects[2]), true);
+  await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, relocated);
+  await banner.getByRole('button', { name: '重新定位', exact: true }).click();
+  await banner.waitFor({ state: 'detached' });
+  await page.waitForFunction(path => !!document.querySelector(`[data-reorder-id="${path}"]`), key(relocated));
+  await session(page, 4).locator('button').first().click();
+  await page.waitForFunction(() => document.querySelector('.session-row.selected')?.dataset.reorderId === 'sidebar-4');
+  await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled &&
+    !document.querySelector('.composer-wrap.session-navigation-pending'));
+  await page.evaluate(path => window.desktop.relocateWorkspace(path), relocated);
+  const repaired = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(repaired.state.sessionId, 'sidebar-4', 'the active original session is restored');
+  assert.equal(repaired.preferences.workspace, relocated);
+  assert.equal(repaired.sessions.find(session => session.id === 'sidebar-4').cwd, relocated);
+  assert.equal(repaired.sessions.find(session => session.id === 'sidebar-4').independent, false);
+  await page.reload();
+  await page.waitForFunction(path => !!document.querySelector(`[data-reorder-id="${path}"]`), key(relocated));
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).sessions.find(session => session.id === 'sidebar-4').cwd, relocated);
+  const relocatedGroup = page.locator(`[data-reorder-kind="workspace"][data-reorder-id="${key(relocated)}"]`);
+  await relocatedGroup.locator('.workspace-heading').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '移除项目…', exact: true }).click();
+  const removal = page.getByRole('dialog', { name: '移除项目', exact: true });
+  await removal.waitFor();
+  assert.match(await removal.innerText(), /磁盘文件不会删除/);
+  assert.equal(await removal.evaluate(element => getComputedStyle(element).animationName), 'settings-dialog-enter');
+  await settle(page.locator('.project-removal-backdrop'));
+  await page.screenshot({ path: 'test-results/sidebar-project-removal-dark.png' });
+  await removal.getByRole('button', { name: '取消', exact: true }).click();
+  await removal.waitFor({ state: 'detached' });
+  assert.equal(await relocatedGroup.count(), 1, 'cancel leaves the project registered');
+  await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
+  await page.reload();
+  await relocatedGroup.waitFor();
+  await relocatedGroup.locator('.workspace-heading').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '移除项目…', exact: true }).click();
+  await removal.waitFor();
+  await settle(page.locator('.project-removal-backdrop'));
+  await page.screenshot({ path: 'test-results/sidebar-project-removal-light.png' });
+  await removal.getByRole('button', { name: '移除项目', exact: true }).click();
+  await removal.waitFor({ state: 'detached' });
+  await relocatedGroup.waitFor({ state: 'detached' });
+  const removed = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(removed.sessions.find(session => session.id === 'sidebar-4').independent, true);
+  assert.equal(removed.state.sessionId, 'sidebar-4', 'removal does not close a resident session');
+  assert.equal((await stat(relocated)).isDirectory(), true);
+  assert.match(await readFile(join(sessionsDir, 'sidebar-4.jsonl'), 'utf8'), /Task 4/);
+  await page.reload();
+  await page.waitForFunction(() => !!document.querySelector('.independent-group [data-reorder-id="sidebar-4"]'));
+  mark('missing directory on app startup');
+  closing = true;
+  await app.close(); app = null;
+  const missing = join(profile, 'Missing startup project');
+  const recovery = join(profile, 'Recovered startup project');
+  await mkdir(recovery);
+  const preferencesPath = join(profile, 'preferences.json');
+  const stored = JSON.parse(await readFile(preferencesPath, 'utf8'));
+  await writeFile(preferencesPath, JSON.stringify({ ...stored, workspaces: [...stored.workspaces, missing], workspace: missing }));
+  page = await launch(true);
+  const startupSnapshot = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(startupSnapshot.workspaceIssue, missing);
+  assert.equal(startupSnapshot.preferences.workspace, missing);
+  assert.equal(startupSnapshot.draftId, undefined, 'failed startup must not retain the empty bootstrap draft');
+  await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, recovery);
+  await page.locator('.app-error-banner').getByRole('button', { name: '重新定位', exact: true }).click();
+  await page.locator('.app-error-banner').waitFor({ state: 'detached' });
+  await page.getByText('Step Code 已连接', { exact: true }).waitFor();
+  await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspace, recovery);
   assert.deepEqual(errors, []);
-  console.log('Sidebar: manual session/project drag, cancel, group boundaries, pins, sorting, IPC validation, reload/relaunch, narrow and reduced motion passed.');
+  console.log('Sidebar: reorder, pins, sorting, missing-path repair, retained session identity/history, warning layering, removal/cancel, hover controls, reload and reduced motion passed.');
 } catch (error) {
   console.error(`Sidebar acceptance failed during ${phase}`);
   throw error;

@@ -85,6 +85,31 @@ try {
   assert.equal(await messages.locator('.thinking[open]').count(), 0);
   await page.screenshot({ path: 'test-results/interface-mapped-standard-light.png' });
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-mapped-standard-detail.png' });
+  await messages.locator('.process-tool > summary').first().click();
+  await messages.locator('.thinking > summary').click();
+  await page.evaluate(() => {
+    globalThis.interfaceNodes = {
+      prose: document.querySelector('.messages .response-text'),
+      thinking: document.querySelector('.messages .thinking'),
+      tool: document.querySelector('.messages .process-tool'),
+    };
+  });
+  await openSettings(page);
+  await preset(page, '详细');
+  await closeSettings(page);
+  assert.equal(await messages.locator('.process-tool[open]').count(), 0, 'switching presets reapplies unchanged folded-tool defaults to old records');
+  assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'true');
+  assert.equal(await page.evaluate(() =>
+    globalThis.interfaceNodes.prose === document.querySelector('.messages .response-text')
+    && globalThis.interfaceNodes.thinking === document.querySelector('.messages .thinking')
+    && globalThis.interfaceNodes.tool === document.querySelector('.messages .process-tool')), true, 'preset changes do not remount prose or ordinary disclosures');
+  await messages.locator('.thinking > summary').click();
+  await messages.locator('.process-tool > summary').first().click();
+  await openSettings(page);
+  await preset(page, '详细');
+  await closeSettings(page);
+  assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'true', 'reselecting the active preset reapplies thinking defaults');
+  assert.equal(await messages.locator('.process-tool[open]').count(), 0, 'reselecting the active preset also resets tool overrides');
   await openSettings(page);
   await preset(page, '简洁');
   await closeSettings(page);
@@ -100,7 +125,12 @@ try {
   await messages.locator('.tool-group-disclosure.is-expanded .process-tool > summary').first().waitFor();
   await page.waitForTimeout(280);
   assert.equal(await messages.locator('.tool-group-disclosure .process-tool').count(), 2);
-  await group.press('Enter');
+  await load(history, true);
+  assert.equal(await group.getAttribute('aria-expanded'), 'true', 'a fresh snapshot of identical preferences preserves manual expansion');
+  await openSettings(page);
+  await preset(page, '简洁');
+  await closeSettings(page);
+  assert.equal(await group.getAttribute('aria-expanded'), 'false', 'reselecting Simple folds the existing group');
   await load(history.map((message, index) => index === 3 ? { ...message, desktopToolPending: true } : message), true);
   await group.getByText('正在处理工具 · 1 / 2 项已返回', { exact: true }).waitFor();
   assert.equal(await group.getAttribute('aria-expanded'), 'false', 'progress updates retain the same disclosure anchor');
@@ -160,6 +190,37 @@ try {
   });
   assert.match(error, /Invalid interface option/);
   assert.deepEqual((await page.evaluate(() => window.desktop.snapshot())).preferences, before);
+  const olderHistory = Array.from({ length: 8 }, (_, index) => [
+    { role: 'user', content: `历史问题 ${index}`, timestamp: index + 1 },
+    { role: 'assistant', content: [
+      { type: 'text', text: `历史正文 ${index}。` + '保留原始内容与阅读位置。'.repeat(12) },
+      { type: 'thinking', thinking: `历史思考 ${index}` },
+      { type: 'toolCall', id: `old-${index}`, name: 'read_file', arguments: { path: `old-${index}.ts` } },
+    ] },
+    { role: 'toolResult', toolCallId: `old-${index}`, toolName: 'read_file', content: 'Historical result' },
+  ]).flat().concat(history);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 900));
+  await load(olderHistory);
+  await messages.getByText('历史问题 4', { exact: true }).scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => {
+    const viewport = document.querySelector('.conversation');
+    return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 120;
+  });
+  for (const mode of ['标准', '详细', '简洁']) {
+    await openSettings(page);
+    await preset(page, mode);
+    await closeSettings(page);
+    assert.equal(await messages.locator('.thinking').count(), 9);
+    assert.equal(await messages.locator('.thinking[data-expanded="true"]').count(), mode === '详细' ? 9 : 0, 'all existing historical rounds adapt immediately');
+    assert.equal(await messages.locator('.process-tool[open]').count(), 0);
+    assert.equal(await page.locator('.jump-to-bottom').isVisible(), true, 'changing presentation must not force an old-history reader to the bottom');
+    assert.deepEqual((await page.evaluate(() => window.desktop.snapshot())).messages, olderHistory, 'presentation never rewrites history');
+  }
+  await openSettings(page);
+  await settings(page).getByRole('switch', { name: '工具详情默认展开' }).check();
+  await page.waitForFunction(() => !document.querySelector('.interface-option input:disabled'));
+  await closeSettings(page);
+  assert.equal(await messages.locator('.process-tool[open]').count(), 12, 'custom expansion also applies to every historical round');
   await app.close(); app = undefined;
   const persisted = JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8'));
   assert.equal(persisted.interfaceSettings.toolsExpanded, true);
@@ -173,7 +234,7 @@ try {
   assert.equal(await settings(page).getByRole('switch', { name: '工具详情默认展开' }).isChecked(), false);
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.interfaceSettings.preset, 'standard');
   assert.deepEqual(errors, []);
-  console.log('Interface preferences: real renderer mapping, safe grouping, approval/error visibility, manual overrides, custom expansion, IPC validation, persistence and reset passed.');
+  console.log('Interface preferences: real renderer mapping, existing-history preset reapplication without remount, same-preset reset, stream-safe manual overrides, safe grouping, approval/error visibility, custom expansion, IPC validation, persistence and reset passed.');
 } finally {
   if (app) await app.close();
 }

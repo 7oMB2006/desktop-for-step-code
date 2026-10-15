@@ -19,9 +19,10 @@ export function InterfaceSettings({ language, value, onChange }: {
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
   const draft = normalizeInterfaceSettings(value);
   const [saving, setSaving] = useState(false);
+  const [revision, setRevision] = useState(0);
   const update = async (next: InterfacePreferences) => {
     setSaving(true);
-    try { await onChange(next); } finally { setSaving(false); }
+    try { await onChange(next); setRevision(value => value + 1); } finally { setSaving(false); }
   };
   const toggle = (key: keyof InterfaceOptions) => void update({ ...draft, preset: 'custom', [key]: !draft[key] });
   const presets: [InterfacePreset, string][] = [['simple', t('简洁', 'Simple')], ['standard', t('标准', 'Standard')], ['detailed', t('详细', 'Detailed')]];
@@ -65,7 +66,7 @@ export function InterfaceSettings({ language, value, onChange }: {
       </div>
       <div className="interface-preview" aria-label={t('界面模式预览', 'Interface mode preview')}>
         <span className="interface-preview-label">{t('预览', 'Preview')}</span>
-        <ConversationMessages messages={messages} language={language} interfaceSettings={draft} busy={false} canEdit={false}
+        <ConversationMessages messages={messages} language={language} interfaceSettings={draft} interfaceRevision={revision} busy={false} canEdit={false}
           openImage={() => {}} edit={async () => {}} branch={() => {}} onError={() => {}} onOpenSubagent={() => {}}/>
         <div className="interface-preview-composer">
           <span className="interface-preview-placeholder">{t('你想做什么？', 'What would you like to do?')}</span>

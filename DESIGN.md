@@ -144,8 +144,11 @@ The default for missing preferences is Standard. Settings are stored in the
 Desktop profile, not browser localStorage or the personal Step Code profile.
 
 Main conversations and saved-reading previews use the same presentation.
-Manual disclosure choices survive subsequent streaming updates; only a changed
-default or newly mounted record reapplies that default. Grouped tools never
+Manual disclosure choices survive subsequent streaming/snapshot updates.
+Choosing any preset (including the active one), resetting or changing a custom
+option reapplies the current defaults to already mounted historical records.
+Only disclosure state is reset; prose and runtime state are not remounted.
+Grouped tools never
 cross prose, thinking, image or turn boundaries. Approval, error, missing-result,
 Subagent, Workflow, Plan, structured questions and peer-delivery records remain separate. Group
 summaries count actual operations without model-generated narration or inferred

@@ -1,5 +1,34 @@
 # Verification
 
+## Existing-History Preset Reapplication (2026-10-15)
+
+Explicitly applying interface settings now resets existing thinking, ordinary
+tool and grouped-tool disclosure to the selected defaults, even when the old
+and new defaults match or the active preset is selected again. The main
+conversation, saved-reading preview and settings preview share this behavior.
+An ephemeral apply revision advances only after a successful preference write;
+equivalent preferences arriving in ordinary runtime snapshots do not reset
+manual disclosure. The revision is not persisted or sent to the model.
+
+The renderer updates disclosure state in place rather than remounting the
+transcript or reloading the page. Main-process runtime commands, original
+history, permissions and models are unchanged. New Electron regressions cover
+nine existing historical responses, same-preset reapplication, unchanged tool
+defaults, retained prose/thinking/tool DOM identity, stream-safe manual
+overrides, unchanged history and preserving an away-from-bottom reading view.
+These regressions and the shared settings browser acceptance passed locally.
+Typecheck, production build, general Electron and stream-motion acceptance
+also passed. The first full run passed 423/424 but hit the previously recorded
+terminal-count cleanup error and retained fixture processes; only that owned
+test subtree was terminated. Isolated terminal acceptance then passed 5/5.
+A subsequent complete serial run passed all 424 tests, with a 45-second
+per-test safety bound and no disabled tests or changed terminal assertions.
+Both full-run logs are retained under `Desktop/test-results/`.
+
+This follow-up is source-only. The package and desktop shortcut described
+below still contain `7c591f5` application source, not this reapplication change.
+No installer was rebuilt and no live user process was interrupted.
+
 ## Interface complexity mapping (2026-10-15)
 
 Settings now persist presentation-only Simple, Standard, Detailed and Custom

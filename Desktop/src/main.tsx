@@ -101,6 +101,7 @@ function App() {
   const updateAvailable = appUpdate?.updateAvailable === true;
   const [data, setData] = useState(initial);
   const interfaceSettings = useMemo(() => normalizeInterfaceSettings(data.preferences.interfaceSettings), [data.preferences.interfaceSettings]);
+  const [interfaceRevision, setInterfaceRevision] = useState(0);
   useEffect(() => { applyAppearance(data.preferences.appearance); }, [data.preferences.appearance]);
   const messageRevision = useRef(new MessageRevision());
   const latestData = useRef(data);
@@ -930,7 +931,11 @@ function App() {
     }
     setPreviewZoom(zoom);
   };
-  const setPreference = async (patch: any) => run(async () => { const p = await bridge!.preferences(patch); setData(d => ({ ...d, preferences: p })); });
+  const setPreference = async (patch: any) => run(async () => {
+    const p = await bridge!.preferences(patch);
+    setData(d => ({ ...d, preferences: p }));
+    if (patch.interfaceSettings !== undefined) setInterfaceRevision(value => value + 1);
+  });
   const saveMcp = async () => run(async () => {
     if (!mcpEdit) return;
     const parsed = JSON.parse(mcpEdit.args || '[]'); const secrets = JSON.parse(mcpEdit.secrets || '{}');
@@ -1283,7 +1288,7 @@ function App() {
           }}>
           {navigationTarget ? navigationTarget.reading ? <div className="messages session-reading-preview" ref={transcript} inert>
             <ConversationMessages key={`session-${navigationTarget.session.id}`} messages={navigationTarget.reading.messages} modelChanges={navigationTarget.reading.modelChanges}
-              language={data.preferences.language} busy={false} canEdit={false} interfaceSettings={interfaceSettings}
+              language={data.preferences.language} busy={false} canEdit={false} interfaceSettings={interfaceSettings} interfaceRevision={interfaceRevision}
               openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError}
               onLayoutChange={followLayout} arrivingUser={null} onOpenSubagent={openSubagent}/>
           </div> : <div className="session-reading-placeholder" aria-hidden="true"><span/><span/><span/></div>
@@ -1294,7 +1299,7 @@ function App() {
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
             <QuestionContext.Provider value={{ pending: requests.flatMap(request => { const q = questionnaire(request); return q ? [q] : []; }), open: openQuestion }}>
               <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
-                interfaceSettings={interfaceSettings} settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
+                interfaceSettings={interfaceSettings} interfaceRevision={interfaceRevision} settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
             </QuestionContext.Provider>
             {(busy || data.state?.isCompacting) && <div className="working">
               <WorkingIndicator language={data.preferences.language} mode={requests.length || reviewPlan || planFeedback ? 'waiting' : data.state?.isCompacting ? 'compacting' : runMetrics?.phase ?? 'executing'}

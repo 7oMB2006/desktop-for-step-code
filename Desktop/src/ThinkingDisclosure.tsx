@@ -2,11 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 
-export function ThinkingDisclosure({ autoOpen, index, label, elapsed, children, onLayoutChange }: {
-  autoOpen: boolean; index: number; label: string; elapsed?: ReactNode; children: ReactNode; onLayoutChange?: () => void;
+export function ThinkingDisclosure({ autoOpen, resetKey, index, label, elapsed, children, onLayoutChange }: {
+  autoOpen: boolean; resetKey?: string; index: number; label: string; elapsed?: ReactNode; children: ReactNode; onLayoutChange?: () => void;
 }) {
   const [expanded, setExpanded] = useState(autoOpen);
-  const previousAuto = useRef(autoOpen);
   const initialized = useRef(false);
   const details = useRef<HTMLDetailsElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -14,11 +13,8 @@ export function ThinkingDisclosure({ autoOpen, index, label, elapsed, children, 
   const notify = useRef(onLayoutChange);
   useLayoutEffect(() => { notify.current = onLayoutChange; });
   useEffect(() => {
-    if (previousAuto.current !== autoOpen) {
-      previousAuto.current = autoOpen;
-      setExpanded(autoOpen);
-    }
-  }, [autoOpen]);
+    setExpanded(autoOpen);
+  }, [autoOpen, resetKey]);
   useLayoutEffect(() => {
     const panel = details.current!;
     const content = body.current!;

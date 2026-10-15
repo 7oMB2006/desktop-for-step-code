@@ -32,6 +32,7 @@ import { QuestionTool } from './QuestionTool';
 
 type Props = {
   interfaceSettings?: InterfacePreferences;
+  interfaceRevision?: number;
   runtimeId?: string;
   awaitingToolCalls?: string[];
   modelChanges?: ModelChange[];
@@ -46,7 +47,7 @@ type Props = {
   settledStatus?: ReactNode;
   completedStatus?: { responseIndex: number; content: ReactNode };
 };
-type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls' | 'interfaceSettings'>;
+type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls' | 'interfaceSettings'> & { disclosureReset?: string };
 type EditState = { entryId: string; text: string; submitting: boolean };
 
 function CopyButton({ text, getText, language, onError }: { text: string; getText?: () => string } & Pick<Props, 'language' | 'onError'>) {
@@ -183,7 +184,7 @@ export function Tool({ item, active, ...props }: {
 } & BodyProps) {
   const details = useRef<HTMLDetailsElement>(null);
   const expanded = props.interfaceSettings?.toolsExpanded ?? false;
-  useLayoutEffect(() => { if (details.current) details.current.open = expanded; }, [expanded]);
+  useLayoutEffect(() => { if (details.current) details.current.open = expanded; }, [expanded, props.disclosureReset]);
   const zh = props.language === 'zh';
   const name = item.call?.name ?? item.result?.toolName ?? (zh ? '工具' : 'Tool');
   const subject = toolSubject(item.call);
@@ -217,7 +218,7 @@ function ToolGroup({ items, active, ...props }: { items: ToolItem[]; active: boo
   const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
   const [expanded, setExpanded] = useState(defaultExpanded);
   const id = useId();
-  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded]);
+  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded, props.disclosureReset]);
   useLayoutEffect(() => { props.onLayoutChange?.(); }, [expanded]);
   const running = items.some(item => !item.result || item.result.desktopToolPending);
   const label = toolGroupLabel(items, props.language);
@@ -330,7 +331,7 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
           : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
             elapsed={<ElapsedLabel timing={items.find(entry => entry.index === item.index)?.message.desktopTiming?.thinking[item.key.split(':')[1]]}
               active={active} language={props.language}/>}
-            autoOpen={props.interfaceSettings?.thinkingExpanded ?? false} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
+            autoOpen={props.interfaceSettings?.thinkingExpanded ?? false} resetKey={props.disclosureReset} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
             <Text text={item.block.thinking ?? ''} streaming={active && content.indexOf(item) > lastTextIndex} {...props}/>
           </ThinkingDisclosure>
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
@@ -419,6 +420,8 @@ function UserMessage({ message, index, arriving, editState, setEditState, ...pro
 }
 export function ConversationMessages(props: Props) {
   const interfaceSettings = useMemo(() => normalizeInterfaceSettings(props.interfaceSettings), [props.interfaceSettings]);
+  // Snapshot object identities change during streaming; only settings or an explicit apply reset disclosure.
+  const disclosureReset = JSON.stringify([interfaceSettings, props.interfaceRevision ?? 0]);
   const [editState, setEditState] = useState<EditState | null>(null);
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
   const executions = useMemo(() => planExecutionResponses(props.messages, props.busy), [props.messages, props.busy]);
@@ -439,7 +442,7 @@ export function ConversationMessages(props: Props) {
     const settledStatus = hasSettledFooter && index === entries.length - 1 ? props.settledStatus : undefined;
     const completedStatus = props.completedStatus?.responseIndex === entry.index ? props.completedStatus.content : undefined;
     return <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
-      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props} interfaceSettings={interfaceSettings} execution={executions.get(entry.index)}
+      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props} interfaceSettings={interfaceSettings} disclosureReset={disclosureReset} execution={executions.get(entry.index)}
       settledStatus={completedStatus ? <>{completedStatus}{settledStatus}</> : settledStatus}/>;
   })}{props.settledStatus && !hasSettledFooter && <div className="working working-idle">{props.settledStatus}</div>}</>;
 }

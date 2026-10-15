@@ -1,8 +1,5 @@
-.message-link { color: oklch(.47 .13 250); text-decoration: none; overflow-wrap: anywhere; }
-:root[data-theme=dark] .message-link { color: oklch(.77 .10 250); }
-.message-link:visited { color: oklch(.47 .13 250); }
-:root[data-theme=dark] .message-link:visited { color: oklch(.77 .10 250); }
-.message-link-site { display: inline-flex; vertical-align: -.15em; width: 14px; height: 14px; margin-right: 5px; color: var(--muted); }
+.message-link, .message-link:visited { color: var(--primary); text-decoration: none; overflow-wrap: anywhere; }
+.message-link-site { display: inline-flex; vertical-align: -.15em; width: 14px; height: 14px; margin-right: 5px; color: var(--primary); }
 .message-link-icon { width: 14px; height: 14px; object-fit: contain; border-radius: 0; }
 .message-link-label { text-decoration: none; text-underline-offset: 4px; text-decoration-thickness: 1px; }
 .message-link:hover .message-link-label, .message-link:focus-visible .message-link-label { text-decoration-line: underline; text-decoration-style: dashed; }
@@ -12,8 +9,8 @@
 .link-preview-host { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted); }
 .link-preview-host > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link-preview-host svg { flex-shrink: 0; }
-.link-preview-top > a { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; color: var(--ink); text-decoration: none; }
-.link-preview-top > a:hover { color: var(--primary); }
+.link-preview-top > a { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; color: var(--primary); text-decoration: none; }
+.link-preview-top > a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .link-preview-body { padding: 13px 15px 15px; }
 .link-preview-body strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 13px; line-height: 1.6; font-weight: 600; overflow-wrap: anywhere; }
 .link-preview-body p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }

@@ -64,6 +64,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.getAnimations().length), 0);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   for (const [name, id, bg] of [
+    ['原版浅色', 'original-light', '#ffffff'], ['原版深色', 'original-dark', '#141414'],
     ['亮', 'light', '#f4f7fa'], ['素', 'paper', '#eeede7'], ['暗', 'dark', '#1f222a'],
     ['深蓝', 'blue', '#102838'], ['酒红', 'wine', '#3b202d'], ['翠绿', 'jade', '#14352c'],
   ]) {
@@ -102,6 +103,7 @@ try {
   await page.getByRole('button', { name: '自定义强调色', exact: true }).click();
   const hex = page.getByRole('textbox', { name: 'HEX', exact: true });
   await hex.fill('#ffffff');
+  await page.waitForFunction(() => [...document.querySelectorAll('.accent-editor button')].some(button => button.textContent.includes('应用') && !button.disabled));
   assert.equal(await page.getByRole('button', { name: '应用', exact: true }).isEnabled(), true);
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.accentColor, '#487bd1', 'preview does not write preferences');
   await page.getByRole('button', { name: '取消', exact: true }).click();
@@ -109,6 +111,7 @@ try {
   await page.locator('.accent-editor').waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '自定义强调色', exact: true }).click();
   await hex.fill('invalid');
+  await page.waitForFunction(() => document.querySelector('#accent-hex')?.getAttribute('aria-invalid') === 'true');
   assert.equal(await page.getByRole('button', { name: '应用', exact: true }).isDisabled(), true);
   await hex.fill('#a7d8c9');
   await page.waitForFunction(() => !document.querySelector('.accent-disclosure').getAnimations().some(animation => animation.playState === 'running'));
@@ -244,5 +247,5 @@ try {
   await content.evaluate(el => el.scrollTo(0, el.scrollHeight));
   await page.screenshot({ path: 'test-results/appearance-large-narrow-dark.png' });
   assert.deepEqual(errors, []);
-  console.log('Appearance: six themes, system changes, independent accents, preview/cancel/apply, input validation, semantic colors, first-frame/restart persistence, typography and narrow layout passed.');
+  console.log('Appearance: six named themes plus original monochrome, system changes, independent accents, preview/cancel/apply, input validation, semantic colors, first-frame/restart persistence, typography and narrow layout passed.');
 } finally { if (app) await app.close(); }

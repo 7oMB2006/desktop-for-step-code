@@ -4,8 +4,11 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { contrastRatio, normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch, themes } from '../src/theme';
 
-test('six themes, system compatibility and safe preference validation', () => {
-  assert.deepEqual(themes.map(theme => theme.id), ['light', 'paper', 'dark', 'blue', 'wine', 'jade']);
+test('six named themes plus original monochrome, system compatibility and safe preference validation', () => {
+  assert.deepEqual(themes.map(theme => theme.id), ['light', 'paper', 'dark', 'blue', 'wine', 'jade', 'original-light', 'original-dark']);
+  assert.equal(themes.filter(theme => theme.group !== 'original').length, 6);
+  assert.equal(resolveTheme('original-light', true).tokens['--bg'], '#ffffff');
+  assert.equal(resolveTheme('original-dark', false).tokens['--bg'], '#141414');
   assert.equal(normalizeTheme(undefined), 'system');
   assert.equal(normalizeTheme('bad'), 'system');
   assert.equal(resolveTheme('system', false).id, 'light');

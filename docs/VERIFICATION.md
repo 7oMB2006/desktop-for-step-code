@@ -1,5 +1,28 @@
 # Verification
 
+## Original Palettes and Link Accent Follow-Up (2026-10-15)
+
+Source-only follow-up restores the original neutral light/dark palettes as
+compact swatches immediately left of System. Transcript links, generic website
+icons and both preview open actions now consume the shared accent instead of
+hardcoded blue; external website contents and favicons remain unchanged.
+The existing local preview package and desktop shortcut do not include this
+follow-up.
+
+Typecheck, production build and three theme unit tests passed. Isolated
+Electron Appearance acceptance covers all eight explicit palettes, selection,
+persistence and narrow layouts. Link acceptance verifies wine/gold,
+original-dark/cyan and original-light/rose combinations against the root
+accent token, including both preview actions. Bootstrap acceptance includes
+both original palettes at the first frame. Screenshots are
+`Desktop/test-results/theme-original-{light,dark}.png` and
+`Desktop/test-results/message-links-accent-*.png`.
+
+The earlier cloud interface job failed at an immediate enabled-state assertion
+after HEX input. The assertion now waits for the rendered state before
+checking; it is not removed or weakened. These local checks do not establish
+cloud CI success or package acceptance for this follow-up.
+
 ## Six Themes Local Preview Package (2026-10-15)
 
 The local unsigned 0.4.0 preview at

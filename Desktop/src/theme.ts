@@ -1,11 +1,11 @@
-export type ThemeId = 'light' | 'paper' | 'dark' | 'blue' | 'wine' | 'jade';
+export type ThemeId = 'light' | 'paper' | 'dark' | 'blue' | 'wine' | 'jade' | 'original-light' | 'original-dark';
 export type ThemePreference = 'system' | ThemeId;
 export type ColorScheme = 'light' | 'dark';
 
 export interface ThemePalette {
   id: ThemeId;
   scheme: ColorScheme;
-  group: 'classic' | 'color';
+  group: 'classic' | 'color' | 'original';
   name: readonly [string, string];
   title: readonly [string, string];
   mood: readonly [string, string];
@@ -34,6 +34,10 @@ export const themes: readonly ThemePalette[] = [
     bg: '#3b202d', side: '#301b25', surface: '#55313f', ink: '#f3e5e9', muted: '#c8acb7', border: '#694452', code: '#321c27', accent: '#bd879b' },
   { id: 'jade', scheme: 'dark', group: 'color', name: ['翠绿', 'Jade'], title: ['翠林听雨', 'Forest Rain'], mood: ['幽深森林', 'Deep forest'],
     bg: '#14352c', side: '#102b24', surface: '#245041', ink: '#e1efe8', muted: '#a6c4b5', border: '#3b6051', code: '#102d25', accent: '#7bb99c' },
+  { id: 'original-light', scheme: 'light', group: 'original', name: ['原版浅色', 'Original Light'], title: ['原版浅色', 'Original Light'], mood: ['纯净黑白', 'Neutral monochrome'],
+    bg: '#ffffff', side: '#f5f5f5', surface: '#eeeeee', ink: '#1d1d1d', muted: '#5b5b5b', border: '#d7d7d7', code: '#f5f5f5', accent: '#ac1b4f' },
+  { id: 'original-dark', scheme: 'dark', group: 'original', name: ['原版深色', 'Original Dark'], title: ['原版深色', 'Original Dark'], mood: ['纯净黑白', 'Neutral monochrome'],
+    bg: '#141414', side: '#0d0d0d', surface: '#1f1f1f', ink: '#e8e8e8', muted: '#a4a4a4', border: '#303030', code: '#101010', accent: '#de4672' },
 ];
 
 export function normalizeTheme(value: unknown): ThemePreference {

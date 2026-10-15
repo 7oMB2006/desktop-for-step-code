@@ -75,9 +75,17 @@ export function ThemeSettings({ preferences, systemDark, onChange, language }: {
   const closeEditor = () => { setEditing(false); customTrigger.current?.focus({ preventScroll: true }); };
   return <section className="theme-settings" aria-label={t('主题与强调色', 'Theme and accent')}>
     <div className="theme-heading"><h3>{t('主题', 'Theme')}</h3>
+      <div className="theme-heading-controls">
+      {themes.filter(theme => theme.group === 'original').map(theme =>
+        <button key={theme.id} className="theme-original" type="button" aria-label={t(...theme.name)}
+          data-tooltip={t(...theme.name)} aria-pressed={preferences.theme === theme.id}
+          onClick={() => changeTheme(theme.id)} style={{ '--original-bg': theme.bg, '--original-ink': theme.ink, '--original-border': theme.border } as CSSProperties}>
+          <Check size={13} aria-hidden="true"/>
+        </button>)}
       <button className="theme-system" type="button" aria-pressed={preferences.theme === 'system'} onClick={() => changeTheme('system')}>
         <Monitor size={15}/>{t('跟随系统', 'System')} {preferences.theme === 'system' && <Check size={13}/>}
       </button>
+      </div>
     </div>
     {(['classic', 'color'] as const).map(group => <fieldset className="theme-group" key={group}>
       <legend>{group === 'classic' ? t('经典系 · 光与影', 'Classic · Light and Shadow') : t('色彩系 · 山海之间', 'Color · Between Mountains and Seas')}</legend>

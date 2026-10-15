@@ -629,6 +629,10 @@ try {
   await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).locator('..').hover();
   await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).click();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await page.waitForFunction(async workspace => {
+    const snapshot = await window.desktop.snapshot();
+    return snapshot.independent === false && snapshot.preferences.workspace === workspace && Boolean(snapshot.draftId);
+  }, workspace);
   await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
   const projectState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(projectState.independent, false);

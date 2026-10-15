@@ -87,6 +87,26 @@ try {
   await verifyTrackless(panel.locator('.context-panel-scroll'));
   await page.waitForTimeout(500);
   assert.equal(await panel.getByRole('meter').getAttribute('aria-valuenow'), '7.1');
+  async function sendContextEvent(event) {
+    await app.evaluate(({ BrowserWindow }, event) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', event);
+    }, { runtimeId: fixture.runtimeId, sessionId: fixture.state.sessionId, ...event });
+  }
+  await sendContextEvent({ type: 'agent_start' });
+  for (const percent of [2, 18]) {
+    await sendContextEvent({ type: 'desktop_stats', stats: { ...fixture.stats,
+      contextUsage: { tokens: percent * 10000, contextWindow: 1000000, percent } } });
+    await page.waitForFunction(percent => document.querySelector('.context-ring')?.getAttribute('aria-valuenow') === String(percent)
+      && document.querySelector('.context-capacity-strip')?.getAttribute('aria-valuenow') === String(percent), percent);
+    assert.equal(await page.locator('.context-ring').getAttribute('data-tooltip'), `已用 ${percent}%`);
+  }
+  await sendContextEvent({ type: 'desktop_stats', runtimeId: 'background-context-worker',
+    stats: { ...fixture.stats, contextUsage: { tokens: 990000, contextWindow: 1000000, percent: 99 } } });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await page.locator('.context-ring').getAttribute('aria-valuenow'), '18',
+    'A background worker must not replace current context occupancy');
+  await sendContextEvent({ type: 'agent_end' });
+  await page.waitForFunction(() => document.querySelector('.context-ring')?.getAttribute('aria-valuenow') === '7.1');
   assert.ok((await panel.innerText()).includes('$0.0393'));
   assert.equal(await panel.locator('.context-message').count(), 6);
   await page.mouse.move(700, 25);

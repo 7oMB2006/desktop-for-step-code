@@ -23,6 +23,10 @@ Typecheck, build, 56 workspace/runtime tests and 12 CI policy/runner tests
 passed. Main Electron, navigation, review-panel and tray acceptance passed
 locally. The new recreated-directory regression checks catalog grouping and
 the actual runtime directory for both new and relocated histories.
+Account, launch-mode and permission-tier acceptance also passed after updating
+their alert selectors, including negative assertions that must detect the new
+banner rather than silently overlooking it. Branching/concurrency failure
+diagnostics use the same banner and modal selectors.
 The earlier local installer and desktop shortcut remain on `3d4369c`; this
 follow-up has not been repackaged, and the earlier full-suite terminal cleanup
 failure was not retroactively marked passed.

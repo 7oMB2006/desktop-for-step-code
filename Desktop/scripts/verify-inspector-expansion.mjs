@@ -18,7 +18,7 @@ export async function verifyInspectorExpansion(page, panel, screenshot) {
       const rail = document.querySelector('.right-tool-rail').getBoundingClientRect();
       frames.push({ width: box.width, x: box.x, gap: rail.x - box.right,
         sidebar: parseFloat(getComputedStyle(app).getPropertyValue('--sidebar-track')),
-        mainInert: document.querySelector('main').inert });
+        mainInert: document.querySelector('.main-content').inert });
     }
     return frames;
   }, label);
@@ -50,7 +50,7 @@ export async function verifyInspectorExpansion(page, panel, screenshot) {
     'restore must include intermediate widths');
   assert.equal(await panel.evaluate(element => element.closest('.right-inspector-surface').dataset.expansionProbe), 'preserved');
   assert.equal(await panel.evaluate(element => element.querySelector('.context-panel-scroll, .review-scroll').scrollTop), before.scroll);
-  assert.equal(await page.locator('main').evaluate(element => element.inert), false);
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), false);
   await panel.getByRole('button', { name: '全屏查看', exact: true }).click();
   await page.waitForTimeout(300);
   await page.keyboard.press('Escape');

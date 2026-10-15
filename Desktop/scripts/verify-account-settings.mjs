@@ -50,7 +50,7 @@ try {
   const initial = await page.evaluate(() => window.desktop.snapshot());
   if (!initial.draftId) {
     console.log('Account startup diagnostic:', { status: initial.status,
-      errors: await page.locator('.error-banner').allTextContents() });
+      errors: await page.locator('.app-error-banner, .modal-error').allTextContents() });
     await page.screenshot({ path: 'test-results/account-settings-startup-failure.png' });
   }
   assert.ok(initial.draftId, 'Account fixture requires a ready proposal before editing its draft');
@@ -165,7 +165,7 @@ try {
     const account = await page.evaluate(async () => (await window.desktop.settings()).account);
     console.log('Sign-out diagnostic:', { loggedIn: account.loggedIn, validity: account.validity,
       profile: account.profile, visibleStatus: await page.locator('.account-status').textContent(),
-      errorBanner: await page.locator('.error-banner').allTextContents() });
+      errorBanner: await page.locator('.app-error-banner, .modal-error').allTextContents() });
     await page.screenshot({ path: 'test-results/account-settings-signout-failure.png' });
     throw error;
   }
@@ -219,7 +219,7 @@ try {
   assert.match(await page.locator('.account-channel.is-selected').innerText(), /International/);
   assert.equal(await page.getByLabel('API Key', { exact: true }).evaluate(element => element.value), 'overseas-race-fixture');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await page.locator('.error-banner').filter({ hasText: 'Fixture login intercepted' }).waitFor();
+  await page.getByRole('alert').filter({ hasText: 'Fixture login intercepted' }).waitFor();
   assert.deepEqual(await app.evaluate(() => globalThis.accountFixture.login), { profile: 'platform_oversea', matches: true });
   assert.deepEqual(errors, []);
   console.log('Account channels, UID projection, credential states, API login/logout, thinking fallback through the first provider request, themes and narrow layouts passed with isolated fixtures.');

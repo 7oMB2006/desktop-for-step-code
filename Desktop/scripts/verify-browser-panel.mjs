@@ -265,7 +265,7 @@ try {
   const wideWidth = (await panel.boundingBox()).width;
   assert.ok(wideWidth > initialWidth + 30, 'wide mode adds real webpage space');
   assert.ok(wideFrames.some(width => width > initialWidth + 1 && width < wideWidth - 1), 'wide mode animates intermediate widths');
-  assert.equal(await page.locator('main').evaluate(element => element.inert), false, 'wide mode retains conversation interaction');
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), false, 'wide mode retains conversation interaction');
   assert.ok((await page.locator('main').boundingBox()).width >= 480, 'wide mode leaves a readable conversation');
   await screenshot('wide');
   let wideNative = (await viewState()).find(view => view.url === url && view.visible);
@@ -283,7 +283,7 @@ try {
   });
   assert.ok(frames.some(width => width > wideWidth + 1 && width < frames.at(-1) - 1));
   assert.equal(await widthControl.getAttribute('data-width'), 'fullscreen');
-  assert.equal(await page.locator('main').evaluate(element => element.inert), true);
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), true);
   await screenshot('expanded');
   let native = (await viewState()).find(view => view.url === url && view.visible);
   const host = await panel.locator('.browser-page').boundingBox();
@@ -313,10 +313,10 @@ try {
   assert.ok(Math.abs((await panel.boundingBox()).width - initialWidth) < 2);
   await chooseWidth('fullscreen');
   await page.waitForTimeout(300);
-  assert.equal(await page.locator('main').evaluate(element => element.inert), true);
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), true);
   await chooseWidth('wide');
   await page.waitForTimeout(300);
-  assert.equal(await page.locator('main').evaluate(element => element.inert), false);
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), false);
   await webPage.getByRole('link', { name: '新标签页打开', exact: true }).click();
   await page.waitForFunction(async () => (await window.desktop.browserList()).tabs.length === 2);
   const second = (await list()).activeId;

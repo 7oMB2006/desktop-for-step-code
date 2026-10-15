@@ -24,8 +24,8 @@ const patchedFiles = [
   ['index.ts', 'packages/coding-agent/src/index.ts', '8c4e177db7bf1c45b4ea4c9c9508e2be6c1f39a3'],
   ['build-coding-agent-bundle.mjs', 'scripts/build-coding-agent-bundle.mjs', '93aaca8db784bd66e45d0a1e4f177567a7c35272'],
   ['subagent-rpc-adapter.ts', 'packages/coding-agent/src/features/subagent/rpc-adapter.ts', '3ddc850f55fbd4947f0f980db5b4220ed55bb6d0'],
-  ['rpc-mode.ts', 'packages/coding-agent/src/modes/rpc/rpc-mode.ts', '9ba054b6fe48ee7839ed66095215d4c985f56e4e'],
-  ['rpc-types.ts', 'packages/coding-agent/src/modes/rpc/rpc-types.ts', '63e73570b724e9cecdfa192d984b5ea9b24677cb'],
+  ['rpc-mode.ts', 'packages/coding-agent/src/modes/rpc/rpc-mode.ts', '6066759100dc9e8af61d35c8274c6ee52eabfe5f'],
+  ['rpc-types.ts', 'packages/coding-agent/src/modes/rpc/rpc-types.ts', '4e897e03248ce9224b00dd7bd3231bdb8c878eb9'],
   ['mcp.ts', 'packages/coding-agent/src/step/mcp.ts', 'dd9bf2ce923497dcf5519ee5ee1aa88192c06731'],
 ];
 const patchedSourceHashes = {};

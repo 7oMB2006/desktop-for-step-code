@@ -1,5 +1,114 @@
 # Verification
 
+## Supplemental recovery review (2026-10-15)
+
+Relocating a project from its selected draft now refreshes the session catalog
+before returning the draft snapshot. Its existing histories immediately appear
+in the destination group rather than disappearing until a later refresh.
+Expanded inspectors disable only `.main-content`; project warnings remain
+operable while the covered transcript/composer stay inert. The warning remains
+inside main, above the inspector, without moving the fixed right rail.
+
+The runtime CI failure on `3c87da2` was an immediate post-click disclosure
+assertion. Disclosure now saves asynchronously; acceptance waits for the
+matching committed UI state before retaining its original assertions.
+The rapid-click sidebar regression also waits for the renderer after verifying
+the main-process snapshot.
+
+Typecheck, build and 64 focused unit tests passed. Serial Electron acceptance
+passed for sidebar recovery/disclosure, main Electron, review, context,
+browser, real PowerShell terminal, cross-session operations and fixed settings.
+The sidebar case selects a draft before relocation and checks destination
+history DOM before requesting a new snapshot; the expanded inspector case
+checks warning focus, removal/cancel and directory-picker cancel/recovery.
+No retries, disabled tests or relaxed assertions were added.
+
+## Sidebar disclosure persistence (2026-10-15)
+
+Project and independent-group disclosure now lives in Desktop preferences
+instead of renderer-only state. Startup and reload restore the saved groups;
+older profiles without a saved value retain the previous expanded default.
+Disclosure writes are serialized so rapid clicks compose. Creating a session
+explicitly expands its project, relocation carries its collapsed key, and
+project removal clears only that project's key.
+
+Typecheck, production build, 13 sidebar/workspace unit tests and the full
+sidebar Electron acceptance passed locally. Acceptance covers mixed disclosure
+states across renderer reload and a full app restart, independent-group state,
+and rapid multi-group toggles. This follow-up is not repackaged; cloud CI must
+validate its new head independently of the earlier green run.
+
+## Sidebar review and CI follow-up (2026-10-15)
+
+PR #122 review identified an unsafe path-wide relocation rule: recreating
+the old directory could redirect new histories into the moved project.
+Relocation now binds the existing session IDs to their destination. Reusing
+the source path does not inherit another session's binding, repeated moves
+update only affected bindings, and removal retains historical bindings.
+Successful validation of the originally missing path clears its stored issue.
+
+The initial cloud run `38662461552` failed on stale warning selectors in
+the main Electron and navigation scripts. These now assert the application
+banner and localized missing-directory message. Scripts using project add
+buttons first hover their heading, matching the intentional disclosure.
+The interface group also had an early native exit in the tray test without
+a JavaScript failure; local tray acceptance passed three consecutive runs.
+Tray readiness now requires an actual enabled composer element, and stage
+diagnostics were added. No retry, timeout increase or skipped assertion was
+introduced. Replacement cloud CI must independently validate these changes.
+
+Typecheck, build, 56 workspace/runtime tests and 12 CI policy/runner tests
+passed. Main Electron, navigation, review-panel and tray acceptance passed
+locally. The new recreated-directory regression checks catalog grouping and
+the actual runtime directory for both new and relocated histories.
+Account, launch-mode and permission-tier acceptance also passed after updating
+their alert selectors, including negative assertions that must detect the new
+banner rather than silently overlooking it. Branching/concurrency failure
+diagnostics use the same banner and modal selectors.
+The earlier local installer and desktop shortcut remain on `3d4369c`; this
+follow-up has not been repackaged, and the earlier full-suite terminal cleanup
+failure was not retroactively marked passed.
+
+## Sidebar project recovery preview (2026-10-15)
+
+This unsigned local 0.4.0 preview is based on fetched main `f4c3d35` plus
+the uncommitted sidebar/project recovery changes. It includes the merged
+clarification Beta, performance matrix and composer select-all deletion fixes.
+Project removal only unregisters the grouping; files, histories and running
+workers remain. Relocation preserves project metadata and reopens original
+history with the upstream session host's cwd override. A failed initial
+directory validation clears only the bootstrap draft. The warning belongs
+to the main viewport, sits above the summary overlay and does not displace
+the right tool rail. Sidebar add controls reveal on hover/focus, and reorder
+motion uses cubic easing with reduced-motion support.
+
+Typecheck, production build and 67 focused tests passed. Source and packaged
+sidebar acceptance passed for ordering, pins, missing-directory recovery,
+original session identity/history, startup recovery, removal/cancel, modal
+animation, warning layering/rail geometry, reload and reduced motion.
+Packaged clarification, composer editing and real-RPC performance acceptance
+also passed with isolated profiles and deterministic services. The Beta
+questionnaire bridge validation passed against the patched build source.
+This does not establish paid-model, cloud CI or installer-lifecycle readiness.
+The earlier full-suite terminal process-tree cleanup failure remains unresolved;
+the full suite was not rerun for this package.
+
+The installer is under `Desktop/release/sidebar-project-recovery-20261015/`.
+All 97 Desktop output and 1159 runtime files matched the package; helpers,
+icon, pinned commit `3ba89e0c` and clarification patch metadata were verified.
+Update metadata byte count and SHA-512 matched the 155073386-byte installer.
+Installer SHA-256:
+`ff01d816cacae9dfd71b647275dfdea97b828dc7a79a824629b4a55011722952`.
+Both installer and application are `NotSigned`; this is not a replacement
+for the public v0.4.0 release asset.
+
+The ordinary desktop shortcut was backed up and verified to target the new
+unpacked executable. No live user client was stopped; exit/relaunch is required
+to use it. Package evidence is in `test-results/sidebar-project-package-resources.json`,
+`test-results/sidebar-project-shortcut.json` and the release directory's
+`update-package-check.json`. Rebuildable outputs were inventoried; older packages
+were not deleted without separate approval.
+
 ## PR CI inventory integration (2026-10-15)
 
 The latest PR CI failed in classification before Windows acceptance ran:

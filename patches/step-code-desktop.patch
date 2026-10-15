@@ -187,6 +187,15 @@ index fd9aabc..9ba054b 100644
  			case "get_state": {
  				const state: RpcSessionState = {
  					model: session.model,
+@@ -605,7 +616,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+ 			}
+ 
+ 			case "switch_session": {
+-				const result = await runtimeHost.switchSession(command.sessionPath);
++				const result = await runtimeHost.switchSession(command.sessionPath, { cwdOverride: command.cwdOverride });
+ 				return success(id, "switch_session", result);
+ 			}
+ 
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
 index 1565bd4..63e7357 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
@@ -199,6 +208,15 @@ index 1565bd4..63e7357 100644
  
  	// Model
  	| { id?: string; type: "set_model"; provider: string; modelId: string }
+@@ -58,7 +59,7 @@ export type RpcCommand =
+ 	// Session
+ 	| { id?: string; type: "get_session_stats" }
+ 	| { id?: string; type: "export_html"; outputPath?: string }
+-	| { id?: string; type: "switch_session"; sessionPath: string }
++	| { id?: string; type: "switch_session"; sessionPath: string; cwdOverride?: string }
+ 	| { id?: string; type: "fork"; entryId: string }
+ 	| { id?: string; type: "clone" }
+ 	| { id?: string; type: "get_fork_messages" }
 diff --git a/packages/coding-agent/src/step/mcp.ts b/packages/coding-agent/src/step/mcp.ts
 index 055d0d3..dd9bf2c 100644
 --- a/packages/coding-agent/src/step/mcp.ts

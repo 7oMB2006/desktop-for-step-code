@@ -7,6 +7,14 @@
   animation: settings-backdrop-enter 180ms ease-out;
 }
 .app:has(.settings-backdrop) > .window-bar { z-index: 19; }
+.project-removal-backdrop .project-removal-dialog {
+  animation: settings-dialog-enter 220ms cubic-bezier(.22, 1, .36, 1);
+}
+.project-removal-backdrop.is-closing .project-removal-dialog {
+  animation: settings-dialog-exit 220ms cubic-bezier(.4, 0, 1, 1) forwards;
+}
+.project-removal-dialog > strong { font-size: 14px; overflow-wrap: anywhere; }
+.project-removal-path { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; margin-top: 8px; }
 .settings-backdrop .settings-dialog {
   width: min(1060px, 100%);
   height: min(740px, calc(100dvh - 56px));
@@ -90,5 +98,6 @@
 @media (prefers-reduced-motion: reduce) {
   .settings-backdrop, .settings-backdrop .settings-dialog,
   .settings-backdrop.is-closing, .settings-backdrop.is-closing .settings-dialog,
-  .settings-dialog .settings-content { animation: none; }
+  .settings-dialog .settings-content, .project-removal-backdrop .project-removal-dialog,
+  .project-removal-backdrop.is-closing .project-removal-dialog { animation: none; }
 }

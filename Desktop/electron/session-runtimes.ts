@@ -250,7 +250,7 @@ export class SessionRuntimes {
         ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);
       await worker.rpc.request('get_state', {}, 60000);
       const result = existing && !sessionPath ? { cancelled: false }
-        : await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath } : {}, 60000);
+        : await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath, cwdOverride: cwd } : {}, 60000);
       if (result.cancelled) throw new Error('Session operation cancelled');
       if (branch) {
         const sourceState = await worker.rpc.request('get_state');
@@ -413,7 +413,7 @@ export class SessionRuntimes {
       // A rejected submission may not append anything. Restore the saved leaf
       // so the original question remains editable instead of stranding its draft.
       if ((current.leafId ?? null) === selected.parentId && sessionFile) {
-        const restored = await worker.rpc.request('switch_session', { sessionPath: sessionFile }, 60000);
+        const restored = await worker.rpc.request('switch_session', { sessionPath: sessionFile, cwdOverride: worker.cwd }, 60000);
         if (restored.cancelled) throw new Error('Submission failed and history restoration was cancelled');
         if (permissionPreset && permissionPreset !== 'full-access') await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
         await this.read(worker);

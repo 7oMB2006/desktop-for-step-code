@@ -151,7 +151,7 @@ try {
     console.log('Navigation fixture:', await page.evaluate(async () => ({
       draft: document.querySelector('.composer > .composer-input')?.value,
       rows: [...document.querySelectorAll('.session-row')].map(row => [row.textContent, row.className]),
-      error: document.querySelector('.error-banner')?.textContent,
+      error: document.querySelector('.app-error-banner, .modal-error')?.textContent,
       active: (await window.desktop.snapshot()).state?.sessionId,
     })));
     await page.screenshot({ path: 'test-results/concurrent-failed-navigation.png' });

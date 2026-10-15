@@ -124,6 +124,7 @@ try {
   };
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.evaluate(() => { HTMLMediaElement.prototype.play = () => Promise.resolve(); });
+  await page.getByRole('region', { name: repo, exact: true }).locator('.workspace-heading').hover();
   await page.getByRole('region', { name: repo, exact: true }).getByRole('button', { name: '在 stream-client 新建会话', exact: true }).click();
   await page.waitForFunction(async repo => {
     const snapshot = await window.desktop.snapshot();
@@ -288,7 +289,7 @@ try {
   await toggle.click();
   await panel.waitFor();
   assert.equal(await panel.getByRole('button', { name: '全屏查看', exact: true }).count(), 1);
-  assert.equal(await page.locator('main').evaluate(element => element.inert), false);
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), false);
   assert.deepEqual(errors, []);
   await writeFile('test-results/review-close-frames.json', JSON.stringify(frames, null, 2));
   console.log('Review passed: real Git and RPC edits, scopes, base switch, immutable index/history, IPC guards, native radio-menu construction/selection/cancel, themes, narrow layouts, cubic close, reduced motion, and selectable non-Git branch empty state retained after refresh. Native OS menu clicks are simulated through main-process hooks. No paid model or real profile used.');

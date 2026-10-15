@@ -12,6 +12,7 @@
 - [ ] 修复全选后退格删除失效
 - [ ] Desktop for Step Code 发布展示页 [Ⅰ]
 - [ ] Desktop for Step Code 发布展示页 [Ⅱ]
+- [ ] 上下文刷新缺口修复
 
 ## P1
 

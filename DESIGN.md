@@ -71,7 +71,7 @@ Layout refinement: sidebar 244px (224px compact, 260px wide), matched 62px navig
 
 User and assistant messages do not show role headings. User message copy/edit controls and the timestamp appear below the bubble on hover or keyboard focus, reserving their layout space. Edit restores a copy of the message and its images into an empty composer for sending as a new message; it does not rewrite, rewind or fork runtime history. Existing drafts are not overwritten.
 
-Responses group consecutive assistant and tool messages until the next user message for a shared footer, not for hiding content. All assistant narration remains visible in source order during execution and after completion; no last-message heuristic extracts a final answer. Tool summaries describe the action in the client language instead of exposing raw tool names and commands. Known built-ins and aliases have localized action labels; unknown tools retain their names without invented descriptions. Running summaries have an oblique label and a left-to-right shimmer; each tool's actual result stops that animation and smoothly restores upright text. Failed summaries are upright and red; missing results are explicitly distinguished from success. Reduced-motion disables shimmer and transition effects. Raw names, targets, inputs, outputs and completion status stay in the individual expanded details, with results matched by tool-call ID rather than completion order. Thinking opens while streaming and automatically closes as soon as subsequent nonempty prose appears, rather than waiting for the entire response to finish. Empty text blocks do not trigger closure; manual reopening remains respected during later prose deltas. A later thinking phase opens independently, and completion or interruption closes any still-active thinking. Narration and tool summaries remain visible. The footer has Copy and Branch from here, enabled only for the latest saved assistant reply while its session is idle, with the actual message timestamp shown on hover/focus. Copy includes all response prose, excluding thinking and tool payloads. No detailed/concise mode or invented per-response duration is implemented.
+Responses group consecutive assistant and tool messages until the next user message for a shared footer, not for hiding prose. All assistant narration remains visible in source order during execution and after completion; no last-message heuristic extracts a final answer. Tool summaries describe the action in the client language instead of exposing raw tool names and commands. Known built-ins and aliases have localized action labels; unknown tools retain their names without invented descriptions. Running summaries have an oblique label and a left-to-right shimmer; only a tool's final result stops that animation and smoothly restores upright text. Failed summaries are upright and red; missing results are explicitly distinguished from success. Reduced-motion disables shimmer and transition effects. Raw names, targets, inputs, outputs and completion status stay in the individual expanded details, with results matched by tool-call ID rather than completion order. Thinking and tool disclosure defaults follow Interface Complexity settings, including while streaming; later prose, completion and interruption do not override a manual disclosure choice. Narration and tool summaries remain visible, with consecutive ordinary summaries optionally combined into an expandable group. The footer has Copy and Branch from here, enabled only for the latest saved assistant reply while its session is idle, with the actual message timestamp shown on hover/focus. Copy includes all response prose, excluding thinking and tool payloads. No per-response model policy or invented duration is implemented.
 
 ## Mathematical Notation
 
@@ -130,6 +130,46 @@ The split opening control uses the shared DisclosureChevron and an application-r
 Both application menus have matching light/dark surfaces, trackless scrolling, bounded anchor placement, cubic entrance/exit, keyboard navigation, Escape/outside-click dismissal and reduced-motion behavior.
 
 Local HTML uses an ephemeral, credential-free browser partition and a loopback server with unpredictable page URLs. Only the selected HTML and its bounded, declared same-directory asset graph are served, including CSS and literal module dependencies. Root-relative declared assets are rewritten into the page's capability URL; source files are unchanged. Sensitive paths, arbitrary neighboring files, downloads, external network requests, permissions and Node/IPC access are blocked. This is a constrained offline artifact preview, not a general local web server: pages depending on remote APIs/CDNs should be explicitly opened in a system application instead.
+
+## Interface Complexity
+
+Interface complexity is a dedicated Settings category, separate from typography.
+Simple, Standard and Detailed are presentation presets, not permission or model
+capability tiers. Simple folds consecutive thinking and ordinary tools into
+one process row between prose segments and hides the performance strip.
+Its live row shows the current tool or latest thinking preview; its settled
+row summarizes the actual tools, with all original records available inside.
+Standard folds thinking and groups adjacent ordinary tools while keeping
+the performance strip visible. Detailed keeps individual tool rows and opens
+thinking only while that block is receiving output, folding it when a tool,
+prose or turn completion follows. All presets fold tool details. Each option is
+independently customizable, with manual changes retaining the Custom label.
+The default for missing preferences is Standard. Settings are stored in the
+Desktop profile, not browser localStorage or the personal Step Code profile.
+
+Main conversations and saved-reading previews use the same presentation.
+Manual disclosure choices survive subsequent streaming/snapshot updates.
+Choosing any preset (including the active one), resetting or changing a custom
+option reapplies the current defaults to already mounted historical records.
+Only disclosure state is reset; prose and runtime state are not remounted.
+Ordinary tool groups never cross thinking boundaries; compact process groups
+can contain both thinking and tools. Neither crosses prose, image or turn
+boundaries. Approval, error, missing-result,
+Subagent, Workflow, Plan, structured questions and peer-delivery records remain separate. Group
+summaries count actual operations without model-generated narration or inferred
+validation success. Partial tool output remains pending until the final event.
+Expanding a group retains its trigger and uses cubic motion with a reduced-motion
+fallback. Dedicated right-panel inspectors retain their existing detailed view.
+Single-line thinking previews use the latest nonempty paragraph's first line
+while live and the first paragraph's first line when settled. Markdown emphasis
+markers are omitted only from previews. Automatic completion folding never
+prevents readers from manually reopening a settled thought.
+Thinking and tool rows share the same live/settled label component and shimmer.
+Thinking uses a 14-pixel Brain icon before its label, preserves elapsed time,
+and places the existing designed disclosure SVG after its preview. Running
+labels animate independently, so a live process group never reanimates its
+already-settled children. Reduced motion disables both shimmer and disclosure
+transitions.
 
 # Product Icon
 

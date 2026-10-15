@@ -1,5 +1,216 @@
 # Verification
 
+## Compact Process and Unified Thinking Preview (2026-10-15)
+
+The local unsigned 0.4.0 preview in
+`Desktop/release/interface-process-20261015/` supersedes the older interface
+packages below. It contains base `b5e98e3`, including current main `7b46a10`,
+plus the working-tree process-group and unified-thinking changes. Exact source
+hashes are recorded in the installer-adjacent `package-resource-check.json`.
+No public Release, upstream pin, permission policy or personal profile changed.
+
+Simple now combines consecutive thinking and ordinary tools into one process
+row between prose segments. It shows current activity while running and actual
+tool counts after completion; expansion retains all original records. Standard
+uses consecutive-tool groups, while Detailed restores individual tools and
+opens thinking only while that thought is active. Tools, prose or turn end
+automatically fold that thought; subsequent manual reopening remains respected.
+Errors, approval waits, missing results and dedicated Plan, question, Subagent,
+Workflow and peer-delivery surfaces remain separate.
+
+All thinking rows now use a Brain icon, the existing designed disclosure SVG,
+elapsed time and the same live/settled label component as tools. Settled children
+do not inherit a live group's shimmer. Previews remain single-line and clipped;
+the underlying Markdown and original history are unchanged.
+
+Final-source typecheck, production build and all 436 serial unit/protocol tests
+passed. Shared settings browser acceptance and general Electron acceptance also
+passed, including Standard's new grouping. General acceptance now explicitly
+opens groups before inspecting tools and waits for thinking's closing animation.
+The final packaged executable passed interface-preference and stream-motion
+acceptance, including active thinking expansion, automatic folding on tool
+arrival, manual reopening, long preview clipping, designed icons, independent
+shimmer, existing-history reapplication, persistence, keyboard and reduced motion.
+Plan review, structured questions and Workflow also passed during this iteration;
+those runs preceded the final shared-label-only polish.
+
+All 97 Desktop build files and 1157 runtime files match packaged resources.
+Runtime pin remains `3ba89e0c`, with Node v24.15.0 and its verified manifest hash.
+Installer size is 153346660 bytes; SHA-256 is
+`fcb15cf1fbd0388a093614be23546c1ff9ffbc9d51378d54100ed4a3bb7d29a0`.
+Update metadata matches installer size and SHA-512. Installer and application
+remain NotSigned. These deterministic local results do not establish paid-model
+acceptance, clean-machine installation or cloud CI for the unpushed changes.
+
+The normal Desktop shortcut now targets this preview with no arguments;
+its predecessor is backed up as
+`Desktop/test-results/interface-shortcut-before-process-20261015.lnk`.
+The running older app was preserved. Three local preview directories total
+approximately 2079 MiB, including two earlier packages of about 693 MiB each.
+No historical package was deleted without authorization. Screenshots include
+`interface-thinking-unified.png`, `interface-compact-process-live.png` and
+`interface-compact-process-dark.png` under `Desktop/test-results/`.
+
+## Reapplication Preview Package (2026-10-15)
+
+The unsigned local 0.4.0 preview at
+`Desktop/release/interface-presets-reapply-20261015/` contains application
+source `809f116`, including existing-history preset reapplication and main
+`7b46a10` (PR #123 live context statistics). This supersedes the source-only
+and older-package boundaries recorded below. Main integration conflicts were
+resolved without changing the upstream runtime pin or user workspace.
+
+After merging main, typecheck, production build and all 432 serial tests
+passed, as did all 12 CI-policy/runner tests. The final unpacked executable
+passed ten acceptance scripts: interface preferences, general Electron,
+stream motion, permission approval, Subagent, Workflow, structured question
+review, sidebar recovery, context panel and Windows commands. All 97 Desktop
+build files and 1157 runtime files match staged resources; helpers, terminal
+host, keyless adapter and Node hashes also match. Runtime retains pin
+`3ba89e0c` and Node v24.15.0.
+
+Installer `Desktop.for.Step.Code.Setup.0.4.0.exe` is 153376435 bytes, SHA-256
+`c36528e581b8677ebb4f85e42d3ac6f6c300db5786ba691f9fbcf4b495b7f49b`.
+Update metadata matches its size and SHA-512. Installer and unpacked app are
+NotSigned. The normal desktop shortcut targets this package without arguments;
+the prior shortcut is backed up as
+`Desktop/test-results/interface-shortcut-before-reapply-20261015.lnk`.
+The live older application was preserved. Both preview directories total
+about 1386 MiB and were inventoried without deletion.
+
+Package evidence is `Desktop/test-results/interface-package-resources.json`,
+the packaged acceptance logs and installer-adjacent `update-package-check.json`.
+These are local deterministic-fixture results, not paid-model or installer
+lifecycle acceptance. No public version or Release asset was changed; cloud
+CI is tracked independently on PR #124.
+
+## PR #124 CI Follow-Up (2026-10-15)
+
+The failing interface job used Playwright `check()` on a controlled switch
+whose value changes only after asynchronous preference persistence. Acceptance
+now clicks once and waits for both the checked and enabled states, then
+asserts the persisted IPC value. A deterministic 150ms persistence delay
+exercises this path locally; the complete interface regression passed twice.
+No production preference behavior or assertion was disabled.
+
+The runtime job assumed Git's internal `mingw64/bin/git.exe` layout.
+Git for Windows 2.56 moved x64 binaries to `ucrt64`; the portable Bash fixture
+now copies the installation marker from the actual supported prefix and fails
+if none exists. All five native command scenarios passed locally on the
+existing mingw64 installation, retaining real foreground/background execution,
+exit-code, log-ownership and no-fallback assertions. Typecheck and production
+build passed. These local results do not establish the rerun cloud result.
+
+## Existing-History Preset Reapplication (2026-10-15)
+
+Explicitly applying interface settings now resets existing thinking, ordinary
+tool and grouped-tool disclosure to the selected defaults, even when the old
+and new defaults match or the active preset is selected again. The main
+conversation, saved-reading preview and settings preview share this behavior.
+An ephemeral apply revision advances only after a successful preference write;
+equivalent preferences arriving in ordinary runtime snapshots do not reset
+manual disclosure. The revision is not persisted or sent to the model.
+
+The renderer updates disclosure state in place rather than remounting the
+transcript or reloading the page. Main-process runtime commands, original
+history, permissions and models are unchanged. New Electron regressions cover
+nine existing historical responses, same-preset reapplication, unchanged tool
+defaults, retained prose/thinking/tool DOM identity, stream-safe manual
+overrides, unchanged history and preserving an away-from-bottom reading view.
+These regressions and the shared settings browser acceptance passed locally.
+Typecheck, production build, general Electron and stream-motion acceptance
+also passed. The first full run passed 423/424 but hit the previously recorded
+terminal-count cleanup error and retained fixture processes; only that owned
+test subtree was terminated. Isolated terminal acceptance then passed 5/5.
+A subsequent complete serial run passed all 424 tests, with a 45-second
+per-test safety bound and no disabled tests or changed terminal assertions.
+Both full-run logs are retained under `Desktop/test-results/`.
+
+This follow-up is source-only. The package and desktop shortcut described
+below still contain `7c591f5` application source, not this reapplication change.
+No installer was rebuilt and no live user process was interrupted.
+
+## Interface complexity mapping (2026-10-15)
+
+Settings now persist presentation-only Simple, Standard, Detailed and Custom
+options in the Desktop profile. The main transcript and saved-reading preview
+share thinking/tool disclosure preferences; the performance strip can be hidden
+without stopping metric collection. All presets fold tool details. Simple also
+groups adjacent ordinary tools; Standard is the fallback for absent or invalid
+saved settings. Manual disclosure changes survive subsequent stream updates.
+
+Tool groups preserve prose/thinking/image/turn boundaries and leave approvals,
+failed or unreturned calls, Subagent, Workflow, Plan, structured questions and peer-delivery records
+separate. Summaries count reported operations rather than inventing validation
+results. Partial execution output is explicitly pending, not successful.
+The Settings preview renders the production conversation and performance
+components. Custom options can independently enable grouping or default
+expansion. No runtime policy, model, prompt, upstream source or personal profile
+is changed by these settings.
+
+Typecheck, production build, all 408 serial unit/protocol tests and eight CI
+runner tests passed locally. Browser acceptance checks shared-component preview,
+reduced prose spacing, presets, custom toggles, keyboard interaction, persistence,
+narrow English layout and reduced motion. Built-renderer Electron acceptance
+covers live settings mapping, partial-to-final tool summaries, approval/error
+visibility, manual disclosure overrides, custom group/tool expansion, invalid IPC
+input rejection, restart persistence and reset. General Electron, stream-motion,
+permission approval, Subagent and Workflow acceptance also passed locally.
+Both new acceptance scripts are registered in the interface CI group.
+
+These initial results are local isolated-fixture and protocol results, not cloud
+CI, paid-model or installer-lifecycle acceptance. At this initial verification
+stage no new package was built; see the subsequent packaged results below.
+The TODO entries remain open pending user acceptance and PR merge.
+
+### Combined Main Preview Package
+
+The unsigned local 0.4.0 preview at
+`Desktop/release/interface-presets-20261015/` includes fetched main `7e36e10`
+and interface-complexity source `7c591f5`. This retains the merged structured
+questionnaire Beta and project recovery/disclosure work. Tool grouping
+explicitly excludes pending and answered `clarify_user` records, with regression
+coverage. No upstream tracked source or pinned commit was changed.
+
+After merging main, typecheck, production build, all 424 serial unit/protocol
+tests and eight CI runner tests passed. The shared settings preview passed its
+browser acceptance again. The runtime was freshly compiled and staged from
+the matching isolated `step-code-v014` build source, with the current patch
+hashes, pin `3ba89e0c` and Node v24.15.0. Beta bridge validation passed.
+The first unit run overlapped runtime replacement and failed with missing
+runtime files; it is superseded by the complete 424-test pass after staging.
+
+All 97 Desktop build files and 1157 runtime files match the new package.
+Desktop helpers, terminal host, keyless adapter and Node hash also match.
+The update metadata matches the installer size and SHA-512. Installer:
+`Desktop.for.Step.Code.Setup.0.4.0.exe`, 153375311 bytes, SHA-256
+`79233236e8d97f58d661412a140b90319f16b281c9af89f9bdbdc98c24b2b0ed`.
+Both installer and unpacked executable are NotSigned. This local preview
+must not overwrite the published 0.4.0 installer.
+
+Packaged interface-preference and general Electron acceptance passed, including
+restart persistence, reset, IPC rejection, safe grouping, manual disclosure,
+themes and 640px layout. The first general run timed out waiting for the
+native resize; an isolated size probe and a complete rerun passed without
+relaxing the assertion. Failure diagnostics now include renderer/native
+geometry. Packaged stream-motion, permission approval and Subagent acceptance
+also passed, followed by Workflow, real-RPC structured-question review and
+sidebar project recovery/disclosure acceptance. All eight packaged checks
+passed using isolated profiles and deterministic services.
+
+The ordinary desktop shortcut now targets this package, with matching working
+directory/icon and no demo arguments. Its previous contents were backed up and
+the running sidebar-recovery preview was preserved. Exit that old client before
+launching the updated shortcut. Evidence is under `Desktop/test-results/`,
+including `interface-package-resources.json`, packaged regression logs,
+`interface-shortcut.json`, four-mode screenshots, and the installer-adjacent
+`update-package-check.json`.
+
+Rebuildable artifacts were inventoried: the new package is about 693 MiB,
+runtime 111 MiB, local dependencies 510 MiB, build output 8.5 MiB and terminal
+runtime 63 MiB. No obsolete packages were deleted. Cloud CI, paid-model and
+installer-lifecycle acceptance are not established by these local results.
+
 ## Live context statistics refresh (2026-10-15)
 
 The v0.4.0 runtime bridge refreshed statistics after maintenance or a full

@@ -14,6 +14,7 @@ import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
+import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { AuthVault } from './auth-vault';
@@ -1349,6 +1350,7 @@ async function handle(method: string, args: any[]) {
     }
     case 'preferences': {
       const patch = args[0] ?? {};
+      const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
       if (patch.appearance !== undefined) {
         if (!patch.appearance || typeof patch.appearance !== 'object' || Array.isArray(patch.appearance)) throw new Error('Invalid appearance settings');
         preferences.appearance = normalizeAppearance({ ...preferences.appearance, ...patch.appearance });
@@ -1376,6 +1378,7 @@ async function handle(method: string, args: any[]) {
         preferences.archivedSessionIds = patch.archivedSessionIds.map((id: unknown) => text(id, 200)).filter((id: string) => known.has(id));
       }
       Object.assign(preferences, sidebarPatch, updatePatch);
+      if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
       await savePreferences();
       updates.setChannel(preferences.updateChannel ?? 'preview');
       tray?.relabel();
@@ -1492,6 +1495,7 @@ else app.whenReady().then(async () => {
   await projectProviders(dataRoot, authData);
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
+  preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.updateChannel = preferences.updateChannel === 'stable' ? 'stable' : 'preview';
   preferences.autoCheckUpdates = preferences.autoCheckUpdates !== false;
   updates.setChannel(preferences.updateChannel);

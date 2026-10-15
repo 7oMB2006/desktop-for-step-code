@@ -1,7 +1,7 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { prepareSessionFixture } from './session-fixture.mjs';
@@ -18,10 +18,23 @@ for (const candidate of source) {
 assert.ok(git, 'Install Git for Windows before running this acceptance');
 // Copy real native Bash and its DLLs, not a mocked shell or a link back to the default install.
 const portable = join(scratch, 'Developer Tools', 'Portable Git');
-// Bash launchers locate the root by its architecture directory; no Git core binary is needed by this probe.
-for (const dir of ['bin', 'cmd', 'usr/bin', 'mingw64/bin', 'ucrt64/bin', 'etc']) await mkdir(join(portable, dir), { recursive: true });
+for (const dir of ['bin', 'cmd', 'usr/bin', 'etc']) await mkdir(join(portable, dir), { recursive: true });
 for (const file of ['bin/bash.exe', 'cmd/git.exe', 'usr/bin/bash.exe', 'usr/bin/sed.exe', 'usr/bin/sleep.exe', 'usr/bin/uname.exe', 'usr/bin/cygpath.exe'])
   await copyFile(join(git, file), join(portable, file));
+// The Bash launcher needs an installation marker; Git 2.56 moved x64 from mingw64 to ucrt64.
+const prefixes = [];
+for (const prefix of ['ucrt64', 'mingw64', 'mingw32', 'clangarm64', 'clang64']) {
+  const binary = join(prefix, 'bin', 'git.exe');
+  try { await access(join(git, binary)); } catch (error) {
+    if (error.code === 'ENOENT') continue;
+    throw error;
+  }
+  await mkdir(join(portable, prefix, 'bin'), { recursive: true });
+  await copyFile(join(git, binary), join(portable, binary));
+  prefixes.push(prefix);
+}
+assert.ok(prefixes.length, 'Portable Bash requires a real Git installation marker');
+console.log(`[windows-commands] copied Git layout: ${prefixes.join(', ')}`);
 for (const file of await readdir(join(git, 'usr/bin')))
   if (file.endsWith('.dll')) await copyFile(join(git, 'usr/bin', file), join(portable, 'usr/bin', file));
 const text = content => typeof content === 'string' ? content

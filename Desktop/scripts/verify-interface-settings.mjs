@@ -1,0 +1,98 @@
+import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import { chromium } from 'playwright';
+import { createServer } from 'vite';
+
+await mkdir('test-results', { recursive: true });
+let preview;
+let browser;
+try {
+  if (!process.env.DESKTOP_PREVIEW_URL) {
+    preview = await createServer({ server: { host: '127.0.0.1', port: 0 } });
+    await preview.listen();
+  }
+  const base = process.env.DESKTOP_PREVIEW_URL ?? preview.resolvedUrls.local[0].replace(/\/$/, '');
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const url = `${base}/tests/fixtures/interface-settings.html`;
+  await page.goto(url);
+  const modes = page.getByRole('region', { name: '界面复杂度', exact: true });
+  await modes.waitFor();
+  await page.waitForTimeout(400);
+  const proseGap = () => modes.locator('.response-text').evaluateAll(elements => elements[1].getBoundingClientRect().top - elements[0].getBoundingClientRect().bottom);
+  const standardGap = await proseGap();
+  await modes.getByRole('button', { name: '简洁', exact: true }).click();
+  assert.equal(await modes.getByRole('switch', { name: '显示性能与用量统计' }).isChecked(), false);
+  assert.equal(await modes.locator('.interface-preview-statistics').getAttribute('aria-hidden'), 'true');
+  assert.equal(await modes.locator('.interface-preview-controls').count(), 1);
+  assert.equal(await modes.locator('.thinking').getAttribute('data-expanded'), 'false');
+  assert.equal(await modes.locator('.tool-group-trigger').count(), 1);
+  assert.equal(await modes.locator('.tool-group-trigger').getAttribute('aria-expanded'), 'false');
+  await page.waitForTimeout(300);
+  assert.ok(await proseGap() < standardGap - 20, 'simple grouping must bring neighboring prose closer together');
+  const group = modes.locator('.tool-group-trigger');
+  await group.focus();
+  await group.press('Enter');
+  assert.equal(await group.getAttribute('aria-expanded'), 'true');
+  await group.press('Enter');
+  await page.screenshot({ path: 'test-results/interface-simple-light.png' });
+  await modes.getByRole('button', { name: '详细', exact: true }).click();
+  assert.equal(await modes.getByRole('switch', { name: '思考时展开，结束后收起' }).isChecked(), true);
+  assert.equal(await modes.getByRole('switch', { name: '工具详情默认展开' }).isChecked(), false);
+  assert.equal(await modes.getByRole('switch', { name: '显示性能与用量统计' }).isChecked(), true);
+  assert.equal(await modes.locator('.process-tool[open]').count(), 0);
+  assert.equal(await modes.locator('.tool-group-trigger').count(), 0);
+  assert.equal(await modes.locator('.interface-preview-statistics').getAttribute('aria-hidden'), 'false');
+  assert.ok(await modes.locator('.interface-preview-statistics').evaluate(el => el.getBoundingClientRect().top >= el.closest('.interface-preview').querySelector('.interface-preview-composer').getBoundingClientRect().bottom), 'statistics belong below the composer');
+  assert.equal(await modes.locator('.thinking').getAttribute('data-expanded'), 'false', 'completed thinking stays folded even in Detailed');
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('.settings-content').evaluate(el => el.scrollTop), 0, 'preset changes must not shift the settings scroll position');
+  await page.screenshot({ path: 'test-results/interface-detailed-light.png' });
+  assert.equal(await modes.locator('.performance-metric').count(), 4);
+  assert.ok(await modes.locator('.performance-summary').evaluate(el => {
+    const items = [...el.children].map(child => child.getBoundingClientRect());
+    const row = el.getBoundingClientRect();
+    return Math.abs((items[0].left + items.at(-1).right) / 2 - (row.left + row.right) / 2) < 2;
+  }), 'the four statistics must be centered');
+  const tokenMetric = modes.locator('.performance-metric').nth(2);
+  await tokenMetric.focus();
+  await page.getByRole('tooltip', { name: '本轮 Token：输入 / 输出，输入包含缓存读取与写入', exact: true }).waitFor();
+  await page.screenshot({ path: 'test-results/interface-token-tooltip.png' });
+  await tokenMetric.blur();
+  await page.mouse.move(0, 0);
+  await modes.locator('.interface-preview').screenshot({ path: 'test-results/performance-four-metrics-light.png' });
+  const thinking = modes.getByRole('switch', { name: '思考时展开，结束后收起' });
+  await thinking.focus();
+  await thinking.press('Space');
+  assert.equal(await thinking.isChecked(), false);
+  assert.equal(await modes.locator('.interface-custom.is-active').count(), 1);
+  assert.equal(await modes.locator('[aria-pressed="true"]').count(), 0);
+  await page.reload();
+  await modes.waitFor();
+  assert.equal(await modes.locator('.interface-custom.is-active').count(), 1);
+  assert.equal(await modes.getByRole('switch', { name: '工具详情默认展开' }).isChecked(), false);
+  await modes.getByRole('button', { name: '恢复标准预设' }).click();
+  assert.equal(await modes.getByRole('button', { name: '标准', exact: true }).getAttribute('aria-pressed'), 'true');
+  // Typography reset must not overwrite the separate interface draft.
+  await modes.getByRole('button', { name: '详细', exact: true }).click();
+  const navigation = page.getByRole('navigation', { name: '设置分类' });
+  await navigation.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '恢复默认排版' }).click();
+  await navigation.getByRole('button', { name: '界面复杂度', exact: true }).click();
+  assert.equal(await modes.getByRole('button', { name: '详细', exact: true }).getAttribute('aria-pressed'), 'true');
+  await page.setViewportSize({ width: 760, height: 880 });
+  await page.goto(`${url}?theme=dark&lang=en`);
+  const content = page.locator('.settings-content');
+  assert.ok(await content.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'narrow English settings must not overflow');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/interface-detailed-dark-narrow.png' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await page.locator('.interface-switch').first().evaluate(el => getComputedStyle(el).transitionDuration), '0s');
+  assert.deepEqual(errors, []);
+  console.log('Interface settings: shared conversation preview, presets, grouping density, custom toggles, keyboard, reload, reset isolation, narrow English and reduced motion passed.');
+} finally {
+  if (browser) await browser.close();
+  if (preview) await preview.close();
+}

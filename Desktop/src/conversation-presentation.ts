@@ -215,7 +215,7 @@ const toolLabels: Record<ToolKind, [string, string, string, string, string, stri
 };
 
 export function toolPresentation(name: string, result: Message | undefined, active: boolean, language: 'zh' | 'en') {
-  const state: ToolState = result ? (result.isError ? 'failed' : 'done') : active ? 'running' : 'missing';
+  const state: ToolState = result && !result.desktopToolPending ? (result.isError ? 'failed' : 'done') : active ? 'running' : 'missing';
   const kind = Object.hasOwn(toolKinds, name) ? toolKinds[name] : 'other';
   const zh = language === 'zh';
   const labels = toolLabels[kind];

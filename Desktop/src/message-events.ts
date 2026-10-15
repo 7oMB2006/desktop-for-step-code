@@ -65,6 +65,7 @@ export function applyToolResult(messages: Message[], event: RuntimeEvent): Messa
     toolName: typeof event.toolName === 'string' ? event.toolName : undefined,
     content: Array.isArray(source.content) ? source.content : typeof source.content === 'string' ? source.content : '',
     isError: event.type === 'tool_execution_end' ? Boolean(event.isError) : false,
+    desktopToolPending: event.type === 'tool_execution_update',
     timestamp: Date.now(),
     ...(source.details && typeof source.details === 'object' ? { details: source.details as Message['details'] } : {}),
   };

@@ -2,13 +2,15 @@ import { memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, u
 import { CommandCatalog, CommandReference, commandReference } from './CommandReference';
 import type { ComponentProps, Dispatch, ReactNode, SetStateAction } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
-import { ArrowRight, ArrowRightLeft, Bot, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, Bot, Brain, Check, ChevronRight, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, ModelChange, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
 import type { BackgroundSubagentStates, ResponseItem, SubagentTask } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
+import { ProcessRowLabel } from './ProcessRowLabel';
+import { DisclosureChevron } from './DisclosureChevron';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import { WorkflowBlock } from './WorkflowView';
 import { workflowsFromMessages } from './workflow-state';
@@ -24,9 +26,15 @@ import { isUserMessage } from './user-message';
 import { approvedPlan, planExecutionResponses } from './plan-execution';
 import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
+import { normalizeInterfaceSettings, type InterfacePreferences } from './interface-presets';
+import { groupConsecutiveTools, toolGroupLabel, type ToolItem } from './tool-groups';
+import { groupProcesses, liveThinkingKey, processGroupSummary, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
+import './tool-groups.css';
 import { QuestionTool } from './QuestionTool';
 
 type Props = {
+  interfaceSettings?: InterfacePreferences;
+  interfaceRevision?: number;
   runtimeId?: string;
   awaitingToolCalls?: string[];
   modelChanges?: ModelChange[];
@@ -41,7 +49,7 @@ type Props = {
   settledStatus?: ReactNode;
   completedStatus?: { responseIndex: number; content: ReactNode };
 };
-type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls'>;
+type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls' | 'interfaceSettings'> & { disclosureReset?: string };
 type EditState = { entryId: string; text: string; submitting: boolean };
 
 function CopyButton({ text, getText, language, onError }: { text: string; getText?: () => string } & Pick<Props, 'language' | 'onError'>) {
@@ -176,6 +184,9 @@ function Timestamp({ value, language }: { value?: number; language: 'zh' | 'en' 
 export function Tool({ item, active, ...props }: {
   item: Extract<ResponseItem, { type: 'tool' }>; active: boolean;
 } & BodyProps) {
+  const details = useRef<HTMLDetailsElement>(null);
+  const expanded = props.interfaceSettings?.toolsExpanded ?? false;
+  useLayoutEffect(() => { if (details.current) details.current.open = expanded; }, [expanded, props.disclosureReset]);
   const zh = props.language === 'zh';
   const name = item.call?.name ?? item.result?.toolName ?? (zh ? '工具' : 'Tool');
   const subject = toolSubject(item.call);
@@ -187,9 +198,9 @@ export function Tool({ item, active, ...props }: {
   const label = waiting ? (zh ? `等待批准 · ${name}` : `Awaiting approval · ${name}`) : presentation.label;
   const Icon = { command: Terminal, read: FileText, write: FilePenLine, edit: FilePenLine,
     search: Search, folder: FolderSearch, web: Globe, sessions: MessagesSquare, 'session-read': MessageSquare, 'session-send': Send, other: Wrench }[kind];
-  return <details className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state}>
+  return <details ref={details} className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state} onToggle={props.onLayoutChange}>
     <summary><Icon size={14}/>
-      <span className="process-tool-label">{label}{!waiting && <span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/>}</span>
+      <ProcessRowLabel label={label} running={state === 'running'}/>
       <ChevronRight size={13} className="disclosure-chevron"/>
     </summary>
     <div className="process-tool-content">
@@ -203,6 +214,48 @@ export function Tool({ item, active, ...props }: {
       <div className="process-tool-status">{state === 'done' && <Check size={12}/>}<span>{status}</span></div>
     </div>
   </details>;
+}
+
+function ToolGroup({ items, active, ...props }: { items: ToolItem[]; active: boolean } & BodyProps) {
+  const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const id = useId();
+  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded, props.disclosureReset]);
+  useLayoutEffect(() => { props.onLayoutChange?.(); }, [expanded]);
+  const running = items.some(item => !item.result || item.result.desktopToolPending);
+  const label = toolGroupLabel(items, props.language);
+  return <section className={`process-tool-group${running ? ' running' : ''}`} data-message-index={items[0].index}>
+    <button type="button" className="tool-group-trigger" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(value => !value)}>
+      {running ? <Wrench size={14}/> : <Check size={14}/>}
+      <ProcessRowLabel label={label} running={running}/>
+      <span className="tool-group-chevron"><DisclosureChevron/></span>
+    </button>
+    <div id={id} className={`tool-group-disclosure${expanded ? ' is-expanded' : ''}`} aria-hidden={!expanded} inert={!expanded}
+      onTransitionEnd={event => { if (event.target === event.currentTarget) props.onLayoutChange?.(); }}>
+      <div>{items.map(item => <Tool key={item.key} item={item} active={active} {...props}/>)}</div>
+    </div>
+  </section>;
+}
+function ProcessGroup({ group, children, ...props }: { group: ProcessGroupData; children: ReactNode } & BodyProps) {
+  const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const id = useId();
+  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded, props.disclosureReset]);
+  useLayoutEffect(() => { props.onLayoutChange?.(); }, [expanded]);
+  const { label, detail } = processGroupSummary(group, props.language);
+  const runningTool = group.items.some(item => item.type === 'tool' && (!item.result || item.result.desktopToolPending));
+  return <section className={`process-tool-group compact-process${group.running ? ' running' : ''}`} data-message-index={group.index}>
+    <button type="button" className="tool-group-trigger" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(value => !value)}>
+      {group.running ? runningTool ? <Wrench size={14}/> : <Brain size={14}/> : <Check size={14}/>}
+      <ProcessRowLabel label={label} running={group.running}/>
+      {!expanded && detail && <span className="process-group-preview">{detail}</span>}
+      <span className="tool-group-chevron"><DisclosureChevron/></span>
+    </button>
+    <div id={id} className={`tool-group-disclosure${expanded ? ' is-expanded' : ''}`} aria-hidden={!expanded} inert={!expanded}
+      onTransitionEnd={event => { if (event.target === event.currentTarget) props.onLayoutChange?.(); }}>
+      <div>{children}</div>
+    </div>
+  </section>;
 }
 function SubagentTaskRow({ task, onOpen, language }: {
   task: SubagentTask; onOpen: (task: SubagentTask) => void; language: 'zh' | 'en';
@@ -261,7 +314,10 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     onOpenSubagent: (task: SubagentTask) => void;
     onOpenWorkflow?: (id: string) => void;
   } & BodyProps) {
-    const { content, text, lastTextIndex } = responsePresentation(items);
+    const { content, text } = responsePresentation(items);
+    const liveThought = liveThinkingKey(content, active);
+    const presentation = props.interfaceSettings?.compactProcess ? groupProcesses(content, active, props.awaitingToolCalls)
+      : props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
     const changes = useMemo(() => turnChanges(active ? [] : items), [items, active]);
     const outputPaths = useMemo(() => active ? [] : turnOutputPaths(items), [items, active]);
     const finalItem = [...content].reverse().find(item => item.type === 'text');
@@ -278,10 +334,7 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
         total language={props.language}/>
       <Timestamp value={stamp} language={props.language}/>
     </footer>;
-    return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
-      {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
-      <div className="response-content message-body">{content.map((item, position) =>
-          item.type === 'tool'
+    const renderItem = (item: ResponseItem): ReactNode => item.type === 'tool'
             ? approvedPlan(item.result)
               ? <PlanExecution key={item.key} plan={approvedPlan(item.result)!} state={execution?.state ?? 'interrupted'} note language={props.language}/>
               : item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
@@ -298,13 +351,20 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
                 : <Tool key={item.key} item={item} active={active} {...props}/>
           : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
             elapsed={<ElapsedLabel timing={items.find(entry => entry.index === item.index)?.message.desktopTiming?.thinking[item.key.split(':')[1]]}
-              active={active} language={props.language}/>}
-            autoOpen={active && position > lastTextIndex} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
-            <Text text={item.block.thinking ?? ''} streaming={active && position > lastTextIndex} {...props}/>
+              active={item.key === liveThought} language={props.language}/>}
+            autoOpen={Boolean(props.interfaceSettings?.thinkingExpanded && item.key === liveThought)}
+            running={item.key === liveThought} preview={thinkingPreview(item.block.thinking ?? '', item.key === liveThought)}
+            resetKey={props.disclosureReset} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
+            <Text text={item.block.thinking ?? ''} streaming={item.key === liveThought} {...props}/>
           </ThinkingDisclosure>
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
-              : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>
-      )}</div>
+              : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>;
+    return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
+      {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
+      <div className="response-content message-body">{presentation.map(item =>
+        item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} {...props}>{item.items.map(renderItem)}</ProcessGroup>
+          : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} {...props}/>
+            : renderItem(item))}</div>
       {!active && <TurnArtifacts text={finalProse} outputPaths={outputPaths} language={props.language}/>}
       {!active && <TurnChanges changes={changes} runtimeId={runtimeId} language={props.language} onError={props.onError}/>}
     {actions && (settledStatus || execution) ? <div className="assistant-footer-row working working-idle">{actions}
@@ -387,6 +447,9 @@ function UserMessage({ message, index, arriving, editState, setEditState, ...pro
   </article>;
 }
 export function ConversationMessages(props: Props) {
+  const interfaceSettings = useMemo(() => normalizeInterfaceSettings(props.interfaceSettings), [props.interfaceSettings]);
+  // Snapshot object identities change during streaming; only settings or an explicit apply reset disclosure.
+  const disclosureReset = JSON.stringify([interfaceSettings, props.interfaceRevision ?? 0]);
   const [editState, setEditState] = useState<EditState | null>(null);
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
   const executions = useMemo(() => planExecutionResponses(props.messages, props.busy), [props.messages, props.busy]);
@@ -407,7 +470,7 @@ export function ConversationMessages(props: Props) {
     const settledStatus = hasSettledFooter && index === entries.length - 1 ? props.settledStatus : undefined;
     const completedStatus = props.completedStatus?.responseIndex === entry.index ? props.completedStatus.content : undefined;
     return <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
-      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props} execution={executions.get(entry.index)}
+      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props} interfaceSettings={interfaceSettings} disclosureReset={disclosureReset} execution={executions.get(entry.index)}
       settledStatus={completedStatus ? <>{completedStatus}{settledStatus}</> : settledStatus}/>;
   })}{props.settledStatus && !hasSettledFooter && <div className="working working-idle">{props.settledStatus}</div>}</>;
 }

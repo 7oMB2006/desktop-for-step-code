@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { Brain } from 'lucide-react';
+import { DisclosureChevron } from './DisclosureChevron';
+import { ProcessRowLabel } from './ProcessRowLabel';
 
-export function ThinkingDisclosure({ autoOpen, index, label, elapsed, children, onLayoutChange }: {
-  autoOpen: boolean; index: number; label: string; elapsed?: ReactNode; children: ReactNode; onLayoutChange?: () => void;
+export function ThinkingDisclosure({ autoOpen, running, preview, resetKey, index, label, elapsed, children, onLayoutChange }: {
+  autoOpen: boolean; running?: boolean; preview?: string; resetKey?: string; index: number; label: string; elapsed?: ReactNode; children: ReactNode; onLayoutChange?: () => void;
 }) {
   const [expanded, setExpanded] = useState(autoOpen);
-  const previousAuto = useRef(autoOpen);
   const initialized = useRef(false);
   const details = useRef<HTMLDetailsElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -14,11 +15,13 @@ export function ThinkingDisclosure({ autoOpen, index, label, elapsed, children, 
   const notify = useRef(onLayoutChange);
   useLayoutEffect(() => { notify.current = onLayoutChange; });
   useEffect(() => {
-    if (previousAuto.current !== autoOpen) {
-      previousAuto.current = autoOpen;
-      setExpanded(autoOpen);
-    }
-  }, [autoOpen]);
+    setExpanded(autoOpen);
+  }, [autoOpen, resetKey]);
+  const wasRunning = useRef(running);
+  useEffect(() => {
+    if (wasRunning.current && !running) setExpanded(false);
+    wasRunning.current = running;
+  }, [running]);
   useLayoutEffect(() => {
     const panel = details.current!;
     const content = body.current!;
@@ -51,9 +54,11 @@ export function ThinkingDisclosure({ autoOpen, index, label, elapsed, children, 
   useEffect(() => () => {
     animation.current?.cancel();
   }, []);
-  return <details className="thinking" ref={details} data-message-index={index} data-expanded={expanded}>
+  return <details className="thinking" ref={details} data-message-index={index} data-expanded={expanded} data-running={running || undefined}>
     <summary onClick={event => { event.preventDefault(); setExpanded(value => !value); }} aria-expanded={expanded}>
-      <ChevronRight size={13} className="disclosure-chevron"/>{label}{elapsed}
+      <Brain size={14} aria-hidden="true"/><ProcessRowLabel label={label} running={Boolean(running)}/>{elapsed}
+      {!expanded && preview && <span className="thinking-preview">{preview}</span>}
+      <span className="thinking-chevron"><DisclosureChevron/></span>
     </summary>
     <div ref={body} className="thinking-body" aria-hidden={!expanded} inert={!expanded}>{children}</div>
   </details>;

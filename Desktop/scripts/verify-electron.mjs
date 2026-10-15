@@ -613,7 +613,12 @@ try {
   await page.mouse.move(0, 0);
   await ring.evaluate(element => { delete element.dataset.tooltip; });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 640));
-  await page.waitForFunction(() => innerWidth <= 640);
+  try { await page.waitForFunction(() => innerWidth <= 640); }
+  catch (error) {
+    console.error('Narrow viewport diagnostic', await page.evaluate(() => ({ width: innerWidth, height: innerHeight, ratio: devicePixelRatio })),
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({ bounds: window.getBounds(), content: window.getContentBounds(), maximized: window.isMaximized() }))));
+    throw error;
+  }
   assert.equal(await page.locator('.composer-tools').evaluate(element => element.scrollWidth <= element.clientWidth), true);
   await permissionTrigger.click();
   assert.equal(await permissionMenu.evaluate(element => {
@@ -1159,6 +1164,7 @@ try {
   await presentationUser.getByRole('button', { name: '复制', exact: true }).press('Enter');
   assert.equal(await app.evaluate(() => globalThis.messageCopyTest.values.at(-1)), '检查项目入口，说明这次做了哪些改动。');
   await presentationResponse.scrollIntoViewIfNeeded();
+  await content.locator('.tool-group-trigger').click();
   for (const theme of ['light', 'dark']) {
     await page.locator('.sidebar-bottom > button').click();
     await page.getByRole('button', { name: '通用', exact: true }).click();
@@ -1217,11 +1223,13 @@ try {
     ] } });
   });
   const liveResponse = page.locator('.message.assistant').last();
+  await liveResponse.locator('.process-tool[data-tool-state="running"]').first().waitFor({ state: 'attached' });
+  await liveResponse.locator('.tool-group-trigger').click();
   const liveCommand = liveResponse.locator('.process-tool').first();
   const liveWrite = liveResponse.locator('.process-tool').nth(1);
   await liveCommand.locator('summary').getByText('正在运行命令', { exact: true }).waitFor();
   assert.equal(await liveResponse.locator('.assistant-actions').count(), 0);
-  assert.notEqual(await liveResponse.locator('.thinking').getAttribute('open'), null);
+  assert.equal(await liveResponse.locator('.thinking').getAttribute('open'), null, 'standard preset keeps live thinking collapsed');
   assert.equal(await liveResponse.locator('.response-process').count(), 0);
   assert.equal(await liveCommand.getAttribute('data-tool-state'), 'running');
   assert.equal(await liveCommand.locator('summary').getByText('fixture-command', { exact: true }).count(), 0);
@@ -1229,12 +1237,12 @@ try {
   assert.equal(await shimmer.evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'running');
   await liveResponse.scrollIntoViewIfNeeded();
   await page.waitForFunction(() => {
-    const label = document.querySelector('.message.assistant:last-of-type .process-tool-label');
+    const label = document.querySelector('.message.assistant:last-of-type .process-tool > summary .process-tool-label');
     return label && getComputedStyle(label).transform !== 'matrix(1, 0, 0, 1, 0, 0)';
   });
   const initialPosition = await shimmer.evaluate(element => getComputedStyle(element, '::before').backgroundPosition);
   await page.waitForFunction(position => {
-    const element = document.querySelector('.message.assistant:last-of-type .tool-summary-shimmer');
+    const element = document.querySelector('.message.assistant:last-of-type .process-tool > summary .tool-summary-shimmer');
     return getComputedStyle(element, '::before').backgroundPosition !== position;
   }, initialPosition);
   await page.screenshot({ path: 'test-results/transcript-tool-running.png' });
@@ -1252,7 +1260,7 @@ try {
   assert.equal(await liveWrite.locator('.tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused');
   assert.equal(await liveCommand.getAttribute('data-tool-state'), 'running', 'a completed sibling must not stop a pending call');
   await page.waitForFunction(() => {
-    const label = document.querySelectorAll('.message.assistant:last-of-type .process-tool-label')[1];
+    const label = document.querySelectorAll('.message.assistant:last-of-type .process-tool > summary .process-tool-label')[1];
     return getComputedStyle(label).transform === 'matrix(1, 0, 0, 1, 0, 0)';
   });
   await liveWrite.locator(':scope > summary').click();
@@ -1267,7 +1275,7 @@ try {
     send({ type: 'message_start', message: { role: 'assistant', content: [] } });
     send({ type: 'message_update', assistantMessageEvent: { type: 'text_start', contentIndex: 0 } });
   });
-  assert.notEqual(await liveResponse.locator('.thinking').getAttribute('open'), null, 'an empty text_start must not hide thinking');
+  assert.equal(await liveResponse.locator('.thinking').getAttribute('open'), null, 'an empty text_start must not override the selected disclosure default');
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
       type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '先记录检查进度。' },
@@ -1297,11 +1305,12 @@ try {
   assert.equal(await liveCommand.getAttribute('data-tool-state'), 'failed');
   assert.equal(await shimmer.evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused');
   await page.waitForFunction(() => {
-    const label = document.querySelector('.message.assistant:last-of-type .process-tool-label');
+    const label = document.querySelector('.message.assistant:last-of-type .process-tool > summary .process-tool-label');
     return getComputedStyle(label).transform === 'matrix(1, 0, 0, 1, 0, 0)';
   });
   assert.equal(await liveCommand.locator(':scope > summary').evaluate(element => getComputedStyle(element).color),
     await liveCommand.locator('.process-tool-status').evaluate(element => getComputedStyle(element).color));
+  await page.waitForFunction(() => !document.querySelector('.message.assistant:last-of-type .thinking')?.open);
   assert.equal(await liveResponse.locator('.thinking').getAttribute('open'), null);
   await liveResponse.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/transcript-live.png' });

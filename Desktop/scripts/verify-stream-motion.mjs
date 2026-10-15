@@ -80,10 +80,16 @@ try {
     { type: 'message_start', message: { role: 'assistant', content: [{ type: 'thinking', thinking: '逐项检查组件状态与流式事件，保留可见内容与实际执行过程。\n\n'.repeat(12) }] } },
   ]);
   const thinking = page.locator('.thinking').last();
+  // Standard now starts folded; explicitly open it to exercise the same animation.
+  await thinking.locator('summary').click();
   await thinking.locator('.thinking-body').waitFor({ state: 'visible' });
+  await thinking.locator('.thinking-body').evaluate(async element => {
+    await Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => {})));
+  });
   const fullHeight = await thinking.boundingBox();
   assert.ok(fullHeight.height > 250);
   await delta('正文开始出现，思考区会平滑收起。');
+  await thinking.locator('summary').click();
   await thinking.evaluate(element => {
     const tween = element.querySelector('.thinking-body').getAnimations()[0];
     if (!tween) throw new Error('Missing thinking collapse animation');

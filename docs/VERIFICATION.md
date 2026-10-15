@@ -1,5 +1,38 @@
 # Verification
 
+## Interface complexity mapping (2026-10-15)
+
+Settings now persist presentation-only Simple, Standard, Detailed and Custom
+options in the Desktop profile. The main transcript and saved-reading preview
+share thinking/tool disclosure preferences; the performance strip can be hidden
+without stopping metric collection. All presets fold tool details. Simple also
+groups adjacent ordinary tools; Standard is the fallback for absent or invalid
+saved settings. Manual disclosure changes survive subsequent stream updates.
+
+Tool groups preserve prose/thinking/image/turn boundaries and leave approvals,
+failed or unreturned calls, Subagent, Workflow, Plan and peer-delivery records
+separate. Summaries count reported operations rather than inventing validation
+results. Partial execution output is explicitly pending, not successful.
+The Settings preview renders the production conversation and performance
+components. Custom options can independently enable grouping or default
+expansion. No runtime policy, model, prompt, upstream source or personal profile
+is changed by these settings.
+
+Typecheck, production build, all 408 serial unit/protocol tests and eight CI
+runner tests passed locally. Browser acceptance checks shared-component preview,
+reduced prose spacing, presets, custom toggles, keyboard interaction, persistence,
+narrow English layout and reduced motion. Built-renderer Electron acceptance
+covers live settings mapping, partial-to-final tool summaries, approval/error
+visibility, manual disclosure overrides, custom group/tool expansion, invalid IPC
+input rejection, restart persistence and reset. General Electron, stream-motion,
+permission approval, Subagent and Workflow acceptance also passed locally.
+Both new acceptance scripts are registered in the interface CI group.
+
+These are local isolated-fixture and protocol results, not cloud CI, paid-model
+or installer-lifecycle acceptance. No new package was built; the installed
+preview and desktop shortcut remain unchanged. The TODO entries remain open
+pending user acceptance and PR merge.
+
 ## Performance strip and matrix working states (2026-10-14)
 
 PR #115 follow-up (2026-10-15): the runtime CI failure was an outdated

@@ -1,0 +1,13 @@
+.process-tool-group { margin: 4px 0; min-width: 0; }
+.tool-group-trigger { display: flex; justify-content: flex-start; width: fit-content; max-width: 100%; min-height: 34px; padding: 3px 0; border: 0; background: transparent; color: var(--muted); font-size: 13px; text-align: left; }
+.tool-group-trigger > span { min-width: 0; overflow-wrap: anywhere; }
+.tool-group-trigger:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.tool-group-chevron { display: flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform .24s cubic-bezier(.215,.61,.355,1); }
+.tool-group-trigger[aria-expanded="true"] > .tool-group-chevron { transform: rotate(0); }
+.process-tool-group.running .process-tool-label { transform: skewX(-8deg); }
+.process-tool-group.running .tool-summary-shimmer { opacity: .8; }
+.process-tool-group.running .tool-summary-shimmer::before { animation-play-state: running; }
+.tool-group-disclosure { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows .24s cubic-bezier(.215,.61,.355,1), opacity .2s ease, visibility .24s; }
+.tool-group-disclosure.is-expanded { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
+.tool-group-disclosure > div { min-height: 0; overflow: hidden; padding-left: 18px; }
+@media (prefers-reduced-motion: reduce) { .tool-group-disclosure, .tool-group-chevron { transition: none; } .process-tool-group.running .tool-summary-shimmer { opacity: 0; } }

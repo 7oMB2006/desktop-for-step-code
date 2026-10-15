@@ -9,6 +9,7 @@ import { backgroundSubagentStates, conversationEntries, messageBlocks, messageTe
 import type { BackgroundSubagentStates, ResponseItem, SubagentTask } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
+import { DisclosureChevron } from './DisclosureChevron';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import { WorkflowBlock } from './WorkflowView';
 import { workflowsFromMessages } from './workflow-state';
@@ -24,8 +25,12 @@ import { isUserMessage } from './user-message';
 import { approvedPlan, planExecutionResponses } from './plan-execution';
 import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
+import { normalizeInterfaceSettings, type InterfacePreferences } from './interface-presets';
+import { groupConsecutiveTools, toolGroupLabel, type ToolItem } from './tool-groups';
+import './tool-groups.css';
 
 type Props = {
+  interfaceSettings?: InterfacePreferences;
   runtimeId?: string;
   awaitingToolCalls?: string[];
   modelChanges?: ModelChange[];
@@ -40,7 +45,7 @@ type Props = {
   settledStatus?: ReactNode;
   completedStatus?: { responseIndex: number; content: ReactNode };
 };
-type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls'>;
+type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls' | 'interfaceSettings'>;
 type EditState = { entryId: string; text: string; submitting: boolean };
 
 function CopyButton({ text, getText, language, onError }: { text: string; getText?: () => string } & Pick<Props, 'language' | 'onError'>) {
@@ -175,6 +180,9 @@ function Timestamp({ value, language }: { value?: number; language: 'zh' | 'en' 
 export function Tool({ item, active, ...props }: {
   item: Extract<ResponseItem, { type: 'tool' }>; active: boolean;
 } & BodyProps) {
+  const details = useRef<HTMLDetailsElement>(null);
+  const expanded = props.interfaceSettings?.toolsExpanded ?? false;
+  useLayoutEffect(() => { if (details.current) details.current.open = expanded; }, [expanded]);
   const zh = props.language === 'zh';
   const name = item.call?.name ?? item.result?.toolName ?? (zh ? '工具' : 'Tool');
   const subject = toolSubject(item.call);
@@ -185,7 +193,7 @@ export function Tool({ item, active, ...props }: {
   const label = waiting ? (zh ? `等待批准 · ${name}` : `Awaiting approval · ${name}`) : presentation.label;
   const Icon = { command: Terminal, read: FileText, write: FilePenLine, edit: FilePenLine,
     search: Search, folder: FolderSearch, web: Globe, sessions: MessagesSquare, 'session-read': MessageSquare, 'session-send': Send, other: Wrench }[kind];
-  return <details className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state}>
+  return <details ref={details} className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state} onToggle={props.onLayoutChange}>
     <summary><Icon size={14}/>
       <span className="process-tool-label">{label}{!waiting && <span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/>}</span>
       <ChevronRight size={13} className="disclosure-chevron"/>
@@ -201,6 +209,27 @@ export function Tool({ item, active, ...props }: {
       <div className="process-tool-status">{state === 'done' && <Check size={12}/>}<span>{status}</span></div>
     </div>
   </details>;
+}
+
+function ToolGroup({ items, active, ...props }: { items: ToolItem[]; active: boolean } & BodyProps) {
+  const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const id = useId();
+  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded]);
+  useLayoutEffect(() => { props.onLayoutChange?.(); }, [expanded]);
+  const running = items.some(item => !item.result || item.result.desktopToolPending);
+  const label = toolGroupLabel(items, props.language);
+  return <section className={`process-tool-group${running ? ' running' : ''}`} data-message-index={items[0].index}>
+    <button type="button" className="tool-group-trigger" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(value => !value)}>
+      {running ? <Wrench size={14}/> : <Check size={14}/>}
+      <span className="process-tool-label">{label}<span className="tool-summary-shimmer" data-label={label} aria-hidden="true"/></span>
+      <span className="tool-group-chevron"><DisclosureChevron/></span>
+    </button>
+    <div id={id} className={`tool-group-disclosure${expanded ? ' is-expanded' : ''}`} aria-hidden={!expanded} inert={!expanded}
+      onTransitionEnd={event => { if (event.target === event.currentTarget) props.onLayoutChange?.(); }}>
+      <div>{items.map(item => <Tool key={item.key} item={item} active={active} {...props}/>)}</div>
+    </div>
+  </section>;
 }
 function SubagentTaskRow({ task, onOpen, language }: {
   task: SubagentTask; onOpen: (task: SubagentTask) => void; language: 'zh' | 'en';
@@ -260,6 +289,7 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     onOpenWorkflow?: (id: string) => void;
   } & BodyProps) {
     const { content, text, lastTextIndex } = responsePresentation(items);
+    const presentation = props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
     const changes = useMemo(() => turnChanges(active ? [] : items), [items, active]);
     const outputPaths = useMemo(() => active ? [] : turnOutputPaths(items), [items, active]);
     const finalItem = [...content].reverse().find(item => item.type === 'text');
@@ -278,8 +308,9 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     </footer>;
     return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
-      <div className="response-content message-body">{content.map((item, position) =>
-          item.type === 'tool'
+      <div className="response-content message-body">{presentation.map(item =>
+          item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} {...props}/>
+          : item.type === 'tool'
             ? approvedPlan(item.result)
               ? <PlanExecution key={item.key} plan={approvedPlan(item.result)!} state={execution?.state ?? 'interrupted'} note language={props.language}/>
               : item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
@@ -297,8 +328,8 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
           : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
             elapsed={<ElapsedLabel timing={items.find(entry => entry.index === item.index)?.message.desktopTiming?.thinking[item.key.split(':')[1]]}
               active={active} language={props.language}/>}
-            autoOpen={active && position > lastTextIndex} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
-            <Text text={item.block.thinking ?? ''} streaming={active && position > lastTextIndex} {...props}/>
+            autoOpen={props.interfaceSettings?.thinkingExpanded ?? false} label={zh ? '思考' : 'Thinking'} onLayoutChange={props.onLayoutChange}>
+            <Text text={item.block.thinking ?? ''} streaming={active && content.indexOf(item) > lastTextIndex} {...props}/>
           </ThinkingDisclosure>
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
               : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>
@@ -385,6 +416,7 @@ function UserMessage({ message, index, arriving, editState, setEditState, ...pro
   </article>;
 }
 export function ConversationMessages(props: Props) {
+  const interfaceSettings = useMemo(() => normalizeInterfaceSettings(props.interfaceSettings), [props.interfaceSettings]);
   const [editState, setEditState] = useState<EditState | null>(null);
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
   const executions = useMemo(() => planExecutionResponses(props.messages, props.busy), [props.messages, props.busy]);
@@ -405,7 +437,7 @@ export function ConversationMessages(props: Props) {
     const settledStatus = hasSettledFooter && index === entries.length - 1 ? props.settledStatus : undefined;
     const completedStatus = props.completedStatus?.responseIndex === entry.index ? props.completedStatus.content : undefined;
     return <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
-      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props} execution={executions.get(entry.index)}
+      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props} interfaceSettings={interfaceSettings} execution={executions.get(entry.index)}
       settledStatus={completedStatus ? <>{completedStatus}{settledStatus}</> : settledStatus}/>;
   })}{props.settledStatus && !hasSettledFooter && <div className="working working-idle">{props.settledStatus}</div>}</>;
 }

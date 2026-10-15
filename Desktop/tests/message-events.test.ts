@@ -115,6 +115,7 @@ test('partial results are replaced in place, never duplicated, and errors only c
   });
   assert.equal(messages.filter(m => m.role === 'toolResult').length, 1, 'a repeat update must not orphan the earlier result');
   assert.equal(messages[0].isError, false, 'a partial is never an error');
+  assert.equal(messages[0].desktopToolPending, true, 'a partial must not be summarized as completed');
   assert.equal((messages[0].details?.results as { messages: unknown[] }[])[0].messages.length, 1);
   messages = applyToolResult(messages, {
     type: 'tool_execution_end', toolCallId: 'c1', toolName: 'subagent', isError: true,
@@ -122,6 +123,7 @@ test('partial results are replaced in place, never duplicated, and errors only c
   });
   assert.equal(messages.filter(m => m.role === 'toolResult').length, 1);
   assert.equal(messages[0].isError, true);
+  assert.equal(messages[0].desktopToolPending, false);
   assert.equal(messages[0].details, undefined, 'the final event without details clears the partial details');
 });
 

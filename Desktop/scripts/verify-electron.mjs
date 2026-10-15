@@ -1208,7 +1208,7 @@ try {
   const liveWrite = liveResponse.locator('.process-tool').nth(1);
   await liveCommand.locator('summary').getByText('正在运行命令', { exact: true }).waitFor();
   assert.equal(await liveResponse.locator('.assistant-actions').count(), 0);
-  assert.notEqual(await liveResponse.locator('.thinking').getAttribute('open'), null);
+  assert.equal(await liveResponse.locator('.thinking').getAttribute('open'), null, 'standard preset keeps live thinking collapsed');
   assert.equal(await liveResponse.locator('.response-process').count(), 0);
   assert.equal(await liveCommand.getAttribute('data-tool-state'), 'running');
   assert.equal(await liveCommand.locator('summary').getByText('fixture-command', { exact: true }).count(), 0);
@@ -1254,7 +1254,7 @@ try {
     send({ type: 'message_start', message: { role: 'assistant', content: [] } });
     send({ type: 'message_update', assistantMessageEvent: { type: 'text_start', contentIndex: 0 } });
   });
-  assert.notEqual(await liveResponse.locator('.thinking').getAttribute('open'), null, 'an empty text_start must not hide thinking');
+  assert.equal(await liveResponse.locator('.thinking').getAttribute('open'), null, 'an empty text_start must not override the selected disclosure default');
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
       type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '先记录检查进度。' },

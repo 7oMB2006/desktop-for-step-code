@@ -9,7 +9,7 @@ import { conversationEntries } from './conversation-presentation';
 import { planExecutionResponses } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
 import { PlanReview } from './PlanReview';
-import { ClipboardCheck } from 'lucide-react';
+import { ClipboardCheck, SlidersHorizontal } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
@@ -62,6 +62,8 @@ import { ProviderSettings } from './ProviderSettings';
 import { NewSession } from './NewSession';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
 import { AppearanceSettings } from './AppearanceSettings';
+import { InterfaceSettings } from './InterfaceSettings';
+import { normalizeInterfaceSettings } from './interface-presets';
 import { applyAppearance } from './appearance';
 import { TerminalPanel } from './TerminalPanel';
 import { BrowserPanel } from './BrowserPanel';
@@ -92,6 +94,7 @@ function App() {
   const appUpdate = useAppUpdates(bridge);
   const updateAvailable = appUpdate?.updateAvailable === true;
   const [data, setData] = useState(initial);
+  const interfaceSettings = useMemo(() => normalizeInterfaceSettings(data.preferences.interfaceSettings), [data.preferences.interfaceSettings]);
   useEffect(() => { applyAppearance(data.preferences.appearance); }, [data.preferences.appearance]);
   const messageRevision = useRef(new MessageRevision());
   const latestData = useRef(data);
@@ -1204,7 +1207,7 @@ function App() {
           }}>
           {navigationTarget ? navigationTarget.reading ? <div className="messages session-reading-preview" ref={transcript} inert>
             <ConversationMessages key={`session-${navigationTarget.session.id}`} messages={navigationTarget.reading.messages} modelChanges={navigationTarget.reading.modelChanges}
-              language={data.preferences.language} busy={false} canEdit={false}
+              language={data.preferences.language} busy={false} canEdit={false} interfaceSettings={interfaceSettings}
               openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError}
               onLayoutChange={followLayout} arrivingUser={null} onOpenSubagent={openSubagent}/>
           </div> : <div className="session-reading-placeholder" aria-hidden="true"><span/><span/><span/></div>
@@ -1214,7 +1217,7 @@ function App() {
             onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
             <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
-              settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
+              interfaceSettings={interfaceSettings} settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
             {(busy || data.state?.isCompacting) && <div className="working">
               <WorkingIndicator language={data.preferences.language} mode={requests.length || reviewPlan || planFeedback ? 'waiting' : data.state?.isCompacting ? 'compacting' : runMetrics?.phase ?? 'executing'}
                 elapsedMs={runMetrics && runMetrics.finishedAt === undefined ? clock - runMetrics.startedAt : undefined}>
@@ -1314,7 +1317,7 @@ function App() {
               disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}
               onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
-        </div></ComposerMenu><PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>
+        </div></ComposerMenu>{interfaceSettings.performanceVisible && <PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>}
         </div>
         <PermissionApproval key={data.runtimeId ?? 'empty'} requestId={requests[0]?.id} presentation={permissionApproval} open={Boolean(permissionApproval && approvalOpen && !navigationTarget)}
           language={data.preferences.language} onLater={() => setApprovalOpen(false)} onRespond={respond}/>
@@ -1445,8 +1448,8 @@ function App() {
         </div>
       </div>
     </div>}
-    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'archived' ? ' archive-tab' : ''}`} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
-      {tab === 'appearance' ? <AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
+    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'archived' ? ' archive-tab' : ''}`} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
+      {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
         onOpen={id => { closeSettings(); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
         onRestore={id => run(() => updateArchive(id, true)).then(() => {})} onDelete={deleteArchived}/> : <>

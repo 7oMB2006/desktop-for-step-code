@@ -1,0 +1,39 @@
+.interface-settings { padding-bottom: 22px; }
+.interface-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 22px; }
+.interface-heading h3 { margin: 0; }
+.interface-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 26px; align-items: start; }
+.interface-controls { min-width: 0; }
+.interface-preset-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.interface-presets { display: flex; padding: 3px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.settings-content .interface-presets button { min-width: 57px; min-height: 30px; justify-content: center; border: 0; border-radius: 4px; padding: 5px 10px; background: transparent; color: var(--muted); transition: background .2s ease, color .2s ease; }
+.settings-content .interface-presets button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 4px #00000012; }
+.settings-content .interface-presets button:hover { color: var(--ink); background: var(--surface); }
+.interface-custom { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); visibility: hidden; }
+.interface-custom.is-active { visibility: visible; color: var(--primary); }
+.interface-option { position: relative; display: flex; align-items: center; gap: 12px; justify-content: space-between; min-height: 44px; margin: 0; border-bottom: 1px solid var(--border); }
+.interface-option:last-child { border-bottom: 0; }
+.interface-option > span:first-child { min-width: 0; }
+.interface-option input { position: absolute; right: 0; width: 32px; height: 20px; opacity: 0; cursor: pointer; margin: 0; z-index: 1; }
+.interface-switch { width: 32px; height: 18px; border-radius: 9px; flex-shrink: 0; background: var(--border); transition: background .2s ease; }
+.interface-switch::after { content: ''; display: block; width: 14px; height: 14px; margin: 2px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px #0003; transition: transform .2s cubic-bezier(.215,.61,.355,1); }
+.interface-option input:checked + .interface-switch { background: var(--primary); }
+.interface-option input:checked + .interface-switch::after { transform: translateX(14px); background: white; }
+.interface-option input:focus-visible + .interface-switch { outline: 2px solid var(--primary); outline-offset: 3px; }
+.interface-preview { min-height: 320px; padding: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font-size: 12px; overflow-anchor: none; }
+.interface-preview-label { display: block; color: var(--muted); margin-bottom: 15px; }
+.interface-preview .message { margin: 0; }
+.interface-preview .message-actions { display: none; }
+.interface-preview .message-body { font-size: 12px; line-height: 1.65; }
+.interface-preview .process-tool > summary, .interface-preview .tool-group-trigger, .interface-preview .response-content > .thinking { font-size: 12px; }
+.interface-preview .process-tool-content { margin-left: 6px; padding-left: 6px; }
+.interface-preview-composer { border: 1px solid var(--border); border-radius: 5px; padding: 10px; margin-top: 18px; }
+.interface-preview-placeholder { display: block; color: var(--muted); margin-bottom: 20px; }
+.interface-preview-controls { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.interface-preview-model { margin-left: auto; min-width: 0; }
+.interface-preview-stats-slot { min-height: 24px; padding-top: 4px; }
+.interface-preview-statistics { opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility .2s; }
+.interface-preview-statistics.is-visible { opacity: 1; visibility: visible; }
+.interface-preview-statistics .performance-bar { margin: 0; min-height: 24px; }
+.interface-preview-statistics .performance-summary { font-size: 10px; gap: 3px 10px; }
+@media (max-width: 860px) { .interface-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+@media (prefers-reduced-motion: reduce) { .interface-settings *, .interface-settings *::after { transition: none !important; } }

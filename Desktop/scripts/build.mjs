@@ -11,6 +11,7 @@ for (const name of ['file-associations.cs', 'file-associations.ps1'])
   await cp(`electron/${name}`, `dist/file-opening/${name}`);
 for (const [source, name] of [
   ['@number-flow/react/LICENSE.md', 'number-flow-react.txt'],
+  ['react-colorful/LICENSE', 'react-colorful.txt'],
   ['number-flow/LICENSE.md', 'number-flow.txt'],
   ['esm-env/LICENSE', 'esm-env.txt'],
   ['@xterm/xterm/LICENSE', 'xterm.txt'],

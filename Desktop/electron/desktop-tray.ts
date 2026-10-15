@@ -15,7 +15,7 @@ export class DesktopTray {
 
   constructor(icon: string, private readonly language: () => 'zh' | 'en',
     private readonly open: () => void, private readonly quit: () => void,
-    private readonly options: { theme: () => 'light' | 'dark'; quitting: () => boolean; noFocus?: boolean; devUrl?: string;
+    private readonly options: { theme: () => 'light' | 'dark'; colors?: () => TrayMenuState['colors']; quitting: () => boolean; noFocus?: boolean; devUrl?: string;
       onError: (error: unknown) => void }) {
     this.tray = new Tray(icon);
     this.tray.on('click', () => { this.hide(); open(); });
@@ -29,7 +29,7 @@ export class DesktopTray {
   }
 
   private state(): TrayMenuState {
-    return { language: this.language(), theme: this.options.theme(), visible: this.visible, origin: this.origin };
+    return { language: this.language(), theme: this.options.theme(), colors: this.options.colors?.(), visible: this.visible, origin: this.origin };
   }
   private trusted(event: IpcMainEvent) {
     return this.menu && !this.menu.isDestroyed() && event.sender === this.menu.webContents

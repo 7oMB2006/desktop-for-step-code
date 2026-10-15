@@ -1,4 +1,4 @@
-.launch-status-trigger { display: flex; align-items: center; justify-content: center; gap: 5px; flex: 0 0 auto; height: 29px; min-height: 29px; padding: 4px 7px; border: 0; background: color-mix(in oklch, var(--primary) 8%, transparent); color: var(--primary); border-radius: 5px; animation: launch-status-enter 180ms cubic-bezier(.22,1,.36,1); }
+.launch-status-trigger { display: flex; align-items: center; justify-content: center; gap: 5px; flex: 0 0 auto; height: 29px; min-height: 29px; padding: 4px 7px; border: 0; background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--primary); border-radius: 5px; animation: launch-status-enter 180ms cubic-bezier(.22,1,.36,1); }
 .launch-status-trigger[data-goal-state="complete"] { color: var(--green); }
 .launch-status-pulse { min-height: 24px; height: 24px; padding: 2px 5px; background: transparent; font-size: 12px; min-width: 0; }
 .launch-status-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }

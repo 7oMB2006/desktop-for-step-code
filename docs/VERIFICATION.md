@@ -211,6 +211,54 @@ runtime 111 MiB, local dependencies 510 MiB, build output 8.5 MiB and terminal
 runtime 63 MiB. No obsolete packages were deleted. Cloud CI, paid-model and
 installer-lifecycle acceptance are not established by these local results.
 
+## Six themes and independent accents (2026-10-15)
+
+Appearance now offers Light, Paper, Dark, Blue, Wine and Jade, plus system
+following. Each palette defines its own surfaces and text hierarchy. An
+independent accent can be selected from presets or an inline color picker.
+Picker edits preview immediately; cancel, Escape and leaving Appearance
+restore the saved color. Applied preferences survive restart. Accent
+normalization accepts only opaque three- or six-digit HEX, and rendered
+accents are adjusted for text contrast without changing the saved value.
+Success, failure and interrupted-state colors remain independent.
+
+Main-process window backgrounds, preload/bootstrap first paint, renderer,
+tray and terminal use the resolved palette. Scheme-prefixed tokens preserve
+existing light/dark fixture switching. Transparent blends in settings and
+approval surfaces use sRGB to avoid Chromium's neutral-hue OKLCH tint.
+
+Typecheck, production build, three theme unit tests and twelve CI policy and
+runner tests passed. Serial isolated-profile Electron acceptance passed for
+appearance, theme bootstrap, settings dialog, desktop tray, terminal panel,
+general Electron and context panel. Coverage includes all six palettes,
+system changes, first-frame/restart persistence, accent validation,
+preview/cancel/apply, independent semantic colors, Paper sidebar pixels,
+typography and narrow layouts. Screenshots are in
+`Desktop/test-results/theme-*.png`.
+
+These are local UI and deterministic integration checks, not full-suite,
+paid-model or installer lifecycle qualification. No installer, shortcut,
+commit, PR or release was produced by this source-only change.
+
+The visual follow-up adopts the six approved Chinese names and the Light and
+Shadow / Between Mountains and Seas group names, with quieter concept-derived
+palettes. The hue track uses a muted spectrum and a short rectangular thumb;
+the saturation/value control retains accurate color selection. HEX inputs
+shrink into the space remaining beside their swatch instead of overflowing
+their flex row. Focus outlines are inset, with explicit wide/narrow acceptance
+assertions for both the input and its entire outline. Typecheck, build, theme
+unit tests and Appearance acceptance passed again after this follow-up.
+
+Theme tiles now have a larger solid circle clipped by both right and bottom
+edges, with its center inside the tile rather than on the corner, and with
+the selection mark moved to the upper right. Shared color tokens transition
+over 360ms with cubic easing; component geometry transitions are unchanged.
+The first paint is immediate and reduced motion disables color interpolation.
+Appearance acceptance samples an intermediate color frame and verifies cubic
+timing, final colors and the reduced-motion path. Terminal color refresh also
+listens for color-transition completion/cancellation, so its canvas does not
+retain the pre-transition palette.
+
 ## Live context statistics refresh (2026-10-15)
 
 The v0.4.0 runtime bridge refreshed statistics after maintenance or a full

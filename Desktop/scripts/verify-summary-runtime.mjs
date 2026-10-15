@@ -163,8 +163,8 @@ try {
   assert.equal(await board.locator('.sb-task-shell').first().evaluate(element => getComputedStyle(element).transitionDuration), '0s', 'Reduced motion disables task transitions');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.locator('.sidebar-bottom > button').click();
-  await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('light');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '亮', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await board.locator('.sb-mcp-trigger').click();
   await page.waitForTimeout(400);

@@ -229,7 +229,18 @@ try {
   await write("Clear-Host; Get-ChildItem; Write-Output ('终端' + '已就绪')\r");
   await page.waitForTimeout(250);
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
-  await page.waitForTimeout(250);
+  await page.waitForFunction(() => {
+    const root = document.documentElement;
+    const viewport = document.querySelector('.terminal-view:not([hidden]) .xterm-scrollable-element');
+    return viewport && !root.getAnimations().some(animation => animation.playState === 'running') &&
+      getComputedStyle(viewport).backgroundColor === getComputedStyle(root).getPropertyValue('--bg').trim();
+  }).catch(async error => {
+    console.log(await page.evaluate(() => ({
+      background: getComputedStyle(document.documentElement).getPropertyValue('--bg'),
+      terminalBackground: document.querySelector('.terminal-view:not([hidden]) .xterm-scrollable-element')?.getAttribute('style'),
+    })));
+    throw error;
+  });
   await page.screenshot({ path: 'test-results/terminal-panel-dark.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 760));
   await page.waitForTimeout(400);

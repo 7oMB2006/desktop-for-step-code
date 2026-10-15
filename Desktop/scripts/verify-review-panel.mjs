@@ -213,8 +213,8 @@ try {
   assert.equal(await git('status', '--porcelain'), statusBefore);
   assert.deepEqual(await readFile(join(repo, '.git', 'index')), index);
   await page.locator('.sidebar-bottom > button').click();
-  await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('dark');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await panel.getByRole('button', { name: '预览变更 src/stream.ts', exact: true }).click();

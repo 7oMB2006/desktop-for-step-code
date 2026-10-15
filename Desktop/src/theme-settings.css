@@ -1,0 +1,67 @@
+.theme-settings { padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+.theme-heading, .accent-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.theme-heading h3, .accent-heading h4 { margin: 0; }
+.theme-system { font-size: 12px; min-height: 30px; padding: 5px 8px; border-color: transparent; background: transparent; color: var(--muted); }
+.theme-system[aria-pressed=true] { color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--bg)); }
+.theme-group { border: 0; min-width: 0; padding: 0; margin: 16px 0 0; }
+.theme-group legend { padding: 0; margin-bottom: 9px; font-size: 12px; color: var(--muted); }
+.theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.theme-tile { position: relative; isolation: isolate; flex-direction: column; gap: 0; min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); background: var(--bg); color: var(--ink); border-radius: 7px; }
+.theme-tile::after { content: ''; position: absolute; width: 72px; height: 72px; right: -22px; bottom: -30px; border-radius: 50%; background: var(--theme-corner); opacity: .48; pointer-events: none; z-index: -1; }
+.theme-tile:hover:not(:disabled) { background: var(--bg); border-color: var(--muted); }
+.theme-tile[aria-pressed=true] { outline: 2px solid var(--primary); outline-offset: 2px; }
+.theme-tile:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.theme-miniature { display: flex; width: 100%; height: 68px; border-bottom: 1px solid var(--border); pointer-events: none; }
+.theme-mini-sidebar { display: flex; flex-direction: column; gap: 6px; width: 27%; padding: 14px 7px; background: var(--side); }
+.theme-mini-sidebar i { display: block; height: 3px; width: 85%; background: var(--muted); opacity: .4; border-radius: 1px; }
+.theme-mini-sidebar i:first-child { background: var(--primary); opacity: 1; }
+.theme-mini-chat { display: flex; flex-direction: column; gap: 5px; flex: 1; padding: 13px 11px 8px; }
+.theme-mini-chat > i { height: 3px; width: 75%; background: var(--muted); opacity: .45; border-radius: 1px; }
+.theme-mini-chat > i:first-child { width: 43%; background: var(--ink); opacity: .85; }
+.theme-mini-chat > i:nth-child(3) { width: 55%; }
+.theme-mini-chat > span { display: flex; justify-content: flex-end; align-items: center; margin-top: auto; height: 14px; padding: 3px; background: var(--surface); border-radius: 3px; }
+.theme-mini-chat b { width: 8px; height: 8px; border-radius: 2px; background: var(--primary); }
+.theme-tile-label { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 7px 10px; font-size: 12px; }
+.theme-tile-label svg { opacity: 0; color: var(--primary); }
+.theme-tile-label > span { min-width: 0; text-align: left; }
+.theme-tile-title { display: block; font-size: 13px; line-height: 1.6; }
+.theme-tile-caption { display: block; font-size: 11px; line-height: 1.6; color: var(--muted); }
+.theme-tile-label svg { position: absolute; top: 7px; right: 7px; width: 18px; height: 18px; padding: 2px; border-radius: 50%; background: var(--bg); flex-shrink: 0; }
+.theme-tile-caption { padding-right: 60px; }
+.theme-tile[aria-pressed=true] .theme-tile-label svg { opacity: 1; }
+.accent-heading { margin-top: 20px; }
+.accent-heading h4 { font-size: 13px; font-weight: 500; }
+.accent-swatches { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 7px; }
+.accent-swatch { width: 28px; height: 28px; min-height: 28px; padding: 4px; border: 0; border-radius: 50%; background: var(--swatch); color: var(--swatch-ink); }
+.accent-swatch:hover:not(:disabled) { background: var(--swatch); }
+.accent-swatch svg { opacity: 0; }
+.accent-swatch[aria-pressed=true] { outline: 1px solid var(--ink); outline-offset: 3px; }
+.accent-swatch[aria-pressed=true] svg { opacity: 1; }
+.accent-custom { width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; background: transparent; }
+.accent-custom[aria-expanded=true] { border-color: var(--primary); color: var(--primary); }
+.accent-value { margin-left: auto; color: var(--muted); font-family: var(--code-font); font-size: 11px; }
+.accent-disclosure { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 220ms cubic-bezier(.22,1,.36,1); }
+.accent-disclosure.is-open { grid-template-rows: 1fr; }
+.accent-disclosure > div { min-height: 0; overflow: hidden; }
+.accent-editor { display: flex; gap: 20px; padding: 20px 4px 4px; }
+.accent-editor .react-colorful { width: 240px; max-width: 100%; height: 170px; flex: 0 1 240px; }
+.accent-editor .react-colorful__saturation { border-radius: 6px; border-bottom: 0; margin-bottom: 14px; }
+.accent-editor .react-colorful__hue { height: 20px; flex-shrink: 0; border-radius: 5px; background: linear-gradient(to right, #c9859b, #c4b881, #85b58c, #79b6b7, #8e96c4, #bc8eb5, #c9859b); }
+.accent-editor .react-colorful__pointer { width: 16px; height: 16px; }
+.accent-editor .react-colorful__hue-pointer { width: 7px; height: 14px; border: 0; border-radius: 2px; background: #fff1df; box-shadow: 0 0 0 1px #30282226; }
+.accent-editor .react-colorful__hue-pointer .react-colorful__pointer-fill { display: none; }
+.accent-editor-controls { flex: 1; min-width: 130px; max-width: 220px; display: flex; flex-direction: column; }
+.accent-editor-controls label { color: var(--muted); font-size: 11px; margin: 0 0 7px; }
+.accent-hex-field { display: flex; align-items: center; gap: 8px; }
+.accent-hex-field > span { width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 4px; flex-shrink: 0; }
+.accent-hex-field input { flex: 1; min-width: 0; width: 0; font-family: var(--code-font); padding: 7px; }
+.accent-hex-field input:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.accent-hex-field input[aria-invalid=true] { border-color: var(--danger); }
+.accent-editor-actions { margin-top: auto; display: flex; justify-content: flex-end; gap: 6px; padding-top: 18px; flex-wrap: wrap; }
+@media(max-width:740px) {
+  .theme-grid { gap: 9px; }
+  .accent-editor { flex-wrap: wrap; }
+  .accent-editor-controls { max-width: none; }
+  .theme-mini-chat { padding-left: 6px; padding-right: 6px; }
+}
+@media(prefers-reduced-motion:reduce) { .accent-disclosure { transition: none; } }

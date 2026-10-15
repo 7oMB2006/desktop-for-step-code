@@ -146,7 +146,8 @@ try {
   await sort.selectOption('manual');
   await page.waitForFunction(() => document.querySelector('[data-reorder-id="sidebar-2"]').parentElement.firstElementChild.dataset.reorderId === 'sidebar-2');
   await page.screenshot({ path: 'test-results/sidebar-order-settings.png' });
-  await page.getByLabel('主题').selectOption('dark');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.screenshot({ path: 'test-results/sidebar-order-dark.png' });
   await page.locator('.sidebar').screenshot({ path: 'test-results/sidebar-order-dark-detail.png' });

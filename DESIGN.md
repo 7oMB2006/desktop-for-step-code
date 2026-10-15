@@ -147,7 +147,7 @@ Main conversations and saved-reading previews use the same presentation.
 Manual disclosure choices survive subsequent streaming updates; only a changed
 default or newly mounted record reapplies that default. Grouped tools never
 cross prose, thinking, image or turn boundaries. Approval, error, missing-result,
-Subagent, Workflow, Plan and peer-delivery records remain separate. Group
+Subagent, Workflow, Plan, structured questions and peer-delivery records remain separate. Group
 summaries count actual operations without model-generated narration or inferred
 validation success. Partial tool output remains pending until the final event.
 Expanding a group retains its trigger and uses cubic motion with a reduced-motion

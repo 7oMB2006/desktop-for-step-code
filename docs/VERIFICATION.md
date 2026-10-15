@@ -10,7 +10,7 @@ groups adjacent ordinary tools; Standard is the fallback for absent or invalid
 saved settings. Manual disclosure changes survive subsequent stream updates.
 
 Tool groups preserve prose/thinking/image/turn boundaries and leave approvals,
-failed or unreturned calls, Subagent, Workflow, Plan and peer-delivery records
+failed or unreturned calls, Subagent, Workflow, Plan, structured questions and peer-delivery records
 separate. Summaries count reported operations rather than inventing validation
 results. Partial execution output is explicitly pending, not successful.
 The Settings preview renders the production conversation and performance
@@ -28,10 +28,58 @@ input rejection, restart persistence and reset. General Electron, stream-motion,
 permission approval, Subagent and Workflow acceptance also passed locally.
 Both new acceptance scripts are registered in the interface CI group.
 
-These are local isolated-fixture and protocol results, not cloud CI, paid-model
-or installer-lifecycle acceptance. No new package was built; the installed
-preview and desktop shortcut remain unchanged. The TODO entries remain open
-pending user acceptance and PR merge.
+These initial results are local isolated-fixture and protocol results, not cloud
+CI, paid-model or installer-lifecycle acceptance. At this initial verification
+stage no new package was built; see the subsequent packaged results below.
+The TODO entries remain open pending user acceptance and PR merge.
+
+### Combined Main Preview Package
+
+The unsigned local 0.4.0 preview at
+`Desktop/release/interface-presets-20261015/` includes fetched main `7e36e10`
+and interface-complexity source `7c591f5`. This retains the merged structured
+questionnaire Beta and project recovery/disclosure work. Tool grouping
+explicitly excludes pending and answered `clarify_user` records, with regression
+coverage. No upstream tracked source or pinned commit was changed.
+
+After merging main, typecheck, production build, all 424 serial unit/protocol
+tests and eight CI runner tests passed. The shared settings preview passed its
+browser acceptance again. The runtime was freshly compiled and staged from
+the matching isolated `step-code-v014` build source, with the current patch
+hashes, pin `3ba89e0c` and Node v24.15.0. Beta bridge validation passed.
+The first unit run overlapped runtime replacement and failed with missing
+runtime files; it is superseded by the complete 424-test pass after staging.
+
+All 97 Desktop build files and 1157 runtime files match the new package.
+Desktop helpers, terminal host, keyless adapter and Node hash also match.
+The update metadata matches the installer size and SHA-512. Installer:
+`Desktop.for.Step.Code.Setup.0.4.0.exe`, 153375311 bytes, SHA-256
+`79233236e8d97f58d661412a140b90319f16b281c9af89f9bdbdc98c24b2b0ed`.
+Both installer and unpacked executable are NotSigned. This local preview
+must not overwrite the published 0.4.0 installer.
+
+Packaged interface-preference and general Electron acceptance passed, including
+restart persistence, reset, IPC rejection, safe grouping, manual disclosure,
+themes and 640px layout. The first general run timed out waiting for the
+native resize; an isolated size probe and a complete rerun passed without
+relaxing the assertion. Failure diagnostics now include renderer/native
+geometry. Packaged stream-motion, permission approval and Subagent acceptance
+also passed, followed by Workflow, real-RPC structured-question review and
+sidebar project recovery/disclosure acceptance. All eight packaged checks
+passed using isolated profiles and deterministic services.
+
+The ordinary desktop shortcut now targets this package, with matching working
+directory/icon and no demo arguments. Its previous contents were backed up and
+the running sidebar-recovery preview was preserved. Exit that old client before
+launching the updated shortcut. Evidence is under `Desktop/test-results/`,
+including `interface-package-resources.json`, packaged regression logs,
+`interface-shortcut.json`, four-mode screenshots, and the installer-adjacent
+`update-package-check.json`.
+
+Rebuildable artifacts were inventoried: the new package is about 693 MiB,
+runtime 111 MiB, local dependencies 510 MiB, build output 8.5 MiB and terminal
+runtime 63 MiB. No obsolete packages were deleted. Cloud CI, paid-model and
+installer-lifecycle acceptance are not established by these local results.
 
 ## Supplemental recovery review (2026-10-15)
 

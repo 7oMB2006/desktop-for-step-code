@@ -613,7 +613,12 @@ try {
   await page.mouse.move(0, 0);
   await ring.evaluate(element => { delete element.dataset.tooltip; });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 640));
-  await page.waitForFunction(() => innerWidth <= 640);
+  try { await page.waitForFunction(() => innerWidth <= 640); }
+  catch (error) {
+    console.error('Narrow viewport diagnostic', await page.evaluate(() => ({ width: innerWidth, height: innerHeight, ratio: devicePixelRatio })),
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({ bounds: window.getBounds(), content: window.getContentBounds(), maximized: window.isMaximized() }))));
+    throw error;
+  }
   assert.equal(await page.locator('.composer-tools').evaluate(element => element.scrollWidth <= element.clientWidth), true);
   await permissionTrigger.click();
   assert.equal(await permissionMenu.evaluate(element => {

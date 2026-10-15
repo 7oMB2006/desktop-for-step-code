@@ -344,6 +344,7 @@ select:disabled { cursor: not-allowed; opacity: .45; }
 .brand > .icon-button { display: none; }
 .conversation-shell { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
 main { position: relative; }
+.main-content { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .conversation { flex: 1; min-width: 0; padding-inline: 14px; scrollbar-width: none; }
 .conversation::-webkit-scrollbar { display: none; }
 .conversation-scroll-track {

@@ -291,10 +291,12 @@ try {
     assert.equal(await disclosure.getAttribute('aria-hidden'), 'false');
     assert.equal(await disclosure.evaluate(element => element.inert), false);
     await toggle.click();
+    await page.waitForFunction(name => [...document.querySelectorAll('.workspace-toggle')].find(button => button.getAttribute('aria-label') === name)?.getAttribute('aria-expanded') === 'false', toggleName);
     assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
     assert.equal(await disclosure.getAttribute('aria-hidden'), 'true');
     assert.equal(await disclosure.evaluate(element => element.inert), true);
     await toggle.click();
+    await page.waitForFunction(name => [...document.querySelectorAll('.workspace-toggle')].find(button => button.getAttribute('aria-label') === name)?.getAttribute('aria-expanded') === 'true', toggleName);
     assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
     assert.equal(await disclosure.getAttribute('aria-hidden'), 'false');
   }
@@ -302,9 +304,11 @@ try {
   const projectDisclosure = disclosureCases[1].region.locator('.workspace-disclosure');
   assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 1);
   await projectToggle.click();
+  await page.waitForFunction(() => document.querySelector('.workspace-toggle[aria-label="中文项目 with spaces"]')?.getAttribute('aria-expanded') === 'false');
   assert.equal(await projectToggle.locator('svg.lucide-folder').count(), 1);
   assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 0);
   await projectToggle.click();
+  await page.waitForFunction(() => document.querySelector('.workspace-toggle[aria-label="中文项目 with spaces"]')?.getAttribute('aria-expanded') === 'true');
   assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 1);
   await projectToggle.click({ button: 'right' });
   const context = page.locator('.sidebar-context');
@@ -854,8 +858,10 @@ try {
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
   assert.equal(await firstGroup.getByRole('button', { name: 'Second session', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.workspace-toggle[aria-label="中文项目 with spaces"]')?.getAttribute('aria-expanded') === 'false');
   assert.equal(await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.workspace-toggle[aria-label="中文项目 with spaces"]')?.getAttribute('aria-expanded') === 'true');
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'Second session' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&

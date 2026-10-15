@@ -157,7 +157,7 @@ try {
   assert.ok(Math.abs((await panel.boundingBox()).width - initialWidth) < 2, 'standard mode restores the normal width');
   await chooseWidth('fullscreen');
   assert.equal(await widthControl.getAttribute('data-width'), 'fullscreen');
-  assert.equal(await page.locator('main').evaluate(element => element.inert), true);
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), true);
   await panel.getByRole('button', { name: '还原侧栏', exact: true }).click();
   await page.waitForTimeout(350);
   assert.equal(await widthControl.getAttribute('data-width'), 'standard', 'fullscreen menu restores the selected width mode');
@@ -172,7 +172,7 @@ try {
     }
     return frames;
   });
-  assert.equal(await page.locator('main').evaluate(element => element.inert), true);
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), true);
   const rect = await panel.boundingBox();
   const sidebar = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.app')).getPropertyValue('--sidebar-track')));
   assert.ok(Math.abs(rect.x - sidebar) < 1);

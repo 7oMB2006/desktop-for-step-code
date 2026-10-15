@@ -207,6 +207,9 @@ try {
     const snapshot = await window.desktop.snapshot();
     return JSON.stringify([...(snapshot.preferences.collapsedWorkspaces ?? [])].sort()) === JSON.stringify(expected);
   }, [key(projects[2]), '__independent__'].sort());
+  await page.waitForFunction(keys => keys.every(key =>
+    document.querySelector(`[data-reorder-id="${key}"] .workspace-toggle`)?.getAttribute('aria-expanded') === 'true'),
+  [key(projects[0]), key(projects[1])]);
   assert.equal(await project(page, 0).locator('.workspace-toggle').getAttribute('aria-expanded'), 'true');
   assert.equal(await project(page, 1).locator('.workspace-toggle').getAttribute('aria-expanded'), 'true');
   await project(page, 2).locator('.workspace-toggle').click();
@@ -231,6 +234,9 @@ try {
   await page.waitForFunction(path => getComputedStyle(document.querySelector(`[data-reorder-id="${path}"] .workspace-heading > .icon-button`)).opacity === '1', key(projects[2]));
   const relocated = join(profile, 'Research renamed');
   const railTop = await page.locator('.right-tool-rail').evaluate(element => element.getBoundingClientRect().top);
+  await page.evaluate(path => window.desktop.beginSession(path), projects[2]);
+  await page.reload();
+  await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
   await rename(projects[2], relocated);
   await project(page, 2).locator('.workspace-toggle').click();
   await page.waitForFunction(key => document.querySelector(`[data-reorder-id="${key}"] .workspace-toggle`)?.getAttribute('aria-expanded') === 'false', key(projects[2]));
@@ -258,6 +264,22 @@ try {
   await page.reload();
   await banner.waitFor();
   assert.match(await banner.innerText(), /Research/);
+  mark('warning controls above an expanded inspector');
+  await page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true }).click();
+  const contextPanel = page.locator('#context-panel');
+  // The high-priority warning can cover the inspector header; use its keyboard control.
+  await contextPanel.getByRole('button', { name: '全屏查看', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('.main-content').inert);
+  assert.equal(await banner.evaluate(element => !!element.closest('[inert]')), false);
+  await banner.getByRole('button', { name: '关闭', exact: true }).focus();
+  assert.equal(await banner.getByRole('button', { name: '关闭', exact: true }).evaluate(button => button === document.activeElement), true);
+  await page.screenshot({ path: 'test-results/sidebar-warning-expanded-inspector.png' });
+  await banner.getByRole('button', { name: '移除项目', exact: true }).click();
+  const expandedRemoval = page.getByRole('dialog', { name: '移除项目', exact: true });
+  await expandedRemoval.waitFor();
+  await expandedRemoval.getByRole('button', { name: '取消', exact: true }).click();
+  await expandedRemoval.waitFor({ state: 'detached' });
   await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });
   await banner.getByRole('button', { name: '重新定位', exact: true }).click();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaces.includes(projects[2]), true);
@@ -265,6 +287,11 @@ try {
   await banner.getByRole('button', { name: '重新定位', exact: true }).click();
   await banner.waitFor({ state: 'detached' });
   await page.waitForFunction(path => !!document.querySelector(`[data-reorder-id="${path}"]`), key(relocated));
+  await page.locator(`[data-reorder-kind="workspace"][data-reorder-id="${key(relocated)}"] [data-reorder-id="sidebar-4"]`).waitFor();
+  assert.equal(await page.locator(`[data-reorder-id="${key(projects[2])}"]`).count(), 0,
+    'draft relocation refreshes catalog grouping before another snapshot');
+  await contextPanel.getByRole('button', { name: '还原侧栏', exact: true }).focus();
+  await page.keyboard.press('Enter');
   await session(page, 4).locator('button').first().click();
   await page.waitForFunction(() => document.querySelector('.session-row.selected')?.dataset.reorderId === 'sidebar-4');
   await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled &&

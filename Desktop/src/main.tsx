@@ -327,7 +327,7 @@ function App() {
     let quiet: ReturnType<typeof setTimeout> | undefined;
     let motions: Animation[] = [];
     const resize = () => {
-      const elements = [...app.querySelectorAll<HTMLElement>('.conversation-shell, .composer-wrap, main > .conversation-scroll-track')];
+      const elements = [...app.querySelectorAll<HTMLElement>('.conversation-shell, .composer-wrap, .main-content > .conversation-scroll-track')];
       const centers = elements.map(element => {
         const rect = element.getBoundingClientRect();
         return rect.x + rect.width / 2;
@@ -1242,7 +1242,7 @@ function App() {
       <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
-    <main inert={settingsOpen || Boolean(removeProject) || inspectorExpanded}
+    <main inert={settingsOpen || Boolean(removeProject)}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
@@ -1255,6 +1255,7 @@ function App() {
         </>}
         <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
       </div>}
+      <div className="main-content" inert={inspectorExpanded}>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
       {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && !reviewQuestion && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
@@ -1403,6 +1404,7 @@ function App() {
       </div>
       <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
         sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
+      </div>
     </main>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
       enabled={connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}

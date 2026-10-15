@@ -289,7 +289,7 @@ try {
   await toggle.click();
   await panel.waitFor();
   assert.equal(await panel.getByRole('button', { name: '全屏查看', exact: true }).count(), 1);
-  assert.equal(await page.locator('main').evaluate(element => element.inert), false);
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), false);
   assert.deepEqual(errors, []);
   await writeFile('test-results/review-close-frames.json', JSON.stringify(frames, null, 2));
   console.log('Review passed: real Git and RPC edits, scopes, base switch, immutable index/history, IPC guards, native radio-menu construction/selection/cancel, themes, narrow layouts, cubic close, reduced motion, and selectable non-Git branch empty state retained after refresh. Native OS menu clicks are simulated through main-process hooks. No paid model or real profile used.');

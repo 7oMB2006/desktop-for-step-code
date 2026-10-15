@@ -878,7 +878,11 @@ async function handle(method: string, args: any[]) {
         if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
         if (draftSelected || active || recoverStartup) {
           transition = false;
-          return draftSelected || recoverStartup ? await beginSession(destination) : await connect(destination, activeFile, false);
+          if (draftSelected || recoverStartup) {
+            await listSessions();
+            return await beginSession(destination);
+          }
+          return await connect(destination, activeFile, false);
         }
         return await snapshot();
       } finally { transition = false; }

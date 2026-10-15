@@ -1,5 +1,28 @@
 # Verification
 
+## Supplemental recovery review (2026-10-15)
+
+Relocating a project from its selected draft now refreshes the session catalog
+before returning the draft snapshot. Its existing histories immediately appear
+in the destination group rather than disappearing until a later refresh.
+Expanded inspectors disable only `.main-content`; project warnings remain
+operable while the covered transcript/composer stay inert. The warning remains
+inside main, above the inspector, without moving the fixed right rail.
+
+The runtime CI failure on `3c87da2` was an immediate post-click disclosure
+assertion. Disclosure now saves asynchronously; acceptance waits for the
+matching committed UI state before retaining its original assertions.
+The rapid-click sidebar regression also waits for the renderer after verifying
+the main-process snapshot.
+
+Typecheck, build and 64 focused unit tests passed. Serial Electron acceptance
+passed for sidebar recovery/disclosure, main Electron, review, context,
+browser, real PowerShell terminal, cross-session operations and fixed settings.
+The sidebar case selects a draft before relocation and checks destination
+history DOM before requesting a new snapshot; the expanded inspector case
+checks warning focus, removal/cancel and directory-picker cancel/recovery.
+No retries, disabled tests or relaxed assertions were added.
+
 ## Sidebar disclosure persistence (2026-10-15)
 
 Project and independent-group disclosure now lives in Desktop preferences

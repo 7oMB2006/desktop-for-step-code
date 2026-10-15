@@ -104,7 +104,7 @@ try {
   const cancelled = await snapshot();
   assert.equal(cancelled.messages.length, 0);
   assert.equal(cancelled.permissionPreset, 'ask');
-  assert.equal(await page.locator('.error-banner, .modal-error').count(), 0, 'Intentional draft cancellation is not an error');
+  assert.equal(await page.locator('.error-banner, .app-error-banner, .modal-error').count(), 0, 'Intentional draft cancellation is not an error');
 
   for (const cancel of ['option', 'escape']) {
     await choose('完全访问');
@@ -116,7 +116,7 @@ try {
     assert.equal((await snapshot()).permissionPreset, 'ask');
     assert.equal(modelCalls, 0, 'Cancelling a live permission change never calls the model');
     assert.equal(await input().evaluate(element => element.value), 'VERIFY-WRITE-CANCELLED');
-    assert.equal(await page.locator('.error-banner, .modal-error').count(), 0, `${cancel} cancellation is not an error`);
+    assert.equal(await page.locator('.error-banner, .app-error-banner, .modal-error').count(), 0, `${cancel} cancellation is not an error`);
   }
   const changing = page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'full-access' }, id), cancelled.runtimeId);
   await risk().waitFor();

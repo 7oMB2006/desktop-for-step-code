@@ -33,6 +33,217 @@ or installer-lifecycle acceptance. No new package was built; the installed
 preview and desktop shortcut remain unchanged. The TODO entries remain open
 pending user acceptance and PR merge.
 
+## Supplemental recovery review (2026-10-15)
+
+Relocating a project from its selected draft now refreshes the session catalog
+before returning the draft snapshot. Its existing histories immediately appear
+in the destination group rather than disappearing until a later refresh.
+Expanded inspectors disable only `.main-content`; project warnings remain
+operable while the covered transcript/composer stay inert. The warning remains
+inside main, above the inspector, without moving the fixed right rail.
+
+The runtime CI failure on `3c87da2` was an immediate post-click disclosure
+assertion. Disclosure now saves asynchronously; acceptance waits for the
+matching committed UI state before retaining its original assertions.
+The rapid-click sidebar regression also waits for the renderer after verifying
+the main-process snapshot.
+
+Typecheck, build and 64 focused unit tests passed. Serial Electron acceptance
+passed for sidebar recovery/disclosure, main Electron, review, context,
+browser, real PowerShell terminal, cross-session operations and fixed settings.
+The sidebar case selects a draft before relocation and checks destination
+history DOM before requesting a new snapshot; the expanded inspector case
+checks warning focus, removal/cancel and directory-picker cancel/recovery.
+No retries, disabled tests or relaxed assertions were added.
+
+## Sidebar disclosure persistence (2026-10-15)
+
+Project and independent-group disclosure now lives in Desktop preferences
+instead of renderer-only state. Startup and reload restore the saved groups;
+older profiles without a saved value retain the previous expanded default.
+Disclosure writes are serialized so rapid clicks compose. Creating a session
+explicitly expands its project, relocation carries its collapsed key, and
+project removal clears only that project's key.
+
+Typecheck, production build, 13 sidebar/workspace unit tests and the full
+sidebar Electron acceptance passed locally. Acceptance covers mixed disclosure
+states across renderer reload and a full app restart, independent-group state,
+and rapid multi-group toggles. This follow-up is not repackaged; cloud CI must
+validate its new head independently of the earlier green run.
+
+## Sidebar review and CI follow-up (2026-10-15)
+
+PR #122 review identified an unsafe path-wide relocation rule: recreating
+the old directory could redirect new histories into the moved project.
+Relocation now binds the existing session IDs to their destination. Reusing
+the source path does not inherit another session's binding, repeated moves
+update only affected bindings, and removal retains historical bindings.
+Successful validation of the originally missing path clears its stored issue.
+
+The initial cloud run `38662461552` failed on stale warning selectors in
+the main Electron and navigation scripts. These now assert the application
+banner and localized missing-directory message. Scripts using project add
+buttons first hover their heading, matching the intentional disclosure.
+The interface group also had an early native exit in the tray test without
+a JavaScript failure; local tray acceptance passed three consecutive runs.
+Tray readiness now requires an actual enabled composer element, and stage
+diagnostics were added. No retry, timeout increase or skipped assertion was
+introduced. Replacement cloud CI must independently validate these changes.
+
+Typecheck, build, 56 workspace/runtime tests and 12 CI policy/runner tests
+passed. Main Electron, navigation, review-panel and tray acceptance passed
+locally. The new recreated-directory regression checks catalog grouping and
+the actual runtime directory for both new and relocated histories.
+Account, launch-mode and permission-tier acceptance also passed after updating
+their alert selectors, including negative assertions that must detect the new
+banner rather than silently overlooking it. Branching/concurrency failure
+diagnostics use the same banner and modal selectors.
+The earlier local installer and desktop shortcut remain on `3d4369c`; this
+follow-up has not been repackaged, and the earlier full-suite terminal cleanup
+failure was not retroactively marked passed.
+
+## Sidebar project recovery preview (2026-10-15)
+
+This unsigned local 0.4.0 preview is based on fetched main `f4c3d35` plus
+the uncommitted sidebar/project recovery changes. It includes the merged
+clarification Beta, performance matrix and composer select-all deletion fixes.
+Project removal only unregisters the grouping; files, histories and running
+workers remain. Relocation preserves project metadata and reopens original
+history with the upstream session host's cwd override. A failed initial
+directory validation clears only the bootstrap draft. The warning belongs
+to the main viewport, sits above the summary overlay and does not displace
+the right tool rail. Sidebar add controls reveal on hover/focus, and reorder
+motion uses cubic easing with reduced-motion support.
+
+Typecheck, production build and 67 focused tests passed. Source and packaged
+sidebar acceptance passed for ordering, pins, missing-directory recovery,
+original session identity/history, startup recovery, removal/cancel, modal
+animation, warning layering/rail geometry, reload and reduced motion.
+Packaged clarification, composer editing and real-RPC performance acceptance
+also passed with isolated profiles and deterministic services. The Beta
+questionnaire bridge validation passed against the patched build source.
+This does not establish paid-model, cloud CI or installer-lifecycle readiness.
+The earlier full-suite terminal process-tree cleanup failure remains unresolved;
+the full suite was not rerun for this package.
+
+The installer is under `Desktop/release/sidebar-project-recovery-20261015/`.
+All 97 Desktop output and 1159 runtime files matched the package; helpers,
+icon, pinned commit `3ba89e0c` and clarification patch metadata were verified.
+Update metadata byte count and SHA-512 matched the 155073386-byte installer.
+Installer SHA-256:
+`ff01d816cacae9dfd71b647275dfdea97b828dc7a79a824629b4a55011722952`.
+Both installer and application are `NotSigned`; this is not a replacement
+for the public v0.4.0 release asset.
+
+The ordinary desktop shortcut was backed up and verified to target the new
+unpacked executable. No live user client was stopped; exit/relaunch is required
+to use it. Package evidence is in `test-results/sidebar-project-package-resources.json`,
+`test-results/sidebar-project-shortcut.json` and the release directory's
+`update-package-check.json`. Rebuildable outputs were inventoried; older packages
+were not deleted without separate approval.
+
+## PR CI inventory integration (2026-10-15)
+
+The latest PR CI failed in classification before Windows acceptance ran:
+the merge preview added main's composer-editing acceptance, resulting in 51
+assigned scripts while a test still expected 50. Main `1ca45ba` is now merged
+into this branch. The count assertion derives from discovered scripts minus
+the explicit local-only list; duplicate, missing and unassigned checks remain.
+The failure reproduced locally before the change. All 12 CI policy/runner
+tests and 60 runtime/revision/questionnaire tests passed afterward.
+Replacement cloud CI must verify the integrated head independently.
+
+## Question waiting-action treatment (2026-10-15)
+
+The pending question status now reuses the permission-review treatment: tinted
+surface, inset border and flowing highlight, rather than a separate text-only
+gradient. It retains the circle-help icon and its place beside task controls;
+Goal/Plan/Ultracode run and settled controls are unchanged.
+
+Typecheck, build and source Electron/RPC question acceptance passed, including
+computed animation/background assertions and reduced-motion disabling for both
+the container and label. Dark/light screenshots are
+`questions-approval-status-dark.png` and `questions-approval-status-light.png`.
+This source follow-up has not been repackaged; replacement cloud CI is pending.
+
+## Clarification completion revisions (2026-10-15)
+
+PR #117 review found that synthetic question expiry and the original completion
+shared a revision, causing the renderer to reject the tool result or agent end.
+Expiry now reserves the next revision for the original event. Two regression
+cases failed before the fix and passed afterward through `MessageRevision`,
+covering matching tool completion and multiple pending questions at agent end.
+The tool case also verifies the final error result reaches transcript state.
+
+All 60 focused runtime/revision/questionnaire tests, typecheck, build and source
+Electron/RPC question acceptance passed. The earlier commit's cloud CI passed;
+replacement CI must independently verify this follow-up. The local installer
+and desktop shortcut below remain on the earlier preview, not this fix.
+
+## Question status placement correction (2026-10-15)
+
+Source now renders the circle-help question control through `TurnStatusTrigger`
+alongside Goal/Plan/Ultracode controls, outside `WorkingIndicator`. The matrix,
+working label and elapsed clock retain their primary position. Typecheck,
+build and source Electron/RPC question acceptance passed, including Plan and
+question controls together, collapse/reopen and icon/placement assertions.
+Screenshots include `questions-plan-status-dark.png`.
+The corrected unsigned local 0.4.0 installer is now under
+`Desktop/release/clarification-status-beta-20261015/`, based on merged main
+`30c77f2` (PR #115) plus the clarification Beta changes. Packaged Electron/RPC
+question and performance acceptance both passed. All 97 Desktop output files
+and 1157 runtime files matched the package; the pinned commit and patch hashes
+matched. Update metadata, byte count and SHA-512 matched. Installer SHA-256:
+`1d12a0d1d3928dbdc9e154a18144c1ed167b3a65d3d25b5ad8d6967ddfd1d00c`.
+Authenticode status is `NotSigned`. The ordinary desktop shortcut was backed
+up and verified to target this unpacked executable. The user's live client
+was preserved; explicit exit/relaunch is needed to pick up the new build.
+
+The latest full serial suite passed 404 of 405 tests. The unchanged
+`tests/terminal-sessions.test.ts` terminal-count case failed during `stopAll`
+cleanup with "Could not terminate the terminal process tree". Only the nine
+owned fixture children left by that test were stopped; no user client was
+stopped. Focused acceptance does not make this an all-green full regression,
+paid-model, cloud CI or installer-lifecycle claim.
+
+Rebuildable output was inventoried: the new release directory is 726718658
+bytes, local dependencies 531306491 bytes, runtime 116756025 bytes and terminal
+runtime 64762142 bytes. Old packages were not deleted without approval.
+Package evidence is in `test-results/clarification-package-resources.json`
+and the release directory's `update-package-check.json`.
+
+## Combined matrix and clarification preview (2026-10-15)
+
+This preview supersedes the initial clarification-only package below. Its
+baseline is merged main `30c77f2`, including PR #115's matrix working states,
+flowing elapsed time and compact performance strip, plus the uncommitted
+clarification Beta adaptation. At this earlier preview stage, the question
+reopen control stayed inside `WorkingIndicator`; pending questions showed one waiting matrix,
+retain elapsed time and never reintroduce the old pulse dot.
+
+Typecheck, build, 74 focused tests and 12 CI routing tests passed. Matrix
+browser acceptance passed. Packaged Electron/RPC acceptance passed for both
+the question drawer and performance runtime, including waiting matrix,
+thinking/prose transitions, TPS/usage, completion freeze and new-session reset.
+These use isolated profiles and deterministic model services, not paid-model
+or installer-lifecycle acceptance. The earlier terminal cleanup failure
+remains unresolved; this is not an all-green full regression claim.
+
+All 97 Desktop output files and 1157 runtime files matched the package. The
+runtime pin and clarification patch remain unchanged. Installer metadata and
+hashes matched; SHA-256:
+`a1412d11bebb6196106b63a6cb40a307db2285e08a9b0ec654107d0a4c6b9d7f`.
+The unsigned local installer is at
+`Desktop/release/clarification-pulse-beta-20261015/`.
+The ordinary desktop shortcut now targets its unpacked executable, with the
+old shortcut backed up. The user's running clarification-only preview was
+preserved and needs explicit exit/relaunch to pick up this combined build.
+
+Evidence is under `Desktop/test-results/`, including question/matrix/runtime
+screenshots and `clarification-package-resources.json`; update-package evidence
+is alongside the installer. Rebuildable artifacts were inventoried; obsolete
+packages were not deleted without approval. No public release or PR was made.
+
 ## Performance strip and matrix working states (2026-10-14)
 
 PR #115 follow-up (2026-10-15): the runtime CI failure was an outdated
@@ -72,6 +283,63 @@ files. It retains upstream pin 3ba89e0c and Node v24.15.0. Installer SHA-256:
 `53465a5e06caed4f5db66e59b757b23323cc96422c5dfba5103afa7616b3a401`.
 The ordinary desktop shortcut targets this preview. User-tier settings remain
 outside this change, and no upstream source was modified.
+
+## Structured clarification local package (2026-10-15)
+
+The local 0.4.0 preview was packaged from latest main `b4f4625` plus the
+uncommitted clarification Beta changes. It includes the letter-choice UI,
+cubic selection feedback and heavier labels. The 68 focused tests, typecheck,
+runtime staging guards and packaged Electron/RPC question acceptance passed.
+The packaged acceptance uses an isolated profile and simulated model service;
+it does not establish real-model or installer-lifecycle acceptance.
+
+All 97 Desktop output files and 1157 staged runtime files matched the package.
+The runtime remains pinned to `3ba89e0c` with `desktop-clarification-beta`.
+Installer metadata, byte count and SHA-512 matched. Installer SHA-256:
+`f336d9479d5f3485c781e0518e064c41d28f69b35ab6a8b1d23a97e34986d78a`.
+The normal desktop shortcut now targets this unpacked preview; its previous
+shortcut was backed up. The user's running client was not stopped.
+
+The unsigned local installer is under
+`Desktop/release/clarification-beta-20261015/`, not a replacement public release.
+Package evidence is in `Desktop/test-results/clarification-package-resources.json`
+and `Desktop/release/clarification-beta-20261015/update-package-check.json`.
+The earlier terminal cleanup regression below remains unresolved. No Issue,
+commit, PR, cloud CI success or public release is claimed. Rebuildable artifacts
+were inventoried and retained for current preview/testing; no cleanup was
+performed without approval.
+
+## Structured clarification Beta (2026-10-14)
+
+The opt-in Desktop main-worker compatibility patch connects the existing
+`clarify_user` tool to a whole-question-group drawer. The tool contract,
+permissions, native TUI and unflagged child RPC behavior remain unchanged.
+The UI and transport are explicitly Beta; unattended expiry, automatic
+decisions and restart-persistent pending questions are not implemented.
+See `UPSTREAM_QUESTIONNAIRE_BETA.md` for the integration boundary and future
+upstream proposal.
+
+Typecheck, production build, staging source guards and diff checks passed.
+The isolated bridge harness passed opt-in/off behavior, full-group answer
+validation, trusted option-label reconstruction, cancellation/abort signals,
+and the existing TUI fallback. The real Electron/RPC fixture passed question
+visibility, single-choice auto-advance, previous/next navigation, freeform
+draft retention across collapse and session navigation, rejected forged
+answers, submission failure/retry, final explicit submission, Plan clarification
+before separate proposal approval, cancellation, task abort and Ask-tier
+permission approval. Existing Plan and permission-drawer acceptance passed.
+CI routing tests passed; the new acceptance is assigned to the sessions group.
+
+The full serial unit/protocol suite reported 399 passed and one failed out of
+400. The unchanged terminal-count fixture failed when terminating concurrent
+terminal host process trees; a standalone retry reproduced the same cleanup
+failure. Only owned isolated test hosts were stopped to complete cleanup.
+This run is not an all-green regression result. No cloud CI, real-model,
+installer or unattended long-duration acceptance is claimed.
+
+Screenshots are under `Desktop/test-results/questions-*.png`. At this initial
+source-validation stage no installer was generated, no shortcut was changed,
+and no upstream issue was created; see the later local package record above.
 
 ## Transparent Logo startup preview (2026-10-14)
 

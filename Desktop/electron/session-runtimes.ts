@@ -12,6 +12,7 @@ import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
 import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
 import { isFullAccessRisk } from '../src/full-access-risk';
+import { questionnaire } from '../src/questionnaire';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -183,6 +184,16 @@ export class SessionRuntimes {
           }).catch(() => {});
         }
       }
+      if (event.type === 'tool_execution_end' || event.type === 'agent_end') {
+        for (const [id, request] of worker.pendingUI) {
+          const question = questionnaire(request);
+          if (question && (event.type === 'agent_end' || question.callId === event.toolCallId)) {
+            this.clearRequest(worker, id);
+            // Reserve a newer revision for the original completion emitted below.
+            this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id, runtimeRevision: worker.revision++ });
+          }
+        }
+      }
       if (['message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
       if (event.type === 'message_end' && event.message?.stopReason === 'error') worker.failed = true;
       if (event.type === 'desktop_exit') {
@@ -239,7 +250,7 @@ export class SessionRuntimes {
         ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);
       await worker.rpc.request('get_state', {}, 60000);
       const result = existing && !sessionPath ? { cancelled: false }
-        : await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath } : {}, 60000);
+        : await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath, cwdOverride: cwd } : {}, 60000);
       if (result.cancelled) throw new Error('Session operation cancelled');
       if (branch) {
         const sourceState = await worker.rpc.request('get_state');
@@ -402,7 +413,7 @@ export class SessionRuntimes {
       // A rejected submission may not append anything. Restore the saved leaf
       // so the original question remains editable instead of stranding its draft.
       if ((current.leafId ?? null) === selected.parentId && sessionFile) {
-        const restored = await worker.rpc.request('switch_session', { sessionPath: sessionFile }, 60000);
+        const restored = await worker.rpc.request('switch_session', { sessionPath: sessionFile, cwdOverride: worker.cwd }, 60000);
         if (restored.cancelled) throw new Error('Submission failed and history restoration was cancelled');
         if (permissionPreset && permissionPreset !== 'full-access') await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
         await this.read(worker);

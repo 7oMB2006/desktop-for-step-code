@@ -291,10 +291,12 @@ try {
     assert.equal(await disclosure.getAttribute('aria-hidden'), 'false');
     assert.equal(await disclosure.evaluate(element => element.inert), false);
     await toggle.click();
+    await page.waitForFunction(name => [...document.querySelectorAll('.workspace-toggle')].find(button => button.getAttribute('aria-label') === name)?.getAttribute('aria-expanded') === 'false', toggleName);
     assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
     assert.equal(await disclosure.getAttribute('aria-hidden'), 'true');
     assert.equal(await disclosure.evaluate(element => element.inert), true);
     await toggle.click();
+    await page.waitForFunction(name => [...document.querySelectorAll('.workspace-toggle')].find(button => button.getAttribute('aria-label') === name)?.getAttribute('aria-expanded') === 'true', toggleName);
     assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
     assert.equal(await disclosure.getAttribute('aria-hidden'), 'false');
   }
@@ -302,9 +304,11 @@ try {
   const projectDisclosure = disclosureCases[1].region.locator('.workspace-disclosure');
   assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 1);
   await projectToggle.click();
+  await page.waitForFunction(() => document.querySelector('.workspace-toggle[aria-label="中文项目 with spaces"]')?.getAttribute('aria-expanded') === 'false');
   assert.equal(await projectToggle.locator('svg.lucide-folder').count(), 1);
   assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 0);
   await projectToggle.click();
+  await page.waitForFunction(() => document.querySelector('.workspace-toggle[aria-label="中文项目 with spaces"]')?.getAttribute('aria-expanded') === 'true');
   assert.equal(await projectToggle.locator('svg.lucide-folder-open').count(), 1);
   await projectToggle.click({ button: 'right' });
   const context = page.locator('.sidebar-context');
@@ -462,10 +466,10 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
     type: 'extension_ui_request', id: 'error-test', method: 'notify', notifyType: 'error', message: 'A real error',
   }));
-  await page.locator('.error-banner').getByText('A real error').waitFor();
+  await page.locator('.app-error-banner').getByText('A real error').waitFor();
   await page.clock.fastForward(8100);
-  assert.equal(await page.locator('.error-banner').getByText('A real error').isVisible(), true);
-  await page.locator('.error-banner').getByRole('button', { name: '关闭' }).click();
+  assert.equal(await page.locator('.app-error-banner').getByText('A real error').isVisible(), true);
+  await page.locator('.app-error-banner').getByRole('button', { name: '关闭' }).click();
   await page.getByRole('button', { name: '独立验证会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '独立验证会话' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
@@ -622,6 +626,7 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 880));
   await page.waitForFunction(() => innerWidth >= 840);
   assert.equal(await page.getByRole('textbox', { name: '搜索会话' }).count(), 0);
+  await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).locator('..').hover();
   await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).click();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
@@ -632,6 +637,7 @@ try {
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained empty project draft');
   const projectRows = await page.getByRole('region', { name: projectState.preferences.workspace, exact: true }).locator('.session-row').count();
   for (let i = 0; i < 5; i++) {
+    await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).locator('..').hover();
     await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
     const reused = await page.evaluate(() => window.desktop.snapshot());
@@ -781,6 +787,7 @@ try {
   await page.getByRole('dialog').getByRole('textbox').fill('历史验证会话');
   await page.getByRole('button', { name: '确认', exact: true }).click();
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).waitFor();
+  await page.getByRole('button', { name: '在 Second project 新建会话', exact: true }).locator('..').hover();
   await page.getByRole('button', { name: '在 Second project 新建会话', exact: true }).click();
   await page.waitForFunction(() =>
     document.querySelector('.window-session-title')?.textContent === '新会话' &&
@@ -851,8 +858,10 @@ try {
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
   assert.equal(await firstGroup.getByRole('button', { name: 'Second session', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.workspace-toggle[aria-label="中文项目 with spaces"]')?.getAttribute('aria-expanded') === 'false');
   assert.equal(await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.workspace-toggle[aria-label="中文项目 with spaces"]')?.getAttribute('aria-expanded') === 'true');
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'Second session' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&

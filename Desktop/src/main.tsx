@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
+import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, CircleHelp, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, Plug, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
 import { fullAccessRiskPresentation } from './full-access-risk';
 import { pendingPlanReview, planReview } from './plan-review';
@@ -10,6 +10,9 @@ import { planExecutionResponses } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
 import { PlanReview } from './PlanReview';
 import { ClipboardCheck, SlidersHorizontal } from 'lucide-react';
+import { QuestionReview } from './QuestionReview';
+import { QuestionContext } from './QuestionTool';
+import { questionnaire, type QuestionDraft } from './questionnaire';
 import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
@@ -24,6 +27,7 @@ import { WorkingIndicator } from './WorkingIndicator';
 import { ModelEffortPicker } from './ModelEffortPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { LaunchStatus } from './LaunchStatus';
+import { TurnStatusTrigger } from './TurnStatusTrigger';
 import { goalCompletionResponse } from './launch-state';
 import { isUserMessage } from './user-message';
 import { PermissionApproval } from './PermissionApproval';
@@ -51,6 +55,8 @@ import { playCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
 import { useSidebarReorder } from './use-sidebar-reorder';
+import { useSidebarMotion } from './use-sidebar-motion';
+import { ProjectRemoval } from './ProjectRemoval';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
 import { QueuePreview } from './QueuePreview';
@@ -143,7 +149,8 @@ function App() {
   const previewPosition = useRef<ReadingPosition | undefined>(undefined);
   const readingRestore = useRef<{ runtimeId?: string; position: ReadingPosition; expectedTop?: number } | undefined>(undefined);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
-  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(new Set());
+  const collapsedWorkspaces = new Set(data.preferences.collapsedWorkspaces ?? []);
+  const workspaceDisclosureSave = useRef<Promise<void>>(Promise.resolve());
   const [sidebar, setSidebar] = useState(true);
   const [compactSidebar, setCompactSidebar] = useState(() => window.innerWidth <= 760);
   const [compactSidebarOpen, setCompactSidebarOpen] = useState(false);
@@ -234,6 +241,7 @@ function App() {
   const rightRail = useRef<HTMLElement>(null);
   const [requests, setRequests] = useState<UIRequest[]>([]);
   const [approvalOpen, setApprovalOpen] = useState(true);
+  const questionDrafts = useRef(new Map<string, QuestionDraft>());
   const [resubmittingPlan, setResubmittingPlan] = useState(false);
   const resubmitPlanLock = useRef(false);
   const [answer, setAnswer] = useState('');
@@ -242,6 +250,11 @@ function App() {
   const [renaming, setRenaming] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ type: 'session' | 'workspace'; id: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'workspace'; id: string; x: number; y: number } | null>(null);
+  const [removeProject, setRemoveProject] = useState<string | null>(null);
+  const [unavailableWorkspace, setUnavailableWorkspace] = useState<string | null>(null);
+  const sidebarTree = useSidebarMotion(JSON.stringify([data.preferences.workspaces, data.preferences.pinnedWorkspaces,
+    data.preferences.sessionOrder, data.preferences.sessionSort, data.preferences.archivedSessionIds,
+    data.sessions.map(session => [session.id, session.cwd, session.modified])]));
   const manualOrder = data.preferences.sessionSort !== 'updated';
   const reorderSession = (id: string, target: string, after: boolean) => {
     const order = reconcileSessionOrder(data.preferences.sessionOrder ?? [], data.sessions);
@@ -317,7 +330,7 @@ function App() {
     let quiet: ReturnType<typeof setTimeout> | undefined;
     let motions: Animation[] = [];
     const resize = () => {
-      const elements = [...app.querySelectorAll<HTMLElement>('.conversation-shell, .composer-wrap, main > .conversation-scroll-track')];
+      const elements = [...app.querySelectorAll<HTMLElement>('.conversation-shell, .composer-wrap, .main-content > .conversation-scroll-track')];
       const centers = elements.map(element => {
         const rect = element.getBoundingClientRect();
         return rect.x + rect.width / 2;
@@ -412,6 +425,7 @@ function App() {
       readingRestore.current = saved && !saved.follow ? { runtimeId: value.runtimeId, position: saved } : undefined;
     }
     viewId.current = value.runtimeId;
+    setUnavailableWorkspace(value.workspaceIssue ?? null);
     readingCache.current.retain(value.sessions);
     setData(value); setBusy(Boolean(value.state?.isStreaming));
     setRequests(value.requests ?? []);
@@ -494,6 +508,7 @@ function App() {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
     const unsubscribe = bridge.onEvent(event => {
+      if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') { playCompletionSound(); return; }
       if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
       if (event.sessionId && ['desktop_model_selection', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)) {
@@ -537,7 +552,10 @@ function App() {
       if (event.type === 'desktop_queue') setData(d => ({ ...d, pendingMessages: event.pendingMessages }));
       if (event.type === 'desktop_stats') setData(d => ({ ...d, stats: event.stats }));
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
-      if (event.type === 'desktop_ui_expired') setRequests(previous => previous.filter(request => request.id !== event.id));
+      if (event.type === 'desktop_ui_expired') {
+        questionDrafts.current.delete(event.id);
+        setRequests(previous => previous.filter(request => request.id !== event.id));
+      }
       if (event.type === 'agent_start') setBusy(true);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
@@ -694,7 +712,7 @@ function App() {
     return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape); window.removeEventListener('resize', dismiss); };
   }, [contextMenu]);
   useEffect(() => {
-    if (!settingsOpen && !mcpEdit && !(requests.length && approvalOpen && !planReview(requests[0]) && requests[0]?.title !== 'Desktop Plan refinements' && !permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId)) && !renaming) return;
+    if (!settingsOpen && !mcpEdit && !(requests.length && approvalOpen && !questionnaire(requests[0]) && !planReview(requests[0]) && requests[0]?.title !== 'Desktop Plan refinements' && !permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId)) && !renaming) return;
     const previous = document.activeElement as HTMLElement | null;
     const dialog = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1);
     const controls = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') ?? [])];
@@ -1014,14 +1032,39 @@ function App() {
       <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" disabled={loading} onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'session', id: s.id, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
     </div>;
   };
-  const toggleWorkspace = (key: string) => setCollapsedWorkspaces(previous => { const next = new Set(previous); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  const setWorkspaceExpanded = (key: string, expanded?: boolean) => {
+    // Serialize clicks so rapid toggles cannot overwrite another group's saved state.
+    const pending = workspaceDisclosureSave.current.then(async () => {
+      const next = new Set(latestData.current.preferences.collapsedWorkspaces ?? []);
+      const open = expanded ?? next.has(key);
+      if (open) next.delete(key); else next.add(key);
+      const saved = await bridge!.preferences({ collapsedWorkspaces: [...next] });
+      latestData.current = { ...latestData.current, preferences: { ...latestData.current.preferences, collapsedWorkspaces: saved.collapsedWorkspaces } };
+      setData(previous => ({ ...previous, preferences: { ...previous.preferences, collapsedWorkspaces: saved.collapsedWorkspaces } }));
+    });
+    workspaceDisclosureSave.current = pending.catch(() => {});
+    return pending;
+  };
+  const toggleWorkspace = (key: string) => { void run(() => setWorkspaceExpanded(key)); };
   const independentExpanded = !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, _sessions: typeof data.sessions) => {
-    setCollapsedWorkspaces(previous => { const next = new Set(previous); next.delete(workspaceKey(path)); return next; });
+    await run(() => setWorkspaceExpanded(workspaceKey(path), true));
     await applySnapshot(() => bridge!.beginSession(path));
   };
   const newSession = () => applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace));
   const openProject = () => applySnapshot(() => bridge!.chooseSessionProject());
+  const repairProject = async (path: string) => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      await run(async () => {
+        const value = await bridge!.relocateWorkspace(path);
+        if (!value) return;
+        installSnapshot(value); setUnavailableWorkspace(null); setError('');
+      });
+    } finally { setLoading(false); }
+  };
+  const confirmRemoveProject = (path: string) => { setError(''); setRemoveProject(path); };
   const toggleSidebar = () => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open);
   const renderWorkspace = ([key, group]: [string, { path: string; sessions: Session[] }]) => {
     const expanded = !collapsedWorkspaces.has(key);
@@ -1081,6 +1124,17 @@ function App() {
   const permissionApproval = !renaming ? permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId) : undefined;
   const accessRisk = !renaming ? fullAccessRiskPresentation(requests[0], data.preferences.language) : undefined;
   const reviewPlan = !renaming ? planReview(requests[0]) : undefined;
+  const reviewQuestion = !renaming ? questionnaire(requests[0]) : undefined;
+  const openQuestion = (callId: string) => {
+    if (questionnaire(requests[0])?.callId === callId && !navigationPending.current) setApprovalOpen(true);
+  };
+  const respondQuestion = async (value: { value: string } | { cancelled: true }) => {
+    const request = requests[0], owner = data.runtimeId;
+    if (!request || !questionnaire(request) || !owner || navigationPending.current
+      || viewId.current !== owner) throw new Error('Question is no longer active');
+    await bridge!.command('extension_ui_response', { id: request.id, ...value }, owner);
+    setRequests(previous => previous.filter(item => item.id !== request.id));
+  };
   const canResubmitPlan = pendingPlanReview(data.messages, Boolean(data.launch?.plan));
   const resubmitPlan = async () => {
     if (resubmitPlanLock.current || busy || requests.length || !canResubmitPlan) return;
@@ -1099,6 +1153,10 @@ function App() {
       onAction={(action, value) => rawCommand('goal_action', { action, value })}
       onDisableStanding={() => rawCommand('disable_standing_ultracode')}/>
     {currentTurnWorkflow && <WorkflowTrigger flow={currentTurnWorkflow} language={data.preferences.language} onOpen={openWorkflow} settled={!busy}/>}
+    {reviewQuestion && <TurnStatusTrigger className="launch-status-trigger launch-status-pulse question-review-trigger permission-trigger permission-review"
+      icon={<CircleHelp size={14}/>} label={t('回答问题', 'Answer questions')} detail={<small className="question-beta">Beta</small>}
+      aria-label={t('回答问题', 'Answer questions')} aria-haspopup="dialog" aria-expanded={approvalOpen}
+      onClick={() => setApprovalOpen(v => !v)}/>}
   </>;
   const lastConversationEntry = conversationEntries(data.messages).at(-1);
   const activePlanExecution = busy && lastConversationEntry?.type === 'response'
@@ -1123,7 +1181,13 @@ function App() {
       x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
   }}>
     <AppTooltip/>
-    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen}/>
+    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}/>
+    {removeProject && <ProjectRemoval title={workspaceTitle(removeProject)} path={removeProject} language={data.preferences.language}
+      onCancel={() => setRemoveProject(null)} onConfirm={async () => {
+        const result = await run(() => bridge!.removeWorkspace(removeProject));
+        if (!result) return false;
+        installSnapshot(result); setUnavailableWorkspace(null); setError(''); return true;
+      }}/>}
     {imageMenu && <ImageContextMenu target={imageMenu} language={data.preferences.language}
       canAdd={Boolean(bridge) && attachments.length < 10 && attachments.filter(item => item.kind === 'image').length < 5}
       onAction={imageAction} onClose={() => setImageMenu(null)}/>}
@@ -1137,6 +1201,9 @@ function App() {
         }}>{pinnedWorkspaces.has(workspaceKey(contextMenu.id)) ? <PinOff size={15}/> : <Pin size={15}/>}
           {pinnedWorkspaces.has(workspaceKey(contextMenu.id)) ? t('取消置顶', 'Unpin project') : t('置顶项目', 'Pin project')}</button>
         <button role="menuitem" onClick={() => { const path = contextMenu.id; setContextMenu(null); void run(() => bridge!.openWorkspaceFolder(path)); }}><FolderOpen size={15}/>{t('在资源管理器中打开', 'Open in Explorer')}</button>
+        <button role="menuitem" disabled={!bridge || loading} onClick={() => { const path = contextMenu.id; setContextMenu(null); void repairProject(path); }}><FolderOpen size={15}/>{t('重新定位目录…', 'Locate folder...')}</button>
+        <div className="context-separator"/>
+        <button role="menuitem" className="project-remove-menu" disabled={!bridge || loading} onClick={() => { confirmRemoveProject(contextMenu.id); setContextMenu(null); }}><Trash2 size={15}/>{t('移除项目…', 'Remove project...')}</button>
       </> : <>
         <button role="menuitem" onClick={() => void updateArchive(contextMenu.id, archived.has(contextMenu.id))}><Archive size={15}/>{archived.has(contextMenu.id) ? t('恢复会话', 'Restore session') : t('归档会话', 'Archive session')}</button>
         <div className="context-separator"/>
@@ -1155,12 +1222,12 @@ function App() {
         </button>
       </>}
     </div>}
-    {error && (settingsOpen || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
+    {error && (settingsOpen || removeProject || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
     {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
-    <aside className="sidebar" inert={settingsOpen || !sidebarVisible}>
+    <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
       <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
       <button className="new-chat" disabled={!bridge || loading} onClick={() => void newSession()}><Plus size={17}/>{t('新建会话', 'New session')}</button>
-      <nav className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
+      <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
           <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
           <div className="workspace-disclosure" aria-hidden={!independentExpanded} inert={!independentExpanded}>
@@ -1178,14 +1245,23 @@ function App() {
       <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
-    <main inert={settingsOpen || inspectorExpanded}
+    <main inert={settingsOpen || Boolean(removeProject)}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
+      {(error || unavailableWorkspace) && !settingsOpen && !removeProject && !mcpEdit && !requests.length && <div className="app-error-banner" role="alert">
+        <AlertCircle size={16}/><span>{unavailableWorkspace
+          ? t(`项目目录不可用，可能已改名或移动：${unavailableWorkspace}`, `Project directory unavailable; it may have been renamed or moved: ${unavailableWorkspace}`) : error}</span>
+        {unavailableWorkspace && data.preferences.workspaces.some(path => workspaceKey(path) === workspaceKey(unavailableWorkspace)) && <>
+          <button disabled={loading} onClick={() => void repairProject(unavailableWorkspace)}><FolderOpen size={14}/>{t('重新定位', 'Locate folder')}</button>
+          <button disabled={loading} onClick={() => confirmRemoveProject(unavailableWorkspace)}>{t('移除项目', 'Remove project')}</button>
+        </>}
+        <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
+      </div>}
+      <div className="main-content" inert={inspectorExpanded}>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
-      {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
-      {error && <div className="error-banner" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title={t('关闭', 'Dismiss')} onClick={() => setError('')}><X size={14}/></IconButton></div>}
+      {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && !reviewQuestion && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
       <div className="conversation-shell">
         <div className="conversation" id="conversation-scroll" ref={scroll}
@@ -1216,12 +1292,14 @@ function App() {
             title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
             onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
-            <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
-              interfaceSettings={interfaceSettings} settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
+            <QuestionContext.Provider value={{ pending: requests.flatMap(request => { const q = questionnaire(request); return q ? [q] : []; }), open: openQuestion }}>
+              <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
+                interfaceSettings={interfaceSettings} settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
+            </QuestionContext.Provider>
             {(busy || data.state?.isCompacting) && <div className="working">
               <WorkingIndicator language={data.preferences.language} mode={requests.length || reviewPlan || planFeedback ? 'waiting' : data.state?.isCompacting ? 'compacting' : runMetrics?.phase ?? 'executing'}
                 elapsedMs={runMetrics && runMetrics.finishedAt === undefined ? clock - runMetrics.startedAt : undefined}>
-                {reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{requests.length ? t('等待你的确认', 'Awaiting your decision') : data.state?.isCompacting ? t('正在整理上下文', 'Organizing context') : runMetrics?.phase === 'responding' ? t('等待响应', 'Awaiting response') : runMetrics?.phase === 'thinking' ? t('正在思考', 'Thinking') : t('正在阶跃', 'Working')}</span>}
+                {reviewPlan || planFeedback ? <button className="plan-review-trigger" onClick={() => setApprovalOpen(v => !v)}>{t('等待批阅', 'Awaiting plan review')}</button> : <span className="working-label">{reviewQuestion ? t('等待回答', 'Awaiting answers') : requests.length ? t('等待你的确认', 'Awaiting your decision') : data.state?.isCompacting ? t('正在整理上下文', 'Organizing context') : runMetrics?.phase === 'responding' ? t('等待响应', 'Awaiting response') : runMetrics?.phase === 'thinking' ? t('正在思考', 'Thinking') : t('正在阶跃', 'Working')}</span>}
               </WorkingIndicator>
               {taskStatusControls}
               {activePlanExecution && <PlanExecution key={lastConversationEntry?.type === 'response' ? lastConversationEntry.index : undefined}
@@ -1301,7 +1379,7 @@ function App() {
                 goal: Boolean(data.draftId) || commands.some(c => c.name === 'goal' && c.source === 'extension'),
                 ultracode: Boolean(data.draftId) || commands.some(c => c.name === 'ultraloop' && c.source === 'extension'),
               }} onLaunch={(mode, enabled) => command('set_launch_mode', { mode, enabled })}
-              onReview={requests.length && !approvalOpen && !renaming && !reviewPlan && !planFeedback ? () => setApprovalOpen(true) : undefined}/>
+              onReview={requests.length && !approvalOpen && !renaming && !reviewPlan && !planFeedback && !reviewQuestion ? () => setApprovalOpen(true) : undefined}/>
             {(reviewPlan || planFeedback) && <button className="permission-trigger permission-review plan-review-trigger" aria-expanded={approvalOpen} onClick={() => setApprovalOpen(v => !v)}><ClipboardCheck size={16}/><span>{t('批阅计划', 'Review plan')}</span></button>}
             {!requests.length && canResubmitPlan && <button className="permission-trigger permission-review plan-review-trigger" disabled={!connected || loading || busy || resubmittingPlan} onClick={() => void resubmitPlan()}><ClipboardCheck size={16}/><span>{t('重新批阅计划', 'Review plan again')}</span></button>}
             <LaunchStatus key={data.runtimeId ?? data.draftId}
@@ -1323,9 +1401,13 @@ function App() {
           language={data.preferences.language} onLater={() => setApprovalOpen(false)} onRespond={respond}/>
         <PlanReview key={`plan-${data.runtimeId ?? 'empty'}`} plan={reviewPlan} feedback={Boolean(planFeedback)} requestId={requests[0]?.id}
           open={Boolean((reviewPlan || planFeedback) && approvalOpen && !navigationTarget)} zh={data.preferences.language === 'zh'} onLater={() => setApprovalOpen(false)} onRespond={respond}/>
+        <QuestionReview key={`question-${data.runtimeId ?? 'empty'}`} question={reviewQuestion} requestId={reviewQuestion ? requests[0]?.id : undefined}
+          open={Boolean(reviewQuestion && approvalOpen && !navigationTarget)} zh={data.preferences.language === 'zh'}
+          drafts={questionDrafts.current} onLater={() => setApprovalOpen(false)} onRespond={respondQuestion}/>
       </div>
       <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
         sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
+      </div>
     </main>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
       enabled={connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
@@ -1356,7 +1438,7 @@ function App() {
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}
@@ -1401,7 +1483,7 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
-    <nav ref={rightRail} className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')} inert={Boolean(navigationTarget)}>
+    <nav ref={rightRail} className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')} inert={Boolean(navigationTarget) || Boolean(removeProject)}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><FileDiff size={18} strokeWidth={1.5}/></IconButton>
@@ -1487,7 +1569,7 @@ function App() {
       </>}
     </div></div></section></div>}
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
-    {((requests[0] && approvalOpen && !permissionApproval && !reviewPlan && !planFeedback) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={accessRisk?.title ?? requests[0]?.title ?? 'Rename'}><h2>{accessRisk?.title ?? requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{accessRisk ? <p className="full-access-risk-message"><ShieldAlert size={20}/>{accessRisk.message}</p> : requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map((o, index) => <button className="option" key={o} onClick={() => void respond({ value: o })}>{accessRisk?.labels[index] ?? o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && !accessRisk && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}{!accessRisk && <button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>}{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
+    {((requests[0] && approvalOpen && !permissionApproval && !reviewPlan && !planFeedback && !reviewQuestion) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={accessRisk?.title ?? requests[0]?.title ?? 'Rename'}><h2>{accessRisk?.title ?? requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{accessRisk ? <p className="full-access-risk-message"><ShieldAlert size={20}/>{accessRisk.message}</p> : requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map((o, index) => <button className="option" key={o} onClick={() => void respond({ value: o })}>{accessRisk?.labels[index] ?? o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && !accessRisk && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}{!accessRisk && <button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>}{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
   </div></FileOpeningContext.Provider></CommandCatalog.Provider>;
 }
 class RenderBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {

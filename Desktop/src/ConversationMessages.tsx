@@ -28,6 +28,7 @@ import { PlanExecution } from './PlanExecution';
 import { normalizeInterfaceSettings, type InterfacePreferences } from './interface-presets';
 import { groupConsecutiveTools, toolGroupLabel, type ToolItem } from './tool-groups';
 import './tool-groups.css';
+import { QuestionTool } from './QuestionTool';
 
 type Props = {
   interfaceSettings?: InterfacePreferences;
@@ -188,6 +189,7 @@ export function Tool({ item, active, ...props }: {
   const subject = toolSubject(item.call);
   const presentation = toolPresentation(name, item.result, active, props.language);
   const waiting = !item.result && Boolean(item.call?.id && props.awaitingToolCalls?.includes(item.call.id));
+  if (name === 'clarify_user') return <QuestionTool item={item} waitingApproval={waiting} zh={zh}/>;
   const { kind, status } = presentation;
   const state = waiting ? 'waiting' : presentation.state;
   const label = waiting ? (zh ? `等待批准 · ${name}` : `Awaiting approval · ${name}`) : presentation.label;

@@ -20,7 +20,7 @@ test('only adjacent ordinary tools combine without changing source items', () =>
 test('approvals, errors, missing results and special tools remain visible boundaries', () => {
   for (const boundary of [
     { ...tool('3'), result: { ...tool('3').result!, isError: true } },
-    ...['subagent', 'workflow', 'enter_plan_mode', 'exit_plan_mode', 'desktop_send_message'].map(name => tool('3', name)),
+    ...['subagent', 'workflow', 'enter_plan_mode', 'exit_plan_mode', 'desktop_send_message', 'clarify_user'].map(name => tool('3', name)),
     tool('3', 'run_command', false),
   ]) {
     const input = [tool('1'), tool('2'), boundary, tool('4')];
@@ -31,6 +31,14 @@ test('approvals, errors, missing results and special tools remain visible bounda
   }
   const waiting = tool('2', 'run_command', false);
   assert.deepEqual(groupConsecutiveTools([tool('1'), waiting, tool('3')], true, ['2']), [tool('1'), waiting, tool('3')]);
+});
+
+test('pending structured questions stay outside live groups before and after answers', () => {
+  for (const completed of [false, true]) {
+    const question = tool('2', 'clarify_user', completed);
+    const input = [tool('1'), question, tool('3')];
+    assert.deepEqual(groupConsecutiveTools(input, true), input);
+  }
 });
 
 test('live group identity survives arriving tools and results', () => {

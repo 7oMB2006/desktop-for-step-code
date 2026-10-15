@@ -31,6 +31,7 @@ export const acceptanceGroups = {
     'verify-new-session.mjs',
     'verify-launch-modes.mjs',
     'verify-plan-review.mjs',
+    'verify-question-review.mjs',
     'verify-ultracode-restore.mjs',
     'verify-context-maintenance.mjs',
     'verify-clm-cancellation.mjs',
@@ -83,6 +84,7 @@ export const localOnly = [
 
 // Retain the two existing per-step timeout limits; other scripts retain the job limit.
 export const acceptanceTimeouts = {
+  'verify-question-review.mjs': 300_000,
   'verify-windows-commands.mjs': 300_000,
   'verify-context-maintenance.mjs': 300_000,
   'verify-clm-cancellation.mjs': 300_000,

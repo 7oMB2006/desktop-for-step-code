@@ -244,7 +244,7 @@ try {
   await page.locator('.right-tool-rail').getByRole('button', { name: '会话导航', exact: true }).click();
   const navigation = page.getByRole('complementary', { name: '会话导航', exact: true });
   await navigation.waitFor();
-  assert.equal(await page.locator('main').evaluate(element => element.inert), false);
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), false);
   assert.deepEqual(await navigation.evaluate(element => {
     const style = getComputedStyle(element);
     return { properties: style.transitionProperty, ease: style.transitionTimingFunction, duration: style.transitionDuration };

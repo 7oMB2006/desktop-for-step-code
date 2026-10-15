@@ -4,7 +4,7 @@ export type ToolItem = Extract<ResponseItem, { type: 'tool' }>;
 export type GroupedResponseItem = ResponseItem | { type: 'tool-group'; key: string; index: number; items: ToolItem[] };
 
 // These have dedicated interaction surfaces or lifecycle ownership.
-const separateTools = new Set(['subagent', 'workflow', 'enter_plan_mode', 'exit_plan_mode', 'desktop_send_message']);
+const separateTools = new Set(['subagent', 'workflow', 'enter_plan_mode', 'exit_plan_mode', 'desktop_send_message', 'clarify_user']);
 
 export function groupConsecutiveTools(content: ResponseItem[], active: boolean, awaiting: readonly string[] = []): GroupedResponseItem[] {
   const result: GroupedResponseItem[] = [];

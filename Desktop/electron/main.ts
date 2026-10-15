@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/prom
 import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
+import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
 import { isChildSession } from './session-visibility';
@@ -46,6 +47,7 @@ import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Model, PermissionPreset, Preferences, Session, Snapshot } from '../src/contracts';
 import { validateSidebarPreferences } from '../src/sidebar-order';
+import { relocatedWorkspace, relocateWorkspace, removeWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
@@ -144,6 +146,19 @@ async function samePath(a: string, b: string) {
   } catch {}
   try { return pathKey(await realpath(a)) === pathKey(await realpath(b)); }
   catch { return false; }
+}
+let unavailableWorkspace: string | undefined;
+async function workspaceDirectory(path: string) {
+  try {
+    const canonical = await realpath(path);
+    if (!(await stat(canonical)).isDirectory()) throw new Error('Not a directory');
+    if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
+    return canonical;
+  } catch {
+    unavailableWorkspace = path;
+    emit({ type: 'desktop_workspace_unavailable', path });
+    throw new Error(preferences.language === 'zh' ? `项目目录不可用：${path}` : `Project directory unavailable: ${path}`);
+  }
 }
 const isIndependentPath = (path: string) => pathKey(path).startsWith(`${pathKey(independentRoot)}/`) || !preferences.workspaces.some(p => pathKey(p) === pathKey(path));
 async function sessionWorkspacePath(path: string): Promise<string | undefined> {
@@ -291,8 +306,9 @@ async function listSessions(): Promise<Session[]> {
     });
   }
   sessionCatalog = await Promise.all(sessions.map(async s => {
-    const workspacePath = await sessionWorkspacePath(s.cwd);
-    return { ...s, workspacePath, independent: !workspacePath };
+    const cwd = relocatedWorkspace(s.cwd, preferences, s.id);
+    const workspacePath = await sessionWorkspacePath(cwd);
+    return { ...s, cwd, workspacePath, independent: !workspacePath };
   }));
   return sessionCatalog;
 }
@@ -319,6 +335,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
   return {
+    workspaceIssue: unavailableWorkspace,
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
@@ -413,7 +430,7 @@ const sessionNavigation = new SessionNavigation(async (id: string) => {
   if (!worker) {
     const target = cachedSessions().find(session => session.id === id) ?? (await listSessions()).find(session => session.id === id);
     if (!target?.path) throw new Error('This session history is unavailable');
-    const canonical = await realpath(target.cwd);
+    const canonical = await workspaceDirectory(target.cwd);
     if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
     worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment(), target.path);
     if (worker.state?.sessionId !== id) {
@@ -439,8 +456,7 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
   if (transition) throw new Error('Workspace operation in progress');
   transition = true;
   try {
-    const canonical = await realpath(cwd);
-    if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
+    const canonical = await workspaceDirectory(cwd);
     status = 'connecting';
     const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment(), sessionPath);
     sessionDraft = undefined;
@@ -476,6 +492,7 @@ async function beginSession(workspace?: string) {
   if (workspace !== undefined && !selected) throw new Error('Unknown workspace');
   transition = true;
   try {
+    if (selected) await workspaceDirectory(selected);
     const previous = sessionDraft;
     const options = await admin.request('session_options', { cwd: selected ?? app.getPath('documents') });
     const next: NonNullable<typeof sessionDraft> = { id: previous?.id ?? randomUUID(), workspace: selected, ...options,
@@ -809,9 +826,67 @@ async function handle(method: string, args: any[]) {
     case 'openWorkspaceFolder': {
       const target = text(args[0], 2048);
       if (!preferences.workspaces.some(path => pathKey(path) === pathKey(target))) throw new Error('Unknown workspace');
+      await workspaceDirectory(target);
       const error = await shell.openPath(target);
       if (error) throw new Error(error);
       return null;
+    }
+    case 'removeWorkspace': {
+      if (transition || deletingArchived || sessionNavigation.busy) throw new Error('Workspace operation in progress');
+      const path = text(args[0], 2048);
+      const next = removeWorkspace(preferences, path);
+      const previous = preferences;
+      transition = true;
+      try {
+        preferences = next;
+        try { await savePreferences(); } catch (error) { preferences = previous; throw error; }
+        if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
+        startupError = undefined;
+      } finally { transition = false; }
+      if (sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path)) await beginSession();
+      return snapshot();
+    }
+    case 'relocateWorkspace': {
+      if (transition || deletingArchived || sessionNavigation.busy) throw new Error('Workspace operation in progress');
+      const path = text(args[0], 2048);
+      if (!preferences.workspaces.some(value => pathKey(value) === pathKey(path))) throw new Error('Unknown workspace');
+      const peers = () => [...runtimes.workers.values()].filter(worker => pathKey(worker.cwd) === pathKey(path));
+      transition = true;
+      try {
+        for (const worker of peers()) {
+          if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
+          await runtimes.assertIdle(worker);
+        }
+        const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
+        if (result.canceled) return null;
+        const destination = await workspaceDirectory(result.filePaths[0]);
+        const next = relocateWorkspace(preferences, path, destination, await listSessions());
+        const active = peers().find(worker => worker.id === runtimes.activeId);
+        const activeFile = active?.state?.sessionFile;
+        const draftSelected = sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path);
+        const recoverStartup = !sessionDraft && !runtimes.active && preferences.workspace &&
+          pathKey(preferences.workspace) === pathKey(path);
+        for (const worker of peers()) {
+          if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
+          await runtimes.assertIdle(worker);
+        }
+        const previous = preferences;
+        preferences = next;
+        try { await savePreferences(); } catch (error) { preferences = previous; throw error; }
+        for (const worker of peers()) await runtimes.remove(worker);
+        if (sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path)) sessionDraft.workspace = destination;
+        startupError = undefined;
+        if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
+        if (draftSelected || active || recoverStartup) {
+          transition = false;
+          if (draftSelected || recoverStartup) {
+            await listSessions();
+            return await beginSession(destination);
+          }
+          return await connect(destination, activeFile, false);
+        }
+        return await snapshot();
+      } finally { transition = false; }
     }
     case 'chooseWorkspace': {
       const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
@@ -1080,7 +1155,12 @@ async function handle(method: string, args: any[]) {
           const answer: Record<string, unknown> = { id: request.id };
           if (data.cancelled === true) answer.cancelled = true;
           else if (request.method === 'confirm') { if (typeof data.confirmed !== 'boolean') throw new Error('Confirmation required'); answer.confirmed = data.confirmed; }
-          else { answer.value = text(data.value); if (request.method === 'select' && !request.options?.includes(data.value)) throw new Error('Invalid selection'); }
+          else {
+            const value = text(data.value);
+            const question = questionnaire(request);
+            answer.value = question ? serializeAnswers(question, JSON.parse(value)) : value;
+            if (request.method === 'select' && !request.options?.includes(data.value)) throw new Error('Invalid selection');
+          }
           runtimes.respondToRequest(worker, answer); return null;
         }
         const allowed = ['prompt', 'abort', 'clear_queue', 'new_session', 'set_model', 'set_thinking_level', 'set_session_name', 'set_permission_preset', 'get_commands', 'get_available_thinking_levels', 'get_session_stats', 'compact'];
@@ -1520,10 +1600,10 @@ else app.whenReady().then(async () => {
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
     const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method);
-    if (undoBusy && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
+    if (undoBusy && ['removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
       'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
-    if (settingsMutation && ['beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
     if (!updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
       await applyProviderSettings();
     }
@@ -1534,9 +1614,11 @@ else app.whenReady().then(async () => {
   });
   {
     startup = (async () => {
+      const initialDraft = sessionDraft;
       try {
         await beginSession(preferences.workspaces.find(path => pathKey(path) === pathKey(preferences.workspace ?? '')));
       } catch (error) {
+        if (sessionDraft === initialDraft) sessionDraft = undefined;
         status = 'disconnected';
         await runtimes.stopAll();
         startupError = error instanceof Error ? error.message : 'Could not start an independent session';

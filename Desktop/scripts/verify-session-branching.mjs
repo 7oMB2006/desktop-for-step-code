@@ -124,7 +124,7 @@ try {
   await originalRow().click();
   await page.getByText('最新一轮旧回复。', { exact: true }).waitFor().catch(async error => {
     console.log('Branch fixture navigation:', await page.evaluate(async () => ({
-      error: document.querySelector('.error-banner')?.textContent,
+      error: document.querySelector('.app-error-banner, .modal-error')?.textContent,
       transcript: document.querySelector('.messages')?.textContent,
       snapshot: await window.desktop.snapshot().catch(error => String(error)),
     })));

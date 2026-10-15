@@ -155,7 +155,7 @@ try {
     await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 880), width);
     const review = page.getByRole('button', { name: '查看', exact: true });
     await review.waitFor();
-    await page.locator('main > .conversation-scroll-track:not(.hidden)').waitFor();
+    await page.locator('.main-content > .conversation-scroll-track:not(.hidden)').waitFor();
     await review.click({ trial: true });
     assert.ok(await review.evaluate(button => {
       const bounds = button.getBoundingClientRect();

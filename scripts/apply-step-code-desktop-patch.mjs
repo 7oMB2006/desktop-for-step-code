@@ -18,7 +18,7 @@ if (patchText.includes("\r")) {
 	throw new Error("The Step Code integration patch has unsupported line endings");
 }
 const patchBytes = Buffer.from(patchText, "utf8");
-if (gitBlobHash(patchBytes) !== "731a196fe1606c50ebb2c063d8b46df6acbd0eed") {
+if (gitBlobHash(patchBytes) !== "4cadbad2b07f273a64a4039165d376e03c5e54f6") {
 	throw new Error("The Step Code integration patch changed; review and update this applier");
 }
 
@@ -59,6 +59,10 @@ for (const [relative, hash] of [
 	["packages/coding-agent/src/features/step-plan.ts", "cf56888872efcd6e00999a2cbf7681959d0fc4a0"],
 	["packages/coding-agent/src/features/plan-mode-tools.ts", "54c7da072038c16567f4a58efb13063208b14c32"],
 ]) if (gitBlobHash(await readFile(path.join(upstreamDir, relative))) !== hash) throw new Error(`Unexpected Plan source: ${relative}`);
-const combined = Buffer.concat([patchBytes, planPatch]);
+const clarificationPatch = Buffer.from((await readFile(path.join(path.dirname(resolvedPatchPath), "step-code-desktop-clarification.patch"), "utf8")).replace(/\r\n/g, "\n"));
+if (gitBlobHash(clarificationPatch) !== "7e876da1dc885e18cae0923102d4189ccc444e80") throw new Error("Unexpected Beta Desktop clarification patch");
+if (gitBlobHash(await readFile(path.join(upstreamDir, "packages/coding-agent/src/features/step-questionnaire.ts"))) !== "7301fc9a497581e9e4a88f880c4da12cdc74f8e0")
+	throw new Error("Unexpected pinned clarification source");
+const combined = Buffer.concat([patchBytes, planPatch, clarificationPatch]);
 execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], { ...applyOptions, input: combined });
 execFileSync("git", ["-C", upstreamDir, "apply", "-"], { ...applyOptions, input: combined });

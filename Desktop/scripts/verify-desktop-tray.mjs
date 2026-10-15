@@ -8,6 +8,10 @@ import { join, resolve } from 'node:path';
 
 let chunks = 0;
 let streamClosed = false;
+let phase = 'fixture setup';
+const mark = value => { phase = value; console.log(`Tray acceptance: ${phase}`); };
+process.on('exit', code => { if (code !== 0) console.error(`Tray acceptance exited (${code}) during ${phase}`); });
+mark(phase);
 const chunk = delta => `data: ${JSON.stringify({ id: 'tray-fixture', object: 'chat.completion.chunk',
   created: 1, model: 'fixture', choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`;
 const server = createServer(async (req, res) => {
@@ -33,8 +37,10 @@ delete env.ELECTRON_RUN_AS_NODE;
 let app;
 let exited = false;
 try {
+  mark('Electron launch');
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE
     ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
+  mark('first window');
   const page = await app.firstWindow();
   page.setDefaultTimeout(15000);
   await app.evaluate(({ BrowserWindow, Tray, dialog }) => {
@@ -51,7 +57,12 @@ try {
       return { response: globalThis.trayFixture.response };
     };
   });
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
+  mark('runtime ready');
+  await page.waitForFunction(() => {
+    const input = document.querySelector('.composer > .composer-input');
+    return Boolean(input && !input.disabled);
+  }, undefined, { timeout: 60000 });
+  mark('tray menu');
   await page.evaluate(() => window.desktop.preferences({ language: 'zh' }));
   assert.equal(await app.evaluate(() => globalThis.trayFixture.tray.isDestroyed()), false);
   const newPopup = app.waitForEvent('window');
@@ -106,6 +117,7 @@ try {
     getComputedStyle(element).transitionDuration.split(',').every(value => value.trim() === '0s')));
   await popup.emulateMedia({ reducedMotion: 'no-preference' });
   await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
+  mark('hidden task and terminal retention');
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Run until explicitly stopped.');
   await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('Tray fixture running.'));
@@ -145,6 +157,7 @@ try {
     !window.webContents.getURL().includes('tray-menu.html')).isVisible()), true);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window =>
     !window.webContents.getURL().includes('tray-menu.html')).length), 1);
+  mark('quit cancellation and confirmation');
   await page.evaluate(() => window.desktop.preferences({ language: 'en' }));
   await openMenu();
   assert.deepEqual(await popup.getByRole('menuitem').allTextContents(), ['Open Desktop for Step Code', 'Quit application']);

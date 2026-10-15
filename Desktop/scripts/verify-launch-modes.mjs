@@ -127,7 +127,7 @@ try {
     await mode('Ultracode').click();
     await page.waitForFunction(async enabled => (await window.desktop.snapshot()).launch.ultracodeArmed === enabled, enabled);
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch.ultracode, false);
-    assert.equal(await page.locator('.error-banner').count(), 0, 'Actual Ultracode switch must not report a false failure');
+    assert.equal(await page.locator('.error-banner, .app-error-banner, .modal-error').count(), 0, 'Actual Ultracode switch must not report a false failure');
     assert.equal(await page.getByText('Ultracode is on for the session.', { exact: false }).count(), 0, 'Inline status replaces redundant runtime info toast');
   }
   await page.locator('.launch-status-pulse').click();

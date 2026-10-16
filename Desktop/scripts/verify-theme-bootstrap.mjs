@@ -111,6 +111,10 @@ const expectSystemCase = async () => {
 try {
   await expectFirstFrame('dark', 'dark');
   await expectFirstFrame('light', 'light');
+  await expectFirstFrame('original-light', 'light');
+  await expectFirstFrame('original-dark', 'dark');
+  await expectFirstFrame('paper', 'light');
+  for (const theme of ['blue', 'wine', 'jade']) await expectFirstFrame(theme, 'dark');
   // The system cell: what is verifiable is that the first frame equals the
   // main-process resolution; the host dark value is reported as evidence.
   await expectSystemCase();

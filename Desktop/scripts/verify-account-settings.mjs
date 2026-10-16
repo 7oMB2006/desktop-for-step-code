@@ -149,8 +149,8 @@ try {
   const encrypted = await readFile(join(profile, 'step-runtime/auth.dpapi'));
   assert.equal(encrypted.includes(Buffer.from('isolated-api-fixture-only')), false);
   await assert.rejects(readFile(join(profile, 'step-runtime/auth.json')), { code: 'ENOENT' });
-  await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('dark');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('button', { name: '账户', exact: true }).click();
   await page.locator('html[data-theme="dark"]').waitFor();
   await page.screenshot({ path: 'test-results/account-settings-dark.png' });

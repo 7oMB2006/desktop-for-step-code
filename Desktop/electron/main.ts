@@ -15,6 +15,7 @@ import { SessionCollaboration } from './session-collaboration';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
+import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } from '../src/theme';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { AuthVault } from './auth-vault';
@@ -1351,6 +1352,7 @@ async function handle(method: string, args: any[]) {
     case 'preferences': {
       const patch = args[0] ?? {};
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
+      const colorPatch = themePreferencePatch(patch);
       if (patch.appearance !== undefined) {
         if (!patch.appearance || typeof patch.appearance !== 'object' || Array.isArray(patch.appearance)) throw new Error('Invalid appearance settings');
         preferences.appearance = normalizeAppearance({ ...preferences.appearance, ...patch.appearance });
@@ -1361,7 +1363,7 @@ async function handle(method: string, args: any[]) {
         preferences.filePreviewWidth = patch.filePreviewWidth;
       }
       const sidebarPatch = validateSidebarPreferences(patch, cachedSessions(), preferences.workspaces, pathKey);
-      if (['system', 'light', 'dark'].includes(patch.theme)) preferences.theme = patch.theme;
+      Object.assign(preferences, colorPatch);
       if (['zh', 'en'].includes(patch.language)) preferences.language = patch.language;
       if (patch.workspaceNames !== undefined) {
         if (!patch.workspaceNames || typeof patch.workspaceNames !== 'object' || Array.isArray(patch.workspaceNames)) throw new Error('Invalid workspace names');
@@ -1380,6 +1382,7 @@ async function handle(method: string, args: any[]) {
       Object.assign(preferences, sidebarPatch, updatePatch);
       if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
       await savePreferences();
+      window.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       updates.setChannel(preferences.updateChannel ?? 'preview');
       tray?.relabel();
       return preferences;
@@ -1496,6 +1499,8 @@ else app.whenReady().then(async () => {
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
+  preferences.theme = normalizeTheme(preferences.theme);
+  preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;
   preferences.updateChannel = preferences.updateChannel === 'stable' ? 'stable' : 'preview';
   preferences.autoCheckUpdates = preferences.autoCheckUpdates !== false;
   updates.setChannel(preferences.updateChannel);
@@ -1539,8 +1544,13 @@ else app.whenReady().then(async () => {
   // stays light inside this packaged renderer even on a dark system, so the main
   // process owns the resolved theme. The preload asks for it synchronously before
   // the first paint; the renderer re-resolves on preference and system changes.
-  const resolvedTheme = (): 'light' | 'dark' => preferences.theme === 'system' ? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light') : preferences.theme;
-  ipcMain.on('desktop:resolved-theme', event => { event.returnValue = { theme: resolvedTheme(), systemDark: nativeTheme.shouldUseDarkColors }; });
+  const resolvedColors = () => resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor);
+  const resolvedTheme = () => resolvedColors().scheme;
+  ipcMain.on('desktop:resolved-theme', event => {
+    const colors = resolvedColors();
+    event.returnValue = { theme: colors.scheme, palette: colors.id, tokens: colors.tokens,
+      preference: preferences.theme, accentColor: preferences.accentColor, systemDark: nativeTheme.shouldUseDarkColors };
+  });
   // The authoritative system value, re-read by the renderer after it subscribes
   // to theme events: a change that lands before that subscription is dropped,
   // and this query is what corrects the startup snapshot.
@@ -1549,7 +1559,7 @@ else app.whenReady().then(async () => {
     return { systemDark: nativeTheme.shouldUseDarkColors };
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
-  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: resolvedTheme() === 'dark' ? '#141414' : '#ffffff', autoHideMenuBar: true, show: false, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
+  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: resolvedColors().tokens['--bg'], autoHideMenuBar: true, show: false, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
   let shellShown = false;
   const revealShell = () => {
     if (shellShown || quitting || window.isDestroyed()) return;
@@ -1568,7 +1578,13 @@ else app.whenReady().then(async () => {
     if (isMainFrame && code !== -3) revealShell();
   });
   window.webContents.on('render-process-gone', revealShell);
-  nativeTheme.on('updated', () => { tray?.relabel(); if (window && !window.isDestroyed()) window.webContents.send('runtime-event', { type: 'desktop_system_theme', dark: nativeTheme.shouldUseDarkColors }); });
+  nativeTheme.on('updated', () => {
+    tray?.relabel();
+    if (window && !window.isDestroyed()) {
+      window.setBackgroundColor(resolvedColors().tokens['--bg']);
+      window.webContents.send('runtime-event', { type: 'desktop_system_theme', dark: nativeTheme.shouldUseDarkColors });
+    }
+  });
   crashLog.setPhase('window created');
   browser = new BrowserTabs(window, event => {
     if (!window.isDestroyed()) window.webContents.send('browser-event', event);
@@ -1583,7 +1599,7 @@ else app.whenReady().then(async () => {
   try {
     tray = new DesktopTray(app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'),
       () => preferences.language, showMainWindow, () => app.quit(), {
-        theme: resolvedTheme, quitting: () => quitting, noFocus: backgroundAcceptance,
+        theme: resolvedTheme, colors: resolvedColors, quitting: () => quitting, noFocus: backgroundAcceptance,
         devUrl: !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined,
         onError: error => { void crashLog.record('tray-menu', error); },
       });

@@ -109,6 +109,10 @@ try {
   assert.equal(await popup.evaluate(() => document.documentElement.dataset.theme), 'dark');
   await popup.waitForFunction(() => getComputedStyle(document.querySelector('.tray-menu')).opacity === '1');
   await popup.screenshot({ path: 'test-results/tray-menu-dark.png', omitBackground: true });
+  await page.evaluate(() => window.desktop.preferences({ theme: 'jade', accentColor: '#a7d8c9' }));
+  await popup.waitForFunction(() => document.documentElement.dataset.palette === 'jade');
+  await popup.waitForFunction(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === 'rgb(20, 53, 44)');
+  assert.equal(await popup.evaluate(() => window.desktopTray.state().colors.accent), '#a7d8c9');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window =>
     window.webContents.getURL().includes('tray-menu.html')).emit('blur'));
   await popup.waitForFunction(() => document.querySelector('.tray-menu')?.dataset.visible === 'false');

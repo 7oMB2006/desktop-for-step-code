@@ -8,10 +8,10 @@ window.addEventListener('desktop-shell-ready', () => ipcRenderer.send('desktop:s
 // the inline bootstrap in index.html reads window.desktopTheme.resolved before
 // the React module executes. The renderer cannot resolve the system value
 // itself, because prefers-color-scheme stays light in this packaged renderer.
-let resolvedTheme: { theme: 'light' | 'dark'; systemDark: boolean } = { theme: 'light', systemDark: false };
+let resolvedTheme: Omit<DesktopTheme, 'resolved' | 'firstFrame'> & { theme: 'light' | 'dark' } = { theme: 'light', systemDark: false };
 try {
   const answer = ipcRenderer.sendSync('desktop:resolved-theme');
-  if (answer?.theme === 'dark' || answer?.theme === 'light') resolvedTheme = { theme: answer.theme, systemDark: Boolean(answer.systemDark) };
+  if (answer?.theme === 'dark' || answer?.theme === 'light') resolvedTheme = { ...answer, systemDark: Boolean(answer.systemDark) };
 } catch (error) {
   resolvedTheme = { theme: 'light', systemDark: false };
 }
@@ -19,12 +19,15 @@ try {
 // Records the first data-theme write in document order. This observer is
 // installed before any page script runs, so the value it captures is the inline
 // bootstrap's write, never the React effect; readyState stays 'loading' then.
-const firstFrame: { theme?: string; readyState: string } = { readyState: '' };
+const firstFrame: ReturnType<DesktopTheme['firstFrame']> = { readyState: '' };
 new MutationObserver(() => {
   if (firstFrame.theme) return;
   const value = document.documentElement?.getAttribute('data-theme');
   if (!value) return;
   firstFrame.theme = value;
+  firstFrame.palette = document.documentElement.dataset.palette;
+  firstFrame.background = document.documentElement.style.getPropertyValue(`--theme-${value}-bg`);
+  firstFrame.primary = document.documentElement.style.getPropertyValue(`--theme-${value}-primary`);
   firstFrame.readyState = document.readyState;
 }).observe(document, { attributes: true, attributeFilter: ['data-theme'], subtree: true });
 
@@ -112,6 +115,10 @@ const bridge: DesktopBridge = {
 };
 contextBridge.exposeInMainWorld('desktop', bridge);
 const theme: DesktopTheme = {
+  preference: resolvedTheme.preference,
+  accentColor: resolvedTheme.accentColor,
+  palette: resolvedTheme.palette,
+  tokens: resolvedTheme.tokens,
   resolved: resolvedTheme.theme,
   systemDark: resolvedTheme.systemDark,
   firstFrame: () => ({ ...firstFrame }),

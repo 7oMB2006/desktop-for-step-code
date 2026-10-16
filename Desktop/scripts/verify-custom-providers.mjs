@@ -474,8 +474,8 @@ try {
   }
   await page.evaluate(p => window.desktop.saveProvider(p), configured);
   await settings();
-  await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('light');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '亮', exact: true }).click();
   await page.getByRole('button', { name: '供应商', exact: true }).click();
   await page.locator('.provider-editor fieldset').evaluate(e => { e.scrollTop = 0; });
   await page.screenshot({ path: 'test-results/custom-providers-light.png' });

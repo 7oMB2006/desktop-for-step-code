@@ -155,13 +155,21 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
       if (!live) return;
       snapshots.forEach(replay);
     }).catch(() => {}); // Opening a directory retries a failed background restore.
-    const observer = new MutationObserver(() => {
+    const syncTheme = () => {
       controllers.current.forEach(controller => { controller.terminal.options.theme = theme(); });
-    });
+    };
+    const finishTheme = (event: TransitionEvent) => {
+      if (event.target === document.documentElement && ['--bg', '--ink'].includes(event.propertyName)) syncTheme();
+    };
+    const observer = new MutationObserver(syncTheme);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
+    document.documentElement.addEventListener('transitionend', finishTheme);
+    document.documentElement.addEventListener('transitioncancel', finishTheme);
     return () => {
       live = false;
       unsubscribe(); observer.disconnect();
+      document.documentElement.removeEventListener('transitionend', finishTheme);
+      document.documentElement.removeEventListener('transitioncancel', finishTheme);
       controllers.current.forEach(controller => { controller.terminal.dispose(); controller.element.remove(); });
       controllers.current.clear();
     };

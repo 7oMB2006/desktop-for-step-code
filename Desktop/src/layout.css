@@ -671,12 +671,12 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 :root[data-theme=dark] .permission-trigger.permission-full-access { color: oklch(.78 .13 70); }
 .permission-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .permission-trigger.permission-review {
-  --review-flow: linear-gradient(110deg, transparent 38%, color-mix(in oklch, var(--primary) 14%, transparent) 50%, transparent 62%);
+  --review-flow: linear-gradient(110deg, transparent 38%, color-mix(in srgb, var(--primary) 14%, transparent) 50%, transparent 62%);
   color: color-mix(in oklch, var(--primary) 85%, var(--ink)); border-radius: 5px;
   background-color: color-mix(in oklch, var(--primary) 10%, var(--bg));
   background-image: var(--review-flow);
   background-size: 300% 100%; background-position: 100% 0; background-repeat: no-repeat;
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
   animation: permission-review-in 180ms cubic-bezier(.215, .61, .355, 1),
     permission-review-flow 4.8s linear 180ms infinite,
     permission-review-breathe 3.4s ease-in-out 180ms infinite;
@@ -691,13 +691,13 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 }
 @keyframes permission-review-in {
   from { background-color: transparent; box-shadow: inset 0 0 0 1px transparent; }
-  to { background-color: color-mix(in oklch, var(--primary) 10%, var(--bg)); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent); }
+  to { background-color: color-mix(in oklch, var(--primary) 10%, var(--bg)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent); }
 }
 @keyframes permission-review-content-in { from { opacity: .35; } to { opacity: 1; } }
 @keyframes permission-review-flow { from { background-position: 100% 0; } to { background-position: 0% 0; } }
 @keyframes permission-review-breathe {
-  0%, 100% { background-color: color-mix(in oklch, var(--primary) 8%, var(--bg)); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 28%, transparent); }
-  50% { background-color: color-mix(in oklch, var(--primary) 14%, var(--bg)); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 65%, transparent); }
+  0%, 100% { background-color: color-mix(in oklch, var(--primary) 8%, var(--bg)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 28%, transparent); }
+  50% { background-color: color-mix(in oklch, var(--primary) 14%, var(--bg)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 65%, transparent); }
 }
 @keyframes permission-review-content-breathe {
   0%, 100% { color: color-mix(in oklch, var(--primary) 85%, var(--ink)); }

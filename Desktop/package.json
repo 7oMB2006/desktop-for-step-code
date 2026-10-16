@@ -35,6 +35,7 @@
     "prosemirror-state": "1.4.4",
     "prosemirror-view": "1.42.6",
     "react": "19.3.0",
+    "react-colorful": "5.8.1",
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",
     "rehype-highlight": "7.0.2",

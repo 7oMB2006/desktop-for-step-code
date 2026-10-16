@@ -1,5 +1,100 @@
 # Verification
 
+## Accent Acknowledgement Race (2026-10-16)
+
+Cloud run 38694832584 passed HEX input and then timed out comparing the canceled
+preview with its baseline. The baseline previously waited only for the main
+process snapshot to contain the saved accent, not for the renderer to install
+that preference reply.
+
+Appearance acceptance now holds the real preference reply after persistence.
+It proves the snapshot already contains blue while the swatch and rendered
+accent still show the old value. After releasing that reply it waits for the
+selected swatch, settles color transitions and asserts the baseline equals the
+final theme token before exercising preview/cancel and rapid reopen. The exact
+restoration assertions remain intact; no product styling or timeout was changed.
+Normal-speed and four-times CPU-throttled runs passed locally. Cloud success
+still requires a new run on the updated commit.
+
+## Accent Editor Rapid-Reopen Regression (2026-10-15)
+
+Each explicit custom-color opening now mounts a fresh editor while preserving
+the 220 ms exit animation. Canceling or toggling closed and reopening during
+that exit restores the saved HEX and does not revive the discarded preview.
+Both paths were reproduced against the earlier source before the fix.
+
+Typecheck, production build, three theme tests and Appearance acceptance at
+four-times CPU throttling passed. The acceptance proves the old editor is
+still present during exit, then checks that reopening replaces it and restores
+the saved value. The source change is not in the existing local preview package.
+
+Cloud run 38692811276 failed while waiting for the Apply button after HEX
+input. Normal input checks now wait for the editor's actual opening transition
+to finish; a failure records the input value, validation and button states plus
+a screenshot. Animation capture and pause use one page call to avoid losing
+the transition between separate automation calls. Cloud success must still be
+confirmed on the new commit, not inferred from local acceptance.
+
+## Original Palettes and Link Accent Follow-Up (2026-10-15)
+
+Source-only follow-up restores the original neutral light/dark palettes as
+compact swatches immediately left of System. Transcript links, generic website
+icons and both preview open actions now consume the shared accent instead of
+hardcoded blue; external website contents and favicons remain unchanged.
+The existing local preview package and desktop shortcut do not include this
+follow-up.
+
+Typecheck, production build and three theme unit tests passed. Isolated
+Electron Appearance acceptance covers all eight explicit palettes, selection,
+persistence and narrow layouts. Link acceptance verifies wine/gold,
+original-dark/cyan and original-light/rose combinations against the root
+accent token, including both preview actions. Bootstrap acceptance includes
+both original palettes at the first frame. Screenshots are
+`Desktop/test-results/theme-original-{light,dark}.png` and
+`Desktop/test-results/message-links-accent-*.png`.
+
+The earlier cloud interface job failed at an immediate enabled-state assertion
+after HEX input. The assertion now waits for the rendered state before
+checking; it is not removed or weakened. These local checks do not establish
+cloud CI success or package acceptance for this follow-up.
+
+## Six Themes Local Preview Package (2026-10-15)
+
+The local unsigned 0.4.0 preview at
+`Desktop/release/themes-accent-20261015/` contains theme source `0ee67fa`
+rebased onto main `63fb179` (PR #124). Interface complexity settings, compact
+process presentation and unified thinking remain present alongside the new
+Appearance palette controls. The final theme circles are smaller, shifted
+down/right and blended at 48 percent opacity; their centers remain inside
+the tile while both outer edges clip.
+
+Typecheck, production build, 37 focused tests and twelve CI policy/runner
+tests passed. Source Electron checks passed for Appearance, interface
+preferences, general Electron and theme bootstrap. The unpacked package
+passed Appearance, interface preferences, desktop tray, real PowerShell
+terminal and general Electron acceptance using isolated profiles. Appearance
+acceptance covers all palettes, accents, restart and first-frame persistence,
+intermediate cubic color frames, reduced motion, input focus containment and
+the final circle geometry. These checks do not establish full-suite,
+paid-model, installer-lifecycle or cloud CI success.
+
+All 98 built Desktop files and 1159 staged runtime files matched the package.
+Node hash, both Desktop helpers, terminal host, icon and keyless adapter were
+verified. Runtime remains pinned to
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`; it was reused, not restaged.
+Installer metadata size and SHA-512 matched. Installer SHA-256:
+`8e899abd08537f18e3c3c52e5d4a4ccc6168c743a082f36076e74dc7f0a7eb8f`.
+The package is `NotSigned`, and no public release was made.
+
+The ordinary desktop shortcut was backed up and updated to the verified
+unpacked executable, with empty arguments and matching working directory/icon.
+The user's running previous preview was preserved. Package evidence is in
+`Desktop/test-results/themes-package-resources.json`,
+`Desktop/test-results/themes-shortcut.json` and the package's
+`update-package-check.json` / `SHA256SUMS.txt`.
+The new package totals about 703.47 MiB; all local release directories total
+about 9.07 GiB. No existing packages were deleted.
+
 ## Compact Process and Unified Thinking Preview (2026-10-15)
 
 The local unsigned 0.4.0 preview in
@@ -210,6 +305,54 @@ Rebuildable artifacts were inventoried: the new package is about 693 MiB,
 runtime 111 MiB, local dependencies 510 MiB, build output 8.5 MiB and terminal
 runtime 63 MiB. No obsolete packages were deleted. Cloud CI, paid-model and
 installer-lifecycle acceptance are not established by these local results.
+
+## Six themes and independent accents (2026-10-15)
+
+Appearance now offers Light, Paper, Dark, Blue, Wine and Jade, plus system
+following. Each palette defines its own surfaces and text hierarchy. An
+independent accent can be selected from presets or an inline color picker.
+Picker edits preview immediately; cancel, Escape and leaving Appearance
+restore the saved color. Applied preferences survive restart. Accent
+normalization accepts only opaque three- or six-digit HEX, and rendered
+accents are adjusted for text contrast without changing the saved value.
+Success, failure and interrupted-state colors remain independent.
+
+Main-process window backgrounds, preload/bootstrap first paint, renderer,
+tray and terminal use the resolved palette. Scheme-prefixed tokens preserve
+existing light/dark fixture switching. Transparent blends in settings and
+approval surfaces use sRGB to avoid Chromium's neutral-hue OKLCH tint.
+
+Typecheck, production build, three theme unit tests and twelve CI policy and
+runner tests passed. Serial isolated-profile Electron acceptance passed for
+appearance, theme bootstrap, settings dialog, desktop tray, terminal panel,
+general Electron and context panel. Coverage includes all six palettes,
+system changes, first-frame/restart persistence, accent validation,
+preview/cancel/apply, independent semantic colors, Paper sidebar pixels,
+typography and narrow layouts. Screenshots are in
+`Desktop/test-results/theme-*.png`.
+
+These are local UI and deterministic integration checks, not full-suite,
+paid-model or installer lifecycle qualification. No installer, shortcut,
+commit, PR or release was produced by this source-only change.
+
+The visual follow-up adopts the six approved Chinese names and the Light and
+Shadow / Between Mountains and Seas group names, with quieter concept-derived
+palettes. The hue track uses a muted spectrum and a short rectangular thumb;
+the saturation/value control retains accurate color selection. HEX inputs
+shrink into the space remaining beside their swatch instead of overflowing
+their flex row. Focus outlines are inset, with explicit wide/narrow acceptance
+assertions for both the input and its entire outline. Typecheck, build, theme
+unit tests and Appearance acceptance passed again after this follow-up.
+
+Theme tiles now have a larger solid circle clipped by both right and bottom
+edges, with its center inside the tile rather than on the corner, and with
+the selection mark moved to the upper right. Shared color tokens transition
+over 360ms with cubic easing; component geometry transitions are unchanged.
+The first paint is immediate and reduced motion disables color interpolation.
+Appearance acceptance samples an intermediate color frame and verifies cubic
+timing, final colors and the reduced-motion path. Terminal color refresh also
+listens for color-transition completion/cancellation, so its canvas does not
+retain the pre-transition palette.
 
 ## Live context statistics refresh (2026-10-15)
 

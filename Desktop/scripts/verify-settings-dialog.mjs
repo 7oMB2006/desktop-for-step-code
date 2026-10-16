@@ -59,8 +59,8 @@ try {
   await page.getByLabel('Base URL', { exact: true }).waitFor();
   assert.deepEqual(await dialog.boundingBox(), baseline, 'Provider editor does not resize the shell');
   await capture('settings-fixed-provider-light');
-  await page.getByRole('button', { name: '通用', exact: true }).click();
-  await dialog.getByLabel(/^主题/).selectOption('dark');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await dialog.getByRole('button', { name: '暗', exact: true }).click();
   await page.locator('html[data-theme="dark"]').waitFor();
   assert.equal(await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).backgroundColor), lightTint, 'Dark theme must not introduce a pale ink-color veil');
   await page.getByRole('button', { name: '外观', exact: true }).click();

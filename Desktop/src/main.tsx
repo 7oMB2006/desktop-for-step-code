@@ -71,6 +71,8 @@ import { AppearanceSettings } from './AppearanceSettings';
 import { InterfaceSettings } from './InterfaceSettings';
 import { normalizeInterfaceSettings } from './interface-presets';
 import { applyAppearance } from './appearance';
+import { applyTheme } from './theme';
+import { ThemeSettings } from './ThemeSettings';
 import { TerminalPanel } from './TerminalPanel';
 import { BrowserPanel } from './BrowserPanel';
 import { FilePreviewPanel } from './FilePreviewPanel';
@@ -84,13 +86,14 @@ import { findSubagentTask } from './conversation-presentation';
 import { currentTurnWorkflows, workflowsFromMessages } from './workflow-state';
 import { WorkflowTrigger } from './WorkflowView';
 import './appearance.css';
+import './theme.css';
 import './settings-dialog.css';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
 // write matches the bootstrap instead of flipping to a system guess before the
 // real snapshot arrives.
-const initial: Snapshot = { preferences: { theme: window.desktopTheme?.resolved ?? 'system', language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
+const initial: Snapshot = { preferences: { theme: window.desktopTheme?.preference ?? window.desktopTheme?.resolved ?? 'system', accentColor: window.desktopTheme?.accentColor, language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
 const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
@@ -684,9 +687,9 @@ function App() {
     return () => { document.removeEventListener('keydown', onKeyDown); previewAnimation.current?.cancel(); previewDrag.current = null; setPreviewDragging(false); if (previewTrigger.current?.isConnected) previewTrigger.current.focus({ preventScroll: true }); };
   }, [preview]);
   useEffect(() => {
-    const update = () => document.documentElement.dataset.theme = data.preferences.theme === 'system' ? (systemDark ? 'dark' : 'light') : data.preferences.theme;
-    update(); document.documentElement.lang = zh ? 'zh-CN' : 'en';
-  }, [data.preferences.theme, systemDark, zh]);
+    applyTheme(data.preferences.theme, systemDark, data.preferences.accentColor);
+    document.documentElement.lang = zh ? 'zh-CN' : 'en';
+  }, [data.preferences.theme, data.preferences.accentColor, systemDark, zh]);
   useEffect(() => {
     const onResize = () => {
       if (window.innerWidth <= 760 && !compactSidebarRef.current) {
@@ -1536,7 +1539,7 @@ function App() {
       </div>
     </div>}
     {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['mcp', Plug, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'archived' ? ' archive-tab' : ''}`} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
-      {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
+      {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <><ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} onChange={patch => void setPreference(patch)}/><AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/></> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
         onOpen={id => { closeSettings(); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
         onRestore={id => run(() => updateArchive(id, true)).then(() => {})} onDelete={deleteArchived}/> : <>
@@ -1555,7 +1558,7 @@ function App() {
           </select>
         </label>
       </>}
-      {tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <><h3>{t('外观与语言', 'Appearance and language')}</h3><label>{t('主题', 'Theme')}<select value={data.preferences.theme} onChange={e => void setPreference({ theme: e.target.value })}><option value="system">{t('跟随系统', 'System')}</option><option value="light">{t('浅色', 'Light')}</option><option value="dark">{t('深色', 'Dark')}</option></select></label><label>{t('语言', 'Language')}<select value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
+      {tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <><h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
         onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
         onTest={(provider, modelId, key) => bridge!.testProvider(provider, modelId, key)}
         onCancelTest={() => bridge!.cancelProviderTest()}

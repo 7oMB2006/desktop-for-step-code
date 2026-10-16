@@ -166,8 +166,8 @@ try {
   await app.evaluate(() => { globalThis.updateFixture.time += 180_000; globalThis.updateFixture.mode = 'available'; });
   await updates.getByRole('button', { name: '检查更新', exact: true }).click();
   await updates.getByText(`发现新版本 ${nextVersion}`, { exact: true }).waitFor();
-  await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/^主题/).selectOption('dark');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('button', { name: '版本更新', exact: true }).click();
   await page.locator('html[data-theme="dark"]').waitFor();
   await updates.scrollIntoViewIfNeeded();

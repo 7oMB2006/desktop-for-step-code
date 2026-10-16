@@ -89,8 +89,8 @@ try {
     const hidden = await page.locator('.app').evaluate(element => element.classList.contains('sidebar-hidden'));
     if (hidden) await page.locator('.window-sidebar-toggle').click();
     await page.locator('.sidebar-bottom > button').click();
-    await page.getByRole('button', { name: '通用', exact: true }).click();
-    await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption(theme);
+    await page.getByRole('button', { name: '外观', exact: true }).click();
+    await page.getByRole('button', { name: theme === 'dark' ? '暗' : '亮', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
     await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
     if (hidden) await page.locator('.window-sidebar-toggle').click();

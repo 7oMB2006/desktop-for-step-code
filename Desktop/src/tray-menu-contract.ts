@@ -1,6 +1,7 @@
 export interface TrayMenuState {
   language: 'zh' | 'en';
   theme: 'light' | 'dark';
+  colors?: ReturnType<typeof import('./theme').resolveTheme>;
   visible: boolean;
   origin: 'top right' | 'bottom right';
 }

@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { TrayMenuBridge } from './tray-menu-contract';
+import { applyTheme } from './theme';
 import './style.css';
+import './theme.css';
 import './app-menu.css';
 import './tray-menu.css';
 
 declare global { interface Window { desktopTray: TrayMenuBridge } }
 const bridge = window.desktopTray;
 const initial = bridge.state();
-document.documentElement.dataset.theme = initial.theme;
+applyTheme(initial.colors?.id ?? initial.theme, initial.theme === 'dark', initial.colors?.accent);
 
 function TrayMenu() {
   const [state, setState] = useState(initial);
@@ -16,7 +18,7 @@ function TrayMenu() {
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => bridge.onState(setState), []);
   useLayoutEffect(() => {
-    document.documentElement.dataset.theme = state.theme;
+    applyTheme(state.colors?.id ?? state.theme, state.theme === 'dark', state.colors?.accent);
     document.documentElement.lang = state.language === 'zh' ? 'zh-CN' : 'en';
     if (!state.visible) { setVisible(false); return; }
     const frame = requestAnimationFrame(() => {

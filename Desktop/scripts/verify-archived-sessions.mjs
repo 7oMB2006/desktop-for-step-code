@@ -144,8 +144,8 @@ try {
   await assert.rejects(readFile(join(sessionDir, 'archive-0.jsonl')), /ENOENT/);
   assert.ok(!(await persistedIds()).includes('archive-0'));
   assert.deepEqual(await app.evaluate(() => globalThis.archiveDialogs), []);
-  await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByLabel('主题').selectOption('dark');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('button', { name: '已归档', exact: true }).click();
   await screenshot(page, 'test-results/archives-settings-dark.png');
   await page.getByRole('button', { name: 'Close', exact: true }).click();

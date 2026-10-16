@@ -24,7 +24,7 @@ export function AppearanceSettings({ value, onChange, language }: { value?: Appe
   const update = (patch: Partial<Appearance>) => onChange(patch);
   const size = (key: 'uiSize' | 'bodySize' | 'codeSize', min: number, max: number, label: string) => <label className="appearance-row"><span>{label}</span><span className="appearance-number"><FontSizeInput key={`${key}-${a[key]}`} label={label} min={min} max={max} value={a[key]} onChange={value => update({ [key]: value })}/><small>px</small></span></label>;
   return <section className="appearance-settings" aria-label={t('文字与排版', 'Typography')}>
-    <div className="appearance-heading"><h3>{t('外观', 'Appearance')}</h3><button className="icon-button" aria-label={t('恢复默认排版', 'Reset typography')} data-tooltip={t('恢复默认排版', 'Reset typography')} onClick={() => onChange({ ...defaultAppearance })}><RotateCcw size={16}/></button></div>
+    <div className="appearance-heading"><h3>{t('文字与排版', 'Typography')}</h3><button className="icon-button" aria-label={t('恢复默认排版', 'Reset typography')} data-tooltip={t('恢复默认排版', 'Reset typography')} onClick={() => onChange({ ...defaultAppearance })}><RotateCcw size={16}/></button></div>
     <h4>{t('界面', 'Interface')}</h4>
     <label className="appearance-row"><span>{t('字体', 'Font')}</span><AppearanceSelect aria-label={t('界面字体', 'Interface font')} value={a.uiFont} onChange={e => update({ uiFont: e.target.value as Appearance['uiFont'] })}><option value="system">{t('系统默认', 'System')}</option><option value="yahei">{t('微软雅黑', 'Microsoft YaHei')}</option></AppearanceSelect></label>
     {size('uiSize', 12, 18, t('界面字号', 'Interface size'))}

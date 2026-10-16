@@ -22,6 +22,7 @@ try {
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const snapshot = await prepareSessionFixture(page);
+  const settings = await page.evaluate(() => window.desktop.settings());
   // Real main-process request first; fixture copy below only makes visual checks reproducible offline.
   const remote = await page.evaluate(() => window.desktop.linkPreview('https://www.stepfun.com/'));
   console.log('Remote preview:', { title: remote.title, description: Boolean(remote.description), icon: Boolean(remote.icon) });
@@ -30,13 +31,18 @@ try {
     { role: 'user', timestamp: Date.now() - 10000, content: '可以给我阶跃星辰和 B 站的官方网站吗？' },
     { role: 'assistant', timestamp: Date.now(), content: '当然，下面是两个官方网站：\n\n[阶跃星辰官方网站](https://www.stepfun.com/)\n\n[哔哩哔哩首页](https://www.bilibili.com/)\n\n常用入口也可以直接打开：\n\n- 首页：https://www.bilibili.com/\n- 番剧与影视：[番剧](https://www.bilibili.com/anime/)\n- 直播：[哔哩哔哩直播](https://live.bilibili.com/)\n- 手机首页：`https://m.bilibili.com`\n- 开放平台：`https://platform.stepfun.com`\n\n`curl https://example.com/`\n\n```text\nhttps://example.com/code-sample\n```\n\n链接保留原始地址，点击就能访问。' },
   ];
-  await app.evaluate(({ ipcMain }, { snapshot, messages, icon, remote }) => {
+  await app.evaluate(({ ipcMain }, { snapshot, messages, icon, remote, settings }) => {
     globalThis.linkFixture = { ...snapshot, messages };
     globalThis.previewRequests = [];
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', (_event, method, ...args) => {
       if (method === 'snapshot') return globalThis.linkFixture;
       if (method === 'sessions') return globalThis.linkFixture.sessions;
+      if (method === 'settings') return settings;
+      if (method === 'preferences') {
+        Object.assign(globalThis.linkFixture.preferences, args[0]);
+        return globalThis.linkFixture.preferences;
+      }
       if (method === 'linkPreview') {
         globalThis.previewRequests.push(args[0]);
         return { url: args[0], title: remote.title || '阶跃星辰', description: remote.description || '网页信息暂不可用', icon };
@@ -45,7 +51,7 @@ try {
       if (method === 'command' && args[0] === 'get_commands') return { commands: [] };
       return {};
     });
-  }, { snapshot, messages, icon: remote.icon || icon, remote });
+  }, { snapshot, messages, icon: remote.icon || icon, remote, settings });
   await page.reload();
   const mobile = page.getByRole('link', { name: 'https://m.bilibili.com', exact: true });
   await mobile.waitFor();
@@ -98,6 +104,30 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await link.focus(); await page.locator('.link-preview').waitFor();
   assert.equal(await page.locator('.link-preview').evaluate(element => getComputedStyle(element).animationName), 'none');
+  await page.keyboard.press('Escape');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1322, 880));
+  for (const [theme, accent, screenshot] of [
+    ['酒红', '金强调色', 'wine-gold'],
+    ['原版深色', '青强调色', 'original-dark-cyan'],
+    ['原版浅色', '玫红强调色', 'original-light-rose'],
+  ]) {
+    await page.locator('.sidebar-bottom > button').click();
+    await page.getByRole('button', { name: '外观', exact: true }).click();
+    await page.getByRole('button', { name: theme, exact: true }).click();
+    await page.getByRole('button', { name: accent, exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+    await page.waitForFunction(() => !document.documentElement.getAnimations().some(animation => animation.playState === 'running'));
+    const primary = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim());
+    assert.equal(await link.evaluate(element => getComputedStyle(element).color), primary, 'message links follow the selected accent');
+    await link.hover();
+    await page.locator('.link-preview-body p').waitFor();
+    assert.ok(await page.locator('.link-preview-top > a').evaluateAll((elements, color) =>
+      elements.every(element => getComputedStyle(element).color === color), primary), 'both preview actions share the accent');
+    await page.screenshot({ path: `test-results/message-links-accent-${screenshot}.png`, animations: 'disabled' });
+    await page.keyboard.press('Escape');
+    await page.locator('.link-preview').waitFor({ state: 'detached' });
+  }
   assert.deepEqual(errors, []);
   console.log('Message link acceptance passed');
 } finally { await app.close(); }

@@ -199,8 +199,8 @@ try {
   await page.mouse.move(700, 25);
   await page.screenshot({ path: 'test-results/context-panel-json-light.png' });
   await page.locator('.sidebar-bottom > button').click();
-  await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('dark');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await verifyCapacityScale('dark');
@@ -352,8 +352,8 @@ try {
   await page.locator('.right-tool-rail').getByRole('button', { name: '会话导航', exact: true }).click();
   assert.equal(await navigation.evaluate(element => getComputedStyle(element).transitionDuration), '0s');
   await page.locator('.sidebar-bottom > button').click();
-  await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('light');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '亮', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
   await navigation.getByRole('navigation').evaluate(element => { element.scrollTop = 0; });

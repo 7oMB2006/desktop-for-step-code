@@ -18,7 +18,7 @@ export interface ModelSelection { model: Model; thinkingLevel?: string }
 export interface ModelChange { id: string; userTimestamp: number; from: Pick<Model, 'id' | 'provider' | 'name'>; to: Pick<Model, 'id' | 'provider' | 'name'> }
 export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string }
 export type RuntimeEvent = { type: string; [key: string]: any };
-export interface Preferences { interfaceSettings?: import('./interface-presets').InterfacePreferences; appearance?: import('./appearance').Appearance; theme: 'system' | 'light' | 'dark'; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; workspaceSessionRedirects?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; collapsedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide'; updateChannel?: UpdateChannel; autoCheckUpdates?: boolean }
+export interface Preferences { interfaceSettings?: import('./interface-presets').InterfacePreferences; appearance?: import('./appearance').Appearance; theme: import('./theme').ThemePreference; accentColor?: string | null; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; workspaceSessionRedirects?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; collapsedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide'; updateChannel?: UpdateChannel; autoCheckUpdates?: boolean }
 export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
 export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
@@ -169,8 +169,12 @@ export interface RepositoryFileDiff {
 }
 export interface DesktopTheme {
   resolved: 'light' | 'dark';
+  preference?: import('./theme').ThemePreference;
+  accentColor?: string | null;
+  palette?: string;
+  tokens?: Record<string, string>;
   systemDark: boolean;
-  firstFrame: () => { theme?: string; readyState: string };
+  firstFrame: () => { theme?: string; palette?: string; background?: string; primary?: string; readyState: string };
 }
 export interface SummaryTask {
   id: string; subject: string; description: string; status: 'pending' | 'in_progress' | 'completed' | 'failed';

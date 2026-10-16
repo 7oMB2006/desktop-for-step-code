@@ -251,8 +251,9 @@ try {
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   checkpoint('dark narrow layout and reopen');
   await page.locator('.sidebar-bottom > button').click();
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/主题|Theme/).selectOption('dark');
   await page.getByRole('dialog').getByLabel(/语言|Language/).selectOption('en');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 880));

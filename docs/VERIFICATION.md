@@ -1,5 +1,21 @@
 # Verification
 
+## macOS native window controls (2026-10-17)
+
+The v0.5.0 macOS preview now uses Electron's native hiddenInset titlebar and
+system traffic lights instead of the renderer's Windows controls. The sidebar
+header shares the sidebar color, reserves the native buttons, and keeps its
+collapse toggle usable when hidden. Application commands are grouped in an
+upper-right ellipsis menu; the native application/Edit/View/Window menus remain.
+
+Typecheck, production build, source and installed-package Electron acceptance
+passed, including menu actions/Escape, sidebar collapse, native button position,
+minimize/restore, light/dark themes, long-title containment at 640px and renderer
+isolation. Package verification again matched 1,258 files. Native UI inspection confirmed
+the actual system controls, green-button full-screen entry, Command-Control-F
+exit and sidebar collapse/restore on the installed app. These checks do not
+establish Windows regression or public-release qualification.
+
 ## macOS Apple Silicon Release v0.5.0 Port (2026-10-16)
 
 This branch freezes the published v0.5.0 Release at

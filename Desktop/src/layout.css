@@ -922,3 +922,23 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
   font-size: 13px;
   line-height: 1.6;
 }
+
+/* Native macOS traffic lights sit above this titlebar at (20, 19). */
+:root:has(.platform-macos) { --window-bar-height: 52px; }
+.window-bar-macos { background: var(--bg); border-bottom: 0; }
+.window-bar-macos .window-tools {
+  width: var(--sidebar-width, 244px); min-width: 128px; flex-shrink: 0;
+  padding: 0 12px 0 96px; justify-content: flex-end;
+  background: var(--side); border-right: 1px solid var(--border);
+  -webkit-app-region: drag;
+  transition: width 280ms var(--sidebar-ease);
+}
+.window-bar-macos button { -webkit-app-region: no-drag; }
+.sidebar-hidden .window-bar-macos .window-tools { width: 140px; background: var(--bg); border-color: transparent; }
+.window-bar-macos .window-drag-space { justify-content: center; padding: 0 24px; }
+.window-bar-macos .window-session-title { max-width: min(300px, 100%); color: var(--muted); font-size: 12px; }
+.window-macos-menu { position: relative; display: flex; align-items: center; padding: 0 12px; -webkit-app-region: no-drag; }
+.window-macos-menu .window-menu-popover { left: auto; right: 12px; max-height: calc(100dvh - 64px); overflow-y: auto; }
+.window-macos-menu-group + .window-macos-menu-group { border-top: 1px solid var(--border); margin-top: 5px; padding-top: 5px; }
+.window-macos-menu-label { display: block; color: var(--muted); font-size: 11px; padding: 6px 10px 3px; }
+@media (prefers-reduced-motion: reduce) { .window-bar-macos .window-tools { transition: none; } }

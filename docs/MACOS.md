@@ -46,6 +46,12 @@ executable helper. The package script verifies runtime platform and architecture
 Open the `.app` from Finder, or use `corepack pnpm dev` from `Desktop/`.
 The packaged app carries its own Node and Step Code runtime. The integrated
 terminal uses `/bin/zsh`; clipboard and image zoom use Command on macOS.
+The window uses native macOS traffic lights in the upper left (red: close,
+yellow: minimize, green: system full screen/window management). Its titlebar
+shares the sidebar background, with the sidebar toggle at the sidebar edge.
+Application commands are grouped under the upper-right ellipsis; standard
+macOS menus and Command shortcuts remain available. Empty titlebar areas drag
+the window, and sidebar collapse keeps the native controls unobstructed.
 Closing the window leaves the app in the menu bar. Click its menu-bar icon or
 Dock icon to restore it; use Quit or Command-Q to exit.
 

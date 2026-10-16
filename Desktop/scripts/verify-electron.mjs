@@ -250,22 +250,32 @@ try {
   await page.screenshot({ path: 'test-results/brand-sidebar-hidden.png' });
   await page.getByRole('button', { name: '侧栏', exact: true }).click();
   await page.locator('.sidebar').waitFor({ state: 'visible' });
-  await page.getByRole('button', { name: '视图', exact: true }).click();
-  assert.equal(await page.getByRole('menu', { name: '视图' }).isVisible(), true);
+  await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '视图', exact: true }).click();
+  assert.equal(await page.getByRole('menu', { name: process.platform === 'darwin' ? '应用菜单' : '视图' }).isVisible(), true);
   await page.getByRole('menuitem', { name: '隐藏侧栏' }).click();
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: '视图', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '视图', exact: true }).click();
   await page.getByRole('menuitem', { name: '显示侧栏' }).click();
-  await page.getByRole('button', { name: '文件', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '文件', exact: true }).click();
   assert.equal(await page.getByRole('menuitem', { name: '新建独立会话' }).isVisible(), true);
   await page.keyboard.press('Escape');
-  assert.equal(await page.getByRole('menu', { name: '文件' }).count(), 0);
-  await page.getByRole('button', { name: '最大化', exact: true }).click();
-  await page.getByRole('button', { name: '还原窗口', exact: true }).waitFor();
-  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()), true);
-  await page.getByRole('button', { name: '还原窗口', exact: true }).click();
-  await page.getByRole('button', { name: '最大化', exact: true }).waitFor();
-  await page.getByRole('button', { name: '最小化', exact: true }).click();
+  assert.equal(await page.getByRole('menu', { name: process.platform === 'darwin' ? '应用菜单' : '文件' }).count(), 0);
+  if (process.platform === 'darwin') {
+    assert.equal(await page.locator('.window-controls').count(), 0);
+    assert.equal(await page.locator('.window-bar-macos').count(), 1);
+    assert.deepEqual(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getWindowButtonPosition()), { x: 20, y: 19 });
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreenable()), true);
+    const geometry = await page.locator('.window-sidebar-toggle').boundingBox();
+    assert.ok(geometry.x >= 96, 'Sidebar toggle must clear native traffic lights');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
+  } else {
+    await page.getByRole('button', { name: '最大化', exact: true }).click();
+    await page.getByRole('button', { name: '还原窗口', exact: true }).waitFor();
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()), true);
+    await page.getByRole('button', { name: '还原窗口', exact: true }).click();
+    await page.getByRole('button', { name: '最大化', exact: true }).waitFor();
+    await page.getByRole('button', { name: '最小化', exact: true }).click();
+  }
   await page.waitForTimeout(250);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized()), true);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].restore());
@@ -396,14 +406,14 @@ try {
     const originalTitle = element.textContent;
     element.textContent = '很长的测试会话标题'.repeat(20);
     const title = element.getBoundingClientRect();
-    const controls = document.querySelector('.window-controls').getBoundingClientRect();
+    const controls = document.querySelector('.window-controls, .window-macos-menu').getBoundingClientRect();
     const drag = document.querySelector('.window-drag-space').getBoundingClientRect();
     const result = { width: title.width, right: title.right, dragRight: drag.right, controlsLeft: controls.left, overflow: element.scrollWidth > element.clientWidth };
     element.textContent = originalTitle;
     return result;
   });
   assert.ok(titleBounds.right <= titleBounds.controlsLeft);
-  assert.ok(titleBounds.width <= 300 && titleBounds.dragRight - titleBounds.right >= 48);
+  assert.ok(titleBounds.width <= 300 && titleBounds.dragRight - titleBounds.right >= (process.platform === 'darwin' ? 24 : 48));
   assert.equal(titleBounds.overflow, true);
   const toastBounds = await toast.evaluate(element => {
     const rect = element.getBoundingClientRect();
@@ -481,7 +491,7 @@ try {
   assert.equal(independentState.preferences.workspaces.length, 2);
   assert.equal(independentState.preferences.workspaces.includes(independentCwd), false);
   await page.getByRole('region', { name: '独立会话', exact: true }).getByRole('button', { name: '独立验证会话', exact: true }).waitFor();
-  await page.getByRole('button', { name: '视图', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '视图', exact: true }).click();
   await page.getByRole('menuitem', { name: '重启运行时', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
   independentState = await page.evaluate(() => window.desktop.snapshot());

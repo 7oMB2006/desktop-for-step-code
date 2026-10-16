@@ -942,3 +942,10 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .window-macos-menu-group + .window-macos-menu-group { border-top: 1px solid var(--border); margin-top: 5px; padding-top: 5px; }
 .window-macos-menu-label { display: block; color: var(--muted); font-size: 11px; padding: 6px 10px 3px; }
 @media (prefers-reduced-motion: reduce) { .window-bar-macos .window-tools { transition: none; } }
+
+/* Keep the tool rail above inspectors while softening its titlebar junction. */
+.platform-macos .right-tool-rail {
+  border-top-left-radius: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 11px;
+}

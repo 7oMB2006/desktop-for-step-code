@@ -49,6 +49,10 @@ terminal uses `/bin/zsh`; clipboard and image zoom use Command on macOS.
 The window uses native macOS traffic lights in the upper left (red: close,
 yellow: minimize, green: system full screen/window management). Its titlebar
 shares the sidebar background, with the sidebar toggle at the sidebar edge.
+The right tool rail keeps its priority above inspectors and uses a small 10px
+upper-left corner at the titlebar junction. The startup logo is positioned at
+the geometric center of the display containing the pointer on macOS, avoiding
+the system window-centering offset.
 Application commands are grouped under the upper-right ellipsis; standard
 macOS menus and Command shortcuts remain available. Empty titlebar areas drag
 the window, and sidebar collapse keeps the native controls unobstructed.

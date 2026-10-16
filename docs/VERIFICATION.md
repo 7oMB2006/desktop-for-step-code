@@ -1,5 +1,22 @@
 # Verification
 
+## macOS rail corner and startup placement (2026-10-17)
+
+The right tool rail retains its existing width and inspector priority, with a
+10px upper-left corner and a thin top border at the titlebar junction. On macOS,
+the separate startup window now uses explicit screen coordinates centered on
+the display containing the pointer, instead of native window centering.
+Windows placement remains unchanged.
+
+Typecheck, production build, source and installed-package startup acceptance
+passed. Startup coverage checks both axes against the native display bounds
+(within 1 DIP), transparent pixels, reduced motion, isolated bridge-free splash,
+main-window handoff and disposal. Installed-package general Electron acceptance
+passed, and package resource verification matched 1,258 files. An initial source
+general acceptance run timed out in the existing archive-feedback toast expiry
+fixture; the subsequent installed-package run passed that fixture and the full
+suite without application changes.
+
 ## macOS native window controls (2026-10-17)
 
 The v0.5.0 macOS preview now uses Electron's native hiddenInset titlebar and

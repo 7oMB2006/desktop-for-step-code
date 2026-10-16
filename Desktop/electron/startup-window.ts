@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
 
 /** A separate transparent window; never grants the splash the desktop bridge. */
@@ -11,8 +11,14 @@ export class StartupWindow {
   private disposed = false;
 
   constructor(private readonly background: boolean, devUrl?: string) {
+    // Cocoa's native center is visually above the display midpoint. Place the
+    // splash geometrically on the display where the user launches the app.
+    const display = process.platform === 'darwin'
+      ? screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds : undefined;
     const splash = new BrowserWindow({
-      width: 256, height: 256, center: true, frame: false, thickFrame: false, transparent: true,
+      width: 256, height: 256,
+      ...(display ? { x: Math.round(display.x + (display.width - 256) / 2),
+        y: Math.round(display.y + (display.height - 256) / 2) } : { center: true }), frame: false, thickFrame: false, transparent: true,
       backgroundColor: '#00000000', hasShadow: false, resizable: false,
       minimizable: false, maximizable: false, focusable: false, skipTaskbar: true,
       // On Windows, a non-topmost cold-start window can composite as an opaque

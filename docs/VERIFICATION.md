@@ -1,5 +1,21 @@
 # Verification
 
+## Accent Acknowledgement Race (2026-10-16)
+
+Cloud run 38694832584 passed HEX input and then timed out comparing the canceled
+preview with its baseline. The baseline previously waited only for the main
+process snapshot to contain the saved accent, not for the renderer to install
+that preference reply.
+
+Appearance acceptance now holds the real preference reply after persistence.
+It proves the snapshot already contains blue while the swatch and rendered
+accent still show the old value. After releasing that reply it waits for the
+selected swatch, settles color transitions and asserts the baseline equals the
+final theme token before exercising preview/cancel and rapid reopen. The exact
+restoration assertions remain intact; no product styling or timeout was changed.
+Normal-speed and four-times CPU-throttled runs passed locally. Cloud success
+still requires a new run on the updated commit.
+
 ## Accent Editor Rapid-Reopen Regression (2026-10-15)
 
 Each explicit custom-color opening now mounts a fresh editor while preserving

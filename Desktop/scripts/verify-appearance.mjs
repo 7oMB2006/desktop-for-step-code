@@ -99,9 +99,39 @@ try {
     }
   }
   const semantic = await colors();
+  // Persistence can finish before the renderer receives its preference reply.
+  await app.evaluate(({ ipcMain }) => {
+    const handler = ipcMain._invokeHandlers.get('desktop');
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    globalThis.accentReplyFixture = { handler, release };
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      const result = await handler(event, method, ...args);
+      if (method === 'preferences' && args[0]?.accentColor === '#487bd1') await gate;
+      return result;
+    });
+  });
   await page.getByRole('button', { name: '蓝强调色', exact: true }).click();
   await page.waitForFunction(async () => (await window.desktop.snapshot()).preferences.accentColor === '#487bd1');
+  const blueSwatch = page.getByRole('button', { name: '蓝强调色', exact: true });
+  assert.equal(await blueSwatch.getAttribute('aria-pressed'), 'false', 'saved preferences do not imply a rendered acknowledgement');
+  assert.equal((await colors())['--primary'], semantic['--primary'], 'the held reply leaves the previous rendered accent intact');
+  await app.evaluate(({ ipcMain }) => {
+    const { handler, release } = globalThis.accentReplyFixture;
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', handler);
+    release();
+    delete globalThis.accentReplyFixture;
+  });
+  await page.waitForFunction(() => document.querySelector('.accent-swatch[aria-label="蓝强调色"]')?.getAttribute('aria-pressed') === 'true');
   const preset = await colors();
+  assert.notEqual(preset['--primary'], semantic['--primary'], 'capture the acknowledged accent, not the stale pre-reply baseline');
+  const primaryTarget = await page.evaluate(() => {
+    const root = document.documentElement;
+    return root.style.getPropertyValue(`--theme-${root.dataset.theme}-primary`).trim();
+  });
+  assert.equal(preset['--primary'], cssColor(primaryTarget), 'the baseline is the final target color, not a transition frame');
   assert.equal(preset['--danger'], semantic['--danger']);
   assert.equal(preset['--green'], semantic['--green']);
   const openEditor = async () => {

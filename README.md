@@ -112,3 +112,9 @@ See [VERIFICATION.md](docs/VERIFICATION.md) and the [release preparation record]
 ### License
 
 Desktop for Step Code is licensed under MIT. Step Code and its Pi upstream components retain their respective licenses and notices.
+
+### macOS Apple Silicon preview branch
+
+This branch ports the published **v0.5.0** Release to macOS Apple Silicon. See
+[macOS build and local preview](docs/MACOS.md) and [platform coordination](docs/PLATFORM_HANDOFF.md).
+Windows remains the published target; later Windows PRs and the Linux branch are outside this port.

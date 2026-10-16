@@ -1,5 +1,39 @@
 # Verification
 
+## macOS Apple Silicon Release v0.5.0 Port (2026-10-16)
+
+This branch freezes the published v0.5.0 Release at
+`6fedd4d1883e4d1beaf6f4599134695e13a9ba50`, as requested by the owner.
+Later Windows main/PR changes and the separately maintained Linux branch were
+not merged. Step Code stays pinned to `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`
+with the existing release patch guards.
+
+On this Mac mini (Apple Silicon, macOS 26.4), typecheck and the production
+build passed. The final unit/protocol run passed 439 tests, with one existing
+Windows-specific test skipped (440 total). This includes real local-fixture
+Step RPC, auth isolation, CLM and context tests. Native zsh PTY testing covers
+Unicode output in a directory containing spaces, resize, host shutdown and
+cleanup. It passes against both staged development and packaged resources.
+
+Source and packaged Electron acceptance passed: real runtime connection,
+isolated settings and sessions, rename, MCP configuration, themes, narrow
+layouts, proposed sessions and no renderer Node access. Platform acceptance
+uses Command for macOS image zoom and native path containment instead of
+Windows path separators. Source and packaged safeStorage acceptance passed
+legacy plaintext migration, ciphertext checks, logout, fixture-key login and
+relaunch recovery through macOS Keychain. All credentials were isolated,
+nonfunctional fixture values; no personal profile or paid model was used.
+
+The local unsigned app is `Desktop/release/mac-arm64/Desktop for Step Code.app`.
+Package verification compared 1,258 built/staged files, including all runtime
+files and the native PTY host/addon/helper, and checked version, architecture,
+Node SHA-256 and executable permissions. Evidence is in ignored
+`Desktop/test-results/macos-package-resources.json` and local acceptance logs.
+
+This establishes a native local preview, not notarization, public release,
+Intel Mac support, real account/model quality, external MCP publication or
+Windows regression acceptance. See `MACOS.md` and `PLATFORM_HANDOFF.md`.
+
 ## Accent Acknowledgement Race (2026-10-16)
 
 Cloud run 38694832584 passed HEX input and then timed out comparing the canceled

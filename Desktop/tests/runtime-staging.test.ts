@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-test('staging rejects the wrong upstream before touching runtime through every source selector', { skip: process.platform !== 'win32' }, async () => {
+test('staging rejects the wrong upstream before touching runtime through every source selector', { skip: !['win32', 'darwin'].includes(process.platform) }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-stage-'));
   try {
     const upstream = join(root, 'Step-Code');
@@ -36,7 +36,7 @@ test('staging rejects the wrong upstream before touching runtime through every s
 // A pin bump moves four things together: the guard, the patch, the apply script and the
 // instructions. The first three are coupled by the guard itself; this couples the fourth so a
 // stale build instruction fails in CI instead of on a contributor's machine.
-test('every documented pin matches the staging guard', { skip: process.platform !== 'win32' }, async () => {
+test('every documented pin matches the staging guard', { skip: !['win32', 'darwin'].includes(process.platform) }, async () => {
   const guard = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
   const pin = guard.match(/const PINNED_COMMIT = '([0-9a-f]{40})'/)?.[1];
   assert.match(pin ?? '', /^[0-9a-f]{40}$/, 'staging guard declares a pin');

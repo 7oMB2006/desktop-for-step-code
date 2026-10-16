@@ -1529,7 +1529,7 @@ function App() {
           }}
           onPointerCancel={() => { previewDrag.current = null; setPreviewDragging(false); }}
           onWheel={e => {
-            if (!e.ctrlKey) return;
+            if (!(window.desktop?.platform === 'darwin' ? e.metaKey : e.ctrlKey)) return;
             e.preventDefault();
             const factor = e.deltaY < 0 ? 1.16 : 1 / 1.16;
             changePreviewZoom(previewZoom * factor, { x: e.clientX, y: e.clientY });

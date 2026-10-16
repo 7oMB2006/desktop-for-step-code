@@ -65,13 +65,13 @@ export class AuthVault {
     if (this.storage) return this.storage;
     const electron = await import('electron');
     const safeStorage = (electron as { safeStorage?: SafeStorageLike }).safeStorage;
-    if (!safeStorage) throw new Error('Windows credential protection is unavailable');
+    if (!safeStorage) throw new Error('System credential protection is unavailable');
     return safeStorage;
   }
 
   async load(): Promise<AuthData> {
     const safeStorage = await this.backend();
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential protection is unavailable');
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('System credential protection is unavailable');
     const retired = await optionalFile(this.retiredPath);
     if (retired) {
       if (Object.keys(parseAuth(retired.toString('utf8'))).length !== 0) {
@@ -106,7 +106,7 @@ export class AuthVault {
 
   async save(data: AuthData): Promise<void> {
     const safeStorage = await this.backend();
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential protection is unavailable');
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('System credential protection is unavailable');
     const encrypted = safeStorage.encryptString(JSON.stringify(data));
     const temp = `${this.path}.${randomUUID()}.tmp`;
     try {

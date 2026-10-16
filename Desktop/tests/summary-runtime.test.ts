@@ -24,7 +24,7 @@ test('staged summary RPC reads the active task branch and live service catalog w
   ].map(value => JSON.stringify(value)).join('\n') + '\n');
   const rpc = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), dir, isolatedEnvironment(profile));
+    rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'), dir, isolatedEnvironment(profile));
     await rpc.request('get_state', {}, 60000);
     await rpc.request('switch_session', { sessionPath });
     const before = await rpc.request('get_messages');

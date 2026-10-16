@@ -54,6 +54,9 @@ import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATT
 
 app.setName('Desktop for Step Code');
 app.setAppUserModelId('community.stepcode.desktop');
+if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplate([
+  { role: 'appMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+]));
 if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
@@ -172,7 +175,7 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
   return matches.find(match => match.same)?.workspace;
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
-const nodePath = join(runtimeRoot, 'node/node.exe');
+const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const terminals = new TerminalSessions(nodePath,
   app.isPackaged ? join(process.resourcesPath, 'terminal-runtime/host.cjs') : resolve('terminal-runtime/host.cjs'),
   event => { if (window && !window.isDestroyed()) window.webContents.send('terminal-event', event); });
@@ -523,8 +526,8 @@ async function handle(method: string, args: any[]) {
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
     case 'updateState': return { ...updates.snapshot(), transfer: installer.snapshot() };
-    case 'checkUpdates': await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
-    case 'openUpdate': return shell.openExternal(updates.openTarget(args[0]));
+    case 'checkUpdates': if (process.platform !== 'win32') return { ...updates.snapshot(), transfer: installer.snapshot() }; await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
+    case 'openUpdate': return shell.openExternal(process.platform === 'win32' ? updates.openTarget(args[0]) : 'https://github.com/7oMB2006/desktop-for-step-code/releases');
     case 'downloadUpdate': {
       await maintainUpdateCache();
       const state = updates.snapshot();
@@ -1480,7 +1483,7 @@ app.on('before-quit', event => {
     }
   })();
 });
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('second-instance', showMainWindow);
 app.on('activate', showMainWindow);
 if (!app.requestSingleInstanceLock()) { quitting = true; app.quit(); }
@@ -1559,7 +1562,7 @@ else app.whenReady().then(async () => {
     return { systemDark: nativeTheme.shouldUseDarkColors };
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
-  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: resolvedColors().tokens['--bg'], autoHideMenuBar: true, show: false, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
+  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, process.platform === 'darwin' ? 'icon.png' : 'icon.ico') : resolve(process.platform === 'darwin' ? 'build/icon.png' : 'build/icon.ico'), frame: false, backgroundColor: resolvedColors().tokens['--bg'], autoHideMenuBar: true, show: false, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
   let shellShown = false;
   const revealShell = () => {
     if (shellShown || quitting || window.isDestroyed()) return;
@@ -1597,7 +1600,7 @@ else app.whenReady().then(async () => {
   window.webContents.setWindowOpenHandler(({ url }) => { try { const u = new URL(url); if (['https:', 'http:'].includes(u.protocol)) void shell.openExternal(u.href); } catch {} return { action: 'deny' }; });
   window.webContents.on('will-navigate', event => event.preventDefault());
   try {
-    tray = new DesktopTray(app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'),
+    tray = new DesktopTray(app.isPackaged ? join(process.resourcesPath, process.platform === 'darwin' ? 'tray.png' : 'icon.ico') : resolve(process.platform === 'darwin' ? 'build/tray.png' : 'build/icon.ico'),
       () => preferences.language, showMainWindow, () => app.quit(), {
         theme: resolvedTheme, colors: resolvedColors, quitting: () => quitting, noFocus: backgroundAcceptance,
         devUrl: !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined,
@@ -1646,7 +1649,7 @@ else app.whenReady().then(async () => {
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
   if (restoreRequested) { restoreRequested = false; showMainWindow(); }
   // Update checks are independent of runtime/model startup and never block first paint.
-  if (app.isPackaged && !backgroundAcceptance) {
+  if (process.platform === 'win32' && app.isPackaged && !backgroundAcceptance) {
     const check = () => { if (!quitting && preferences.autoCheckUpdates !== false) void updates.check(); };
     setTimeout(check, 10_000).unref();
     setInterval(check, 6 * 60 * 60 * 1000).unref();

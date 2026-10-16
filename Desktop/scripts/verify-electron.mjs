@@ -1,7 +1,7 @@
 import { _electron as electron } from 'playwright';
 import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, relative, isAbsolute } from 'node:path';
 import assert from 'node:assert/strict';
 import { prepareSessionFixture } from './session-fixture.mjs';
 const profile = await mkdtemp(join(tmpdir(), 'step-desktop-electron-'));
@@ -166,10 +166,10 @@ try {
   await page.mouse.up();
   const panX = await previewViewport.locator('img').evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41);
   assert.ok(panX > 40, `expected dragged image to pan, got ${panX}`);
-  await page.keyboard.down('Control');
+  await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
   await page.mouse.move(startX + 60, startY + 30);
   await page.mouse.wheel(0, -120);
-  await page.keyboard.up('Control');
+  await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
   await page.getByText('116%', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/attachment-preview.png' });
   await page.keyboard.press('Escape');
@@ -347,7 +347,8 @@ try {
   assert.equal(startupState.independent, true);
   const independentRoot = await realpath(join(profile, 'workspaces', 'independent'));
   const activeWorkspace = await realpath(startupState.preferences.workspace);
-  assert.ok(activeWorkspace.toLowerCase().startsWith(`${independentRoot.toLowerCase()}\\`), `${activeWorkspace} is outside ${independentRoot}`);
+  const independentRelative = relative(independentRoot, activeWorkspace);
+  assert.ok(independentRelative && !independentRelative.startsWith('..') && !isAbsolute(independentRelative), `${activeWorkspace} is outside ${independentRoot}`);
   assert.equal(startupState.preferences.workspaces.length, 2);
   assert.equal(startupState.preferences.workspaces.includes(startupState.preferences.workspace), false);
   assert.equal(startupState.messages.length, 0);

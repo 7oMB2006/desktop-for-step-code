@@ -85,7 +85,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     element.hidden = true;
     host.current?.append(element);
     terminal.open(element);
-    terminal.textarea?.setAttribute('aria-label', 'PowerShell');
+    terminal.textarea?.setAttribute('aria-label', window.desktop?.platform === 'darwin' ? 'zsh' : 'PowerShell');
     terminal.parser.registerOscHandler(52, () => true);
     controller = { terminal, fit, element, seq: 0, info, hydrated: false, pending: orphanChunks.current.get(info.id) ?? [] };
     orphanChunks.current.delete(info.id);
@@ -99,11 +99,11 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     });
     terminal.attachCustomKeyEventHandler(event => {
       if (event.type !== 'keydown') return true;
-      if (event.ctrlKey && !event.altKey && (event.key.toLowerCase() === 'c') &&
+      if ((window.desktop?.platform === 'darwin' ? event.metaKey : event.ctrlKey) && !event.altKey && (event.key.toLowerCase() === 'c') &&
         (event.shiftKey || terminal.hasSelection())) {
         event.preventDefault(); void copy(controllers.current.get(info.id)); return false;
       }
-      if (event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'v') {
+      if ((window.desktop?.platform === 'darwin' ? event.metaKey : event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'v') {
         event.preventDefault(); void paste(controllers.current.get(info.id)); return false;
       }
       return true;
@@ -245,7 +245,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
           onClick={() => runtimeId && void create(runtimeId, scope)}><Plus size={16}/></button>
       </div>
       <div className="terminal-toolbar">
-        <span>PowerShell</span>
+        <span>{window.desktop?.platform === 'darwin' ? 'zsh' : 'PowerShell'}</span>
         <button className="icon-button" disabled={!selected} aria-label={t('复制所选文本', 'Copy selected text')}
           data-tooltip={t('复制所选文本', 'Copy selected text')} onClick={() => void copy(controller)}><Copy size={14}/></button>
         <button className="icon-button" disabled={selected?.status !== 'running'} aria-label={t('粘贴到终端', 'Paste into terminal')}

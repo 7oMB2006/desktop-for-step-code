@@ -36,6 +36,7 @@ export interface ProviderDiagnostic {
 }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[]; providers?: ProviderInfo[] }
 export interface DesktopBridge {
+  readonly platform?: string;
   removeWorkspace(path: string): Promise<Snapshot>;
   relocateWorkspace(path: string): Promise<Snapshot | null>;
   updateState(): Promise<AppUpdateState>;

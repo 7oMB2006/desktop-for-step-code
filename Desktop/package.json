@@ -15,7 +15,8 @@
     "test": "tsx --test tests/*.test.ts",
     "stage:runtime": "node scripts/stage-runtime.mjs",
     "package": "pnpm build && pnpm stage:runtime && electron-builder --win nsis --x64",
-    "start": "electron ."
+    "start": "electron .",
+    "package:mac": "pnpm build && pnpm stage:runtime && node scripts/package-macos.mjs"
   },
   "dependencies": {
     "@number-flow/react": "0.6.2",
@@ -127,8 +128,18 @@
           "prebuilds/win32-x64/**",
           "!**/*.pdb",
           "!**/*.test.js",
-          "!**/*.map"
+          "!**/*.map",
+          "prebuilds/darwin-*/**",
+          "build/Release/*.node"
         ]
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
+        "from": "build/tray.png",
+        "to": "tray.png"
       }
     ],
     "win": {
@@ -147,6 +158,15 @@
       "allowToChangeInstallationDirectory": true,
       "include": "build/uninstall-credentials.nsh",
       "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "identity": null,
+      "artifactName": "Desktop.for.Step.Code.${version}.${arch}.${ext}"
     }
   }
 }

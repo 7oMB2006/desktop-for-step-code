@@ -75,8 +75,8 @@ Run these commands in PowerShell from the repository root:
 
 ```powershell
 git clone https://github.com/stepfun-ai/Step-Code.git Step-Code
-git -C Step-Code checkout 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
-node scripts/apply-step-code-desktop-patch.mjs ..\Step-Code patches\step-code-desktop.patch
+git -C Step-Code checkout b5dbed938d9ae589397cf522dcf2ff89ecf4c494
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches\v015\step-code-desktop.patch
 
 Push-Location Step-Code
 corepack pnpm install --frozen-lockfile
@@ -93,6 +93,10 @@ corepack pnpm build
 node scripts/verify-electron.mjs
 corepack pnpm dev
 ```
+
+The Windows development baseline above is newer than the published v0.5.1 runtime.
+macOS remains frozen at `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` with the original
+`patches/step-code-desktop.patch`; see [MACOS.md](docs/MACOS.md).
 
 To produce a Windows x64 installer:
 

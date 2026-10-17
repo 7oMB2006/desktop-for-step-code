@@ -23,6 +23,7 @@ const recoveryCalls = new Map();
 let recoveryHeld = false;
 let holdRecovery = true;
 let releaseRecovery;
+let rejectFailedNode = true;
 const server = createServer(async (req, res) => {
   try {
     assert.equal(req.headers.authorization, 'Bearer workflow-fixture-key');
@@ -32,6 +33,16 @@ const server = createServer(async (req, res) => {
     const userIndex = body.messages.findLastIndex(message => message.role === 'user' && text(message).includes('WORKFLOW-'));
     const task = text(body.messages[userIndex] ?? {});
     requests.push({ model: body.model, task });
+    if (task === 'WORKFLOW-FAILED-NODE' && rejectFailedNode) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'Fixture invalid request; the task mentions 429 rate limit but this is not congestion.', type: 'invalid_request_error' } }));
+      return;
+    }
+    if (task === 'WORKFLOW-RETRY-NODE' && requests.filter(request => request.task === task).length === 1) {
+      res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '0' });
+      res.end(JSON.stringify({ error: { message: 'Fixture temporary congestion', type: 'rate_limit_error' } }));
+      return;
+    }
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({
       id: 'workflow-fixture', object: 'chat.completion.chunk', created: 1, model: body.model,
@@ -249,7 +260,9 @@ try {
   assert.equal(changed.messages.find(message => message.toolCallId === 'WORKFLOW-CHANGED').desktopWorkflow.status, 'completed');
   assert.equal(count('WORKFLOW-RECOVERY-A'), 1);
   assert.equal(count('WORKFLOW-RECOVERY-B-CHANGED'), 1);
-  assert.equal(count('WORKFLOW-RECOVERY-C'), 2, 'steps after the changed call rerun');
+  assert.equal(count('WORKFLOW-RECOVERY-C'), 1, 'unchanged read-only calls replay even after a changed call');
+  const changedFlow = changed.messages.find(message => message.toolCallId === 'WORKFLOW-CHANGED').desktopWorkflow;
+  assert.deepEqual(changedFlow.agents.map(agent => agent.status), ['cached', 'completed', 'cached']);
   recoveryHeld = false; holdRecovery = true;
   recoveryCalls.set('WORKFLOW-CRASH', { script, agentTimeoutMs: 30000 });
   const crashing = submitRecovery('WORKFLOW-CRASH');
@@ -290,10 +303,64 @@ try {
   assert.equal(count('WORKFLOW-RECOVERY-B'), bBefore + 1);
   assert.equal(count('WORKFLOW-RECOVERY-C'), cBefore + 1);
   assert.equal(crashResumed.sessions.some(session => /^(workflow|subagent)-/.test(session.id)), false);
-  console.log('Workflow runtime passed: parallel/chain execution, history restart, stop/resume cache reuse, changed-prefix invalidation, forced-crash unknown state and explicit resume. Local HTTP fixture only.');
+  const failureScript = `return await parallel([() => agent("WORKFLOW-KEPT-A", ${options}), () => agent("WORKFLOW-FAILED-NODE", ${options}), () => agent("WORKFLOW-KEPT-C", ${options})]);`;
+  recoveryCalls.set('WORKFLOW-PARTIAL', { script: failureScript, agentTimeoutMs: 30000 });
+  const partial = await submitRecovery('WORKFLOW-PARTIAL');
+  const partialResult = partial.messages.find(message => message.toolCallId === 'WORKFLOW-PARTIAL');
+  assert.equal(partialResult.details.status, 'partial_failed');
+  assert.deepEqual(partialResult.details.summary, { total: 3, completed: 2, failed: 1 });
+  assert.equal(partialResult.details.failures[0].error.code, 'NODE_FAILED', 'HTTP 400 prose mentioning 429 is not congestion');
+  assert.equal(count('WORKFLOW-FAILED-NODE'), 1, 'a nonretryable request is attempted only once');
+  assert.equal(partialResult.details.concurrency.cap, partialResult.details.concurrency.limit, 'error prose cannot throttle the pool');
+  const partialSaved = await waitSnapshot(state => state.messages.find(message => message.toolCallId === 'WORKFLOW-PARTIAL')?.desktopWorkflow?.agents.length === 3);
+  assert.equal(partialSaved.messages.find(message => message.toolCallId === 'WORKFLOW-PARTIAL').desktopWorkflow.status, 'partial_failed');
+  const projectedFailure = partialSaved.messages.find(message => message.toolCallId === 'WORKFLOW-PARTIAL').desktopWorkflow.agents.find(agent => agent.status === 'failed');
+  assert.equal(projectedFailure.error.code, 'NODE_FAILED');
+  assert.match(projectedFailure.error.message, /Fixture invalid request/);
+  await page.reload();
+  const reopenedPartial = await waitSnapshot(state => state.messages.find(message => message.toolCallId === 'WORKFLOW-PARTIAL')?.desktopWorkflow?.agents.length === 3);
+  assert.deepEqual(reopenedPartial.messages.find(message => message.toolCallId === 'WORKFLOW-PARTIAL').desktopWorkflow.agents.map(agent => agent.status),
+    ['completed', 'failed', 'completed']);
+  assert.deepEqual(reopenedPartial.messages.find(message => message.toolCallId === 'WORKFLOW-PARTIAL').desktopWorkflow.agents[1].error,
+    projectedFailure.error, 'history retains the structured error');
+  rejectFailedNode = false;
+  recoveryCalls.set('WORKFLOW-PARTIAL-RESUME', { script: failureScript, resumeFromRunId: partialResult.details.runId, agentTimeoutMs: 30000 });
+  const partialResumed = await submitRecovery('WORKFLOW-PARTIAL-RESUME');
+  assert.equal(partialResumed.messages.find(message => message.toolCallId === 'WORKFLOW-PARTIAL-RESUME').details.status, 'completed');
+  assert.equal(count('WORKFLOW-KEPT-A'), 1);
+  assert.equal(count('WORKFLOW-KEPT-C'), 1, 'a failed middle node does not rerun a completed sibling');
+  assert.equal(count('WORKFLOW-FAILED-NODE'), 2, 'only the failed node is re-executed');
+  recoveryCalls.set('WORKFLOW-RETRY', { script: `return await agent("WORKFLOW-RETRY-NODE", ${options});`, agentTimeoutMs: 30000 });
+  const retried = await submitRecovery('WORKFLOW-RETRY');
+  assert.equal(retried.messages.find(message => message.toolCallId === 'WORKFLOW-RETRY').details.status, 'completed');
+  assert.equal(count('WORKFLOW-RETRY-NODE'), 2, 'a real HTTP 429 retries its child request and then recovers');
+  const retrySaved = await waitSnapshot(state => state.messages.find(message => message.toolCallId === 'WORKFLOW-RETRY')?.desktopWorkflow?.agents.length === 1);
+  assert.equal(retrySaved.messages.find(message => message.toolCallId === 'WORKFLOW-RETRY').desktopWorkflow.agents[0].rateLimitRetries, 1);
+  recoveryCalls.set('WORKFLOW-CALLBACK', { script: `return await parallel([() => agent("WORKFLOW-CALLBACK-KEPT", ${options}), () => { throw new Error("Callback rejected"); }]);`, agentTimeoutMs: 30000 });
+  await submitRecovery('WORKFLOW-CALLBACK');
+  const callbacks = await waitSnapshot(state => state.messages.find(message => message.toolCallId === 'WORKFLOW-CALLBACK')?.desktopWorkflow?.agents.length === 1);
+  const callbackFlow = callbacks.messages.find(message => message.toolCallId === 'WORKFLOW-CALLBACK').desktopWorkflow;
+  assert.equal(callbackFlow.status, 'partial_failed');
+  assert.equal(callbackFlow.agents.length, 1, 'callback failures never become fake agents');
+  assert.equal(callbackFlow.failedAgents, 0);
+  assert.equal(callbackFlow.failedCallbacks, 1);
+  assert.match(callbackFlow.taskFailures[0].message, /Callback rejected/);
+  await page.reload();
+  const callbacksReloaded = await waitSnapshot(state => state.messages.find(message => message.toolCallId === 'WORKFLOW-CALLBACK')?.desktopWorkflow);
+  assert.deepEqual(callbacksReloaded.messages.find(message => message.toolCallId === 'WORKFLOW-CALLBACK').desktopWorkflow, callbackFlow);
+  console.log('Workflow runtime passed: parallel/chain, restart, stop/drain/resume, content-addressed replay, forced-crash recovery, partial failure/reload/selective retry, structured errors, independent callback failures and real HTTP 429 recovery. Local HTTP fixture only.');
 } catch (error) {
   console.error('Workflow profile:', profile);
-  if (page) console.error('Workflow snapshot:', JSON.stringify(await page.evaluate(() => window.desktop.snapshot()).catch(() => null)));
+  if (page) {
+    const diagnostic = await page.evaluate(async () => {
+      const state = await window.desktop.snapshot();
+      return { status: state.status, streaming: state.state?.isStreaming, requests: state.requests?.length,
+        workflows: state.messages.filter(message => message.toolName === 'workflow').map(message => ({
+          status: message.desktopWorkflow?.status, agents: message.desktopWorkflow?.agents.map(agent => agent.status),
+        })) };
+    }).catch(() => null);
+    console.error('Workflow fixture state:', JSON.stringify(diagnostic));
+  }
   throw error;
 } finally {
   releaseChild?.();

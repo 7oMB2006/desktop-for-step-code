@@ -1,5 +1,197 @@
 # Verification
 
+## Integrated Windows Preview with Usage II (2026-10-18)
+
+Windows preview source `2066af57c83367248c004ced01e625fcc0cced9a` merges
+main `d91a9e09494cf86bba7f33e01bf3860100145ce8`, including PR #135 Usage II,
+into this upstream-v0.1.5 branch. Frozen-lockfile installation, typecheck,
+production build and runtime staging passed. The integrated Desktop tests
+passed 496 cases with thirteen platform skips; thirteen CI policy/runner tests
+also passed.
+
+Output is `D:\Desktop For Step Code\Desktop\release\upstream-v015-main-20261018-preview`.
+The NSIS x64 installer remains local version 0.5.1, not a newly published release.
+Installer size is 158,101,485 bytes; SHA-256 is
+`8be69fac72462d60906097a2a1af88a09edf3c685c3a43ea408c28a6353e4de4`.
+Authenticode reports NotSigned. SHA256SUMS and update metadata were verified.
+The package/staging audit checked 1,324 files, including the full runtime,
+Node, Desktop bundles, terminal native backend and file-opening helpers.
+The asar root contains only dist, node_modules and package.json.
+
+Eleven packaged Electron checks passed: general startup/RPC, then_run,
+Workflow UI, real Workflow RPC recovery, account settings, allowance, context
+panel with Usage II estimates, permission tiers, terminal, Plan review and
+message ordering. These use isolated profiles and deterministic providers,
+not paid-model or installation/upgrade qualification.
+
+The additional message-order check reproduced the prior cloud timeout:
+the new runtime had already reached revision 12 while the fixture injected
+revision 10, which was correctly rejected as stale. The fixture now captures
+current session state and derives its synthetic revisions from that baseline;
+all overlap, legitimate duplicate delta, stale snapshot and history reset
+assertions remain intact and passed twice against this same package. Only
+the acceptance script changed after packaging, not application code.
+
+The normal desktop shortcut now points to this verified unpacked executable,
+with empty arguments and its matching working directory. The prior shortcut
+was backed up under ignored test-results. Existing user processes were not
+stopped, and prior packages were inventoried without deletion. The new output
+totals approximately 720.3 MiB. PR CI needs a fresh run on the integrated
+branch; prior cloud failures are not reclassified as passed by these local
+checks. No public release, real-account acceptance or macOS qualification
+is claimed.
+
+## Windows then_run Approval and Verification (2026-10-18)
+
+Fused `write_file` / `edit_file` approvals reuse the existing drawer. The
+multiline upstream reason is accepted only for recognized file-tool reasons,
+and the exact current tool call supplies the redacted verification command.
+The command appears before file content, including in the compact drawer;
+approval authorizes both operations. English/light/narrow layouts were
+visually checked, alongside expansion and denial.
+
+Structured `details.thenRun` drives verification failure, timeout and incomplete
+labels without changing a successful file mutation into a runtime error.
+Failed checks stay outside successful compact tool groups. An interrupted
+fused operation without a structured outcome is shown as incomplete, not as
+proof that the file write failed or succeeded. Reload preserves those labels.
+
+The pinned-runtime Electron/RPC fixture passed approval before either operation,
+denial preventing both, routine automatic approval, dangerous-command gating,
+acknowledged Full Access, unchanged-content verification, edit failure skipping
+verification, nonzero exit, cancellation and history reload. Its separate native
+probe passed explicit Git Bash, initial-workspace cwd for nested files, stderr,
+exit codes, output caps/full logs without rerunning the command, and a missing
+explicit shell path without fallback. Timeout parity uses a 250 ms injected
+host context for both tools; it does not change the product's default timeout.
+
+The stronger gated cancellation probe exposed a Windows/MSYS parent-chain gap:
+`taskkill /T` alone left a nested Bash alive after stop returned. The Windows
+shell path now captures this live Git Bash invocation's MSYS descendants before
+terminating the exact Windows PIDs and waits for cleanup to exit. Discovery uses
+the selected Git installation and trusted Windows PowerShell; failures retain
+ordinary Windows-tree cleanup rather than guessing unrelated ownership. Tests
+cover missing roots and malformed tables. Real gated checks verify no late
+write after stop and that a simultaneous independent shell still completes.
+This is not containment of arbitrary deliberately escaped processes.
+
+Desktop typecheck/build passed, with 480 unit/protocol tests passing and eight
+platform skips. Six focused upstream test files passed 112 tests with four
+platform skips; the full upstream repository check and thirteen CI
+policy/runner tests passed. The guarded Windows patch clean-index replay passed
+all baseline, patch and patched-source hashes. The new acceptance and focused
+process-tree tests are registered in Windows CI; cloud execution is separate.
+Existing permission-drawer, permission-tier, session-concurrency,
+interface-preferences and Windows-command Electron regressions also passed
+against the final staged runtime.
+
+Screenshots are `Desktop/test-results/then-run-{approval,approval-light-en-narrow,results}.png`.
+All fixture profiles, workspaces and command logs stay in the ignored D: test
+directory. No installer, shortcut change, paid-model run or macOS qualification
+is included.
+
+## Workflow Failure Information (2026-10-18)
+
+The Desktop projection now accepts structured node errors, rate-limit retry
+progress/counts, exhaustion, callback failures and cache-hit totals. Final
+failure lists merge into compatible run/start snapshots instead of replacing
+successful nodes; sparse failed nodes retain known labels and tasks.
+Authoritative completion totals do not depend on a failures-only node list.
+Callbacks remain separate from agent counts. Terminal and idle history clear
+active retry indicators, and successful finals clear stale callback failures.
+
+Error fields use bounded allowlists and existing credential redaction. Callback
+source labels reject filesystem paths and executable bodies. Projection limits
+remain 1,000 nodes, with at most 100 callback records and 4,000 characters per
+error message. State/history tests cover missing progress files, duplicate
+persisted events, identity mismatch, malformed fields, truncation and redaction.
+
+Electron UI acceptance passed active retries, recovery, exhaustion, separate
+collapsed callback details, node error details, cache reuse, reload, Chinese and
+English, light/dark themes and narrow layouts. Screenshots were visually checked.
+Real Electron/RPC acceptance with the pinned runtime and local HTTP/SSE fixture
+passed structured HTTP 400 errors across reload, real HTTP 429 recovery with one
+recorded retry, callback failure persistence without fake agents, selective
+resume and prior stop/crash recovery cases.
+
+No installer, paid-model run, cloud CI or macOS qualification is claimed.
+This completes failure-information mapping for the reviewed v0.1.5 Workflow
+contract; ordinary Subagent execution and its existing transcript stay separate.
+Desktop typecheck/build passed; the final serialized unit/protocol run passed
+476 of 484 tests, with eight platform-specific skips and no failures. All
+thirteen CI policy/runner tests passed. No new installer artifacts were produced.
+
+## Workflow / Subagent Stability (2026-10-18)
+
+Seven upstream Workflow/Subagent test files passed 140 tests. Four new
+cross-tool cases saturate a two-slot admission pool with Workflow or ordinary
+parallel subagents first, then verify bounded sharing and cancellation of the
+queued tool without disturbing the admitted tool. Subagent runners must wait
+for child exit. This pool belongs to one parent process, not all Desktop
+session processes globally.
+
+The five previously failing Workflow fixtures now run on Windows: directory
+junctions exercise realpath escape checks without requiring file-symlink
+privileges, and progress-write recovery asserts structured platform error
+codes. No escape/recovery assertion is skipped. These test-only changes are
+included in the guarded Windows patch and the Workflow suite is registered in
+Windows CI; no macOS patch or production scheduling algorithm changed.
+
+Real Electron/RPC acceptance passed stop/drain/resume, forced process exit and
+explicit recovery, partial failure followed by history reload and selective
+re-execution, HTTP 400 prose mentioning 429 without congestion classification,
+and actual HTTP 429 retry/recovery. Resume expectations now follow upstream
+content-addressed replay: unchanged calls that did not touch the environment
+remain cached, while changed calls rerun. Upstream tests also cover writes
+invalidating environment-dependent results. Separate real RPC/SSE session
+concurrency acceptance passed targeted abort, approvals and recycling isolation.
+The full upstream repository check and thirteen CI policy/runner tests passed.
+This is local deterministic transport evidence, not cloud CI, real provider
+load testing or package qualification. Failure-detail adaptation is verified
+separately in the section above.
+
+## Windows v0.1.5 Runtime Migration (2026-10-17)
+
+Development Windows runtime now pins Step Code
+`b5dbed938d9ae589397cf522dcf2ff89ecf4c494`, using the reviewed patch manifest
+in `patches/v015/`. Frozen macOS keeps `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`
+and the original patch set. Both patch sets were replayed on clean checkouts;
+Windows additionally checks all patched source hashes after application.
+
+Frozen dependency installation, offline upstream build, Desktop typecheck,
+production build, and runtime staging passed. Twelve focused upstream test
+files passed 288 tests, covering Plan, shell discovery, Ultracode, command
+parity, usage lifecycle and child shutdown. Desktop unit/protocol tests passed
+470 of 478 cases, with eight platform-specific skips and no failures; all
+13 CI policy/runner tests passed. Five additional upstream automatic CLM
+test files passed 97 tests. The independent worker check
+copied the built bundle out of the checkout and passed totals, cached scans
+and cancellation under the staged Node runtime.
+
+Isolated Electron/RPC acceptance passed Plan review and exact hash metadata,
+expiry/reentry, clarification, unchanged-source branching and inline retry,
+auth vault, CN/Global Plan/API routing, allowance, balance, summary, chain
+success/failure/cancellation, Windows commands and permission tiers.
+An eight-round independent RPC probe also passed after reproducing and fixing
+an unhandled Windows temporary-directory cleanup rejection.
+
+Review follow-up accepts the new Workflow `stopping` and `partial_failed`
+states. Stopping stays active until child shutdown finishes and becomes unknown
+in inactive history without a final result. Partial failure retains final time,
+usage, summary counts and known node outcomes, including after history reload.
+State/history regression tests and Electron Workflow UI acceptance passed;
+screenshots cover the narrow stopping and reopened partial-failure views.
+
+The initial wider Workflow run exposed five Windows fixture failures; the
+2026-10-18 stability follow-up above resolves and rechecks that group.
+The wider usage test file still has an unadapted symlink fixture outside this
+specialty. The later failure-detail follow-up is recorded separately above.
+No installer, native macOS run, cloud CI or real paid-model acceptance was
+performed for this change.
+The full upstream `pnpm run check` passed, including formatting, type checks
+and repository guards. This does not mean the complete upstream test suite
+passed; the remaining usage fixture limitation above is recorded separately.
+
 ## v0.5.1 Targeted Candidate (2026-10-17)
 
 Usage PR #129 is merged. The release-preparation candidate was built from

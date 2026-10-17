@@ -112,6 +112,32 @@ test('tool state is per-call and never mistakes a missing result for success', (
   assert.equal(toolPresentation('constructor', undefined, true, 'en').label, 'Calling constructor');
 });
 
+test('file checks distinguish successful mutation from verification failure without changing the runtime result', () => {
+  for (const name of ['edit_file', 'write_file']) {
+    for (const [exitCode, timedOut, expected] of [[0, false, '验证通过'], [7, false, '验证失败'],
+      [null, true, '验证超时'], [null, false, '验证未完成']] as const) {
+      const message: Message = { ...result('check'), details: { changed: true,
+        thenRun: { command: 'printf check', exitCode, timedOut } } };
+      const presentation = toolPresentation(name, message, false, 'zh');
+      assert.equal(presentation.state, exitCode === 0 ? 'done' : 'failed');
+      assert.match(presentation.label, new RegExp(expected));
+      assert.doesNotMatch(presentation.label, /写入文件失败|修改文件失败/);
+      assert.equal(message.isError, false, 'presentation must not mark a successful mutation as failed');
+      assert.match(toolPresentation(name, message, false, 'en').label, /check/);
+      assert.equal(toolPresentation(name, { ...message, desktopToolPending: true }, true, 'zh').state, 'running');
+    }
+  }
+  const unchanged: Message = { ...result('check'), details: { changed: false,
+    thenRun: { command: 'check', exitCode: 7, timedOut: false } } };
+  assert.equal(toolPresentation('write_file', unchanged, false, 'zh').label, '文件内容未变化 · 验证失败');
+  for (const thenRun of [null, [], { command: 'check', timedOut: 'yes', exitCode: 7 },
+    { command: 'check', timedOut: false, exitCode: -1 }, { command: '', timedOut: false, exitCode: 7 }]) {
+    assert.equal(toolPresentation('write_file', { ...result('check'), details: { thenRun } }, false, 'zh').label, '写入了文件');
+  }
+  assert.equal(toolPresentation('write_file', result('cancelled', true), false, 'zh', { then_run: 'check' }).label, '文件修改或验证未完成');
+  assert.equal(toolPresentation('write_file', result('failed', true), false, 'zh', { then_run: ' ' }).label, '写入文件失败');
+});
+
 test('thinking disclosure advances on actual prose, not an empty streaming block or tool result', () => {
   const reasoning: Message = { role: 'assistant', content: [{ type: 'thinking', thinking: 'Working' }] };
   assert.equal(responsePresentation(indexed([reasoning])).lastTextIndex, -1);

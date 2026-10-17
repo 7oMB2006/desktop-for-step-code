@@ -250,7 +250,9 @@ export class SessionRuntimes {
     this.workers.set(worker.id, worker);
     try {
       const launch = this.hooks.launch?.(worker);
-      worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env }, ['--append-system-prompt', desktopSystemPolicy(cwd),
+      worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env,
+        STEPCODE_DESKTOP_BRANCH_SOURCE: branch && branch.kind !== 'open-copy' && sessionPath ? resolve(sessionPath) : undefined,
+      }, ['--append-system-prompt', desktopSystemPolicy(cwd),
         ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);
       await worker.rpc.request('get_state', {}, 60000);
       const result = existing && !sessionPath ? { cancelled: false }

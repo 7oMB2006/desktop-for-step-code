@@ -8,7 +8,9 @@ const approval: Message = { role: 'toolResult', toolName: 'exit_plan_mode', cont
   details: { outcome: 'approved', planFilePath: 'D:\\proposal.md', planContents: '# My plan\n\nApproved scope' } };
 test('approval notes require a successful native result and retain the exact snapshot', () => {
   assert.deepEqual(approvedPlan(approval), { path: 'D:\\proposal.md', content: '# My plan\n\nApproved scope', title: 'My plan' });
-  for (const outcome of ['dismissed', 'feedback']) assert.equal(approvedPlan({ ...approval, details: { ...approval.details, outcome } }), undefined);
+  for (const outcome of ['dismissed', 'feedback', 'external_approval_required']) {
+    assert.equal(approvedPlan({ ...approval, details: { ...approval.details, outcome, planModeExited: true, approvalSource: 'external' } }), undefined);
+  }
   assert.equal(approvedPlan({ ...approval, isError: true }), undefined);
   assert.equal(approvedPlan({ ...approval, role: 'assistant' }), undefined);
 });

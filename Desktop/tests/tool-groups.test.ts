@@ -66,3 +66,15 @@ test('partial tool output remains running and becomes unreturned on interruption
   assert.equal(toolPresentation('read_file', partial.result, false, 'zh').state, 'missing');
   assert.deepEqual(groupConsecutiveTools([tool('1'), partial], false), [tool('1'), partial]);
 });
+
+test('failed embedded checks stay visible outside successful tool and compact process groups', async () => {
+  const { groupProcesses } = await import('../src/process-groups');
+  for (const timedOut of [false, true]) {
+    const boundary = tool('2', 'write_file');
+    boundary.result!.details = { changed: true, thenRun: { command: 'check', exitCode: timedOut ? null : 7, timedOut } };
+    const input = [tool('1'), boundary, tool('3')];
+    assert.deepEqual(groupConsecutiveTools(input, false), input);
+    const compact = groupProcesses(input, false);
+    assert.equal(compact[1], boundary, 'a failed check cannot become a completed process summary');
+  }
+});

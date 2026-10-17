@@ -1,3 +1,4 @@
+import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -48,14 +49,17 @@ import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Model, PermissionPreset, Preferences, Session, Snapshot } from '../src/contracts';
 import { validateSidebarPreferences } from '../src/sidebar-order';
-import { relocatedWorkspace, relocateWorkspace, removeWorkspace } from './workspace-management';
+import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
 app.setName('Desktop for Step Code');
 app.setAppUserModelId('community.stepcode.desktop');
 if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplate([
-  { role: 'appMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+  { role: 'appMenu' }, { role: 'editMenu' },
+  { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+    { type: 'separator' }, { role: 'togglefullscreen' }] },
+  { role: 'windowMenu' },
 ]));
 if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
@@ -141,7 +145,7 @@ async function importAttachment(path: string) {
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
-const pathKey = (path: string) => resolve(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const pathKey = (path: string) => normalizedWorkspaceKey(resolve(path), process.platform);
 async function samePath(a: string, b: string) {
   if (pathKey(a) === pathKey(b)) return true;
   try {
@@ -526,7 +530,7 @@ async function handle(method: string, args: any[]) {
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
     case 'updateState': return { ...updates.snapshot(), transfer: installer.snapshot() };
-    case 'checkUpdates': if (process.platform !== 'win32') return { ...updates.snapshot(), transfer: installer.snapshot() }; await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
+    case 'checkUpdates': if (process.platform !== 'win32') throw new Error('Update checks are not supported on this platform; use the releases page'); await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
     case 'openUpdate': return shell.openExternal(process.platform === 'win32' ? updates.openTarget(args[0]) : 'https://github.com/7oMB2006/desktop-for-step-code/releases');
     case 'downloadUpdate': {
       await maintainUpdateCache();
@@ -1502,6 +1506,7 @@ else app.whenReady().then(async () => {
   await projectProviders(dataRoot, authData);
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
+  preferences = migrateWorkspaceIdentity(preferences);
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.theme = normalizeTheme(preferences.theme);
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;
@@ -1531,7 +1536,7 @@ else app.whenReady().then(async () => {
     if (existsSync(steppageBundle)) {
       const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
       const existing = settings?.mcp?.[steppageName];
-      const looksDesktopWritten = /runtime[/\\]node[/\\]node\.exe$/i.test(String(existing?.command ?? ''));
+      const looksDesktopWritten = /runtime[/\\]node[/\\]node(?:\.exe)?$/i.test(String(existing?.command ?? ''));
       const staleManaged = Boolean(existing) && looksDesktopWritten
         && typeof existing.command === 'string'
         && !(await samePath(existing.command, nodePath));

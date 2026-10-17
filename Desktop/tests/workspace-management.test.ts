@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { relocatedWorkspace, relocateWorkspace, removeWorkspace } from '../electron/workspace-management';
+import { relocatedWorkspace, relocateWorkspace as relocate, removeWorkspace as remove } from '../electron/workspace-management';
 import type { Preferences } from '../src/contracts';
+
+const removeWorkspace = (p: Preferences, path: string) => remove(p, path, 'win32');
+const relocateWorkspace = (p: Preferences, from: string, to: string, sessions: readonly { id: string; cwd: string }[]) => relocate(p, from, to, sessions, 'win32');
 
 const base = (): Preferences => ({ theme: 'light', language: 'zh', workspaces: ['D:\\Old', 'D:\\Other'],
   workspace: 'D:\\Old', workspaceNames: { 'd:/old': 'My project' }, pinnedWorkspaces: ['d:/old'] });
@@ -60,4 +63,18 @@ test('relocation carries collapsed state and removal clears only that project', 
   assert.deepEqual(moved.collapsedWorkspaces, ['d:/new', 'd:/other', '__independent__']);
   assert.deepEqual(removeWorkspace(moved, 'D:\\New').collapsedWorkspaces, ['d:/other', '__independent__']);
   assert.deepEqual(source.collapsedWorkspaces, ['d:/old', 'd:/other', '__independent__']);
+});
+
+test('macOS case-distinct projects keep separate names, pins, selection and history redirects', () => {
+  const p: Preferences = { theme: 'light', language: 'en', workspaces: ['/Work/Foo', '/Work/foo'],
+    workspace: '/Work/foo', workspaceNames: { '/Work/Foo': 'Upper', '/Work/foo': 'Lower' },
+    pinnedWorkspaces: ['/Work/Foo', '/Work/foo'], collapsedWorkspaces: ['/Work/Foo'] };
+  const removed = remove(p, '/Work/Foo', 'darwin');
+  assert.deepEqual(removed.workspaces, ['/Work/foo']);
+  assert.equal(removed.workspace, '/Work/foo');
+  assert.deepEqual(removed.workspaceNames, { '/Work/foo': 'Lower' });
+  const moved = relocate(p, '/Work/Foo', '/Work/New', [{ id: 'upper', cwd: '/Work/Foo' }, { id: 'lower', cwd: '/Work/foo' }], 'darwin');
+  assert.deepEqual(moved.workspaces, ['/Work/New', '/Work/foo']);
+  assert.deepEqual(moved.workspaceSessionRedirects, { upper: '/Work/New' });
+  assert.equal(moved.workspace, '/Work/foo');
 });

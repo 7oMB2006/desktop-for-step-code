@@ -1,3 +1,4 @@
+import { normalizedWorkspaceKey } from './workspace-key';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -95,7 +96,7 @@ const bridge = window.desktop;
 // real snapshot arrives.
 const initial: Snapshot = { preferences: { theme: window.desktopTheme?.preference ?? window.desktopTheme?.resolved ?? 'system', accentColor: window.desktopTheme?.accentColor, language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
 const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
-const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const workspaceKey = (path: string) => normalizedWorkspaceKey(path, window.desktop?.platform ?? 'win32');
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
@@ -188,7 +189,7 @@ function App() {
     if (sequence !== openingSequence.current || !result || result.destination === 'external') return;
     setDetails('');
     if (result.destination === 'preview') {
-      const same = previewFile?.path.toLowerCase() === result.file.path.toLowerCase();
+      const same = previewFile && workspaceKey(previewFile.path) === workspaceKey(result.file.path);
       if (toggle && target && same && rightPanel === 'file' && !details) { setRightPanel(null); return; }
       setPreviewFile(result.file); setRightPanel('file');
     } else {

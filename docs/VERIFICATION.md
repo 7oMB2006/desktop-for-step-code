@@ -1,5 +1,22 @@
 # Verification
 
+## macOS Codex P2 follow-up (2026-10-17)
+
+The native View menu no longer installs shell Reload/Force Reload accelerators;
+Command-R inside web content still belongs to that browser tab. StepPage managed
+command detection accepts both node.exe and extensionless runtime/node/node.
+Workspace identity is shared between main, renderer and workspace mutations:
+Windows folds case, macOS preserves it. Earlier Mac preview metadata migrates
+only when its registered owner is unambiguous. macOS update settings explicitly
+explain manual Releases downloads and omit unsupported check/channel controls.
+
+Local typecheck, production build and 442 unit/protocol tests passed (one existing
+Windows-only skip). StepPage startup acceptance covers missing and user-owned
+configuration, idempotence and stale managed path refresh; macOS update acceptance
+checks the supported Releases action and absence of inert controls. General
+Electron acceptance adds native shortcut/draft preservation coverage. Native CI
+now runs StepPage and macOS update checks against source and packaged apps.
+
 ## macOS rail corner and startup placement (2026-10-17)
 
 The right tool rail retains its existing width and inspector priority, with a

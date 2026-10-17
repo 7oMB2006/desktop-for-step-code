@@ -328,7 +328,7 @@ try {
   await page.getByRole('dialog').getByRole('textbox').fill('临时项目名');
   await page.getByRole('dialog').getByRole('button', { name: '确认' }).click();
   await page.getByRole('button', { name: '临时项目名', exact: true }).waitFor();
-  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaceNames[workspace.toLowerCase().replaceAll('\\', '/')], '临时项目名');
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaceNames[process.platform === 'win32' ? workspace.toLowerCase().replaceAll('\\', '/') : workspace], '临时项目名');
   await page.getByRole('button', { name: '临时项目名', exact: true }).click({ button: 'right' });
   await context.getByRole('menuitem', { name: '重命名' }).click();
   await page.getByRole('dialog').getByRole('textbox').fill('中文项目 with spaces');
@@ -657,6 +657,26 @@ try {
   assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained empty project draft');
+  if (process.platform === 'darwin') {
+    const draftInput = page.getByRole('textbox', { name: '消息', exact: true });
+    await draftInput.fill('');
+    await draftInput.pressSequentially('Retained empty project draft');
+    await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
+    const roles = await app.evaluate(({ Menu }) => {
+      const collect = menu => menu.items.flatMap(item => [item.role, ...(item.submenu ? collect(item.submenu) : [])]);
+      return collect(Menu.getApplicationMenu());
+    });
+    assert.ok(!roles.includes('reload') && !roles.includes('forceReload'), 'native menu must not reload the application shell');
+    let navigations = 0;
+    const onNavigate = frame => { if (frame === page.mainFrame()) navigations++; };
+    page.on('framenavigated', onNavigate);
+    await page.keyboard.press('Meta+r');
+    await page.keyboard.press('Meta+Shift+r');
+    await page.waitForTimeout(400);
+    assert.equal(navigations, 0, 'reload shortcuts preserve the shell');
+    assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Retained empty project draft');
+    page.off('framenavigated', onNavigate);
+  }
   const projectRows = await page.getByRole('region', { name: projectState.preferences.workspace, exact: true }).locator('.session-row').count();
   for (let i = 0; i < 5; i++) {
     await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).locator('..').hover();

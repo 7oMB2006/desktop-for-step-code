@@ -65,6 +65,7 @@ personal Step Code CLI profile. Credentials use Electron safeStorage and macOS
 Keychain; the encrypted file retains its historical `auth.dpapi` filename.
 
 This build is unsigned and not notarized. Windows executable auto-updates are
-disabled on macOS. Real Step account login, paid model calls, external MCP
+disabled on macOS. The update settings explain this limitation and provide a
+Releases link for manual downloads; Windows-only check/channel controls are hidden. Real Step account login, paid model calls, external MCP
 services and an Intel Mac are separate acceptance tasks; fixture results do
 not establish those outcomes.

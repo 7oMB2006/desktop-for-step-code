@@ -57,7 +57,7 @@ async function launch(unavailable = false) {
       document.querySelector(`[data-reorder-kind="session"][data-reorder-id="${id}"]`)));
   return page;
 }
-const key = path => path.replaceAll('\\', '/').toLowerCase();
+const key = path => process.platform === 'win32' ? path.replaceAll('\\', '/').toLowerCase() : path.replace(/\/+$/, '');
 const project = (page, index) => page.locator(`[data-reorder-kind="workspace"][data-reorder-id="${key(projects[index])}"]`);
 const session = (page, index) => page.locator(`[data-reorder-kind="session"][data-reorder-id="sidebar-${index}"]`);
 const rows = group => group.locator('.session-row').evaluateAll(rows => rows.map(row => row.dataset.reorderId));

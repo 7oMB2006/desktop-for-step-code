@@ -75,6 +75,17 @@ try {
   assert.equal(await page.getByRole('region', { name: '应用更新' }).count(), 0);
   await page.getByRole('button', { name: '版本更新', exact: true }).click();
   const updates = page.getByRole('region', { name: '应用更新' });
+  if (process.platform === 'darwin') {
+    await updates.getByText('macOS 实验版暂不支持应用内检查或自动更新，请在发布页查看版本并手动下载安装。', { exact: true }).waitFor();
+    assert.equal(await updates.getByRole('button', { name: '检查更新', exact: true }).count(), 0);
+    assert.equal(await updates.getByRole('checkbox').count(), 0);
+    assert.equal(await updates.getByRole('combobox').count(), 0);
+    await assert.rejects(page.evaluate(() => window.desktop.checkUpdates()), /not supported/);
+    await updates.getByRole('button', { name: '发布页', exact: true }).click();
+    assert.deepEqual(await app.evaluate(() => globalThis.updateFixture.opened), ['https://github.com/7oMB2006/desktop-for-step-code/releases']);
+    assert.equal(await app.evaluate(() => globalThis.updateFixture.calls.length), 0);
+    console.log('macOS updates: explicit unsupported state, no inert controls, releases link and no background requests passed');
+  } else {
   await updates.getByText('尚未检查更新', { exact: true }).waitFor();
   assert.equal(await updates.getByRole('checkbox', { name: '自动检查更新' }).isChecked(), true);
   const channelTrigger = updates.getByRole('combobox', { name: '更新通道', exact: true });
@@ -221,4 +232,5 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.autoCheckUpdates, false);
   assert.deepEqual(errors, []);
   console.log('App updates: state transitions, official links, missing installer, errors/rate limits, theme/narrow/i18n/reduced motion, preferences and restart passed.');
+  }
 } finally { if (app) await app.close(); }

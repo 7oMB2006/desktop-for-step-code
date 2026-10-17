@@ -14,7 +14,9 @@ import { dirname, join, resolve } from 'node:path';
 
 const serverName = 'steppage';
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
-const expectedCommand = join(executablePath ? join(dirname(executablePath), 'resources', 'runtime') : resolve('runtime'), 'node', 'node.exe');
+const nodeName = process.platform === 'darwin' ? 'node' : 'node.exe';
+const resources = executablePath ? (process.platform === 'darwin' ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
+const expectedCommand = join(resources, 'runtime', 'node', nodeName);
 const userCommand = 'my-own-steppage-command';
 let launchNumber = 0;
 let phase = 'initializing';
@@ -46,7 +48,7 @@ const launchCase = async (profile, bundlePath) => {
     });
     phase = `launch ${launchNumber}: window ready`;
     const page = await app.firstWindow();
-    await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
+    await page.locator('.app').waitFor();
     phase = `launch ${launchNumber}: runtime snapshot`;
     await page.evaluate(() => window.desktop.snapshot());
     phase = `launch ${launchNumber}: settings`;
@@ -146,7 +148,7 @@ const runCases = async () => {
   const written = await readFile(configPath, 'utf8');
   const escaped = expectedCommand.replace(/\\/g, '\\\\');
   assert.ok(written.includes(`command = "${escaped}"`), 'the registered command must be on disk');
-  const stalePath = join(profile, 'gone-install', 'runtime', 'node', 'node.exe');
+  const stalePath = join(profile, 'gone-install', 'runtime', 'node', nodeName);
   await writeFile(configPath, written.replace(`command = "${escaped}"`, `command = "${stalePath.replace(/\\/g, '\\\\')}"`));
   const second = await launchCase(profile, bundle);
   assert.equal(second[serverName]?.command, expectedCommand, 'a stale managed entry must be refreshed to the current node');

@@ -19,6 +19,7 @@ function Harness() {
   window.updateHarness ??= { set: update, downloads: 0, installs: 0, blocked: true };
   window.updateHarness.set = update;
   const bridge = {
+    platform: (window as any).fixturePlatform ?? 'win32',
     checkUpdates: async () => state,
     openUpdate: async () => {},
     downloadUpdate: async () => { window.updateHarness.downloads++; update({ status: 'downloading', version: '0.5.0', percent: 42, transferred: 67.2 * 1024 ** 2, total: 160 * 1024 ** 2, bytesPerSecond: 3.8 * 1024 ** 2, error: undefined }); },

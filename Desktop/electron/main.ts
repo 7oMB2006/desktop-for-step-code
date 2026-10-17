@@ -21,6 +21,7 @@ import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
+import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
 let providerTestController: AbortController | undefined;
@@ -37,9 +38,10 @@ import { linkPreview } from './link-preview';
 import { artifactFile } from './artifact-files';
 import { FilePreviews, fileMode, canOpenExternally, readPreview } from './file-previews';
 import { LocalPagePreview } from './local-page-preview';
-import { associationRequest, fileApplications } from './file-applications';
+import { associationRequest, fileApplications, macApplicationPath } from './file-applications';
 import { AppUpdates, updatePreferences } from './app-updates';
 import { UpdateInstaller, InstallerFailure } from './update-installer';
+import { MacUpdateDriver, macUpdateVersion, acknowledgeMacUpdate } from './macos-update-driver';
 import { NativeUpdateDriver } from './native-update-driver';
 import { cleanInstalledUpdate } from './update-cache';
 import { DesktopTray } from './desktop-tray';
@@ -76,10 +78,11 @@ let browser: BrowserTabs | undefined;
 const filePreviews = new FilePreviews(id => runtimes.require(id).cwd);
 const localPages = new LocalPagePreview();
 const localFileGrants = new Map<string, string>();
-const fileAssociationScript = () => join(app.isPackaged ? join(process.resourcesPath, 'file-opening') : join(__dirname, 'file-opening'), 'file-associations.ps1');
+const fileAssociationScript = () => join(app.isPackaged ? join(process.resourcesPath, 'file-opening') : join(__dirname, 'file-opening'), process.platform === 'darwin' ? 'file-applications-macos' : 'file-associations.ps1');
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
-const updates = new AppUpdates(app.getVersion(), (url, options) => net.fetch(url, options),
-  state => { installer.reconcile(state.release); publishUpdate(); }, () => Date.now());
+const updateVersion = process.platform === 'darwin' && app.isPackaged ? macUpdateVersion(process.resourcesPath, app.getVersion()) : app.getVersion();
+const updates = new AppUpdates(updateVersion, (url, options) => net.fetch(url, options),
+  state => { installer.reconcile(state.release); publishUpdate(); }, () => Date.now(), 15_000, process.platform === 'darwin' ? 'darwin' : 'win32');
 const updateRoot = join(app.getPath('userData'), 'app-updates');
 let updateInstalling = false;
 let updateCleanup: Promise<void> | undefined;
@@ -87,10 +90,13 @@ function maintainUpdateCache() {
   return updateCleanup ??= cleanInstalledUpdate(updateRoot, app.getVersion())
     .catch(error => { void crashLog.record('update-cache', error); });
 }
-const installer = new UpdateInstaller(app.getVersion(), app.isPackaged && process.platform === 'win32'
-  && existsSync(join(app.getPath('exe'), '..', 'Uninstall Desktop for Step Code.exe'))
-  && existsSync(join(process.resourcesPath, 'app-update.yml')),
-  () => new NativeUpdateDriver(updateRoot), publishUpdate);
+const macAppTarget = () => resolve(app.getPath('exe'), '../../..');
+const installer = new UpdateInstaller(updateVersion, app.isPackaged && (process.platform === 'darwin'
+  || process.platform === 'win32' && existsSync(join(app.getPath('exe'), '..', 'Uninstall Desktop for Step Code.exe'))
+    && existsSync(join(process.resourcesPath, 'app-update.yml'))),
+  () => process.platform === 'darwin' ? new MacUpdateDriver(updateRoot, { resources: process.resourcesPath, target: macAppTarget(),
+    request: (url, options) => net.fetch(url, options), quit: () => { quitting = true; app.quit(); } })
+    : new NativeUpdateDriver(updateRoot), publishUpdate);
 function publishUpdate() {
   if (window && !window.isDestroyed()) window.webContents.send('app-update', { ...updates.snapshot(), transfer: installer.snapshot() });
 }
@@ -189,6 +195,8 @@ const env = isolatedEnvironment(dataRoot);
 const vault = new AuthVault(dataRoot);
 let authData: Record<string, unknown> = {};
 let appliedAuthData: Record<string, unknown> = {};
+const usageEstimates = new UsageEstimates(join(app.getPath('userData'), 'usage-estimates'), () => appliedAuthData,
+  error => { void crashLog.record('usage-estimates', error); });
 const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
   (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
   Date.now, () => performance.now(), 12000, async signal => {
@@ -266,19 +274,23 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
   event: (worker, event) => {
+    usageEstimates.event(worker, event);
+    if (['message_end', 'agent_end'].includes(event.type)) event = { ...event, desktopEstimate: usageEstimates.summary(worker) };
     workflowBindings.event(worker.state?.sessionId, event);
     return conversationTiming.event(worker, event);
   },
   messages: async (worker, messages) => {
     if (!worker.state?.sessionId) return messages;
     await modelSelections.load(worker.state.sessionId);
+    await usageEstimates.load(worker.state.sessionId);
     return hydrateWorkflowHistory(worker.cwd, await conversationTiming.decorate(worker.state.sessionId, messages),
       await workflowBindings.load(worker.state.sessionId));
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
-  launch: worker => collaboration.attach(worker),
+  launch: worker => { usageEstimates.attach(worker); return collaboration.attach(worker); },
   dispose: worker => {
     conversationTiming.event(worker, { type: 'desktop_exit' });
+    usageEstimates.detach(worker);
     collaboration.detach(worker);
     if (worker.status === 'disconnected' && worker.queued) pendingMessages.recover(worker);
     else pendingMessages.clear(worker);
@@ -368,6 +380,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
       : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
     modelSelection: worker ? modelSelections.selection(worker) : undefined,
     modelChanges: worker ? modelSelections.changes(worker) : [],
+    estimate: usageEstimates.summary(worker),
     permissionPreset: draft?.permissionPreset ?? worker?.permissionPreset, runtimeRevision: worker?.revision,
     launch: draft?.launch ?? worker?.launch ?? emptyLaunch(),
     messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: providerModelNames(draft?.models ?? worker?.models ?? [], appliedAuthData), stats: worker?.stats,
@@ -548,8 +561,8 @@ async function handle(method: string, args: any[]) {
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
     case 'updateState': return { ...updates.snapshot(), transfer: installer.snapshot() };
-    case 'checkUpdates': if (process.platform !== 'win32') throw new Error('Update checks are not supported on this platform; use the releases page'); await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
-    case 'openUpdate': return shell.openExternal(process.platform === 'win32' ? updates.openTarget(args[0]) : 'https://github.com/7oMB2006/desktop-for-step-code/releases');
+    case 'checkUpdates': await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
+    case 'openUpdate': return shell.openExternal(updates.openTarget(args[0]));
     case 'downloadUpdate': {
       await maintainUpdateCache();
       const state = updates.snapshot();
@@ -578,6 +591,7 @@ async function handle(method: string, args: any[]) {
         await installer.install(async () => {
           if (busy()) throw new InstallerFailure('busy');
           await conversationTiming.flush(); await modelSelections.flush(); await workflowBindings.flush();
+          await usageEstimates.flush();
           await terminals.stopAll();
           await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
         });
@@ -621,13 +635,19 @@ async function handle(method: string, args: any[]) {
         const error = await shell.openPath(file.path);
         if (error) throw new Error(error);
       } else if (destination === 'other') {
-        if (process.platform !== 'win32') throw new Error('Choose another application is only available on Windows; use the system default application');
-        await associationRequest(fileAssociationScript(), { action: 'other', path: file.path,
-          window: window.getNativeWindowHandle().readBigUInt64LE().toString() }, 300000);
+        if (process.platform === 'darwin') {
+          const selected = await dialog.showOpenDialog(window, { properties: ['openFile'], defaultPath: '/Applications',
+            filters: [{ name: 'Applications', extensions: ['app'] }] });
+          if (selected.canceled || !selected.filePaths.length) return null;
+          await associationRequest(fileAssociationScript(), { action: 'open', path: file.path, id: selected.filePaths[0] });
+        } else {
+          await associationRequest(fileAssociationScript(), { action: 'other', path: file.path,
+            window: window.getNativeWindowHandle().readBigUInt64LE().toString() }, 300000);
+        }
       } else if (destination.startsWith('app:')) {
-        const apps = await fileApplications(fileAssociationScript(), extname(file.path));
+        const apps = await fileApplications(fileAssociationScript(), extname(file.path), file.path);
         if (!apps.some(item => item.id === destination)) throw new Error('Unknown associated application');
-        await associationRequest(fileAssociationScript(), { action: 'open', path: file.path, id: destination.slice(4) });
+        await associationRequest(fileAssociationScript(), { action: 'open', path: file.path, id: process.platform === 'darwin' ? macApplicationPath(destination) : destination.slice(4) });
       } else throw new Error('Invalid file destination');
       await remember();
       return { destination: 'external' } satisfies FileOpenResult;
@@ -640,8 +660,8 @@ async function handle(method: string, args: any[]) {
       if (mode !== 'external') choices.push({ id: 'internal', label: mode === 'browser' ? (zh ? '内置浏览器' : 'Built-in browser') : (zh ? '文件预览' : 'File preview') });
       if (canOpenExternally(file.path)) {
         choices.push({ id: 'system', label: zh ? '系统默认应用' : 'System default app' });
-        choices.push(...await fileApplications(fileAssociationScript(), extname(file.path)));
-        if (process.platform === 'win32') choices.push({ id: 'other', label: zh ? '选择其他应用…' : 'Choose another app…' });
+        choices.push(...await fileApplications(fileAssociationScript(), extname(file.path), file.path));
+        if (process.platform === 'win32' || process.platform === 'darwin') choices.push({ id: 'other', label: zh ? '选择其他应用…' : 'Choose another app…' });
       }
       if (!choices.length) throw new Error('No opening options for this file type');
       const saved = preferences.fileOpeningApps?.[extname(file.path).toLowerCase()];
@@ -1076,6 +1096,7 @@ async function handle(method: string, args: any[]) {
             if (worker) await runtimes.remove(worker);
             await deleteManagedSessionFile(join(dataRoot, 'sessions'), target.path);
             await conversationTiming.remove(target.id);
+            await usageEstimates.remove(target.id);
             await modelSelections.remove(target.id);
             await workflowBindings.remove(target.id);
             sessionCatalog = sessionCatalog.filter(session => session.id !== target.id);
@@ -1105,6 +1126,7 @@ async function handle(method: string, args: any[]) {
       if (worker) await runtimes.remove(worker);
       if (target.path) await shell.trashItem(target.path);
       await workflowBindings.remove(target.id);
+      await usageEstimates.remove(target.id);
       return true;
     }
     case 'command': {
@@ -1316,6 +1338,11 @@ async function handle(method: string, args: any[]) {
     case 'accountAllowance':
       if (args[0] !== undefined && typeof args[0] !== 'boolean') throw new Error('Invalid allowance refresh');
       return accountAllowance.query(args[0] === true);
+    case 'estimateSettings': return usageEstimates.settings();
+    case 'setEstimateRules': {
+      if (settingsMutation) throw new Error('Account change in progress');
+      return usageEstimates.setRules(args[0], args[1]);
+    }
     case 'cancelAccountAllowance': accountAllowance.cancel(); return null;
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
     case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
@@ -1505,6 +1532,7 @@ app.on('before-quit', event => {
       await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
+      await usageEstimates.flush();
       await workflowBindings.flush();
       browser?.dispose();
       quitting = true;
@@ -1531,6 +1559,7 @@ else app.whenReady().then(async () => {
   // requires the ready state, which whenReady provides.
   authData = await vault.load();
   appliedAuthData = authData;
+  await usageEstimates.initialize();
   await projectProviders(dataRoot, authData);
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
@@ -1684,8 +1713,17 @@ else app.whenReady().then(async () => {
   if (process.env.DESKTOP_DEV_URL && !app.isPackaged) await window.loadURL(process.env.DESKTOP_DEV_URL);
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
   if (restoreRequested) { restoreRequested = false; showMainWindow(); }
+  if (process.platform === 'darwin' && app.isPackaged) {
+    const updateResult = await acknowledgeMacUpdate(updateRoot, macAppTarget(), updateVersion);
+    if (updateResult === 'rolled-back' || updateResult === 'recovery-required') void dialog.showMessageBox(window, {
+      type: 'warning', message: preferences.language === 'zh' ? '更新未完成' : 'Update did not complete',
+      detail: preferences.language === 'zh' ? '新版本未能启动，已尝试恢复原版本。请在发布页下载安装；系统安全提示和应用目录权限可能阻止替换。会话和设置保留。'
+        : 'The new version did not start. Recovery was attempted. Download from Releases and check system security prompts and application-folder permissions. Sessions and settings are retained.',
+    });
+  }
+
   // Update checks are independent of runtime/model startup and never block first paint.
-  if (process.platform === 'win32' && app.isPackaged && !backgroundAcceptance) {
+  if (['win32', 'darwin'].includes(process.platform) && app.isPackaged && !backgroundAcceptance) {
     const check = () => { if (!quitting && preferences.autoCheckUpdates !== false) void updates.check(); };
     setTimeout(check, 10_000).unref();
     setInterval(check, 6 * 60 * 60 * 1000).unref();

@@ -90,7 +90,7 @@ export const localOnly = [
 ];
 
 // Platform-specific checks are covered by their native workflow, not Windows.
-export const platformOnly = { macos: ['verify-macos-package.mjs'] };
+export const platformOnly = { macos: ['verify-macos-package.mjs', 'verify-macos-updater.mjs'] };
 
 // Retain the two existing per-step timeout limits; other scripts retain the job limit.
 export const acceptanceTimeouts = {

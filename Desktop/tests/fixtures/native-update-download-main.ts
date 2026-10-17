@@ -1,7 +1,7 @@
 import { app, BrowserWindow, net, session } from 'electron';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { NativeUpdateDriver } from '../../electron/native-update-driver';
@@ -24,10 +24,10 @@ const server = createServer((request, response) => {
   requests++;
   if (request.url?.split('?')[0].endsWith('latest.yml')) {
     const metadata = `version: ${mode === 'metadata' ? '0.6.0' : '0.5.0'}\nfiles:\n  - url: Desktop.for.Step.Code.Setup.0.5.0.exe\n    sha512: ${digest}\n    size: ${payload.length}\n`;
-    response.writeHead(200, { 'Content-Length': Buffer.byteLength(metadata), 'Content-Type': 'text/yaml' });
+    response.writeHead(200, { 'Content-Length': Buffer.byteLength(metadata), 'Content-Type': 'text/yaml', 'Cache-Control': 'no-store' });
     response.end(metadata);
   } else {
-    response.writeHead(200, { 'Content-Length': payload.length, 'Content-Type': 'application/octet-stream' });
+    response.writeHead(200, { 'Content-Length': payload.length, 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' });
     const bytes = mode === 'corrupt' ? Buffer.alloc(payload.length, 8) : payload;
     let offset = 0;
     const timer = setInterval(() => {
@@ -49,7 +49,7 @@ app.whenReady().then(async () => {
     url: `http://127.0.0.1:${address.port}${options.path}`, method: options.method, headers: options.headers,
     redirect: options.redirect, session: transport,
   })) as typeof net.request;
-  const root = await mkdtemp(join(tmpdir(), 'step-native-update-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'step-native-update-')));
   const resources = join(root, 'resources');
   await mkdir(resources);
   await writeFile(join(resources, 'app-update.yml'), 'updaterCacheDirName: fixture-updater\n', 'utf8');
@@ -65,8 +65,11 @@ app.whenReady().then(async () => {
         .map(async network => (await network.fetch(url)).text()));
     },
     run: async (nextMode: string) => {
+      await transport.clearCache();
       mode = nextMode; requests = 0;
       const driver = new NativeUpdateDriver(join(root, nextMode));
+      // Replay the Windows provider on a Mac for local fixture diagnostics only.
+      if (process.platform !== 'win32') (driver as any).updater._testOnlyOptions = { platform: 'win32' };
       const abort = new AbortController();
       const timer = nextMode === 'cancel' ? setTimeout(() => abort.abort(), 150) : undefined;
       let progress = 0;
@@ -75,7 +78,7 @@ app.whenReady().then(async () => {
         if (!abort.signal.aborted) await driver.verify();
         return { outcome: abort.signal.aborted ? 'cancelled' : 'verified', requests, progress };
       } catch (error: any) {
-        return { outcome: abort.signal.aborted ? 'cancelled' : error instanceof InstallerFailure ? error.kind : error.code ?? 'error', requests, progress, diagnostic: error.message };
+        return { outcome: abort.signal.aborted ? 'cancelled' : error instanceof InstallerFailure ? error.kind : error.code ?? 'error', requests, progress, diagnostic: String(error.message).slice(0, 500), location: String(error.stack ?? '').split('\n').filter(line => line.trim().startsWith('at ')).slice(0, 4).join('\n').slice(0, 2000) };
       } finally { clearTimeout(timer); }
     },
   };

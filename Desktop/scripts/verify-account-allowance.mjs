@@ -59,6 +59,17 @@ try {
   assert.equal(await allowance.getByText('5 小时额度', { exact: true }).count(), 0);
   assert.equal((await page.evaluate(() => window.desktop.accountAllowance())).plan.name, '官方套餐示例');
   assert.equal(await app.evaluate(() => globalThis.allowanceFixture.requests), 1, 'cached reads do not query again');
+  const rules = page.getByRole('checkbox', { name: '按历史订阅保护规则估算' });
+  await rules.waitFor();
+  assert.equal(await rules.isChecked(), false);
+  await rules.check();
+  await page.waitForFunction(async () => (await window.desktop.estimateSettings()).rules.planProtected === true);
+  assert.equal(await rules.isChecked(), true);
+  assert.equal(await page.evaluate(async () => {
+    const value = await window.desktop.estimateSettings();
+    try { await window.desktop.setEstimateRules(value.rules, 'wrong-account'); return false; }
+    catch { return true; }
+  }), true, 'a stale account reference cannot change another account’s rules');
   await page.screenshot({ path: 'test-results/account-allowance-token-light.png', animations: 'disabled' });
   await app.evaluate(() => { globalThis.allowanceFixture.blocked = true; globalThis.allowanceFixture.crossedReset = true; });
   await allowance.getByRole('button', { name: '刷新额度' }).click();
@@ -110,6 +121,8 @@ try {
     dialog.showMessageBox = async () => ({ response: 1 });
   });
   await reopened.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
+  assert.equal(await reopened.evaluate(async () => (await window.desktop.estimateSettings()).rules.planProtected), true,
+    'manual estimate rule survives restart and OAuth credential renewal');
   assert.equal(await app.evaluate(refreshedVault, encrypted), true, 'refreshed credential remains readable after restart');
   console.log('Account allowance Electron passed: normal vault/IPC, upstream credential refresh and persistence/restart, Token/Coding projection, cache, stale/error, tab cancellation, encrypted fixture credentials.');
 } finally { await app?.close(); }

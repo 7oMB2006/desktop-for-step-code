@@ -96,6 +96,8 @@ const bridge: DesktopBridge = {
   deleteSession: id => invoke('deleteSession', id), restart: () => invoke('restart'), settings: () => invoke('settings'),
   accountAllowance: refresh => invoke('accountAllowance', refresh),
   cancelAccountAllowance: () => invoke('cancelAccountAllowance'),
+  estimateSettings: () => invoke('estimateSettings'),
+  setEstimateRules: (rules, accountRef) => invoke('setEstimateRules', rules, accountRef),
   deleteArchivedSessions: ids => invoke('deleteArchivedSessions', ids),
   login: (profile, key) => invoke('login', profile, key), cancelLogin: () => invoke('cancelLogin'), logout: () => invoke('logout'),
   saveProvider: (provider, key) => invoke('saveProvider', provider, key),

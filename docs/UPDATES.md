@@ -4,6 +4,20 @@
 
 ## 使用与边界
 
+### macOS 0.5.1 同步（本分支，待发布）
+
+macOS Apple Silicon 新增应用内检查、自动检查开关、通道、下载进度、取消/重试和确认重启安装。
+采用独立 ARM64 ZIP 与 `mac-update.json`，固定 Release 路径并校验大小、SHA-512、bundle ID、
+版本、架构及解压路径。替换预检先于运行时关闭；新应用启动确认前保留旧包，启动失败尝试回退。
+用户资料不在应用包中，升级不迁移或清除登录、会话、设置。
+
+目前无 Developer ID 签名或公证。安装保留 Gatekeeper 隔离标记，使用 LaunchServices 启动；
+可能仍需系统安全确认。磁盘映像、App Translocation 和不可写目录不能原位替换。
+已有 0.5.0-macos.1 不含此更新器，首次升级仍需手动安装。
+macOS 后续同基线实验包递增 `-macos.N`；发布时必须上传 `mac-update.json`。
+静态清单保留 Windows `channels`，增加 `platforms.darwin`，互不提示其他平台的专属发布。
+详见 [macOS 构建、发布与限制](MACOS.md)。以下 Windows 开发说明及历史验收继续保留。
+
 ### 应用内更新（开发中，尚未发布）
 
 安装版新增应用内全量下载、下载进度、取消与重试，以及显式确认后的重启安装。

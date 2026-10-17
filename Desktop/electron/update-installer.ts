@@ -4,6 +4,8 @@ import type { AppRelease, UpdateTransfer } from '../src/contracts';
 export interface UpdateDriver {
   download(release: AppRelease, signal: AbortSignal, progress: (value: Partial<UpdateTransfer>) => void): Promise<void>;
   verify(): Promise<void>;
+  prepareInstall?(): Promise<void>;
+  cancelInstall?(): Promise<void>;
   install(): void | Promise<void>;
 }
 export class InstallerFailure extends Error {
@@ -95,9 +97,11 @@ export class UpdateInstaller {
     this.publish({ status: 'installing', error: undefined });
     try {
       await driver.verify();
+      await driver.prepareInstall?.();
       await prepare();
       await driver.install();
     } catch (error) {
+      await driver.cancelInstall?.().catch(() => {});
       this.publish({ status: error instanceof InstallerFailure && error.kind === 'busy' ? 'ready' : 'error',
         error: error instanceof InstallerFailure ? error.kind : 'install' });
       throw error;

@@ -106,3 +106,14 @@ guard when changing process lifecycle code. Windows retains taskkill tree cleanu
 LocalPagePreview URL keys convert the native separator only, preserving POSIX
 literal backslashes as percent-encoded filename characters. Do not apply Windows
 separator normalization to POSIX preview manifests.
+
+
+### macOS 0.5.1 parity follow-up
+
+The macOS updater uses `platforms.darwin` in the existing schema-1 update feed;
+Windows `channels` and NSIS metadata remain compatible. macOS assets are an ARM64
+ZIP plus `mac-update.json`; never point Windows clients at macOS-only tags.
+Unsigned installation uses a confirmed, checked bundle replacement with startup
+acknowledgement and recovery, while retaining Gatekeeper quarantine. Native file
+application discovery/picking uses a bundled Swift AppKit helper. Linux is not
+modified; do not infer Linux update support from the new macOS path.

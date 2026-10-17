@@ -65,7 +65,7 @@ The installer includes Electron and pinned Step Code and Node runtimes; the deve
 
 **Exit and upgrade:** Closing the window keeps the app in the tray and lets running tasks continue. Before upgrading, finish tasks and explicitly quit through File → Exit App or the tray menu, then run the installer over the existing installation.
 
-This release targets Windows x64, with no compatibility commitment for macOS, Linux, or WSL. To run from source, follow the build instructions below.
+The Windows release targets Windows x64. A separate macOS Apple Silicon preview is described below; Linux and WSL compatibility are not promised by this track. To run from source, follow the build instructions below.
 
 ### Build from Source
 
@@ -119,6 +119,6 @@ Desktop for Step Code is licensed under MIT. Step Code and its Pi upstream compo
 
 ### macOS Apple Silicon preview branch
 
-This branch ports the published **v0.5.0** Release to macOS Apple Silicon. See
+This branch follows the published Windows **v0.5.1** Release on macOS Apple Silicon, including account usage/balance, confirmed in-app updates and native file application selection. The existing macOS v0.5.0-macos.1 needs one manual upgrade; the 0.5.1 successor is being prepared. See
 [macOS build and local preview](docs/MACOS.md) and [platform coordination](docs/PLATFORM_HANDOFF.md).
 Windows remains the published target; later Windows PRs and the Linux branch are outside this port.

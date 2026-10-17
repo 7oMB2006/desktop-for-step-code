@@ -35,12 +35,6 @@ export function AppUpdates({ bridge, state, preferences, onPreferences }: {
     catch { if (active.current) setActionError(t('操作未完成，请重试。', 'The action could not be completed. Please retry.')); }
     finally { if (active.current) setBusy(false); }
   };
-  if (bridge?.platform === 'darwin') return <section className="app-updates" aria-label={t('应用更新', 'App updates')}>
-    <div className="update-version"><div><strong>Desktop for Step Code</strong><span>{state ? `v${state.currentVersion}` : '…'} · macOS</span></div><span className="update-edition">{t('社区预览版', 'Community preview')}</span></div>
-    <p role="status">{t('macOS 实验版暂不支持应用内检查或自动更新，请在发布页查看版本并手动下载安装。', 'This experimental macOS build does not support update checks or automatic updates. Visit Releases to check versions and install manually.')}</p>
-    <div className="update-actions"><button disabled={busy} onClick={() => void run(() => bridge.openUpdate('release'))}><ArrowUpRight size={15}/>{t('发布页', 'Releases')}</button></div>
-    {actionError && <p className="update-action-error" role="alert">{actionError}</p>}
-  </section>;
   const checking = state?.status === 'checking';
   const release = state?.release;
   const available = state?.updateAvailable === true;
@@ -93,7 +87,7 @@ export function AppUpdates({ bridge, state, preferences, onPreferences }: {
     {release && <div className="update-release">
       <div className="update-release-heading"><strong>{release.name || `v${release.version}`}</strong><span>{release.prerelease === undefined ? t('GitHub 发布', 'GitHub release') : release.prerelease ? t('预览版', 'Preview') : t('正式版', 'Stable')}</span></div>
       {release.publishedAt && <small>{t('发布于 ', 'Published ')}{time(Date.parse(release.publishedAt))}</small>}
-      {available && !release.installer && <p className="update-package-missing">{state.source === 'release-feed' ? t('请在发布页核对 Windows x64 安装包。', 'Check the releases page for a Windows x64 installer.') : t('此版本暂未提供 Windows x64 安装包。', 'This release has no Windows x64 installer yet.')}</p>}
+      {available && !release.installer && <p className="update-package-missing">{state.source === 'release-feed' ? t(bridge?.platform === 'darwin' ? '请在发布页核对 macOS Apple Silicon 安装包。' : '请在发布页核对 Windows x64 安装包。', bridge?.platform === 'darwin' ? 'Check the releases page for a macOS Apple Silicon installer.' : 'Check the releases page for a Windows x64 installer.') : t(bridge?.platform === 'darwin' ? '此版本暂未提供 macOS Apple Silicon 安装包。' : '此版本暂未提供 Windows x64 安装包。', bridge?.platform === 'darwin' ? 'This release has no macOS Apple Silicon installer yet.' : 'This release has no Windows x64 installer yet.')}</p>}
       {release.notes && <details className="update-notes"><summary>{t('版本说明', 'Release notes')}<DisclosureChevron/></summary><div><ReactMarkdown skipHtml components={{ a: ({ children }) => <span>{children}</span>, img: () => null }}>{release.notes}</ReactMarkdown></div></details>}
     </div>}
     <div className="update-actions">
@@ -107,6 +101,7 @@ export function AppUpdates({ bridge, state, preferences, onPreferences }: {
     {available && release?.installer && <p className="update-download-detail">{(release.installer.size / 1024 ** 2).toFixed(1)} MB · {inApp
       ? t('下载不影响当前任务。安装需确认重启，登录与会话历史会保留。', 'Downloading does not interrupt tasks. Installation requires a confirmed restart; sign-in and history are retained.')
       : t('此安装方式或发布版本需由系统浏览器下载后手动安装。', 'This installation or release requires a manual download in your system browser.')}</p>}
+    {bridge?.platform === 'darwin' && <p className="update-download-detail">{t('实验版未签名：安装时 macOS 可能要求安全确认。请先将应用放入可写的应用程序目录；启动失败会尝试恢复旧版。', 'This preview is unsigned: macOS may require security confirmation. Install in a writable Applications folder; failed startup triggers recovery of the previous version.')}</p>}
     {transfer?.error && transfer.status !== 'error' && <p className="update-action-error" role="alert">{transferErrors[transfer.error]}</p>}
     {actionError && <p className="update-action-error" role="alert">{actionError}</p>}
     <div className="update-preferences">

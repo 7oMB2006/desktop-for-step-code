@@ -183,7 +183,22 @@ const vault = new AuthVault(dataRoot);
 let authData: Record<string, unknown> = {};
 let appliedAuthData: Record<string, unknown> = {};
 const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
-  (input, init) => net.fetch(input instanceof URL ? input.href : input, init));
+  (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
+  Date.now, () => performance.now(), 12000, async signal => {
+    const credential = appliedAuthData.step;
+    const next = await admin.request('refresh_allowance_credential', { credential }, 11000);
+    if (signal.aborted || settingsMutation || appliedAuthData.step !== credential || authData.step !== credential)
+      throw new Error('Allowance credential changed');
+    if (!next || next.type !== 'oauth' || typeof next.access !== 'string' || !next.access.trim()
+      || typeof next.expires !== 'number' || next.expires <= Date.now() + 60000
+      || next.profile !== (credential as Record<string, unknown>).profile
+      || next.uid !== (credential as Record<string, unknown>).uid) throw new Error('Invalid refreshed credential');
+    settingsMutation = true;
+    try {
+      await persistAuth({ ...authData, step: next });
+      appliedAuthData = { ...appliedAuthData, step: next };
+    } finally { settingsMutation = false; }
+  });
 let providerSettingsPending = false;
 let providerApplyFailed = false;
 let providerApplication: Promise<void> | undefined;

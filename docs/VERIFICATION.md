@@ -35,6 +35,18 @@ These are fixture results, not confirmation of the official backend's
 availability or a real account's plan. Installer lifecycle and real-account
 allowance acceptance remain unverified.
 
+The PR #129 P1 follow-up refreshes expired OAuth credentials through the
+upstream provider's refresh implementation in the management process before
+querying allowance. Refreshed credentials are saved to the Desktop vault
+before use; identity, cancellation and shared-settings guards prevent a late
+refresh from replacing another account. The existing query timeout bounds
+the refresh as well. Typecheck, build and 449 tests passed. Dedicated Electron
+acceptance starts with an expired static upstream fixture credential and
+verifies refresh, encrypted persistence and readability after restart. Unit
+tests cover rotated credentials, single-flight refresh, failure, cancellation
+and account changes. This follow-up has not been packaged and does not
+establish real OAuth-server refresh acceptance.
+
 ## Accent Acknowledgement Race (2026-10-16)
 
 Cloud run 38694832584 passed HEX input and then timed out comparing the canceled

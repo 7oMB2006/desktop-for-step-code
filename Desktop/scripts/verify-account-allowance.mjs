@@ -9,7 +9,7 @@ await mkdir(join(profile, 'step-runtime'), { recursive: true });
 await mkdir('test-results', { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [], autoCheckUpdates: false }));
 await writeFile(join(profile, 'step-runtime/auth.json'), JSON.stringify({ step: {
-  type: 'oauth', access: 'allowance-fixture-only', refresh: 'fixture', expires: Number.MAX_SAFE_INTEGER,
+  type: 'oauth', access: 'allowance-fixture-only', refresh: 'step-static-credential', expires: Date.now() - 1000,
   uid: '42', profile: 'step_plan',
 } }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
@@ -84,7 +84,23 @@ try {
     assert.equal(JSON.stringify(result).includes(privateText), false);
   }
   assert.equal((await readFile(join(profile, 'step-runtime/auth.dpapi'))).includes(Buffer.from('allowance-fixture-only')), false);
+  const encrypted = Array.from(await readFile(join(profile, 'step-runtime/auth.dpapi')));
+  const refreshedVault = ({ safeStorage }, bytes) => {
+    const saved = JSON.parse(safeStorage.decryptString(Buffer.from(bytes)));
+    return saved.step.expires === Number.MAX_SAFE_INTEGER && saved.step.refresh === 'step-static-credential';
+  };
+  assert.equal(await app.evaluate(refreshedVault, encrypted), true, 'upstream refresh is persisted in the Desktop vault');
   await assert.rejects(readFile(join(profile, 'step-runtime/auth.json')), { code: 'ENOENT' });
   assert.deepEqual(errors, []);
-  console.log('Account allowance Electron passed: normal vault/IPC, Token/Coding projection, cache, refresh, stale/error, tab cancellation, encrypted fixture credentials.');
+  await app.close();
+  app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+  const reopened = await app.firstWindow();
+  await app.evaluate(({ BrowserWindow, dialog }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
+    dialog.showMessageBox = async () => ({ response: 1 });
+  });
+  await reopened.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
+  assert.equal(await app.evaluate(refreshedVault, encrypted), true, 'refreshed credential remains readable after restart');
+  console.log('Account allowance Electron passed: normal vault/IPC, upstream credential refresh and persistence/restart, Token/Coding projection, cache, stale/error, tab cancellation, encrypted fixture credentials.');
 } finally { await app?.close(); }

@@ -100,6 +100,15 @@ async function dispatch(message) {
         return desktopAuth ? upstream.readDesktopAuthData() : null;
       } finally { login = undefined; }
     }
+    case 'refresh_allowance_credential': {
+      const credential = message.credential;
+      if (credential?.type !== 'oauth' || !['step_plan', 'step_plan_oversea'].includes(credential.profile ?? 'step_plan'))
+        throw new Error('Unsupported allowance credential');
+      const profile = upstream.resolveStepLoginProfiles().find(p => p.id === (credential.profile ?? 'step_plan'));
+      if (!profile) throw new Error('Unknown allowance profile');
+      const config = upstream.createStepProviderConfig({ authPath, apiBaseUrl: profile.baseUrl, authBaseUrl: profile.authBaseUrl });
+      return { ...credential, ...await config.oauth.refreshToken(credential, AbortSignal.timeout(10000)) };
+    }
     case 'cancel_login': login?.abort(); return null;
     case 'logout': await upstream.logoutStepCredentials({ nativePath: authPath, legacyPath: process.env.STEPCODE_LEGACY_AUTH_PATH, env: process.env }); return desktopAuth ? upstream.readDesktopAuthData() : null;
     default: throw new Error('Unsupported management request');

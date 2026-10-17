@@ -23,6 +23,51 @@ const auth = (profile = 'step_plan', key = 'fixture-only-key', uid = '42') => ({
   step: { type: 'oauth', access: key, uid, profile },
 });
 
+test('expired credentials refresh once before allowance and the renewed credential survives service recreation', async () => {
+  let data = { step: { ...auth().step, expires: start - 1, refresh: 'fixture-refresh' } };
+  let refreshes = 0, queries = 0;
+  const fetcher: typeof fetch = async (_url, init) => {
+    queries++;
+    assert.equal((init?.headers as Record<string, string>).authorization, 'Bearer renewed-fixture');
+    return Response.json(snapshot());
+  };
+  const service = new AccountAllowanceService(() => data, fetcher, () => start, () => start, 12000, async signal => {
+    refreshes++;
+    assert.equal(signal.aborted, false);
+    await Promise.resolve();
+    data = { step: { ...data.step, access: 'renewed-fixture', refresh: 'rotated-fixture', expires: start + 3600000 } };
+  });
+  const first = service.query();
+  assert.equal(service.query(), first);
+  assert.equal((await first).status, 'ready');
+  assert.equal(refreshes, 1);
+  assert.equal((await new AccountAllowanceService(() => data, fetcher, () => start).query()).status, 'ready');
+  assert.equal(queries, 2);
+});
+
+test('failed, cancelled and superseded credential refreshes never query with an expired token', async () => {
+  for (const scenario of ['failure', 'cancel', 'account-change']) {
+    let data: Record<string, unknown> = { step: { ...auth().step, expires: start - 1 } };
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    let calls = 0;
+    const service = new AccountAllowanceService(() => data, async () => {
+      calls++; return Response.json(snapshot());
+    }, () => start, () => start, 12000, async () => {
+      await gate;
+      if (scenario === 'failure') throw new Error('Refresh failed');
+    });
+    const pending = service.query();
+    if (scenario === 'cancel') service.cancel();
+    if (scenario === 'account-change') { data = auth('step_plan', 'other-account', '43'); service.cached(); }
+    finish();
+    const result = await pending;
+    assert.equal(calls, 0);
+    assert.equal(result.plan, undefined);
+    assert.equal(result.status, scenario === 'failure' ? 'error' : 'idle');
+  }
+});
+
 test('schema 1 uses official plan name and actual quota family without inventing five-hour windows', () => {
   const token = decodeAccountAllowance(snapshot(), '42', start);
   assert.equal(token.plan?.name, 'Official plan name');

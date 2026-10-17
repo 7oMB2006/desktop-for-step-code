@@ -115,6 +115,7 @@ export class AccountAllowanceService {
     private readonly clock = Date.now,
     private readonly tick = () => performance.now(),
     private readonly timeout = 12000,
+    private readonly refreshCredential?: (signal: AbortSignal) => Promise<void>,
   ) {}
   private context() {
     const stored = this.auth().step as Record<string, unknown> | undefined;
@@ -123,7 +124,8 @@ export class AccountAllowanceService {
     const uid = typeof stored?.uid === 'string' && /^\d+$/.test(stored.uid) ? stored.uid : undefined;
     const host = profile === 'step_plan' ? 'api.stepfun.com' : profile === 'step_plan_oversea' ? 'api.stepfun.ai' : undefined;
     const identity = createHash('sha256').update(JSON.stringify([profile, key, uid, stored?.type])).digest('hex');
-    return { key, uid, identity, endpoint: host ? `https://${host}/step_plan/v1/usage` : undefined,
+    const needsRefresh = typeof stored?.expires === 'number' && stored.expires <= this.clock() + 60000;
+    return { key, uid, identity, needsRefresh, endpoint: host ? `https://${host}/step_plan/v1/usage` : undefined,
       issue: (!stored ? 'signed-out' : !host || !key ? 'unsupported' : undefined) as AllowanceIssue | undefined };
   }
   cached(): AccountAllowance {
@@ -148,7 +150,8 @@ export class AccountAllowanceService {
     if (this.state.status === 'loading') this.state = { ...this.state, status: this.state.plan ? 'stale' : 'idle' };
   }
   query(force = false): Promise<AccountAllowance> {
-    const previous = this.cached(), context = this.context();
+    const previous = this.cached();
+    let context = this.context();
     if (context.issue) return Promise.resolve(previous);
     if (this.pending) return this.pending;
     if (this.tick() < this.retryTick || (!force && previous.status === 'ready')) return Promise.resolve(previous);
@@ -163,6 +166,14 @@ export class AccountAllowanceService {
       controller.signal.addEventListener('abort', onAbort, { once: true });
     });
     const work = async () => {
+      if (context.needsRefresh) {
+        if (!this.refreshCredential) throw new Error('Credential refresh unavailable');
+        await this.refreshCredential(controller.signal);
+        if (generation !== this.generation || controller.signal.aborted) return;
+        context = this.context();
+        if (context.issue || context.needsRefresh) throw new Error('Credential refresh failed');
+        this.identity = context.identity;
+      }
       const response = await this.fetcher(context.endpoint!, {
         method: 'GET', headers: { accept: 'application/json', authorization: `Bearer ${context.key}` },
         redirect: 'error', credentials: 'omit', signal: controller.signal,

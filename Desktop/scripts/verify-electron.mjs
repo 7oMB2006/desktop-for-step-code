@@ -936,7 +936,14 @@ try {
   }
   assert.ok(await toast.evaluate((element, oldWidth) => element.getBoundingClientRect().width < oldWidth, archiveWidth));
   await page.evaluate(theme => document.documentElement.dataset.theme = theme, noticeTheme);
-  await page.clock.fastForward(3100);
+  // Undo replaces the notice asynchronously. Let its passive effects and timer
+  // run normally after confirming neither hover nor keyboard focus pauses it.
+  // Jumping the clock can run before the replacement effect installs the timer.
+  await page.waitForFunction(() => {
+    const notice = document.querySelector('.notice-toast');
+    return notice && !notice.matches(':hover') && !notice.contains(document.activeElement);
+  });
+  await page.clock.runFor(3100);
   await toast.waitFor({ state: 'hidden' });
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.archivedSessionIds.includes('fixture-1'), false);

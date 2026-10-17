@@ -2,7 +2,7 @@ name: macOS Apple Silicon preview
 
 on:
   push:
-    branches: [dot/macos-arm64]
+    branches: [dot/macos-arm64, codex/macos-0.5.1]
   pull_request:
     paths:
       - 'Desktop/**'
@@ -76,6 +76,11 @@ jobs:
           node scripts/verify-app-updates.mjs
           node scripts/verify-electron.mjs
           node scripts/verify-auth-vault.mjs
+          node scripts/verify-account-settings.mjs
+          node scripts/verify-usage-account.mjs
+          node scripts/verify-account-allowance.mjs
+          node scripts/verify-account-balance.mjs
+          node scripts/verify-account-routing.mjs
           node scripts/verify-steppage-registration.mjs
           node scripts/verify-browser-panel.mjs
           node scripts/verify-file-preview.mjs
@@ -98,6 +103,10 @@ jobs:
           node scripts/verify-app-updates.mjs
           node scripts/verify-electron.mjs
           node scripts/verify-auth-vault.mjs
+          node scripts/verify-account-settings.mjs
+          node scripts/verify-account-allowance.mjs
+          node scripts/verify-account-balance.mjs
+          node scripts/verify-account-routing.mjs
           node scripts/verify-steppage-registration.mjs
           node scripts/verify-browser-panel.mjs
           node scripts/verify-file-preview.mjs

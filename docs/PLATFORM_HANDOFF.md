@@ -8,17 +8,20 @@ working on Linux. It lives on the macOS branch; it does not change Linux policy.
 - Windows: `7oMB2006/desktop-for-step-code`, maintained by the owner.
 - Linux: `Daodaodot/desktop-for-step-code`, branch `dot/linux-x64-integration`,
   maintained separately by ChatGPT Dot.
-- macOS: the same fork, branch `dot/macos-arm64`, developed on the Mac mini.
+- macOS: the same fork, branch `codex/macos-0.5.1`, developed on the Mac mini.
+  The original `dot/macos-arm64` remains the published v0.5.0-macos.1 source.
 
 Do not reset or force-push the other platform's branch, the fork's `main`, or
 Windows upstream. The macOS work does not depend on Linux changes.
 
 ## Frozen macOS baseline
 
-The owner explicitly requested the latest published Release, not Windows main.
-The selected baseline is **v0.5.0**, commit
-`6fedd4d1883e4d1beaf6f4599134695e13a9ba50`. Keep it fixed for this port;
-new Windows PRs and main commits are outside this iteration.
+After publishing v0.5.0-macos.1, the owner explicitly requested the Windows
+**v0.5.1** Release, commit `15f0fa77ee1562d3297e226071d49c00c762d891`.
+This iteration starts at `5b521cdd630c353e32542a16b1fb3ac990458912`, the PR #128
+squash merge containing that Release and the macOS fixes. Later Windows PRs/main
+and Linux work remain outside scope. The original macOS Release tag points to
+`477ba3b24dbc2ae1443b665937a12345a3791ba4` and is not changed.
 
 Step Code remains pinned to `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` with
 this release's existing Desktop integration patches and hash guards. The
@@ -51,8 +54,24 @@ macOS release port.
 ## Delivery and validation
 
 See [MACOS.md](MACOS.md) for native build and local preview instructions.
-This is a local unsigned preview, not a new public Release or a claim of paid
-model acceptance. Keep factual validation results in `docs/VERIFICATION.md`.
+v0.5.0-macos.1 is published as an unsigned experimental Release. The current
+0.5.1 work is a local candidate until separately released; neither fixture tests
+nor publication establish paid-model acceptance. Keep factual validation results
+in `docs/VERIFICATION.md`.
+
+## v0.5.1 account integration
+
+Windows v0.5.1's `AccountAllowanceService` is reused on macOS through the same
+typed preload bridge. Main owns credentials and the fixed regional Plan/API
+endpoints; the renderer receives display data only. Login/logout restarts the
+management process with the applied credential snapshot, and model discovery
+synchronizes that profile's endpoint. Keep the macOS awaited POSIX shutdown
+guard when updating this flow: replacing management before exit would undermine
+the identity boundary. No Step Code source/pin change is needed for this port.
+
+The native macOS workflow now runs account settings, Plan allowance, API balance
+and account routing in source and packaged apps, plus the browser display fixture.
+These use synthetic identities and local/controlled transports, not real billing.
 
 
 ## Shared Desktop delivery follow-up

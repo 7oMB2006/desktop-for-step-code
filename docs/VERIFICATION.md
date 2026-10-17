@@ -47,6 +47,17 @@ tests cover rotated credentials, single-flight refresh, failure, cancellation
 and account changes. This follow-up has not been packaged and does not
 establish real OAuth-server refresh acceptance.
 
+The additional local-review P2 follow-up preserves official `allowed` and
+bounded `reason` metadata independently of quota percentages. Restricted
+accounts show a localized warning even when their remaining balance is
+positive or another query notice is present. Server `observed_at_ms` now
+drives reset/expiry boundary checks, including responses generated before
+but received after a boundary. Such snapshots stay stale and cannot satisfy
+the fresh cache. Twelve focused tests cover denial and all three boundary
+types; typecheck, build and all 451 tests passed. Dedicated Electron
+acceptance verifies the restricted warning and
+stale display together with the existing OAuth/vault regressions.
+
 ## Accent Acknowledgement Race (2026-10-16)
 
 Cloud run 38694832584 passed HEX input and then timed out comparing the canceled

@@ -38,13 +38,13 @@ try {
       if (fixture.status !== 200) return new Response('private-upstream-error', { status: fixture.status });
       const now = Date.now();
       return Response.json({
-        schema_version: 1, scope: 'personal_account', observed_at_ms: now, account: { id: '42' },
+        schema_version: 1, scope: 'personal_account', observed_at_ms: fixture.crossedReset ? now - 2000 : now, account: { id: '42' },
         plan: { state: 'known', family: fixture.family, name: '官方套餐示例', subscription: { id: '7', expires_at_ms: now + 86400000 } },
-        quota: { state: 'known', allowed: true, reason: null, windows: fixture.family === 'coding' ? [
+        quota: { state: 'known', allowed: !fixture.blocked, reason: fixture.blocked ? 'blocked' : null, windows: fixture.family === 'coding' ? [
           { id: 'five_hour', limited: true, used_percent: 28, resets_at_ms: now + 3600000 },
           { id: 'weekly', limited: true, used_percent: 57, resets_at_ms: now + 86400000 },
         ] : [], credit_buckets: fixture.family === 'token' ? [
-          { type: 'subscription', total: '100000', remaining: '68500', used_percent: 31.5, resets_at_ms: now + 86400000, expires_at_ms: null },
+          { type: 'subscription', total: '100000', remaining: '68500', used_percent: 31.5, resets_at_ms: fixture.crossedReset ? now - 1000 : now + 86400000, expires_at_ms: null },
           { type: 'topup', total: '10000', remaining: '1200', used_percent: 88, resets_at_ms: null, expires_at_ms: now + 172800000 },
         ] : [] },
       });
@@ -60,6 +60,15 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.accountAllowance())).plan.name, '官方套餐示例');
   assert.equal(await app.evaluate(() => globalThis.allowanceFixture.requests), 1, 'cached reads do not query again');
   await page.screenshot({ path: 'test-results/account-allowance-token-light.png', animations: 'disabled' });
+  await app.evaluate(() => { globalThis.allowanceFixture.blocked = true; globalThis.allowanceFixture.crossedReset = true; });
+  await allowance.getByRole('button', { name: '刷新额度' }).click();
+  await allowance.getByText('官方已限制当前账户使用；剩余额度不代表当前可用。', { exact: true }).waitFor();
+  await allowance.getByText(' · 数据待刷新', { exact: true }).waitFor();
+  assert.equal(await allowance.getByRole('meter').first().getAttribute('aria-valuenow'), '68.5');
+  const restricted = await page.evaluate(() => window.desktop.accountAllowance());
+  assert.equal(restricted.quota.allowed, false);
+  assert.equal(restricted.status, 'stale');
+  await app.evaluate(() => { globalThis.allowanceFixture.blocked = false; globalThis.allowanceFixture.crossedReset = false; });
   await app.evaluate(() => { globalThis.allowanceFixture.status = 503; });
   await allowance.getByRole('button', { name: '刷新额度' }).click();
   await allowance.getByText(/显示的是上次获取的数据/).waitFor();

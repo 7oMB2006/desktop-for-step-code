@@ -17,6 +17,7 @@ export interface PlanAllowanceView {
   expiry?: string;
   updated?: string;
   message?: string;
+  restriction?: string;
   meters: AllowanceMeter[];
 }
 
@@ -38,6 +39,9 @@ export function PlanAllowance({ value, language = 'zh', onRefresh, refreshDisabl
     {loading && !value.planName && !value.noPlan
       ? <div className="plan-skeleton" aria-label={t('正在查询套餐', 'Loading plan')}><i/><i/></div>
       : <div className="plan-subscription"><strong>{name}</strong>{value.expiry && <span>{value.expiry}</span>}</div>}
+    {value.restriction && <div className="plan-notice is-error" role="status">
+      <AlertCircle size={14}/><span>{value.restriction}</span>
+    </div>}
     {value.message && <div className={`plan-notice${value.status === 'error' ? ' is-error' : ''}`} role="status">
       <AlertCircle size={14}/><span>{value.message}</span>
     </div>}

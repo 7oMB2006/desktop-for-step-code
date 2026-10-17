@@ -85,6 +85,39 @@ test('schema 1 uses official plan name and actual quota family without inventing
   assert.equal(none.plan?.family, 'none');
 });
 
+test('official usage restrictions remain distinct from remaining allowance and partial results', () => {
+  const raw = snapshot();
+  const allowed = decodeAccountAllowance(raw, '42', start);
+  raw.quota.allowed = false;
+  (raw.quota as any).reason = 'subscription_expired';
+  const denied = decodeAccountAllowance(raw, '42', start);
+  assert.equal(allowed.quota?.allowed, true);
+  assert.deepEqual(denied.quota, { allowed: false, reason: 'subscription_expired' });
+  assert.deepEqual(denied.meters, allowed.meters, 'restrictions do not invent a zero balance');
+  raw.quota.state = 'partial'; (raw.quota as any).credit_buckets = null;
+  assert.equal(decodeAccountAllowance(raw, '42', start).quota?.allowed, false);
+});
+
+test('server observation time identifies resets and expiries crossed before receipt without treating old data as fresh', async () => {
+  for (const boundary of ['reset', 'bucket-expiry', 'plan-expiry']) {
+    const raw = snapshot();
+    raw.observed_at_ms = start - 2000;
+    if (boundary === 'reset') raw.quota.credit_buckets[0].resets_at_ms = start - 1000;
+    if (boundary === 'bucket-expiry') (raw.quota.credit_buckets[0] as any).expires_at_ms = start - 1000;
+    if (boundary === 'plan-expiry') raw.plan.subscription!.expires_at_ms = start - 1000;
+    assert.equal(decodeAccountAllowance(raw, '42', start).status, 'stale');
+    let calls = 0;
+    const service = new AccountAllowanceService(() => auth(), async () => {
+      calls++; return Response.json(raw);
+    }, () => start, () => 0);
+    assert.equal((await service.query()).status, 'stale');
+    assert.equal((await service.query()).status, 'stale');
+    assert.equal(calls, 2, 'pre-boundary data cannot satisfy the fresh cache');
+    raw.observed_at_ms = start;
+    assert.equal((await service.query()).status, 'ready', 'a post-boundary observation can be fresh');
+  }
+});
+
 test('reject mismatched identities, invalid data and incompatible contracts; preserve unknown and partial quota', () => {
   assert.throws(() => decodeAccountAllowance(snapshot(), '43', start), /identity/);
   for (const change of [

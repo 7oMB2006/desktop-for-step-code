@@ -3,12 +3,14 @@ export type AllowanceIssue = 'signed-out' | 'unsupported' | 'authentication' | '
 export interface AccountAllowance {
   status: 'idle' | 'loading' | 'ready' | 'stale' | 'error' | 'unsupported';
   issue?: AllowanceIssue;
+  quota?: { allowed: boolean; reason?: string };
   plan?: { state: 'known' | 'unavailable'; family: 'coding' | 'token' | 'none'; name?: string; expiresAt?: number };
   meters: {
     kind: 'five_hour' | 'weekly' | 'subscription' | 'topup' | 'unsupported';
     remainingPercent: number | null; unlimited?: boolean; resetsAt?: number; expiresAt?: number;
   }[];
   fetchedAt?: number;
+  observedAt?: number;
   expiresAt?: number;
   retryAt?: number;
 }

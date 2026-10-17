@@ -33,6 +33,11 @@ export function allowanceView(value: AccountAllowance, language: string): PlanAl
     status: value.status === 'idle' ? 'loading' : value.status,
     planName: value.plan?.name,
     noPlan,
+    restriction: value.quota?.allowed === false && !noPlan
+      ? value.quota.reason === 'subscription_expired'
+        ? t('套餐已到期，当前账户暂不可使用。', 'Your subscription has expired. This account cannot currently be used.')
+        : t('官方已限制当前账户使用；剩余额度不代表当前可用。', 'Usage is restricted by the service; remaining allowance does not mean this account can currently be used.')
+      : undefined,
     expiry: value.plan?.expiresAt ? t(`${date(value.plan.expiresAt)} 到期`, `Expires ${date(value.plan.expiresAt)}`) : undefined,
     updated: value.fetchedAt ? t(`更新于 ${date(value.fetchedAt)}`, `Updated ${date(value.fetchedAt)}`) : undefined,
     message,

@@ -38,7 +38,7 @@ export function decodeAccountAllowance(value: unknown, uid: string | undefined, 
     || !['coding', 'token', 'none'].includes(plan.family) || !['known', 'partial'].includes(quota.state)
     || typeof quota.allowed !== 'boolean' || !Array.isArray(quota.windows) || quota.windows.length > 2) throw new Error('Invalid quota');
   const name = label(plan.name);
-  label(quota.reason);
+  const reason = label(quota.reason);
   let expiresAt: number | undefined;
   if (plan.subscription !== null) {
     const subscription = record(plan.subscription);
@@ -76,8 +76,11 @@ export function decodeAccountAllowance(value: unknown, uid: string | undefined, 
     }
   }
   return {
-    status: 'ready', issue: quota.state === 'partial' ? 'partial' : undefined,
-    plan: { state: plan.state, family: plan.family, name, expiresAt }, meters, fetchedAt: now,
+    status: [expiresAt, ...meters.flatMap(m => [m.resetsAt, m.expiresAt])]
+      .some(at => at !== undefined && observedAt < at && at <= now) ? 'stale' : 'ready',
+    issue: quota.state === 'partial' ? 'partial' : undefined,
+    quota: { allowed: quota.allowed, reason },
+    plan: { state: plan.state, family: plan.family, name, expiresAt }, meters, fetchedAt: now, observedAt,
     expiresAt: Math.min(now + 300000, observedAt + 300000),
   };
 }
@@ -142,7 +145,8 @@ export class AccountAllowanceService {
     return structuredClone(this.state);
   }
   private crossedBoundary() {
-    const crossed = (at?: number) => at !== undefined && at <= this.clock() && (this.state.fetchedAt ?? Infinity) < at;
+    const crossed = (at?: number) => at !== undefined && at <= this.clock()
+      && (this.state.observedAt ?? this.state.fetchedAt ?? Infinity) < at;
     return crossed(this.state.plan?.expiresAt) || this.state.meters.some(m => crossed(m.resetsAt) || crossed(m.expiresAt));
   }
   cancel() {

@@ -53,3 +53,14 @@ macOS release port.
 See [MACOS.md](MACOS.md) for native build and local preview instructions.
 This is a local unsigned preview, not a new public Release or a claim of paid
 model acceptance. Keep factual validation results in `docs/VERIFICATION.md`.
+
+
+## Shared Desktop delivery follow-up
+
+`workspace-policy.ts` now combines the existing shared-workspace policy with
+Desktop capability/delivery instructions. `TurnArtifact.url` is optional and
+identifies loopback web previews, dispatched to the existing built-in browser;
+file candidates alone go through `artifactFiles`. Recognition does not perform
+network requests or grant outside-workspace file access. No upstream pin or
+Step Code checkout changes are needed. Preserve this distinction when porting
+artifact UI or session startup changes across platform branches.

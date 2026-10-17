@@ -7,7 +7,7 @@ import { projectLaunch, ultracodeNotification } from './launch-state';
 import { emptyLaunch, type LaunchState } from '../src/launch-state';
 import { isUltracodeInput, visibleInputBlocks } from '../src/ultracode-input';
 import { isUserMessage } from '../src/user-message';
-import { WORKSPACE_POLICY } from './workspace-policy';
+import { desktopSystemPolicy } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
 import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
@@ -250,7 +250,7 @@ export class SessionRuntimes {
     this.workers.set(worker.id, worker);
     try {
       const launch = this.hooks.launch?.(worker);
-      worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env }, ['--append-system-prompt', WORKSPACE_POLICY,
+      worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env }, ['--append-system-prompt', desktopSystemPolicy(cwd),
         ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);
       await worker.rpc.request('get_state', {}, 60000);
       const result = existing && !sessionPath ? { cancelled: false }

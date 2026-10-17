@@ -1,5 +1,25 @@
 # Verification
 
+## Desktop local-preview delivery (2026-10-17)
+
+Session workers now append truthful Desktop presentation guidance alongside the
+existing collaboration policy: work in the selected workspace, return clean
+preview/file links, distinguish the built-in UI from available automation tools,
+and do not guess internal endpoints or deploy without a user request.
+
+Turn outputs now recognize loopback HTTP(S) previews in Markdown, prose and
+standalone URL code blocks, including older responses with adjacent Markdown
+emphasis. These cards open through the existing built-in browser and copy URLs;
+they do not fetch/probe on discovery and never enter the artifact filesystem API.
+External file boundaries, executable restrictions and missing-file filtering stay
+in force. This does not add an agent GUI-control tool or repair misplaced files.
+
+Local typecheck, production build and 444 unit/protocol tests passed (one existing
+Windows-only skip). Artifact acceptance covers cards, URL-only history, browser
+open dispatch, link copying, themes, narrow layouts and existing file boundaries.
+A read-only regression against the reported local history recognized both of its
+preview delivery responses; no user history or project files were rewritten.
+
 ## macOS Codex P2 follow-up (2026-10-17)
 
 The native View menu no longer installs shell Reload/Force Reload accelerators;

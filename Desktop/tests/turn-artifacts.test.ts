@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, mkdir, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { localReference, turnArtifacts, turnOutputPaths } from '../src/turn-artifacts';
+import { localReference, localPreviewUrl, turnArtifacts, turnOutputPaths } from '../src/turn-artifacts';
 import { artifactFile } from '../electron/artifact-files';
 
 test('artifact links parse through Markdown, deduplicate and exclude source and web links', () => {
@@ -89,4 +89,19 @@ test('ambiguous basenames are not guessed and explicit links retain their label'
   assert.equal(outputs.length, 1);
   assert.equal(outputs[0].label, 'Animation');
   assert.equal(outputs[0].inferred, undefined);
+});
+
+test('local app previews become delivery targets in Markdown, prose and URL-only code blocks', () => {
+  const result = turnArtifacts('**现在就打开 → http://localhost:8765/**(服务已启动)\n\n```text\nhttp://localhost:8765/\n```\n\n[Preview](http://127.0.0.1:8123/chart?symbol=BTC)');
+  assert.deepEqual(result.map(item => item.url), ['http://localhost:8765/', 'http://127.0.0.1:8123/chart?symbol=BTC']);
+  assert.ok(result.every(item => item.kind === 'website'));
+  assert.equal(localPreviewUrl('http://[::1]:8765/'), 'http://[::1]:8765/');
+});
+
+test('preview inference does not turn remote citations, credentials or example commands into delivery targets', () => {
+  assert.equal(localPreviewUrl('https://example.com/'), undefined);
+  assert.equal(localPreviewUrl('http://localhost.evil.test:8765/'), undefined);
+  assert.equal(localPreviewUrl('http://name:password@localhost:8765/'), undefined);
+  assert.equal(localPreviewUrl('javascript:alert(1)'), undefined);
+  assert.deepEqual(turnArtifacts('[Reference](https://example.com/)\n\n`curl http://localhost:8765/`\n\n```bash\ncurl http://localhost:8765/\n```'), []);
 });

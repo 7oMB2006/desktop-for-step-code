@@ -5,7 +5,7 @@ import type { IndexedMessage } from './conversation-presentation';
 import type { Content } from './contracts';
 
 export type ArtifactKind = 'website' | 'image' | 'document' | 'spreadsheet' | 'presentation' | 'audio' | 'video' | 'file';
-export interface TurnArtifact { path: string; label: string; kind: ArtifactKind; inferred?: boolean }
+export interface TurnArtifact { path: string; label: string; kind: ArtifactKind; url?: string; inferred?: boolean }
 export function localReference(value?: string): string | undefined {
   if (!value || value.length > 4096 || /[\u0000-\u001f]/u.test(value)) return;
   let path = value;
@@ -29,6 +29,18 @@ export function artifactKind(path: string): ArtifactKind {
   if (['mp4', 'webm', 'mov'].includes(ext!)) return 'video';
   return 'file';
 }
+// Local development previews are delivery targets, not arbitrary cited websites.
+// Never fetch or probe these URLs while identifying outputs.
+export function localPreviewUrl(value: string): string | undefined {
+  if (value.length > 4096 || /[\u0000-\u001f]/u.test(value)) return;
+  try {
+    const url = new URL(value.split(/[\s<>"'`*()，。！？；：]/u)[0]);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+      !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname.toLowerCase())) return;
+    return url.href.length <= 4096 ? url.href : undefined;
+  } catch { return; }
+}
+
 const parser = unified().use(remarkParse);
 const pathKey = (path: string) => path.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
 const basename = (path: string) => path.replace(/\\/g, '/').split('/').at(-1)!;
@@ -64,12 +76,27 @@ export function turnArtifacts(text: string, outputPaths: string[] = []): TurnArt
       path, label: name.slice(0, 160) || basename(path), kind, ...(inferred ? { inferred: true } : {}),
     });
   };
+  const addPreview = (value: string, name = '') => {
+    const url = localPreviewUrl(value);
+    if (!url || found.size >= 12 || found.has(`url:${url}`)) return;
+    const parsed = new URL(url);
+    found.set(`url:${url}`, { path: url, url, label: (name && !/^https?:\/\//i.test(name) ? name.slice(0, 160) : '') || `${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`, kind: 'website' });
+  };
   const label = (node: Nodes): string => 'value' in node ? String(node.value) : 'children' in node ? node.children.map(child => label(child as Nodes)).join('') : '';
   const visit = (node: Nodes) => {
     if (node.type === 'link' || node.type === 'linkReference') {
-      const path = localReference(node.type === 'link' ? node.url : definitions.get(node.identifier.toLowerCase()));
+      const href = node.type === 'link' ? node.url : definitions.get(node.identifier.toLowerCase());
+      if (href) addPreview(href, label(node));
+      const path = localReference(href);
       if (path) add(path, label(node));
       return;
+    }
+    if (node.type === 'text' || node.type === 'inlineCode' || node.type === 'code') {
+      // Code must be an address on its own, not an example command or script.
+      const source = node.type === 'text' ? node.value : node.value.split('\n')
+        .map(line => line.trim()).filter(line => /^https?:\/\/\S+$/i.test(line)).join('\n');
+      const previews = source.match(/https?:\/\/[^\s<>"'`*(){}，。！？；：]+/gi) ?? [];
+      for (const url of previews) addPreview(url);
     }
     if (node.type === 'inlineCode') {
       let path = localReference(node.value);

@@ -23,7 +23,7 @@ export function FileReference({ href, children }: { href: string; children: Reac
 }
 export function TurnArtifacts({ text, outputPaths = [], language }: { text: string; outputPaths?: string[]; language: 'zh' | 'en' }) {
   const { runtimeId, onError } = useContext(ArtifactContext);
-  const { openFile } = useContext(FileOpeningContext);
+  const { openFile, openWeb } = useContext(FileOpeningContext);
   const [checked, setChecked] = useState<{ key: string; runtimeId: string; files: ArtifactFile[] }>();
   const [busy, setBusy] = useState<string>();
   const [selected, setSelected] = useState<string>();
@@ -34,8 +34,9 @@ export function TurnArtifacts({ text, outputPaths = [], language }: { text: stri
   const candidates = turnArtifacts(text, outputPaths);
   const key = JSON.stringify(candidates.map(item => item.path));
   const files = checked?.key === key && checked.runtimeId === runtimeId ? checked.files : [];
-  const artifacts = candidates.map((item, index) => ({ ...item, file: files[index] }))
-    .filter(item => !item.inferred || item.file?.exists);
+  const fileCandidates = candidates.filter(item => !item.url);
+  const artifacts = candidates.map(item => ({ ...item, file: item.url ? undefined : files[fileCandidates.findIndex(file => file.path === item.path)] }))
+    .filter(item => item.url || !item.inferred || item.file?.exists);
   useEffect(() => {
     if (expanded) { setPresent(true); return; }
     const timer = setTimeout(() => setPresent(false), 200);
@@ -50,19 +51,23 @@ export function TurnArtifacts({ text, outputPaths = [], language }: { text: stri
   }, [expanded]);
   useEffect(() => {
     setChecked(undefined);
-    if (!runtimeId || !candidates.length) return;
+    if (!runtimeId || !fileCandidates.length) return;
     let live = true;
-    void window.desktop?.artifactFiles(runtimeId, candidates.map(item => item.path)).then(value => {
+    void window.desktop?.artifactFiles(runtimeId, fileCandidates.map(item => item.path)).then(value => {
       if (live) setChecked({ key, runtimeId, files: value });
     }).catch(() => {});
     return () => { live = false; };
   }, [runtimeId, key]);
   const action = async (path: string, type: 'open' | 'reveal' | 'copy') => {
-    if (!runtimeId || busy) return;
+    const preview = candidates.find(item => item.path === path)?.url;
+    if ((!runtimeId && !preview) || busy) return;
     setBusy(path);
     try {
-      if (type === 'open') await openFile({ runtimeId, path });
-      else await window.desktop?.artifactAction(runtimeId, path, type);
+      if (preview) {
+        if (type === 'open') await openWeb(preview);
+        else if (type === 'copy') await window.desktop?.copyText(preview);
+      } else if (type === 'open') await openFile({ runtimeId: runtimeId!, path });
+      else await window.desktop?.artifactAction(runtimeId!, path, type);
     }
     catch (error) { onError(String(error instanceof Error ? error.message : error)); }
     finally { setBusy(undefined); }
@@ -76,7 +81,7 @@ export function TurnArtifacts({ text, outputPaths = [], language }: { text: stri
     <div className="artifact-entries">{(showAll ? artifacts : artifacts.slice(0, 3)).map(artifact => {
     const file = artifact.file;
     return <div className={`artifact-row${expanded && selected === artifact.path ? ' is-selected' : ''}`} key={artifact.path}>
-      <button type="button" className="artifact-main" title={artifact.label} disabled={!file?.canOpen || Boolean(busy)} onClick={() => void action(artifact.path, 'open')}>
+      <button type="button" className="artifact-main" title={artifact.label} disabled={(!artifact.url && !file?.canOpen) || Boolean(busy)} onClick={() => void action(artifact.path, 'open')}>
         <ArtifactIcon kind={artifact.kind} size={14}/>
         <span>{artifact.label}</span><ArrowUpRight size={12}/>
       </button>
@@ -84,17 +89,19 @@ export function TurnArtifacts({ text, outputPaths = [], language }: { text: stri
         onClick={() => { setSelected(artifact.path); setExpanded(!(expanded && selected === artifact.path)); }}><MoreHorizontal size={14}/></button>
     </div>;
   })}{artifacts.length > 3 && <button className="artifact-more" onClick={() => setShowAll(!showAll)}>{showAll ? (zh ? '收起' : 'Less') : (zh ? `另 ${artifacts.length - 3} 项` : `${artifacts.length - 3} more`)}</button>}</div>
-    <span className="artifact-count">{artifacts.length} {zh ? '个文件' : 'files'}</span></div>
+    <span className="artifact-count">{artifacts.length} {artifacts.some(item => item.url) ? (zh ? '项' : 'outputs') : (zh ? '个文件' : 'files')}</span></div>
     {present && current && <div className={`artifact-detail-shell${expanded ? ' is-open' : ''}`} inert={!expanded} aria-hidden={!expanded}>
       <div className="artifact-detail-clip"><div className="artifact-detail">
         <div className="artifact-detail-heading"><ArtifactIcon kind={current.kind}/><strong>{current.label}</strong><span>{kinds[current.kind][zh ? 0 : 1]}</span>
           <button className="icon-button" aria-label={zh ? '收起产物详情' : 'Close output details'} onClick={() => setExpanded(false)}><X size={14}/></button></div>
         <div className="artifact-detail-path">{current.path}{currentFile && !currentFile.exists && <span>{zh ? ' · 文件已不存在' : ' · File no longer exists'}</span>}</div>
+        {current.url && <p>{zh ? '本地预览 · 请保持对应服务运行' : 'Local preview · Keep its server running'}</p>}
         <div className="artifact-options">
-          {runtimeId && <FileOpenButton target={{ runtimeId, path: current.path }} kind={current.kind} language={language} onError={onError}
+          {current.url && <button disabled={Boolean(busy)} onClick={() => void action(current.path, 'open')}><Globe size={14}/>{zh ? '内置浏览器' : 'Built-in browser'}</button>}
+          {!current.url && runtimeId && <FileOpenButton target={{ runtimeId, path: current.path }} kind={current.kind} language={language} onError={onError}
             disabled={!currentFile?.exists || Boolean(busy)}/>}
-          <button disabled={!currentFile?.exists || Boolean(busy)} onClick={() => void action(current.path, 'reveal')}><FolderOpen size={14}/>{zh ? '显示位置' : 'Show in folder'}</button>
-          <button disabled={!currentFile || Boolean(busy)} onClick={() => void action(current.path, 'copy')}><Copy size={14}/>{zh ? '复制路径' : 'Copy path'}</button>
+          {!current.url && <button disabled={!currentFile?.exists || Boolean(busy)} onClick={() => void action(current.path, 'reveal')}><FolderOpen size={14}/>{zh ? '显示位置' : 'Show in folder'}</button>}
+          <button disabled={(!current.url && !currentFile) || Boolean(busy)} onClick={() => void action(current.path, 'copy')}><Copy size={14}/>{current.url ? (zh ? '复制链接' : 'Copy link') : (zh ? '复制路径' : 'Copy path')}</button>
         </div>
       </div></div>
     </div>}

@@ -79,6 +79,7 @@ jobs:
           node scripts/verify-steppage-registration.mjs
           node scripts/verify-browser-panel.mjs
           node scripts/verify-file-preview.mjs
+          node scripts/verify-turn-artifacts.mjs
       - name: Package unsigned preview and verify resources
         working-directory: Desktop
         run: |
@@ -97,6 +98,7 @@ jobs:
           node scripts/verify-steppage-registration.mjs
           node scripts/verify-browser-panel.mjs
           node scripts/verify-file-preview.mjs
+          node scripts/verify-turn-artifacts.mjs
           corepack pnpm exec tsx --test tests/macos-terminal.test.ts
       - name: Archive tested preview with executable permissions
         working-directory: Desktop

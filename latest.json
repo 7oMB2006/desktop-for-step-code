@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "7oMB2006/desktop-for-step-code",
-  "generatedAt": "2026-10-17T11:59:30.263Z",
+  "generatedAt": "2026-10-17T15:49:44.384Z",
   "channels": {
     "stable": null,
     "preview": {
@@ -17,6 +17,26 @@
         "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.5.1/Desktop.for.Step.Code.Setup.0.5.1.exe",
         "size": 151551418,
         "inApp": true
+      }
+    }
+  },
+  "platforms": {
+    "darwin": {
+      "stable": null,
+      "preview": {
+        "version": "0.5.1-macos.1",
+        "tag": "v0.5.1-macos.1",
+        "name": "Desktop for Step Code v0.5.1-macos.1：内置更新与原生打开方式",
+        "prerelease": true,
+        "notes": "macOS Apple Silicon 实验版，跟进 Windows v0.5.1，并补齐 macOS 内置更新与原生文件打开方式。\r\n\r\n## 下载与安装\r\n下载 `Desktop.for.Step.Code.0.5.1-macos.1.arm64.zip`，解压后将应用拖入「应用程序」替换旧版。升级前退出应用；保留 `~/Library/Application Support/Desktop for Step Code/`，登录、设置和会话数据沿用。\r\n\r\n从 `0.5.0-macos.1` 首次升级需手动安装。从本版开始，设置中的「更新」支持检查版本、选择通道、下载校验及确认后重启安装。预览版需选择包含预览版的更新通道。\r\n\r\n## 主要变化\r\n- 跟进 v0.5.1 的套餐额度与 API 余额展示、刷新及账户路由。\r\n- 新增 macOS 内置更新器：下载进度、取消重试、SHA-512 校验、忙碌保护、确认安装及启动失败恢复；成功后清理本次下载缓存。\r\n- 新增原生文件打开方式：列出关联应用、记忆扩展名选择、临时选择其他应用。\r\n- 保留原生红黄绿窗口按钮、Command 快捷键、紧凑全屏布局、本地网页交付预览及原生终端。\r\n\r\n## 支持与限制\r\n仅支持 Apple Silicon（arm64），macOS 13.5 或更新系统。\r\n应用未做 Developer ID 签名或公证，系统可能要求用户确认。更新保留 Gatekeeper 检查；不保证无人值守升级。安装需退出运行任务并确保应用所在目录可写。\r\n\r\n真实付费模型、外部 MCP 及公共下载后的系统授权流程未被自动化验收全面覆盖。完整构建与验证结果见 `BUILD-INFO.json`；附件可用 `SHA256SUMS.txt` 校验。\r\n\r\n源码提交：`bd07277f40501cb9c3b9834fe39e6012ce19d3f9`\r\nStep Code：`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`\r\n\r\n## 验证记录\r\n481 项测试通过、1 项 Windows 专属检查跳过，安装包和解压包的 1,264 项资源核对通过；解压包启动通过。17 项打包后专项验收通过，PR 的 Windows/macOS CI 全绿。本机综合界面验收首次在归档通知检查超时，独立复核通过，详见 BUILD-INFO.json。\r\n",
+        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.5.1-macos.1",
+        "publishedAt": "2026-10-17T15:49:26Z",
+        "installer": {
+          "name": "Desktop.for.Step.Code.0.5.1-macos.1.arm64.zip",
+          "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.5.1-macos.1/Desktop.for.Step.Code.0.5.1-macos.1.arm64.zip",
+          "size": 178702680,
+          "inApp": true
+        }
       }
     }
   }

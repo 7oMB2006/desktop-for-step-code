@@ -58,6 +58,74 @@ types; typecheck, build and all 451 tests passed. Dedicated Electron
 acceptance verifies the restricted warning and
 stale display together with the existing OAuth/vault regressions.
 
+### Local Official API Balance Preview (2026-10-17)
+
+The local follow-up queries only the fixed CN/Global official accounts
+endpoints with the selected Desktop platform credential. It projects available
+balance and prepaid/postpaid account type, never derives remaining cash or
+voucher amounts from lifetime totals, and does not invent a currency when the
+response omits one. Custom-provider credentials are not sent to these endpoints.
+Plan credential refresh remains specific to personal Plan profiles.
+
+Typecheck, production build, all 455 tests (serialized), twelve CI policy/runner
+tests and browser account acceptance passed. Default parallel tests stalled in
+the existing terminal fixture; that owned test tree was stopped before the
+successful serial run. Packaged API balance, Plan allowance and auth-vault
+acceptance passed with isolated credentials and controlled HTTP responses.
+Coverage includes regional endpoints, zero/negative prepaid balance, postpaid
+balance, stale/error/auth states, cancellation and the official website link.
+
+The local package is
+`D:\Desktop For Step Code\Desktop\release\usage-plan-api-20261017-preview`.
+All 98 Desktop build files and 1,157 runtime files match staged source hashes;
+update metadata validation passed. Installer SHA-256 is
+`5d67add82c0f67efcbabb6f08e7bb5492cd99897cdddaae4ce7973f0cc9ee1a1`.
+Its source is base commit `40f048804d8a2acfba050e45710aabf5560dc5b2` plus
+uncommitted API balance changes, not that commit alone. Runtime pin remains
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`.
+
+The ordinary desktop shortcut targets the new unpacked executable; its
+previous version was backed up in the package directory. Running user windows
+and previous packages were preserved. No real-account balance request,
+installer lifecycle test, API-change push, merge or public release is claimed.
+
+### Account Billing-Route Regression (2026-10-17)
+
+The follow-up synchronizes the management process's model-discovery endpoint
+with the stored login profile before resolving draft-session options. The
+previous package reproducibly queried the default Plan models endpoint while
+signed into the platform API profile. This is evidence of a model-discovery
+mismatch, not evidence of a wrongly billed chat request. Login/logout now
+restart management with the applied credential snapshot as well as rebuilding
+session workers.
+
+The new interface-CI acceptance uses the real upstream remote-login polling
+flow, Desktop vault/IPC and runtime with synthetic credentials and local HTTP
+transport. It checks CN API -> CN Plan -> Global API -> Global Plan -> CN API,
+including a persisted Step model whose old API base must be normalized. Each
+phase verifies both model discovery and actual chat endpoint/credential pairs,
+plus the matching allowance source. Plan model-detail metadata intentionally
+uses the runtime's regional `/v1/models/...` path; this is not a chat request.
+Running API work rejects a login change, pending authorization blocks prompts,
+canceling authorization preserves the previous profile, and a denied Plan chat
+never falls back to API billing. No real credentials or official billing
+transactions were used.
+
+Typecheck, build, 455 serialized tests and twelve CI policy/runner tests passed.
+One earlier full run failed in the unrelated session-collaboration test file;
+the complete rerun passed. Source and packaged routing, Plan allowance and
+auth-vault acceptance passed; packaged API balance acceptance also passed.
+The new local package is
+`D:\Desktop For Step Code\Desktop\release\usage-account-routing-20261017-preview`.
+All 98 Desktop build files and 1,157 runtime files match staged sources,
+including the updated management helper; update metadata validation passed.
+Installer SHA-256 is
+`3c2866121f01442fbc663934211340e7810a33a7e92abafd717354d8afebaa3a`.
+It remains version 0.5.0 with the same upstream pin and uncommitted local
+changes. The normal shortcut was backed up and updated; running user windows
+and old packages were preserved. This does not establish official backend
+charging behavior, installer lifecycle acceptance or a public release.
+
 ## Accent Acknowledgement Race (2026-10-16)
 
 Cloud run 38694832584 passed HEX input and then timed out comparing the canceled

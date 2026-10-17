@@ -1337,6 +1337,8 @@ async function handle(method: string, args: any[]) {
       const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
       await persistAuth(mergeRuntimeAuth(authData, next));
       appliedAuthData = authData;
+      await admin.stop();
+      admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
       const current = runtimes.active;
       const draft = sessionDraft;
       await runtimes.stopAll();
@@ -1352,6 +1354,8 @@ async function handle(method: string, args: any[]) {
       const next = await admin.request('logout');
       await persistAuth(mergeRuntimeAuth(authData, next));
       appliedAuthData = authData;
+      await admin.stop();
+      admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
       const current = runtimes.active;
       const draft = sessionDraft;
       await runtimes.stopAll();

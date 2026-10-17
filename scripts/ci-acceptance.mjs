@@ -26,6 +26,8 @@ export const acceptanceGroups = {
     'verify-account-settings.mjs',
     'verify-usage-account.mjs',
     'verify-account-allowance.mjs',
+    'verify-account-balance.mjs',
+    'verify-account-routing.mjs',
     'verify-theme-bootstrap.mjs',
     'verify-performance-matrix.mjs',
   ],

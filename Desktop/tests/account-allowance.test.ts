@@ -152,7 +152,7 @@ test('only Desktop personal Plan credentials query fixed official regional endpo
   data = auth('step_plan_oversea');
   await service.query();
   assert.deepEqual(seen, ['https://api.stepfun.com/step_plan/v1/usage', 'https://api.stepfun.ai/step_plan/v1/usage']);
-  for (const unsupported of [{}, auth('platform_cn'), { step: { type: 'api_key', key: 'gateway' } }]) {
+  for (const unsupported of [{}, auth('unknown-profile'), { step: { type: 'api_key', key: 'gateway' } }]) {
     data = unsupported;
     assert.equal((await service.query()).status, 'unsupported');
   }

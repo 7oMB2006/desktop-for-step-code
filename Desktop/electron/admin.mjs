@@ -18,6 +18,7 @@ const safeMcp = servers => Object.fromEntries(Object.entries(servers).map(([name
 async function dispatch(message) {
   switch (message.type) {
     case 'session_options': {
+      upstream.syncStepLoginProfileEndpoint(authPath);
       const settings = upstream.createStepSettingsManager(message.cwd, agentDir);
       const runtime = await upstream.ModelRuntime.create({
         authPath, modelsPath: join(dirname(authPath), 'models.json'), allowModelNetwork: false,

@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { UserRound, Palette, SlidersHorizontal, SunMoon } from 'lucide-react';
 import { AccountSettings } from '../../src/AccountSettings';
 import { PlanAllowance, type PlanAllowanceView } from '../../src/PlanAllowance';
+import { ApiBalance } from '../../src/ApiBalance';
+import type { AccountAllowance } from '../../src/account-allowance';
 import { AppTooltip } from '../../src/AppTooltip';
 import type { Settings } from '../../src/contracts';
 import '../../src/style.css';
@@ -31,6 +33,9 @@ const scenarios: Record<string, PlanAllowanceView> = {
 };
 scenarios.stale = { ...scenarios.coding, status: 'stale', message: t('刷新失败，正在显示上次获取的额度。', 'Refresh failed. Showing the last retrieved allowance.') };
 const labels = [t('Coding 套餐', 'Coding plan'), t('Token 套餐', 'Token plan'), t('未订阅', 'No subscription'), t('加载中', 'Loading'), t('查询失败', 'Query failed'), t('不支持', 'Unsupported'), t('旧数据', 'Stale data')];
+const apiScenarios = ['api', 'api-zero', 'api-error', 'api-stale'];
+const scenarioNames = [...Object.keys(scenarios), ...apiScenarios];
+labels.push(t('API 余额', 'API balance'), t('API 零余额', 'API zero balance'), t('API 查询失败', 'API query failed'), t('API 旧数据', 'API stale data'));
 const settings: Settings = {
   account: { loggedIn: true, validity: 'valid', profile: 'step_plan', userId: '100008326' },
   profiles: [
@@ -41,20 +46,35 @@ const settings: Settings = {
   ], mcp: {}, skills: [],
 };
 function Harness() {
-  const [scenario, setScenario] = useState(Object.hasOwn(scenarios, params.get('state') ?? '') ? params.get('state')! : 'coding');
+  const [scenario, setScenario] = useState(scenarioNames.includes(params.get('state') ?? '') ? params.get('state')! : 'coding');
   const [refreshing, setRefreshing] = useState(false);
   const [updated, setUpdated] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   const value = { ...scenarios[scenario], ...(refreshing ? { status: 'loading' as const } : {}),
     ...(updated ? { updated: t('刚刚更新', 'Updated just now') } : {}) };
+  const isApi = apiScenarios.includes(scenario);
+  const apiValue: AccountAllowance = {
+    source: 'api', status: refreshing ? 'loading' : scenario === 'api-error' ? 'error' : scenario === 'api-stale' ? 'stale' : 'ready',
+    issue: scenario === 'api-error' || scenario === 'api-stale' ? 'network' : undefined, meters: [],
+    balance: scenario === 'api-error' ? undefined : { amount: scenario === 'api-zero' ? 0 : 1899.8, accountType: 'prepaid' },
+    fetchedAt: scenario === 'api-error' ? undefined : updated ? Date.now() : new Date('2026-10-17T15:32:00+08:00').getTime(),
+  };
+  const refresh = () => {
+    setRefreshing(true);
+    timer.current = setTimeout(() => {
+      if (scenario === 'error' || scenario === 'stale') setScenario('coding');
+      if (scenario === 'api-error' || scenario === 'api-stale') setScenario('api');
+      setRefreshing(false); setUpdated(true);
+    }, 900);
+  };
   return <div className="modal-backdrop settings-backdrop">
     <section className="settings-dialog" role="dialog" aria-label={t('设置', 'Settings')}>
       <header><h2>{t('设置', 'Settings')}</h2><div className="usage-preview-controls">
         <span>{t('示例数据', 'Sample data')}</span>
         <select aria-label={t('预览状态', 'Preview state')} value={scenario} onChange={event => {
           clearTimeout(timer.current); setRefreshing(false); setUpdated(false); setScenario(event.target.value);
-        }}>{Object.keys(scenarios).map((key, index) => <option key={key} value={key}>{labels[index]}</option>)}</select>
+        }}>{scenarioNames.map((key, index) => <option key={key} value={key}>{labels[index]}</option>)}</select>
         <button aria-label={t('切换主题', 'Toggle theme')} data-tooltip={t('切换主题', 'Toggle theme')} onClick={() => {
           document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
         }}><SunMoon size={16}/></button>
@@ -64,16 +84,11 @@ function Harness() {
         <button disabled><SlidersHorizontal size={17}/>{t('界面复杂度', 'Interface complexity')}</button>
         <button disabled><Palette size={17}/>{t('外观', 'Appearance')}</button>
       </nav><div className="settings-content"><AccountSettings
-        settings={{ ...settings, account: { ...settings.account, profile: scenario === 'unsupported' ? 'platform_cn' : 'step_plan' } }}
-        profile="step_plan" onProfile={() => {}} apiKey="" onKey={() => {}} loggingIn={false} busy
+        settings={{ ...settings, account: { ...settings.account, profile: isApi || scenario === 'unsupported' ? 'platform_cn' : 'step_plan' } }}
+        profile={isApi ? 'platform_cn' : 'step_plan'} onProfile={() => {}} apiKey="" onKey={() => {}} loggingIn={false} busy
         language={en ? 'en' : 'zh'} onLogin={() => {}} onCancel={() => {}} onLogout={() => {}}
-        allowance={<PlanAllowance value={value} language={en ? 'en' : 'zh'} onRefresh={() => {
-          setRefreshing(true);
-          timer.current = setTimeout(() => {
-            if (scenario === 'error' || scenario === 'stale') setScenario('coding');
-            setRefreshing(false); setUpdated(true);
-          }, 900);
-        }}/>}
+        allowance={isApi ? <ApiBalance value={apiValue} language={en ? 'en' : 'zh'} onRefresh={refresh}/>
+          : <PlanAllowance value={value} language={en ? 'en' : 'zh'} onRefresh={refresh}/>}
       /></div></div>
     </section><AppTooltip/>
   </div>;

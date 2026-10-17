@@ -41,18 +41,37 @@ try {
   assert.equal(await allowance.getByRole('button', { name: '刷新额度' }).isDisabled(), true);
   await select.selectOption('loading');
   assert.equal(await allowance.getAttribute('aria-busy'), 'true');
+  await select.selectOption('api');
+  const balance = page.getByRole('region', { name: 'API 账户余额' });
+  await balance.getByText('1,899.80', { exact: true }).waitFor();
+  assert.equal(await balance.getByRole('meter').count(), 0);
+  await page.screenshot({ path: 'test-results/usage-account-api-light.png', animations: 'disabled' });
+  await balance.getByRole('button', { name: '刷新余额' }).click();
+  assert.equal(await balance.getAttribute('aria-busy'), 'true');
+  await page.waitForFunction(() => document.querySelector('.api-balance')?.getAttribute('aria-busy') === 'false');
+  await select.selectOption('api-zero');
+  await balance.getByText('0.00', { exact: true }).waitFor();
+  await select.selectOption('api-error');
+  await balance.getByText('--', { exact: true }).waitFor();
+  await select.selectOption('api-stale');
+  await balance.getByText(/显示的是上次获取的数据/).waitFor();
   await page.goto(`${url}?theme=dark`);
   await allowance.getByText('Step Plan Pro', { exact: true }).waitFor();
   await page.waitForTimeout(300);
   await page.screenshot({ path: 'test-results/usage-account-coding-dark.png', animations: 'disabled' });
+  await page.getByRole('combobox', { name: '预览状态' }).selectOption('api');
+  await balance.getByText('1,899.80', { exact: true }).waitFor();
+  await page.screenshot({ path: 'test-results/usage-account-api-dark.png', animations: 'disabled' });
   for (const width of [760, 390]) {
     await page.setViewportSize({ width, height: 844 });
-    await page.goto(`${url}?lang=en&state=token`);
-    await page.getByRole('region', { name: 'Plan and allowance' }).waitFor();
-    assert.ok(await page.locator('.settings-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
-    assert.ok(await page.locator('.settings-dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
-    assert.ok(await page.locator('.account-identity-text').evaluate(el => el.getBoundingClientRect().width >= 140),
-      'account identity must retain readable width rather than wrap each letter');
+    for (const state of ['token', 'api']) {
+      await page.goto(`${url}?lang=en&state=${state}`);
+      await page.getByRole('region', { name: state === 'api' ? 'API account balance' : 'Plan and allowance' }).waitFor();
+      assert.ok(await page.locator('.settings-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
+      assert.ok(await page.locator('.settings-dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
+      assert.ok(await page.locator('.account-identity-text').evaluate(el => el.getBoundingClientRect().width >= 140),
+        'account identity must retain readable width rather than wrap each letter');
+    }
   }
   await page.screenshot({ path: 'test-results/usage-account-mobile.png', animations: 'disabled' });
   await page.emulateMedia({ reducedMotion: 'reduce' });

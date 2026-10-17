@@ -24,6 +24,18 @@
 .plan-skeleton i { width: 140px; height: 18px; border-radius: 3px; background: var(--side); animation: plan-loading 1.5s ease-in-out infinite alternate; }
 .plan-skeleton i + i { width: 210px; height: 10px; }
 .is-refreshing { animation: plan-refresh 1s linear infinite; }
+.api-balance-label { margin-top: 16px; color: var(--muted); font-size: 12px; }
+.api-balance-amount { display: flex; align-items: baseline; gap: 7px; margin-top: 6px; color: var(--ink); }
+.api-balance-amount > span { font-size: 14px; font-weight: 500; }
+.api-balance-amount > strong { min-width: 0; font-size: 34px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.api-balance-amount[data-empty="true"] { color: var(--muted); }
+.api-balance-amount[data-low="true"] { color: var(--danger); }
+.api-balance-currency { margin-top: 7px; font-size: 11px; color: var(--muted); }
+.api-balance-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; margin-top: 20px; }
+.api-balance-footer .plan-updated { margin-top: 0; }
+.api-balance-website { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 11px; text-decoration: none; }
+.api-balance-website:hover:not(:disabled) { color: var(--ink); text-decoration: underline; background: transparent; }
+.api-balance-website:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
 @keyframes plan-refresh { to { transform: rotate(360deg); } }
 @keyframes plan-loading { to { opacity: .4; } }
 @media (prefers-reduced-motion: reduce) {

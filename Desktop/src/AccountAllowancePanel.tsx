@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AccountAllowance, AllowanceIssue } from './account-allowance';
+import { hasAccountSnapshot } from './account-allowance';
 import type { Account, DesktopBridge } from './contracts';
 import { PlanAllowance, type PlanAllowanceView } from './PlanAllowance';
+import { ApiBalance } from './ApiBalance';
 
 export function allowanceView(value: AccountAllowance, language: string): PlanAllowanceView {
   const en = language === 'en';
@@ -66,7 +68,7 @@ export function AccountAllowancePanel({ bridge, account, language, active = true
       if (revision.current === request) setValue(next);
     } catch {
       if (revision.current === request) setValue(previous => ({
-        ...previous, status: previous.plan ? 'stale' : 'error', issue: 'network',
+        ...previous, status: hasAccountSnapshot(previous) ? 'stale' : 'error', issue: 'network',
       }));
     }
   }, [bridge]);
@@ -86,7 +88,7 @@ export function AccountAllowancePanel({ bridge, account, language, active = true
     const stale = boundaries.length ? window.setTimeout(() => setValue(previous => previous.status === 'ready'
       ? { ...previous, status: 'stale' } : previous), Math.min(...boundaries) - now) : undefined;
     const expires = window.setTimeout(() => setValue(previous => previous.fetchedAt === value.fetchedAt
-      ? { status: 'error', issue: 'expired', meters: [] } : previous), Math.max(0, (value.expiresAt ?? value.fetchedAt + 300000) - now));
+      ? { source: previous.source, status: 'error', issue: 'expired', meters: [] } : previous), Math.max(0, (value.expiresAt ?? value.fetchedAt + 300000) - now));
     return () => { window.clearTimeout(stale); window.clearTimeout(expires); };
   }, [value.fetchedAt, value.expiresAt, value.plan, value.meters]);
   useEffect(() => {
@@ -96,6 +98,9 @@ export function AccountAllowancePanel({ bridge, account, language, active = true
     const timer = window.setTimeout(() => setCoolingDown(false), remaining);
     return () => window.clearTimeout(timer);
   }, [value.retryAt]);
+  if (['platform_cn', 'platform_oversea'].includes(account.profile ?? '')) return <ApiBalance value={value} language={language}
+    refreshDisabled={coolingDown || !active} onRefresh={() => { if (!coolingDown && active) void load(true); }}
+    website={account.profile === 'platform_oversea' ? 'https://platform.stepfun.ai' : 'https://platform.stepfun.com/account-overview'}/>;
   return <PlanAllowance value={allowanceView(value, language)} language={language} refreshDisabled={coolingDown || !active}
     onRefresh={() => { if (!coolingDown && active) void load(true); }}/>;
 }

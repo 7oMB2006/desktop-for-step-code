@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { stripVTControlCharacters } from 'node:util';
 import type { AccountAllowance, AllowanceIssue } from '../src/account-allowance';
+import { hasAccountSnapshot } from '../src/account-allowance';
 
 // Schema 1 follows Step Code's step/usage/account.ts at b5dbed938d9.
 // Only the display projection crosses IPC; Credit quantities and credentials do not.
@@ -79,9 +80,21 @@ export function decodeAccountAllowance(value: unknown, uid: string | undefined, 
     status: [expiresAt, ...meters.flatMap(m => [m.resetsAt, m.expiresAt])]
       .some(at => at !== undefined && observedAt < at && at <= now) ? 'stale' : 'ready',
     issue: quota.state === 'partial' ? 'partial' : undefined,
-    quota: { allowed: quota.allowed, reason },
+    source: 'plan', quota: { allowed: quota.allowed, reason },
     plan: { state: plan.state, family: plan.family, name, expiresAt }, meters, fetchedAt: now, observedAt,
     expiresAt: Math.min(now + 300000, observedAt + 300000),
+  };
+}
+
+export function decodeAccountBalance(value: unknown, now: number): AccountAllowance {
+  const raw = record(value);
+  if (raw.object !== 'account' || !['prepaid', 'postpaid'].includes(raw.type)
+    || typeof raw.balance !== 'number' || !Number.isFinite(raw.balance) || Math.abs(raw.balance) > Number.MAX_SAFE_INTEGER)
+    throw new Error('Invalid balance');
+  return {
+    source: 'api', status: 'ready', meters: [], fetchedAt: now, expiresAt: now + 300000,
+    balance: { amount: raw.balance, accountType: raw.type,
+      currency: ['CNY', 'USD'].includes(raw.currency) ? raw.currency : undefined },
   };
 }
 
@@ -125,21 +138,24 @@ export class AccountAllowanceService {
     const key = stored?.type === 'oauth' && typeof stored.access === 'string' ? stored.access.trim() : '';
     const profile = typeof stored?.profile === 'string' && stored.profile ? stored.profile : 'step_plan';
     const uid = typeof stored?.uid === 'string' && /^\d+$/.test(stored.uid) ? stored.uid : undefined;
-    const host = profile === 'step_plan' ? 'api.stepfun.com' : profile === 'step_plan_oversea' ? 'api.stepfun.ai' : undefined;
+    const source = ['platform_cn', 'platform_oversea'].includes(profile) ? 'api' as const : 'plan' as const;
+    const host = ['step_plan', 'platform_cn'].includes(profile) ? 'api.stepfun.com'
+      : ['step_plan_oversea', 'platform_oversea'].includes(profile) ? 'api.stepfun.ai' : undefined;
     const identity = createHash('sha256').update(JSON.stringify([profile, key, uid, stored?.type])).digest('hex');
-    const needsRefresh = typeof stored?.expires === 'number' && stored.expires <= this.clock() + 60000;
-    return { key, uid, identity, needsRefresh, endpoint: host ? `https://${host}/step_plan/v1/usage` : undefined,
+    const needsRefresh = source === 'plan' && typeof stored?.expires === 'number' && stored.expires <= this.clock() + 60000;
+    return { key, uid, identity, source, needsRefresh,
+      endpoint: host ? `https://${host}${source === 'api' ? '/v1/accounts' : '/step_plan/v1/usage'}` : undefined,
       issue: (!stored ? 'signed-out' : !host || !key ? 'unsupported' : undefined) as AllowanceIssue | undefined };
   }
   cached(): AccountAllowance {
     const context = this.context();
     if (context.identity !== this.identity) {
       this.cancel(); this.identity = context.identity; this.receivedTick = -Infinity; this.retryTick = -Infinity;
-      this.state = { status: context.issue ? 'unsupported' : 'idle', issue: context.issue, meters: [] };
+      this.state = { source: context.source, status: context.issue ? 'unsupported' : 'idle', issue: context.issue, meters: [] };
     }
-    if (this.state.plan && (this.tick() - this.receivedTick >= 300000 || this.clock() >= (this.state.expiresAt ?? 0))) {
-      this.state = { status: 'error', issue: 'expired', meters: [] };
-    } else if (this.state.plan && this.state.status === 'ready' && (this.tick() - this.receivedTick >= 30000 || this.crossedBoundary())) {
+    if (hasAccountSnapshot(this.state) && (this.tick() - this.receivedTick >= 300000 || this.clock() >= (this.state.expiresAt ?? 0))) {
+      this.state = { source: context.source, status: 'error', issue: 'expired', meters: [] };
+    } else if (hasAccountSnapshot(this.state) && this.state.status === 'ready' && (this.tick() - this.receivedTick >= 30000 || this.crossedBoundary())) {
       this.state = { ...this.state, status: 'stale' };
     }
     return structuredClone(this.state);
@@ -151,7 +167,7 @@ export class AccountAllowanceService {
   }
   cancel() {
     this.generation++; this.abort?.abort(); this.abort = undefined; this.pending = undefined;
-    if (this.state.status === 'loading') this.state = { ...this.state, status: this.state.plan ? 'stale' : 'idle' };
+    if (this.state.status === 'loading') this.state = { ...this.state, status: hasAccountSnapshot(this.state) ? 'stale' : 'idle' };
   }
   query(force = false): Promise<AccountAllowance> {
     const previous = this.cached();
@@ -194,24 +210,28 @@ export class AccountAllowanceService {
             const delay = Math.min(86400000, Math.max(1000, Number.isFinite(seconds) ? seconds * 1000 : 1000));
             this.retryTick = this.tick() + delay; retryAt = this.clock() + delay;
           }
-          this.state = issue === 'authentication' ? { status: 'error', issue, meters: [] }
-            : { ...previous, status: previous.plan ? 'stale' : 'error', issue, retryAt };
+          this.state = issue === 'authentication' ? { source: context.source, status: 'error', issue, meters: [] }
+            : { ...previous, status: hasAccountSnapshot(previous) ? 'stale' : 'error', issue, retryAt };
         }
         return;
       }
       let result: AccountAllowance;
-      try { result = decodeAccountAllowance(await readResponse(response), context.uid, this.clock()); }
+      try {
+        const raw = await readResponse(response);
+        result = context.source === 'api' ? decodeAccountBalance(raw, this.clock())
+          : decodeAccountAllowance(raw, context.uid, this.clock());
+      }
       catch (error) {
         if (valid()) this.state = error instanceof Error && error.message === 'identity'
-          ? { status: 'error', issue: 'identity', meters: [] }
-          : { ...previous, status: previous.plan ? 'stale' : 'error', issue: 'invalid-response' };
+          ? { source: context.source, status: 'error', issue: 'identity', meters: [] }
+          : { ...previous, status: hasAccountSnapshot(previous) ? 'stale' : 'error', issue: 'invalid-response' };
         return;
       }
       if (valid()) { this.state = result; this.receivedTick = this.tick(); this.retryTick = -Infinity; }
     };
     timer = setTimeout(() => controller.abort(), this.timeout);
     this.pending = Promise.race([work(), aborted]).catch(() => {
-      if (current()) this.state = { ...previous, status: previous.plan ? 'stale' : 'error', issue: 'network' };
+      if (current()) this.state = { ...previous, status: hasAccountSnapshot(previous) ? 'stale' : 'error', issue: 'network' };
     }).then(() => this.cached()).finally(() => {
       clearTimeout(timer); controller.signal.removeEventListener('abort', onAbort);
       if (generation === this.generation) { this.pending = undefined; this.abort = undefined; }

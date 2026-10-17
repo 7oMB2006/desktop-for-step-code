@@ -1,5 +1,19 @@
 # Verification
 
+## macOS continuous sidebar animation (2026-10-17)
+
+The titlebar sidebar surface now translates at the sidebar's full width using
+its existing 280ms curve, instead of shrinking its background with the button
+track and switching color immediately. Window controls keep their independent
+positions. Inactive-window dimming applies only to the sidebar button so the
+upper and lower sidebar surfaces remain the same color.
+
+Window acceptance samples both opening and closing transitions frame by frame,
+comparing the upper/lower right edges (within 1 DIP) and background colors.
+Reduced-motion settings disable both surface transitions together. Source and
+packaged window acceptance and package resource verification cover this change;
+the earlier full-suite archive-notification timeout remains recorded below.
+
 ## macOS compact fullscreen toolbar (2026-10-17)
 
 Window-state replies and events now include native fullscreen state. macOS uses

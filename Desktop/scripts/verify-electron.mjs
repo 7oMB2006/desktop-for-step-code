@@ -273,6 +273,34 @@ try {
     }));
     await page.locator('.window-bar-macos.window-fullscreen').waitFor();
     assert.equal((await page.locator('.window-bar').boundingBox()).height, 40);
+    if (!motionReduced) {
+      await page.waitForFunction(() => document.querySelector('.sidebar').getBoundingClientRect().x === 0 &&
+        !document.querySelector('.sidebar').getAnimations().some(animation => animation.playState === 'running'));
+      for (const direction of ['close', 'open']) {
+        const frames = await page.evaluate(async () => {
+          const tools = document.querySelector('.window-tools');
+          const sidebar = document.querySelector('.sidebar');
+          document.querySelector('.window-sidebar-toggle').click();
+          const frames = [];
+          const start = performance.now();
+          do {
+            await new Promise(requestAnimationFrame);
+            const top = getComputedStyle(tools, '::before');
+            const matrix = new DOMMatrixReadOnly(top.transform);
+            frames.push({ topRight: tools.getBoundingClientRect().left + parseFloat(top.width) + matrix.m41,
+              bottomRight: sidebar.getBoundingClientRect().right,
+              topColor: top.backgroundColor, bottomColor: getComputedStyle(sidebar).backgroundColor });
+          } while (performance.now() - start < 350);
+          return frames;
+        });
+        assert.ok(frames.some(frame => frame.bottomRight > 1 && frame.bottomRight < 200), `${direction}: sampled moving sidebar`);
+        for (const frame of frames) {
+          assert.ok(Math.abs(frame.topRight - frame.bottomRight) < 1, `${direction}: continuous sidebar edge ${JSON.stringify(frame)}`);
+          assert.equal(frame.topColor, frame.bottomColor, `${direction}: continuous sidebar surface`);
+        }
+      }
+    }
+
     const expandedFullToggle = await page.locator('.window-sidebar-toggle').boundingBox();
     assert.equal(expandedFullToggle.x, 12, 'Expanded fullscreen sidebar toggle stays at the left edge');
     await page.getByRole('button', { name: '侧栏', exact: true }).click();

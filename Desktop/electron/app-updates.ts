@@ -28,12 +28,16 @@ function installerUrl(value: unknown, tag: string, name: string): string | undef
   } catch { return; }
 }
 
-export function selectRelease(values: unknown, channel: UpdateChannel): AppRelease | undefined {
+export type UpdatePlatform = 'win32' | 'darwin';
+
+export function selectRelease(values: unknown, channel: UpdateChannel, platform: UpdatePlatform = 'win32'): AppRelease | undefined {
   if (!Array.isArray(values)) throw new UpdateFailure('invalid-response');
   const releases: AppRelease[] = [];
   for (const item of values) {
     if (!item || typeof item !== 'object' || item.draft !== false || typeof item.prerelease !== 'boolean') continue;
     const version = releaseVersion(item.tag_name);
+    if (platform === 'win32' && /-macos\.\d+$/.test(item.tag_name)) continue;
+    if (platform === 'darwin' && !/-macos\.\d+$/.test(item.tag_name) && !(Array.isArray(item.assets) && item.assets.some((asset: any) => typeof asset?.name === 'string' && asset.name.endsWith('.arm64.zip')))) continue;
     if (!version || /[/\\]/.test(item.tag_name) || (channel === 'stable' && (item.prerelease || prerelease(version)))) continue;
     const release: AppRelease = {
       version, tag: item.tag_name, name: typeof item.name === 'string' ? item.name.slice(0, 160) : version,
@@ -42,16 +46,18 @@ export function selectRelease(values: unknown, channel: UpdateChannel): AppRelea
       url: `${RELEASES_URL}/tag/${encodeURIComponent(item.tag_name)}`,
     };
     if (typeof item.published_at === 'string' && Number.isFinite(Date.parse(item.published_at))) release.publishedAt = item.published_at;
-    const names = [`Desktop.for.Step.Code.Setup.${version}.exe`, `Desktop for Step Code Setup ${version}.exe`];
+    const names = platform === 'darwin' ? [`Desktop.for.Step.Code.${version}.arm64.zip`]
+      : [`Desktop.for.Step.Code.Setup.${version}.exe`, `Desktop for Step Code Setup ${version}.exe`];
+    const metadataName = platform === 'darwin' ? 'mac-update.json' : 'latest.yml';
     if (Array.isArray(item.assets)) {
       for (const asset of item.assets) {
         if (!asset || !names.includes(asset.name) || !Number.isSafeInteger(asset.size) || asset.size <= 0
           || asset.size > 2 * 1024 ** 3 || asset.state !== 'uploaded') continue;
         const url = installerUrl(asset.browser_download_url, item.tag_name, asset.name);
         if (url) {
-          const metadata = item.assets.find((entry: any) => entry.name === 'latest.yml' && entry.state === 'uploaded'
+          const metadata = item.assets.find((entry: any) => entry.name === metadataName && entry.state === 'uploaded'
             && Number.isSafeInteger(entry.size) && entry.size > 0 && entry.size <= 128 * 1024
-            && installerUrl(entry.browser_download_url, item.tag_name, 'latest.yml'));
+            && installerUrl(entry.browser_download_url, item.tag_name, metadataName));
           release.installer = { name: asset.name, url, size: asset.size, ...(metadata ? { inApp: true } : {}) };
           break;
         }
@@ -65,10 +71,11 @@ export function selectRelease(values: unknown, channel: UpdateChannel): AppRelea
 
 export function createUpdateManifest(values: unknown, generatedAt = new Date().toISOString()) {
   return { schemaVersion: 1, repository: UPDATE_REPOSITORY, generatedAt,
-    channels: { stable: selectRelease(values, 'stable') ?? null, preview: selectRelease(values, 'preview') ?? null } };
+    channels: { stable: selectRelease(values, 'stable') ?? null, preview: selectRelease(values, 'preview') ?? null },
+    platforms: { darwin: { stable: selectRelease(values, 'stable', 'darwin') ?? null, preview: selectRelease(values, 'preview', 'darwin') ?? null } } };
 }
 
-function manifestRelease(value: any): AppRelease | undefined {
+function manifestRelease(value: any, platform: UpdatePlatform): AppRelease | undefined {
   if (value === null) return;
   if (!value || typeof value !== 'object' || releaseVersion(value.tag) !== value.version
     || /[/\\]/.test(value.tag) || typeof value.prerelease !== 'boolean'
@@ -81,8 +88,8 @@ function manifestRelease(value: any): AppRelease | undefined {
   const release = selectRelease([{
     tag_name: value.tag, draft: false, prerelease: value.prerelease,
     name: value.name, body: value.notes, published_at: value.publishedAt,
-    assets: value.installer === undefined ? [] : [{ ...value.installer, state: 'uploaded', browser_download_url: value.installer?.url }],
-  }], 'preview');
+    assets: value.installer === undefined ? (platform === 'darwin' ? [{ name: '.arm64.zip' }] : []) : [{ ...value.installer, state: 'uploaded', browser_download_url: value.installer?.url }],
+  }], 'preview', platform);
   if (!release || value.installer !== undefined && !release.installer) throw new UpdateFailure('invalid-response');
   if (value.installer?.inApp !== undefined) {
     if (typeof value.installer.inApp !== 'boolean') throw new UpdateFailure('invalid-response');
@@ -91,17 +98,19 @@ function manifestRelease(value: any): AppRelease | undefined {
   return release;
 }
 
-export function parseUpdateManifest(value: any, channel: UpdateChannel): AppRelease | undefined {
+export function parseUpdateManifest(value: any, channel: UpdateChannel, platform: UpdatePlatform = 'win32'): AppRelease | undefined {
   if (!value || value.schemaVersion !== 1 || value.repository !== UPDATE_REPOSITORY
     || typeof value.generatedAt !== 'string' || !Number.isFinite(Date.parse(value.generatedAt))
     || !value.channels || typeof value.channels !== 'object') throw new UpdateFailure('invalid-response');
-  const stable = manifestRelease(value.channels.stable);
-  const preview = manifestRelease(value.channels.preview);
+  const channels = platform === 'darwin' ? value.platforms?.darwin : value.channels;
+  if (!channels) return; // Older feed publishers have no macOS catalog.
+  const stable = manifestRelease(channels.stable, platform);
+  const preview = manifestRelease(channels.preview, platform);
   if (stable?.prerelease || stable && (!preview || gt(stable.version, preview.version))) throw new UpdateFailure('invalid-response');
   return channel === 'stable' ? stable : preview;
 }
 
-export function parseReleaseFeed(xml: string): AppRelease | undefined {
+export function parseReleaseFeed(xml: string, platform: UpdatePlatform = 'win32'): AppRelease | undefined {
   // A bounded public feed is a discovery fallback, not a complete release/asset catalog.
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new UpdateFailure('invalid-response');
   let document: XmlDocument;
@@ -121,6 +130,7 @@ export function parseReleaseFeed(xml: string): AppRelease | undefined {
     try { tag = decodeURIComponent(href.slice(`${RELEASES_URL}/tag/`.length)); }
     catch { throw new UpdateFailure('invalid-response'); }
     const version = releaseVersion(tag);
+    if (platform === 'win32' ? /-macos\.\d+$/.test(tag) : !/-macos\.\d+$/.test(tag)) continue;
     if (!version) continue;
     if (/[/\\]/.test(tag) || href !== `${RELEASES_URL}/tag/${encodeURIComponent(tag)}`) throw new UpdateFailure('invalid-response');
     const name = children(entry).find(node => node.localName === 'title')?.textContent;
@@ -164,7 +174,7 @@ export class AppUpdates {
   private results = new Map<UpdateChannel, AppUpdateState>();
   private blockedUntil = 0;
   constructor(currentVersion: string, private request: (url: string, options: RequestInit) => Promise<Response>,
-    private changed: (state: AppUpdateState) => void, private now = Date.now, private timeout = 15_000) {
+    private changed: (state: AppUpdateState) => void, private now = Date.now, private timeout = 15_000, private platform: UpdatePlatform = 'win32') {
     this.state = { currentVersion, channel: 'preview', status: 'idle' };
   }
   snapshot(): AppUpdateState { return structuredClone(this.state); }
@@ -225,12 +235,12 @@ export class AppUpdates {
           // Atom cannot identify GitHub's stable/prerelease flag or installer assets.
           if (channel === 'stable') throw new UpdateFailure('feed-unavailable');
           source = 'release-feed';
-          release = parseReleaseFeed(await responseText(await this.fetch(RELEASES_FEED_URL, abort.signal, 'application/atom+xml')));
+          release = parseReleaseFeed(await responseText(await this.fetch(RELEASES_FEED_URL, abort.signal, 'application/atom+xml')), this.platform);
         } else {
           let manifest: unknown;
           try { manifest = JSON.parse(await responseText(response)); }
           catch (error) { if (error instanceof UpdateFailure) throw error; throw new UpdateFailure('invalid-response'); }
-          release = parseUpdateManifest(manifest, channel);
+          release = parseUpdateManifest(manifest, channel, this.platform);
         }
         if (revision === this.revision) this.publish({
           currentVersion, channel, checkedAt: this.now(), source, updateAvailable: Boolean(release && gt(release.version, currentVersion)),

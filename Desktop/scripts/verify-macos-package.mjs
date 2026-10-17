@@ -14,6 +14,9 @@ const source = JSON.parse(await readFile('package.json', 'utf8'));
 const archive = join(resources, 'app.asar');
 const packaged = JSON.parse(extractFile(archive, 'package.json').toString('utf8'));
 assert.equal(packaged.version, source.version);
+const marker = JSON.parse(await readFile(join(resources, 'macos-update.json'), 'utf8'));
+assert.equal(marker.version.replace(/-macos\.\d+$/, ''), source.version);
+for (const name of ['file-applications-macos', 'macos-update-helper.cjs']) assert.equal(hash(await readFile(join(resources, 'file-opening', name))), hash(await readFile(join('dist/file-opening', name))));
 const checked = [];
 async function walk(root) {
   for (const entry of await readdir(root, { withFileTypes: true })) {

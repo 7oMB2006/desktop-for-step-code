@@ -86,8 +86,52 @@ App-owned data is stored under
 personal Step Code CLI profile. Credentials use Electron safeStorage and macOS
 Keychain; the encrypted file retains its historical `auth.dpapi` filename.
 
-This build is unsigned and not notarized. Windows executable auto-updates are
-disabled on macOS. The update settings explain this limitation and provide a
-Releases link for manual downloads; Windows-only check/channel controls are hidden. Real Step account login, paid model calls, external MCP
-services and an Intel Mac are separate acceptance tasks; fixture results do
-not establish those outcomes.
+This build is unsigned and not notarized. Updates now share the Windows check,
+channel, progress, cancel/retry and confirmed-restart UI, with a separate ARM64
+catalog and installer. The downloaded ZIP is pinned to the official Release,
+checked for exact length/SHA-512, and extracted with bounded paths and framework
+symlinks. The current bundle is retained until the replacement starts and its
+main process acknowledges the matching release; failed startup attempts recovery.
+Preflight finishes before runtime shutdown. User data remains outside the app.
+
+Unsigned updates can still trigger Gatekeeper confirmation. The installer adds
+quarantine and uses LaunchServices; it never removes quarantine or bypasses system
+security. Move the app into a writable Applications folder first. Read-only disk
+images, App Translocation and unwritable installation folders require manual
+installation. The existing 0.5.0 preview has no updater, so its first upgrade to
+0.5.1 is manual. No Developer ID signature, notarization or Intel build is supplied.
+
+File opening now lists LaunchServices applications, remembers explicit choices
+per extension and offers the native application picker. A one-time picker does
+not change the remembered application or the system file association. Executable
+file restrictions and renderer isolation remain in place.
+
+Real Step account login, paid model calls and external MCP services are separate
+acceptance tasks; local fixtures do not establish those outcomes.
+
+
+## Prepare a macOS Release
+
+Package with `DESKTOP_MACOS_RELEASE_VERSION=0.5.1-macos.1` (the default is the
+Desktop version plus `-macos.1`). Subsequent previews of the same base version
+must increment that suffix, otherwise installed clients cannot detect an update.
+A shared stable release can use `DESKTOP_MACOS_RELEASE_VERSION=0.6.0` when its
+Desktop base version is 0.6.0. Packaging embeds the exact source commit and dirty
+state; release preparation refuses an uncommitted or mismatched package.
+
+After all required verification passes on the clean release commit, run
+`node scripts/prepare-macos-release.mjs`. It writes an immutable candidate folder
+under `Desktop/release/v<VERSION>/` with the ARM64 ZIP, `mac-update.json`,
+`SHA256SUMS.txt`, `COMMIT.txt` and `runtime-manifest.json`. Review build evidence
+and add release notes/BUILD-INFO before uploading. Publish `mac-update.json`
+**as a Release asset**, along with the ZIP; its SHA-512 and exact size bind the
+update to that archive. The update-feed publishing workflow retains schema 1's
+Windows channels and adds `platforms.darwin` for macOS. Mac-only preview tags are
+excluded from Windows discovery. A newer Windows-only release is not a Mac update.
+
+Within the frozen Windows 0.5.1 scope, the remaining intentional differences are
+native shell (zsh), shortcuts/menu/window behavior, bundle/ZIP packaging, ARM64
+architecture and unsigned installation confirmation. Account/allowance/balance,
+providers, sessions, approvals, collaboration, browser, artifacts, files, changes,
+undo, terminal, tray and update controls share the feature implementation. This
+inventory is a code/platform audit, not a claim of real-model acceptance.

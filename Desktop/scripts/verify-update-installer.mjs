@@ -12,7 +12,7 @@ const js = output.outputFiles.find(file => file.path.endsWith('.js')).text;
 const css = output.outputFiles.find(file => file.path.endsWith('.css')).text;
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: await mkdtemp(join(tmpdir(), 'step-update-ui-')), DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ args: [resolve('.')], env });
+const app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env });
 const errors = [];
 try {
   const windowPromise = app.waitForEvent('window');
@@ -27,6 +27,7 @@ try {
   await page.setContent('<div id="root"></div>');
   await page.addStyleTag({ content: `${css}\n.test-update-settings{width:min(540px,calc(100vw - 48px));margin:32px auto} .test-update-settings h3{font-size:14px;margin-bottom:24px}` });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await page.evaluate(platform => { window.fixturePlatform = platform; }, process.platform);
   await page.addScriptTag({ content: js });
   await page.getByRole('button', { name: '下载更新', exact: true }).click();
   const progress = page.getByRole('progressbar', { name: '更新下载进度' });

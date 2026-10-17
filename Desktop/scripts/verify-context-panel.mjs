@@ -41,7 +41,10 @@ try {
   ];
   const fixture = { ...original, preferences: { ...original.preferences, theme: 'light' }, messages,
     sessions: original.sessions.map(session => session.id === original.state?.sessionId ? { ...session, name: '修复 SSE 续流' } : session),
-    state: { ...original.state, sessionName: '修复 SSE 续流', model: { id: 'step-5-preview', name: 'Step 5 Preview', provider: 'stepfun', reasoning: true } },
+    state: { ...original.state, sessionName: '修复 SSE 续流', model: { id: 'step-5-preview', name: 'Step 5 Preview', provider: 'step', reasoning: true } },
+    estimate: { settings: { available: true, mode: 'plan', region: 'cn', rules: { planProtected: true, apiLegacyCache: false } },
+      active: { id: 'plan', mode: 'plan', region: 'cn', currency: 'CNY', amount: 3.47, responses: 3, unknown: 0, currentAccount: true },
+      groups: [], historicalUnknown: false },
     stats: { toolCalls: 2, assistantMessages: 3, userMessages: 1, toolResults: 2, totalMessages: 6, cost: .039336,
       tokens: { input: 6408, output: 2472, cacheRead: 33720, cacheWrite: 0, total: 42600 },
       contextUsage: { tokens: 14200, contextWindow: 200000, percent: 7.1 } } };
@@ -107,7 +110,41 @@ try {
     'A background worker must not replace current context occupancy');
   await sendContextEvent({ type: 'agent_end' });
   await page.waitForFunction(() => document.querySelector('.context-ring')?.getAttribute('aria-valuenow') === '7.1');
-  assert.ok((await panel.innerText()).includes('$0.0393'));
+  assert.ok((await panel.innerText()).includes('3.4700M'));
+  await app.evaluate(() => {
+    const fixture = globalThis.contextFixture;
+    fixture.estimate.groups = [fixture.estimate.active];
+    fixture.estimate.settings.mode = 'api';
+    fixture.estimate.active = { id: 'api', mode: 'api', region: 'cn', currency: 'CNY',
+      amount: .039336, responses: 1, unknown: 0, currentAccount: true };
+  });
+  await panel.getByRole('button', { name: '刷新上下文', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.context-estimate > strong')?.textContent === '¥0.0393');
+  const estimateInfo = panel.getByRole('button', { name: '估算明细', exact: true });
+  assert.equal(await panel.locator('.context-estimate-details').count(), 0, 'estimate details do not occupy a separate expandable row');
+  await estimateInfo.hover();
+  await page.getByRole('tooltip').filter({ hasText: '3.4700M' }).waitFor();
+  assert.ok((await page.getByRole('tooltip').innerText()).includes('3.4700M'), 'previous Plan usage remains in the tooltip');
+  assert.equal(await page.getByRole('tooltip').evaluate(element => getComputedStyle(element).animationName), 'app-tooltip-in');
+  await app.evaluate(() => { globalThis.contextFixture.state.model.provider = 'desktop-custom-fixture'; });
+  await panel.getByRole('button', { name: '刷新上下文', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.context-estimate > strong')?.textContent === '--');
+  await page.mouse.move(700, 25);
+  await estimateInfo.hover();
+  await page.getByRole('tooltip').filter({ hasText: '第三方模型不提供费用估算' }).waitFor();
+  await app.evaluate(() => {
+    const fixture = globalThis.contextFixture;
+    fixture.state.model.provider = 'step';
+    fixture.estimate.settings.mode = 'plan';
+    fixture.estimate.active = fixture.estimate.groups[0];
+  });
+  await panel.getByRole('button', { name: '刷新上下文', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.context-estimate > strong')?.textContent === '3.4700M');
+  await page.mouse.move(700, 25);
+  await estimateInfo.focus();
+  await page.getByRole('tooltip').filter({ hasText: 'M 为百万 Credit' }).waitFor();
+  await estimateInfo.evaluate(element => element.blur());
+  await page.getByRole('tooltip').filter({ hasText: 'M 为百万 Credit' }).waitFor({ state: 'detached' });
   assert.equal(await panel.locator('.context-message').count(), 6);
   await page.mouse.move(700, 25);
   await page.screenshot({ path: 'test-results/context-panel-light.png' });

@@ -15,7 +15,9 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     for (const [delta, finish_reason] of [[{ role: 'assistant', content: 'Thinking fixture reply.' }, null], [{}, 'stop']])
       res.write(`data: ${JSON.stringify({ id: 'account-thinking-fixture', object: 'chat.completion.chunk',
-        created: 1, model: requests.at(-1).model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
+        created: 1, model: requests.at(-1).model, choices: [{ index: 0, delta, finish_reason }],
+        ...(finish_reason ? { usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120,
+          prompt_tokens_details: { cached_tokens: 50 } } } : {}) })}\n\n`);
     res.end('data: [DONE]\n\n');
   } catch {
     if (!res.headersSent) res.writeHead(500);
@@ -23,6 +25,20 @@ const server = createServer(async (req, res) => {
   }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const transportPreload = join(profile, 'estimate-transport.cjs');
+await writeFile(transportPreload, `
+const original = globalThis.fetch;
+let transport = original;
+const routed = (input, init) => {
+  const url = new URL(String(input instanceof Request ? input.url : input));
+  if (['api.stepfun.com', 'api.stepfun.ai'].includes(url.hostname))
+    return transport(${JSON.stringify(`http://127.0.0.1:${server.address().port}/v1/chat/completions`)}, init);
+  if (url.hostname === '127.0.0.1') return transport(input, init);
+  throw new Error('Non-fixture model request blocked');
+};
+Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => routed,
+  set: value => { if (value !== routed) transport = value; } });
+`);
 await mkdir('test-results', { recursive: true });
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
@@ -122,6 +138,15 @@ try {
   assert.equal(refreshed.draftId, proposedBefore.draftId);
   assert.equal(refreshed.sessions.length, 0);
   assert.equal(refreshed.runtimes.length, 0);
+  // Official login owns the endpoint, regardless of models.json baseUrl overrides.
+  await app.evaluate((_, preload) => {
+    const cp = process.getBuiltinModule('child_process'), spawn = cp.spawn;
+    cp.spawn = function(file, args, options) {
+      if (args?.some(arg => /step\.js$/.test(arg))) args = ['--require', preload, ...args];
+      return spawn.call(this, file, args, options);
+    };
+    process.getBuiltinModule('module').syncBuiltinESMExports();
+  }, transportPreload);
   const created = await page.evaluate(id => window.desktop.createDraftSession(id), refreshed.draftId);
   assert.equal(created.state.model.id, 'step-thinking-alternative');
   assert.equal(created.state.thinkingLevel, refreshed.state.thinkingLevel, 'Created runtime must use the effort displayed in the proposal, not its own model-switch fallback');
@@ -140,6 +165,26 @@ try {
   assert.equal(requests.length, 1, 'One first prompt reaches only the local model fixture');
   assert.equal(requests[0].model, 'step-thinking-alternative');
   assert.equal(requests[0].reasoning_effort, refreshed.state.thinkingLevel, 'First provider request matches the displayed effort');
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).estimate.groups.length, 0,
+    'non-official providers never enter the official estimate ledger');
+  await page.evaluate(runtimeId => window.desktop.command('set_model', { provider: 'step', modelId: 'step-5-preview' }, runtimeId), created.runtimeId);
+  await page.evaluate(runtimeId => window.desktop.command('prompt', { message: 'Verify the official profile usage estimate' }, runtimeId), created.runtimeId);
+  let estimated;
+  const estimateDeadline = Date.now() + 60000;
+  while (Date.now() < estimateDeadline) {
+    const current = await page.evaluate(() => window.desktop.snapshot());
+    if (!current.state.isStreaming && current.estimate?.active?.responses === 1) {
+      assert.equal(current.messages.at(-1).stopReason, 'stop', 'official fixture must complete successfully');
+      estimated = current.estimate; break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.ok(estimated, 'Official RPC response reaches the estimate ledger and settles');
+  assert.equal(estimated.active.mode, 'api');
+  assert.equal(estimated.active.currency, 'USD');
+  assert.ok(Math.abs(estimated.active.amount - .000109) < 1e-10,
+    `real RPC response uses cache-exclusive input and official USD rates: ${estimated.active.amount}`);
+  assert.equal(requests.length, 2, 'both controlled prompts reach only the local fixture server');
   const nextDraft = await page.evaluate(() => window.desktop.beginSession());
   await page.locator('.sidebar-bottom > button').click();
   assert.equal(await page.locator('.account-user-id').count(), 0);

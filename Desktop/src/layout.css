@@ -952,5 +952,5 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 
 /* Native fullscreen hides traffic lights; reclaim their inset and titlebar height. */
 :root:has(.window-bar-macos.window-fullscreen) { --window-bar-height: 40px; }
-.window-bar-macos.window-fullscreen .window-tools { padding-left: 12px; }
+.window-bar-macos.window-fullscreen .window-tools { padding-left: 12px; justify-content: flex-start; }
 .sidebar-hidden .window-bar-macos.window-fullscreen .window-tools { width: 56px; min-width: 56px; }

@@ -273,11 +273,13 @@ try {
     }));
     await page.locator('.window-bar-macos.window-fullscreen').waitFor();
     assert.equal((await page.locator('.window-bar').boundingBox()).height, 40);
+    const expandedFullToggle = await page.locator('.window-sidebar-toggle').boundingBox();
+    assert.equal(expandedFullToggle.x, 12, 'Expanded fullscreen sidebar toggle stays at the left edge');
     await page.getByRole('button', { name: '侧栏', exact: true }).click();
     await page.locator('.sidebar').waitFor({ state: 'hidden' });
     await page.waitForFunction(() => document.querySelector('.window-tools').getBoundingClientRect().width === 56);
     const fullToggle = await page.locator('.window-sidebar-toggle').boundingBox();
-    assert.ok(fullToggle.x >= 8 && fullToggle.x <= 16, 'Fullscreen toggle reclaims native controls inset');
+    assert.equal(fullToggle.x, expandedFullToggle.x, 'Fullscreen toggle stays fixed when sidebar collapses');
     assert.ok(fullToggle.y >= 0 && fullToggle.y + fullToggle.height <= 40, 'Fullscreen toggle stays inside toolbar');
     await page.screenshot({ path: 'test-results/macos-fullscreen-sidebar-hidden.png' });
     await page.getByRole('button', { name: '侧栏', exact: true }).click();

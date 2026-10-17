@@ -4,7 +4,7 @@
 
 Window-state replies and events now include native fullscreen state. macOS uses
 a 40px toolbar in fullscreen, removes the traffic-light inset, and places the
-collapsed-sidebar toggle 12px from the left edge. Leaving fullscreen restores
+sidebar toggle 12px from the left edge in both expanded and collapsed states. Leaving fullscreen restores
 the existing 52px toolbar and native control clearance. Windows styling is unchanged.
 
 Typecheck, production build and 444 unit/protocol tests passed (one existing

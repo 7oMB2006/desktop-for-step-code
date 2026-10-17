@@ -50,8 +50,8 @@ try {
   const review = page.locator('.lane-row[data-lane-agent="review"]');
   const icon = review.locator('.subagent-status-icon');
   const check = icon.locator('.subagent-status-check path');
-  const update = async status => {
-    tasks[0] = { ...tasks[0], status };
+  const update = async (status, index = 0) => {
+    tasks[index] = { ...tasks[index], status };
     await app.evaluate(({ BrowserWindow }, tasks) => {
       const snapshot = globalThis.subagentStatusFixture;
       const result = { content: '', details: { results: tasks } };
@@ -193,6 +193,19 @@ try {
   assert.equal(await review.locator('.lane-failure-label').count(), 0, 'status is conveyed by the icon without extra text');
   await page.screenshot({ path: 'test-results/subagent-status-failed.png' });
   await page.locator('#subagent-panel').screenshot({ path: 'test-results/subagent-panel-failed.png' });
+  // A chain that stops early marks the unstarted steps skipped. Upstream emits that
+  // status now, so the row has to render it as its own state instead of leaving
+  // those steps looking like they are still running.
+  await update('skipped', 1);
+  const explore = page.locator('.lane-row[data-lane-agent="explore"]');
+  await page.waitForFunction(() => document.querySelector('.lane-row[data-lane-agent="explore"]')
+    ?.getAttribute('data-tool-state') === 'skipped');
+  assert.equal(await explore.getAttribute('data-tool-state'), 'skipped');
+  assert.equal(await explore.locator('.subagent-status-icon').getAttribute('data-state'), 'skipped');
+  assert.match(await explore.getAttribute('aria-label') ?? '', /已跳过/);
+  assert.equal(await explore.locator('.subagent-status-icon svg.lucide-circle-minus').count(), 1,
+    'skipped uses the circle-minus mark');
+  await page.screenshot({ path: 'test-results/subagent-status-skipped.png' });
   await review.click({ position: { x: 10, y: 15 } });
   await page.locator('#subagent-panel').waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '摘要', exact: true }).click();
@@ -298,5 +311,5 @@ try {
   await icon.locator('.subagent-status-failure').waitFor({ state: 'visible' });
   assert.match(await review.getAttribute('aria-label'), /已失败/);
   assert.deepEqual(errors, []);
-  console.log('Subagent status passed: rotation, shrink/hold/grow/draw, stable layout, history, themes, narrow, reduced motion, failure and click-toggle.');
+  console.log('Subagent status passed: rotation, shrink/hold/grow/draw, stable layout, history, themes, narrow, reduced motion, failure, skipped step and click-toggle.');
 } finally { await app.close(); }

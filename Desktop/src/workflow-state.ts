@@ -9,19 +9,24 @@ export interface WorkflowAgent {
 }
 export interface WorkflowState {
   runId?: string; toolCallId: string; name: string;
-  status: 'running' | 'completed' | 'failed' | 'aborted' | 'budget_exceeded' | 'unknown';
+  status: 'running' | 'stopping' | 'completed' | 'partial_failed' | 'failed' | 'aborted' | 'budget_exceeded' | 'unknown';
   agents: WorkflowAgent[]; totalAgents?: number; completedAgents?: number;
   currentPhase?: string; startedAt?: number; finishedAt?: number; spentTokens?: number;
 }
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown, limit = 4000) => typeof value === 'string' ? redactSensitiveText(value.slice(0, limit)) : '';
 const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
-const states = ['running', 'completed', 'failed', 'aborted', 'budget_exceeded'] as const;
+const states = ['running', 'stopping', 'completed', 'partial_failed', 'failed', 'aborted', 'budget_exceeded'] as const;
 const agentStates = ['queued', 'running', 'completed', 'failed', 'aborted', 'cached'] as const;
+
+export function workflowIsActive(status: WorkflowState['status']) {
+  return status === 'running' || status === 'stopping';
+}
 
 /** Allowlisted presentation only: no scripts, raw output, environment or paths. */
 export function projectWorkflow(value: unknown, toolCallId: string): WorkflowState | undefined {
   const raw = record(value);
+  const summary = record(raw.summary);
   if (raw.schemaVersion !== 1 || typeof raw.runId !== 'string' || !/^wf_[a-zA-Z0-9_-]{1,100}$/.test(raw.runId)
     || !states.includes(raw.status as typeof states[number])) return undefined;
   const seen = new Set<string>();
@@ -36,7 +41,8 @@ export function projectWorkflow(value: unknown, toolCallId: string): WorkflowSta
       startedAt: number(agent.startedAt), finishedAt: number(agent.finishedAt), usageTokens: number(agent.usageTokens) });
   }
   return { runId: raw.runId, toolCallId, name: text(raw.name, 200) || 'Ultracode', status: raw.status as WorkflowState['status'],
-    agents, totalAgents: number(raw.totalAgents) ?? number(raw.agentCalls), completedAgents: number(raw.completedAgents),
+    agents, totalAgents: number(raw.totalAgents) ?? number(summary.total) ?? number(raw.agentCalls),
+    completedAgents: number(raw.completedAgents) ?? number(summary.completed),
     currentPhase: text(raw.currentPhase, 200) || undefined, startedAt: number(raw.startedAt),
     finishedAt: number(raw.finishedAt), spentTokens: number(raw.spentTokens) };
 }
@@ -53,7 +59,7 @@ export function preserveWorkflow(previous: Message | undefined, next: Message): 
   const final = !Array.isArray(next.details?.agents);
   const agents = current.agents.length || !compatible ? current.agents : compatible.agents;
   return { ...next, desktopWorkflow: { ...current,
-    agents: final && current.status !== 'running' ? agents.map(agent => agent.status === 'running' || agent.status === 'queued'
+    agents: final && !workflowIsActive(current.status) ? agents.map(agent => agent.status === 'running' || agent.status === 'queued'
       ? { ...agent, status: 'unknown' as const } : agent) : agents,
     totalAgents: current.totalAgents ?? compatible?.totalAgents,
     completedAgents: current.completedAgents ?? compatible?.completedAgents,
@@ -83,14 +89,14 @@ export function workflowsFromMessages(messages: Message[], active = true): Workf
       if (state) flows.set(message.toolCallId, state);
     }
   }
-  return [...flows.values()].map(flow => (!active || !activeCalls.has(flow.toolCallId)) && flow.status === 'running'
+  return [...flows.values()].map(flow => (!active || !activeCalls.has(flow.toolCallId)) && workflowIsActive(flow.status)
     ? { ...flow, status: 'unknown' as const, agents: flow.agents.map(agent => agent.status === 'running' || agent.status === 'queued'
       ? { ...agent, status: 'unknown' as const } : agent) } : flow);
 }
 
 export function workflowIcon(status: WorkflowState['status'] | WorkflowAgent['status']) {
   return status === 'running' ? 'running' : status === 'completed' || status === 'cached' ? 'done'
-    : status === 'aborted' ? 'stopped' : status === 'queued' || status === 'unknown' ? 'pending' : 'failed';
+    : status === 'aborted' ? 'stopped' : status === 'queued' || status === 'unknown' || status === 'stopping' ? 'pending' : 'failed';
 }
 
 export function currentTurnWorkflows(messages: Message[], active = true): WorkflowState[] {

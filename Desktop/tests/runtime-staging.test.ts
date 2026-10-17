@@ -1,9 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+
+test('Windows v0.1.5 patch manifest pins every reviewed pre-image, result and patch', async () => {
+  const root = resolve('../patches/v015');
+  const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.commit, 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494');
+  assert.deepEqual(Object.keys(manifest.sources).sort(), Object.keys(manifest.patchedSources).sort());
+  assert.deepEqual(Object.keys(manifest.patches).sort(),
+    ['step-code-desktop-clarification.patch', 'step-code-desktop-plan.patch', 'step-code-desktop.patch']);
+  for (const [name, hash] of Object.entries(manifest.patches)) {
+    const bytes = Buffer.from((await readFile(join(root, name), 'utf8')).replace(/\r\n/g, '\n'));
+    const actual = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+    assert.equal(actual, hash, `${name} changed without a reviewed manifest update`);
+  }
+  for (const sources of [manifest.sources, manifest.patchedSources]) {
+    for (const [relative, hash] of Object.entries(sources)) {
+      assert.match(relative, /^(packages\/coding-agent\/(?:src|test)\/|scripts\/)[a-zA-Z0-9/_-]+(?:\.test)?\.(?:ts|mjs)$/);
+      assert.match(String(hash), /^[0-9a-f]{40}$/);
+    }
+  }
+});
 
 test('staging rejects the wrong upstream before touching runtime through every source selector', { skip: !['win32', 'darwin'].includes(process.platform) }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-stage-'));
@@ -38,7 +59,9 @@ test('staging rejects the wrong upstream before touching runtime through every s
 // stale build instruction fails in CI instead of on a contributor's machine.
 test('every documented pin matches the staging guard', { skip: !['win32', 'darwin'].includes(process.platform) }, async () => {
   const guard = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
-  const pin = guard.match(/const PINNED_COMMIT = '([0-9a-f]{40})'/)?.[1];
+  const manifest = JSON.parse(await readFile(resolve('../patches/v015/manifest.json'), 'utf8'));
+  const pin = process.platform === 'win32' ? manifest.commit
+    : guard.match(/: '([0-9a-f]{40})'/)?.[1];
   assert.match(pin ?? '', /^[0-9a-f]{40}$/, 'staging guard declares a pin');
   // Dated verification records legitimately keep the pin they were built with, so only the
   // locations that tell someone what to check out are listed here.
@@ -48,6 +71,7 @@ test('every documented pin matches the staging guard', { skip: !['win32', 'darwi
   }
   // The workflow already fails when the two drift, because the applier checks the pinned
   // pre-image hashes, but that error blames the upstream source. Checking here names the cause.
-  const workflow = await readFile(resolve('../.github/workflows/windows-integration.yml'), 'utf8');
-  assert.ok(workflow.includes(pin!), '.github/workflows/windows-integration.yml still pins an older Step Code revision');
+  const workflowPath = process.platform === 'win32' ? '../.github/workflows/windows-integration.yml' : '../.github/workflows/macos-integration.yml';
+  const workflow = await readFile(resolve(workflowPath), 'utf8');
+  assert.ok(workflow.includes(pin!), `${workflowPath} still pins an older Step Code revision`);
 });

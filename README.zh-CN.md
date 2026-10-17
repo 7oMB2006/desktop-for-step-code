@@ -75,8 +75,8 @@ Step 登录凭据使用当前 Windows 用户的加密存储机制保存到 `step
 
 ```powershell
 git clone https://github.com/stepfun-ai/Step-Code.git Step-Code
-git -C Step-Code checkout 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
-node scripts/apply-step-code-desktop-patch.mjs ..\Step-Code patches\step-code-desktop.patch
+git -C Step-Code checkout b5dbed938d9ae589397cf522dcf2ff89ecf4c494
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches\v015\step-code-desktop.patch
 
 Push-Location Step-Code
 corepack pnpm install --frozen-lockfile
@@ -93,6 +93,10 @@ corepack pnpm build
 node scripts/verify-electron.mjs
 corepack pnpm dev
 ```
+
+上述 Windows 开发基线已更新，已发布 v0.5.1 的运行时不变。
+macOS 仍固定在 `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`，
+使用原 `patches/step-code-desktop.patch`，见 [macOS 说明](docs/MACOS.md)。
 
 生成 Windows x64 安装程序：
 

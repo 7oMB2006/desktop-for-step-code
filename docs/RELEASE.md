@@ -69,7 +69,7 @@ https://github.com/7oMB2006/desktop-for-step-code/actions/runs/37619401736/job/1
 
 当前 main 的 `pnpm package` 会 build、stage runtime，再调用 electron-builder。不能假设旧工作区的 `scripts/package.mjs` 已合并，也不能跳过固定 runtime 校验复用未知来源的 dist。
 
-当前构建运行时预期：Step Code `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`（v0.1.4 公告对应的源码基线，含 CLM 默认管理、Ultracode 恢复与 Windows 命令修复），Node `v24.15.0`，应用仓库维护的 Desktop 集成补丁。这是固定源码提交，不代表已有同名 GitHub Release 标签。独立 `Step-Code/` checkout 与 staged runtime 分开管理，不修改用户已有 checkout。已发布 v0.3.0 的历史钉点与验收记录仍保留在对应版本文档中。
+Windows 开发构建运行时预期：Step Code `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`（v0.1.5 公告对应源码基线），Node `v24.15.0`，使用 `patches/v015/` 的 Desktop 集成补丁及源文件校验。macOS 按既有要求保留 `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` 与原补丁，不随 Windows 升级。已发布 v0.5.1 的运行时不变；开发钉点更新不代表新功能、真实模型或安装包验收已经完成。独立 `Step-Code/` checkout 与 staged runtime 分开管理，不修改用户已有 checkout。
 
 候选证据记录应包含：
 

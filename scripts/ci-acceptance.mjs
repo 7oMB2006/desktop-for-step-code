@@ -61,6 +61,7 @@ export const acceptanceGroups = {
     'verify-windows-commands.mjs',
     'verify-workflow-runtime.mjs',
     'verify-summary-runtime.mjs',
+    'verify-usage-worker.mjs',
     'verify-background-subagents.mjs',
     'verify-custom-providers.mjs',
     'verify-crash-log.mjs',

@@ -84,7 +84,7 @@ import type { FilePreviewData, FileTarget } from './contracts';
 import { SubagentPanel } from './SubagentPanel';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
-import { currentTurnWorkflows, workflowsFromMessages } from './workflow-state';
+import { currentTurnWorkflows, workflowsFromMessages, workflowIsActive } from './workflow-state';
 import { WorkflowTrigger } from './WorkflowView';
 import './appearance.css';
 import './theme.css';
@@ -215,7 +215,7 @@ function App() {
   const [selectedWorkflowAgent, setSelectedWorkflowAgent] = useState<string | null>(null);
   const workflows = useMemo(() => workflowsFromMessages(data.messages, busy), [data.messages, busy]);
   const turnWorkflows = useMemo(() => currentTurnWorkflows(data.messages, busy), [data.messages, busy]);
-  const runningWorkflow = busy ? [...turnWorkflows].reverse().find(flow => flow.status === 'running') : undefined;
+  const runningWorkflow = busy ? [...turnWorkflows].reverse().find(flow => workflowIsActive(flow.status)) : undefined;
   const latestWorkflow = runningWorkflow ?? workflows.at(-1);
   const currentTurnWorkflow = runningWorkflow ?? turnWorkflows.at(-1);
   const currentGoal = data.launch?.goal?.status === 'complete' ? undefined : data.launch?.goal;

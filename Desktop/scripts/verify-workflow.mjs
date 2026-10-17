@@ -372,6 +372,54 @@ try {
   await page.waitForFunction(() => !document.querySelector('.workflow-inline'));
   assert.equal(await page.locator('.working .workflow-trigger').count(), 0, 'An unrelated ordinary turn does not retain the prior workflow summary');
   assert.equal(await panel.locator('.workflow-agent').count(), 0, 'history change does not leave another workflow visible');
+  await app.evaluate((_electron, progress) => {
+    const model = globalThis.workflowFixture;
+    model.state.isStreaming = true;
+    model.messages = [
+      { role: 'user', content: '停止编排兼容验收' },
+      { role: 'assistant', content: [{ type: 'toolCall', id: 'compat', name: 'workflow', arguments: {} }] },
+      { role: 'toolResult', toolName: 'workflow', toolCallId: 'compat', content: '',
+        details: { ...progress, status: 'stopping' } },
+    ];
+  }, progress);
+  await page.reload();
+  await page.locator('.working .workflow-trigger[data-workflow-state="stopping"]').waitFor();
+  assert.match(await page.locator('.working .workflow-trigger').innerText(), /编排停止中/);
+  assert.equal(await rail.getAttribute('data-workflow-running'), 'true');
+  await page.locator('.working .workflow-trigger').click();
+  await panel.waitFor();
+  assert.match(await panel.innerText(), /等待子任务退出/);
+  assert.equal(await panel.locator('.workflow-agent').count(), 8);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/workflow-stopping-narrow.png' });
+  await app.evaluate(({ BrowserWindow }, progress) => {
+    const model = globalThis.workflowFixture;
+    const settled = { ...progress, status: 'partial_failed', completedAgents: 7,
+      agents: progress.agents.map((agent, index) => ({ ...agent, status: index === 7 ? 'failed' : 'completed', finishedAt: Date.now() })) };
+    const result = { schemaVersion: 1, runId: progress.runId, name: progress.name, status: 'partial_failed',
+      startedAt: progress.startedAt, finishedAt: Date.now(), spentTokens: 100000, agentCalls: 8,
+      summary: { total: 8, completed: 7, failed: 1 } };
+    const message = { role: 'toolResult', toolName: 'workflow', toolCallId: 'compat', content: '', details: result, isError: true };
+    model.messages[2] = { ...message, desktopWorkflow: { ...settled, toolCallId: 'compat', finishedAt: result.finishedAt } };
+    model.state.isStreaming = false;
+    const window = BrowserWindow.getAllWindows()[0];
+    window.webContents.send('runtime-event', { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'compat',
+      partialResult: { details: settled } });
+    window.webContents.send('runtime-event', { type: 'tool_execution_end', toolName: 'workflow', toolCallId: 'compat',
+      result: { details: result }, isError: true });
+    window.webContents.send('runtime-event', { type: 'agent_end' });
+  }, progress);
+  await page.locator('.workflow-settled[data-workflow-state="partial_failed"]').waitFor();
+  assert.match(await page.locator('.workflow-settled[data-workflow-state="partial_failed"]').innerText(), /编排部分失败/);
+  assert.match(await panel.innerText(), /已完成的节点结果仍保留/);
+  await page.reload();
+  await page.locator('.workflow-settled[data-workflow-state="partial_failed"]').waitFor();
+  await page.locator('.workflow-settled[data-workflow-state="partial_failed"]').click();
+  await panel.waitFor();
+  assert.equal(await panel.locator('.workflow-agent').count(), 8);
+  assert.equal(await panel.locator('.workflow-count').first().innerText(), '7 / 8');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/workflow-partial-failed-reopened.png' });
   assert.deepEqual(errors, []);
-  console.log('Workflow UI passed: pulse toggle, fixed rail entry, overview/agent, final snapshot preservation, subsequent tools, history, failure/interruption/cache/budget, light/narrow and session isolation.');
+  console.log('Workflow UI passed: pulse toggle, fixed rail entry, overview/agent, final snapshot preservation, subsequent tools, history, failure/interruption/cache/budget, stopping/partial failure with reload, light/narrow and session isolation.');
 } finally { await app.close(); }

@@ -2,9 +2,33 @@
 
 Repository: https://github.com/stepfun-ai/Step-Code
 
-Pinned commit: `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` (v0.1.4 announcement baseline, including default CLM, Ultracode persistence and native Windows shell fixes).
+Windows pinned commit: `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`
+(v0.1.5 announcement baseline). Its patches and reviewed pre/post-image hashes
+live in `patches/v015/`. Apply with:
 
-Permissions, risk acknowledgment, legacy migration, bounded model-error continuation and default CLM remain upstream behavior. The existing integration patches apply unchanged; their source-content guards still match this baseline. This commit is a reproducible source baseline, not a GitHub release tag.
+```powershell
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v015/step-code-desktop.patch
+```
+
+macOS remains frozen at `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`
+with the original patches below. Do not apply the Windows patch set to this source.
+
+The v0.1.5 Plan bridge preserves `planHash`, `planModeExited` and
+`approvalSource` in reviewed results. RPC child external-approval handoffs
+are not user approvals. Desktop main workers still wait for review, bind the
+decision to the displayed snapshot and stop on cancellation or stale content.
+The upstream usage activity worker must load from a copied runtime bundle,
+without its original checkout or build directory.
+
+Windows-specific compatibility also keeps branch preparation read-only:
+`STEPCODE_DESKTOP_BRANCH_SOURCE` suppresses startup usage discovery only for
+that exact original file, while the newly forked session records normally.
+The ordinary strict leaf check is unchanged. Whole-session copies compare
+the copied source leaf before newly owned usage-lineage records.
+Subagent temporary-directory cleanup is single-flight, retried and nonfatal;
+a Windows `EPERM` during cleanup must not terminate the parent runtime.
+
+Permissions, risk acknowledgment, legacy migration, bounded model-error continuation and default CLM remain upstream behavior. The original integration patches below remain unchanged for the frozen macOS baseline. These are reproducible source commits, not GitHub release tags.
 
 The applier also installs `step-code-desktop-plan.patch`. Its explicit
 `--desktop-plan-review` flag is supplied only to Desktop main workers. It adds
@@ -17,7 +41,7 @@ a read-only sandbox: command permissions remain unchanged.
 
 `step-code-desktop.patch` contains the Windows build fix, desktop integration exports, and an opt-in in-memory auth backend. The build fix invokes npm through `process.execPath` and `npm_execpath`. The desktop backend activates only when the desktop client supplies an isolated auth path and credential payload; ordinary Step Code file storage is unchanged. The payload is removed from the child process environment during module initialization.
 
-On a clean checkout of the pinned commit:
+On a clean checkout of the frozen macOS commit:
 
 ```powershell
 node ../scripts/apply-step-code-desktop-patch.mjs . ../patches/step-code-desktop.patch

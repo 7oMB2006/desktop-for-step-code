@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { currentTurnWorkflows, projectWorkflow, workflowsFromMessages } from '../src/workflow-state';
+import { currentTurnWorkflows, projectWorkflow, workflowsFromMessages, workflowIsActive, workflowIcon } from '../src/workflow-state';
 import { applyToolResult, applyMessageEvent } from '../src/message-events';
 import { hydrateWorkflowHistory, WorkflowBindings } from '../electron/workflow-history';
 import type { Message } from '../src/contracts';
@@ -15,6 +15,87 @@ const progress = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: '
   ] };
 const final = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: 'completed', startedAt: 100,
   finishedAt: 200, agentCalls: 2, spentTokens: 50 };
+
+test('stopping remains active until a terminal result and never spins in idle history', () => {
+  const stopping = { ...progress, status: 'stopping' };
+  const projected = projectWorkflow(stopping, 'call')!;
+  assert.equal(projected.status, 'stopping');
+  assert.equal(workflowIsActive(projected.status), true);
+  assert.equal(workflowIcon(projected.status), 'pending');
+  const messages: Message[] = [
+    { role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'call' }] },
+    { role: 'toolResult', toolName: 'workflow', toolCallId: 'call', content: '', details: stopping },
+  ];
+  assert.equal(workflowsFromMessages(messages, true)[0].status, 'stopping');
+  const idle = workflowsFromMessages(messages, false)[0];
+  assert.equal(idle.status, 'unknown');
+  assert.deepEqual(idle.agents.map(agent => agent.status), ['unknown', 'unknown']);
+  messages.push({ role: 'user', content: 'next turn' });
+  assert.equal(workflowsFromMessages(messages, true)[0].status, 'unknown');
+  const pending = applyToolResult(messages.slice(0, 1), { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'call',
+    partialResult: { details: progress } });
+  const sparse = applyToolResult(pending, { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'call',
+    partialResult: { details: { ...stopping, agents: undefined } } });
+  assert.deepEqual(sparse[1].desktopWorkflow?.agents.map(agent => agent.status), ['running', 'queued']);
+});
+
+test('partial failure preserves final metadata and known node outcomes across persisted events', () => {
+  const settled = { ...progress, status: 'partial_failed', completedAgents: 1, agents: [
+    { ...progress.agents[0], status: 'completed', finishedAt: 150 },
+    { ...progress.agents[1], status: 'failed', finishedAt: 190 },
+  ] };
+  const partial = { ...final, status: 'partial_failed', summary: { total: 2, completed: 1, failed: 1 } };
+  assert.equal(workflowIsActive('partial_failed'), false);
+  let messages: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'call' }] }];
+  messages = applyToolResult(messages, { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'call',
+    partialResult: { details: settled } });
+  const message: Message = { role: 'toolResult', toolName: 'workflow', toolCallId: 'call', content: '', details: partial, isError: true };
+  messages = applyToolResult(messages, { type: 'tool_execution_end', toolName: 'workflow', toolCallId: 'call',
+    result: { details: partial }, isError: true });
+  messages = applyMessageEvent(messages, { type: 'message_start', message });
+  messages = applyMessageEvent(messages, { type: 'message_end', message });
+  const flow = workflowsFromMessages(messages, false)[0];
+  assert.equal(flow.status, 'partial_failed');
+  assert.equal(flow.finishedAt, 200);
+  assert.equal(flow.spentTokens, 50);
+  assert.equal(flow.totalAgents, 2);
+  assert.equal(flow.completedAgents, 1);
+  assert.deepEqual(flow.agents.map(agent => agent.status), ['completed', 'failed']);
+});
+
+test('reopened partial failure restores nodes while keeping authoritative final metadata', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'workflow-partial-'));
+  try {
+    const directory = join(root, '.stepcode', 'workflows', 'runs', progress.runId);
+    await mkdir(directory, { recursive: true });
+    const saved = { ...progress, status: 'partial_failed', completedAgents: 1, agents: [
+      { ...progress.agents[0], status: 'completed' }, { ...progress.agents[1], status: 'failed' },
+    ] };
+    await writeFile(join(directory, 'progress.json'), JSON.stringify(saved));
+    const details = { ...final, status: 'partial_failed', summary: { total: 2, completed: 1, failed: 1 } };
+    const store = new WorkflowBindings(join(root, 'bindings'));
+    store.event('parent', { type: 'tool_execution_end', toolName: 'workflow', toolCallId: 'call', result: { details }, isError: true });
+    const reopened = new WorkflowBindings(join(root, 'bindings'));
+    await store.flush();
+    const bindings = await reopened.load('parent');
+    assert.equal(bindings.call.runId, progress.runId);
+    const message: Message = { role: 'toolResult', toolName: 'workflow', toolCallId: 'call', content: '', details, isError: true };
+    const restored = (await hydrateWorkflowHistory(root, [message], bindings))[0];
+    assert.equal(restored.desktopWorkflow?.status, 'partial_failed');
+    assert.equal(restored.desktopWorkflow?.finishedAt, 200);
+    assert.equal(restored.desktopWorkflow?.spentTokens, 50);
+    assert.deepEqual(restored.desktopWorkflow?.agents.map(agent => agent.status), ['completed', 'failed']);
+    assert.equal(restored.desktopWorkflow?.completedAgents, 1);
+    assert.equal(restored.isError, true);
+    const bound = (await hydrateWorkflowHistory(root, [{ ...message, details: {} }], bindings))[0];
+    assert.equal(bound.desktopWorkflow?.status, 'partial_failed');
+    await writeFile(join(directory, 'progress.json'), JSON.stringify({ ...saved, status: 'stopping' }));
+    const interrupted = (await hydrateWorkflowHistory(root, [{ ...message, details: {} }], bindings))[0];
+    assert.equal(interrupted.desktopWorkflow?.status, 'failed', 'stopping is not a terminal result overriding an error');
+    await writeFile(join(directory, 'progress.json'), JSON.stringify({ ...saved, startedAt: 999 }));
+    assert.equal((await hydrateWorkflowHistory(root, [message], bindings))[0].desktopWorkflow, undefined);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test('idle orphan workflow calls are unknown rather than spinning after a crash', () => {
   const messages: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'orphan' }] }];

@@ -1,5 +1,47 @@
 # Verification
 
+## Windows v0.1.5 Runtime Migration (2026-10-17)
+
+Development Windows runtime now pins Step Code
+`b5dbed938d9ae589397cf522dcf2ff89ecf4c494`, using the reviewed patch manifest
+in `patches/v015/`. Frozen macOS keeps `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`
+and the original patch set. Both patch sets were replayed on clean checkouts;
+Windows additionally checks all patched source hashes after application.
+
+Frozen dependency installation, offline upstream build, Desktop typecheck,
+production build, and runtime staging passed. Twelve focused upstream test
+files passed 288 tests, covering Plan, shell discovery, Ultracode, command
+parity, usage lifecycle and child shutdown. Desktop unit/protocol tests passed
+470 of 478 cases, with eight platform-specific skips and no failures; all
+13 CI policy/runner tests passed. Five additional upstream automatic CLM
+test files passed 97 tests. The independent worker check
+copied the built bundle out of the checkout and passed totals, cached scans
+and cancellation under the staged Node runtime.
+
+Isolated Electron/RPC acceptance passed Plan review and exact hash metadata,
+expiry/reentry, clarification, unchanged-source branching and inline retry,
+auth vault, CN/Global Plan/API routing, allowance, balance, summary, chain
+success/failure/cancellation, Windows commands and permission tiers.
+An eight-round independent RPC probe also passed after reproducing and fixing
+an unhandled Windows temporary-directory cleanup rejection.
+
+Review follow-up accepts the new Workflow `stopping` and `partial_failed`
+states. Stopping stays active until child shutdown finishes and becomes unknown
+in inactive history without a final result. Partial failure retains final time,
+usage, summary counts and known node outcomes, including after history reload.
+State/history regression tests and Electron Workflow UI acceptance passed;
+screenshots cover the narrow stopping and reopened partial-failure views.
+
+The wider upstream Workflow test group is not fully green on this host:
+101 passed and five failed on restricted symlink creation or a POSIX-only
+filesystem-error assertion. The wider usage test file likewise has an
+unadapted symlink fixture. Do not label these as passing or infer that
+Workflow/Subagent deep-state adaptation is complete. No installer, native
+macOS run, cloud CI or real paid-model acceptance was performed for this change.
+The full upstream `pnpm run check` passed, including formatting, type checks
+and repository guards. This does not mean the complete upstream test suite
+passed; the wider Windows fixture limitations above remain unresolved.
+
 ## v0.5.1 Targeted Candidate (2026-10-17)
 
 Usage PR #129 is merged. The release-preparation candidate was built from

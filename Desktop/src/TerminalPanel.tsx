@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { ClipboardPaste, Copy, Eraser, Plus, X } from 'lucide-react';
+import { normalizedWorkspaceKey } from './workspace-key';
 import type { TerminalInfo, TerminalSnapshot } from './contracts';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
 import { RightPanelWidthControl } from './RightPanelWidthControl';
@@ -10,7 +11,7 @@ import './terminal-panel.css';
 
 type Chunk = { seq: number; data: string };
 type Controller = { terminal: Terminal; fit: FitAddon; element: HTMLDivElement; seq: number; info: TerminalInfo; hydrated: boolean; pending: Chunk[] };
-const directoryKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const directoryKey = (value: string) => normalizedWorkspaceKey(value, window.desktop?.platform ?? 'win32');
 
 export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cwd, language, onClose, onToggleExpanded, onError, width, onWidthChange }: {
   open: boolean; replaced: boolean; overlay: boolean; expanded: boolean; runtimeId?: string; cwd?: string;

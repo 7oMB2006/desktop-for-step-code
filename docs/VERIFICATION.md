@@ -1,5 +1,25 @@
 # Verification
 
+## macOS undo ownership and terminal scope review (2026-10-17)
+
+Undo records and canonical file-path checks now use the shared platform-aware
+workspace key: case is preserved on macOS/POSIX and folded only on Windows.
+A prepared undo ticket cannot authorize a record owned by another root, including
+a case-only root mismatch. Terminal renderer scopes and the native session store
+use the same key, including preservation of literal POSIX backslashes.
+
+Typecheck, production build and 446 unit/protocol tests passed (one existing
+Windows-only skip). Added undo regressions reject root mismatches and relocated
+confirmation tickets without modifying either workspace. Source and packaged
+Electron terminal-scope fixtures restore both projects' controllers, verify
+separate tabs/selection, and record input routed to the selected project only;
+Windows fixtures retain case/separator aliases. Full undo Electron acceptance
+passed in source and packaged apps, including real local fixture RPC edits,
+confirmation, conflicts, persistence and same-workspace running-peer exclusion.
+All 1,258 packaged resources matched. CI now runs undo and terminal-scope
+acceptance on macOS source/package and terminal scopes in Windows interface CI.
+The undo fixture canonicalizes its temporary profile to handle macOS /var aliases.
+
 ## macOS continuous sidebar animation (2026-10-17)
 
 The titlebar sidebar surface now translates at the sidebar's full width using

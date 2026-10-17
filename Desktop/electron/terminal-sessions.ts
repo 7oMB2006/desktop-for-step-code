@@ -1,3 +1,4 @@
+import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -6,7 +7,7 @@ import type { TerminalEvent, TerminalInfo, TerminalSnapshot } from '../src/contr
 import { terminalEnvironment, terminalInput, terminalSize } from './terminal-policy';
 
 type Entry = { info: TerminalInfo; chunks: { seq: number; data: string }[]; bytes: number; seq: number; child?: ChildProcess; cancel?: () => void; closing?: Promise<void> };
-const key = (path: string) => { const normalized = path.replace(/\\/g, '/').replace(/\/+$/, ''); return process.platform === 'win32' ? normalized.toLowerCase() : normalized; };
+const key = (path: string) => normalizedWorkspaceKey(path, process.platform);
 
 function taskkill(pid: number): Promise<boolean> {
   if (process.platform !== 'win32') {

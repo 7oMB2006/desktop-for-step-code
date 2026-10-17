@@ -34,6 +34,12 @@ of every region, quota-refresh action or installation migration. PR #130 at
 and the final CI gate in run `39025122001`; later documentation commits
 have their own CI status.
 
+After receiving the explicit v0.5.0-to-v0.5.1 overwrite-install and restart
+checklist, the maintainer confirmed no issues. Installation migration with
+account, settings and history retention is therefore recorded as manually
+accepted. This does not establish the production in-app download/install
+path or unspecified Windows-version coverage.
+
 ## Usage Account Allowance Bridge (2026-10-17)
 
 The account page now queries the schema-1 personal Plan allowance endpoint

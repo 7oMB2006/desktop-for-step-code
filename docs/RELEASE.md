@@ -1,6 +1,6 @@
 # 首版发布准备
 
-> 本页保留首版发布前的历史记录，不表示当前尚未发布。当前版见 [v0.4.0 发布与验收记录](releases/v0.4.0-draft.zh-CN.md)；上一版历史见 [v0.3.0 草稿与验收记录](releases/v0.3.0-draft.zh-CN.md)，第二版历史见 [v0.2.0 草稿与验收记录](releases/v0.2.0-draft.zh-CN.md)，版本规则见 [VERSIONING.md](VERSIONING.md)。
+> 本页保留首版发布前的历史记录，不表示当前尚未发布。当前公开版为 v0.5.0；下一版见 [v0.5.1 发布准备与验收](releases/v0.5.1-draft.zh-CN.md)。历史记录见 [v0.5.0](releases/v0.5.0-draft.zh-CN.md)、[v0.4.0](releases/v0.4.0-draft.zh-CN.md)、[v0.3.0](releases/v0.3.0-draft.zh-CN.md) 与 [v0.2.0](releases/v0.2.0-draft.zh-CN.md)，版本规则见 [VERSIONING.md](VERSIONING.md)。
 
 状态：发布文案已准备，尚未发布。核对日期：2026-10-08。
 

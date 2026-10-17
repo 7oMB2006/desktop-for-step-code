@@ -1,5 +1,40 @@
 # Verification
 
+## Usage Account Allowance Bridge (2026-10-17)
+
+The account page now queries the schema-1 personal Plan allowance endpoint
+through a narrow preload IPC and a main-process service using the application's
+already-loaded Desktop credentials. Renderer input cannot choose an endpoint
+or supply a key. This does not change the upstream runtime pin.
+
+The official plan name precedes quota meters. Coding windows and Token
+subscription/top-up buckets follow the actual response family; a missing,
+zero-total, unsupported or partial bucket never implies a zero or full balance.
+Queries are bounded, cancellable, cached and identity-checked. Temporary
+failures retain a labeled stale snapshot; authentication failures clear the
+snapshot without deleting credentials. No background network polling runs.
+
+Typecheck, production build, 447 tests and twelve CI policy/runner tests passed.
+The eight focused allowance tests also cover timeout and late-response races.
+Isolated Electron allowance acceptance passed using a migrated test vault and
+controlled main-process HTTP responses, alongside account-settings and vault
+regressions. Browser previews cover light/dark, narrow English and reduced
+motion. Both new acceptance scripts are registered in the interface CI group.
+
+The local preview installer at
+`D:\Desktop For Step Code\Desktop\release\usage-account-20261017-preview`
+passed packaged allowance and auth-vault acceptance with isolated fixtures.
+All 98 packaged Desktop build files and 1,157 runtime files match staged
+source hashes; installer metadata size and SHA-512 also match. Installer
+SHA-256 is `4ee581df675fc7f4fa67a6c939ce332db0f92f4d8a2c01ead99ad463d93a485b`.
+The ordinary desktop shortcut now targets this preview's unpacked executable;
+the previous shortcut was backed up and running user applications were not
+closed. The unsigned preview retains version 0.5.0 and is not a public release.
+
+These are fixture results, not confirmation of the official backend's
+availability or a real account's plan. Installer lifecycle and real-account
+allowance acceptance remain unverified.
+
 ## Accent Acknowledgement Race (2026-10-16)
 
 Cloud run 38694832584 passed HEX input and then timed out comparing the canceled

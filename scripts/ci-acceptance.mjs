@@ -24,6 +24,8 @@ export const acceptanceGroups = {
     'verify-archived-sessions.mjs',
     'verify-auth-vault.mjs',
     'verify-account-settings.mjs',
+    'verify-usage-account.mjs',
+    'verify-account-allowance.mjs',
     'verify-theme-bootstrap.mjs',
     'verify-performance-matrix.mjs',
   ],

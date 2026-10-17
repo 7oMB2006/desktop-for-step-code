@@ -82,6 +82,9 @@ export const localOnly = [
   'verify-turn-undo.mjs',
 ];
 
+// Platform-specific checks are covered by their native workflow, not Windows.
+export const platformOnly = { macos: ['verify-macos-package.mjs'] };
+
 // Retain the two existing per-step timeout limits; other scripts retain the job limit.
 export const acceptanceTimeouts = {
   'verify-question-review.mjs': 300_000,
@@ -92,12 +95,12 @@ export const acceptanceTimeouts = {
   'verify-theme-bootstrap.mjs': 300_000,
 };
 
-export function validateInventory(files, groups = acceptanceGroups, excluded = localOnly) {
+export function validateInventory(files, groups = acceptanceGroups, excluded = localOnly, platforms = platformOnly) {
   if (Object.keys(groups).sort().join() !== [...windowsGroups].sort().join()) {
     throw new Error('Expected exactly the three Windows acceptance groups');
   }
   const registered = new Set();
-  for (const [group, scripts] of [...Object.entries(groups), ['local-only', excluded]]) {
+  for (const [group, scripts] of [...Object.entries(groups), ['local-only', excluded], ...Object.entries(platforms)]) {
     if (!Array.isArray(scripts) || (group !== 'local-only' && scripts.length === 0)) throw new Error(`Empty acceptance group: ${group}`);
     for (const script of scripts) {
       if (!/^verify-[a-z0-9-]+\.mjs$/.test(script)) throw new Error(`Invalid acceptance script: ${script}`);

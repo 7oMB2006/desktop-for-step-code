@@ -327,7 +327,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await writeFile('test-results/file-preview-html-browser.png', Buffer.from(composite, 'base64'));
   await page.getByRole('link', { name: '海岸骑行动画', exact: true }).click();
   assert.equal((await page.evaluate(() => window.desktop.browserList())).tabs.filter(tab => tab.localFile).length, 1);
-  await page.waitForTimeout(300);
+  await page.locator('#browser-panel').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('#browser-panel').isVisible(), false, 'clicking the current HTML artifact closes its panel');
   await app.evaluate(() => globalThis.previewContents.executeJavaScript('window.previewRetained = 42'));
   await page.getByRole('link', { name: '海岸骑行动画', exact: true }).click();

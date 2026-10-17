@@ -132,7 +132,8 @@ export class BrowserTabs {
       return { action: 'deny' };
     });
     contents.on('before-input-event', (event, input) => {
-      if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
+      const primary = process.platform === 'darwin' ? input.meta && !input.control : input.control && !input.meta;
+      if (input.type !== 'keyDown' || !primary || input.alt) return;
       const key = input.key.toLowerCase();
       if (key === 'l') { event.preventDefault(); this.emit({ type: 'address' }); this.window.webContents.focus(); }
       else if (key === 't') { event.preventDefault(); if (this.tabs.size < MAX_BROWSER_TABS) this.create(); }

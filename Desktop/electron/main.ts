@@ -599,6 +599,7 @@ async function handle(method: string, args: any[]) {
         const error = await shell.openPath(file.path);
         if (error) throw new Error(error);
       } else if (destination === 'other') {
+        if (process.platform !== 'win32') throw new Error('Choose another application is only available on Windows; use the system default application');
         await associationRequest(fileAssociationScript(), { action: 'other', path: file.path,
           window: window.getNativeWindowHandle().readBigUInt64LE().toString() }, 300000);
       } else if (destination.startsWith('app:')) {
@@ -618,7 +619,7 @@ async function handle(method: string, args: any[]) {
       if (canOpenExternally(file.path)) {
         choices.push({ id: 'system', label: zh ? '系统默认应用' : 'System default app' });
         choices.push(...await fileApplications(fileAssociationScript(), extname(file.path)));
-        choices.push({ id: 'other', label: zh ? '选择其他应用…' : 'Choose another app…' });
+        if (process.platform === 'win32') choices.push({ id: 'other', label: zh ? '选择其他应用…' : 'Choose another app…' });
       }
       if (!choices.length) throw new Error('No opening options for this file type');
       const saved = preferences.fileOpeningApps?.[extname(file.path).toLowerCase()];

@@ -199,7 +199,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   const menuLabels = await openingMenu.getByRole('menuitemradio').allTextContents();
   assert.ok(menuLabels.includes('文件预览'));
   assert.ok(menuLabels.includes('系统默认应用'));
-  assert.ok(menuLabels.some(label => label.includes('其他应用')));
+  assert.equal(menuLabels.some(label => label.includes('其他应用')), process.platform === 'win32', 'Windows-only application picker is not offered on macOS');
   assert.equal(await openingMenu.getByRole('menuitemradio', { name: '文件预览', exact: true }).getAttribute('aria-checked'), 'true', 'an unavailable saved application falls back to internal preview');
   await page.waitForTimeout(220);
   await page.screenshot({ path: 'test-results/file-opening-menu-light.png' });

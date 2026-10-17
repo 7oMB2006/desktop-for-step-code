@@ -70,6 +70,11 @@ try {
   await page.keyboard.press('Enter');
   await page.waitForFunction(async () => (await window.desktop.browserList()).tabs[0].title === '项目预览');
   await page.waitForTimeout(300);
+  await page.waitForFunction(() => {
+    const composer = document.querySelector('.composer')?.getBoundingClientRect();
+    const browser = document.querySelector('#browser-panel .browser-page')?.getBoundingClientRect();
+    return composer && browser && composer.right <= browser.left + 1;
+  });
   const standardPageBounds = await panel.locator('.browser-page').boundingBox();
   const conversationBounds = await page.locator('.composer').boundingBox();
   assert.ok(conversationBounds && conversationBounds.x + conversationBounds.width <= standardPageBounds.x + 1,
@@ -109,8 +114,8 @@ try {
   assert.equal(await webPage.getByRole('textbox').inputValue(), '网页输入正常');
   await app.evaluate(({ BrowserWindow }) => {
     const view = BrowserWindow.getAllWindows()[0].contentView.children.find(view => view.webContents?.getURL().startsWith('http:'));
-    view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'L', modifiers: ['control'] });
-    view.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'L', modifiers: ['control'] });
+    view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'L', modifiers: [process.platform === 'darwin' ? 'meta' : 'control'] });
+    view.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'L', modifiers: [process.platform === 'darwin' ? 'meta' : 'control'] });
   });
   await page.waitForFunction(() => document.activeElement === document.querySelector('.browser-address-field input'), undefined, { timeout: 5000 });
   await panel.getByRole('textbox', { name: '网页地址', exact: true }).press('Escape');
@@ -385,7 +390,7 @@ try {
     throw new Error('Native browser did not return after settings dismissal');
   });
   assert.ok((await viewState()).some(view => view.visible && view.url === url));
-  await page.locator('.window-menu-list').getByRole('button', { name: '文件', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '文件', exact: true }).click();
   await page.waitForTimeout(100);
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0);
   await page.keyboard.press('Escape');

@@ -102,7 +102,8 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
   useEffect(() => {
     if (!open || blocked) return;
     const keyboard = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || event.altKey || event.metaKey || !host.current?.parentElement?.contains(event.target as Node)) return;
+      const primary = window.desktop?.platform === 'darwin' ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (!primary || event.altKey || !host.current?.parentElement?.contains(event.target as Node)) return;
       if (event.key.toLowerCase() === 'l') { event.preventDefault(); focusAddress(); }
       else if (event.key.toLowerCase() === 't') { event.preventDefault(); if (snapshot.tabs.length < 12) void create(); }
     };

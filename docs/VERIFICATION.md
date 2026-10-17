@@ -1,5 +1,46 @@
 # Verification
 
+## Integrated Windows Preview with Usage II (2026-10-18)
+
+Windows preview source `2066af57c83367248c004ced01e625fcc0cced9a` merges
+main `d91a9e09494cf86bba7f33e01bf3860100145ce8`, including PR #135 Usage II,
+into this upstream-v0.1.5 branch. Frozen-lockfile installation, typecheck,
+production build and runtime staging passed. The integrated Desktop tests
+passed 496 cases with thirteen platform skips; thirteen CI policy/runner tests
+also passed.
+
+Output is `D:\Desktop For Step Code\Desktop\release\upstream-v015-main-20261018-preview`.
+The NSIS x64 installer remains local version 0.5.1, not a newly published release.
+Installer size is 158,101,485 bytes; SHA-256 is
+`8be69fac72462d60906097a2a1af88a09edf3c685c3a43ea408c28a6353e4de4`.
+Authenticode reports NotSigned. SHA256SUMS and update metadata were verified.
+The package/staging audit checked 1,324 files, including the full runtime,
+Node, Desktop bundles, terminal native backend and file-opening helpers.
+The asar root contains only dist, node_modules and package.json.
+
+Eleven packaged Electron checks passed: general startup/RPC, then_run,
+Workflow UI, real Workflow RPC recovery, account settings, allowance, context
+panel with Usage II estimates, permission tiers, terminal, Plan review and
+message ordering. These use isolated profiles and deterministic providers,
+not paid-model or installation/upgrade qualification.
+
+The additional message-order check reproduced the prior cloud timeout:
+the new runtime had already reached revision 12 while the fixture injected
+revision 10, which was correctly rejected as stale. The fixture now captures
+current session state and derives its synthetic revisions from that baseline;
+all overlap, legitimate duplicate delta, stale snapshot and history reset
+assertions remain intact and passed twice against this same package. Only
+the acceptance script changed after packaging, not application code.
+
+The normal desktop shortcut now points to this verified unpacked executable,
+with empty arguments and its matching working directory. The prior shortcut
+was backed up under ignored test-results. Existing user processes were not
+stopped, and prior packages were inventoried without deletion. The new output
+totals approximately 720.3 MiB. PR CI needs a fresh run on the integrated
+branch; prior cloud failures are not reclassified as passed by these local
+checks. No public release, real-account acceptance or macOS qualification
+is claimed.
+
 ## Windows then_run Approval and Verification (2026-10-18)
 
 Fused `write_file` / `edit_file` approvals reuse the existing drawer. The

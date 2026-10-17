@@ -3003,3 +3003,11 @@ A deployment-target audit found the local Swift compiler defaulted to macOS 26.
 The AppKit helper now explicitly targets ARM64 macOS 13.5, matching the bundled
 Node minimum; package metadata and Mach-O inspection enforce that floor. This
 checks binary compatibility metadata, not execution on every older macOS release.
+
+Windows CI's legacy NSIS transport fixture returned an integrity failure without
+observing the expected corrupt-payload request. The fixture now canonicalizes its
+temporary root, clears transport cache between cases and serves no-store responses;
+all outcome/request-count/hook-cleanup assertions remain. Failure diagnostics are
+bounded and printed before assertions. Local replay explicitly selects the library's
+Windows provider on macOS and passes parsing, corruption, cancellation and retry;
+Windows CI remains required to confirm actual Windows behavior.

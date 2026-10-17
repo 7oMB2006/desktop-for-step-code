@@ -1,5 +1,45 @@
 # Verification
 
+## v0.5.1 Targeted Candidate (2026-10-17)
+
+Usage PR #129 is merged. The release-preparation candidate was built from
+clean commit `c26071a4c1d7587c31886e2cc9db673114fb45b1`, with version 0.5.1.
+The fixed Step Code commit and Desktop patches are unchanged. Frozen-lockfile
+installation, typecheck, 455 serialized unit/protocol tests, production build
+and twelve CI policy/runner tests passed.
+
+The NSIS candidate is in
+`D:\Desktop For Step Code\Desktop\release\v0.5.1-candidate-20261017`.
+Installer size is 151551418 bytes; SHA-256 is
+`53f4a799fbe20c79c1eca36773ee0b5b9f11a8fe91172e9bf266264bd5193b13`.
+Authenticode is NotSigned. All 98 Desktop files and 1,157 runtime files match
+their staged sources, with additional adapter/helper/license checks.
+Installer metadata size, version and SHA-512 match; source and metadata
+evidence plus SHA256SUMS are retained alongside the package.
+
+The same packaged executable passed six isolated acceptance scripts:
+account routing, Plan allowance, API balance, auth vault, account settings
+and app updates. Separate update-UI and native-download fixtures passed
+confirmation/busy guards, parsing, streaming, hashing, invalid metadata,
+cancellation and retry without executing any installer. These controlled
+results do not establish official billing, real-account acceptance,
+v0.5.0 installation migration or production in-app upgrade. Those remain
+explicit release gates in the v0.5.1 preparation document.
+
+The maintainer subsequently confirmed that real Plan/API switching works in
+both directions and billing does not cross modes. This is recorded as manual
+acceptance of account switching, not an independent billing audit or proof
+of every region, quota-refresh action or installation migration. PR #130 at
+`27122dd48af452c13ac3f1ee14f03316ca8d19ee` passed all three Windows groups
+and the final CI gate in run `39025122001`; later documentation commits
+have their own CI status.
+
+After receiving the explicit v0.5.0-to-v0.5.1 overwrite-install and restart
+checklist, the maintainer confirmed no issues. Installation migration with
+account, settings and history retention is therefore recorded as manually
+accepted. This does not establish the production in-app download/install
+path or unspecified Windows-version coverage.
+
 ## Usage Account Allowance Bridge (2026-10-17)
 
 The account page now queries the schema-1 personal Plan allowance endpoint

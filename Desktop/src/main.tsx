@@ -90,6 +90,7 @@ import './appearance.css';
 import './theme.css';
 import './settings-dialog.css';
 import { AccountAllowancePanel } from './AccountAllowancePanel';
+import { EstimateRules } from './EstimateRules';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -557,6 +558,7 @@ function App() {
       if (event.type === 'desktop_model_selection') setData(d => ({ ...d, modelSelection: event.modelSelection, modelChanges: event.modelChanges, state: event.state ?? d.state }));
       if (event.type === 'desktop_queue') setData(d => ({ ...d, pendingMessages: event.pendingMessages }));
       if (event.type === 'desktop_stats') setData(d => ({ ...d, stats: event.stats }));
+      if (event.desktopEstimate) setData(d => ({ ...d, estimate: event.desktopEstimate }));
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
       if (event.type === 'desktop_ui_expired') {
         questionDrafts.current.delete(event.id);
@@ -1487,7 +1489,7 @@ function App() {
         </aside>
       </div>}
       {visibleRightPanel === 'context' && !details && <div className={`summary-region context-region right-inspector-surface${inspectorExpanded ? ' is-expanded' : ''}`}>
-        <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} messages={data.messages} stats={data.stats} state={data.state}
+        <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} messages={data.messages} stats={data.stats} state={data.state} estimate={data.estimate}
           title={activeTitle} language={data.preferences.language} busy={busy} connected={connected} onClose={closeRightPanel}
           expanded={inspectorExpanded} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'context')}
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
@@ -1569,7 +1571,9 @@ function App() {
         onSave={async (provider, key) => { installSnapshot(await bridge!.saveProvider(provider, key)); const next = await bridge!.settings(); setSettings(next); return next.providers ?? []; }}
         onDelete={async id => { installSnapshot(await bridge!.deleteProvider(id)); const next = await bridge!.settings(); setSettings(next); return next.providers ?? []; }}/>
       : tab === 'account' ? <AccountSettings settings={settings} profile={loginProfile} onProfile={chooseLoginProfile} apiKey={key} onKey={setKey} loggingIn={loggingIn} busy={anyBusy} language={data.preferences.language} onLogin={() => void run(async () => { setLoggingIn(true); try { await bridge!.login(loginProfile, key); setKey(''); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); } finally { setLoggingIn(false); } })} onCancel={() => void run(() => bridge!.cancelLogin())} onLogout={() => void run(async () => { await bridge!.logout(); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); })}
-        allowance={<AccountAllowancePanel bridge={bridge!} account={settings.account} language={data.preferences.language} active={!settingsClosing}/>}/>
+        allowance={<><AccountAllowancePanel bridge={bridge!} account={settings.account} language={data.preferences.language} active={!settingsClosing}/>
+          <EstimateRules key={`${settings.account.profile}:${settings.account.userId ?? ''}`} bridge={bridge!} account={settings.account}
+            language={data.preferences.language} disabled={loggingIn || anyBusy} onChanged={async () => { await applySnapshot(() => bridge!.snapshot()); }}/></>}/>
       : tab === 'mcp' ? <><div className="section-heading"><h3>MCP servers</h3><IconButton title="Add MCP" onClick={() => setMcpEdit({ name: '', config: { command: '', args: [], enabled: true }, args: '[]', secrets: '{}' })}><Plus size={18}/></IconButton></div>
         {Object.entries(settings.mcp).map(([n, c]) => <div className="resource-row" key={n}><Plug size={18}/><div><strong>{n}</strong><small>{c.url || c.command}</small><small>{c.enabled ? t('已启用，重启后生效', 'Enabled; applies after restart') : t('已停用', 'Disabled')}</small></div><IconButton title="Edit" onClick={() => setMcpEdit({ name: n, original: n, config: c, args: JSON.stringify(c.args ?? []), secrets: '{}' })}><Pencil size={14}/></IconButton><IconButton title="Remove" onClick={() => { if (confirm(t(`移除 ${n}？`, `Remove ${n}?`))) void run(async () => { await bridge!.saveMcp(n, null); setSettings(await bridge!.settings()); }); }}><Trash2 size={14}/></IconButton></div>)}
         {!Object.keys(settings.mcp).length && <p className="muted">{t('尚未配置服务器', 'No servers configured')}</p>}<button disabled={!connected || busy} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={15}/>{t('重启并应用', 'Restart to apply')}</button></>

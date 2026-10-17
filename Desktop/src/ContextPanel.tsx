@@ -6,6 +6,8 @@ import { contextCapacityColors, contextMessageCounts, contextMessageJson, contex
 import './context-panel.css';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
 import { isUserMessage } from './user-message';
+import { ContextEstimate } from './ContextEstimate';
+import type { SessionEstimate } from './usage-estimates';
 
 function JsonCode({ json }: { json: string }) {
   const nodes: ReactNode[] = [];
@@ -40,8 +42,9 @@ function MessageJson({ message, language, onError }: { message: Message; languag
   </div>;
 }
 
-export function ContextPanel({ messages, stats, state, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError }: {
+export function ContextPanel({ messages, stats, state, estimate, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError }: {
   messages: Message[]; stats?: SessionStats; state?: RuntimeState; title: string; language: 'zh' | 'en'; busy: boolean; connected: boolean;
+  estimate?: SessionEstimate;
   onClose: () => void; onRefresh: () => Promise<void>; onError: (error: string) => void;
   expanded: boolean; onToggleExpanded: () => void;
 }) {
@@ -61,9 +64,7 @@ export function ContextPanel({ messages, stats, state, title, language, busy, co
   const capacityColors = contextCapacityColors(percent);
   const used = finiteAmount(stats?.contextUsage?.tokens);
   const capacity = finiteAmount(stats?.contextUsage?.contextWindow);
-  const pricingUnknown = state?.model?.provider?.startsWith('desktop-custom-')
-    || messages.some(message => message.role === 'assistant' && message.provider?.startsWith('desktop-custom-'));
-  const cost = pricingUnknown ? undefined : finiteAmount(stats?.cost);
+  const custom = state?.model?.provider !== 'step';
   const usage = last?.usage;
   const prompt = usage ? usage.input + usage.cacheRead + usage.cacheWrite : 0;
   const hit = usage && prompt > 0 && usage.cacheRead + usage.cacheWrite > 0 ? usage.cacheRead / prompt * 100 : undefined;
@@ -101,7 +102,7 @@ export function ContextPanel({ messages, stats, state, title, language, busy, co
       </section>
       <section className="context-session-totals" aria-label={t('会话累计', 'Session totals')}>
         <div><span>{t('累计用量', 'Total tokens')}</span><strong>{number(stats?.tokens.total)}<small> tok</small></strong></div>
-        <div title={pricingUnknown ? t('自定义模型尚未配置价格', 'Custom model pricing is not configured') : undefined}><span>{t('估算费用', 'Estimated cost')}</span><strong>{cost === undefined ? '--' : `$${cost.toFixed(4)}`}</strong></div>
+        <ContextEstimate value={estimate} custom={custom} language={language}/>
       </section>
       <section className="context-last-response" aria-label={t('最近一次响应', 'Latest response')}>
         <div className="context-section-title"><h3>{t('最近一次响应', 'Latest response')}</h3><time>{time(last?.timestamp)}</time></div>

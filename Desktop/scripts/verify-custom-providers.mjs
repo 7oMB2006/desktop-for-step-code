@@ -257,7 +257,9 @@ try {
   await page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true }).click();
   const context = page.getByRole('complementary', { name: '上下文', exact: true });
   await context.waitFor();
-  assert.equal(await context.locator('[title="自定义模型尚未配置价格"] strong').textContent(), '--');
+  assert.equal(await context.locator('.context-estimate > strong').textContent(), '--');
+  await context.getByRole('button', { name: '估算明细', exact: true }).hover();
+  await page.getByRole('tooltip').filter({ hasText: '第三方模型不提供费用估算，Token 用量照常统计。' }).waitFor();
   await context.getByRole('button', { name: '关闭上下文', exact: true }).click();
   await page.evaluate(runtimeId => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, runtimeId), state.runtimeId);
   await settings();

@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import semver from 'semver';
 
-const { version: currentVersion } = JSON.parse(await readFile(resolve('package.json'), 'utf8'));
+const { version: baseVersion } = JSON.parse(await readFile(resolve('package.json'), 'utf8'));
+const currentVersion = process.platform === 'darwin' && process.env.DESKTOP_VERIFY_EXE ? `${baseVersion}-macos.1` : baseVersion;
 const nextVersion = semver.inc(currentVersion, 'minor');
 const feedVersion = semver.inc(nextVersion, 'minor');
 assert.ok(nextVersion && feedVersion);
@@ -36,17 +37,19 @@ const launch = async () => {
       if (fixture.mode === 'rate-limit') return new Response('', { status: 429, headers: { 'retry-after': '120' } });
       if (fixture.mode === 'feed') return url.endsWith('latest.json') ? new Response('', { status: 404 })
         : new Response(`<feed xmlns="http://www.w3.org/2005/Atom"><id>tag:github.com,2008:https://github.com/7oMB2006/desktop-for-step-code/releases</id>
-          <entry><title>Desktop for Step Code ${feedVersion}</title><link rel="alternate" href="https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v${feedVersion}"/></entry></feed>`);
+          <entry><title>Desktop for Step Code ${feedVersion}</title><link rel="alternate" href="https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v${feedVersion}${process.platform === 'darwin' ? '-macos.1' : ''}"/></entry></feed>`);
+      const mac = process.platform === 'darwin';
       const makeRelease = (version, preview = false) => ({
         version, tag: `v${version}`, prerelease: preview, name: `Desktop for Step Code ${version}`,
         url: `https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v${version}`,
         publishedAt: '2026-10-08T00:00:00Z', notes: '## 本次更新\n\n- 支持 GitHub 版本检查\n- 保留任务和会话\n\n<script>unsafe</script>',
         installer: fixture.mode === 'missing' ? undefined : {
-          name: `Desktop.for.Step.Code.Setup.${version}.exe`, size: 156_676_739,
-          url: `https://github.com/7oMB2006/desktop-for-step-code/releases/download/v${version}/Desktop.for.Step.Code.Setup.${version}.exe`,
+          name: mac ? `Desktop.for.Step.Code.${version}.arm64.zip` : `Desktop.for.Step.Code.Setup.${version}.exe`, size: 156_676_739,
+          url: `https://github.com/7oMB2006/desktop-for-step-code/releases/download/v${version}/${mac ? `Desktop.for.Step.Code.${version}.arm64.zip` : `Desktop.for.Step.Code.Setup.${version}.exe`}`,
         },
       });
-      return new Response(JSON.stringify({ schemaVersion: 1, repository: '7oMB2006/desktop-for-step-code',
+      const channels = { stable: fixture.mode === 'current' ? null : makeRelease('0.1.0'), preview: makeRelease(fixture.mode === 'current' ? currentVersion : nextVersion, true) };
+      return new Response(JSON.stringify({ platforms: { darwin: channels }, schemaVersion: 1, repository: '7oMB2006/desktop-for-step-code',
         generatedAt: '2026-10-08T00:00:00Z', channels: {
           stable: fixture.mode === 'current' ? null : makeRelease('0.1.0'),
           preview: makeRelease(fixture.mode === 'current' ? currentVersion : nextVersion, true),
@@ -75,17 +78,6 @@ try {
   assert.equal(await page.getByRole('region', { name: '应用更新' }).count(), 0);
   await page.getByRole('button', { name: '版本更新', exact: true }).click();
   const updates = page.getByRole('region', { name: '应用更新' });
-  if (process.platform === 'darwin') {
-    await updates.getByText('macOS 实验版暂不支持应用内检查或自动更新，请在发布页查看版本并手动下载安装。', { exact: true }).waitFor();
-    assert.equal(await updates.getByRole('button', { name: '检查更新', exact: true }).count(), 0);
-    assert.equal(await updates.getByRole('checkbox').count(), 0);
-    assert.equal(await updates.getByRole('combobox').count(), 0);
-    await assert.rejects(page.evaluate(() => window.desktop.checkUpdates()), /not supported/);
-    await updates.getByRole('button', { name: '发布页', exact: true }).click();
-    assert.deepEqual(await app.evaluate(() => globalThis.updateFixture.opened), ['https://github.com/7oMB2006/desktop-for-step-code/releases']);
-    assert.equal(await app.evaluate(() => globalThis.updateFixture.calls.length), 0);
-    console.log('macOS updates: explicit unsupported state, no inert controls, releases link and no background requests passed');
-  } else {
   await updates.getByText('尚未检查更新', { exact: true }).waitFor();
   assert.equal(await updates.getByRole('checkbox', { name: '自动检查更新' }).isChecked(), true);
   const channelTrigger = updates.getByRole('combobox', { name: '更新通道', exact: true });
@@ -122,8 +114,8 @@ try {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await app.evaluate(() => { globalThis.updateFixture.mode = 'available'; globalThis.updateFixture.release(); });
   await updates.getByText(`发现新版本 ${nextVersion}`, { exact: true }).waitFor();
-  assert.equal((await page.evaluate(() => window.desktop.updateState())).transfer.supported, false,
-    'development/unpacked clients cannot silently become installed clients');
+  assert.equal((await page.evaluate(() => window.desktop.updateState())).transfer.supported, process.platform === 'darwin' && Boolean(process.env.DESKTOP_VERIFY_EXE),
+    'macOS bundles support updates; development and Windows unpacked clients do not');
   await assert.rejects(page.evaluate(() => window.desktop.downloadUpdate()), /In-app update unavailable/);
   await page.locator('.update-indicator').waitFor();
   await updates.getByText('版本说明', { exact: true }).click();
@@ -135,7 +127,7 @@ try {
   await updates.getByRole('button', { name: '发布页', exact: true }).click();
   const opened = await app.evaluate(() => globalThis.updateFixture.opened);
   assert.deepEqual(opened, [
-    `https://github.com/7oMB2006/desktop-for-step-code/releases/download/v${nextVersion}/Desktop.for.Step.Code.Setup.${nextVersion}.exe`,
+    `https://github.com/7oMB2006/desktop-for-step-code/releases/download/v${nextVersion}/${process.platform === 'darwin' ? `Desktop.for.Step.Code.${nextVersion}.arm64.zip` : `Desktop.for.Step.Code.Setup.${nextVersion}.exe`}`,
     `https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v${nextVersion}`,
   ]);
   await assert.rejects(page.evaluate(() => window.desktop.openUpdate('https://evil.example')), /No verified update download/);
@@ -161,7 +153,7 @@ try {
   await assert.rejects(page.evaluate(() => window.desktop.openUpdate('download')), /No verified update download/);
   await mode('missing');
   await updates.getByRole('button', { name: '检查更新', exact: true }).click();
-  await updates.getByText('此版本暂未提供 Windows x64 安装包。', { exact: true }).waitFor();
+  await updates.getByText(process.platform === 'darwin' ? '此版本暂未提供 macOS Apple Silicon 安装包。' : '此版本暂未提供 Windows x64 安装包。', { exact: true }).waitFor();
   assert.equal(await updates.getByRole('button', { name: '下载安装包', exact: true }).count(), 0);
   await mode('network');
   await updates.getByRole('button', { name: '检查更新', exact: true }).click();
@@ -213,9 +205,9 @@ try {
   await app.evaluate(() => { globalThis.updateFixture.time += 60_001; globalThis.updateFixture.mode = 'feed'; });
   await chooseChannel(page, 'preview');
   const fallback = page.getByRole('region', { name: 'App updates' });
-  await fallback.getByText(`Version ${feedVersion} is available`, { exact: true }).waitFor();
+  await fallback.getByText(`Version ${feedVersion}${process.platform === 'darwin' ? '-macos.1' : ''} is available`, { exact: true }).waitFor();
   assert.equal(await fallback.getByRole('button', { name: 'Download installer', exact: true }).count(), 0);
-  await fallback.getByText('Check the releases page for a Windows x64 installer.', { exact: true }).waitFor();
+  await fallback.getByText(process.platform === 'darwin' ? 'Check the releases page for a macOS Apple Silicon installer.' : 'Check the releases page for a Windows x64 installer.', { exact: true }).waitFor();
   await page.locator('.update-indicator').waitFor();
   await chooseChannel(page, 'stable');
   await fallback.getByText('The stable update manifest is not published yet. Check the releases page.', { exact: true }).waitFor();
@@ -232,5 +224,4 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.autoCheckUpdates, false);
   assert.deepEqual(errors, []);
   console.log('App updates: state transitions, official links, missing installer, errors/rate limits, theme/narrow/i18n/reduced motion, preferences and restart passed.');
-  }
 } finally { if (app) await app.close(); }

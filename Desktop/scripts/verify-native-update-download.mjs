@@ -15,12 +15,12 @@ try {
   await app.firstWindow();
   for (const [mode, expected] of [['complete', 'verified'], ['metadata', 'metadata'], ['corrupt', 'integrity'], ['cancel', 'cancelled'], ['retry', 'verified']]) {
     const result = await app.evaluate(async (_electron, mode) => globalThis.updateDownloadFixture.run(mode), mode);
+    console.log(`${mode}: ${JSON.stringify(result)}`);
     assert.equal(result.outcome, expected, `${mode}: ${JSON.stringify(result)}`);
-    assert.ok(result.requests >= 1);
+    assert.ok(result.requests >= 1, `${mode}: ${JSON.stringify(result)}`);
     if (mode === 'metadata') assert.equal(result.requests, 1, 'invalid metadata cannot download the executable');
     const probes = await app.evaluate(async () => globalThis.updateDownloadFixture.probe());
     assert.deepEqual(probes, ['probe-ok', 'probe-ok'], `${mode}: download hooks must not remain on either session`);
-    console.log(`${mode}: ${JSON.stringify(result)}`);
   }
   console.log('Native update download passed: real NSIS updater parsing, streaming, hashing, cancellation and retry; no installer executed.');
 } finally { await app.close(); }

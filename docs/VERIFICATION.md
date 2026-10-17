@@ -2962,3 +2962,65 @@ Notification product code and its timeout are unchanged.
 These results do not establish real Plan/API balances, official billing,
 external MCP compatibility or public Release readiness. Cloud CI results are
 recorded separately on the PR; this follow-up is not a newly published Release.
+
+
+## macOS 0.5.1 parity follow-up (2026-10-17)
+
+This iteration remains on Windows Release v0.5.1 and the merged PR #131 tree,
+with the pinned Step Code runtime unchanged. The code/platform audit found two
+explicit desktop gaps: update controls/installation and file application discovery/
+selection. Both now have native macOS implementations while Windows NSIS behavior
+and renderer isolation are retained. See MACOS.md and UPDATES.md for the release
+asset contract and intentional platform differences.
+
+Typecheck and production build passed. The serialized unit/protocol suite passed
+480 tests, with the existing Windows-only path-casing check skipped (481 total).
+The CI policy/runner suite passed twelve tests with its Windows cancellation check
+skipped. Source update discovery/UI, transfer UI, file opening, native AppKit
+application discovery and installer fixtures passed. ARM64 package verification
+matched 1,262 built/staged resources and checked the release marker, bundled native
+application helper and detached update helper.
+
+The native updater fixture exercises real ZIP transport/hash checks, bounded
+extraction, framework links, current-process exit, detached-helper readiness,
+same-volume application replacement, retained Gatekeeper quarantine, old-bundle
+retention until acknowledgement and failure recovery tests. Its OS launch boundary
+is a disposable fixture: it does not establish Developer ID trust, notarization,
+Gatekeeper approval, a real public-GitHub download, or real installed-app upgrade
+acceptance. Do not describe these fixtures as a signed or unattended update system.
+The old 0.5.0 package still requires a manual first upgrade.
+
+The packaged candidate passed seventeen Electron/native checks: update discovery,
+transfer UI, updater fixture, startup, general Electron/runtime, encrypted vault,
+account settings, Plan allowance, API balance, account routing, StepPage registration,
+browser, file preview/application choices, artifacts, terminal scope, turn undo and
+archived sessions. The updater fixture also extracted and replaced a full packaged
+application in a disposable directory; only its final OS launch was substituted.
+Cleanup waits for helper completion, is transaction-bound and is tested separately.
+Cloud Windows/macOS checks remain a PR gate; this entry does not publish a Release.
+
+A deployment-target audit found the local Swift compiler defaulted to macOS 26.
+The AppKit helper now explicitly targets ARM64 macOS 13.5, matching the bundled
+Node minimum; package metadata and Mach-O inspection enforce that floor. This
+checks binary compatibility metadata, not execution on every older macOS release.
+
+Windows CI's legacy NSIS transport fixture returned an integrity failure without
+observing the expected corrupt-payload request. The fixture now canonicalizes its
+temporary root, clears transport cache between cases and serves no-store responses;
+all outcome/request-count/hook-cleanup assertions remain. Failure diagnostics are
+bounded and printed before assertions. Local replay explicitly selects the library's
+Windows provider on macOS and passes parsing, corruption, cancellation and retry;
+Windows CI remains required to confirm actual Windows behavior.
+
+
+### macOS updater P2 follow-up (2026-10-17)
+
+Startup failure now restores the backup when the replacement bundle is absent;
+other inspection/restore failures retain a recovery-required result and backup.
+Regression cases cover deleted/moved replacements, foreign replacement identity
+and a parent path that becomes a file. Successful acknowledgement waits for helper
+completion, then removes only the transaction's recorded ZIP; unrelated downloads
+remain. Typecheck, production build and 481 local tests passed (one Windows-only
+check skipped). The native updater fixture passed download, verification,
+replacement, acknowledgement and completed-ZIP cleanup. OS launch remains a fixture;
+this does not establish real Gatekeeper approval or a public downloaded upgrade.

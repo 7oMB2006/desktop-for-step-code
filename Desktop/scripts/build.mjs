@@ -1,12 +1,15 @@
 import { build } from 'esbuild';
+import { execFileSync } from 'node:child_process';
 import { build as viteBuild } from 'vite';
 import { cp, mkdir } from 'node:fs/promises';
 import './icons.mjs';
 import './build-terminal.mjs';
-await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true });
+await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts', 'electron/macos-update-helper.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true });
 await viteBuild({ base: './', build: { outDir: 'dist/renderer', emptyOutDir: true, rolldownOptions: { input: ['index.html', 'tray-menu.html'] } } });
 await mkdir('dist/licenses', { recursive: true });
 await mkdir('dist/file-opening', { recursive: true });
+await cp('dist/macos-update-helper.cjs', 'dist/file-opening/macos-update-helper.cjs');
+if (process.platform === 'darwin') execFileSync('/usr/bin/xcrun', ['swiftc', '-target', 'arm64-apple-macosx13.5', '-O', 'electron/file-applications-macos.swift', '-o', 'dist/file-opening/file-applications-macos']);
 for (const name of ['file-associations.cs', 'file-associations.ps1'])
   await cp(`electron/${name}`, `dist/file-opening/${name}`);
 for (const [source, name] of [
@@ -23,6 +26,8 @@ for (const [source, name] of [
   ['remark-parse/license', 'remark-parse.txt'],
   ['semver/LICENSE', 'semver.txt'],
   ['@xmldom/xmldom/LICENSE', 'xmldom.txt'],
+  ['yauzl/LICENSE', 'yauzl.txt'],
+  ['pend/LICENSE', 'pend.txt'],
   ['electron-updater/LICENSE', 'electron-updater.txt'],
   ['builder-util-runtime/LICENSE', 'builder-util-runtime.txt'],
 ]) await cp(`node_modules/${source}`, `dist/licenses/${name}`);

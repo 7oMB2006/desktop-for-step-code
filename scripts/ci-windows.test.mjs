@@ -21,7 +21,7 @@ test('every acceptance script is assigned exactly once or explicitly remains out
 });
 
 test('macOS package verification is registered in native CI without entering Windows groups', () => {
-  assert.deepEqual(platformOnly, { macos: ['verify-macos-package.mjs'] });
+  assert.deepEqual(platformOnly, { macos: ['verify-macos-package.mjs', 'verify-macos-updater.mjs'] });
   const workflow = readFileSync(new URL('../.github/workflows/macos-integration.yml', import.meta.url), 'utf8');
   for (const script of platformOnly.macos) {
     assert.ok(workflow.includes(`node scripts/${script}`));

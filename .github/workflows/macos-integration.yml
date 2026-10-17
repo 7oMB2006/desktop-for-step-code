@@ -2,7 +2,7 @@ name: macOS Apple Silicon preview
 
 on:
   push:
-    branches: [dot/macos-arm64, codex/macos-0.5.1]
+    branches: [dot/macos-arm64, codex/macos-0.5.1, codex/macos-0.5.1-parity]
   pull_request:
     paths:
       - 'Desktop/**'
@@ -74,6 +74,8 @@ jobs:
         run: |
           node scripts/verify-startup.mjs
           node scripts/verify-app-updates.mjs
+          node scripts/verify-update-installer.mjs
+          node scripts/verify-macos-updater.mjs
           node scripts/verify-electron.mjs
           node scripts/verify-auth-vault.mjs
           node scripts/verify-account-settings.mjs
@@ -101,6 +103,8 @@ jobs:
         run: |
           node scripts/verify-startup.mjs
           node scripts/verify-app-updates.mjs
+          node scripts/verify-update-installer.mjs
+          node scripts/verify-macos-updater.mjs
           node scripts/verify-electron.mjs
           node scripts/verify-auth-vault.mjs
           node scripts/verify-account-settings.mjs
@@ -120,6 +124,7 @@ jobs:
         run: |
           ditto -c -k --sequesterRsrc --keepParent 'release/mac-arm64/Desktop for Step Code.app' release/Desktop.for.Step.Code.macos-arm64.preview.zip
           shasum -a 256 release/Desktop.for.Step.Code.macos-arm64.preview.zip > release/SHA256SUMS.txt
+          node scripts/prepare-macos-release.mjs
           git rev-parse HEAD > release/COMMIT.txt
           cp runtime/manifest.json release/runtime-manifest.json
       - name: Upload tested preview candidate (not a Release)
@@ -131,6 +136,11 @@ jobs:
             Desktop/release/SHA256SUMS.txt
             Desktop/release/COMMIT.txt
             Desktop/release/runtime-manifest.json
+            Desktop/release/v*/mac-update.json
+            Desktop/release/v*/*.zip
+            Desktop/release/v*/SHA256SUMS.txt
+            Desktop/release/v*/COMMIT.txt
+            Desktop/release/v*/runtime-manifest.json
           retention-days: 7
           if-no-files-found: error
       - name: Upload fixture diagnostics

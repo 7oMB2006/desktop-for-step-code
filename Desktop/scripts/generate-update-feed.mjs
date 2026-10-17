@@ -12,5 +12,7 @@ if (!Array.isArray(pages) || pages.some(page => !Array.isArray(page))) throw new
 const manifest = createUpdateManifest(pages.flat());
 parseUpdateManifest(manifest, 'preview');
 parseUpdateManifest(manifest, 'stable');
+parseUpdateManifest(manifest, 'preview', 'darwin');
+parseUpdateManifest(manifest, 'stable', 'darwin');
 await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 console.log(JSON.stringify({ stable: manifest.channels.stable?.version ?? null, preview: manifest.channels.preview?.version ?? null }));

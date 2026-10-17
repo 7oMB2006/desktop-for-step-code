@@ -231,3 +231,17 @@ test('cache preparation and cleanup reject a redirected parent directory', async
   await assert.rejects(cleanInstalledUpdate(root, '0.5.0'), InstallerFailure);
   assert.equal(await readFile(join(root, 'download-cache', 'keep.exe'), 'utf8'), 'preserve');
 });
+
+test('platform preflight completes before runtime shutdown and cleans staging when busy', async () => {
+  const value = fixture(); const order: string[] = [];
+  value.driver.prepareInstall = async () => { order.push('staged'); };
+  value.driver.cancelInstall = async () => { order.push('cleanup'); };
+  const pending = value.controller.download(release); await Promise.resolve(); value.finish(); await pending;
+  await assert.rejects(value.controller.install(async () => { order.push('busy'); throw new InstallerFailure('busy'); }));
+  assert.deepEqual(order, ['staged', 'busy', 'cleanup']);
+  assert.equal(value.controller.snapshot().status, 'ready'); assert.equal(value.counts().installs, 0);
+  order.length = 0;
+  value.driver.prepareInstall = async () => { throw new InstallerFailure('integrity'); };
+  await assert.rejects(value.controller.install(async () => { order.push('shutdown'); }));
+  assert.deepEqual(order, ['cleanup']); assert.equal(value.counts().installs, 0);
+});

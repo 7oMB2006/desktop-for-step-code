@@ -180,7 +180,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
     const { PassThrough } = process.getBuiltinModule('stream');
     globalThis.originalFileSpawn = childProcess.spawn;
     childProcess.spawn = (...args) => {
-      if (!args[1]?.some(value => typeof value === 'string' && value.endsWith('file-associations.ps1'))) return globalThis.originalFileSpawn(...args);
+      if (!String(args[0]).endsWith('file-applications-macos') && !args[1]?.some(value => typeof value === 'string' && value.endsWith('file-associations.ps1'))) return globalThis.originalFileSpawn(...args);
       const child = new EventEmitter();
       child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
       let request = '';
@@ -188,7 +188,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
       child.stdin.on('finish', () => {
         const payload = JSON.parse(request);
         if (payload.action === 'list') {
-          child.stdout.end('[]');
+          child.stdout.end(process.platform === 'darwin' ? JSON.stringify([{ id: '/System/Applications/TextEdit.app', label: 'TextEdit fixture' }]) : '[]');
           child.emit('close', 0);
           return;
         }
@@ -200,13 +200,16 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
       return child;
     };
   });
+  await page.reload();
+  await page.getByRole('link', { name: '交付说明', exact: true }).click();
+  await page.locator('.file-preview-markdown h1').waitFor();
   await page.locator('#file-panel').getByRole('button', { name: '选择打开方式', exact: true }).click();
   const openingMenu = page.getByRole('menu', { name: '打开方式', exact: true });
   await openingMenu.getByRole('menuitemradio', { name: '文件预览', exact: true }).waitFor();
   const menuLabels = await openingMenu.getByRole('menuitemradio').allTextContents();
   assert.ok(menuLabels.includes('文件预览'));
   assert.ok(menuLabels.includes('系统默认应用'));
-  assert.equal(menuLabels.some(label => label.includes('其他应用')), process.platform === 'win32', 'Windows-only application picker is not offered on macOS');
+  assert.equal(menuLabels.some(label => label.includes('其他应用')), ['win32', 'darwin'].includes(process.platform), 'native application picker is available on Windows and macOS');
   assert.equal(await openingMenu.getByRole('menuitemradio', { name: '文件预览', exact: true }).getAttribute('aria-checked'), 'true', 'an unavailable saved application falls back to internal preview');
   await page.waitForTimeout(220);
   await page.screenshot({ path: 'test-results/file-opening-menu-light.png' });
@@ -221,6 +224,19 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   assert.equal(await app.evaluate(() => globalThis.fileOpenCount), 2, 'the main half reopens the remembered application');
   const persisted = JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8'));
   assert.equal(persisted.fileOpeningApps['.md'], selection.id);
+  if (process.platform === 'darwin') {
+    assert.ok(selection.id.startsWith('app:'));
+    assert.equal(await app.evaluate(() => globalThis.openedFileRequest.id), '/System/Applications/TextEdit.app');
+    await assert.rejects(page.evaluate(target => window.desktop.fileOpen(target, 'app:unknown'), target), /Unknown associated application/);
+    await app.evaluate(({ dialog }) => { globalThis.originalOpenDialog = dialog.showOpenDialog; dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ['/System/Applications/TextEdit.app'] }); });
+    await page.evaluate(target => window.desktop.fileOpen(target, 'other'), target);
+    assert.equal(await app.evaluate(() => globalThis.openedFileRequest.id), '/System/Applications/TextEdit.app');
+    assert.equal(JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8')).fileOpeningApps['.md'], selection.id, 'one-time picker retains the remembered choice');
+    await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });
+    assert.equal(await page.evaluate(target => window.desktop.fileOpen(target, 'other'), target), null);
+    await app.evaluate(({ dialog }) => { dialog.showOpenDialog = globalThis.originalOpenDialog; });
+  }
+
   await page.reload();
   await page.getByRole('link', { name: '交付说明', exact: true }).click();
   await page.waitForFunction(label => document.querySelector('#file-panel .file-open-control > button:first-child')?.textContent === label, selection.label);

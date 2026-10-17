@@ -45,7 +45,8 @@
     "remark-math": "6.0.0",
     "remark-parse": "11.0.0",
     "semver": "7.8.5",
-    "unified": "11.0.5"
+    "unified": "11.0.5",
+    "yauzl": "3.4.0"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
@@ -54,6 +55,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@types/semver": "7.8.0",
+    "@types/yauzl": "2.10.3",
     "electron": "44.4.5",
     "electron-builder": "26.0.12",
     "esbuild": "0.28.2",
@@ -166,7 +168,8 @@
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png",
       "identity": null,
-      "artifactName": "Desktop.for.Step.Code.${version}.${arch}.${ext}"
+      "artifactName": "Desktop.for.Step.Code.${version}.${arch}.${ext}",
+      "minimumSystemVersion": "13.5"
     }
   }
 }

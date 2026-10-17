@@ -59,6 +59,7 @@ export const acceptanceGroups = {
     'verify-workflow.mjs',
     'verify-chain-runtime.mjs',
     'verify-windows-commands.mjs',
+    'verify-then-run.mjs',
     'verify-workflow-runtime.mjs',
     'verify-summary-runtime.mjs',
     'verify-usage-worker.mjs',
@@ -95,6 +96,7 @@ export const platformOnly = { macos: ['verify-macos-package.mjs'] };
 export const acceptanceTimeouts = {
   'verify-question-review.mjs': 300_000,
   'verify-windows-commands.mjs': 300_000,
+  'verify-then-run.mjs': 300_000,
   'verify-context-maintenance.mjs': 300_000,
   'verify-clm-cancellation.mjs': 300_000,
   'verify-model-switch.mjs': 300_000,

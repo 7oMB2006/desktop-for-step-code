@@ -1,12 +1,14 @@
 {
   "commit": "b5dbed938d9ae589397cf522dcf2ff89ecf4c494",
   "patches": {
-    "step-code-desktop.patch": "3d0200273b817ae094a0583cc9693ee2a44f2296",
+    "step-code-desktop.patch": "73a1323ebdc0d90c9d18739185ea70c36d44288c",
     "step-code-desktop-plan.patch": "07dd8afa106a880114907e3028626bdc25b22810",
     "step-code-desktop-clarification.patch": "61a49cb2e8c2923c34ab9b787a2d484e7e1698f0"
   },
   "sources": {
     "packages/coding-agent/src/core/auth-storage.ts": "b7d72e885b80c53e17920a405ec7ce9612a3e2e7",
+    "packages/coding-agent/src/core/tools/bash.ts": "46bceab79addce18e5edc7abe17d354f24be7c7e",
+    "packages/coding-agent/src/utils/shell.ts": "43b72e10f5a1d16933848ecb565c48cbe5046750",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "e77e41418ac4df9577017248f5f53e24ac1c2517",
     "packages/coding-agent/src/index.ts": "9451c774e66034d454c89690d7e36aee23a4fe55",
     "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "fd9aabca7465b6b104dcdd3f83f13ff2bd6b8ec9",
@@ -15,7 +17,11 @@
     "packages/coding-agent/src/step/usage/recording.ts": "188855c3e26f66830d865a34274a4cb4f95e83b6",
     "scripts/build-coding-agent-bundle.mjs": "2a3c71d05a9ff6e7831baf8248a61ebba881c1c5",
     "packages/coding-agent/test/step-usage-lifecycle.test.ts": "6920f1962798cb6276c136ce954ee5b3e7b31841",
+    "packages/coding-agent/test/shell-process-tree.test.ts": "c06ae89118cf8dd080b34057c0333e8679f4fdfe",
     "packages/coding-agent/test/subagent-exit-drain.test.ts": "2a3ff540b23c777fcbee5c244760502a9fbdc1ff",
+    "packages/coding-agent/test/step-subagent-events.test.ts": "0587a5e94c103dd85ebba304b605826d53b3a04d",
+    "packages/coding-agent/test/workflow-extension.test.ts": "2cf36205b17940c745bbd224ebb3408ace6188ff",
+    "packages/coding-agent/test/workflow-runtime.test.ts": "895e8ad40fb759c281dfcdfd70f882a995c25d65",
     "packages/coding-agent/src/features/plan-mode-tools.ts": "d8e46fad6d28138c9677432dc5c4fc53b39004f4",
     "packages/coding-agent/src/features/step-plan.ts": "ebf178ec7ab57ac1f3ae26f69e41002e3bb5138a",
     "packages/coding-agent/test/step-plan-extension.test.ts": "73ef5ee3237286b9eea1b394083c74c8da089061",
@@ -23,6 +29,8 @@
   },
   "patchedSources": {
     "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",
+    "packages/coding-agent/src/core/tools/bash.ts": "85c9673b7986948b34b1b9f42ef5e81518d54cff",
+    "packages/coding-agent/src/utils/shell.ts": "c83c770b750fb50a91a28bf2d8a1c2a42af5bfc4",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "d8067140df6852f5b85aba573e22c255d7da20be",
     "packages/coding-agent/src/index.ts": "96e9d4e3a6af35e2cd87df823f8dec45429b97f8",
     "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "4436313590df496a70791d7a5d41f3131dbb868b",
@@ -31,7 +39,11 @@
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
     "scripts/build-coding-agent-bundle.mjs": "d8c98c84e61705fd814349412aa72ce951d9a5a3",
     "packages/coding-agent/test/step-usage-lifecycle.test.ts": "f0fe0840c8e94073d11e41aa6b65c1caec54e07e",
+    "packages/coding-agent/test/shell-process-tree.test.ts": "0484e8ecbd678e4ba9b2f294d6ab943d68b4d27f",
     "packages/coding-agent/test/subagent-exit-drain.test.ts": "f0932a44b429332a2c3f34351554c4560472124e",
+    "packages/coding-agent/test/step-subagent-events.test.ts": "6c8c04b2358909b87eba18400e05821f29c528ec",
+    "packages/coding-agent/test/workflow-extension.test.ts": "93749b4bfbfaac64d03e7fab1e894ddc3cd891ef",
+    "packages/coding-agent/test/workflow-runtime.test.ts": "fba8f5e3812532d30bdea61f86ab26d777331302",
     "packages/coding-agent/src/features/plan-mode-tools.ts": "6fd00895b1b7e1ed19470e9b0877f3706cdaf5f5",
     "packages/coding-agent/src/features/step-plan.ts": "aaac9870579e24dc564b4662dcd4da555d21c153",
     "packages/coding-agent/test/step-plan-extension.test.ts": "175a3dfe720714cf036cc9b8483e93854b2c918e",

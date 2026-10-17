@@ -146,8 +146,13 @@ export function PermissionApproval({ presentation, requestId, open, language, on
       <Icon size={17}/><h2>{p.operation === 'question' ? t('允许 Agent 向你提问？', 'Allow the agent to ask you a question?') : p.action}</h2><code>{p.toolName}</code>
     </header>
     <div id={contentId} className="permission-approval-content">
-      {p.category === 'hazardous' && <p className="permission-approval-reason hazardous"><strong>{t('命中高风险规则', 'High-risk rule matched')}</strong> · {p.reason}</p>}
+      {p.category === 'hazardous' && p.verificationCommand === undefined && <p className="permission-approval-reason hazardous"><strong>{t('命中高风险规则', 'High-risk rule matched')}</strong> · {p.reason}</p>}
       {p.target && <p className="permission-approval-target"><span>{p.operation === 'command' ? t('工作目录', 'Working directory') : t('目标', 'Target')}</span><code>{p.target}</code></p>}
+      {p.verificationCommand !== undefined && <div className="permission-approval-verification">
+        <div className="permission-approval-input-heading"><strong>{t('文件修改后执行', 'Run after the file change')}</strong></div>
+        <pre className="permission-approval-input" tabIndex={0}>{p.verificationCommand}</pre>
+      </div>}
+      {p.category === 'hazardous' && p.verificationCommand !== undefined && <p className="permission-approval-reason hazardous"><strong>{t('命中高风险规则', 'High-risk rule matched')}</strong> · {p.reason}</p>}
       {p.preview !== undefined && (p.operation === 'question'
         ? <p className="permission-approval-question">{p.preview.split(/(`[^`\n]+`)/g).map((part, index) =>
           part.startsWith('`') && part.endsWith('`') ? <code key={index}>{part.slice(1, -1)}</code> : part)}</p>

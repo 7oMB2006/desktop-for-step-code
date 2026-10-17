@@ -27,6 +27,16 @@ The ordinary strict leaf check is unchanged. Whole-session copies compare
 the copied source leaf before newly owned usage-lineage records.
 Subagent temporary-directory cleanup is single-flight, retried and nonfatal;
 a Windows `EPERM` during cleanup must not terminate the parent runtime.
+The Windows patch also carries Workflow test-fixture portability and mixed
+Workflow/parallel-subagent admission regressions; these do not change the
+production scheduler or the frozen macOS test sources.
+Foreground shell cancellation also waits for Windows cleanup and snapshots the
+selected Git Bash invocation's MSYS descendants, whose Windows parent chains
+can be broken by fork/exec. Only that invocation's exact PIDs are targeted;
+unavailable MSYS discovery retains the ordinary Windows-tree fallback.
+The focused process-tree tests and gated real-command cancellation/isolation
+acceptance cover this Windows-only addition. It does not change command
+approval policy, timeout defaults or the frozen macOS patch.
 
 Permissions, risk acknowledgment, legacy migration, bounded model-error continuation and default CLM remain upstream behavior. The original integration patches below remain unchanged for the frozen macOS baseline. These are reproducible source commits, not GitHub release tags.
 

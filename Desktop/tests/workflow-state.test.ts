@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { currentTurnWorkflows, projectWorkflow, workflowsFromMessages, workflowIsActive, workflowIcon } from '../src/workflow-state';
+import { currentTurnWorkflows, projectWorkflow, workflowsFromMessages, workflowIsActive, workflowIcon,
+  preserveWorkflow, workflowCount, workflowIssues, workflowRetryText } from '../src/workflow-state';
 import { applyToolResult, applyMessageEvent } from '../src/message-events';
 import { hydrateWorkflowHistory, WorkflowBindings } from '../electron/workflow-history';
 import type { Message } from '../src/contracts';
@@ -15,6 +16,130 @@ const progress = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: '
   ] };
 const final = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: 'completed', startedAt: 100,
   finishedAt: 200, agentCalls: 2, spentTokens: 50 };
+
+const failure = { id: 'b', status: 'failed', error: { code: 'NODE_FAILED', message: 'Invalid request', retryable: false } };
+const callback = { script: 'child.js', primitive: 'parallel', index: 1, message: 'Callback rejected' };
+const failureResult = { ...final, status: 'partial_failed', summary: { total: 2, completed: 1, failed: 1, failedCallbacks: 1 },
+  failures: [failure], taskFailures: [callback], cacheHits: 1 };
+const resultMessage = (details: NonNullable<Message['details']>): Message => ({
+  role: 'toolResult', toolName: 'workflow', toolCallId: 'call', content: '', details,
+});
+
+test('final failures overlay known nodes without losing metadata or making callbacks into agents', () => {
+  const previous = preserveWorkflow(undefined, resultMessage({ ...progress, agents: [
+    { ...progress.agents[0], status: 'completed' }, { ...progress.agents[1], rateLimitRetries: 2 },
+  ] }));
+  const state = preserveWorkflow(previous, resultMessage(failureResult)).desktopWorkflow!;
+  assert.deepEqual(state.agents.map(agent => agent.status), ['completed', 'failed']);
+  assert.equal(state.agents[1].label, '核验');
+  assert.equal(state.agents[1].task, '核对结果');
+  assert.deepEqual(state.agents[1].error, { ...failure.error, retryExhausted: undefined });
+  assert.equal(state.agents[1].rateLimitRetries, 2);
+  assert.equal(state.taskFailures?.length, 1);
+  assert.equal(state.cacheHits, 1);
+  assert.equal(workflowCount(state), '1 / 2');
+  assert.equal(workflowIssues(state, 'zh'), '1 节点失败 · 1 回调错误');
+  const fresh = projectWorkflow(failureResult, 'call')!;
+  assert.equal(fresh.agents.length, 1, 'missing progress still exposes the authoritative failure');
+  assert.equal(workflowCount(fresh), '1 / 2', 'a failures-only list is not a completion count');
+  assert.equal(workflowIssues(fresh, 'en'), '1 failed node · 1 callback error');
+});
+
+test('callback metadata clears on successful final and does not leak across run or start identities', () => {
+  const previous = preserveWorkflow(undefined, resultMessage({ ...progress, taskFailures: [callback],
+    summary: { failedCallbacks: 1 } }));
+  for (const details of [final, { ...failureResult, taskFailures: [], summary: { failedCallbacks: 0 } }]) {
+    const state = preserveWorkflow(previous, resultMessage(details)).desktopWorkflow!;
+    assert.deepEqual(state.taskFailures, []);
+    assert.equal(state.failedCallbacks, 0);
+  }
+  for (const identity of [{ runId: 'wf_other' }, { startedAt: 999 }]) {
+    const state = preserveWorkflow(previous, resultMessage({ ...final, ...identity, status: 'failed' })).desktopWorkflow!;
+    assert.equal(state.agents.length, 0);
+    assert.equal(state.taskFailures, undefined);
+    assert.equal(state.failedCallbacks, undefined);
+  }
+});
+
+test('duplicate persisted final messages retain failure details and retry counts', () => {
+  let messages: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'call' }] }];
+  messages = applyToolResult(messages, { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'call',
+    partialResult: { details: { ...progress, agents: [
+      { ...progress.agents[0], status: 'cached' }, { ...progress.agents[1], rateLimitRetries: 2 },
+    ] } } });
+  messages = applyToolResult(messages, { type: 'tool_execution_end', toolName: 'workflow', toolCallId: 'call',
+    result: { details: failureResult }, isError: true });
+  const message = { ...resultMessage(failureResult), isError: true };
+  messages = applyMessageEvent(messages, { type: 'message_start', message });
+  messages = applyMessageEvent(messages, { type: 'message_end', message });
+  const state = workflowsFromMessages(messages, false)[0];
+  assert.equal(messages.length, 2);
+  assert.deepEqual(state.agents.map(agent => agent.status), ['cached', 'failed']);
+  assert.equal(state.agents[1].rateLimitRetries, 2);
+  assert.equal(state.agents[1].error?.code, 'NODE_FAILED');
+  assert.equal(state.taskFailures?.length, 1);
+  assert.equal(state.failedCallbacks, 1);
+});
+
+test('retry projection distinguishes active, recovered and exhausted retries and never spins after termination', () => {
+  const retry = { attempt: 1, maxRetries: 2, delayMs: 500 };
+  const state = projectWorkflow({ ...progress, agents: [{ ...progress.agents[0], retry, rateLimitRetries: 1 }] }, 'call')!;
+  assert.deepEqual(state.agents[0].retry, retry);
+  assert.match(workflowRetryText(state.agents[0], 'zh'), /重试 1\/2/);
+  const recovered = { ...state.agents[0], status: 'completed' as const, retry: undefined };
+  assert.match(workflowRetryText(recovered, 'en'), /Recovered.*1 retry/);
+  const exhausted = { ...recovered, status: 'failed' as const, error: { ...failure.error, retryExhausted: true } };
+  assert.match(workflowRetryText(exhausted, 'zh'), /重试次数已耗尽/);
+  const previous = { ...resultMessage(progress), desktopWorkflow: state };
+  assert.equal(preserveWorkflow(previous, resultMessage(final)).desktopWorkflow?.agents[0].retry, undefined);
+  assert.equal(projectWorkflow({ ...progress, status: 'failed', agents: [{ ...progress.agents[0], retry }] }, 'call')?.agents[0].retry, undefined);
+  const messages: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', name: 'workflow', id: 'call' }] }, previous];
+  assert.equal(workflowsFromMessages(messages, false)[0].agents[0].retry, undefined);
+  for (const invalid of [{ ...retry, attempt: 3 }, { ...retry, delayMs: -1 }, { ...retry, maxRetries: 1.5 }]) {
+    assert.equal(projectWorkflow({ ...progress, agents: [{ ...progress.agents[0], retry: invalid }] }, 'call')?.agents[0].retry, undefined);
+  }
+});
+
+test('failure surfaces are bounded, allowlisted, and redact credentials without exposing source paths', () => {
+  const state = projectWorkflow({ ...failureResult, failures: Array.from({ length: 1001 }, (_, index) => ({
+    ...failure, id: String(index), error: { code: 'invalid code!', message: 'API_KEY=private', retryable: 'yes' },
+  })), taskFailures: [
+    { ...callback, script: 'C:\\private\\secret.js', message: 'Authorization: Bearer private' },
+    { ...callback, script: 'return agent("secret")' },
+    { ...callback, script: 'API_KEY=private' },
+    { ...callback, primitive: 'eval' },
+    { ...callback, index: -1 },
+    ...Array.from({ length: 100 }, () => callback),
+  ] }, 'call')!;
+  assert.equal(state.agents.length, 1000);
+  assert.equal(state.agents[0].error?.message, '[redacted]');
+  assert.equal(state.agents[0].error?.code, '');
+  assert.equal(state.agents[0].error?.retryable, undefined);
+  assert.equal(state.taskFailures?.length, 98);
+  assert.ok(state.taskFailures?.slice(0, 3).every(item => item.script === undefined));
+  assert.equal(state.taskFailures?.[0].message, '[redacted]');
+});
+
+test('history reload restores failure details and callbacks even with no progress file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'workflow-failure-'));
+  try {
+    const message = resultMessage(failureResult);
+    const restored = (await hydrateWorkflowHistory(root, [message]))[0].desktopWorkflow!;
+    assert.equal(restored.agents[0].error?.code, 'NODE_FAILED');
+    assert.equal(restored.taskFailures?.[0].message, callback.message);
+    const directory = join(root, '.stepcode', 'workflows', 'runs', progress.runId);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'progress.json'), JSON.stringify({ ...progress, agents: [
+      { ...progress.agents[0], status: 'cached' }, { ...progress.agents[1], rateLimitRetries: 2 },
+    ] }));
+    const hydrated = (await hydrateWorkflowHistory(root, [message]))[0].desktopWorkflow!;
+    assert.deepEqual(hydrated.agents.map(agent => agent.status), ['cached', 'failed']);
+    assert.equal(hydrated.agents[1].rateLimitRetries, 2);
+    assert.equal(hydrated.agents[1].error?.message, 'Invalid request');
+    assert.equal(hydrated.taskFailures?.length, 1);
+    assert.equal(hydrated.cacheHits, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test('stopping remains active until a terminal result and never spins in idle history', () => {
   const stopping = { ...progress, status: 'stopping' };

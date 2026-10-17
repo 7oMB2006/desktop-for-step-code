@@ -1,4 +1,5 @@
 import { Check, Cloud, ExternalLink, KeyRound, LogOut } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { Settings } from './contracts';
 import './account-settings.css';
 import { StepPlatformIcon } from './ProviderBrand';
@@ -15,10 +16,11 @@ const channels: Record<string, { title: string; zh: string; en: string }> = {
   platform_oversea: { title: 'API Key', zh: '海外', en: 'International' },
 };
 
-export function AccountSettings({ settings, profile, onProfile, apiKey, onKey, loggingIn, busy, language, onLogin, onCancel, onLogout }: {
+export function AccountSettings({ settings, profile, onProfile, apiKey, onKey, loggingIn, busy, language, onLogin, onCancel, onLogout, allowance }: {
   settings: Settings; profile: string; onProfile: (id: string) => void;
   apiKey: string; onKey: (key: string) => void; loggingIn: boolean; busy: boolean;
   language: string; onLogin: () => void; onCancel: () => void; onLogout: () => void;
+  allowance?: ReactNode;
 }) {
   const t = (zh: string, en: string) => language === 'en' ? en : zh;
   const { account } = settings;
@@ -33,7 +35,7 @@ export function AccountSettings({ settings, profile, onProfile, apiKey, onKey, l
       <div className="account-identity-text"><strong>{active ? `${active.title} · ${t(active.zh, active.en)}` : t('阶跃开放平台', 'StepFun platform')}</strong><span className={`account-status${verified ? ' is-verified' : account.validity === 'invalid' ? ' is-invalid' : ''}`}><i/>{status}</span>{account.userId && <span className="account-user-id">UID {account.userId}</span>}</div>
       {account.loggedIn && <button className="account-logout" disabled={busy || loggingIn} onClick={onLogout}><LogOut size={15}/>{t('退出登录', 'Sign out')}</button>}
     </div>
-    {account.loggedIn && <dl className="account-details"><div><dt>{active?.title === 'API Key' ? t('账户余额', 'Account balance') : t('套餐与额度', 'Plan and allowance')}</dt><dd>{t('当前接口未提供', 'Unavailable from the current API')}</dd></div></dl>}
+    {account.loggedIn && (allowance ?? <dl className="account-details"><div><dt>{active?.title === 'API Key' ? t('账户余额', 'Account balance') : t('套餐与额度', 'Plan and allowance')}</dt><dd>{t('当前接口未提供', 'Unavailable from the current API')}</dd></div></dl>)}
     <h4>{t('登录方式', 'Sign-in method')}</h4>
     <div className="account-channels" role="group" aria-label={t('登录方式', 'Sign-in method')}>
       {settings.profiles.map(item => {

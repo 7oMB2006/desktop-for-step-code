@@ -19,6 +19,7 @@ import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } f
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { AuthVault } from './auth-vault';
+import { AccountAllowanceService } from './account-allowance';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
 let providerTestController: AbortController | undefined;
@@ -181,6 +182,23 @@ const env = isolatedEnvironment(dataRoot);
 const vault = new AuthVault(dataRoot);
 let authData: Record<string, unknown> = {};
 let appliedAuthData: Record<string, unknown> = {};
+const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
+  (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
+  Date.now, () => performance.now(), 12000, async signal => {
+    const credential = appliedAuthData.step;
+    const next = await admin.request('refresh_allowance_credential', { credential }, 11000);
+    if (signal.aborted || settingsMutation || appliedAuthData.step !== credential || authData.step !== credential)
+      throw new Error('Allowance credential changed');
+    if (!next || next.type !== 'oauth' || typeof next.access !== 'string' || !next.access.trim()
+      || typeof next.expires !== 'number' || next.expires <= Date.now() + 60000
+      || next.profile !== (credential as Record<string, unknown>).profile
+      || next.uid !== (credential as Record<string, unknown>).uid) throw new Error('Invalid refreshed credential');
+    settingsMutation = true;
+    try {
+      await persistAuth({ ...authData, step: next });
+      appliedAuthData = { ...appliedAuthData, step: next };
+    } finally { settingsMutation = false; }
+  });
 let providerSettingsPending = false;
 let providerApplyFailed = false;
 let providerApplication: Promise<void> | undefined;
@@ -1287,6 +1305,10 @@ async function handle(method: string, args: any[]) {
         if (type === 'set_model' || type === 'set_thinking_level') void pendingMessages.drain(worker);
       }
     }
+    case 'accountAllowance':
+      if (args[0] !== undefined && typeof args[0] !== 'boolean') throw new Error('Invalid allowance refresh');
+      return accountAllowance.query(args[0] === true);
+    case 'cancelAccountAllowance': accountAllowance.cancel(); return null;
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
     case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
     case 'cancelProviderTest': providerTestController?.abort(); return;
@@ -1310,10 +1332,13 @@ async function handle(method: string, args: any[]) {
     }
     case 'login': {
       await guardIdle();
+      accountAllowance.cancel();
       await applyProviderSettings();
       const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
       await persistAuth(mergeRuntimeAuth(authData, next));
       appliedAuthData = authData;
+      await admin.stop();
+      admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
       const current = runtimes.active;
       const draft = sessionDraft;
       await runtimes.stopAll();
@@ -1324,10 +1349,13 @@ async function handle(method: string, args: any[]) {
     case 'cancelLogin': return admin.request('cancel_login');
     case 'logout': {
       await guardIdle();
+      accountAllowance.cancel();
       await applyProviderSettings();
       const next = await admin.request('logout');
       await persistAuth(mergeRuntimeAuth(authData, next));
       appliedAuthData = authData;
+      await admin.stop();
+      admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
       const current = runtimes.active;
       const draft = sessionDraft;
       await runtimes.stopAll();

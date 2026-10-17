@@ -1,5 +1,131 @@
 # Verification
 
+## Usage Account Allowance Bridge (2026-10-17)
+
+The account page now queries the schema-1 personal Plan allowance endpoint
+through a narrow preload IPC and a main-process service using the application's
+already-loaded Desktop credentials. Renderer input cannot choose an endpoint
+or supply a key. This does not change the upstream runtime pin.
+
+The official plan name precedes quota meters. Coding windows and Token
+subscription/top-up buckets follow the actual response family; a missing,
+zero-total, unsupported or partial bucket never implies a zero or full balance.
+Queries are bounded, cancellable, cached and identity-checked. Temporary
+failures retain a labeled stale snapshot; authentication failures clear the
+snapshot without deleting credentials. No background network polling runs.
+
+Typecheck, production build, 447 tests and twelve CI policy/runner tests passed.
+The eight focused allowance tests also cover timeout and late-response races.
+Isolated Electron allowance acceptance passed using a migrated test vault and
+controlled main-process HTTP responses, alongside account-settings and vault
+regressions. Browser previews cover light/dark, narrow English and reduced
+motion. Both new acceptance scripts are registered in the interface CI group.
+
+The local preview installer at
+`D:\Desktop For Step Code\Desktop\release\usage-account-20261017-preview`
+passed packaged allowance and auth-vault acceptance with isolated fixtures.
+All 98 packaged Desktop build files and 1,157 runtime files match staged
+source hashes; installer metadata size and SHA-512 also match. Installer
+SHA-256 is `4ee581df675fc7f4fa67a6c939ce332db0f92f4d8a2c01ead99ad463d93a485b`.
+The ordinary desktop shortcut now targets this preview's unpacked executable;
+the previous shortcut was backed up and running user applications were not
+closed. The unsigned preview retains version 0.5.0 and is not a public release.
+
+These are fixture results, not confirmation of the official backend's
+availability or a real account's plan. Installer lifecycle and real-account
+allowance acceptance remain unverified.
+
+The PR #129 P1 follow-up refreshes expired OAuth credentials through the
+upstream provider's refresh implementation in the management process before
+querying allowance. Refreshed credentials are saved to the Desktop vault
+before use; identity, cancellation and shared-settings guards prevent a late
+refresh from replacing another account. The existing query timeout bounds
+the refresh as well. Typecheck, build and 449 tests passed. Dedicated Electron
+acceptance starts with an expired static upstream fixture credential and
+verifies refresh, encrypted persistence and readability after restart. Unit
+tests cover rotated credentials, single-flight refresh, failure, cancellation
+and account changes. This follow-up has not been packaged and does not
+establish real OAuth-server refresh acceptance.
+
+The additional local-review P2 follow-up preserves official `allowed` and
+bounded `reason` metadata independently of quota percentages. Restricted
+accounts show a localized warning even when their remaining balance is
+positive or another query notice is present. Server `observed_at_ms` now
+drives reset/expiry boundary checks, including responses generated before
+but received after a boundary. Such snapshots stay stale and cannot satisfy
+the fresh cache. Twelve focused tests cover denial and all three boundary
+types; typecheck, build and all 451 tests passed. Dedicated Electron
+acceptance verifies the restricted warning and
+stale display together with the existing OAuth/vault regressions.
+
+### Local Official API Balance Preview (2026-10-17)
+
+The local follow-up queries only the fixed CN/Global official accounts
+endpoints with the selected Desktop platform credential. It projects available
+balance and prepaid/postpaid account type, never derives remaining cash or
+voucher amounts from lifetime totals, and does not invent a currency when the
+response omits one. Custom-provider credentials are not sent to these endpoints.
+Plan credential refresh remains specific to personal Plan profiles.
+
+Typecheck, production build, all 455 tests (serialized), twelve CI policy/runner
+tests and browser account acceptance passed. Default parallel tests stalled in
+the existing terminal fixture; that owned test tree was stopped before the
+successful serial run. Packaged API balance, Plan allowance and auth-vault
+acceptance passed with isolated credentials and controlled HTTP responses.
+Coverage includes regional endpoints, zero/negative prepaid balance, postpaid
+balance, stale/error/auth states, cancellation and the official website link.
+
+The local package is
+`D:\Desktop For Step Code\Desktop\release\usage-plan-api-20261017-preview`.
+All 98 Desktop build files and 1,157 runtime files match staged source hashes;
+update metadata validation passed. Installer SHA-256 is
+`5d67add82c0f67efcbabb6f08e7bb5492cd99897cdddaae4ce7973f0cc9ee1a1`.
+Its source is base commit `40f048804d8a2acfba050e45710aabf5560dc5b2` plus
+uncommitted API balance changes, not that commit alone. Runtime pin remains
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`.
+
+The ordinary desktop shortcut targets the new unpacked executable; its
+previous version was backed up in the package directory. Running user windows
+and previous packages were preserved. No real-account balance request,
+installer lifecycle test, API-change push, merge or public release is claimed.
+
+### Account Billing-Route Regression (2026-10-17)
+
+The follow-up synchronizes the management process's model-discovery endpoint
+with the stored login profile before resolving draft-session options. The
+previous package reproducibly queried the default Plan models endpoint while
+signed into the platform API profile. This is evidence of a model-discovery
+mismatch, not evidence of a wrongly billed chat request. Login/logout now
+restart management with the applied credential snapshot as well as rebuilding
+session workers.
+
+The new interface-CI acceptance uses the real upstream remote-login polling
+flow, Desktop vault/IPC and runtime with synthetic credentials and local HTTP
+transport. It checks CN API -> CN Plan -> Global API -> Global Plan -> CN API,
+including a persisted Step model whose old API base must be normalized. Each
+phase verifies both model discovery and actual chat endpoint/credential pairs,
+plus the matching allowance source. Plan model-detail metadata intentionally
+uses the runtime's regional `/v1/models/...` path; this is not a chat request.
+Running API work rejects a login change, pending authorization blocks prompts,
+canceling authorization preserves the previous profile, and a denied Plan chat
+never falls back to API billing. No real credentials or official billing
+transactions were used.
+
+Typecheck, build, 455 serialized tests and twelve CI policy/runner tests passed.
+One earlier full run failed in the unrelated session-collaboration test file;
+the complete rerun passed. Source and packaged routing, Plan allowance and
+auth-vault acceptance passed; packaged API balance acceptance also passed.
+The new local package is
+`D:\Desktop For Step Code\Desktop\release\usage-account-routing-20261017-preview`.
+All 98 Desktop build files and 1,157 runtime files match staged sources,
+including the updated management helper; update metadata validation passed.
+Installer SHA-256 is
+`3c2866121f01442fbc663934211340e7810a33a7e92abafd717354d8afebaa3a`.
+It remains version 0.5.0 with the same upstream pin and uncommitted local
+changes. The normal shortcut was backed up and updated; running user windows
+and old packages were preserved. This does not establish official backend
+charging behavior, installer lifecycle acceptance or a public release.
+
 ## Accent Acknowledgement Race (2026-10-16)
 
 Cloud run 38694832584 passed HEX input and then timed out comparing the canceled

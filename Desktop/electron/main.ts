@@ -816,7 +816,7 @@ async function handle(method: string, args: any[]) {
         case 'quit': app.quit(); break;
         default: throw new Error('Unsupported window action');
       }
-      return { maximized: window.isMaximized() };
+      return { maximized: window.isMaximized(), fullscreen: window.isFullScreen(), focused: window.isFocused() };
     }
     case 'snapshot': {
       await startup;
@@ -1598,9 +1598,11 @@ else app.whenReady().then(async () => {
   browser = new BrowserTabs(window, event => {
     if (!window.isDestroyed()) window.webContents.send('browser-event', event);
   }, () => preferences.language);
-  const windowState = () => emit({ type: 'desktop_window_state', maximized: window.isMaximized(), focused: window.isFocused() });
+  const windowState = () => emit({ type: 'desktop_window_state', maximized: window.isMaximized(), fullscreen: window.isFullScreen(), focused: window.isFocused() });
   window.on('maximize', windowState);
   window.on('unmaximize', windowState);
+  window.on('enter-full-screen', windowState);
+  window.on('leave-full-screen', windowState);
   window.on('focus', windowState);
   window.on('blur', windowState);
   window.webContents.setWindowOpenHandler(({ url }) => { try { const u = new URL(url); if (['https:', 'http:'].includes(u.protocol)) void shell.openExternal(u.href); } catch {} return { action: 'deny' }; });

@@ -5,6 +5,7 @@ export type WindowMenu = { id: string; label: string; items: { label: string; ac
 
 export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle, onMenuOpenChange, inert = false }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string; onMenuOpenChange?: (open: boolean) => void; inert?: boolean }) {
   const [maximized, setMaximized] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [focused, setFocused] = useState(true);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -14,9 +15,9 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
   useEffect(() => { onMenuOpenChange?.(Boolean(openMenu)); }, [openMenu, onMenuOpenChange]);
   useEffect(() => {
     let active = true;
-    void bridge?.windowControl('state').then(state => { if (active) setMaximized(state.maximized); }).catch(() => {});
+    void bridge?.windowControl('state').then(state => { if (active) { setMaximized(state.maximized); setFullscreen(state.fullscreen); setFocused(state.focused); } }).catch(() => {});
     const unsubscribe = bridge?.onEvent(event => {
-      if (event.type === 'desktop_window_state') { setMaximized(event.maximized); setFocused(event.focused); }
+      if (event.type === 'desktop_window_state') { setMaximized(event.maximized); setFullscreen(event.fullscreen); setFocused(event.focused); }
     });
     return () => { active = false; unsubscribe?.(); };
   }, []);
@@ -34,7 +35,7 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
     setOpenMenu(null);
     void bridge?.windowControl(action).then(state => setMaximized(state.maximized)).catch(() => {});
   };
-  return <header inert={inert} className={`window-bar ${mac ? 'window-bar-macos' : ''} ${focused ? '' : 'window-inactive'}`}>
+  return <header inert={inert} className={`window-bar ${mac ? 'window-bar-macos' : ''} ${mac && fullscreen ? 'window-fullscreen' : ''} ${focused ? '' : 'window-inactive'}`}>
     <div className="window-tools" ref={mac ? undefined : menuRef}>
       <button type="button" className="window-sidebar-toggle" data-tooltip={zh ? '侧栏' : 'Sidebar'} aria-label={zh ? '侧栏' : 'Sidebar'} aria-expanded={sidebarVisible} onClick={() => { setOpenMenu(null); toggleSidebar(); }}><PanelLeft size={18}/></button>
       {!mac && <nav className="window-menu-list" aria-label={zh ? '应用菜单' : 'Application menu'}>

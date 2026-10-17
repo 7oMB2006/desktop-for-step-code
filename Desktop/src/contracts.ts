@@ -73,7 +73,7 @@ export interface DesktopBridge {
   repositoryDiff(runtimeId: string, base?: string): Promise<RepositoryDiff>;
   repositoryFileDiff(runtimeId: string, base: string, path: string): Promise<RepositoryFileDiff>;
   turnUndo(runtimeId: string, toolIds: string[], action: 'status' | 'prepare' | 'undo', token?: string): Promise<TurnUndoState>;
-  windowControl(action: 'state' | 'minimize' | 'toggleMaximize' | 'close' | 'quit'): Promise<{ maximized: boolean }>;
+  windowControl(action: 'state' | 'minimize' | 'toggleMaximize' | 'close' | 'quit'): Promise<{ maximized: boolean; fullscreen: boolean; focused: boolean }>;
   systemTheme(): Promise<{ systemDark: boolean }>;
   snapshot(): Promise<Snapshot>;
   beginSession(workspace?: string): Promise<Snapshot>;

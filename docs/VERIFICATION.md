@@ -1,5 +1,21 @@
 # Verification
 
+## macOS compact fullscreen toolbar (2026-10-17)
+
+Window-state replies and events now include native fullscreen state. macOS uses
+a 40px toolbar in fullscreen, removes the traffic-light inset, and places the
+collapsed-sidebar toggle 12px from the left edge. Leaving fullscreen restores
+the existing 52px toolbar and native control clearance. Windows styling is unchanged.
+
+Typecheck, production build and 444 unit/protocol tests passed (one existing
+Windows-only skip). Source and packaged window-toolbar acceptance passed for
+expanded/collapsed fullscreen layout and restoration; 1,258 packaged resources
+matched. The layout assertions simulate the state event for runners without
+Spaces; native entry/exit was also exercised in the installed application.
+The full source/package acceptance reached these new checks successfully but
+then timed out at the pre-existing archive-feedback toast expiry assertion.
+No release-readiness claim is made from this focused result.
+
 ## Desktop local-preview delivery (2026-10-17)
 
 Session workers now append truthful Desktop presentation guidance alongside the

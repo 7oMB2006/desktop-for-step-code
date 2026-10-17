@@ -267,6 +267,26 @@ try {
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreenable()), true);
     const geometry = await page.locator('.window-sidebar-toggle').boundingBox();
     assert.ok(geometry.x >= 96, 'Sidebar toggle must clear native traffic lights');
+    // Exercise renderer layout independently of a CI runner's native Spaces support.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'desktop_window_state', maximized: false, fullscreen: true, focused: false,
+    }));
+    await page.locator('.window-bar-macos.window-fullscreen').waitFor();
+    assert.equal((await page.locator('.window-bar').boundingBox()).height, 40);
+    await page.getByRole('button', { name: '侧栏', exact: true }).click();
+    await page.locator('.sidebar').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('.window-tools').getBoundingClientRect().width === 56);
+    const fullToggle = await page.locator('.window-sidebar-toggle').boundingBox();
+    assert.ok(fullToggle.x >= 8 && fullToggle.x <= 16, 'Fullscreen toggle reclaims native controls inset');
+    assert.ok(fullToggle.y >= 0 && fullToggle.y + fullToggle.height <= 40, 'Fullscreen toggle stays inside toolbar');
+    await page.screenshot({ path: 'test-results/macos-fullscreen-sidebar-hidden.png' });
+    await page.getByRole('button', { name: '侧栏', exact: true }).click();
+    await page.locator('.sidebar').waitFor({ state: 'visible' });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'desktop_window_state', maximized: false, fullscreen: false, focused: false,
+    }));
+    await page.waitForFunction(() => !document.querySelector('.window-bar').classList.contains('window-fullscreen'));
+    assert.equal((await page.locator('.window-bar').boundingBox()).height, 52);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
   } else {
     await page.getByRole('button', { name: '最大化', exact: true }).click();

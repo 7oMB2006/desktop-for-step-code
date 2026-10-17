@@ -35,6 +35,12 @@ export function AppUpdates({ bridge, state, preferences, onPreferences }: {
     catch { if (active.current) setActionError(t('操作未完成，请重试。', 'The action could not be completed. Please retry.')); }
     finally { if (active.current) setBusy(false); }
   };
+  if (bridge?.platform === 'darwin') return <section className="app-updates" aria-label={t('应用更新', 'App updates')}>
+    <div className="update-version"><div><strong>Desktop for Step Code</strong><span>{state ? `v${state.currentVersion}` : '…'} · macOS</span></div><span className="update-edition">{t('社区预览版', 'Community preview')}</span></div>
+    <p role="status">{t('macOS 实验版暂不支持应用内检查或自动更新，请在发布页查看版本并手动下载安装。', 'This experimental macOS build does not support update checks or automatic updates. Visit Releases to check versions and install manually.')}</p>
+    <div className="update-actions"><button disabled={busy} onClick={() => void run(() => bridge.openUpdate('release'))}><ArrowUpRight size={15}/>{t('发布页', 'Releases')}</button></div>
+    {actionError && <p className="update-action-error" role="alert">{actionError}</p>}
+  </section>;
   const checking = state?.status === 'checking';
   const release = state?.release;
   const available = state?.updateAvailable === true;
@@ -72,7 +78,7 @@ export function AppUpdates({ bridge, state, preferences, onPreferences }: {
   const time = (value: number) => new Intl.DateTimeFormat(zh ? 'zh-CN' : 'en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(value);
   const Icon = checking || downloading || installing ? RefreshCw : transfer?.status === 'error' || state?.status === 'error' ? TriangleAlert : ready || state?.status === 'current' ? Check : ArrowUpRight;
   return <section className="app-updates" aria-label={t('应用更新', 'App updates')}>
-    <div className="update-version"><div><strong>Desktop for Step Code</strong><span>{state ? `v${state.currentVersion}` : '…'} · Windows x64</span></div><span className="update-edition">{t('社区预览版', 'Community preview')}</span></div>
+    <div className="update-version"><div><strong>Desktop for Step Code</strong><span>{state ? `v${state.currentVersion}` : '…'} · {window.desktop?.platform === 'darwin' ? 'macOS · 预览版' : 'Windows x64'}</span></div><span className="update-edition">{t('社区预览版', 'Community preview')}</span></div>
     <div className={`update-status${transfer?.status === 'error' || state?.status === 'error' ? ' failed' : available ? ' available' : ''}`} role="status" aria-live="polite">
       <Icon size={17} className={checking || downloading || installing ? 'update-spinning' : undefined}/><div><strong>{status}</strong>
         <small>{checking ? 'GitHub Releases' : state?.checkedAt ? t(`检查于 ${time(state.checkedAt)}`, `Checked ${time(state.checkedAt)}`) : 'GitHub Releases'}</small>

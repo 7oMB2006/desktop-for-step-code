@@ -1,3 +1,4 @@
+import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -49,12 +50,18 @@ import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Model, PermissionPreset, Preferences, Session, Snapshot } from '../src/contracts';
 import { validateSidebarPreferences } from '../src/sidebar-order';
-import { relocatedWorkspace, relocateWorkspace, removeWorkspace } from './workspace-management';
+import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
 app.setName('Desktop for Step Code');
 app.setAppUserModelId('community.stepcode.desktop');
+if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplate([
+  { role: 'appMenu' }, { role: 'editMenu' },
+  { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+    { type: 'separator' }, { role: 'togglefullscreen' }] },
+  { role: 'windowMenu' },
+]));
 if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
@@ -139,7 +146,7 @@ async function importAttachment(path: string) {
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
-const pathKey = (path: string) => resolve(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const pathKey = (path: string) => normalizedWorkspaceKey(resolve(path), process.platform);
 async function samePath(a: string, b: string) {
   if (pathKey(a) === pathKey(b)) return true;
   try {
@@ -173,7 +180,7 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
   return matches.find(match => match.same)?.workspace;
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
-const nodePath = join(runtimeRoot, 'node/node.exe');
+const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const terminals = new TerminalSessions(nodePath,
   app.isPackaged ? join(process.resourcesPath, 'terminal-runtime/host.cjs') : resolve('terminal-runtime/host.cjs'),
   event => { if (window && !window.isDestroyed()) window.webContents.send('terminal-event', event); });
@@ -541,8 +548,8 @@ async function handle(method: string, args: any[]) {
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
     case 'updateState': return { ...updates.snapshot(), transfer: installer.snapshot() };
-    case 'checkUpdates': await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
-    case 'openUpdate': return shell.openExternal(updates.openTarget(args[0]));
+    case 'checkUpdates': if (process.platform !== 'win32') throw new Error('Update checks are not supported on this platform; use the releases page'); await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
+    case 'openUpdate': return shell.openExternal(process.platform === 'win32' ? updates.openTarget(args[0]) : 'https://github.com/7oMB2006/desktop-for-step-code/releases');
     case 'downloadUpdate': {
       await maintainUpdateCache();
       const state = updates.snapshot();
@@ -614,6 +621,7 @@ async function handle(method: string, args: any[]) {
         const error = await shell.openPath(file.path);
         if (error) throw new Error(error);
       } else if (destination === 'other') {
+        if (process.platform !== 'win32') throw new Error('Choose another application is only available on Windows; use the system default application');
         await associationRequest(fileAssociationScript(), { action: 'other', path: file.path,
           window: window.getNativeWindowHandle().readBigUInt64LE().toString() }, 300000);
       } else if (destination.startsWith('app:')) {
@@ -633,7 +641,7 @@ async function handle(method: string, args: any[]) {
       if (canOpenExternally(file.path)) {
         choices.push({ id: 'system', label: zh ? '系统默认应用' : 'System default app' });
         choices.push(...await fileApplications(fileAssociationScript(), extname(file.path)));
-        choices.push({ id: 'other', label: zh ? '选择其他应用…' : 'Choose another app…' });
+        if (process.platform === 'win32') choices.push({ id: 'other', label: zh ? '选择其他应用…' : 'Choose another app…' });
       }
       if (!choices.length) throw new Error('No opening options for this file type');
       const saved = preferences.fileOpeningApps?.[extname(file.path).toLowerCase()];
@@ -795,7 +803,7 @@ async function handle(method: string, args: any[]) {
       if (!['status', 'prepare', 'undo'].includes(action)) throw new Error('Invalid undo action');
       await undoCaptures.get(worker.id);
       const entry = conversationEntries(worker.messages).find(entry => entry.type === 'response' &&
-        JSON.stringify(turnChanges(entry.items).files.flatMap(file => file.edits.map(edit => edit.id))) === JSON.stringify(args[1]));
+        JSON.stringify(turnChanges(entry.items, process.platform).files.flatMap(file => file.edits.map(edit => edit.id))) === JSON.stringify(args[1]));
       if (entry?.type !== 'response' || !worker.state?.sessionId) throw new Error('Turn not found');
       const sessionId = worker.state.sessionId;
       if (action === 'status') return undoStore.status(sessionId, worker.cwd, entry.items);
@@ -826,7 +834,7 @@ async function handle(method: string, args: any[]) {
         case 'quit': app.quit(); break;
         default: throw new Error('Unsupported window action');
       }
-      return { maximized: window.isMaximized() };
+      return { maximized: window.isMaximized(), fullscreen: window.isFullScreen(), focused: window.isFocused() };
     }
     case 'snapshot': {
       await startup;
@@ -1508,7 +1516,7 @@ app.on('before-quit', event => {
     }
   })();
 });
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('second-instance', showMainWindow);
 app.on('activate', showMainWindow);
 if (!app.requestSingleInstanceLock()) { quitting = true; app.quit(); }
@@ -1526,6 +1534,7 @@ else app.whenReady().then(async () => {
   await projectProviders(dataRoot, authData);
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
+  preferences = migrateWorkspaceIdentity(preferences);
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.theme = normalizeTheme(preferences.theme);
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;
@@ -1555,7 +1564,7 @@ else app.whenReady().then(async () => {
     if (existsSync(steppageBundle)) {
       const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
       const existing = settings?.mcp?.[steppageName];
-      const looksDesktopWritten = /runtime[/\\]node[/\\]node\.exe$/i.test(String(existing?.command ?? ''));
+      const looksDesktopWritten = /runtime[/\\]node[/\\]node(?:\.exe)?$/i.test(String(existing?.command ?? ''));
       const staleManaged = Boolean(existing) && looksDesktopWritten
         && typeof existing.command === 'string'
         && !(await samePath(existing.command, nodePath));
@@ -1587,7 +1596,7 @@ else app.whenReady().then(async () => {
     return { systemDark: nativeTheme.shouldUseDarkColors };
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
-  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'), frame: false, backgroundColor: resolvedColors().tokens['--bg'], autoHideMenuBar: true, show: false, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
+  window = new BrowserWindow({ width: 1320, height: 880, minWidth: 640, minHeight: 540, title: 'Desktop for Step Code', icon: app.isPackaged ? join(process.resourcesPath, process.platform === 'darwin' ? 'icon.png' : 'icon.ico') : resolve(process.platform === 'darwin' ? 'build/icon.png' : 'build/icon.ico'), frame: process.platform === 'darwin', ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 20, y: 19 } } : {}), backgroundColor: resolvedColors().tokens['--bg'], autoHideMenuBar: true, show: false, focusable: !backgroundAcceptance, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, ...(backgroundAcceptance ? { backgroundThrottling: false } : {}) } });
   let shellShown = false;
   const revealShell = () => {
     if (shellShown || quitting || window.isDestroyed()) return;
@@ -1617,15 +1626,17 @@ else app.whenReady().then(async () => {
   browser = new BrowserTabs(window, event => {
     if (!window.isDestroyed()) window.webContents.send('browser-event', event);
   }, () => preferences.language);
-  const windowState = () => emit({ type: 'desktop_window_state', maximized: window.isMaximized(), focused: window.isFocused() });
+  const windowState = () => emit({ type: 'desktop_window_state', maximized: window.isMaximized(), fullscreen: window.isFullScreen(), focused: window.isFocused() });
   window.on('maximize', windowState);
   window.on('unmaximize', windowState);
+  window.on('enter-full-screen', windowState);
+  window.on('leave-full-screen', windowState);
   window.on('focus', windowState);
   window.on('blur', windowState);
   window.webContents.setWindowOpenHandler(({ url }) => { try { const u = new URL(url); if (['https:', 'http:'].includes(u.protocol)) void shell.openExternal(u.href); } catch {} return { action: 'deny' }; });
   window.webContents.on('will-navigate', event => event.preventDefault());
   try {
-    tray = new DesktopTray(app.isPackaged ? join(process.resourcesPath, 'icon.ico') : resolve('build/icon.ico'),
+    tray = new DesktopTray(app.isPackaged ? join(process.resourcesPath, process.platform === 'darwin' ? 'tray.png' : 'icon.ico') : resolve(process.platform === 'darwin' ? 'build/tray.png' : 'build/icon.ico'),
       () => preferences.language, showMainWindow, () => app.quit(), {
         theme: resolvedTheme, colors: resolvedColors, quitting: () => quitting, noFocus: backgroundAcceptance,
         devUrl: !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined,
@@ -1674,7 +1685,7 @@ else app.whenReady().then(async () => {
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
   if (restoreRequested) { restoreRequested = false; showMainWindow(); }
   // Update checks are independent of runtime/model startup and never block first paint.
-  if (app.isPackaged && !backgroundAcceptance) {
+  if (process.platform === 'win32' && app.isPackaged && !backgroundAcceptance) {
     const check = () => { if (!quitting && preferences.autoCheckUpdates !== false) void updates.check(); };
     setTimeout(check, 10_000).unref();
     setInterval(check, 6 * 60 * 60 * 1000).unref();

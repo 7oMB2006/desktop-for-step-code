@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionRuntimes, taskOutcome, type WorkerTransport } from '../electron/session-runtimes';
-import { WORKSPACE_POLICY } from '../electron/workspace-policy';
+import { WORKSPACE_POLICY, DESKTOP_SYSTEM_POLICY, desktopSystemPolicy } from '../electron/workspace-policy';
 import type { RuntimeEvent } from '../src/contracts';
 import { QUESTION_TITLE } from '../src/questionnaire';
 import { MessageRevision } from '../src/message-revision';
@@ -707,11 +707,17 @@ test('cancelled or stale branches dispose the new worker and leave the source ac
 
 test('session workers append shared-workspace rules without replacing project or product instructions', async () => {
   const { pool, transports, open } = fixture();
-  await open();
-  assert.deepEqual(transports[0].startArgs, ['--append-system-prompt', WORKSPACE_POLICY]);
+  const worker = await open();
+  assert.deepEqual(transports[0].startArgs, ['--append-system-prompt', desktopSystemPolicy(worker.cwd)]);
+  assert.ok(desktopSystemPolicy('/Work/中文 project', 'darwin').includes('Platform: darwin'));
+  assert.ok(desktopSystemPolicy('/Work/中文 project', 'darwin').includes(JSON.stringify('/Work/中文 project')));
   assert.ok(WORKSPACE_POLICY.includes('Re-read the current file'));
   assert.ok(WORKSPACE_POLICY.includes('paths or hunks'));
   assert.ok(WORKSPACE_POLICY.includes('do not assume'));
+  assert.ok(DESKTOP_SYSTEM_POLICY.includes(WORKSPACE_POLICY));
+  assert.ok(DESKTOP_SYSTEM_POLICY.includes('[Open preview](http://localhost:8765/)'));
+  assert.ok(DESKTOP_SYSTEM_POLICY.includes('Do not probe Desktop'));
+  assert.ok(DESKTOP_SYSTEM_POLICY.includes('Only publish when the user explicitly requests it'));
   await pool.stopAll();
 });
 

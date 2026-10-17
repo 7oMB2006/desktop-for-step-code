@@ -94,7 +94,7 @@ test('Desktop no-auth bootstrap loads from spaced paths in actual Node children'
     const id = providerList(auth)[0].id;
     const env = { ...isolatedEnvironment(root), ...keylessEnvironment(auth, bootstrap) };
     const script = `const r = await fetch(${JSON.stringify(`${baseUrl}/chat/completions`)}, { headers: { Authorization: ${JSON.stringify(`Bearer desktop-no-auth-${id}`)} } }); if (r.status !== 200) throw new Error('No-auth request failed'); console.log(await r.text());`;
-    const { stdout } = await promisify(execFile)(resolve('runtime/node/node.exe'), ['--input-type=module', '-e', script], { env, windowsHide: true, timeout: 15000 });
+    const { stdout } = await promisify(execFile)(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), ['--input-type=module', '-e', script], { env, windowsHide: true, timeout: 15000 });
     assert.equal(stdout.trim(), 'OK');
     assert.deepEqual(keylessEnvironment({}, bootstrap), {}, 'no bootstrap for ordinary providers');
   } finally {

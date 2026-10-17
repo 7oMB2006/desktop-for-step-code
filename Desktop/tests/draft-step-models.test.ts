@@ -15,7 +15,7 @@ test('draft management registers Step under its canonical credential/model ident
   } }));
   const rpc = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), root, isolatedEnvironment(root));
+    rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/admin.mjs'), root, isolatedEnvironment(root));
     const options = await rpc.request('session_options', { cwd: root }, 20000);
     assert.equal(options.model.provider, 'step');
     assert.equal(options.model.id, 'step-5-preview');

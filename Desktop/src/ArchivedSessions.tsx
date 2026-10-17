@@ -1,3 +1,4 @@
+import { normalizedWorkspaceKey } from './workspace-key';
 import { useState } from 'react';
 import { Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } from 'lucide-react';
 import type { Preferences, RuntimeSummary, Session } from './contracts';
@@ -9,8 +10,9 @@ export function ArchivedSessions({ sessions, preferences, runtimes, activeId, on
 }) {
   const zh = preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
-  const key = (path: string) => path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
-  const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+  const platform = window.desktop?.platform ?? 'win32';
+  const key = (path: string) => normalizedWorkspaceKey(path, platform);
+  const basename = (path: string) => path.split(platform === 'win32' ? /[\\/]/ : /\//).filter(Boolean).at(-1) ?? path;
   const groupId = (session: Session) => session.independent ? '__independent__' : key(session.workspacePath ?? session.cwd);
   const groupTitle = (session: Session) => session.independent ? t('独立会话', 'Independent sessions')
     : preferences.workspaceNames?.[groupId(session)] || basename(session.workspacePath ?? session.cwd);

@@ -1,3 +1,4 @@
+import { normalizedFileKey } from './workspace-key';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import type { Nodes, Root } from 'mdast';
@@ -5,7 +6,7 @@ import type { IndexedMessage } from './conversation-presentation';
 import type { Content } from './contracts';
 
 export type ArtifactKind = 'website' | 'image' | 'document' | 'spreadsheet' | 'presentation' | 'audio' | 'video' | 'file';
-export interface TurnArtifact { path: string; label: string; kind: ArtifactKind; inferred?: boolean }
+export interface TurnArtifact { path: string; label: string; kind: ArtifactKind; url?: string; inferred?: boolean }
 export function localReference(value?: string): string | undefined {
   if (!value || value.length > 4096 || /[\u0000-\u001f]/u.test(value)) return;
   let path = value;
@@ -29,11 +30,23 @@ export function artifactKind(path: string): ArtifactKind {
   if (['mp4', 'webm', 'mov'].includes(ext!)) return 'video';
   return 'file';
 }
-const parser = unified().use(remarkParse);
-const pathKey = (path: string) => path.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
-const basename = (path: string) => path.replace(/\\/g, '/').split('/').at(-1)!;
+// Local development previews are delivery targets, not arbitrary cited websites.
+// Never fetch or probe these URLs while identifying outputs.
+export function localPreviewUrl(value: string): string | undefined {
+  if (value.length > 4096 || /[\u0000-\u001f]/u.test(value)) return;
+  try {
+    const url = new URL(value.split(/[\s<>"'`*()，。！？；：]/u)[0]);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+      !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname.toLowerCase())) return;
+    return url.href.length <= 4096 ? url.href : undefined;
+  } catch { return; }
+}
 
-export function turnOutputPaths(items: IndexedMessage[]): string[] {
+const parser = unified().use(remarkParse);
+const pathKey = normalizedFileKey;
+const basename = (path: string, platform: string) => (platform === 'win32' ? path.replace(/\\/g, '/') : path).split('/').at(-1)!;
+
+export function turnOutputPaths(items: IndexedMessage[], platform: string = 'win32'): string[] {
   const calls = new Map<string, Content>();
   const found = new Map<string, string>();
   for (const { message } of items) {
@@ -46,12 +59,12 @@ export function turnOutputPaths(items: IndexedMessage[]): string[] {
     const args = call.arguments;
     const value = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>).path : undefined;
     const path = typeof value === 'string' ? localReference(value) : undefined;
-    if (path && artifactKind(path) !== 'file' && found.size < 64) found.set(pathKey(path), path);
+    if (path && artifactKind(path) !== 'file' && found.size < 64) found.set(pathKey(path, platform), path);
   }
   return [...found.values()];
 }
 
-export function turnArtifacts(text: string, outputPaths: string[] = []): TurnArtifact[] {
+export function turnArtifacts(text: string, outputPaths: string[] = [], platform: string = 'win32'): TurnArtifact[] {
   if (text.length > 200_000) return [];
   const tree = parser.parse(text) as Root;
   const definitions = new Map<string, string>();
@@ -59,32 +72,47 @@ export function turnArtifacts(text: string, outputPaths: string[] = []): TurnArt
   const found = new Map<string, TurnArtifact>();
   const add = (path: string, name: string, inferred = false) => {
     const kind = artifactKind(path);
-    const key = pathKey(path);
+    const key = pathKey(path, platform);
     if (kind !== 'file' && found.size < 12 && !found.has(key)) found.set(key, {
-      path, label: name.slice(0, 160) || basename(path), kind, ...(inferred ? { inferred: true } : {}),
+      path, label: name.slice(0, 160) || basename(path, platform), kind, ...(inferred ? { inferred: true } : {}),
     });
+  };
+  const addPreview = (value: string, name = '') => {
+    const url = localPreviewUrl(value);
+    if (!url || found.size >= 12 || found.has(`url:${url}`)) return;
+    const parsed = new URL(url);
+    found.set(`url:${url}`, { path: url, url, label: (name && !/^https?:\/\//i.test(name) ? name.slice(0, 160) : '') || `${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`, kind: 'website' });
   };
   const label = (node: Nodes): string => 'value' in node ? String(node.value) : 'children' in node ? node.children.map(child => label(child as Nodes)).join('') : '';
   const visit = (node: Nodes) => {
     if (node.type === 'link' || node.type === 'linkReference') {
-      const path = localReference(node.type === 'link' ? node.url : definitions.get(node.identifier.toLowerCase()));
+      const href = node.type === 'link' ? node.url : definitions.get(node.identifier.toLowerCase());
+      if (href) addPreview(href, label(node));
+      const path = localReference(href);
       if (path) add(path, label(node));
       return;
     }
+    if (node.type === 'text' || node.type === 'inlineCode' || node.type === 'code') {
+      // Code must be an address on its own, not an example command or script.
+      const source = node.type === 'text' ? node.value : node.value.split('\n')
+        .map(line => line.trim()).filter(line => /^https?:\/\/\S+$/i.test(line)).join('\n');
+      const previews = source.match(/https?:\/\/[^\s<>"'`*(){}，。！？；：]+/gi) ?? [];
+      for (const url of previews) addPreview(url);
+    }
     if (node.type === 'inlineCode') {
       let path = localReference(node.value);
-      if (path && !/[\\/]/.test(path)) {
-        const matches = outputPaths.filter(output => basename(output).toLowerCase() === path!.toLowerCase());
+      if (path && !(platform === 'win32' ? /[\\/]/.test(path) : path.includes('/'))) {
+        const matches = outputPaths.filter(output => pathKey(basename(output, platform), platform) === pathKey(path!, platform));
         path = matches.length === 1 ? matches[0] : matches.length > 1 ? undefined : path;
       }
-      if (path) add(path, basename(path), true);
+      if (path) add(path, basename(path, platform), true);
     }
     if ('children' in node) for (const child of node.children) visit(child as Nodes);
   };
   visit(tree);
   for (const value of outputPaths) {
     const path = localReference(value);
-    if (path) add(path, basename(path), true);
+    if (path) add(path, basename(path, platform), true);
   }
   return [...found.values()];
 }

@@ -10,7 +10,7 @@ process.on('message', (message: any) => {
   try {
     if (message.type === 'start' && !pty) {
       const initialize = "if (Get-Module -ListAvailable PSReadLine) { Import-Module PSReadLine; Set-PSReadLineOption -HistorySaveStyle SaveNothing; if ((Get-Command Set-PSReadLineOption).Parameters.ContainsKey('PredictionSource')) { Set-PSReadLineOption -PredictionSource None } }";
-      pty = spawn(message.shell, ['-NoLogo', '-NoProfile', '-NoExit', '-Command', initialize], {
+      pty = spawn(message.shell, process.platform === 'win32' ? ['-NoLogo', '-NoProfile', '-NoExit', '-Command', initialize] : ['-l'], {
         name: 'xterm-256color', cwd: message.cwd, env: process.env,
         cols: message.cols, rows: message.rows, useConpty: true,
       });
@@ -38,4 +38,5 @@ process.on('message', (message: any) => {
     process.disconnect();
   }
 });
+process.on('SIGTERM', () => { try { pty?.kill(); } catch {} process.exit(0); });
 process.on('disconnect', () => { try { pty?.kill(); } catch {} process.exit(0); });

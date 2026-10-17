@@ -151,7 +151,7 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
     }, undefined, {
       launch: () => ({ env: {}, args: ['--desktop-plan-review'] }),
     });
-    const node = resolve('runtime/node/node.exe');
+    const node = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
     const step = resolve('runtime/step/dist/bundle/step.js');
     const env = isolatedEnvironment(profile);
     const assertTaskSummary = async (worker: Awaited<ReturnType<typeof pool.open>>, expectedSessionId = sessionId) => {

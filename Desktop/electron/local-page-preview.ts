@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
-import { dirname, extname, resolve, relative, isAbsolute } from 'node:path';
+import { dirname, extname, resolve, relative, isAbsolute, sep } from 'node:path';
 import { parseHTML } from 'linkedom';
 import { sensitiveDiffPath } from '../src/review-source';
 
@@ -52,8 +52,8 @@ export class LocalPagePreview {
     }
     await this.collect(page);
     await this.start();
-    const name = relative(page.root, canonical).replaceAll('\\', '/');
-    return { url: `${this.origin}/${page.token}/${encodeURIComponent(name)}`, origin: this.origin! };
+    const name = relative(page.root, canonical).split(sep).map(encodeURIComponent).join('/');
+    return { url: `${this.origin}/${page.token}/${name}`, origin: this.origin! };
   }
   private async collect(page: Page) {
     const files = new Map<string, string>();
@@ -61,14 +61,14 @@ export class LocalPagePreview {
     for (let i = 0; i < queue.length && files.size < 128; i++) {
       const path = queue[i];
       const rel = relative(page.root, path);
-      if (rel === '..' || rel.startsWith('../') || rel.startsWith('..\\') || isAbsolute(rel) || sensitiveDiffPath(path)) continue;
+      if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) || sensitiveDiffPath(path)) continue;
       const ext = extname(path).toLowerCase();
       if (!types[ext]) continue;
       let canonical: string;
       try { canonical = await realpath(path); } catch { continue; }
       const inside = relative(page.root, canonical);
-      if (inside === '..' || inside.startsWith('../') || inside.startsWith('..\\') || isAbsolute(inside) || sensitiveDiffPath(canonical)) continue;
-      const key = rel.replaceAll('\\', '/');
+      if (inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside) || sensitiveDiffPath(canonical)) continue;
+      const key = rel.split(sep).join('/');
       if (files.has(key)) continue;
       const info = await stat(canonical);
       if (!info.isFile() || info.size > 8 * 1024 * 1024) continue;

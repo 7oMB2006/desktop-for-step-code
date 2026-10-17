@@ -1,0 +1,134 @@
+name: macOS Apple Silicon preview
+
+on:
+  push:
+    branches: [dot/macos-arm64]
+  pull_request:
+    paths:
+      - 'Desktop/**'
+      - 'patches/**'
+      - 'scripts/apply-step-code-desktop-patch.mjs'
+      - '.github/workflows/macos-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-preview-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: ARM64 build, tests and packaged acceptance
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          architecture: arm64
+      - name: Confirm native toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          corepack enable
+          node -p 'process.platform + "/" + process.arch'
+      - name: Fetch and patch frozen Step Code runtime
+        run: |
+          git init Step-Code
+          git -C Step-Code remote add origin https://github.com/stepfun-ai/Step-Code.git
+          git -C Step-Code fetch --depth 1 --no-tags origin 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
+          git -C Step-Code checkout --detach FETCH_HEAD
+          test "$(git -C Step-Code rev-parse HEAD)" = 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
+          node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/step-code-desktop.patch
+      - name: Build pinned Step Code
+        working-directory: Step-Code
+        run: |
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm build:offline
+      - name: Install Desktop and test browser
+        working-directory: Desktop
+        run: |
+          corepack pnpm install --frozen-lockfile
+          node node_modules/electron/install.js
+          corepack pnpm exec playwright install chromium ffmpeg
+      - name: Build and stage native runtime
+        working-directory: Desktop
+        run: |
+          corepack pnpm build
+          corepack pnpm stage:runtime
+      - name: Typecheck and protocol tests
+        working-directory: Desktop
+        run: |
+          corepack pnpm typecheck
+          mkdir -p test-results
+          corepack pnpm exec tsx --test --test-concurrency=1 --test-reporter=spec --test-reporter=tap --test-reporter-destination=stdout --test-reporter-destination=test-results/protocol.tap tests/*.test.ts
+      - name: Source Electron acceptance
+        working-directory: Desktop
+        run: |
+          node scripts/verify-startup.mjs
+          node scripts/verify-app-updates.mjs
+          node scripts/verify-electron.mjs
+          node scripts/verify-auth-vault.mjs
+          node scripts/verify-steppage-registration.mjs
+          node scripts/verify-browser-panel.mjs
+          node scripts/verify-file-preview.mjs
+          node scripts/verify-turn-artifacts.mjs
+          node scripts/verify-terminal-scopes.mjs
+          node scripts/verify-turn-undo.mjs
+          node scripts/verify-archived-sessions.mjs
+      - name: Package unsigned preview and verify resources
+        working-directory: Desktop
+        run: |
+          node scripts/package-macos.mjs
+          node scripts/verify-macos-package.mjs
+      - name: Packaged Electron and native terminal acceptance
+        working-directory: Desktop
+        env:
+          DESKTOP_VERIFY_EXE: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/MacOS/Desktop for Step Code
+          DESKTOP_MACOS_RESOURCES: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/Resources
+        run: |
+          node scripts/verify-startup.mjs
+          node scripts/verify-app-updates.mjs
+          node scripts/verify-electron.mjs
+          node scripts/verify-auth-vault.mjs
+          node scripts/verify-steppage-registration.mjs
+          node scripts/verify-browser-panel.mjs
+          node scripts/verify-file-preview.mjs
+          node scripts/verify-turn-artifacts.mjs
+          node scripts/verify-terminal-scopes.mjs
+          node scripts/verify-turn-undo.mjs
+          node scripts/verify-archived-sessions.mjs
+          corepack pnpm exec tsx --test tests/macos-terminal.test.ts
+      - name: Archive tested preview with executable permissions
+        working-directory: Desktop
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent 'release/mac-arm64/Desktop for Step Code.app' release/Desktop.for.Step.Code.macos-arm64.preview.zip
+          shasum -a 256 release/Desktop.for.Step.Code.macos-arm64.preview.zip > release/SHA256SUMS.txt
+          git rev-parse HEAD > release/COMMIT.txt
+          cp runtime/manifest.json release/runtime-manifest.json
+      - name: Upload tested preview candidate (not a Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-preview-${{ github.sha }}
+          path: |
+            Desktop/release/*.zip
+            Desktop/release/SHA256SUMS.txt
+            Desktop/release/COMMIT.txt
+            Desktop/release/runtime-manifest.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload fixture diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-fixture-diagnostics-${{ github.run_attempt }}
+          path: Desktop/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

@@ -47,6 +47,13 @@ try {
 <h1>海岸骑行</h1><canvas width="400" height="240"></canvas><button onclick="window.paused=!window.paused">暂停 / 继续</button>
 <script>let tick=0;window.paused=false;const c=document.querySelector('canvas'),x=c.getContext('2d');
 function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,400,240);x.fillStyle='#2646a6';x.fillRect(tick%350,100,40,40);window.tick=tick;requestAnimationFrame(draw)}draw();</script>`);
+  if (process.platform !== 'win32') {
+    await mkdir(join(cwd, 'path-assets'));
+    await writeFile(join(cwd, 'path-assets\\asset.js'), 'window.literalAsset = "literal-backslash";');
+    await writeFile(join(cwd, 'path-assets/asset.js'), 'window.nestedAsset = "nested-directory";');
+    const html = await readFile(join(cwd, 'index.html'), 'utf8');
+    await writeFile(join(cwd, 'index.html'), html + '<script src="path-assets%5Casset.js"></script><script src="path-assets/asset.js"></script>');
+  }
   const target = { runtimeId, path: './README.md' };
   const preview = await page.evaluate(target => window.desktop.fileOpen(target), target);
   assert.equal(preview.destination, 'preview');
@@ -199,7 +206,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   const menuLabels = await openingMenu.getByRole('menuitemradio').allTextContents();
   assert.ok(menuLabels.includes('文件预览'));
   assert.ok(menuLabels.includes('系统默认应用'));
-  assert.ok(menuLabels.some(label => label.includes('其他应用')));
+  assert.equal(menuLabels.some(label => label.includes('其他应用')), process.platform === 'win32', 'Windows-only application picker is not offered on macOS');
   assert.equal(await openingMenu.getByRole('menuitemradio', { name: '文件预览', exact: true }).getAttribute('aria-checked'), 'true', 'an unavailable saved application falls back to internal preview');
   await page.waitForTimeout(220);
   await page.screenshot({ path: 'test-results/file-opening-menu-light.png' });
@@ -289,13 +296,17 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
     const result = await view.webContents.executeJavaScript(`({
       node:typeof require, bridge:typeof window.desktop,
       pixel:[...document.querySelector('canvas').getContext('2d').getImageData(0,0,1,1).data],
-      tick:window.tick
+      tick:window.tick, literalAsset:window.literalAsset, nestedAsset:window.nestedAsset
     })`);
     globalThis.previewContents = view.webContents;
     return result;
   });
   assert.equal(localState.node, 'undefined');
   assert.equal(localState.bridge, 'undefined');
+  if (process.platform !== 'win32') {
+    assert.equal(localState.literalAsset, 'literal-backslash');
+    assert.equal(localState.nestedAsset, 'nested-directory');
+  }
   assert.ok(localState.pixel[1] > 100);
   await page.waitForTimeout(120);
   const tick = await app.evaluate(() => globalThis.previewContents.executeJavaScript('window.tick'));
@@ -327,7 +338,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await writeFile('test-results/file-preview-html-browser.png', Buffer.from(composite, 'base64'));
   await page.getByRole('link', { name: '海岸骑行动画', exact: true }).click();
   assert.equal((await page.evaluate(() => window.desktop.browserList())).tabs.filter(tab => tab.localFile).length, 1);
-  await page.waitForTimeout(300);
+  await page.locator('#browser-panel').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('#browser-panel').isVisible(), false, 'clicking the current HTML artifact closes its panel');
   await app.evaluate(() => globalThis.previewContents.executeJavaScript('window.previewRetained = 42'));
   await page.getByRole('link', { name: '海岸骑行动画', exact: true }).click();
@@ -377,6 +388,19 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   const reopenedFile = await reopened.evaluate(() => window.desktop.fileOpen());
   const reopenedOptions = await reopened.evaluate(grantId => window.desktop.fileOpenOptions({ grantId }), reopenedFile.file.id);
   assert.equal(reopenedOptions.selected, selection.id, 'opening preference survives a full application restart');
+  if (process.platform !== 'win32') {
+    const beforeRestart = await prepareSessionFixture(reopened);
+    const pids = await app.evaluate(() => process._getActiveHandles()
+      .filter(handle => handle.pid && handle.spawnargs?.some(arg => /[\\/]step\.js$/.test(arg)) && handle.spawnargs.includes('rpc'))
+      .map(handle => handle.pid));
+    assert.ok(pids.length > 0, 'An actual fixture RPC child is running before restart');
+    const restarted = await reopened.evaluate(() => window.desktop.restart());
+    assert.notEqual(restarted.runtimeId, beforeRestart.runtimeId);
+    assert.equal(restarted.state.isStreaming, false);
+    assert.equal(await app.evaluate((_electron, pids) => pids.every(pid => {
+      try { process.kill(pid, 0); return false; } catch (error) { return error.code === 'ESRCH'; }
+    }), pids), true, 'Session restart waits until the old RPC process is gone');
+  }
   console.log('File preview, three widths, in-app menus, selection/open/reopen persistence, chooser permissions and browser integration passed');
 } finally {
   await app.close();

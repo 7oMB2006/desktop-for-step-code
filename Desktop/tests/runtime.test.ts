@@ -8,6 +8,81 @@ import { createServer } from 'node:http';
 import { permissionFromStatus } from '../electron/permission-status';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
+test('POSIX stop waits for cleanup, joins concurrent stops and prevents overlapping restarts', { skip: process.platform === 'win32', timeout: 15000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rpc-stop-cleanup-'));
+  const entry = join(root, 'fixture.cjs');
+  await writeFile(entry, `
+    const fs = require('node:fs');
+    process.on('SIGTERM', () => setTimeout(() => {
+      fs.writeFileSync('cleaned.txt', 'cleanup complete'); process.exit(0);
+    }, 150));
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const command = JSON.parse(line);
+      if (command.type !== 'pending') process.stdout.write(JSON.stringify({ type: 'response', id: command.id, success: true, data: { pid: process.pid } }) + '\\n');
+    });
+    setInterval(() => {}, 1000);
+  `);
+  const events: unknown[] = [];
+  const rpc = new RpcProcess(event => events.push(event));
+  try {
+    rpc.start(process.execPath, entry, root, isolatedEnvironment(root));
+    const { pid } = await rpc.request('ready');
+    const child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
+    const rejected = assert.rejects(rpc.request('pending'), /Runtime stopped/);
+    const first = rpc.stop(), second = rpc.stop();
+    assert.throws(() => rpc.start(process.execPath, entry, root, isolatedEnvironment(root)), /still stopping/);
+    await assert.rejects(rpc.request('ready'), /not connected/);
+    await Promise.all([first, second, rejected]);
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    assert.equal(await readFile(join(root, 'cleaned.txt'), 'utf8'), 'cleanup complete');
+    assert.deepEqual(events, [], 'Intentional shutdown does not emit an unexpected runtime exit');
+    rpc.start(process.execPath, entry, root, isolatedEnvironment(root));
+    const replacement = rpc.request('ready');
+    child.emit('error', new Error('late error from stopped child'));
+    assert.notEqual((await replacement).pid, pid);
+  } finally { await rpc.stop(); }
+});
+
+test('POSIX stop force-kills a child that ignores SIGTERM and waits for its exit', { skip: process.platform === 'win32', timeout: 15000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rpc-stop-stubborn-'));
+  const entry = join(root, 'fixture.cjs');
+  await writeFile(entry, `
+    process.on('SIGTERM', () => {});
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const command = JSON.parse(line);
+      process.stdout.write(JSON.stringify({ type: 'response', id: command.id, success: true, data: { pid: process.pid } }) + '\\n');
+    });
+    setInterval(() => {}, 1000);
+  `);
+  const rpc = new RpcProcess(() => {});
+  try {
+    rpc.start(process.execPath, entry, root, isolatedEnvironment(root));
+    const { pid } = await rpc.request('ready');
+    const child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
+    await rpc.stop();
+    assert.equal(child.signalCode, 'SIGKILL');
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  } finally { await rpc.stop(); }
+});
+
+test('real POSIX Step runtime has exited before stop resolves and can then restart', { skip: process.platform === 'win32', timeout: 60000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rpc-real-stop-'));
+  const rpc = new RpcProcess(() => {});
+  const node = resolve('runtime/node/node');
+  const entry = resolve('runtime/step/dist/bundle/step.js');
+  try {
+    rpc.start(node, entry, root, isolatedEnvironment(root));
+    await rpc.request('get_state');
+    const child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
+    const pid = child.pid!;
+    await rpc.stop();
+    assert.ok(child.exitCode !== null || child.signalCode !== null);
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    rpc.start(node, entry, root, isolatedEnvironment(root));
+    assert.equal((await rpc.request('get_state')).isStreaming, false);
+  } finally { await rpc.stop(); }
+});
+
 test('JSONL preserves split multibyte characters and CRLF frames', () => {
   const values: any[] = []; const parser = new JsonLines(v => values.push(v));
   const bytes = Buffer.from('{"text":"中文"}\r\n\n{"n":2}\n');
@@ -20,7 +95,7 @@ test('an RPC pipe error rejects requests and disconnects without an uncaught str
   const events: any[] = [];
   const rpc = new RpcProcess(event => events.push(event));
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), dir, isolatedEnvironment(dir));
+    rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'), dir, isolatedEnvironment(dir));
     await rpc.request('get_state', {}, 30000);
     const child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
     const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
@@ -65,7 +140,7 @@ test('real Step runtime streams a local fixture response and restores its persis
     if (e.type === 'extension_ui_request' && e.method === 'confirm') rpc.respond({ id: e.id, confirmed: true });
   }); const admin = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), dir, env);
+    rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'), dir, env);
     await rpc.request('get_state', {}, 60000);
     await rpc.request('prompt', { message: 'Reply with a short acknowledgement.' });
     const deadline = Date.now() + 20000;
@@ -77,7 +152,7 @@ test('real Step runtime streams a local fixture response and restores its persis
     assert.equal(await readFile(join(dir, 'verified.txt'), 'utf8'), 'tool execution verified');
     const state = await rpc.request('get_state'); assert.ok(state.sessionFile);
     await rpc.request('set_session_name', { name: 'Persisted fixture' });
-    admin.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), profile, env);
+    admin.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/admin.mjs'), profile, env);
     const listed = await admin.request('sessions'); assert.ok(listed.some((s: any) => s.id === state.sessionId && s.name === 'Persisted fixture'));
     await rpc.request('new_session'); assert.equal((await rpc.request('get_messages')).messages.length, 0);
     await rpc.request('switch_session', { sessionPath: state.sessionFile });
@@ -99,9 +174,9 @@ test('legacy approval presets are projected as Ask by both draft management and 
     const rpc = new RpcProcess(event => events.push(event));
     const admin = new RpcProcess(() => {});
     try {
-      admin.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), profile, env);
+      admin.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/admin.mjs'), profile, env);
       assert.equal((await admin.request('session_options', { cwd: profile })).permissionPreset, 'ask');
-      rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), profile, env);
+      rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'), profile, env);
       await rpc.request('get_state', {}, 30000);
       assert.equal(permissionFromStatus(events.filter(event => permissionFromStatus(event)).at(-1)), 'ask');
       assert.equal(events.some(event => event.method === 'select'), false, 'Legacy permissions never imply a Full Access grant');
@@ -137,7 +212,7 @@ test('acknowledged Full Access still honors explicit deny and confirm tool overr
         if (event.method === 'confirm') rpc.respond({ id: event.id, confirmed: false });
       });
       try {
-        rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), profile,
+        rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'), profile,
           isolatedEnvironment(profile), ['--provider', 'fixture', '--model', 'fixture', '--tool-override', `write_file=${override}`]);
         await rpc.request('get_state');
         await rpc.request('prompt', { message: '/permissions full-access' });
@@ -161,7 +236,7 @@ test('staged runtime answers RPC and management uses isolated sessions and confi
   const env = isolatedEnvironment(profile); const events: any[] = [];
   const rpc = new RpcProcess(e => events.push(e)); const admin = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), workspace, env);
+    rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'), workspace, env);
     const state = await rpc.request('get_state', {}, 60000); assert.equal(state.isStreaming, false); assert.ok(state.sessionId);
     const commands = (await rpc.request('get_commands')).commands;
     assert.ok(commands.some((command: { name: string; source: string }) => command.name === 'permissions' && command.source === 'extension'));
@@ -182,7 +257,7 @@ test('staged runtime answers RPC and management uses isolated sessions and confi
     assert.deepEqual((await rpc.request('get_messages')).messages, []);
     const models = await rpc.request('get_available_models'); assert.ok(Array.isArray(models.models));
     await rpc.request('set_session_name', { name: 'Integration test' });
-    admin.start(resolve('runtime/node/node.exe'), resolve('runtime/admin.mjs'), profile, env);
+    admin.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/admin.mjs'), profile, env);
     const settings = await admin.request('settings', { cwd: workspace }); assert.equal(settings.account.loggedIn, false);
     assert.equal(settings.profiles.length, 4);
     await admin.request('mcp', { name: 'test-server', config: { command: 'node', args: ['server.js'], enabled: false }, secrets: { TOKEN: 'test-secret' } });

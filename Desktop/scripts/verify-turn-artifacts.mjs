@@ -61,7 +61,10 @@ try {
     ipcMain.handle('desktop', (_event, method, ...args) => {
       if (method === 'snapshot') return globalThis.artifactFixture;
       if (method === 'sessions') return globalThis.artifactFixture.sessions;
-      if (method === 'artifactFiles') return args[1].map(path => ({ path, exists: !path.includes('missing'), canOpen: !path.includes('missing'), kind: path.endsWith('.html') ? 'website' : 'document', size: 1024 }));
+      if (method === 'browserList') return globalThis.artifactBrowser ?? { tabs: [] };
+      if (method === 'browserOpenLink') { globalThis.lastPreviewUrl = args[0]; globalThis.artifactBrowser = { tabs: [{ id: 'preview', url: args[0], title: 'Local preview', zoom: 1, loading: false }], activeId: 'preview' }; return globalThis.artifactBrowser; }
+      if (method === 'copyText') { globalThis.lastPreviewCopy = args[0]; return; }
+      if (method === 'artifactFiles') { (globalThis.artifactFileRequests ??= []).push(args[1]); return args[1].map(path => ({ path, exists: !path.includes('missing'), canOpen: !path.includes('missing'), kind: path.endsWith('.html') ? 'website' : 'document', size: 1024 })); }
       if (method === 'artifactAction') { globalThis.lastArtifactAction = args; return; }
       if (method === 'fileOpen') {
         globalThis.lastArtifactAction = [args[0].runtimeId, args[0].path, 'open'];
@@ -142,6 +145,40 @@ try {
   assert.match(await page.locator('.artifact-main').textContent(), /index.html/, 'successful write is available without a final Markdown link');
   await page.locator('.artifact-main').click();
   assert.equal((await app.evaluate(() => globalThis.lastArtifactAction))[1], 'index.html');
+  mark('local server delivery from a historical code-block URL');
+  await app.evaluate(({ BrowserWindow }) => {
+    const fixture = globalThis.artifactFixture;
+    globalThis.artifactFileRequests = [];
+    fixture.messages = [fixture.messages[0], { role: 'assistant', content: '服务已经启动。\n\n```text\nhttp://localhost:8765/\n```' }];
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_history', runtimeId: fixture.runtimeId, messages: fixture.messages });
+  });
+  await page.waitForFunction(() => document.querySelectorAll('.artifact-row').length === 1 && document.querySelector('.artifact-main')?.textContent.includes('localhost:8765'));
+  assert.equal(await page.locator('.artifact-main').isEnabled(), true);
+  assert.deepEqual(await app.evaluate(() => globalThis.artifactFileRequests), [], 'local preview URLs never enter the filesystem API');
+  await page.locator('.artifact-main').click();
+  await page.waitForFunction(() => document.querySelector('#browser-panel')?.getAttribute('aria-hidden') === 'false');
+  assert.equal(await app.evaluate(() => globalThis.lastPreviewUrl), 'http://localhost:8765/');
+  await page.locator('.artifact-details-trigger').click();
+  await page.getByRole('button', { name: '复制链接', exact: true }).click();
+  assert.equal(await app.evaluate(() => globalThis.lastPreviewCopy), 'http://localhost:8765/');
+  assert.equal(await page.getByRole('button', { name: '显示位置', exact: true }).count(), 0);
+  await page.screenshot({ path: 'test-results/turn-artifacts-local-server.png' });
+  mark('platform-aware case-distinct delivery cards');
+  await app.evaluate(({ BrowserWindow }) => {
+    const fixture = globalThis.artifactFixture;
+    fixture.messages = [fixture.messages[0], { role: 'assistant', content: '[Upper](Report.pdf) [Lower](report.pdf)' }];
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_history', runtimeId: fixture.runtimeId, messages: fixture.messages });
+  });
+  await page.reload();
+  const expectedCards = process.platform === 'win32' ? 1 : 2;
+  await page.waitForFunction(expected => document.querySelectorAll('.artifact-row').length === expected &&
+    [...document.querySelectorAll('.artifact-main')].every(button => !button.disabled), expectedCards);
+  await page.locator('.artifact-main').filter({ hasText: 'Upper' }).click();
+  assert.equal((await app.evaluate(() => globalThis.lastArtifactAction))[1], 'Report.pdf');
+  if (process.platform !== 'win32') {
+    await page.locator('.artifact-main').filter({ hasText: 'Lower' }).click();
+    assert.equal((await app.evaluate(() => globalThis.lastArtifactAction))[1], 'report.pdf');
+  }
   assert.deepEqual(errors, []);
   mark('complete');
   console.log('Artifact references, cards, file boundary and actions passed');

@@ -10,7 +10,7 @@ export function LiveTurnChanges({ messages, busy, language, docked = false, onOp
   messages: Message[]; busy: boolean; language: 'zh' | 'en'; docked?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const read = useMemo(createTurnChangesReader, []);
+  const read = useMemo(() => createTurnChangesReader(window.desktop?.platform ?? 'win32'), []);
   let start = messages.length;
   while (start > 0 && !isUserMessage(messages[start - 1])) start--;
   const changes = read(busy ? messages.slice(start).map((message, offset) => ({ message, index: start + offset })) : []);

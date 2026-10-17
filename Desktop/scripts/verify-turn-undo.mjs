@@ -1,7 +1,7 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
@@ -51,7 +51,7 @@ const server = createServer(async (req, res) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 
-const profile = await mkdtemp(join(tmpdir(), 'step-undo-electron-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-undo-electron-')));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: [] }));
 await mkdir(join(profile, 'step-runtime', 'sessions'), { recursive: true });
 await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');

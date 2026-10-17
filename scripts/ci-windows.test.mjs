@@ -5,19 +5,31 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { acceptanceGroups, acceptanceTimeouts, localOnly, validateInventory, windowsGroups } from './ci-acceptance.mjs';
+import { acceptanceGroups, acceptanceTimeouts, localOnly, platformOnly, validateInventory, windowsGroups } from './ci-acceptance.mjs';
 import { executeScript, groupScripts, runGroup } from './ci-windows.mjs';
 
 const files = readdirSync(new URL('../Desktop/scripts/', import.meta.url)).filter(file => /^verify-.*\.mjs$/.test(file));
 
 test('every acceptance script is assigned exactly once or explicitly remains outside CI', () => {
   validateInventory(files);
-  assert.equal(Object.values(acceptanceGroups).flat().length, files.length - localOnly.length);
+  assert.equal(Object.values(acceptanceGroups).flat().length, files.length - localOnly.length - Object.values(platformOnly).flat().length);
   assert.deepEqual(windowsGroups, ['interface', 'sessions', 'runtime']);
   for (const [script, timeout] of Object.entries(acceptanceTimeouts)) {
     assert.ok(Object.values(acceptanceGroups).flat().includes(script));
     assert.equal(timeout, 300000);
   }
+});
+
+test('macOS package verification is registered in native CI without entering Windows groups', () => {
+  assert.deepEqual(platformOnly, { macos: ['verify-macos-package.mjs'] });
+  const workflow = readFileSync(new URL('../.github/workflows/macos-integration.yml', import.meta.url), 'utf8');
+  for (const script of platformOnly.macos) {
+    assert.ok(workflow.includes(`node scripts/${script}`));
+    assert.ok(!Object.values(acceptanceGroups).flat().includes(script));
+  }
+  assert.throws(() => validateInventory(files, acceptanceGroups, localOnly, {}), /Unassigned/);
+  assert.throws(() => validateInventory(files, acceptanceGroups, localOnly,
+    { macos: [...platformOnly.macos, acceptanceGroups.runtime[0]] }), /Duplicate/);
 });
 
 test('inventory rejects duplicate, missing, new unassigned and unknown-group entries', () => {

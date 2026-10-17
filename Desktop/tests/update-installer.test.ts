@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
@@ -170,7 +171,7 @@ test('double install is rejected while verification is pending', async () => {
   assert.equal(f.counts().installs, 1);
 });
 test('cached installer must be inside the owned root and retain size and hash', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'step-update-integrity-'));
+  const root = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-integrity-'));
   const file = join(root, 'installer.exe');
   await writeFile(file, 'fixture');
   await verifyInstallerFile(file, root, 7, digest);
@@ -181,7 +182,7 @@ test('cached installer must be inside the owned root and retain size and hash', 
   await assert.rejects(verifyInstallerFile(file, child, 7, digest));
 });
 test('startup cleanup preserves failures and only deletes the owned download cache after upgrade', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'step-update-clean-'));
+  const root = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-clean-'));
   const cache = join(root, 'download-cache'); await mkdir(cache);
   await writeFile(join(cache, 'installer.exe'), 'cached');
   await writeFile(join(root, 'sessions.json'), 'preserve');
@@ -193,8 +194,8 @@ test('startup cleanup preserves failures and only deletes the owned download cac
   assert.equal(await readFile(join(root, 'sessions.json'), 'utf8'), 'preserve');
 });
 test('cleanup does not traverse a cache junction', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'step-update-link-'));
-  const outside = await mkdtemp(join(tmpdir(), 'step-update-outside-'));
+  const root = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-link-'));
+  const outside = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-outside-'));
   await writeFile(join(outside, 'keep.exe'), 'preserve');
   await symlink(outside, join(root, 'download-cache'), process.platform === 'win32' ? 'junction' : 'dir');
   await writeFile(join(root, 'installed.json'), JSON.stringify({ version: '0.5.0' }));
@@ -203,14 +204,14 @@ test('cleanup does not traverse a cache junction', async () => {
   await assert.rejects(prepareUpdateCache(root), InstallerFailure);
 });
 test('cache preparation rejects nested redirects before any download', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'step-update-preflight-'));
-  const outside = await mkdtemp(join(tmpdir(), 'step-update-preflight-outside-'));
+  const root = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-preflight-'));
+  const outside = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-preflight-outside-'));
   await prepareUpdateCache(root);
   await symlink(outside, join(root, 'download-cache', 'pending'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(prepareUpdateCache(root), InstallerFailure);
 });
 test('Windows path casing does not prevent preparation or successful-upgrade cleanup', { skip: process.platform !== 'win32' }, async () => {
-  const root = await mkdtemp(join(tmpdir(), 'step-update-case-'));
+  const root = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-case-'));
   const alias = root.toUpperCase();
   await prepareUpdateCache(alias);
   await writeFile(join(root, 'download-cache', 'installer.exe'), 'cached');
@@ -219,8 +220,8 @@ test('Windows path casing does not prevent preparation or successful-upgrade cle
   await assert.rejects(readFile(join(root, 'download-cache', 'installer.exe')));
 });
 test('cache preparation and cleanup reject a redirected parent directory', async () => {
-  const parent = await mkdtemp(join(tmpdir(), 'step-update-parent-'));
-  const outside = await mkdtemp(join(tmpdir(), 'step-update-parent-outside-'));
+  const parent = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-parent-'));
+  const outside = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-parent-outside-'));
   await symlink(outside, join(parent, 'redirect'), process.platform === 'win32' ? 'junction' : 'dir');
   const root = join(parent, 'redirect', 'app-updates');
   await mkdir(join(outside, 'app-updates', 'download-cache'), { recursive: true });

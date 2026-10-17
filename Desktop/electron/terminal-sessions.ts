@@ -1,3 +1,4 @@
+import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -6,9 +7,13 @@ import type { TerminalEvent, TerminalInfo, TerminalSnapshot } from '../src/contr
 import { terminalEnvironment, terminalInput, terminalSize } from './terminal-policy';
 
 type Entry = { info: TerminalInfo; chunks: { seq: number; data: string }[]; bytes: number; seq: number; child?: ChildProcess; cancel?: () => void; closing?: Promise<void> };
-const key = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const key = (path: string) => normalizedWorkspaceKey(path, process.platform);
 
 function taskkill(pid: number): Promise<boolean> {
+  if (process.platform !== 'win32') {
+    try { process.kill(pid, 'SIGTERM'); return Promise.resolve(true); }
+    catch (error: any) { return Promise.resolve(error.code === 'ESRCH'); }
+  }
   return new Promise(resolve => {
     const executable = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
     const killer = spawn(executable, ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
@@ -55,8 +60,8 @@ export class TerminalSessions {
     const number = (this.numbers.get(directory) ?? 0) + 1;
     this.numbers.set(directory, number);
     const pwsh = join(process.env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe');
-    const shell = existsSync(pwsh) ? pwsh : join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    const entry: Entry = { info: { id: randomUUID(), cwd, title: `PowerShell ${number}`, status: 'starting', cols, rows }, chunks: [], bytes: 0, seq: 0 };
+    const shell = process.platform === 'darwin' ? '/bin/zsh' : existsSync(pwsh) ? pwsh : join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const entry: Entry = { info: { id: randomUUID(), cwd, title: `${process.platform === 'darwin' ? 'zsh' : 'PowerShell'} ${number}`, status: 'starting', cols, rows }, chunks: [], bytes: 0, seq: 0 };
     this.entries.set(entry.info.id, entry);
     const child = spawn(this.node, [this.host], { cwd, env: terminalEnvironment(process.env),
       windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });

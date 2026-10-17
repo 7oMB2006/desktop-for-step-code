@@ -922,3 +922,46 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
   font-size: 13px;
   line-height: 1.6;
 }
+
+/* Native macOS traffic lights sit above this titlebar at (20, 19). */
+:root:has(.platform-macos) { --window-bar-height: 52px; }
+.window-bar-macos { background: var(--bg); border-bottom: 0; }
+.window-bar-macos .window-tools {
+  width: var(--sidebar-width, 244px); min-width: 128px; flex-shrink: 0;
+  padding: 0 12px 0 96px; justify-content: flex-end;
+  position: relative; z-index: 0;
+  background: transparent; border-right: 1px solid transparent;
+  -webkit-app-region: drag;
+  transition: width 280ms var(--sidebar-ease);
+}
+.window-bar-macos button { -webkit-app-region: no-drag; }
+.sidebar-hidden .window-bar-macos .window-tools { width: 140px; }
+/* Slide the full-width titlebar surface with the sidebar, independently of the button track. */
+.window-bar-macos .window-tools::before {
+  content: ''; position: absolute; left: 0; top: 0; height: 100%;
+  width: var(--sidebar-width); box-sizing: border-box; z-index: -1; pointer-events: none;
+  background: var(--side); border-right: 1px solid var(--border);
+  transform: translateX(0); transition: transform 280ms var(--sidebar-ease);
+}
+.sidebar-hidden .window-bar-macos .window-tools::before { transform: translateX(-100%); }
+.window-bar-macos.window-inactive .window-tools { opacity: 1; }
+.window-bar-macos.window-inactive .window-sidebar-toggle { opacity: .75; }
+.window-bar-macos .window-drag-space { justify-content: center; padding: 0 24px; }
+.window-bar-macos .window-session-title { max-width: min(300px, 100%); color: var(--muted); font-size: 12px; }
+.window-macos-menu { position: relative; display: flex; align-items: center; padding: 0 12px; -webkit-app-region: no-drag; }
+.window-macos-menu .window-menu-popover { left: auto; right: 12px; max-height: calc(100dvh - 64px); overflow-y: auto; }
+.window-macos-menu-group + .window-macos-menu-group { border-top: 1px solid var(--border); margin-top: 5px; padding-top: 5px; }
+.window-macos-menu-label { display: block; color: var(--muted); font-size: 11px; padding: 6px 10px 3px; }
+@media (prefers-reduced-motion: reduce) { .window-bar-macos .window-tools, .window-bar-macos .window-tools::before { transition: none; } }
+
+/* Keep the tool rail above inspectors while softening its titlebar junction. */
+.platform-macos .right-tool-rail {
+  border-top-left-radius: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 11px;
+}
+
+/* Native fullscreen hides traffic lights; reclaim their inset and titlebar height. */
+:root:has(.window-bar-macos.window-fullscreen) { --window-bar-height: 40px; }
+.window-bar-macos.window-fullscreen .window-tools { padding-left: 12px; justify-content: flex-start; }
+.sidebar-hidden .window-bar-macos.window-fullscreen .window-tools { width: 56px; min-width: 56px; }

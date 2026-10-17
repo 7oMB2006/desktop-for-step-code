@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, mkdir, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { localReference, turnArtifacts, turnOutputPaths } from '../src/turn-artifacts';
+import { localReference, localPreviewUrl, turnArtifacts, turnOutputPaths } from '../src/turn-artifacts';
 import { artifactFile } from '../electron/artifact-files';
 
 test('artifact links parse through Markdown, deduplicate and exclude source and web links', () => {
@@ -89,4 +89,36 @@ test('ambiguous basenames are not guessed and explicit links retain their label'
   assert.equal(outputs.length, 1);
   assert.equal(outputs[0].label, 'Animation');
   assert.equal(outputs[0].inferred, undefined);
+});
+
+test('local app previews become delivery targets in Markdown, prose and URL-only code blocks', () => {
+  const result = turnArtifacts('**现在就打开 → http://localhost:8765/**(服务已启动)\n\n```text\nhttp://localhost:8765/\n```\n\n[Preview](http://127.0.0.1:8123/chart?symbol=BTC)');
+  assert.deepEqual(result.map(item => item.url), ['http://localhost:8765/', 'http://127.0.0.1:8123/chart?symbol=BTC']);
+  assert.ok(result.every(item => item.kind === 'website'));
+  assert.equal(localPreviewUrl('http://[::1]:8765/'), 'http://[::1]:8765/');
+});
+
+test('preview inference does not turn remote citations, credentials or example commands into delivery targets', () => {
+  assert.equal(localPreviewUrl('https://example.com/'), undefined);
+  assert.equal(localPreviewUrl('http://localhost.evil.test:8765/'), undefined);
+  assert.equal(localPreviewUrl('http://name:password@localhost:8765/'), undefined);
+  assert.equal(localPreviewUrl('javascript:alert(1)'), undefined);
+  assert.deepEqual(turnArtifacts('[Reference](https://example.com/)\n\n`curl http://localhost:8765/`\n\n```bash\ncurl http://localhost:8765/\n```'), []);
+});
+
+
+test('POSIX delivery retains case-distinct and literal-backslash files while Windows folds aliases', () => {
+  const text = '[Upper](Report.pdf) [Lower](report.pdf) [Literal](<a%5Cb.pdf>) [Nested](a/b.pdf)';
+  for (const platform of ['darwin', 'linux']) {
+    assert.deepEqual(turnArtifacts(text, [], platform).map(item => item.path), ['Report.pdf', 'report.pdf', 'a\\b.pdf', 'a/b.pdf']);
+    assert.deepEqual(turnArtifacts('`Report.pdf` `report.pdf`', ['one/Report.pdf', 'two/report.pdf'], platform).map(item => item.path), ['one/Report.pdf', 'two/report.pdf']);
+    assert.equal(turnArtifacts('`report.pdf`', ['one/report.pdf', 'two/report.pdf'], platform).filter(item => item.path === 'report.pdf').length, 0);
+  }
+  assert.equal(turnArtifacts(text, [], 'win32').length, 2);
+  const items = ['Report.pdf', 'report.pdf', 'a\\b.pdf', 'a/b.pdf'].flatMap((path, index) => [
+    { index: index * 2, message: { role: 'assistant', content: [{ type: 'toolCall', id: String(index), name: 'write', arguments: { path } }] } },
+    { index: index * 2 + 1, message: { role: 'toolResult', toolCallId: String(index), content: 'Done' } },
+  ]);
+  assert.equal(turnOutputPaths(items, 'darwin').length, 4);
+  assert.equal(turnOutputPaths(items, 'win32').length, 2);
 });

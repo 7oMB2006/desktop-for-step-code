@@ -1,7 +1,7 @@
 import { _electron as electron } from 'playwright';
 import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, relative, isAbsolute } from 'node:path';
 import assert from 'node:assert/strict';
 import { prepareSessionFixture } from './session-fixture.mjs';
 const profile = await mkdtemp(join(tmpdir(), 'step-desktop-electron-'));
@@ -166,10 +166,10 @@ try {
   await page.mouse.up();
   const panX = await previewViewport.locator('img').evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41);
   assert.ok(panX > 40, `expected dragged image to pan, got ${panX}`);
-  await page.keyboard.down('Control');
+  await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
   await page.mouse.move(startX + 60, startY + 30);
   await page.mouse.wheel(0, -120);
-  await page.keyboard.up('Control');
+  await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
   await page.getByText('116%', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/attachment-preview.png' });
   await page.keyboard.press('Escape');
@@ -250,22 +250,82 @@ try {
   await page.screenshot({ path: 'test-results/brand-sidebar-hidden.png' });
   await page.getByRole('button', { name: '侧栏', exact: true }).click();
   await page.locator('.sidebar').waitFor({ state: 'visible' });
-  await page.getByRole('button', { name: '视图', exact: true }).click();
-  assert.equal(await page.getByRole('menu', { name: '视图' }).isVisible(), true);
+  await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '视图', exact: true }).click();
+  assert.equal(await page.getByRole('menu', { name: process.platform === 'darwin' ? '应用菜单' : '视图' }).isVisible(), true);
   await page.getByRole('menuitem', { name: '隐藏侧栏' }).click();
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: '视图', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '视图', exact: true }).click();
   await page.getByRole('menuitem', { name: '显示侧栏' }).click();
-  await page.getByRole('button', { name: '文件', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '文件', exact: true }).click();
   assert.equal(await page.getByRole('menuitem', { name: '新建独立会话' }).isVisible(), true);
   await page.keyboard.press('Escape');
-  assert.equal(await page.getByRole('menu', { name: '文件' }).count(), 0);
-  await page.getByRole('button', { name: '最大化', exact: true }).click();
-  await page.getByRole('button', { name: '还原窗口', exact: true }).waitFor();
-  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()), true);
-  await page.getByRole('button', { name: '还原窗口', exact: true }).click();
-  await page.getByRole('button', { name: '最大化', exact: true }).waitFor();
-  await page.getByRole('button', { name: '最小化', exact: true }).click();
+  assert.equal(await page.getByRole('menu', { name: process.platform === 'darwin' ? '应用菜单' : '文件' }).count(), 0);
+  if (process.platform === 'darwin') {
+    assert.equal(await page.locator('.window-controls').count(), 0);
+    assert.equal(await page.locator('.window-bar-macos').count(), 1);
+    assert.deepEqual(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getWindowButtonPosition()), { x: 20, y: 19 });
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreenable()), true);
+    const geometry = await page.locator('.window-sidebar-toggle').boundingBox();
+    assert.ok(geometry.x >= 96, 'Sidebar toggle must clear native traffic lights');
+    // Exercise renderer layout independently of a CI runner's native Spaces support.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'desktop_window_state', maximized: false, fullscreen: true, focused: false,
+    }));
+    await page.locator('.window-bar-macos.window-fullscreen').waitFor();
+    assert.equal((await page.locator('.window-bar').boundingBox()).height, 40);
+    if (!motionReduced) {
+      await page.waitForFunction(() => document.querySelector('.sidebar').getBoundingClientRect().x === 0 &&
+        !document.querySelector('.sidebar').getAnimations().some(animation => animation.playState === 'running'));
+      for (const direction of ['close', 'open']) {
+        const frames = await page.evaluate(async () => {
+          const tools = document.querySelector('.window-tools');
+          const sidebar = document.querySelector('.sidebar');
+          document.querySelector('.window-sidebar-toggle').click();
+          const frames = [];
+          const start = performance.now();
+          do {
+            await new Promise(requestAnimationFrame);
+            const top = getComputedStyle(tools, '::before');
+            const matrix = new DOMMatrixReadOnly(top.transform);
+            frames.push({ topRight: tools.getBoundingClientRect().left + parseFloat(top.width) + matrix.m41,
+              bottomRight: sidebar.getBoundingClientRect().right,
+              topColor: top.backgroundColor, bottomColor: getComputedStyle(sidebar).backgroundColor });
+          } while (performance.now() - start < 350);
+          return frames;
+        });
+        assert.ok(frames.some(frame => frame.bottomRight > 1 && frame.bottomRight < 200), `${direction}: sampled moving sidebar`);
+        for (const frame of frames) {
+          assert.ok(Math.abs(frame.topRight - frame.bottomRight) < 1, `${direction}: continuous sidebar edge ${JSON.stringify(frame)}`);
+          assert.equal(frame.topColor, frame.bottomColor, `${direction}: continuous sidebar surface`);
+        }
+      }
+    }
+
+    const expandedFullToggle = await page.locator('.window-sidebar-toggle').boundingBox();
+    assert.equal(expandedFullToggle.x, 12, 'Expanded fullscreen sidebar toggle stays at the left edge');
+    await page.getByRole('button', { name: '侧栏', exact: true }).click();
+    await page.locator('.sidebar').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('.window-tools').getBoundingClientRect().width === 56);
+    const fullToggle = await page.locator('.window-sidebar-toggle').boundingBox();
+    assert.equal(fullToggle.x, expandedFullToggle.x, 'Fullscreen toggle stays fixed when sidebar collapses');
+    assert.ok(fullToggle.y >= 0 && fullToggle.y + fullToggle.height <= 40, 'Fullscreen toggle stays inside toolbar');
+    await page.screenshot({ path: 'test-results/macos-fullscreen-sidebar-hidden.png' });
+    await page.getByRole('button', { name: '侧栏', exact: true }).click();
+    await page.locator('.sidebar').waitFor({ state: 'visible' });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'desktop_window_state', maximized: false, fullscreen: false, focused: false,
+    }));
+    await page.waitForFunction(() => !document.querySelector('.window-bar').classList.contains('window-fullscreen'));
+    assert.equal((await page.locator('.window-bar').boundingBox()).height, 52);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
+  } else {
+    await page.getByRole('button', { name: '最大化', exact: true }).click();
+    await page.getByRole('button', { name: '还原窗口', exact: true }).waitFor();
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()), true);
+    await page.getByRole('button', { name: '还原窗口', exact: true }).click();
+    await page.getByRole('button', { name: '最大化', exact: true }).waitFor();
+    await page.getByRole('button', { name: '最小化', exact: true }).click();
+  }
   await page.waitForTimeout(250);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized()), true);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].restore());
@@ -318,7 +378,7 @@ try {
   await page.getByRole('dialog').getByRole('textbox').fill('临时项目名');
   await page.getByRole('dialog').getByRole('button', { name: '确认' }).click();
   await page.getByRole('button', { name: '临时项目名', exact: true }).waitFor();
-  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaceNames[workspace.toLowerCase().replaceAll('\\', '/')], '临时项目名');
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaceNames[process.platform === 'win32' ? workspace.toLowerCase().replaceAll('\\', '/') : workspace], '临时项目名');
   await page.getByRole('button', { name: '临时项目名', exact: true }).click({ button: 'right' });
   await context.getByRole('menuitem', { name: '重命名' }).click();
   await page.getByRole('dialog').getByRole('textbox').fill('中文项目 with spaces');
@@ -347,7 +407,8 @@ try {
   assert.equal(startupState.independent, true);
   const independentRoot = await realpath(join(profile, 'workspaces', 'independent'));
   const activeWorkspace = await realpath(startupState.preferences.workspace);
-  assert.ok(activeWorkspace.toLowerCase().startsWith(`${independentRoot.toLowerCase()}\\`), `${activeWorkspace} is outside ${independentRoot}`);
+  const independentRelative = relative(independentRoot, activeWorkspace);
+  assert.ok(independentRelative && !independentRelative.startsWith('..') && !isAbsolute(independentRelative), `${activeWorkspace} is outside ${independentRoot}`);
   assert.equal(startupState.preferences.workspaces.length, 2);
   assert.equal(startupState.preferences.workspaces.includes(startupState.preferences.workspace), false);
   assert.equal(startupState.messages.length, 0);
@@ -395,14 +456,14 @@ try {
     const originalTitle = element.textContent;
     element.textContent = '很长的测试会话标题'.repeat(20);
     const title = element.getBoundingClientRect();
-    const controls = document.querySelector('.window-controls').getBoundingClientRect();
+    const controls = document.querySelector('.window-controls, .window-macos-menu').getBoundingClientRect();
     const drag = document.querySelector('.window-drag-space').getBoundingClientRect();
     const result = { width: title.width, right: title.right, dragRight: drag.right, controlsLeft: controls.left, overflow: element.scrollWidth > element.clientWidth };
     element.textContent = originalTitle;
     return result;
   });
   assert.ok(titleBounds.right <= titleBounds.controlsLeft);
-  assert.ok(titleBounds.width <= 300 && titleBounds.dragRight - titleBounds.right >= 48);
+  assert.ok(titleBounds.width <= 300 && titleBounds.dragRight - titleBounds.right >= (process.platform === 'darwin' ? 24 : 48));
   assert.equal(titleBounds.overflow, true);
   const toastBounds = await toast.evaluate(element => {
     const rect = element.getBoundingClientRect();
@@ -480,7 +541,7 @@ try {
   assert.equal(independentState.preferences.workspaces.length, 2);
   assert.equal(independentState.preferences.workspaces.includes(independentCwd), false);
   await page.getByRole('region', { name: '独立会话', exact: true }).getByRole('button', { name: '独立验证会话', exact: true }).waitFor();
-  await page.getByRole('button', { name: '视图', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '视图', exact: true }).click();
   await page.getByRole('menuitem', { name: '重启运行时', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
   independentState = await page.evaluate(() => window.desktop.snapshot());
@@ -646,6 +707,26 @@ try {
   assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained empty project draft');
+  if (process.platform === 'darwin') {
+    const draftInput = page.getByRole('textbox', { name: '消息', exact: true });
+    await draftInput.fill('');
+    await draftInput.pressSequentially('Retained empty project draft');
+    await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
+    const roles = await app.evaluate(({ Menu }) => {
+      const collect = menu => menu.items.flatMap(item => [item.role, ...(item.submenu ? collect(item.submenu) : [])]);
+      return collect(Menu.getApplicationMenu());
+    });
+    assert.ok(!roles.includes('reload') && !roles.includes('forceReload'), 'native menu must not reload the application shell');
+    let navigations = 0;
+    const onNavigate = frame => { if (frame === page.mainFrame()) navigations++; };
+    page.on('framenavigated', onNavigate);
+    await page.keyboard.press('Meta+r');
+    await page.keyboard.press('Meta+Shift+r');
+    await page.waitForTimeout(400);
+    assert.equal(navigations, 0, 'reload shortcuts preserve the shell');
+    assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Retained empty project draft');
+    page.off('framenavigated', onNavigate);
+  }
   const projectRows = await page.getByRole('region', { name: projectState.preferences.workspace, exact: true }).locator('.session-row').count();
   for (let i = 0; i < 5; i++) {
     await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).locator('..').hover();

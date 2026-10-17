@@ -1,3 +1,4 @@
+import { normalizedWorkspaceKey } from './workspace-key';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -96,7 +97,7 @@ const bridge = window.desktop;
 // real snapshot arrives.
 const initial: Snapshot = { preferences: { theme: window.desktopTheme?.preference ?? window.desktopTheme?.resolved ?? 'system', accentColor: window.desktopTheme?.accentColor, language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
 const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
-const workspaceKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const workspaceKey = (path: string) => normalizedWorkspaceKey(path, window.desktop?.platform ?? 'win32');
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
@@ -189,7 +190,7 @@ function App() {
     if (sequence !== openingSequence.current || !result || result.destination === 'external') return;
     setDetails('');
     if (result.destination === 'preview') {
-      const same = previewFile?.path.toLowerCase() === result.file.path.toLowerCase();
+      const same = previewFile && workspaceKey(previewFile.path) === workspaceKey(result.file.path);
       if (toggle && target && same && rightPanel === 'file' && !details) { setRightPanel(null); return; }
       setPreviewFile(result.file); setRightPanel('file');
     } else {
@@ -1176,7 +1177,7 @@ function App() {
       language={data.preferences.language} disabled={!connected || loading}
       onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
       onAction={(action, value) => rawCommand('goal_action', { action, value })}/> };
-  return <CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
+  return <CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
     if (!image || !image.closest('.attachment-open, .attachment-preview-image, .messages')) return;
@@ -1530,7 +1531,7 @@ function App() {
           }}
           onPointerCancel={() => { previewDrag.current = null; setPreviewDragging(false); }}
           onWheel={e => {
-            if (!e.ctrlKey) return;
+            if (!(window.desktop?.platform === 'darwin' ? e.metaKey : e.ctrlKey)) return;
             e.preventDefault();
             const factor = e.deltaY < 0 ? 1.16 : 1 / 1.16;
             changePreviewZoom(previewZoom * factor, { x: e.clientX, y: e.clientY });

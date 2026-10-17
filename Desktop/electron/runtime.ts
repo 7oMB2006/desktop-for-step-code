@@ -42,46 +42,51 @@ function stderrForLog(text: string, lines = 40): string {
 
 export class RpcProcess {
   private child?: ChildProcessWithoutNullStreams;
+  private stopping?: Promise<void>;
+  private disconnected = false;
   private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   get hasPendingRequests() { return this.pending.size > 0; }
   constructor(private event: (value: any) => void) {}
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) {
-    if (this.child) throw new Error('Runtime already started');
+    if (this.child || this.stopping) throw new Error('Runtime already started or still stopping');
+    this.disconnected = false;
     this.stderr = '';
     const child = spawn(node, [entry, '--mode', 'rpc', ...args], { cwd, env, windowsHide: true, stdio: 'pipe' });
     this.child = child;
     const decoder = new JsonLines(value => {
-      if (this.child !== child) return;
+      if (this.child !== child || this.disconnected) return;
       if (value.type === 'response' && value.id && this.pending.has(value.id)) {
         const request = this.pending.get(value.id)!; this.pending.delete(value.id); clearTimeout(request.timer);
         value.success ? request.resolve(value.data) : request.reject(new Error(value.error || 'Runtime command failed'));
       } else this.event(value);
     });
     child.stdin.on('error', error => {
-      if (this.child !== child) return;
+      if (this.child !== child || this.disconnected) return;
       this.fail(error);
       this.event({ type: 'desktop_exit', details: { kind: 'rpc-write', message: error.message } });
-      void this.stop();
+      void this.stop().catch(() => {});
     });
     child.stdout.on('data', chunk => {
+      if (this.child !== child || this.disconnected) return;
       try { decoder.push(chunk); }
       catch (e) {
         if (this.child !== child) return;
         this.fail(e as Error);
         this.event({ type: 'desktop_exit', details: { kind: 'rpc-protocol', message: (e as Error).message } });
-        void this.stop();
+        void this.stop().catch(() => {});
       }
     });
     // Raw stderr is never relayed to the UI: upstream diagnostics can contain
     // private environment values. A bounded copy is kept for the crash log, and
     // stderrForLog() strips anything credential-shaped before it is written.
-    child.stderr.on('data', chunk => { this.stderr = (this.stderr + chunk.toString()).slice(-16384); });
+    child.stderr.on('data', chunk => { if (this.child === child && !this.disconnected) this.stderr = (this.stderr + chunk.toString()).slice(-16384); });
     child.stderr.resume();
-    child.on('error', error => this.fail(error));
+    child.on('error', error => { if (this.child === child && !this.disconnected) this.fail(error); });
     child.on('exit', (code, signal) => {
       if (this.child !== child) return;
       this.child = undefined;
+      if (this.disconnected) return;
       const details = { kind: 'runtime-exit', exitCode: code ?? null, signal: signal ?? null, stderrTail: stderrForLog(this.stderr) };
       const error = new Error(`Runtime exited (${code ?? signal ?? 'unknown'})`) as Error & { details?: Record<string, unknown> };
       error.details = details;
@@ -90,7 +95,7 @@ export class RpcProcess {
     });
   }
   request(type: string, args: Record<string, unknown> = {}, timeout = 30000): Promise<any> {
-    if (!this.child?.stdin.writable) return Promise.reject(new Error('Runtime is not connected'));
+    if (this.disconnected || !this.child?.stdin.writable) return Promise.reject(new Error('Runtime is not connected'));
     const id = randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Runtime timed out: ${type}`)); }, timeout);
@@ -101,7 +106,7 @@ export class RpcProcess {
     });
   }
   respond(value: Record<string, unknown>) {
-    if (!this.child?.stdin.writable) throw new Error('Runtime is not connected');
+    if (this.disconnected || !this.child?.stdin.writable) throw new Error('Runtime is not connected');
     this.child.stdin.write(JSON.stringify({ ...value, type: 'extension_ui_response' }) + '\n');
   }
   private fail(error: Error) {
@@ -109,15 +114,40 @@ export class RpcProcess {
     this.pending.clear();
   }
   async stop() {
+    if (this.stopping) return this.stopping;
     const child = this.child;
     if (!child) return;
-    this.child = undefined;
+    this.disconnected = true;
     this.fail(new Error('Runtime stopped'));
+    this.stopping = this.terminate(child).then(() => {
+      if (this.child === child) this.child = undefined;
+    }).finally(() => { this.stopping = undefined; });
+    return this.stopping;
+  }
+  private async terminate(child: ChildProcessWithoutNullStreams) {
     if (process.platform === 'win32' && child.pid) {
       await new Promise<void>(resolve => {
         const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
         killer.on('error', () => { child.kill(); resolve(); }); killer.on('exit', () => resolve());
       });
-    } else child.kill();
+    } else {
+      if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+      await new Promise<void>((done, reject) => {
+        let timer: NodeJS.Timeout;
+        const finish = (error?: Error) => {
+          clearTimeout(timer); child.off('exit', exited);
+          error ? reject(error) : done();
+        };
+        const exited = () => finish();
+        child.once('exit', exited);
+        timer = setTimeout(() => {
+          try { child.kill('SIGKILL'); }
+          catch (error) { finish(error as Error); return; }
+          timer = setTimeout(() => finish(new Error('Runtime did not exit after forced termination')), 2000);
+        }, 2000);
+        try { child.kill('SIGTERM'); }
+        catch (error) { finish(error as Error); }
+      });
+    }
   }
 }

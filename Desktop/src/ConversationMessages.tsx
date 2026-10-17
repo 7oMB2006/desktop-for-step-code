@@ -318,8 +318,8 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     const liveThought = liveThinkingKey(content, active);
     const presentation = props.interfaceSettings?.compactProcess ? groupProcesses(content, active, props.awaitingToolCalls)
       : props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
-    const changes = useMemo(() => turnChanges(active ? [] : items), [items, active]);
-    const outputPaths = useMemo(() => active ? [] : turnOutputPaths(items), [items, active]);
+    const changes = useMemo(() => turnChanges(active ? [] : items, window.desktop?.platform ?? 'win32'), [items, active]);
+    const outputPaths = useMemo(() => active ? [] : turnOutputPaths(items, window.desktop?.platform ?? 'win32'), [items, active]);
     const finalItem = [...content].reverse().find(item => item.type === 'text');
     const finalProse = finalItem?.type === 'text' ? finalItem.block.text ?? '' : '';
     const zh = props.language === 'zh';

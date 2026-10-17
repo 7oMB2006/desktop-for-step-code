@@ -112,3 +112,9 @@ v0.4.0 仍是社区预览版，不是 StepFun 官方产品，也不代表稳定�
 ### 许可
 
 Desktop for Step Code 源码采用 MIT 许可证。Step Code 及其 Pi 上游组件保留各自许可证和版权声明。
+
+### macOS Apple Silicon 本地预览分支
+
+本分支固定基于已发布的 **v0.5.0** 进行 macOS Apple Silicon 移植，不跟随后续 Windows PR 或 Linux 分支。
+构建与试用见 [macOS 说明](docs/MACOS.md)，与 Linux 维护方的分工见 [平台协作说明](docs/PLATFORM_HANDOFF.md)。
+Windows 仍是正式发布目标；本分支目前提供本机预览。

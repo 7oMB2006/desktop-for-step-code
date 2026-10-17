@@ -5,7 +5,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
-if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('Build this Windows x64 preview on Windows x64');
+if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
+const nodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
 const PINNED_COMMIT = '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8';
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 if (commit !== PINNED_COMMIT) {
@@ -43,7 +44,7 @@ for (const [name, relative, expected] of patchedFiles) {
 const source = join(upstream, 'packages/coding-agent');
 // Source hashes alone do not prove that dist/bundle contains those sources.
 // Recompile the agent before bundling; the bundle helper only rebuilds the CLI.
-const npmEntry = join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
+const npmEntry = resolve(dirname(process.execPath), process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : '../lib/node_modules/npm/bin/npm-cli.js');
 await readFile(npmEntry);
 execFileSync(process.execPath, [npmEntry, '--prefix', source, 'run', 'build'], { cwd: upstream, stdio: 'inherit' });
 const currentNode = await readFile(process.execPath);
@@ -55,7 +56,7 @@ try {
   matchingLicense = previous.node === process.version && previous.nodeSha256 === nodeSha256;
 } catch {}
 await mkdir(join(runtime, 'node'), { recursive: true });
-await cp(process.execPath, join(runtime, 'node/node.exe'));
+await cp(process.execPath, join(runtime, 'node', nodeExecutable));
 if (!matchingLicense) {
   const licenseResponse = await fetch(`https://raw.githubusercontent.com/nodejs/node/${process.version}/LICENSE`);
   if (!licenseResponse.ok) throw new Error('Unable to obtain the matching Node distribution license');
@@ -87,5 +88,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta'], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta'], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

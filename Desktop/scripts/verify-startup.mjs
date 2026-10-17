@@ -23,14 +23,18 @@ try {
   const splash = await app.firstWindow();
   await splash.waitForURL('**/startup-logo.html', { timeout: 10000 });
   assert.ok(splash.url().includes('startup-logo.html'), 'first window must be the isolated splash');
-  const state = await app.evaluate(({ BrowserWindow }) => {
+  const state = await app.evaluate(({ BrowserWindow, screen }) => {
     const win = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('startup-logo.html'));
-    return win && { size: win.getSize(), contentSize: win.getContentSize(), shadow: win.hasShadow(), focusable: win.isFocusable(),
+    return win && { bounds: win.getBounds(), display: screen.getDisplayMatching(win.getBounds()).bounds, size: win.getSize(), contentSize: win.getContentSize(), shadow: win.hasShadow(), focusable: win.isFocusable(),
       alwaysOnTop: win.isAlwaysOnTop(),
       preferences: win.webContents.getLastWebPreferences() };
   });
   console.log('Splash geometry', JSON.stringify({ outer: state.size, content: state.contentSize,
     viewport: await splash.evaluate(() => [innerWidth, innerHeight]) }));
+  if (process.platform === 'darwin') {
+    assert.ok(Math.abs(state.bounds.x + state.bounds.width / 2 - (state.display.x + state.display.width / 2)) <= 1, 'splash centered on display horizontally');
+    assert.ok(Math.abs(state.bounds.y + state.bounds.height / 2 - (state.display.y + state.display.height / 2)) <= 1, 'splash centered on display vertically, without Cocoa optical offset');
+  }
   // Windows native/DIP bounds round-trips can add 1-2px in the packaged executable.
   assert.ok(state.size.every(size => Math.abs(size - 256) <= 2), 'splash remains a small 256px window');
   const geometry = await splash.locator('img').evaluate(img => {
@@ -64,7 +68,7 @@ try {
 }
 
 // Preview the same asset without the native window lifetime cutting off capture.
-const browser = await chromium.launch();
+const browser = await chromium.launch(process.env.DESKTOP_VERIFY_BROWSER ? { executablePath: process.env.DESKTOP_VERIFY_BROWSER } : {});
 try {
   const context = await browser.newContext({
     viewport: { width: 256, height: 256 },

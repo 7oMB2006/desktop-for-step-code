@@ -2728,3 +2728,194 @@ The 2026-10-02 local preview at `Desktop/release/quote-presentation-preview/win-
 Effort labels now use the existing dark-theme palette in both themes. The light thumb is white with a softer shadow; dark styling is unchanged. The effort fixture verifies computed colors and white thumb fill alongside drag, wheel, keyboard and reduced-motion behavior. Evidence is in `Desktop/test-results/sent-quotes-{light,dark,narrow}.png` and `Desktop/test-results/model-effort-light.png`. No paid-model, installer lifecycle or public-release qualification was added.
 
 The local preview can be tried now. The Issue #5 candidate install, build-to-build credential migration and normal uninstall passed in a disposable Windows VM; independent-workspace survival was not tested. Broader public-release qualification remains incomplete, so do not describe this as fully release-qualified. No release was published.
+
+## POSIX runtime shutdown and HTML asset transport (2026-10-17)
+
+RPC stop now disconnects requests immediately, joins concurrent stop calls and
+prevents restart until shutdown completes. POSIX shutdown waits for process exit,
+with a 2-second SIGTERM grace period and SIGKILL fallback; failure to exit after
+the further 2 seconds is reported instead of allowing a replacement to overlap.
+Late output/errors from the stopped child cannot affect its replacement.
+Windows retains its existing taskkill tree termination path.
+
+Local HTML transport converts only native directory separators to URL separators
+and percent-encodes entry names by segment. POSIX literal backslashes therefore
+remain distinct from nested paths, including manifest refresh/revocation.
+Workspace boundaries, sensitive-asset exclusions, CSP and renderer isolation remain.
+
+Typecheck, build and 457 unit/protocol tests passed (one existing Windows-only
+skip). New process tests cover delayed cleanup, concurrent stops, restart guards,
+SIGTERM-resistant children, late errors and actual Step runtime exit/restart.
+Source and packaged file-preview acceptance verifies distinct script execution
+in the isolated browser and checks that session restart leaves no old RPC child;
+full undo acceptance also passes. All 1,258 packaged resources matched.
+
+## Follow-up file identity and archived project review (2026-10-17)
+
+Turn-change grouping, live readers, output paths, delivery inference and archived
+project names now use explicit platform-aware identities. Windows retains case
+and separator aliases; POSIX preserves case and literal backslashes. Main-process
+turn lookup and undo capture use the same platform as the renderer. File-kind and
+Markdown-reference case-insensitivity remain independent of filesystem identity.
+
+Typecheck, build and 453 unit/protocol tests passed (one existing Windows-only
+skip). Regression tests reproduce distinct literal-backslash/nested files and
+verify both restore exactly, reject legacy collapsed undo records, retain case-
+distinct delivery outputs and check archived project grouping/custom names under
+macOS, Linux and Windows rules. Source and packaged Electron artifact, archive
+and full undo acceptance cover this change; macOS CI includes archive acceptance
+alongside the prior terminal/undo checks. Package verification checks all resources.
+
+## macOS undo ownership and terminal scope review (2026-10-17)
+
+Undo records and canonical file-path checks now use the shared platform-aware
+workspace key: case is preserved on macOS/POSIX and folded only on Windows.
+A prepared undo ticket cannot authorize a record owned by another root, including
+a case-only root mismatch. Terminal renderer scopes and the native session store
+use the same key, including preservation of literal POSIX backslashes.
+
+Typecheck, production build and 446 unit/protocol tests passed (one existing
+Windows-only skip). Added undo regressions reject root mismatches and relocated
+confirmation tickets without modifying either workspace. Source and packaged
+Electron terminal-scope fixtures restore both projects' controllers, verify
+separate tabs/selection, and record input routed to the selected project only;
+Windows fixtures retain case/separator aliases. Full undo Electron acceptance
+passed in source and packaged apps, including real local fixture RPC edits,
+confirmation, conflicts, persistence and same-workspace running-peer exclusion.
+All 1,258 packaged resources matched. CI now runs undo and terminal-scope
+acceptance on macOS source/package and terminal scopes in Windows interface CI.
+The undo fixture canonicalizes its temporary profile to handle macOS /var aliases.
+
+## macOS continuous sidebar animation (2026-10-17)
+
+The titlebar sidebar surface now translates at the sidebar's full width using
+its existing 280ms curve, instead of shrinking its background with the button
+track and switching color immediately. Window controls keep their independent
+positions. Inactive-window dimming applies only to the sidebar button so the
+upper and lower sidebar surfaces remain the same color.
+
+Window acceptance samples both opening and closing transitions frame by frame,
+comparing the upper/lower right edges (within 1 DIP) and background colors.
+Reduced-motion settings disable both surface transitions together. Source and
+packaged window acceptance and package resource verification cover this change;
+the earlier full-suite archive-notification timeout remains recorded below.
+
+## macOS compact fullscreen toolbar (2026-10-17)
+
+Window-state replies and events now include native fullscreen state. macOS uses
+a 40px toolbar in fullscreen, removes the traffic-light inset, and places the
+sidebar toggle 12px from the left edge in both expanded and collapsed states. Leaving fullscreen restores
+the existing 52px toolbar and native control clearance. Windows styling is unchanged.
+
+Typecheck, production build and 444 unit/protocol tests passed (one existing
+Windows-only skip). Source and packaged window-toolbar acceptance passed for
+expanded/collapsed fullscreen layout and restoration; 1,258 packaged resources
+matched. The layout assertions simulate the state event for runners without
+Spaces; native entry/exit was also exercised in the installed application.
+The full source/package acceptance reached these new checks successfully but
+then timed out at the pre-existing archive-feedback toast expiry assertion.
+No release-readiness claim is made from this focused result.
+
+## Desktop local-preview delivery (2026-10-17)
+
+Session workers now append truthful Desktop presentation guidance alongside the
+existing collaboration policy: work in the selected workspace, return clean
+preview/file links, distinguish the built-in UI from available automation tools,
+and do not guess internal endpoints or deploy without a user request.
+
+Turn outputs now recognize loopback HTTP(S) previews in Markdown, prose and
+standalone URL code blocks, including older responses with adjacent Markdown
+emphasis. These cards open through the existing built-in browser and copy URLs;
+they do not fetch/probe on discovery and never enter the artifact filesystem API.
+External file boundaries, executable restrictions and missing-file filtering stay
+in force. This does not add an agent GUI-control tool or repair misplaced files.
+
+Local typecheck, production build and 444 unit/protocol tests passed (one existing
+Windows-only skip). Artifact acceptance covers cards, URL-only history, browser
+open dispatch, link copying, themes, narrow layouts and existing file boundaries.
+A read-only regression against the reported local history recognized both of its
+preview delivery responses; no user history or project files were rewritten.
+
+## macOS Codex P2 follow-up (2026-10-17)
+
+The native View menu no longer installs shell Reload/Force Reload accelerators;
+Command-R inside web content still belongs to that browser tab. StepPage managed
+command detection accepts both node.exe and extensionless runtime/node/node.
+Workspace identity is shared between main, renderer and workspace mutations:
+Windows folds case, macOS preserves it. Earlier Mac preview metadata migrates
+only when its registered owner is unambiguous. macOS update settings explicitly
+explain manual Releases downloads and omit unsupported check/channel controls.
+
+Local typecheck, production build and 442 unit/protocol tests passed (one existing
+Windows-only skip). StepPage startup acceptance covers missing and user-owned
+configuration, idempotence and stale managed path refresh; macOS update acceptance
+checks the supported Releases action and absence of inert controls. General
+Electron acceptance adds native shortcut/draft preservation coverage. Native CI
+now runs StepPage and macOS update checks against source and packaged apps.
+
+## macOS rail corner and startup placement (2026-10-17)
+
+The right tool rail retains its existing width and inspector priority, with a
+10px upper-left corner and a thin top border at the titlebar junction. On macOS,
+the separate startup window now uses explicit screen coordinates centered on
+the display containing the pointer, instead of native window centering.
+Windows placement remains unchanged.
+
+Typecheck, production build, source and installed-package startup acceptance
+passed. Startup coverage checks both axes against the native display bounds
+(within 1 DIP), transparent pixels, reduced motion, isolated bridge-free splash,
+main-window handoff and disposal. Installed-package general Electron acceptance
+passed, and package resource verification matched 1,258 files. An initial source
+general acceptance run timed out in the existing archive-feedback toast expiry
+fixture; the subsequent installed-package run passed that fixture and the full
+suite without application changes.
+
+## macOS native window controls (2026-10-17)
+
+The v0.5.0 macOS preview now uses Electron's native hiddenInset titlebar and
+system traffic lights instead of the renderer's Windows controls. The sidebar
+header shares the sidebar color, reserves the native buttons, and keeps its
+collapse toggle usable when hidden. Application commands are grouped in an
+upper-right ellipsis menu; the native application/Edit/View/Window menus remain.
+
+Typecheck, production build, source and installed-package Electron acceptance
+passed, including menu actions/Escape, sidebar collapse, native button position,
+minimize/restore, light/dark themes, long-title containment at 640px and renderer
+isolation. Package verification again matched 1,258 files. Native UI inspection confirmed
+the actual system controls, green-button full-screen entry, Command-Control-F
+exit and sidebar collapse/restore on the installed app. These checks do not
+establish Windows regression or public-release qualification.
+
+## macOS Apple Silicon Release v0.5.0 Port (2026-10-16)
+
+This branch freezes the published v0.5.0 Release at
+`6fedd4d1883e4d1beaf6f4599134695e13a9ba50`, as requested by the owner.
+Later Windows main/PR changes and the separately maintained Linux branch were
+not merged. Step Code stays pinned to `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`
+with the existing release patch guards.
+
+On this Mac mini (Apple Silicon, macOS 26.4), typecheck and the production
+build passed. The final unit/protocol run passed 439 tests, with one existing
+Windows-specific test skipped (440 total). This includes real local-fixture
+Step RPC, auth isolation, CLM and context tests. Native zsh PTY testing covers
+Unicode output in a directory containing spaces, resize, host shutdown and
+cleanup. It passes against both staged development and packaged resources.
+
+Source and packaged Electron acceptance passed: real runtime connection,
+isolated settings and sessions, rename, MCP configuration, themes, narrow
+layouts, proposed sessions and no renderer Node access. Platform acceptance
+uses Command for macOS image zoom and native path containment instead of
+Windows path separators. Source and packaged safeStorage acceptance passed
+legacy plaintext migration, ciphertext checks, logout, fixture-key login and
+relaunch recovery through macOS Keychain. All credentials were isolated,
+nonfunctional fixture values; no personal profile or paid model was used.
+
+The local unsigned app is `Desktop/release/mac-arm64/Desktop for Step Code.app`.
+Package verification compared 1,258 built/staged files, including all runtime
+files and the native PTY host/addon/helper, and checked version, architecture,
+Node SHA-256 and executable permissions. Evidence is in ignored
+`Desktop/test-results/macos-package-resources.json` and local acceptance logs.
+
+This establishes a native local preview, not notarization, public release,
+Intel Mac support, real account/model quality, external MCP publication or
+Windows regression acceptance. See `MACOS.md` and `PLATFORM_HANDOFF.md`.

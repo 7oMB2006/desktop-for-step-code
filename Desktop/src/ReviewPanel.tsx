@@ -93,7 +93,7 @@ function ReviewContent({ runtimeId, messages, busy, active, language, expanded, 
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [revision, setRevision] = useState(0);
-  const read = useMemo(createTurnChangesReader, []);
+  const read = useMemo(() => createTurnChangesReader(window.desktop?.platform ?? 'win32'), []);
   const last = useMemo(() => lastCompletedResponse(messages, busy), [messages, busy]);
   const changes = read(last?.items ?? []);
   const toolResults = messages.filter(message => message.role === 'toolResult').length;

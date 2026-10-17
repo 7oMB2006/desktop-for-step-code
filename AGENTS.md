@@ -2,9 +2,9 @@
 
 ## Project Boundary
 
-- This repository contains the Windows desktop client in `Desktop/`.
+- This repository contains the desktop client in `Desktop/`. Windows is the published target; this branch ports the frozen v0.5.0 Release to macOS Apple Silicon. See `docs/MACOS.md` and `docs/PLATFORM_HANDOFF.md`.
 - `Step-Code/` is a separate upstream checkout and is intentionally excluded from this repository.
-- Keep the first release boundary at Windows Desktop plus the Windows Step Code runtime. WSL support is a later compatibility target, not a current dependency.
+- Keep the macOS baseline fixed at Release v0.5.0; do not merge later Windows main/PR work or the separately maintained Linux branch without an explicit request. Preserve Windows behavior and renderer isolation. WSL is not a dependency.
 - Preserve changes already present in the Step Code checkout. Do not edit it unless an integration need requires a narrowly scoped change.
 
 ## Runtime Boundary

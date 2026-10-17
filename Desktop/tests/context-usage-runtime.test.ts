@@ -55,7 +55,7 @@ test('real runtime publishes growing context after a tool result before the turn
     assert.ok(condition(), label);
   };
   try {
-    const worker = await pool.open(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'),
+    const worker = await pool.open(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'),
       workspace, isolatedEnvironment(profile));
     const initialTokens = worker.stats?.contextUsage?.tokens;
     assert.equal(typeof initialTokens, 'number');

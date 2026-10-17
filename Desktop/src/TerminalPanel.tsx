@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { ClipboardPaste, Copy, Eraser, Plus, X } from 'lucide-react';
+import { normalizedWorkspaceKey } from './workspace-key';
 import type { TerminalInfo, TerminalSnapshot } from './contracts';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
 import { RightPanelWidthControl } from './RightPanelWidthControl';
@@ -10,7 +11,7 @@ import './terminal-panel.css';
 
 type Chunk = { seq: number; data: string };
 type Controller = { terminal: Terminal; fit: FitAddon; element: HTMLDivElement; seq: number; info: TerminalInfo; hydrated: boolean; pending: Chunk[] };
-const directoryKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+const directoryKey = (value: string) => normalizedWorkspaceKey(value, window.desktop?.platform ?? 'win32');
 
 export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cwd, language, onClose, onToggleExpanded, onError, width, onWidthChange }: {
   open: boolean; replaced: boolean; overlay: boolean; expanded: boolean; runtimeId?: string; cwd?: string;
@@ -85,7 +86,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     element.hidden = true;
     host.current?.append(element);
     terminal.open(element);
-    terminal.textarea?.setAttribute('aria-label', 'PowerShell');
+    terminal.textarea?.setAttribute('aria-label', window.desktop?.platform === 'darwin' ? 'zsh' : 'PowerShell');
     terminal.parser.registerOscHandler(52, () => true);
     controller = { terminal, fit, element, seq: 0, info, hydrated: false, pending: orphanChunks.current.get(info.id) ?? [] };
     orphanChunks.current.delete(info.id);
@@ -99,11 +100,11 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     });
     terminal.attachCustomKeyEventHandler(event => {
       if (event.type !== 'keydown') return true;
-      if (event.ctrlKey && !event.altKey && (event.key.toLowerCase() === 'c') &&
+      if ((window.desktop?.platform === 'darwin' ? event.metaKey : event.ctrlKey) && !event.altKey && (event.key.toLowerCase() === 'c') &&
         (event.shiftKey || terminal.hasSelection())) {
         event.preventDefault(); void copy(controllers.current.get(info.id)); return false;
       }
-      if (event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'v') {
+      if ((window.desktop?.platform === 'darwin' ? event.metaKey : event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'v') {
         event.preventDefault(); void paste(controllers.current.get(info.id)); return false;
       }
       return true;
@@ -245,7 +246,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
           onClick={() => runtimeId && void create(runtimeId, scope)}><Plus size={16}/></button>
       </div>
       <div className="terminal-toolbar">
-        <span>PowerShell</span>
+        <span>{window.desktop?.platform === 'darwin' ? 'zsh' : 'PowerShell'}</span>
         <button className="icon-button" disabled={!selected} aria-label={t('复制所选文本', 'Copy selected text')}
           data-tooltip={t('复制所选文本', 'Copy selected text')} onClick={() => void copy(controller)}><Copy size={14}/></button>
         <button className="icon-button" disabled={selected?.status !== 'running'} aria-label={t('粘贴到终端', 'Paste into terminal')}

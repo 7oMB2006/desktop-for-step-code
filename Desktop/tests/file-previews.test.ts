@@ -80,3 +80,30 @@ test('local HTML grants only declared assets, enforces request boundaries and re
     assert.equal((await fetch(new URL('assets/style.css', first.url))).status, 404);
   } finally { pages.dispose(); }
 });
+
+test('POSIX HTML preview keeps literal backslashes distinct from nested resource paths', { skip: process.platform === 'win32' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'local-page-posix-'));
+  await mkdir(join(root, 'a'));
+  const entry = join(root, 'preview\\entry.html');
+  await writeFile(entry, '<script src="a%5Cb.js"></script><script src="a/b.js"></script>');
+  await writeFile(join(root, 'a\\b.js'), 'window.asset = "literal-backslash";');
+  await writeFile(join(root, 'a/b.js'), 'window.asset = "nested-directory";');
+  await writeFile(join(root, 'unlisted.js'), 'window.asset = "not-granted";');
+  const pages = new LocalPagePreview();
+  try {
+    const page = await pages.open(entry);
+    assert.match(new URL(page.url).pathname, /preview%5Centry\.html$/);
+    assert.equal((await fetch(page.url)).status, 200);
+    const literal = await fetch(new URL('a%5Cb.js', page.url));
+    const nested = await fetch(new URL('a/b.js', page.url));
+    assert.equal(literal.status, 200); assert.equal(nested.status, 200);
+    assert.match(await literal.text(), /literal-backslash/);
+    assert.match(await nested.text(), /nested-directory/);
+    assert.equal((await fetch(new URL('unlisted.js', page.url))).status, 404);
+    // Refreshing the grant removes the literal asset without disturbing the nested one.
+    await writeFile(entry, '<script src="a/b.js"></script>');
+    await pages.open(entry);
+    assert.equal((await fetch(new URL('a%5Cb.js', page.url))).status, 404);
+    assert.match(await (await fetch(new URL('a/b.js', page.url))).text(), /nested-directory/);
+  } finally { pages.dispose(); }
+});

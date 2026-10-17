@@ -8,6 +8,81 @@ import { createServer } from 'node:http';
 import { permissionFromStatus } from '../electron/permission-status';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
+test('POSIX stop waits for cleanup, joins concurrent stops and prevents overlapping restarts', { skip: process.platform === 'win32', timeout: 15000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rpc-stop-cleanup-'));
+  const entry = join(root, 'fixture.cjs');
+  await writeFile(entry, `
+    const fs = require('node:fs');
+    process.on('SIGTERM', () => setTimeout(() => {
+      fs.writeFileSync('cleaned.txt', 'cleanup complete'); process.exit(0);
+    }, 150));
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const command = JSON.parse(line);
+      if (command.type !== 'pending') process.stdout.write(JSON.stringify({ type: 'response', id: command.id, success: true, data: { pid: process.pid } }) + '\\n');
+    });
+    setInterval(() => {}, 1000);
+  `);
+  const events: unknown[] = [];
+  const rpc = new RpcProcess(event => events.push(event));
+  try {
+    rpc.start(process.execPath, entry, root, isolatedEnvironment(root));
+    const { pid } = await rpc.request('ready');
+    const child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
+    const rejected = assert.rejects(rpc.request('pending'), /Runtime stopped/);
+    const first = rpc.stop(), second = rpc.stop();
+    assert.throws(() => rpc.start(process.execPath, entry, root, isolatedEnvironment(root)), /still stopping/);
+    await assert.rejects(rpc.request('ready'), /not connected/);
+    await Promise.all([first, second, rejected]);
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    assert.equal(await readFile(join(root, 'cleaned.txt'), 'utf8'), 'cleanup complete');
+    assert.deepEqual(events, [], 'Intentional shutdown does not emit an unexpected runtime exit');
+    rpc.start(process.execPath, entry, root, isolatedEnvironment(root));
+    const replacement = rpc.request('ready');
+    child.emit('error', new Error('late error from stopped child'));
+    assert.notEqual((await replacement).pid, pid);
+  } finally { await rpc.stop(); }
+});
+
+test('POSIX stop force-kills a child that ignores SIGTERM and waits for its exit', { skip: process.platform === 'win32', timeout: 15000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rpc-stop-stubborn-'));
+  const entry = join(root, 'fixture.cjs');
+  await writeFile(entry, `
+    process.on('SIGTERM', () => {});
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const command = JSON.parse(line);
+      process.stdout.write(JSON.stringify({ type: 'response', id: command.id, success: true, data: { pid: process.pid } }) + '\\n');
+    });
+    setInterval(() => {}, 1000);
+  `);
+  const rpc = new RpcProcess(() => {});
+  try {
+    rpc.start(process.execPath, entry, root, isolatedEnvironment(root));
+    const { pid } = await rpc.request('ready');
+    const child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
+    await rpc.stop();
+    assert.equal(child.signalCode, 'SIGKILL');
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  } finally { await rpc.stop(); }
+});
+
+test('real POSIX Step runtime has exited before stop resolves and can then restart', { skip: process.platform === 'win32', timeout: 60000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rpc-real-stop-'));
+  const rpc = new RpcProcess(() => {});
+  const node = resolve('runtime/node/node');
+  const entry = resolve('runtime/step/dist/bundle/step.js');
+  try {
+    rpc.start(node, entry, root, isolatedEnvironment(root));
+    await rpc.request('get_state');
+    const child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
+    const pid = child.pid!;
+    await rpc.stop();
+    assert.ok(child.exitCode !== null || child.signalCode !== null);
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    rpc.start(node, entry, root, isolatedEnvironment(root));
+    assert.equal((await rpc.request('get_state')).isStreaming, false);
+  } finally { await rpc.stop(); }
+});
+
 test('JSONL preserves split multibyte characters and CRLF frames', () => {
   const values: any[] = []; const parser = new JsonLines(v => values.push(v));
   const bytes = Buffer.from('{"text":"中文"}\r\n\n{"n":2}\n');

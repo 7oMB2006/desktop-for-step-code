@@ -1,5 +1,26 @@
 # Verification
 
+## POSIX runtime shutdown and HTML asset transport (2026-10-17)
+
+RPC stop now disconnects requests immediately, joins concurrent stop calls and
+prevents restart until shutdown completes. POSIX shutdown waits for process exit,
+with a 2-second SIGTERM grace period and SIGKILL fallback; failure to exit after
+the further 2 seconds is reported instead of allowing a replacement to overlap.
+Late output/errors from the stopped child cannot affect its replacement.
+Windows retains its existing taskkill tree termination path.
+
+Local HTML transport converts only native directory separators to URL separators
+and percent-encodes entry names by segment. POSIX literal backslashes therefore
+remain distinct from nested paths, including manifest refresh/revocation.
+Workspace boundaries, sensitive-asset exclusions, CSP and renderer isolation remain.
+
+Typecheck, build and 457 unit/protocol tests passed (one existing Windows-only
+skip). New process tests cover delayed cleanup, concurrent stops, restart guards,
+SIGTERM-resistant children, late errors and actual Step runtime exit/restart.
+Source and packaged file-preview acceptance verifies distinct script execution
+in the isolated browser and checks that session restart leaves no old RPC child;
+full undo acceptance also passes. All 1,258 packaged resources matched.
+
 ## Follow-up file identity and archived project review (2026-10-17)
 
 Turn-change grouping, live readers, output paths, delivery inference and archived

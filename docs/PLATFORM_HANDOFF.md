@@ -76,3 +76,14 @@ fold POSIX case or treat a literal backslash as a directory separator. Undo's
 main-process lookup uses the same platform as renderer diff grouping. Legacy
 undo records with collapsed file lists are rejected rather than rewritten.
 Archive project groups and custom-name lookup use `normalizedWorkspaceKey`.
+
+
+## Runtime shutdown and preview transport follow-up
+
+RpcProcess.stop now waits for POSIX child exit, with a bounded SIGTERM/SIGKILL
+sequence and a shared in-flight stop promise. Requests disconnect immediately;
+start is blocked while the old process is stopping. Preserve this ownership
+guard when changing process lifecycle code. Windows retains taskkill tree cleanup.
+LocalPagePreview URL keys convert the native separator only, preserving POSIX
+literal backslashes as percent-encoded filename characters. Do not apply Windows
+separator normalization to POSIX preview manifests.

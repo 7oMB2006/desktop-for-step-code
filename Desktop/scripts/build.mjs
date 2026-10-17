@@ -26,6 +26,8 @@ for (const [source, name] of [
   ['remark-parse/license', 'remark-parse.txt'],
   ['semver/LICENSE', 'semver.txt'],
   ['@xmldom/xmldom/LICENSE', 'xmldom.txt'],
+  ['yauzl/LICENSE', 'yauzl.txt'],
+  ['pend/LICENSE', 'pend.txt'],
   ['electron-updater/LICENSE', 'electron-updater.txt'],
   ['builder-util-runtime/LICENSE', 'builder-util-runtime.txt'],
 ]) await cp(`node_modules/${source}`, `dist/licenses/${name}`);

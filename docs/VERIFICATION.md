@@ -26,6 +26,14 @@ results do not establish official billing, real-account acceptance,
 v0.5.0 installation migration or production in-app upgrade. Those remain
 explicit release gates in the v0.5.1 preparation document.
 
+The maintainer subsequently confirmed that real Plan/API switching works in
+both directions and billing does not cross modes. This is recorded as manual
+acceptance of account switching, not an independent billing audit or proof
+of every region, quota-refresh action or installation migration. PR #130 at
+`27122dd48af452c13ac3f1ee14f03316ca8d19ee` passed all three Windows groups
+and the final CI gate in run `39025122001`; later documentation commits
+have their own CI status.
+
 ## Usage Account Allowance Bridge (2026-10-17)
 
 The account page now queries the schema-1 personal Plan allowance endpoint

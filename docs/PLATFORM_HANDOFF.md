@@ -64,3 +64,15 @@ file candidates alone go through `artifactFiles`. Recognition does not perform
 network requests or grant outside-workspace file access. No upstream pin or
 Step Code checkout changes are needed. Preserve this distinction when porting
 artifact UI or session startup changes across platform branches.
+
+
+## File and archive identity follow-up
+
+`normalizedFileKey(path, platform)` shares the workspace platform rules while
+removing a leading `./` alias. Turn-change grouping/live readers and output-path/
+artifact parsing receive an explicit platform from their main or preload caller;
+the optional default remains Windows for existing pure-call compatibility. Never
+fold POSIX case or treat a literal backslash as a directory separator. Undo's
+main-process lookup uses the same platform as renderer diff grouping. Legacy
+undo records with collapsed file lists are rejected rather than rewritten.
+Archive project groups and custom-name lookup use `normalizedWorkspaceKey`.

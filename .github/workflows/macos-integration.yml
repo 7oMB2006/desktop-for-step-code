@@ -82,6 +82,7 @@ jobs:
           node scripts/verify-turn-artifacts.mjs
           node scripts/verify-terminal-scopes.mjs
           node scripts/verify-turn-undo.mjs
+          node scripts/verify-archived-sessions.mjs
       - name: Package unsigned preview and verify resources
         working-directory: Desktop
         run: |
@@ -103,6 +104,7 @@ jobs:
           node scripts/verify-turn-artifacts.mjs
           node scripts/verify-terminal-scopes.mjs
           node scripts/verify-turn-undo.mjs
+          node scripts/verify-archived-sessions.mjs
           corepack pnpm exec tsx --test tests/macos-terminal.test.ts
       - name: Archive tested preview with executable permissions
         working-directory: Desktop

@@ -105,3 +105,20 @@ test('preview inference does not turn remote citations, credentials or example c
   assert.equal(localPreviewUrl('javascript:alert(1)'), undefined);
   assert.deepEqual(turnArtifacts('[Reference](https://example.com/)\n\n`curl http://localhost:8765/`\n\n```bash\ncurl http://localhost:8765/\n```'), []);
 });
+
+
+test('POSIX delivery retains case-distinct and literal-backslash files while Windows folds aliases', () => {
+  const text = '[Upper](Report.pdf) [Lower](report.pdf) [Literal](<a%5Cb.pdf>) [Nested](a/b.pdf)';
+  for (const platform of ['darwin', 'linux']) {
+    assert.deepEqual(turnArtifacts(text, [], platform).map(item => item.path), ['Report.pdf', 'report.pdf', 'a\\b.pdf', 'a/b.pdf']);
+    assert.deepEqual(turnArtifacts('`Report.pdf` `report.pdf`', ['one/Report.pdf', 'two/report.pdf'], platform).map(item => item.path), ['one/Report.pdf', 'two/report.pdf']);
+    assert.equal(turnArtifacts('`report.pdf`', ['one/report.pdf', 'two/report.pdf'], platform).filter(item => item.path === 'report.pdf').length, 0);
+  }
+  assert.equal(turnArtifacts(text, [], 'win32').length, 2);
+  const items = ['Report.pdf', 'report.pdf', 'a\\b.pdf', 'a/b.pdf'].flatMap((path, index) => [
+    { index: index * 2, message: { role: 'assistant', content: [{ type: 'toolCall', id: String(index), name: 'write', arguments: { path } }] } },
+    { index: index * 2 + 1, message: { role: 'toolResult', toolCallId: String(index), content: 'Done' } },
+  ]);
+  assert.equal(turnOutputPaths(items, 'darwin').length, 4);
+  assert.equal(turnOutputPaths(items, 'win32').length, 2);
+});

@@ -17,6 +17,7 @@ const names = ['主线 · 左栏整理', '优化流式输出', '引用与回复'
 const archivedIds = names.map((_, index) => `archive-${index}`);
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   theme: 'light', language: 'zh', workspaces: projects, archivedSessionIds: archivedIds,
+  workspaceNames: Object.fromEntries(projects.map((path, index) => [process.platform === 'win32' ? path.replaceAll('\\', '/').toLowerCase() : path, `Custom project ${index}`])),
 }));
 const turns = [
   '把已归档的会话整理到设置里面，支持恢复和永久删除。',
@@ -108,6 +109,7 @@ try {
   await page.screenshot({ path: 'test-results/navigation-turn-dates-detail.png', clip: { ...navigationBox, height: Math.min(navigationBox.height, 350) } });
   await archives(page);
   assert.equal(await page.locator('.archive-project').count(), 3);
+  for (const index of [0, 1]) assert.equal(await page.locator('.archive-project h4').filter({ hasText: `Custom project ${index}` }).count(), 1);
   assert.equal(await page.locator('[data-archived-session-id]').count(), names.length);
   await screenshot(page, 'test-results/archives-settings-light.png');
   const search = page.getByRole('searchbox', { name: '搜索归档会话' });

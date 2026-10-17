@@ -14,7 +14,7 @@ type FileRecord = { path: string; before: string; afterHash: string };
 type Record = { key: string; root: string; state: 'available' | 'undone' | 'failed'; files: FileRecord[] };
 
 function identity(session: string, items: IndexedMessage[]) {
-  const changes = turnChanges(items);
+  const changes = turnChanges(items, process.platform);
   const ids = changes.files.flatMap(file => file.edits.map(edit => edit.id));
   const patches = items.filter(item => ids.includes(item.message.toolCallId ?? '')).map(item => item.message.details?.patch);
   return { changes, key: digest(JSON.stringify([session, ids, patches])) };

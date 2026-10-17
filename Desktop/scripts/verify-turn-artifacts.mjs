@@ -163,6 +163,22 @@ try {
   assert.equal(await app.evaluate(() => globalThis.lastPreviewCopy), 'http://localhost:8765/');
   assert.equal(await page.getByRole('button', { name: '显示位置', exact: true }).count(), 0);
   await page.screenshot({ path: 'test-results/turn-artifacts-local-server.png' });
+  mark('platform-aware case-distinct delivery cards');
+  await app.evaluate(({ BrowserWindow }) => {
+    const fixture = globalThis.artifactFixture;
+    fixture.messages = [fixture.messages[0], { role: 'assistant', content: '[Upper](Report.pdf) [Lower](report.pdf)' }];
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_history', runtimeId: fixture.runtimeId, messages: fixture.messages });
+  });
+  await page.reload();
+  const expectedCards = process.platform === 'win32' ? 1 : 2;
+  await page.waitForFunction(expected => document.querySelectorAll('.artifact-row').length === expected &&
+    [...document.querySelectorAll('.artifact-main')].every(button => !button.disabled), expectedCards);
+  await page.locator('.artifact-main').filter({ hasText: 'Upper' }).click();
+  assert.equal((await app.evaluate(() => globalThis.lastArtifactAction))[1], 'Report.pdf');
+  if (process.platform !== 'win32') {
+    await page.locator('.artifact-main').filter({ hasText: 'Lower' }).click();
+    assert.equal((await app.evaluate(() => globalThis.lastArtifactAction))[1], 'report.pdf');
+  }
   assert.deepEqual(errors, []);
   mark('complete');
   console.log('Artifact references, cards, file boundary and actions passed');

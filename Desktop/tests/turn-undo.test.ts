@@ -127,3 +127,40 @@ test('relocation to a different root cannot use an existing confirmation ticket'
   for (const root of [cwd, destination]) assert.equal(await readFile(join(root, 'a'), 'utf8'), 'new\n');
   assert.equal((await store.status('s', cwd, items)).state, 'available');
 });
+
+
+test('POSIX undo independently restores a literal-backslash file and a nested file', { skip: process.platform === 'win32' }, async () => {
+  const { cwd, store } = await setup();
+  await mkdir(join(cwd, 'a'));
+  const literal = 'a\\b.txt', nested = 'a/b.txt';
+  const context = Array(18).fill('context').join('\n');
+  const beforeLiteral = `oldA\n${context}\nnewB\n`;
+  const afterLiteral = beforeLiteral.replace('oldA', 'newA');
+  const beforeNested = beforeLiteral.replace('newB', 'oldB');
+  const afterNested = beforeLiteral;
+  await writeFile(join(cwd, literal), afterLiteral);
+  await writeFile(join(cwd, nested), afterNested);
+  const items = [...edit(literal, beforeLiteral, afterLiteral, 'literal'), ...edit(nested, beforeNested, afterNested, 'nested')];
+  await store.capture('s', cwd, items);
+  const prepared = await store.prepare('s', cwd, items);
+  assert.equal(prepared.state, 'available');
+  assert.equal((await store.undo('s', cwd, items, prepared.token!)).state, 'undone');
+  assert.equal(await readFile(join(cwd, literal), 'utf8'), beforeLiteral);
+  assert.equal(await readFile(join(cwd, nested), 'utf8'), beforeNested);
+});
+
+test('legacy collapsed file records are unavailable after POSIX file identity is corrected', { skip: process.platform === 'win32' }, async () => {
+  const { cwd, dir, store } = await setup();
+  await mkdir(join(cwd, 'a'));
+  const items = [...edit('a\\b.txt', 'old\n', 'new\n', 'literal'), ...edit('a/b.txt', 'old\n', 'new\n', 'nested')];
+  for (const path of ['a\\b.txt', 'a/b.txt']) await writeFile(join(cwd, path), 'new\n');
+  await store.capture('s', cwd, items);
+  const prepared = await store.prepare('s', cwd, items);
+  const path = join(dir, 'records', (await readdir(join(dir, 'records')))[0]);
+  const record = JSON.parse(await readFile(path, 'utf8'));
+  record.files = record.files.slice(0, 1);
+  await writeFile(path, JSON.stringify(record));
+  assert.equal((await store.status('s', cwd, items)).state, 'unavailable');
+  assert.equal((await store.undo('s', cwd, items, prepared.token!)).state, 'unavailable');
+  for (const path of ['a\\b.txt', 'a/b.txt']) assert.equal(await readFile(join(cwd, path), 'utf8'), 'new\n');
+});

@@ -1,3 +1,4 @@
+import { normalizedFileKey } from './workspace-key';
 import { parsePatch } from 'diff';
 import type { Content, Message } from './contracts';
 import type { IndexedMessage } from './conversation-presentation';
@@ -39,7 +40,7 @@ export function parseToolPatch(patch: unknown, id: string): TurnEdit | undefined
   } catch { return; }
 }
 
-export function turnChanges(items: IndexedMessage[]): TurnChanges {
+export function turnChanges(items: IndexedMessage[], platform: string = 'win32'): TurnChanges {
   const calls = new Map<string, Content>();
   const seen = new Set<string>();
   const files = new Map<string, TurnFile>();
@@ -58,7 +59,7 @@ export function turnChanges(items: IndexedMessage[]): TurnChanges {
     if (typeof path !== 'string' || !path.trim() || path.length > 4096 || !edit || totalRows + edit.rows.length > 10000) {
       incomplete = true; continue;
     }
-    const key = path.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+    const key = normalizedFileKey(path, platform);
     const file = files.get(key) ?? { path, edits: [], added: 0, removed: 0 };
     file.edits.push(edit); file.added += edit.added; file.removed += edit.removed;
     files.set(key, file); totalRows += edit.rows.length;
@@ -69,7 +70,7 @@ export function turnChanges(items: IndexedMessage[]): TurnChanges {
 }
 
 // Live prose deltas must not repeatedly parse already completed tool patches.
-export function createTurnChangesReader() {
+export function createTurnChangesReader(platform: string = 'win32') {
   let callsKey = '';
   let results: Message[] = [];
   let changes: TurnChanges = { files: [], incomplete: false, added: 0, removed: 0 };
@@ -79,7 +80,7 @@ export function createTurnChangesReader() {
         part.arguments && typeof part.arguments === 'object' ? (part.arguments as Record<string, unknown>).path : null]) : []));
     const nextResults = items.filter(item => item.message.role === 'toolResult').map(item => item.message);
     if (nextCalls === callsKey && nextResults.length === results.length && nextResults.every((message, index) => message === results[index])) return changes;
-    callsKey = nextCalls; results = nextResults; changes = turnChanges(items);
+    callsKey = nextCalls; results = nextResults; changes = turnChanges(items, platform);
     return changes;
   };
 }

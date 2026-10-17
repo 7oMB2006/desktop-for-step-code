@@ -1,5 +1,21 @@
 # Verification
 
+## Follow-up file identity and archived project review (2026-10-17)
+
+Turn-change grouping, live readers, output paths, delivery inference and archived
+project names now use explicit platform-aware identities. Windows retains case
+and separator aliases; POSIX preserves case and literal backslashes. Main-process
+turn lookup and undo capture use the same platform as the renderer. File-kind and
+Markdown-reference case-insensitivity remain independent of filesystem identity.
+
+Typecheck, build and 453 unit/protocol tests passed (one existing Windows-only
+skip). Regression tests reproduce distinct literal-backslash/nested files and
+verify both restore exactly, reject legacy collapsed undo records, retain case-
+distinct delivery outputs and check archived project grouping/custom names under
+macOS, Linux and Windows rules. Source and packaged Electron artifact, archive
+and full undo acceptance cover this change; macOS CI includes archive acceptance
+alongside the prior terminal/undo checks. Package verification checks all resources.
+
 ## macOS undo ownership and terminal scope review (2026-10-17)
 
 Undo records and canonical file-path checks now use the shared platform-aware

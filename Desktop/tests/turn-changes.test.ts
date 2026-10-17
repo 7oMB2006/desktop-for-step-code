@@ -90,3 +90,19 @@ test('malformed counts, multi-file patches, overlong lines and oversized payload
   assert.equal(parseToolPatch(createPatch('a', '', 'x'.repeat(12001) + '\n'), 'id'), undefined);
   assert.equal(parseToolPatch(createPatch('a', 'a\n', 'b\n') + createPatch('b', 'a\n', 'b\n'), 'id'), undefined);
 });
+
+
+test('file changes preserve POSIX case and literal backslashes in both static and live readers', () => {
+  const items = indexed([
+    ...edit('Report.ts', 'old\n', 'new\n', 'upper'),
+    ...edit('report.ts', 'old\n', 'new\n', 'lower'),
+    ...edit('a\\b.ts', 'old\n', 'new\n', 'literal'),
+    ...edit('a/b.ts', 'old\n', 'new\n', 'nested'),
+  ]);
+  for (const platform of ['darwin', 'linux']) {
+    assert.deepEqual(turnChanges(items, platform).files.map(file => file.path), ['Report.ts', 'report.ts', 'a\\b.ts', 'a/b.ts']);
+    assert.equal(createTurnChangesReader(platform)(items).files.length, 4);
+  }
+  assert.equal(turnChanges(items, 'win32').files.length, 2);
+  assert.equal(createTurnChangesReader('win32')(items).files.length, 2);
+});

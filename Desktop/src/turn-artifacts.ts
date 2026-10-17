@@ -1,3 +1,4 @@
+import { normalizedFileKey } from './workspace-key';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import type { Nodes, Root } from 'mdast';
@@ -42,10 +43,10 @@ export function localPreviewUrl(value: string): string | undefined {
 }
 
 const parser = unified().use(remarkParse);
-const pathKey = (path: string) => path.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
-const basename = (path: string) => path.replace(/\\/g, '/').split('/').at(-1)!;
+const pathKey = normalizedFileKey;
+const basename = (path: string, platform: string) => (platform === 'win32' ? path.replace(/\\/g, '/') : path).split('/').at(-1)!;
 
-export function turnOutputPaths(items: IndexedMessage[]): string[] {
+export function turnOutputPaths(items: IndexedMessage[], platform: string = 'win32'): string[] {
   const calls = new Map<string, Content>();
   const found = new Map<string, string>();
   for (const { message } of items) {
@@ -58,12 +59,12 @@ export function turnOutputPaths(items: IndexedMessage[]): string[] {
     const args = call.arguments;
     const value = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>).path : undefined;
     const path = typeof value === 'string' ? localReference(value) : undefined;
-    if (path && artifactKind(path) !== 'file' && found.size < 64) found.set(pathKey(path), path);
+    if (path && artifactKind(path) !== 'file' && found.size < 64) found.set(pathKey(path, platform), path);
   }
   return [...found.values()];
 }
 
-export function turnArtifacts(text: string, outputPaths: string[] = []): TurnArtifact[] {
+export function turnArtifacts(text: string, outputPaths: string[] = [], platform: string = 'win32'): TurnArtifact[] {
   if (text.length > 200_000) return [];
   const tree = parser.parse(text) as Root;
   const definitions = new Map<string, string>();
@@ -71,9 +72,9 @@ export function turnArtifacts(text: string, outputPaths: string[] = []): TurnArt
   const found = new Map<string, TurnArtifact>();
   const add = (path: string, name: string, inferred = false) => {
     const kind = artifactKind(path);
-    const key = pathKey(path);
+    const key = pathKey(path, platform);
     if (kind !== 'file' && found.size < 12 && !found.has(key)) found.set(key, {
-      path, label: name.slice(0, 160) || basename(path), kind, ...(inferred ? { inferred: true } : {}),
+      path, label: name.slice(0, 160) || basename(path, platform), kind, ...(inferred ? { inferred: true } : {}),
     });
   };
   const addPreview = (value: string, name = '') => {
@@ -100,18 +101,18 @@ export function turnArtifacts(text: string, outputPaths: string[] = []): TurnArt
     }
     if (node.type === 'inlineCode') {
       let path = localReference(node.value);
-      if (path && !/[\\/]/.test(path)) {
-        const matches = outputPaths.filter(output => basename(output).toLowerCase() === path!.toLowerCase());
+      if (path && !(platform === 'win32' ? /[\\/]/.test(path) : path.includes('/'))) {
+        const matches = outputPaths.filter(output => pathKey(basename(output, platform), platform) === pathKey(path!, platform));
         path = matches.length === 1 ? matches[0] : matches.length > 1 ? undefined : path;
       }
-      if (path) add(path, basename(path), true);
+      if (path) add(path, basename(path, platform), true);
     }
     if ('children' in node) for (const child of node.children) visit(child as Nodes);
   };
   visit(tree);
   for (const value of outputPaths) {
     const path = localReference(value);
-    if (path) add(path, basename(path), true);
+    if (path) add(path, basename(path, platform), true);
   }
   return [...found.values()];
 }

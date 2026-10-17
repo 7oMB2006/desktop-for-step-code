@@ -31,7 +31,7 @@ export function TurnArtifacts({ text, outputPaths = [], language }: { text: stri
   const [present, setPresent] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const zh = language === 'zh';
-  const candidates = turnArtifacts(text, outputPaths);
+  const candidates = turnArtifacts(text, outputPaths, window.desktop?.platform ?? 'win32');
   const key = JSON.stringify(candidates.map(item => item.path));
   const files = checked?.key === key && checked.runtimeId === runtimeId ? checked.files : [];
   const fileCandidates = candidates.filter(item => !item.url);

@@ -785,7 +785,7 @@ async function handle(method: string, args: any[]) {
       if (!['status', 'prepare', 'undo'].includes(action)) throw new Error('Invalid undo action');
       await undoCaptures.get(worker.id);
       const entry = conversationEntries(worker.messages).find(entry => entry.type === 'response' &&
-        JSON.stringify(turnChanges(entry.items).files.flatMap(file => file.edits.map(edit => edit.id))) === JSON.stringify(args[1]));
+        JSON.stringify(turnChanges(entry.items, process.platform).files.flatMap(file => file.edits.map(edit => edit.id))) === JSON.stringify(args[1]));
       if (entry?.type !== 'response' || !worker.state?.sessionId) throw new Error('Turn not found');
       const sessionId = worker.state.sessionId;
       if (action === 'status') return undoStore.status(sessionId, worker.cwd, entry.items);

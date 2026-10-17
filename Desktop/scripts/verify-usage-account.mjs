@@ -10,7 +10,8 @@ try {
   server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
   await server.listen();
   const url = `${server.resolvedUrls.local[0]}tests/fixtures/usage-account.html`;
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true,
+    ...(process.env.DESKTOP_VERIFY_BROWSER ? { executablePath: process.env.DESKTOP_VERIFY_BROWSER } : {}) });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));

@@ -1,9 +1,25 @@
 # macOS Apple Silicon preview
 
-This port is based on **Desktop for Step Code v0.5.0** (release commit
-`6fedd4d1883e4d1beaf6f4599134695e13a9ba50`), independently of subsequent
-Windows PRs. Windows remains the published release target. Linux is maintained
-on a separate branch; see [PLATFORM_HANDOFF.md](PLATFORM_HANDOFF.md).
+This track follows **Desktop for Step Code v0.5.1** (Windows release commit
+`15f0fa77ee1562d3297e226071d49c00c762d891`) at the owner's request, preserving
+the macOS changes merged in PR #128 (`5b521cdd630c353e32542a16b1fb3ac990458912`).
+Later Windows main/PR work is outside this iteration. The first macOS preview
+remains available as `v0.5.0-macos.1`; this branch prepares its 0.5.1 successor.
+Linux is maintained separately; see [PLATFORM_HANDOFF.md](PLATFORM_HANDOFF.md).
+
+## v0.5.1 account features
+
+Account settings show Step Plan subscription/allowance or official API balance
+according to the authenticated profile and region. Model discovery and runtime
+requests follow that same applied identity. Selecting a sign-in method does not
+switch the account until login completes; cancellation retains the prior account,
+and a denied Plan request never falls back to pay-as-you-go API requests.
+
+The Step Code runtime pin and patch guards are unchanged. macOS CI checks account
+settings, Plan allowance, API balance and billing routes against both source and
+packaged apps with isolated fixture credentials and local transports. Browser
+presentation checks cover both themes, narrow English layouts and reduced motion.
+These checks do not establish real-account balances or official billing outcomes.
 
 ## Build natively
 
@@ -20,12 +36,18 @@ node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/step-code-deskt
 cd Desktop
 corepack pnpm install --frozen-lockfile
 node node_modules/electron/install.js
+corepack pnpm exec playwright install chromium ffmpeg
 corepack pnpm stage:runtime
 corepack pnpm typecheck
 corepack pnpm test
 corepack pnpm build
 node scripts/verify-electron.mjs
 node scripts/verify-auth-vault.mjs
+node scripts/verify-account-settings.mjs
+node scripts/verify-usage-account.mjs
+node scripts/verify-account-allowance.mjs
+node scripts/verify-account-balance.mjs
+node scripts/verify-account-routing.mjs
 corepack pnpm package:mac
 node scripts/verify-macos-package.mjs
 ```

@@ -2919,3 +2919,46 @@ Node SHA-256 and executable permissions. Evidence is in ignored
 This establishes a native local preview, not notarization, public release,
 Intel Mac support, real account/model quality, external MCP publication or
 Windows regression acceptance. See `MACOS.md` and `PLATFORM_HANDOFF.md`.
+
+
+## macOS v0.5.1 account follow-up (2026-10-17)
+
+At the owner's request, the macOS track follows Windows Release v0.5.1
+(15f0fa77ee1562d3297e226071d49c00c762d891). Its integration base is PR #128's
+squash merge 5b521cdd630c353e32542a16b1fb3ac990458912, which already contains
+that Release and the macOS changes. No later Windows/Linux work or Step Code
+source changes are imported. The runtime stays pinned to
+3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8. The published v0.5.0-macos.1 tag
+and package are unchanged.
+
+Typecheck, production build and 473 serialized unit/protocol tests passed
+(one existing Windows-only skip), plus twelve CI policy/runner tests
+(one Windows cancellation skip). Source account settings, allowance, balance,
+routing, encrypted-vault and browser presentation acceptance passed. Routing
+uses actual Desktop login/IPC and the pinned runtime with local transport to
+check CN API -> CN Plan -> Global API -> Global Plan -> CN API, model discovery
+and chat endpoints/credentials, running-task login guards, authorization
+cancellation and absence of API fallback after Plan rejection. No real
+credentials or paid model requests are used.
+
+The unsigned 0.5.1 ARM64 package passed startup, macOS update state, full Electron,
+vault, account settings, Plan allowance, API balance, routing, StepPage, browser,
+file preview, delivery, terminal-scope, full undo and archive acceptance, plus
+the native zsh terminal test. All 1,258 built/staged files matched its resources,
+including executable Node and PTY helpers; the resource report now derives its
+baseline from the Desktop version instead of hardcoding v0.5.0. Both themes,
+narrow English layouts, stale/error/cancellation states and encrypted credential
+refresh/restart are covered by the account fixtures. macOS CI now runs the new
+account checks in source and packaged apps.
+
+The prior local archive-notification expiry timeout was a test-clock sequencing
+problem: adding an observation before the clock jump let the notice expire
+without product changes. The acceptance now confirms hover/focus do not pause
+the replacement notice and runs 3,100 ms of the clock normally, allowing the
+asynchronous replacement effect to install its timer. The original hidden-state
+assertion remains; both source and packaged full Electron acceptance passed.
+Notification product code and its timeout are unchanged.
+
+These results do not establish real Plan/API balances, official billing,
+external MCP compatibility or public Release readiness. Cloud CI results are
+recorded separately on the PR; this follow-up is not a newly published Release.

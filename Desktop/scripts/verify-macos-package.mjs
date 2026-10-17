@@ -40,7 +40,7 @@ assert.ok((await stat(join(resources, 'terminal-runtime/node_modules/node-pty/pr
 assert.equal(hash(await readFile(join(resources, 'runtime/node/node'))), manifest.nodeSha256);
 await mkdir('test-results', { recursive: true });
 await writeFile('test-results/macos-package-resources.json', JSON.stringify({
-  baseline: 'v0.5.0', desktop: packaged.version, platform: manifest.platform,
+  baseline: `v${source.version}`, desktop: packaged.version, platform: manifest.platform,
   arch: manifest.arch, runtime: manifest.commit, node: manifest.node,
   nodeSha256: manifest.nodeSha256, verifiedFiles: checked.length, checked,
 }, null, 2));

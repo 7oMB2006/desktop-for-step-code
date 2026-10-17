@@ -57,17 +57,28 @@ export async function runMacInstall(plan: MacInstallPlan, launch: (path: string)
         child.stdin?.end(JSON.stringify({ action: 'stop', path: plan.target, pid: String(launchedPid) }));
       });
     }
-    if (moved) {
-      if (replaced) {
-        if ((await lstat(plan.target)).ino !== installedInode) { await result('recovery-required'); return; }
-        await rename(plan.target, plan.staged);
+    try {
+      if (moved) {
+        if (replaced) {
+          const replacement = await lstat(plan.target).catch((error: NodeJS.ErrnoException) => {
+            if (error.code === 'ENOENT') return undefined;
+            throw error;
+          });
+          if (replacement) {
+            if (replacement.ino !== installedInode) { await result('recovery-required'); return; }
+            await rename(plan.target, plan.staged);
+          }
+        }
+        await rename(plan.backup, plan.target);
       }
-      await rename(plan.backup, plan.target);
+    } catch {
+      await result('recovery-required'); return;
     }
     await result('rolled-back');
     await launch(plan.target).catch(() => {});
   } finally {
-    await rm(plan.staged, { recursive: true, force: true });
+    try { await rm(plan.staged, { recursive: true, force: true }); }
+    catch { if (!acknowledged) await result('recovery-required'); }
     await writeFile(join(plan.folder, 'finished'), plan.token, { mode: 0o600 });
   }
 }

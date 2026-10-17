@@ -148,7 +148,7 @@ export class MacUpdateDriver implements UpdateDriver {
     const { folder, token, target } = plan;
     let dispatched = false;
     try {
-      await writeFile(join(this.root, 'mac-pending.json'), JSON.stringify({ folder, token, version: plan.version, target }), { mode: 0o600 });
+      await writeFile(join(this.root, 'mac-pending.json'), JSON.stringify({ folder, token, version: plan.version, target, download: basename(this.file!) }), { mode: 0o600 });
       const child = spawn(join(folder, 'node'), [join(folder, 'helper.cjs'), '--install', join(folder, 'plan.json')], {
         detached: true, stdio: 'ignore', env: { PATH: '/usr/bin:/bin', HOME: process.env.HOME, TMPDIR: process.env.TMPDIR },
       });
@@ -163,10 +163,16 @@ export class MacUpdateDriver implements UpdateDriver {
     } finally { if (!dispatched) await this.cancelInstall(); }
   }
 }
-function scheduleInstallCleanup(root: string, folder: string, token: string) {
+function scheduleInstallCleanup(root: string, folder: string, token: string, download?: string) {
   const cleanup = setInterval(() => {
     void (async () => {
       if (await readFile(join(folder, 'finished'), 'utf8') !== token) return;
+      const result = JSON.parse(await readFile(join(folder, 'result.json'), 'utf8'));
+      if (result.status !== 'installed' && result.status !== 'rolled-back') { clearInterval(cleanup); return; }
+      if (result.status === 'installed' && download && /^mac-[a-f0-9-]{36}\.zip$/.test(download)) {
+        await prepareUpdateCache(root);
+        await rm(join(root, 'download-cache', download), { force: true });
+      }
       clearInterval(cleanup);
       const current = JSON.parse(await readFile(join(root, 'mac-pending.json'), 'utf8').catch(() => 'null'));
       if (current?.token === token) await rm(join(root, 'mac-pending.json'), { force: true });
@@ -185,12 +191,12 @@ export async function acknowledgeMacUpdate(root: string, target: string, version
       || !/^[a-f0-9-]{36}$/.test(pending.token)) return;
     const result = JSON.parse(await readFile(join(folder, 'result.json'), 'utf8').catch(() => 'null'));
     if (result?.status === 'rolled-back' || result?.status === 'recovery-required') {
-      if (result.status === 'rolled-back') scheduleInstallCleanup(root, folder, pending.token);
+      if (result.status === 'rolled-back') scheduleInstallCleanup(root, folder, pending.token, pending.download);
       return result.status;
     }
     if (version !== pending.version) return;
     await writeFile(join(folder, 'ack'), pending.token, { mode: 0o600 });
-    scheduleInstallCleanup(root, folder, pending.token);
+    scheduleInstallCleanup(root, folder, pending.token, pending.download);
     return 'installed';
   } catch { return; }
 }

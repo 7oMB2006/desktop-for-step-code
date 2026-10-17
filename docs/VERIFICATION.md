@@ -3011,3 +3011,16 @@ all outcome/request-count/hook-cleanup assertions remain. Failure diagnostics ar
 bounded and printed before assertions. Local replay explicitly selects the library's
 Windows provider on macOS and passes parsing, corruption, cancellation and retry;
 Windows CI remains required to confirm actual Windows behavior.
+
+
+### macOS updater P2 follow-up (2026-10-17)
+
+Startup failure now restores the backup when the replacement bundle is absent;
+other inspection/restore failures retain a recovery-required result and backup.
+Regression cases cover deleted/moved replacements, foreign replacement identity
+and a parent path that becomes a file. Successful acknowledgement waits for helper
+completion, then removes only the transaction's recorded ZIP; unrelated downloads
+remain. Typecheck, production build and 481 local tests passed (one Windows-only
+check skipped). The native updater fixture passed download, verification,
+replacement, acknowledgement and completed-ZIP cleanup. OS launch remains a fixture;
+this does not establish real Gatekeeper approval or a public downloaded upgrade.

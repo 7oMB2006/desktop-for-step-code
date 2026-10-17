@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, realpath, lstat, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, realpath, lstat, rm, symlink, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
@@ -105,6 +105,34 @@ test('confirmed install keeps old bundle until acknowledgement and rolls back fa
   } finally { await rm(folder, { recursive: true, force: true }); }
 });
 
+test('failed startup restores a missing replacement and preserves recovery state on inspection failure', { skip: process.platform === 'win32' }, async () => {
+  for (const mode of ['deleted', 'moved', 'foreign', 'inspection-error']) {
+    const folder = await temporary(); const token = randomUUID(); const parent = join(folder, 'applications');
+    const target = join(parent, 'Desktop for Step Code.app'); const staged = join(parent, `.dfsc-next-${token}.app`); const backup = join(parent, `.dfsc-backup-${token}.app`);
+    try {
+      await mkdir(target, { recursive: true }); await writeFile(join(target, 'version'), 'old');
+      await mkdir(staged); await writeFile(join(staged, 'version'), 'new');
+      const plan = { folder, token, target, staged, backup, version: '0.6.0-macos.1', pid: 999999, targetInode: (await lstat(target)).ino };
+      let launches = 0;
+      await runMacInstall(plan, async () => {
+        if (++launches > 1) { assert.equal(await readFile(join(target, 'version'), 'utf8'), 'old'); return; }
+        if (mode === 'deleted') await rm(target, { recursive: true });
+        else if (mode === 'inspection-error') { await rename(parent, join(folder, 'displaced')); await writeFile(parent, 'blocked'); }
+        else {
+          await rename(target, join(parent, 'moved.app'));
+          if (mode === 'foreign') { await mkdir(target); await writeFile(join(target, 'version'), 'foreign'); }
+        }
+      }, () => false, 0);
+      const restored = mode === 'deleted' || mode === 'moved';
+      assert.equal(JSON.parse(await readFile(join(folder, 'result.json'), 'utf8')).status, restored ? 'rolled-back' : 'recovery-required');
+      assert.equal(await readFile(join(folder, 'finished'), 'utf8'), token);
+      if (restored) { assert.equal(launches, 2); assert.equal(await readFile(join(target, 'version'), 'utf8'), 'old'); await assert.rejects(lstat(backup)); }
+      else if (mode === 'foreign') { assert.equal(await readFile(join(target, 'version'), 'utf8'), 'foreign'); assert.equal(await readFile(join(backup, 'version'), 'utf8'), 'old'); }
+      else assert.equal(await readFile(join(folder, 'displaced', `.dfsc-backup-${token}.app`, 'version'), 'utf8'), 'old');
+    } finally { await rm(folder, { recursive: true, force: true }); }
+  }
+});
+
 test('native macOS associated application helper uses LaunchServices with bounded JSON', { skip: process.platform !== 'darwin' }, async () => {
   assert.match(execFileSync('/usr/bin/otool', ['-l', 'dist/file-opening/file-applications-macos'], { encoding: 'utf8' }), /minos 13\.5/);
   const root = await temporary();
@@ -126,12 +154,18 @@ test('startup acknowledgement is release-bound and waits for helper completion b
   const folder = join(root, 'mac-install-fixture');
   try {
     await mkdir(target); await mkdir(folder);
-    await writeFile(join(root, 'mac-pending.json'), JSON.stringify({ folder, target, token, version: '0.6.0-macos.1' }));
+    const download = `mac-${randomUUID()}.zip`; const unrelated = `mac-${randomUUID()}.zip`;
+    await mkdir(join(root, 'download-cache'));
+    await writeFile(join(root, 'download-cache', download), 'completed archive');
+    await writeFile(join(root, 'download-cache', unrelated), 'another update');
+    await writeFile(join(root, 'mac-pending.json'), JSON.stringify({ folder, target, token, version: '0.6.0-macos.1', download }));
     assert.equal(await acknowledgeMacUpdate(root, target, '0.5.1-macos.1'), undefined);
     await assert.rejects(lstat(join(folder, 'ack')));
     assert.equal(await acknowledgeMacUpdate(root, target, '0.6.0-macos.1'), 'installed');
     assert.equal(await readFile(join(folder, 'ack'), 'utf8'), token);
     await new Promise(done => setTimeout(done, 1100)); assert.ok(await lstat(folder));
+    assert.equal(await readFile(join(root, 'download-cache', download), 'utf8'), 'completed archive');
+    await writeFile(join(folder, 'result.json'), JSON.stringify({ status: 'installed' }));
     await writeFile(join(folder, 'finished'), token);
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
@@ -139,5 +173,7 @@ test('startup acknowledgement is release-bound and waits for helper completion b
       await new Promise(done => setTimeout(done, 100));
     }
     await assert.rejects(lstat(folder)); await assert.rejects(lstat(join(root, 'mac-pending.json')));
+    await assert.rejects(lstat(join(root, 'download-cache', download)));
+    assert.equal(await readFile(join(root, 'download-cache', unrelated), 'utf8'), 'another update');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

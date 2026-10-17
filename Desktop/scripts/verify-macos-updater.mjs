@@ -60,6 +60,13 @@ try {
   assert.equal(finished, true, 'detached helper completes before fixture cleanup');
   assert.equal(await readFile(join(target, 'new-version'), 'utf8'), 'verified-candidate');
   await assert.rejects(stat(join(target, 'old-version')));
+  assert.match(pending.download, /^mac-[a-f0-9-]{36}\.zip$/);
+  await stat(join(root, 'cache/download-cache', pending.download));
+  const cleanupMain = `import {acknowledgeMacUpdate} from ${JSON.stringify(resolve('electron/macos-update-driver.ts'))};import {stat} from 'node:fs/promises';(async()=>{if(await acknowledgeMacUpdate(${JSON.stringify(join(root, 'cache'))},${JSON.stringify(target)},${JSON.stringify(version)})!=='installed')throw Error('Acknowledgement rejected');const end=Date.now()+5000;while(Date.now()<end){try{await stat(${JSON.stringify(join(root, 'cache/mac-pending.json'))});}catch(e){if(e.code==='ENOENT')return;throw e;}await new Promise(r=>setTimeout(r,100));}throw Error('Cleanup timed out');})().catch(e=>{console.error(e);process.exitCode=1});`;
+  await build({ stdin: { contents: cleanupMain, resolveDir: process.cwd(), sourcefile: 'mac-cleanup-fixture.ts' }, outfile: join(root, 'cleanup.cjs'), bundle: true, platform: 'node', format: 'cjs', target: 'node24' });
+  execFileSync(process.execPath, [join(root, 'cleanup.cjs')], { timeout: 10000 });
+  await assert.rejects(stat(join(root, 'cache/download-cache', pending.download)), { code: 'ENOENT' });
+  await assert.rejects(stat(pending.folder), { code: 'ENOENT' });
   await mkdir('test-results', { recursive: true });
   await writeFile('test-results/macos-updater.json', JSON.stringify({ status: 'passed', version, bytes: bytes.length, osLaunch: 'fixture', quarantine: 'preserved', originalProfile: 'unused' }, null, 2));
   console.log('macOS updater passed: actual download/hash/extraction, detached helper handshake, parent exit, same-volume replacement, quarantine and startup acknowledgement. OS launch uses a fixture.');

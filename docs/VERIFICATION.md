@@ -2998,3 +2998,8 @@ archived sessions. The updater fixture also extracted and replaced a full packag
 application in a disposable directory; only its final OS launch was substituted.
 Cleanup waits for helper completion, is transaction-bound and is tested separately.
 Cloud Windows/macOS checks remain a PR gate; this entry does not publish a Release.
+
+A deployment-target audit found the local Swift compiler defaulted to macOS 26.
+The AppKit helper now explicitly targets ARM64 macOS 13.5, matching the bundled
+Node minimum; package metadata and Mach-O inspection enforce that floor. This
+checks binary compatibility metadata, not execution on every older macOS release.

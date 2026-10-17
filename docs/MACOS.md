@@ -23,7 +23,7 @@ These checks do not establish real-account balances or official billing outcomes
 
 ## Build natively
 
-Use an Apple Silicon Mac, Git, Xcode Command Line Tools, Node.js 24.15.0 and
+Use an Apple Silicon Mac running macOS 13.5 or newer, Git, Xcode Command Line Tools, Node.js 24.15.0 and
 Corepack. The fixed upstream pin and patch guards are retained.
 
 From the repository root:
@@ -135,3 +135,8 @@ architecture and unsigned installation confirmation. Account/allowance/balance,
 providers, sessions, approvals, collaboration, browser, artifacts, files, changes,
 undo, terminal, tray and update controls share the feature implementation. This
 inventory is a code/platform audit, not a claim of real-model acceptance.
+
+The native AppKit helper is explicitly compiled for `arm64-apple-macosx13.5`;
+package metadata and Mach-O deployment targets are checked. This avoids inheriting
+the builder Mac's macOS 26 deployment target. Node 24.15.0 also requires 13.5.
+The deployment target does not replace physical testing on older macOS versions.

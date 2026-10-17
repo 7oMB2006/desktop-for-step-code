@@ -168,7 +168,8 @@
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png",
       "identity": null,
-      "artifactName": "Desktop.for.Step.Code.${version}.${arch}.${ext}"
+      "artifactName": "Desktop.for.Step.Code.${version}.${arch}.${ext}",
+      "minimumSystemVersion": "13.5"
     }
   }
 }

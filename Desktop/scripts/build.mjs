@@ -9,7 +9,7 @@ await viteBuild({ base: './', build: { outDir: 'dist/renderer', emptyOutDir: tru
 await mkdir('dist/licenses', { recursive: true });
 await mkdir('dist/file-opening', { recursive: true });
 await cp('dist/macos-update-helper.cjs', 'dist/file-opening/macos-update-helper.cjs');
-if (process.platform === 'darwin') execFileSync('/usr/bin/xcrun', ['swiftc', '-O', 'electron/file-applications-macos.swift', '-o', 'dist/file-opening/file-applications-macos']);
+if (process.platform === 'darwin') execFileSync('/usr/bin/xcrun', ['swiftc', '-target', 'arm64-apple-macosx13.5', '-O', 'electron/file-applications-macos.swift', '-o', 'dist/file-opening/file-applications-macos']);
 for (const name of ['file-associations.cs', 'file-associations.ps1'])
   await cp(`electron/${name}`, `dist/file-opening/${name}`);
 for (const [source, name] of [

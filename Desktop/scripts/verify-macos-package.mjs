@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -17,6 +18,8 @@ assert.equal(packaged.version, source.version);
 const marker = JSON.parse(await readFile(join(resources, 'macos-update.json'), 'utf8'));
 assert.equal(marker.version.replace(/-macos\.\d+$/, ''), source.version);
 for (const name of ['file-applications-macos', 'macos-update-helper.cjs']) assert.equal(hash(await readFile(join(resources, 'file-opening', name))), hash(await readFile(join('dist/file-opening', name))));
+assert.equal(execFileSync('/usr/bin/plutil', ['-extract', 'LSMinimumSystemVersion', 'raw', '-o', '-', join(app, 'Contents/Info.plist')], { encoding: 'utf8' }).trim(), '13.5');
+assert.match(execFileSync('/usr/bin/otool', ['-l', join(resources, 'file-opening/file-applications-macos')], { encoding: 'utf8' }), /minos 13\.5/);
 const checked = [];
 async function walk(root) {
   for (const entry of await readdir(root, { withFileTypes: true })) {

@@ -106,11 +106,16 @@ test('confirmed install keeps old bundle until acknowledgement and rolls back fa
 });
 
 test('native macOS associated application helper uses LaunchServices with bounded JSON', { skip: process.platform !== 'darwin' }, async () => {
+  assert.match(execFileSync('/usr/bin/otool', ['-l', 'dist/file-opening/file-applications-macos'], { encoding: 'utf8' }), /minos 13\.5/);
   const root = await temporary();
   const file = join(root, 'example.txt'); await writeFile(file, 'fixture');
   const result = JSON.parse(execFileSync('dist/file-opening/file-applications-macos', { input: JSON.stringify({ action: 'list', path: file }), encoding: 'utf8' }));
   assert.ok(Array.isArray(result)); assert.ok(result.some(item => item.id.endsWith('/TextEdit.app')));
   assert.ok(result.every(item => item.id.startsWith('/') && item.id.endsWith('.app')));
+  for (const item of result.filter(item => item.icon)) {
+    const png = Buffer.from(item.icon.split(',')[1], 'base64');
+    assert.equal(png.readUInt32BE(16), 24); assert.equal(png.readUInt32BE(20), 24);
+  }
   assert.throws(() => execFileSync('dist/file-opening/file-applications-macos', { input: '{"action":"execute"}', stdio: ['pipe', 'pipe', 'pipe'] }));
   await rm(root, { recursive: true, force: true });
 });

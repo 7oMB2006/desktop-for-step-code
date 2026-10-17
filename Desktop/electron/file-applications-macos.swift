@@ -31,9 +31,13 @@ func run() throws {
             guard let bundle = Bundle(url: url), bundle.infoDictionary?["CFBundlePackageType"] as? String == "APPL" else { return nil }
             var item = ["id": url.path, "label": FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")]
             let icon = NSWorkspace.shared.icon(forFile: url.path)
-            icon.size = NSSize(width: 24, height: 24)
-            if let tiff = icon.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]), png.count < 8192 {
-                item["icon"] = "data:image/png;base64," + png.base64EncodedString()
+            if let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 24, pixelsHigh: 24, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+               let context = NSGraphicsContext(bitmapImageRep: bitmap) {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = context
+                icon.draw(in: NSRect(x: 0, y: 0, width: 24, height: 24), from: .zero, operation: .sourceOver, fraction: 1)
+                NSGraphicsContext.restoreGraphicsState()
+                if let png = bitmap.representation(using: .png, properties: [:]), png.count < 8192 { item["icon"] = "data:image/png;base64," + png.base64EncodedString() }
             }
             return item
         }

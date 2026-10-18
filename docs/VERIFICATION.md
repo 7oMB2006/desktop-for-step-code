@@ -3234,3 +3234,25 @@ and Windows descendant cleanup. A full local runtime-group replay passed all 17
 checks with a two-minute default deadline (existing explicit overrides retained).
 This did not reproduce the cloud hang and is not proof that its cause is fixed;
 the next cloud run remains the integration gate. No application package changed.
+
+### Follow-up after run 39087994487
+
+The bounded runner produced usable diagnostics. The runtime group reached the
+custom-provider estimate tooltip assertion and failed after its 30-second wait,
+rather than consuming the job limit. That fixture now waits for finite context
+panel animations and scroll delivery before hovering, and captures a failure
+screenshot. The assertion and production tooltip behavior remain unchanged.
+
+The sessions job hit ENOTEMPTY during upstream Workflow fixture removal. Direct
+agent calls queue telemetry writes after their awaited result; the fixture now
+flushes its tracked journals before deleting their directories. The integration
+patch and its manifest hashes were updated together; no upstream production source
+changed. The interface job's collaboration-test child exited with native Windows
+code 3221226505, without a failing assertion. It did not reproduce locally with
+the same Node version. Windows protocol tests now run one file at a time to bound
+process pressure; this is mitigation, not a confirmed native-crash diagnosis.
+
+Local checks passed: all 114 Workflow tests, 496 Desktop tests with 13 platform
+skips (509 total), all 14 CI policy/runner tests and the full custom-provider
+Electron fixture. The patch reverses cleanly against the reviewed Workflow test
+source. These results remain local evidence until the new cloud run passes.

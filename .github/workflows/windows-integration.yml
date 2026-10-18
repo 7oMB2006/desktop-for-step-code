@@ -143,7 +143,7 @@ jobs:
         working-directory: Desktop
         run: |
           New-Item -ItemType Directory -Force test-results | Out-Null
-          corepack pnpm exec tsx --test --test-reporter=spec --test-reporter=tap --test-reporter-destination=stdout --test-reporter-destination=test-results/protocol.tap tests/*.test.ts
+          corepack pnpm exec tsx --test --test-concurrency=1 --test-reporter=spec --test-reporter=tap --test-reporter-destination=stdout --test-reporter-destination=test-results/protocol.tap tests/*.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Protocol tests failed' }
 
       - name: Desktop build

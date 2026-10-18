@@ -882,10 +882,35 @@ index 2cf3620..93749b4 100644
  	createStepWorkflowExtension({
  		enabled: true,
 diff --git a/packages/coding-agent/test/workflow-runtime.test.ts b/packages/coding-agent/test/workflow-runtime.test.ts
-index 895e8ad..fba8f5e 100644
+index 895e8ad..5cdec45 100644
 --- a/packages/coding-agent/test/workflow-runtime.test.ts
 +++ b/packages/coding-agent/test/workflow-runtime.test.ts
-@@ -529,7 +529,9 @@ test("a transient progress write failure does not poison later writes", async ()
+@@ -32,6 +32,7 @@ import type {
+ } from "../src/features/workflow/types.ts";
+ 
+ const cleanups: string[] = [];
++const journals: WorkflowJournal[] = [];
+ let runSequence = 0;
+ 
+ beforeEach(() => {
+@@ -43,6 +44,8 @@ afterEach(async () => {
+ 	vi.useRealTimers();
+ 	vi.restoreAllMocks();
+ 	resetWorkflowAdmission();
++	// Direct agent() calls queue telemetry after their final awaited write.
++	await Promise.all(journals.splice(0).map((journal) => journal.flush()));
+ 	await Promise.all(cleanups.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+ });
+ 
+@@ -71,6 +74,7 @@ function runtimeAt(
+ 	runSequence += 1;
+ 	const paths = createWorkflowRunPaths(cwd, `test_${runSequence}`);
+ 	const journal = new WorkflowJournal(paths, options.resumeFrom);
++	journals.push(journal);
+ 	const runtime = new WorkflowRuntime({
+ 		cwd,
+ 		runId: `test_${runSequence}`,
+@@ -529,7 +533,9 @@ test("a transient progress write failure does not poison later writes", async ()
  	await mkdir(path.join(blocked, "progress.json"), { recursive: true });
  	const target = store as unknown as { path: string };
  	target.path = path.join(blocked, "progress.json");
@@ -896,7 +921,7 @@ index 895e8ad..fba8f5e 100644
  	target.path = paths.progressPath;
  	await store.update({ status: "completed", message: "recovered" });
  	expect(JSON.parse(await readFile(paths.progressPath, "utf8"))).toMatchObject({
-@@ -1506,7 +1508,7 @@ test("path ACL blocks read-only writes, traversal, and symlink escapes", async (
+@@ -1506,7 +1512,7 @@ test("path ACL blocks read-only writes, traversal, and symlink escapes", async (
  	const artifact = path.join(cwd, "artifact");
  	const outside = await workspace();
  	await mkdir(artifact);

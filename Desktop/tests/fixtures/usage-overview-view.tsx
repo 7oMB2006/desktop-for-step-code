@@ -37,19 +37,22 @@ for (const [i, day] of sample.days.entries()) {
 sample.scannedAt = Date.now(); sample.chats = { all: 112, official: 90, custom: 37 };
 const scenarios = [{ id: 'ready', label: '正常' }, { id: 'empty', label: '无记录' },
   { id: 'loading', label: '加载中' }, { id: 'error', label: '扫描失败' }, { id: 'partial', label: '覆盖不完整' }];
-export function UsageOverviewView({ embedded = false, initialScenario = 'ready' }: { embedded?: boolean; initialScenario?: string }) {
+export function UsageOverviewView({ embedded = false, initialScenario = 'ready', language = 'zh' }: { embedded?: boolean; initialScenario?: string; language?: string }) {
+  const t = (zh: string, en: string) => language === 'zh' ? zh : en;
+  const englishScenarios = ['Ready', 'No records', 'Loading', 'Scan failed', 'Partial coverage'];
+  const localizedScenarios = scenarios.map((scenario, i) => ({ ...scenario, label: language === 'zh' ? scenario.label : englishScenarios[i] }));
   const [scenario, setScenario] = useState(initialScenario);
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setOpen(false), []);
   const overview = scenario === 'empty' ? { ...emptyUsageOverview(), scannedAt: Date.now() }
     : { ...sample, limited: scenario === 'partial' ? ['fixture'] : [] };
-  return <View embedded={embedded} overview={overview} pending={scenario === 'loading'} error={scenario === 'error'}
+  return <View embedded={embedded} language={language} overview={overview} pending={scenario === 'loading'} error={scenario === 'error'}
     onRefresh={() => setScenario('ready')} controls={<>
-      <span>示例数据</span><button className="usage-scenario-trigger" ref={anchor} aria-label="预览状态" aria-haspopup="menu" aria-expanded={open}
-        onClick={() => setOpen(value => !value)}><span>{scenarios.find(s => s.id === scenario)?.label}</span><DisclosureChevron/></button>
-      <AppMenu anchor={anchor} open={open} label="预览状态" items={scenarios} selected={scenario} maxVisibleItems={5} onSelect={setScenario} onClose={close}/>
-      {!embedded && <button className="icon-button" aria-label="切换主题" onClick={() => {
+      <span>{t('示例数据', 'Sample data')}</span><button className="usage-scenario-trigger" ref={anchor} aria-label={t('预览状态', 'Preview state')} aria-haspopup="menu" aria-expanded={open}
+        onClick={() => setOpen(value => !value)}><span>{localizedScenarios.find(s => s.id === scenario)?.label}</span><DisclosureChevron/></button>
+      <AppMenu anchor={anchor} open={open} label={t('预览状态', 'Preview state')} items={localizedScenarios} selected={scenario} maxVisibleItems={5} onSelect={setScenario} onClose={close}/>
+      {!embedded && <button className="icon-button" aria-label={t('切换主题', 'Toggle theme')} onClick={() => {
         document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
       }}><SunMoon size={17}/></button>}
     </>}/>;

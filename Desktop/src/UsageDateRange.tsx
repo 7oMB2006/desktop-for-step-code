@@ -10,11 +10,12 @@ const monthDate = (index: number) => new Date(Math.floor(index / 12), index % 12
 const dayOffset = (value: string, offset: number) => {
   const date = parseUsageDate(value)!; date.setDate(date.getDate() + offset); return usageDateKey(date);
 };
-const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-
-export function UsageDateRange({ value, min, max, custom, onChange }: {
-  value: UsageRange; min: string; max: string; custom: boolean; onChange: (value: UsageRange) => void;
+export function UsageDateRange({ value, min, max, custom, onChange, language = 'zh' }: {
+  value: UsageRange; min: string; max: string; custom: boolean; onChange: (value: UsageRange) => void; language?: string;
 }) {
+  const t = (zh: string, en: string) => language === 'zh' ? zh : en;
+  const locale = language === 'zh' ? 'zh-CN' : 'en-US';
+  const weekdays = language === 'zh' ? ['一', '二', '三', '四', '五', '六', '日'] : ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
   const id = useId(), anchor = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -89,17 +90,17 @@ export function UsageDateRange({ value, min, max, custom, onChange }: {
   const lastVisible = usageDateKey(new Date(monthDate(month + 2).getFullYear(), monthDate(month + 2).getMonth(), 0, 12));
   const visibleCursor = cursor >= firstVisible && cursor <= lastVisible ? cursor : firstVisible < min ? min : firstVisible;
   return <>
-    <button ref={anchor} type="button" className="usage-range-trigger" aria-label="自定义日期" aria-haspopup="dialog"
+    <button ref={anchor} type="button" className="usage-range-trigger" aria-label={t('自定义日期', 'Custom dates')} aria-haspopup="dialog"
       aria-expanded={open} aria-controls={id} aria-pressed={custom}
-      data-tooltip={custom ? `${value.start} 至 ${value.end}` : '自定义日期范围'}
+      data-tooltip={custom ? `${value.start}${t(' 至 ', ' to ')}${value.end}` : t('自定义日期范围', 'Custom date range')}
       onClick={() => {
         if (open) { close(); return; }
         setDraft(value); setSelectingEnd(false); setHover(undefined); setCursor(value.end);
         setMonth(Math.max(minMonth, monthIndex(parseUsageDate(value.end)!) - 1)); setOpen(true);
       }}>
-      <CalendarRange size={14}/><span>{custom ? `${value.start.slice(5).replace('-', '/')} 至 ${value.end.slice(5).replace('-', '/')}` : '自定义日期'}</span><DisclosureChevron/>
+      <CalendarRange size={14}/><span>{custom ? `${value.start.slice(5).replace('-', '/')}${t(' 至 ', ' to ')}${value.end.slice(5).replace('-', '/')}` : t('自定义日期', 'Custom dates')}</span><DisclosureChevron/>
     </button>
-    {createPortal(<div ref={panel} id={id} popover="auto" className="usage-range-panel" role="dialog" aria-label="选择日期范围"
+    {createPortal(<div ref={panel} id={id} popover="auto" className="usage-range-panel" role="dialog" aria-label={t('选择日期范围', 'Select date range')}
       aria-hidden={!open} inert={!open} onToggle={event => { if (event.newState === 'closed') setOpen(false); }}
       style={{ left: position?.left ?? 0, top: position?.top ?? 0, visibility: position ? undefined : 'hidden', transformOrigin: position?.origin }}
       onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } }}
@@ -107,23 +108,23 @@ export function UsageDateRange({ value, min, max, custom, onChange }: {
         if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)
           && event.relatedTarget !== anchor.current) setOpen(false);
       }}>
-      <header><div><strong>日期范围</strong><span>含起止日期 · 本机日期</span></div>
-        <button type="button" className="range-icon" aria-label="关闭日期选择" onClick={close}><X size={15}/></button></header>
+      <header><div><strong>{t('日期范围', 'Date range')}</strong><span>{t('含起止日期 · 本机日期', 'Inclusive · Local dates')}</span></div>
+        <button type="button" className="range-icon" aria-label={t('关闭日期选择', 'Close date picker')} onClick={close}><X size={15}/></button></header>
       <div className="usage-range-inputs">
-        {(['start', 'end'] as const).map(field => <label key={field}><span>{field === 'start' ? '开始日期' : '结束日期'}</span>
+        {(['start', 'end'] as const).map(field => <label key={field}><span>{field === 'start' ? t('开始日期', 'Start date') : t('结束日期', 'End date')}</span>
           <input type="text" inputMode="numeric" placeholder="YYYY-MM-DD" value={draft[field]} aria-invalid={!valid}
             spellCheck={false} maxLength={10} onChange={event => {
               setDraft(current => ({ ...current, [field]: event.target.value })); setSelectingEnd(false); setHover(undefined);
             }}/></label>)}
       </div>
       <div className="usage-calendar-navigation">
-        <button type="button" className="range-icon" aria-label="上个月" disabled={month <= minMonth} onClick={() => setMonth(m => m - 1)}><ArrowLeft size={15}/></button>
-        <span aria-live="polite">{monthDate(month).getFullYear()} 年</span>
-        <button type="button" className="range-icon" aria-label="下个月" disabled={month + 1 >= maxMonth} onClick={() => setMonth(m => m + 1)}><ArrowRight size={15}/></button>
+        <button type="button" className="range-icon" aria-label={t('上个月', 'Previous month')} disabled={month <= minMonth} onClick={() => setMonth(m => m - 1)}><ArrowLeft size={15}/></button>
+        <span aria-live="polite">{monthDate(month).getFullYear()}{t(' 年', '')}</span>
+        <button type="button" className="range-icon" aria-label={t('下个月', 'Next month')} disabled={month + 1 >= maxMonth} onClick={() => setMonth(m => m + 1)}><ArrowRight size={15}/></button>
       </div>
       <div className="usage-calendars" onPointerLeave={() => setHover(undefined)}>
         {[month, month + 1].map(index => {
-          const date = monthDate(index), title = date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' });
+          const date = monthDate(index), title = date.toLocaleDateString(locale, { year: 'numeric', month: 'long' });
           const offset = (date.getDay() + 6) % 7, count = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
           return <section className="usage-calendar" key={index} aria-label={title}><h3>{title}</h3>
             <div role="grid" aria-label={title}>
@@ -148,10 +149,10 @@ export function UsageDateRange({ value, min, max, custom, onChange }: {
           </section>;
         })}
       </div>
-      {!valid && <p className="usage-range-error" role="alert">请选择 {min} 至 {max} 内的有效日期，结束日期不能早于开始日期。</p>}
-      <footer><span>{valid ? `${draft.start} 至 ${draft.end}` : '日期范围无效'}</span>
-        <button type="button" onClick={close}>取消</button>
-        <button type="button" className="usage-range-apply" disabled={!valid} onClick={() => { onChange(draft); close(); }}>应用</button></footer>
+      {!valid && <p className="usage-range-error" role="alert">{t(`请选择 ${min} 至 ${max} 内的有效日期，结束日期不能早于开始日期。`, `Choose valid dates from ${min} to ${max}; the end cannot precede the start.`)}</p>}
+      <footer><span>{valid ? `${draft.start}${t(' 至 ', ' to ')}${draft.end}` : t('日期范围无效', 'Invalid date range')}</span>
+        <button type="button" onClick={close}>{t('取消', 'Cancel')}</button>
+        <button type="button" className="usage-range-apply" disabled={!valid} onClick={() => { onChange(draft); close(); }}>{t('应用', 'Apply')}</button></footer>
     </div>, document.body)}
   </>;
 }

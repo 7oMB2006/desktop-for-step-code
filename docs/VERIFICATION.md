@@ -64,6 +64,27 @@ The 151481525-byte installer has SHA-256
 `b5abaea2f4da9be3b25154af66045e679d58e623e638de5db7d38211a016225f`.
 This does not publish a Release or establish real-provider billing accuracy.
 
+### Usage Review Follow-Up (2026-10-18)
+
+The selected UI language now reaches the overview, daily analysis, custom date
+picker, chart data cards and token-unit control, including loading, error,
+empty and partial-coverage copy and accessibility labels. Dates, months,
+weekdays and numeric formatting follow the selected locale; stored date keys,
+model identities and billing totals are unchanged.
+
+The Usage RPC now has an explicit 60-second timeout around the native scan,
+cache projection and response transport. The native scan retains its 28-second
+deadline; the global RPC default remains 30 seconds. A regression guard checks
+the separate deadlines and bounded post-scan headroom.
+
+Typecheck, production build and all 15 CI policy/runner tests passed. The
+serialized unit/protocol suite passed 535 tests with 13 platform skips.
+Native fresh/cache acceptance and isolated-profile Electron chart acceptance
+passed, including persisted English preferences, date validation, chart cards,
+source filters, display units and narrow layouts. Browser fixture checks also
+covered English empty/loading/retry/partial states. No new installer was built
+and the user's running packaged application was not changed.
+
 ## Cron With Latest Main Preview (2026-10-18)
 
 Local package source `891fbc4` integrates main `28cfd9e`, including Usage II and

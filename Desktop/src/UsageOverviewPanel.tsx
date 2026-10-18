@@ -35,9 +35,9 @@ export function UsageOverviewPanel({ onBack, language }: { onBack: () => void; l
       <button ref={back} onClick={onBack}><ArrowLeft size={15}/>{zh ? '返回会话' : 'Back to conversation'}</button>
       <span>{zh ? '用量统计 · 本机记录' : 'Usage overview · Local records'}</span>
     </header>
-    <div className="usage-overview-scroll"><Suspense fallback={<p role="status">加载中...</p>}>
-      {pending && !overview.scannedAt ? <p role="status">正在读取本机用量记录…</p>
-        : <Overview embedded overview={overview} pending={pending} error={error} onRefresh={() => { void refresh(); }}/>}
+    <div className="usage-overview-scroll"><Suspense fallback={<p role="status">{zh ? '加载中...' : 'Loading...'}</p>}>
+      {pending && !overview.scannedAt ? <p role="status">{zh ? '正在读取本机用量记录…' : 'Reading local usage records...'}</p>
+        : <Overview embedded language={language} overview={overview} pending={pending} error={error} onRefresh={() => { void refresh(); }}/>}
     </Suspense></div>
   </section>;
 }

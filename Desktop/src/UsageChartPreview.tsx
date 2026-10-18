@@ -7,7 +7,7 @@ type PreviewData = { title: string; subtitle?: string; rows: PreviewRow[] };
 type ActivePreview = { key: string; anchor: Element; data: PreviewData; mode: 'pointer' | 'focus' };
 type PointerPosition = { x: number; y: number };
 
-export function useChartPreview() {
+export function useChartPreview(language = 'zh') {
   const id = useId();
   const [active, setActive] = useState<ActivePreview | null>(null);
   const pointer = useRef<PointerPosition | null>(null);
@@ -59,12 +59,13 @@ export function useChartPreview() {
     },
     onBlur: () => setActive(current => current?.key === key ? null : current),
   });
-  return { bind, preview: <ChartPreview id={id} active={active} pointer={pointer} reposition={reposition}/> };
+  return { bind, preview: <ChartPreview id={id} active={active} pointer={pointer} reposition={reposition} language={language}/> };
 }
 
 export type ChartPreviewBinding = ReturnType<typeof useChartPreview>['bind'];
 
-function ChartPreview({ id, active, pointer, reposition }: {
+function ChartPreview({ id, active, pointer, reposition, language }: {
+  language: string;
   id: string; active: ActivePreview | null; pointer: RefObject<PointerPosition | null>; reposition: RefObject<(() => void) | null>;
 }) {
   const panel = useRef<HTMLDivElement>(null);
@@ -89,7 +90,7 @@ function ChartPreview({ id, active, pointer, reposition }: {
     return () => { cancelAnimationFrame(frame); reposition.current = null; };
   }, [active, pointer, reposition]);
   if (!active) return null;
-  return createPortal(<div ref={panel} id={id} className="usage-chart-preview" role="tooltip" aria-label="图表数据"
+  return createPortal(<div ref={panel} id={id} className="usage-chart-preview" role="tooltip" aria-label={language === 'zh' ? '图表数据' : 'Chart data'}
     style={{ left: -9999, top: -9999 }}>
     <header><strong>{active.data.title}</strong>{active.data.subtitle && <span>{active.data.subtitle}</span>}</header>
     <dl>{active.data.rows.map(row => <div key={row.label} className={row.total ? 'is-total' : undefined}>

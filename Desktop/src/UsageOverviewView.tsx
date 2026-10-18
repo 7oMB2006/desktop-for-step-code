@@ -13,13 +13,15 @@ import './usage-overview.css';
 type Source = 'all' | 'official' | 'custom';
 const tokens = (day: UsageDay, source: Source) => source === 'official' ? day.official : source === 'custom' ? day.custom : day.official + day.custom + day.unknown;
 const chatCount = (day: UsageDay, source: Source) => source === 'official' ? day.officialChats : source === 'custom' ? day.customChats : day.chats;
-const compact = (value: number) => value >= 1e6 ? `${(value / 1e6).toFixed(2)}M` : value >= 1e3 ? `${(value / 1e3).toFixed(1)}K` : value.toLocaleString('zh-CN');
-const number = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
-const prettyDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' });
-const sources: [Source, string][] = [['all', '全部'], ['official', '阶跃官方'], ['custom', '自定义第三方']];
-export function UsageOverviewView({ embedded = false, overview, pending = false, error = false, onRefresh, controls }: {
-  embedded?: boolean; overview: UsageOverview; pending?: boolean; error?: boolean; onRefresh: () => void; controls?: React.ReactNode;
+export function UsageOverviewView({ embedded = false, overview, pending = false, error = false, onRefresh, controls, language = 'zh' }: {
+  embedded?: boolean; overview: UsageOverview; pending?: boolean; error?: boolean; onRefresh: () => void; controls?: React.ReactNode; language?: string;
 }) {
+  const t = (zh: string, en: string) => language === 'zh' ? zh : en;
+  const locale = language === 'zh' ? 'zh-CN' : 'en-US';
+  const number = (value: number) => value.toLocaleString(locale, { maximumFractionDigits: 2 });
+  const compact = (value: number) => value >= 1e6 ? `${(value / 1e6).toFixed(2)}M` : value >= 1e3 ? `${(value / 1e3).toFixed(1)}K` : number(value);
+  const prettyDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString(locale, { month: 'long', day: 'numeric', weekday: 'short' });
+  const sources: [Source, string][] = [['all', t('全部', 'All')], ['official', t('阶跃官方', 'Step official')], ['custom', t('自定义第三方', 'Custom providers')]];
   const data = overview.days;
   const offset = (new Date(`${data[0].date}T12:00:00`).getDay() + 6) % 7;
   const cells: (UsageDay | null)[] = [...Array.from({ length: offset }, () => null), ...data];
@@ -30,7 +32,7 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
   const [customRange, setCustomRange] = useState<UsageRange>();
   const [unit, setUnit] = useState<UsageUnit>('default');
   const [chart, setChart] = useState<'bar' | 'line'>('bar');
-  const chartPreview = useChartPreview();
+  const chartPreview = useChartPreview(language);
   const heatScroll = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const container = heatScroll.current;
@@ -53,7 +55,7 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
   const trend = filteredTrend.length ? filteredTrend : data.slice(-period);
   const currentRange = { start: trend[0].date, end: trend.at(-1)!.date };
   const trendTotal = trend.reduce((sum, day) => sum + tokens(day, source), 0);
-  const trendLabel = customRange ? `${currentRange.start} 至 ${currentRange.end}` : `近${period}天`;
+  const trendLabel = customRange ? `${currentRange.start}${t(' 至 ', ' to ')}${currentRange.end}` : t(`近${period}天`, `Last ${period} days`);
   const max = Math.max(1, ...data.map(day => tokens(day, source)));
   const trendMax = Math.max(1, ...trend.map(day => tokens(day, source)));
   const estimate = (field: 'plan' | 'api' | 'usd', prefix = '', suffix = '') => {
@@ -63,42 +65,42 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
   const points = useMemo(() => trend.map((day, i) => `${trend.length === 1 ? 494 : 34 + i / (trend.length - 1) * 920},${174 - tokens(day, source) / trendMax * 146}`).join(' '), [trend, source, trendMax]);
   return <div className={`usage-preview-surface${embedded ? ' is-embedded' : ''}`}><main className="usage-page">
     <header className="usage-header">
-      <div className="usage-title"><img src={new URL('../public/StepCode.svg', import.meta.url).href} alt="" width="27" height="27"/><h1>用量</h1><span className="usage-badge"><HardDrive size={12}/>仅本机</span></div>
+      <div className="usage-title"><img src={new URL('../public/StepCode.svg', import.meta.url).href} alt="" width="27" height="27"/><h1>{t('用量', 'Usage')}</h1><span className="usage-badge"><HardDrive size={12}/>{t('仅本机', 'Local only')}</span></div>
       {controls && <div className="preview-actions">{controls}</div>}
     </header>
-    <nav className="usage-tabs" aria-label="用量页面"><span aria-current="page">统计总览</span>{!embedded && <a href="./usage-account.html?state=token">套餐与余额<ArrowUpRight size={12}/></a>}</nav>
-    <div className="usage-toolbar"><div className="segmented" role="group" aria-label="统计来源">{sources.map(([key, label]) =>
+    <nav className="usage-tabs" aria-label={t('用量页面', 'Usage pages')}><span aria-current="page">{t('统计总览', 'Overview')}</span>{!embedded && <a href="./usage-account.html?state=token">{t('套餐与余额', 'Plan and balance')}<ArrowUpRight size={12}/></a>}</nav>
+    <div className="usage-toolbar"><div className="segmented" role="group" aria-label={t('统计来源', 'Usage source')}>{sources.map(([key, label]) =>
       <button key={key} aria-pressed={source === key} onClick={() => setSource(key)}>{label}</button>)}</div>
-      <div className="scan-state" role="status"><span>{pending ? '正在扫描本机记录…' : overview.scannedAt ? `更新于 ${new Date(overview.scannedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '尚未读取'}</span><button className="icon-button" aria-label="刷新统计" data-tooltip="刷新本机统计" disabled={pending} onClick={onRefresh}><RefreshCw size={14}/></button></div>
+      <div className="scan-state" role="status"><span>{pending ? t('正在扫描本机记录…', 'Scanning local records...') : overview.scannedAt ? `${t('更新于 ', 'Updated at ')}${new Date(overview.scannedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}` : t('尚未读取', 'Not loaded')}</span><button className="icon-button" aria-label={t('刷新统计', 'Refresh usage')} data-tooltip={t('刷新本机统计', 'Refresh local usage')} disabled={pending} onClick={onRefresh}><RefreshCw size={14}/></button></div>
     </div>
-    {error ? <section className="usage-error" role="alert"><Activity size={24}/><h2>暂时无法读取本机记录</h2><p>会话文件没有改变，请重新扫描。</p><button disabled={pending} onClick={onRefresh}>重新扫描</button></section> :
+    {error ? <section className="usage-error" role="alert"><Activity size={24}/><h2>{t('暂时无法读取本机记录', 'Unable to read local records')}</h2><p>{t('会话文件没有改变，请重新扫描。', 'Session files are unchanged. Please scan again.')}</p><button disabled={pending} onClick={onRefresh}>{t('重新扫描', 'Scan again')}</button></section> :
       <div className={pending ? 'usage-body is-loading' : 'usage-body'} aria-busy={pending}>
-        <section className="usage-summary" aria-label="近一年统计">
-          <div><span><Database size={14}/>Token 总量</span><strong>{compact(total)}</strong><small>近 365 天</small></div>
-          <div><span><CalendarDays size={14}/>活跃天数</span><strong>{active}<small>天</small></strong><small>有用量的本地日期</small></div>
-          <div><span><Activity size={14}/>会话数</span><strong>{number(chats)}</strong><small>主会话</small></div>
-          <div><span>活跃日均</span><strong>{compact(active ? total / active : 0)}</strong><small>Token / 天</small></div>
+        <section className="usage-summary" aria-label={t('近一年统计', 'Past year summary')}>
+          <div><span><Database size={14}/>{t('Token 总量', 'Total tokens')}</span><strong>{compact(total)}</strong><small>{t('近 365 天', 'Last 365 days')}</small></div>
+          <div><span><CalendarDays size={14}/>{t('活跃天数', 'Active days')}</span><strong>{active}<small>{t('天', ' days')}</small></strong><small>{t('有用量的本地日期', 'Local dates with usage')}</small></div>
+          <div><span><Activity size={14}/>{t('会话数', 'Sessions')}</span><strong>{number(chats)}</strong><small>{t('主会话', 'Main sessions')}</small></div>
+          <div><span>{t('活跃日均', 'Active-day average')}</span><strong>{compact(active ? total / active : 0)}</strong><small>{t('Token / 天', 'Tokens / day')}</small></div>
         </section>
         <section className="usage-activity" aria-labelledby="activity-title">
-          <div className="section-heading"><h2 id="activity-title">活跃记录</h2><span>{data[0].date.replaceAll('-', '.')} — {data.at(-1)!.date.replaceAll('-', '.')}</span></div>
+          <div className="section-heading"><h2 id="activity-title">{t('活跃记录', 'Activity')}</h2><span>{data[0].date.replaceAll('-', '.')} — {data.at(-1)!.date.replaceAll('-', '.')}</span></div>
           <div className="heat-scroll" ref={heatScroll}>
             <div className="heat-months">{cells.filter((_, i) => i % 7 === 0).map((_, week) => {
               const day = cells.slice(week * 7, week * 7 + 7).find(d => d && Number(d.date.slice(-2)) === 1);
-              return <span key={week}>{day ? `${Number(day.date.slice(5, 7))}月` : ''}</span>;
+              return <span key={week}>{day ? new Date(`${day.date}T12:00:00`).toLocaleDateString(locale, { month: 'short' }) : ''}</span>;
             })}</div>
-            <div className="heat-layout"><div className="heat-weekdays"><span>一</span><span/><span>三</span><span/><span>五</span><span/><span/></div>
-              <div className="heat-grid" role="group" aria-label="每日用量热力图">{cells.map((cell, index) => {
+            <div className="heat-layout"><div className="heat-weekdays"><span>{t('一', 'M')}</span><span/><span>{t('三', 'W')}</span><span/><span>{t('五', 'F')}</span><span/><span/></div>
+              <div className="heat-grid" role="group" aria-label={t('每日用量热力图', 'Daily usage heatmap')}>{cells.map((cell, index) => {
                 const dayIndex = index - offset, day = data[dayIndex];
                 if (!cell) return <span className="heat-placeholder" key={`empty-${index}`}/>;
                 const value = tokens(day, source);
                 return <button key={day.date} className={`heat-cell level-${value ? Math.min(4, Math.ceil(value / max * 4)) : 0}${dayIndex === selected ? ' is-selected' : ''}`}
-                  aria-label={`${day.date}，${number(value)} Token`} aria-pressed={dayIndex === selected} tabIndex={dayIndex === selected ? 0 : -1}
+                  aria-label={`${day.date}${t('，', ', ')}${number(value)} Token`} aria-pressed={dayIndex === selected} tabIndex={dayIndex === selected ? 0 : -1}
                   {...chartPreview.bind(`day-${day.date}`, { title: day.date, subtitle: prettyDate(day.date), rows: [
-                    ...(source !== 'custom' ? [{ label: '阶跃官方', value: number(day.official), color: 'var(--primary)' }] : []),
-                    ...(source !== 'official' ? [{ label: '自定义第三方', value: number(day.custom), color: '#4c9690' }] : []),
-                    ...(source === 'all' && day.unknown ? [{ label: '未识别来源', value: number(day.unknown) }] : []),
-                    { label: '主会话数', value: number(chatCount(day, source)) },
-                    { label: 'Token 合计', value: number(value), total: true },
+                    ...(source !== 'custom' ? [{ label: t('阶跃官方', 'Step official'), value: number(day.official), color: 'var(--primary)' }] : []),
+                    ...(source !== 'official' ? [{ label: t('自定义第三方', 'Custom providers'), value: number(day.custom), color: '#4c9690' }] : []),
+                    ...(source === 'all' && day.unknown ? [{ label: t('未识别来源', 'Unknown source'), value: number(day.unknown) }] : []),
+                    { label: t('主会话数', 'Main sessions'), value: number(chatCount(day, source)) },
+                    { label: t('Token 合计', 'Total tokens'), value: number(value), total: true },
                   ] })} onClick={() => setSelected(dayIndex)}
                   onKeyDown={event => {
                     const delta = ({ ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 } as Record<string, number>)[event.key];
@@ -109,24 +111,24 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
               })}</div>
             </div>
           </div>
-          <div className="heat-footer"><span>{!total ? '还没有本机用量记录' : `一年里，${active} 天与你一起工作`}</span><div className="heat-legend"><span>少</span>{[0, 1, 2, 3, 4].map(level => <i key={level} className={`level-${level}`}/>)}<span>多</span></div></div>
+          <div className="heat-footer"><span>{!total ? t('还没有本机用量记录', 'No local usage records yet') : t(`一年里，${active} 天与你一起工作`, `${active} active days together this year`)}</span><div className="heat-legend"><span>{t('少', 'Less')}</span>{[0, 1, 2, 3, 4].map(level => <i key={level} className={`level-${level}`}/>)}<span>{t('多', 'More')}</span></div></div>
         </section>
-        <DailyUsage key={`${daily.date}:${source}`} day={daily} source={source} preview={chartPreview.bind}/>
+        <DailyUsage key={`${daily.date}:${source}`} day={daily} source={source} preview={chartPreview.bind} language={language}/>
         <section className="usage-trends" aria-labelledby="trend-title">
-          <div className="section-heading trend-heading"><h2 id="trend-title">用量趋势</h2><div className="trend-controls">
-            <UsageDateRange value={currentRange} min={data[0].date} max={data.at(-1)!.date} custom={Boolean(customRange)} onChange={setCustomRange}/>
-            <div className="segmented compact" role="group" aria-label="趋势时间范围">
-            {[7, 30, 90].map(value => <button key={value} aria-pressed={!customRange && period === value} onClick={() => { setPeriod(value); setCustomRange(undefined); }}>近 {value} 天</button>)}</div>
-            <div className="chart-switch" role="group" aria-label="图表类型"><button className="icon-button" aria-pressed={chart === 'bar'} aria-label="柱状图" data-tooltip="柱状图" onClick={() => setChart('bar')}><BarChart3 size={16}/></button><button className="icon-button" aria-pressed={chart === 'line'} aria-label="折线图" data-tooltip="折线图" onClick={() => setChart('line')}><LineChart size={16}/></button></div></div>
+          <div className="section-heading trend-heading"><h2 id="trend-title">{t('用量趋势', 'Usage trend')}</h2><div className="trend-controls">
+            <UsageDateRange value={currentRange} min={data[0].date} max={data.at(-1)!.date} custom={Boolean(customRange)} onChange={setCustomRange} language={language}/>
+            <div className="segmented compact" role="group" aria-label={t('趋势时间范围', 'Trend period')}>
+            {[7, 30, 90].map(value => <button key={value} aria-pressed={!customRange && period === value} onClick={() => { setPeriod(value); setCustomRange(undefined); }}>{t(`近 ${value} 天`, `${value} days`)}</button>)}</div>
+            <div className="chart-switch" role="group" aria-label={t('图表类型', 'Chart type')}><button className="icon-button" aria-pressed={chart === 'bar'} aria-label={t('柱状图', 'Bar chart')} data-tooltip={t('柱状图', 'Bar chart')} onClick={() => setChart('bar')}><BarChart3 size={16}/></button><button className="icon-button" aria-pressed={chart === 'line'} aria-label={t('折线图', 'Line chart')} data-tooltip={t('折线图', 'Line chart')} onClick={() => setChart('line')}><LineChart size={16}/></button></div></div>
           </div>
-          <div className="trend-range-summary" role="status" aria-label="趋势区间合计">
-            <div className="trend-total-controls"><span>区间合计</span><strong className="trend-total-value" data-testid="trend-total">{formatUsageTotal(trendTotal, unit)}</strong><span>Token</span>
-              <UsageUnitButton value={unit} onChange={setUnit}/>
+          <div className="trend-range-summary" role="status" aria-label={t('趋势区间合计', 'Trend range total')}>
+            <div className="trend-total-controls"><span>{t('区间合计', 'Range total')}</span><strong className="trend-total-value" data-testid="trend-total">{formatUsageTotal(trendTotal, unit, language)}</strong><span>Token</span>
+              <UsageUnitButton value={unit} onChange={setUnit} language={language === 'zh' ? 'zh' : 'en'}/>
             </div>
-            <span>{currentRange.start} 至 {currentRange.end}<i/>共 {trend.length} 天</span>
+            <span>{currentRange.start}{t(' 至 ', ' to ')}{currentRange.end}<i/>{t(`共 ${trend.length} 天`, `${trend.length} days`)}</span>
           </div>
-          <div className="chart-legend">{chart === 'line' ? <span><i className="official-dot"/>{sources.find(([key]) => key === source)?.[1]}合计</span> : <>{source !== 'custom' && <span><i className="official-dot"/>阶跃官方</span>}{source !== 'official' && <span><i className="custom-dot"/>自定义第三方</span>}{source === 'all' && data.some(d => d.unknown) && <span>未识别来源</span>}</>}<span className="chart-unit">Token</span></div>
-          <div className="chart-scroll"><svg className="usage-chart" viewBox="0 0 980 205" role="img" aria-label={`${trendLabel}${sources.find(([key]) => key === source)?.[1]} Token ${chart === 'bar' ? '柱状' : '折线'}图`}>
+          <div className="chart-legend">{chart === 'line' ? <span><i className="official-dot"/>{sources.find(([key]) => key === source)?.[1]}{t('合计', ' total')}</span> : <>{source !== 'custom' && <span><i className="official-dot"/>{t('阶跃官方', 'Step official')}</span>}{source !== 'official' && <span><i className="custom-dot"/>{t('自定义第三方', 'Custom providers')}</span>}{source === 'all' && data.some(d => d.unknown) && <span>{t('未识别来源', 'Unknown source')}</span>}</>}<span className="chart-unit">Token</span></div>
+          <div className="chart-scroll"><svg className="usage-chart" viewBox="0 0 980 205" role="img" aria-label={`${trendLabel} ${sources.find(([key]) => key === source)?.[1]} Token ${chart === 'bar' ? t('柱状图', 'bar chart') : t('折线图', 'line chart')}`}>
             {[0, 1, 2, 3].map(i => <g key={i}><line x1="34" y1={28 + i * 146 / 3} x2="966" y2={28 + i * 146 / 3} className="chart-gridline"/><text x="0" y={32 + i * 146 / 3}>{compact(trendMax * (1 - i / 3))}</text></g>)}
             {chart === 'line' ? <polyline points={points} fill="none" className="chart-line"/> : trend.map((day, i) => {
               const width = 920 / trend.length, official = source === 'custom' ? 0 : day.official / trendMax * 146;
@@ -142,12 +144,12 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
               const x = trend.length === 1 ? 494 : chart === 'bar' ? 34 + i * step + step / 2 : 34 + i * step;
               const left = Math.max(34, x - step / 2), right = Math.min(966, x + step / 2);
               return <g key={day.date} className="trend-sample" tabIndex={i === trend.length - 1 ? 0 : -1} role="img"
-                aria-label={`${day.date}，${number(tokens(day, source))} Token`}
-                {...chartPreview.bind(`trend-${day.date}`, { title: day.date, subtitle: '每日 Token 用量', rows: [
-                  ...(source !== 'custom' ? [{ label: '阶跃官方', value: number(day.official), color: 'var(--primary)' }] : []),
-                  ...(source !== 'official' ? [{ label: '自定义第三方', value: number(day.custom), color: '#4c9690' }] : []),
-                  ...(source === 'all' && day.unknown ? [{ label: '未识别来源', value: number(day.unknown) }] : []),
-                  { label: 'Token 合计', value: number(tokens(day, source)), total: true },
+                aria-label={`${day.date}${t('，', ', ')}${number(tokens(day, source))} Token`}
+                {...chartPreview.bind(`trend-${day.date}`, { title: day.date, subtitle: t('每日 Token 用量', 'Daily token usage'), rows: [
+                  ...(source !== 'custom' ? [{ label: t('阶跃官方', 'Step official'), value: number(day.official), color: 'var(--primary)' }] : []),
+                  ...(source !== 'official' ? [{ label: t('自定义第三方', 'Custom providers'), value: number(day.custom), color: '#4c9690' }] : []),
+                  ...(source === 'all' && day.unknown ? [{ label: t('未识别来源', 'Unknown source'), value: number(day.unknown) }] : []),
+                  { label: t('Token 合计', 'Total tokens'), value: number(tokens(day, source)), total: true },
                 ] })}
                 onKeyDown={event => {
                   const delta = ({ ArrowLeft: -1, ArrowRight: 1 } as Record<string, number>)[event.key];
@@ -166,20 +168,20 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
               <text key={i} x={trend.length === 1 ? 494 : 34 + i / (trend.length - 1) * 920} y="199"
                 textAnchor={trend.length === 1 ? 'middle' : j === 0 ? 'start' : j === indices.length - 1 ? 'end' : 'middle'}>{trend[i].date.slice(5).replace('-', '/')}</text>)}
           </svg></div>
-          {chart === 'line' && <p className="chart-note">折线展示当前筛选来源的 Token 合计。</p>}
+          {chart === 'line' && <p className="chart-note">{t('折线展示当前筛选来源的 Token 合计。', 'The line shows total tokens for the selected source.')}</p>}
         </section>
-        {source !== 'custom' ? <section className="usage-cost" aria-label="近一年阶跃官方费用估算"><div><h2>阶跃官方估算</h2><span>近 365 天 · Desktop 已记录的请求</span></div>
+        {source !== 'custom' ? <section className="usage-cost" aria-label={t('近一年阶跃官方费用估算', 'Past year Step official cost estimates')}><div><h2>{t('阶跃官方估算', 'Step official estimates')}</h2><span>{t('近 365 天 · Desktop 已记录的请求', 'Last 365 days · Requests recorded by Desktop')}</span></div>
           <div><span>Step Plan</span><strong>{estimate('plan')} <small>M Credit</small></strong></div>
-          <div><span>官方 API · 国内</span><strong>{estimate('api', '¥')}</strong></div>
-          {data.some(day => day.usd !== null) && <div><span>官方 API · 海外</span><strong>{estimate('usd', '$')}</strong></div>}
-          <button className="icon-button" aria-label="费用估算范围" data-tooltip="M Credit 与金额分别累计，不相加。仅包含 Desktop 已记录的主会话请求，不是官方账单；历史与子代理用量可能未覆盖。"><CircleHelp size={16}/></button>
-        </section> : <p className="third-party-note"><CircleHelp size={14}/>第三方仅统计 Token，不提供费用估算。</p>}
-        <footer className="usage-footnote"><span><Check size={13}/>社区版仅保存在本机，暂不支持随账户云端保存或跨设备同步。</span><span>不含其他设备记录与官网账单</span></footer>
-        {overview.limited.length > 0 && <p className="coverage-note" role="status">部分历史记录缺少统计元数据，当前结果覆盖不完整。无法识别来源的用量仅计入「全部」，不归入官方或第三方。</p>}
-        <p className="chart-note">主会话去重计数；Token 包含已记录的子代理、分支与上下文压缩用量。按本机日期统计。</p>
-        {source !== 'custom' && <p className="chart-note">费用仅累计 Desktop 已保存的估算记录，沿用请求发生时的计费模式与规则；未记录的历史显示「—」，不追溯套用当前账户。
-          {overview.estimates && ` 已记录 ${overview.estimates.recorded} 次请求${overview.estimates.unknown ? `，其中 ${overview.estimates.unknown} 次无法估算` : ''}。`}
-          {overview.estimates?.limited && '部分估算文件未能读取。'}</p>}
+          <div><span>{t('官方 API · 国内', 'Official API · China')}</span><strong>{estimate('api', '¥')}</strong></div>
+          {data.some(day => day.usd !== null) && <div><span>{t('官方 API · 海外', 'Official API · Global')}</span><strong>{estimate('usd', '$')}</strong></div>}
+          <button className="icon-button" aria-label={t('费用估算范围', 'Cost estimate coverage')} data-tooltip={t('M Credit 与金额分别累计，不相加。仅包含 Desktop 已记录的主会话请求，不是官方账单；历史与子代理用量可能未覆盖。', 'M Credit and currency totals are kept separate. Only main-session requests recorded by Desktop are included, not official bills; history and subagents may be missing.')}><CircleHelp size={16}/></button>
+        </section> : <p className="third-party-note"><CircleHelp size={14}/>{t('第三方仅统计 Token，不提供费用估算。', 'Custom providers track tokens only, without cost estimates.')}</p>}
+        <footer className="usage-footnote"><span><Check size={13}/>{t('社区版仅保存在本机，暂不支持随账户云端保存或跨设备同步。', 'Community edition data stays on this device; account cloud storage and cross-device sync are not supported.')}</span><span>{t('不含其他设备记录与官网账单', 'Excludes other devices and official bills')}</span></footer>
+        {overview.limited.length > 0 && <p className="coverage-note" role="status">{t('部分历史记录缺少统计元数据，当前结果覆盖不完整。无法识别来源的用量仅计入「全部」，不归入官方或第三方。', 'Some historical records lack usage metadata, so coverage is incomplete. Unknown sources count toward All only, not official or custom providers.')}</p>}
+        <p className="chart-note">{t('主会话去重计数；Token 包含已记录的子代理、分支与上下文压缩用量。按本机日期统计。', 'Main sessions are deduplicated. Tokens include recorded subagents, branches and context compaction. Grouped by local date.')}</p>
+        {source !== 'custom' && <p className="chart-note">{t('费用仅累计 Desktop 已保存的估算记录，沿用请求发生时的计费模式与规则；未记录的历史显示「—」，不追溯套用当前账户。', 'Costs sum saved Desktop estimates using the billing mode and rules at request time. Unrecorded history shows a dash; current account rules are not applied retroactively.')}
+          {overview.estimates && t(` 已记录 ${overview.estimates.recorded} 次请求${overview.estimates.unknown ? `，其中 ${overview.estimates.unknown} 次无法估算` : ''}。`, ` ${number(overview.estimates.recorded)} recorded requests${overview.estimates.unknown ? `; ${number(overview.estimates.unknown)} could not be estimated` : ''}.`)}
+          {overview.estimates?.limited && t('部分估算文件未能读取。', ' Some estimate files could not be read.')}</p>}
       </div>}
     {!embedded && <AppTooltip/>}
     {chartPreview.preview}

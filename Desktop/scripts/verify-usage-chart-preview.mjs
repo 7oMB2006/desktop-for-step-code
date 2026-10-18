@@ -141,8 +141,62 @@ try {
   await page.waitForFunction(() => innerWidth === 390);
   await checkPosition(await hoverHour());
   await page.screenshot({ path: join(evidence, 'hour-card-narrow.png') });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1280, 900));
+  await page.waitForFunction(() => innerWidth === 1280);
+  await page.evaluate(() => window.desktop.preferences({ language: 'en', theme: 'light' }));
+  await page.reload();
+  await page.getByRole('button', { name: 'Usage overview', exact: true }).click();
+  await page.getByRole('heading', { name: 'Usage', exact: true }).waitFor();
+  const englishCard = page.getByRole('tooltip', { name: 'Chart data', exact: true });
+  const assertEnglish = async () => {
+    const chinese = await page.locator('.usage-overview-preview, .usage-range-panel, .usage-chart-preview').evaluateAll(elements =>
+      elements.flatMap(root => [root, ...root.querySelectorAll('*')]).flatMap(element =>
+        [...element.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent)
+          .concat(['aria-label', 'data-tooltip'].map(name => element.getAttribute(name) ?? '')))
+        .filter(value => /[\u3400-\u9fff]/u.test(value)));
+    assert.deepEqual(chinese, [], 'All usage text, tooltips and accessibility names must follow English preferences');
+  };
+  await page.getByRole('group', { name: 'Daily usage heatmap', exact: true }).waitFor();
+  const date = await page.locator('.daily-analysis').getAttribute('data-date');
+  const expectedDate = new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  assert.ok((await page.locator('.daily-date h2').innerText()).includes(expectedDate));
+  await page.locator('.hour-bar[data-hour="18"] .chart-hit-area').hover({ position: { x: 4, y: 20 } });
+  await englishCard.waitFor();
+  assert.equal(await englishCard.locator('dt').filter({ hasText: /^Uncached input$/ }).count(), 1);
+  assert.equal(await englishCard.locator('dt').filter({ hasText: /^Cache hit rate$/ }).count(), 1);
+  await assertEnglish();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Custom dates', exact: true }).click();
+  const englishRange = page.getByRole('dialog', { name: 'Select date range', exact: true });
+  await englishRange.getByRole('columnheader', { name: 'Mo', exact: true }).first().waitFor();
+  await englishRange.getByLabel('Start date', { exact: true }).fill(start);
+  await englishRange.getByLabel('End date', { exact: true }).fill('invalid');
+  await englishRange.getByRole('alert').waitFor();
+  await assertEnglish();
+  await englishRange.getByLabel('End date', { exact: true }).fill(end);
+  await englishRange.getByRole('button', { name: 'Apply', exact: true }).click();
+  assert.equal(await page.locator('.trend-sample').count(), 7);
+  assert.equal(await unitCycle.innerText(), 'Raw');
+  assert.equal(await page.getByTestId('trend-total').innerText(), rangeTotal.toLocaleString('en-US'));
+  await unitCycle.click();
+  assert.equal(await page.getByTestId('trend-total').innerText(),
+    `${(rangeTotal / 1e3).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}K`);
+  await page.getByRole('button', { name: 'Line chart', exact: true }).click();
+  await page.locator('.trend-sample').last().hover();
+  await englishCard.waitFor();
+  await assertEnglish();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(390, 844));
+  await page.waitForFunction(() => innerWidth === 390);
+  await page.screenshot({ path: join(evidence, 'usage-english-narrow.png') });
+  await page.getByRole('button', { name: 'Custom providers', exact: true }).click();
+  await page.getByText('Custom providers track tokens only, without cost estimates.', { exact: true }).waitFor();
+  await assertEnglish();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1280, 900));
+  await page.waitForFunction(() => innerWidth === 1280);
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+  await page.screenshot({ path: join(evidence, 'usage-english-desktop.png') });
   assert.deepEqual(errors, []);
-  console.log('Chart preview passed: structured rows, exact totals/cache rate, pointer following, viewport flipping, heatmap/model/trend/hour, keyboard/Escape, scroll dismissal, real light/wine themes and narrow/reduced motion.');
+  console.log('Chart preview passed: structured rows, exact totals/cache rate, pointer following, viewport flipping, heatmap/model/trend/hour, keyboard/Escape, scroll dismissal, real light/wine themes, narrow/reduced motion and English preferences/date dialog/cards/units/source filters.');
 } catch (error) {
   if (app) for (const page of app.windows()) {
     await page.screenshot({ path: join(evidence, 'failure.png') }).catch(() => {});

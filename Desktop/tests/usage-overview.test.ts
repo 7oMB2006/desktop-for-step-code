@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // @ts-expect-error The runtime adapter is a Node ESM module, also staged verbatim.
@@ -16,6 +16,18 @@ const entry = (id: string, provider: string | undefined = 'step', extra = {}) =>
   timestamp: time, message: { role: 'assistant', provider, model: 'model-x', usage }, ...extra });
 const file = (id: string, entries: unknown[], extra = {}) => ({ path: join(tmpdir(), `${id}.jsonl`),
   header: { id, cwd: tmpdir(), ...extra }, entries });
+
+test('Usage RPC keeps bounded post-scan headroom without changing the global request timeout', async () => {
+  const main = await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8');
+  const adapter = await readFile(new URL('../electron/usage-overview.mjs', import.meta.url), 'utf8');
+  const runtime = await readFile(new URL('../electron/runtime.ts', import.meta.url), 'utf8');
+  const deadline = Number(adapter.match(/AbortSignal\.timeout\((\d+)\)/)?.[1]);
+  const timeout = Number(main.match(/admin\.request\('usage_overview', \{\}, (\d+)\)/)?.[1]);
+  assert.equal(deadline, 28000);
+  assert.ok(timeout >= deadline + 30000, 'Cache decode, projection and transport need their own headroom');
+  assert.ok(timeout <= 90000, 'Usage requests must still have a finite, bounded wait');
+  assert.match(runtime, /request\(type: string, args: Record<string, unknown> = \{\}, timeout = 30000\)/);
+});
 
 test('Usage dimensions count complete input exactly, preserving model, hour, source and unknown maintenance', () => {
   const out = projectDesktopUsage(native(190 * 2 + 10), [file('main', [

@@ -6,4 +6,4 @@ import './usage-overview-standalone.css';
 
 const params = new URLSearchParams(location.search);
 document.documentElement.dataset.theme = params.get('theme') === 'dark' ? 'dark' : 'light';
-createRoot(document.getElementById('root')!).render(<UsageOverviewView initialScenario={params.get('state') ?? 'ready'}/>);
+createRoot(document.getElementById('root')!).render(<UsageOverviewView initialScenario={params.get('state') ?? 'ready'} language={params.get('lang') === 'en' ? 'en' : 'zh'}/>);

@@ -16,3 +16,9 @@ test('zero and small nonzero totals remain distinguishable', () => {
   assert.equal(formatUsageTotal(1, 'B'), '<0.01B');
   assert.equal(formatUsageTotal(10, 'K'), '0.01K');
 });
+
+test('English token units use the selected locale without changing the quantity', () => {
+  assert.equal(formatUsageTotal(26964762, 'default', 'en'), (26964762).toLocaleString('en-US'));
+  assert.equal(formatUsageTotal(26964762, 'K', 'en'), '26,964.76K');
+  assert.equal(formatUsageTotal(1, 'B', 'en'), '<0.01B');
+});

@@ -1365,7 +1365,8 @@ async function handle(method: string, args: any[]) {
     case 'estimateSettings': return usageEstimates.settings();
     case 'usageOverview': {
       // Coalesce scans across windows. The admin worker is local-only and bounded.
-      usageOverviewPending ??= admin.request('usage_overview')
+      // The native scan has a 28s deadline; allow bounded cache/projection/IPC headroom.
+      usageOverviewPending ??= admin.request('usage_overview', {}, 60000)
         .then(result => usageEstimates.overview(result as import('../src/usage-overview').UsageOverview))
         .finally(() => { usageOverviewPending = undefined; });
       return usageOverviewPending;

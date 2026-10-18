@@ -119,6 +119,12 @@ try {
   await page.getByRole('button', { name: '用量统计', exact: true }).click();
   await preview.getByRole('heading', { name: '用量', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '用量统计', exact: true }).getAttribute('aria-pressed'), 'true');
+  await page.getByRole('button', { name: '定时任务', exact: true }).click();
+  await page.getByRole('heading', { name: '定时任务', exact: true }).waitFor();
+  assert.equal(await page.locator('.usage-overview-preview').count(), 0, 'Schedules must replace usage');
+  await page.getByRole('button', { name: '用量统计', exact: true }).click();
+  await preview.getByRole('heading', { name: '用量', exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: '定时任务', exact: true }).count(), 0, 'Usage must replace schedules');
   await page.locator('.sidebar-bottom > button').click();
   assert.deepEqual(await page.locator('.settings-dialog > header').evaluate(element => {
     const style = getComputedStyle(element);

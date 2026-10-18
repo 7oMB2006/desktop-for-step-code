@@ -59,8 +59,10 @@ export const acceptanceGroups = {
     'verify-workflow.mjs',
     'verify-chain-runtime.mjs',
     'verify-windows-commands.mjs',
+    'verify-then-run.mjs',
     'verify-workflow-runtime.mjs',
     'verify-summary-runtime.mjs',
+    'verify-usage-worker.mjs',
     'verify-background-subagents.mjs',
     'verify-custom-providers.mjs',
     'verify-crash-log.mjs',
@@ -90,10 +92,14 @@ export const localOnly = [
 // Platform-specific checks are covered by their native workflow, not Windows.
 export const platformOnly = { macos: ['verify-macos-package.mjs', 'verify-macos-updater.mjs'] };
 
-// Retain the two existing per-step timeout limits; other scripts retain the job limit.
+// Every script is bounded, including assertion cleanup that never finishes.
+export const defaultAcceptanceTimeout = 300_000;
+
+// Keep explicit per-script limits independently adjustable.
 export const acceptanceTimeouts = {
   'verify-question-review.mjs': 300_000,
   'verify-windows-commands.mjs': 300_000,
+  'verify-then-run.mjs': 300_000,
   'verify-context-maintenance.mjs': 300_000,
   'verify-clm-cancellation.mjs': 300_000,
   'verify-model-switch.mjs': 300_000,

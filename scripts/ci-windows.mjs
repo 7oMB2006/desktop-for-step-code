@@ -2,7 +2,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { acceptanceGroups, acceptanceTimeouts, validateInventory, windowsGroups } from './ci-acceptance.mjs';
+import { acceptanceGroups, acceptanceTimeouts, defaultAcceptanceTimeout, validateInventory, windowsGroups } from './ci-acceptance.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -11,7 +11,7 @@ export function groupScripts(group) {
   return acceptanceGroups[group];
 }
 
-export function executeScript(script, { cwd, timeout, signal } = {}) {
+export function executeScript(script, { cwd, timeout = defaultAcceptanceTimeout, signal } = {}) {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script], {
@@ -25,7 +25,8 @@ export function executeScript(script, { cwd, timeout, signal } = {}) {
       try {
         // Only terminate this script's process tree, never unrelated Electron windows.
         if (process.platform === 'win32') {
-          execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'pipe', timeout: 10000 });
+          execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
+            ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'pipe', timeout: 10000 });
         } else {
           process.kill(-child.pid, 'SIGKILL');
         }
@@ -58,10 +59,12 @@ export async function runGroup(group, {
     signal?.throwIfAborted();
     log(`::group::${script}`);
     const started = performance.now();
+    const timeout = acceptanceTimeouts[script] ?? defaultAcceptanceTimeout;
+    await record(rows, { script, startedAt: new Date().toISOString(), timeoutMs: timeout });
     let failure;
     let failed = false;
     try {
-      await execute(join('scripts', script), { cwd: join(root, 'Desktop'), timeout: acceptanceTimeouts[script], signal });
+      await execute(join('scripts', script), { cwd: join(root, 'Desktop'), timeout, signal });
     } catch (error) {
       failed = true;
       failure = error;
@@ -69,7 +72,7 @@ export async function runGroup(group, {
       rows.push({ script, status: failed ? 'failure' : 'success', seconds: Number(((performance.now() - started) / 1000).toFixed(3)) });
       log(`::endgroup::`);
       log(`${script}: ${rows.at(-1).status} (${rows.at(-1).seconds}s)`);
-      await record(rows);
+      await record(rows, null);
     }
     if (failed) throw new Error(`${script} failed`, { cause: failure });
   }
@@ -92,13 +95,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.once('SIGTERM', interrupt);
     const destination = join(root, 'Desktop/test-results');
     mkdirSync(destination, { recursive: true });
-    const report = { group, expected: scripts.length, complete: false, results: [] };
+    const report = { group, expected: scripts.length, complete: false, active: null, results: [] };
     const save = () => writeFileSync(join(destination, `ci-${group}.json`), JSON.stringify(report, null, 2) + '\n');
     save();
     try {
       report.results = await runGroup(group, {
         signal: controller.signal,
-        record: rows => { report.results = [...rows]; save(); },
+        record: (rows, active) => { report.results = [...rows]; report.active = active; save(); },
       });
       report.complete = true;
     } finally {

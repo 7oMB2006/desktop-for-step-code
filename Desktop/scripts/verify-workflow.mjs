@@ -372,6 +372,130 @@ try {
   await page.waitForFunction(() => !document.querySelector('.workflow-inline'));
   assert.equal(await page.locator('.working .workflow-trigger').count(), 0, 'An unrelated ordinary turn does not retain the prior workflow summary');
   assert.equal(await panel.locator('.workflow-agent').count(), 0, 'history change does not leave another workflow visible');
+  await app.evaluate((_electron, progress) => {
+    const model = globalThis.workflowFixture;
+    model.state.isStreaming = true;
+    model.messages = [
+      { role: 'user', content: '停止编排兼容验收' },
+      { role: 'assistant', content: [{ type: 'toolCall', id: 'compat', name: 'workflow', arguments: {} }] },
+      { role: 'toolResult', toolName: 'workflow', toolCallId: 'compat', content: '',
+        details: { ...progress, status: 'stopping' } },
+    ];
+  }, progress);
+  await page.reload();
+  await page.locator('.working .workflow-trigger[data-workflow-state="stopping"]').waitFor();
+  assert.match(await page.locator('.working .workflow-trigger').innerText(), /编排停止中/);
+  assert.equal(await rail.getAttribute('data-workflow-running'), 'true');
+  await page.locator('.working .workflow-trigger').click();
+  await panel.waitFor();
+  assert.match(await panel.innerText(), /等待子任务退出/);
+  assert.equal(await panel.locator('.workflow-agent').count(), 8);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/workflow-stopping-narrow.png' });
+  await app.evaluate(({ BrowserWindow }, progress) => {
+    const model = globalThis.workflowFixture;
+    const settled = { ...progress, status: 'partial_failed', completedAgents: 7,
+      agents: progress.agents.map((agent, index) => ({ ...agent, status: index === 7 ? 'failed' : 'completed', finishedAt: Date.now() })) };
+    const result = { schemaVersion: 1, runId: progress.runId, name: progress.name, status: 'partial_failed',
+      startedAt: progress.startedAt, finishedAt: Date.now(), spentTokens: 100000, agentCalls: 8,
+      summary: { total: 8, completed: 7, failed: 1 } };
+    const message = { role: 'toolResult', toolName: 'workflow', toolCallId: 'compat', content: '', details: result, isError: true };
+    model.messages[2] = { ...message, desktopWorkflow: { ...settled, toolCallId: 'compat', finishedAt: result.finishedAt } };
+    model.state.isStreaming = false;
+    const window = BrowserWindow.getAllWindows()[0];
+    window.webContents.send('runtime-event', { type: 'tool_execution_update', toolName: 'workflow', toolCallId: 'compat',
+      partialResult: { details: settled } });
+    window.webContents.send('runtime-event', { type: 'tool_execution_end', toolName: 'workflow', toolCallId: 'compat',
+      result: { details: result }, isError: true });
+    window.webContents.send('runtime-event', { type: 'agent_end' });
+  }, progress);
+  await page.locator('.workflow-settled[data-workflow-state="partial_failed"]').waitFor();
+  assert.match(await page.locator('.workflow-settled[data-workflow-state="partial_failed"]').innerText(), /编排部分失败/);
+  assert.match(await panel.innerText(), /已完成的节点结果仍保留/);
+  await page.reload();
+  await page.locator('.workflow-settled[data-workflow-state="partial_failed"]').waitFor();
+  await page.locator('.workflow-settled[data-workflow-state="partial_failed"]').click();
+  await panel.waitFor();
+  assert.equal(await panel.locator('.workflow-agent').count(), 8);
+  assert.equal(await panel.locator('.workflow-count').first().innerText(), '7 / 8');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/workflow-partial-failed-reopened.png' });
+  await app.evaluate((_electron, progress) => {
+    const model = globalThis.workflowFixture;
+    model.state.isStreaming = true;
+    model.messages = [
+      { role: 'user', content: '失败与重试展示验收' },
+      { role: 'assistant', content: [{ type: 'toolCall', id: 'issues', name: 'workflow', arguments: {} }] },
+      { role: 'toolResult', toolName: 'workflow', toolCallId: 'issues', content: '', details: {
+        ...progress, runId: 'wf_issues', totalAgents: 3, completedAgents: 1, agents: [
+          { ...progress.agents[0], status: 'running', rateLimitRetries: 1, retry: { attempt: 1, maxRetries: 2, delayMs: 500 } },
+          { ...progress.agents[1], status: 'queued' }, { ...progress.agents[2], status: 'cached' },
+        ],
+      } },
+    ];
+  }, progress);
+  await page.reload();
+  await page.locator('.workflow-inline-meta .workflow-retry').getByText('正在重试', { exact: true }).waitFor();
+  await page.locator('.workflow-heading').click();
+  await panel.waitFor();
+  await panel.getByText('重试 1/2 · 等待 0.5 秒', { exact: true }).waitFor();
+  await app.evaluate(({ BrowserWindow }) => {
+    const model = globalThis.workflowFixture;
+    const before = model.messages[2].details;
+    const details = { ...before, status: 'partial_failed', finishedAt: Date.now(), completedAgents: 2, cacheHits: 1,
+      summary: { total: 3, completed: 2, failed: 1, failedCallbacks: 2 },
+      taskFailures: [
+        { script: 'child.js', primitive: 'parallel', index: 1, message: 'Callback rejected' },
+        { script: 'C:\\private\\source.js', primitive: 'pipeline', index: 2, stage: 1, message: 'API_KEY=fixture-secret' },
+      ],
+      agents: before.agents.map((agent, index) => ({ ...agent, retry: undefined,
+        status: index === 0 ? 'completed' : index === 1 ? 'failed' : 'cached',
+        rateLimitRetries: index === 1 ? 2 : agent.rateLimitRetries,
+        error: index === 1 ? { code: 'NODE_FAILED', message: 'Fixture node failed', retryable: true, retryExhausted: true } : undefined })),
+    };
+    model.messages[2] = { ...model.messages[2], details, isError: true };
+    model.state.isStreaming = false;
+    const window = BrowserWindow.getAllWindows()[0];
+    window.webContents.send('runtime-event', { type: 'tool_execution_end', toolName: 'workflow', toolCallId: 'issues',
+      result: { details }, isError: true });
+    window.webContents.send('runtime-event', { type: 'agent_end' });
+  });
+  await panel.getByText('重试恢复 · 已重试 1 次', { exact: true }).waitFor();
+  assert.equal(await panel.locator('.workflow-agent').count(), 3);
+  await panel.getByText('复用 1 个结果', { exact: true }).waitFor();
+  const callbackDetails = panel.locator('.workflow-callbacks');
+  assert.equal(await callbackDetails.getAttribute('open'), null, 'callback details default to collapsed');
+  await callbackDetails.locator('summary').click();
+  await callbackDetails.getByText('Callback rejected', { exact: true }).waitFor();
+  assert.match(await callbackDetails.innerText(), /\[redacted\]/);
+  assert.doesNotMatch(await panel.innerText(), /fixture-secret|C:\\private/);
+  await panel.locator('.workflow-agent').nth(1).click();
+  await panel.getByRole('region', { name: '节点错误' }).waitFor();
+  assert.match(await panel.locator('.workflow-error').innerText(), /NODE_FAILED.*\n.*Fixture node failed/s);
+  await panel.locator('.subagent-body').getByText('已重试 2 次 · 重试次数已耗尽', { exact: true }).waitFor();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/workflow-node-error.png' });
+  await page.reload();
+  const issuesTrigger = page.locator('.workflow-settled[data-workflow-state="partial_failed"]');
+  await issuesTrigger.waitFor();
+  assert.match(await issuesTrigger.innerText(), /1 节点失败 · 2 回调错误/);
+  for (const [theme, language, width] of [['dark', 'zh', 1360], ['light', 'zh', 1360], ['light', 'en', 520]]) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 900), width);
+    await page.evaluate(options => window.desktop.preferences(options), { theme, language });
+    await page.reload();
+    await issuesTrigger.waitFor();
+    assert.ok(await issuesTrigger.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return box.left >= 0 && box.right <= innerWidth && element.scrollWidth <= element.clientWidth + 1;
+    }), 'failure summary fits narrow and English layouts');
+    await issuesTrigger.click();
+    await panel.waitFor();
+    assert.equal(await panel.locator('.workflow-agent').count(), 3);
+    await panel.locator('.workflow-callbacks summary').click();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `test-results/workflow-failures-${theme}-${language}-${width}.png` });
+  }
   assert.deepEqual(errors, []);
-  console.log('Workflow UI passed: pulse toggle, fixed rail entry, overview/agent, final snapshot preservation, subsequent tools, history, failure/interruption/cache/budget, light/narrow and session isolation.');
+  console.log('Workflow UI passed: pulse toggle, fixed rail entry, overview/agent, final snapshot preservation, subsequent tools, history, failure/interruption/cache/budget, retry/recovery/exhaustion, independent redacted callback details, reload, light/dark/narrow/English and session isolation.');
 } finally { await app.close(); }

@@ -12,7 +12,7 @@ import type { WorkflowState } from './workflow-state';
 import { WorkflowAgentDetail, WorkflowOverview } from './WorkflowView';
 import { AppMenu } from './AppMenu';
 import { DisclosureChevron } from './DisclosureChevron';
-import { workflowCount } from './workflow-state';
+import { workflowCount, workflowIcon } from './workflow-state';
 
 function SubagentTranscript({ task, ...props }: { task: SubagentTask } & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
   // A child call's arguments and result text are new surfaces here, so credentials, cookies and
@@ -113,7 +113,7 @@ export function SubagentPanel({ open, replaced, overlay, expanded, task, workflo
           items={[...workflows].reverse().map((run, index) => ({
             id: run.toolCallId,
             label: `${run.name === 'inline' ? 'Ultracode' : run.name} · ${zh ? `第 ${workflows.length - index} 次` : `Run ${workflows.length - index}`} · ${workflowCount(run)}`,
-            icon: <SubagentStatusIcon state={run.status === 'running' ? 'running' : run.status === 'completed' ? 'done' : run.status === 'aborted' ? 'stopped' : run.status === 'unknown' ? 'pending' : 'failed'} language={props.language}/>,
+            icon: <SubagentStatusIcon state={workflowIcon(run.status)} language={props.language}/>,
           }))}/>
       </div>}
       <div className="workflow-pane" hidden={view !== 'overview'}>

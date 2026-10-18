@@ -1005,7 +1005,7 @@ async function handle(method: string, args: any[]) {
         const cwd = source?.cwd ?? await realpath(target.cwd);
         const copy = await admin.request('copy_session', { sessionPath: path, cwd });
         copyPath = await managedSessionFile(join(dataRoot, 'sessions'), copy.path);
-        if (!copy.id || copy.id === target.id || source?.leafId && copy.leafId !== source.leafId) throw new Error('Session history changed; try again');
+        if (!copy.id || copy.id === target.id || source?.leafId && copy.sourceLeafId !== source.leafId) throw new Error('Session history changed; try again');
         const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd, authEnvironment(),
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;

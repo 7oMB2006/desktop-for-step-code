@@ -1,6 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import type { WorkflowAgent, WorkflowState } from './workflow-state';
-import { workflowCount, workflowIcon } from './workflow-state';
+import { workflowCount, workflowIcon, workflowIsActive, workflowIssues, workflowRetryText } from './workflow-state';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import { TurnStatusTrigger } from './TurnStatusTrigger';
 import { elapsedTime } from './elapsed-time';
@@ -18,22 +18,24 @@ export function WorkflowElapsed({ startedAt, finishedAt, running }: { startedAt?
     ? <span className="workflow-elapsed">{elapsedTime({ startedAt, endedAt: finishedAt }, now)}</span> : null;
 }
 export function WorkflowTrigger({ flow, language, onOpen, settled = false }: { flow: WorkflowState; language: 'zh' | 'en'; onOpen: (id: string) => void; settled?: boolean }) {
-  const status = settled && flow.status === 'running' ? 'unknown' : flow.status;
+  const status = settled && workflowIsActive(flow.status) ? 'unknown' : flow.status;
   const labels = {
     completed: ['编排已完成', 'Workflow completed'], failed: ['编排失败', 'Workflow failed'],
     aborted: ['编排已中断', 'Workflow interrupted'], budget_exceeded: ['编排预算耗尽', 'Workflow budget reached'],
     unknown: ['编排状态待确认', 'Workflow state unknown'], running: ['多代理协作', 'Multi-agent workflow'],
+    stopping: ['编排停止中', 'Workflow stopping'], partial_failed: ['编排部分失败', 'Workflow partially failed'],
   };
   const icon = <SubagentStatusIcon state={workflowIcon(status)} language={language}
-    detail={settled && flow.status === 'running' ? language === 'zh' ? '本轮已结束，编排最终状态未返回' : 'Turn ended without a final workflow state' : undefined}/>;
+    detail={settled && workflowIsActive(flow.status) ? language === 'zh' ? '本轮已结束，编排最终状态未返回' : 'Turn ended without a final workflow state' : undefined}/>;
   if (settled) return <TurnStatusTrigger className="workflow-trigger workflow-settled" data-workflow-state={status}
-    icon={icon} label={labels[status][language === 'zh' ? 0 : 1]} detail={workflowCount(flow)}
-    tone={status === 'completed' ? 'success' : status === 'failed' || status === 'budget_exceeded' ? 'danger' : status === 'aborted' ? 'warning' : 'neutral'}
+    icon={icon} label={labels[status][language === 'zh' ? 0 : 1]}
+    detail={[workflowCount(flow), workflowIssues(flow, language)].filter(Boolean).join(' · ')}
+    tone={status === 'completed' ? 'success' : status === 'failed' || status === 'budget_exceeded' ? 'danger' : status === 'aborted' || status === 'partial_failed' ? 'warning' : 'neutral'}
     onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel"/>;
   return <button type="button" className="workflow-trigger" data-workflow-state={status}
     onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel">
     {icon}
-    <span>{flow.currentPhase || (language === 'zh' ? '多代理协作' : 'Multi-agent workflow')}</span>
+    <span>{status === 'stopping' ? labels.stopping[language === 'zh' ? 0 : 1] : flow.currentPhase || labels[status][language === 'zh' ? 0 : 1]}</span>
     <span className="workflow-count">{workflowCount(flow)}</span><ChevronRight size={12}/>
   </button>;
 }
@@ -46,8 +48,10 @@ export function WorkflowBlock({ flow, language, onOpen }: { flow: WorkflowState;
       <span className="workflow-brand">Ultracode</span><span className="workflow-count">{workflowCount(flow)}</span><ChevronRight size={13}/>
     </button>
     <div className="workflow-inline-meta">{flow.currentPhase && <span>{flow.currentPhase}</span>}
-      <WorkflowElapsed {...flow} running={flow.status === 'running'}/>
+      <WorkflowElapsed {...flow} running={workflowIsActive(flow.status)}/>
       {flow.agents.length > 0 && <span>{flow.agents.filter(a => a.status === 'running').length || ''}{flow.agents.some(a => a.status === 'running') ? zh ? ' 个运行中' : ' running' : zh ? `${flow.agents.length} 个代理` : `${flow.agents.length} agents`}</span>}
+      {workflowIssues(flow, language) && <span className="workflow-issue-summary">{workflowIssues(flow, language)}</span>}
+      {flow.agents.some(agent => agent.retry) && <span className="workflow-retry">{zh ? '正在重试' : 'Retrying'}</span>}
     </div>
   </div>;
 }
@@ -60,22 +64,37 @@ export function WorkflowOverview({ flow, selected, onSelect, language }: {
   return <div className="workflow-overview">
     <div className="workflow-overview-heading"><SubagentStatusIcon state={workflowIcon(flow.status)} language={language}/>
       <strong>{flow.name === 'inline' ? zh ? '多代理协作' : 'Multi-agent workflow' : flow.name}</strong><span className="workflow-count">{workflowCount(flow)}</span></div>
-    <div className="workflow-inline-meta"><span>Ultracode</span><WorkflowElapsed {...flow} running={flow.status === 'running'}/>
-      {flow.spentTokens !== undefined && <span>{flow.spentTokens.toLocaleString()} tokens</span>}</div>
+    <div className="workflow-inline-meta"><span>Ultracode</span><WorkflowElapsed {...flow} running={workflowIsActive(flow.status)}/>
+      {flow.spentTokens !== undefined && <span>{flow.spentTokens.toLocaleString()} tokens</span>}
+      {!!flow.cacheHits && <span className="workflow-cache-count">{zh ? `复用 ${flow.cacheHits} 个结果` : `${flow.cacheHits} cached ${flow.cacheHits === 1 ? 'result' : 'results'}`}</span>}</div>
     {flow.status === 'budget_exceeded' && <p className="workflow-warning">{zh ? '已达到工作流预算上限' : 'Workflow budget reached'}</p>}
+    {flow.status === 'stopping' && <p className="workflow-warning">{zh ? '编排停止中，等待子任务退出。' : 'Workflow stopping; waiting for child tasks to exit.'}</p>}
+    {flow.status === 'partial_failed' && <p className="workflow-warning">{zh ? '编排部分失败，已完成的节点结果仍保留。' : 'Workflow partially failed; completed node results are retained.'}</p>}
     {flow.status === 'unknown' && <p className="panel-empty">{zh ? '此记录未提供工作流状态。' : 'Workflow state is unavailable in this record.'}</p>}
+    {workflowIssues(flow, language) && <p className="workflow-issue-summary">{workflowIssues(flow, language)}</p>}
+    {!!flow.taskFailures?.length && <details className="workflow-callbacks">
+      <summary>{zh ? '回调错误' : 'Callback errors'} · {flow.failedCallbacks ?? flow.taskFailures.length}</summary>
+      <ol>{flow.taskFailures.map((failure, index) => <li key={index}>
+        <strong>{failure.script ? `${failure.script} · ` : ''}{failure.primitive}[{failure.index}{failure.stage === undefined ? '' : `.${failure.stage}`}]</strong>
+        <p>{failure.message || (zh ? '未提供错误详情' : 'Error details unavailable')}</p>
+      </li>)}</ol>
+      {(flow.failedCallbacks ?? 0) > flow.taskFailures.length && <p>{zh ? '仅显示前 100 条回调错误。' : 'Only the first 100 callback errors are shown.'}</p>}
+    </details>}
     {[...groups].map(([phase, agents]) => <section className="workflow-phase" key={phase}>
       {phase && <h3>{phase}</h3>}
       {agents.map(agent => <button type="button" key={agent.id} className={`workflow-agent${selected === agent.id ? ' is-selected' : ''}`}
         onClick={() => onSelect(agent)} aria-label={`${agent.label || agent.id}: ${agent.task}`}>
         <SubagentStatusIcon state={workflowIcon(agent.status)} language={language} detail={agent.status === 'unknown' ? zh ? '工作流已结束，代理最终状态未返回' : 'Workflow ended; final agent state unavailable' : agent.status === 'cached' ? zh ? '已复用缓存结果' : 'Cached result reused' : undefined}/>
-        <span className="workflow-agent-copy"><strong>{agent.label || agent.id}</strong>{agent.task && <span>{agent.task}</span>}</span>
+        <span className="workflow-agent-copy"><strong>{agent.label || agent.id}</strong>{agent.task && <span>{agent.task}</span>}
+          {agent.error && <span className="workflow-agent-issue">{agent.error.message || agent.error.code}</span>}
+          {workflowRetryText(agent, language) && <span className="workflow-retry">{workflowRetryText(agent, language)}</span>}
+        </span>
         {agent.status === 'cached' ? <span className="workflow-cached">{zh ? '缓存' : 'Cached'}</span>
           : <WorkflowElapsed {...agent} running={agent.status === 'running'}/>}
         <ChevronRight size={12}/>
       </button>)}
     </section>)}
-    {!flow.agents.length && <p className="panel-empty">{flow.status === 'running'
+    {!flow.agents.length && <p className="panel-empty">{workflowIsActive(flow.status)
       ? zh ? '等待工作流返回代理进度。' : 'Waiting for agent progress.'
       : zh ? '未找到逐代理记录，保留工作流汇总。' : 'Individual agent records are unavailable; showing the workflow summary.'}</p>}
   </div>;
@@ -87,6 +106,14 @@ export function WorkflowAgentDetail({ agent, language }: { agent: WorkflowAgent;
     <WorkflowElapsed {...agent} running={agent.status === 'running'}/></div>
     {agent.phase && <p className="workflow-detail-phase">{agent.phase}</p>}
     <p className="subagent-task">{agent.task || (zh ? '未提供任务描述' : 'Task description unavailable')}</p>
+    {agent.error && <section className="workflow-error" aria-label={zh ? '节点错误' : 'Node error'}>
+      <strong>{zh ? '失败原因' : 'Failure reason'}{agent.error.code ? ` · ${agent.error.code}` : ''}</strong>
+      <p>{agent.error.message || (zh ? '未提供错误详情' : 'Error details unavailable')}</p>
+      {agent.error.retryable !== undefined && <p className="workflow-detail-phase">{agent.error.retryable
+        ? zh ? '错误类型允许重试' : 'This error type permits retries'
+        : zh ? '此错误不自动重试' : 'This error is not retried automatically'}</p>}
+    </section>}
+    {workflowRetryText(agent, language) && <p className="workflow-retry">{workflowRetryText(agent, language)}</p>}
     {agent.usageTokens !== undefined && <p className="workflow-detail-phase">{agent.usageTokens.toLocaleString()} tokens</p>}
     {agent.status === 'cached' && <p className="workflow-detail-phase">{zh ? '本次复用了缓存结果。' : 'A cached result was reused.'}</p>}
     {agent.status === 'unknown' && <p className="workflow-detail-phase">{zh ? '工作流已结束，但此代理未返回最终状态。' : 'The workflow ended without a final state for this agent.'}</p>}

@@ -1,5 +1,37 @@
 # Verification
 
+## Cron Manual Recovery Beta (2026-10-18, Local Development)
+
+Issue #138 adds Desktop-side associations and explicit Windows project recovery
+on top of merged #137. The upstream task schema, scheduler and expiry remain
+unchanged. All six Windows patches applied together to a pristine pinned checkout
+and passed pre/post-image checks. Runtime staging with Node v24.16.0, typecheck
+and the production Desktop build passed.
+
+The native RPC suite passed twelve cases, including ordinary due delivery and
+startup missed notices blocked while recovery is gated, released only by explicit
+RPC, rejected repeated release, and Ask without rewriting shared permission
+defaults. Both management-created and live native tool-created associations were
+verified independently of the upstream task file.
+
+The real Electron management suite passed seven groups: baseline management,
+read-only offline discovery, association persistence, review/cancel with no host
+or model, changed-task consent rejection and token consumption, then one-host
+recovery into the selected saved session with Ask and unchanged defaults. All
+management/review operations made zero model calls. Dark/light/narrow screenshots,
+cubic disclosure transitions and reduced-motion behavior were checked.
+
+The serialized unit/protocol suite passed 534 cases with 13 platform skips.
+After adding the post-start loaded-task guard, the focused recovery, management
+and staging subset passed 24 cases. All 15 CI policy/runner tests passed locally.
+The post-start guard allows native time advancement/removal but rejects new or
+changed instructions before release.
+
+No installer, shortcut update or public release was produced in this phase.
+No real account, user task, trust store or active user application was changed.
+These local deterministic tests do not qualify real billing, installer upgrade,
+sleep/reboot execution, automatic startup recovery or crash exactly-once delivery.
+
 ## Cron With Latest Main Preview (2026-10-18)
 
 Local package source `891fbc4` integrates main `28cfd9e`, including Usage II and

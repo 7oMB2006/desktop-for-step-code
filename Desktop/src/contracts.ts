@@ -44,13 +44,21 @@ export interface CronHost {
   runtimeId: string; workspace: string; name: string; trusted: boolean; busy: boolean;
   model?: string; permission?: PermissionPreset;
 }
-export interface CronTask extends CronJobData { key: string; workspace: string; runtimeId?: string; hostName?: string }
+export interface CronAssociation { sessionId: string; source: 'created' | 'recovered'; at: number }
+export interface CronTask extends CronJobData { key: string; workspace: string; runtimeId?: string; hostName?: string; association?: CronAssociation }
+export interface CronRecoveryPreview {
+  token: string; expires: number; workspace: string; sessionId: string; sessionName: string;
+  jobs: { id: string; prompt: string; nextFireAt: number }[];
+  model: Pick<Model, 'id' | 'provider' | 'name'>; account: string; permission: 'ask';
+}
 export interface CronOverview { tasks: CronTask[]; hosts: CronHost[]; issues: { workspace: string; reason: 'unavailable' | 'untrusted' }[] }
 export interface CronCreateInput { runtimeId: string; cron: string; prompt: string; recurring: boolean; durable: boolean }
 export interface DesktopBridge {
   cronList(): Promise<CronOverview>;
   cronCreate(input: CronCreateInput): Promise<void>;
   cronDelete(runtimeId: string, jobId: string): Promise<void>;
+  cronRecoveryPreview(key: string, sessionId: string): Promise<CronRecoveryPreview>;
+  cronRecover(token: string): Promise<{ sessionId: string; runtimeId: string }>;
   readonly platform?: string;
   removeWorkspace(path: string): Promise<Snapshot>;
   relocateWorkspace(path: string): Promise<Snapshot | null>;

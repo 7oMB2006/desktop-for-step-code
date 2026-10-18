@@ -133,8 +133,56 @@ try {
   await page.getByRole('heading', { name: '重启后的离线任务', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '删除任务', exact: true }).isDisabled(), true);
   assert.equal(fixture.requests.length, 0);
-  assert.deepEqual(errors, []);
   results.push('relaunch discovers durable records read-only, without inventing ownership or starting a host');
+  if (process.platform === 'win32') {
+    const tasks = (await page.evaluate(() => window.desktop.cronList())).tasks;
+    assert.equal(tasks[0].association.sessionId, 'queue-demo');
+    await page.getByRole('button', { name: '恢复项目调度 Beta', exact: true }).click();
+    await page.getByRole('button', { name: '核对恢复配置', exact: true }).click();
+    await page.getByRole('button', { name: '确认恢复调度', exact: true }).waitFor();
+    assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
+    assert.equal(fixture.requests.length, 0);
+    await screenshot('recovery-dark', 1360, 1000, 'dark');
+    await screenshot('recovery-light', 1000, 1000, 'light');
+    await screenshot('recovery-narrow', 560, 1000, 'light');
+    assert.equal(await page.locator('.scheduled-recovery-disclosure').evaluate(node =>
+      getComputedStyle(node).transitionTimingFunction.includes('cubic-bezier')), true);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    assert.equal(await page.locator('.scheduled-recovery-disclosure').evaluate(node =>
+      getComputedStyle(node).transitionDuration), '0s');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.getByRole('button', { name: '取消恢复', exact: true }).click();
+    await page.getByRole('button', { name: '确认恢复调度', exact: true }).waitFor({ state: 'hidden' });
+    assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
+    results.push('Beta review/cancel retains association without starting a host or model, including responsive layouts');
+
+    const stale = await page.evaluate(key => window.desktop.cronRecoveryPreview(key, 'queue-demo'), tasks[0].key);
+    const original = await readFile(file, 'utf8');
+    await writeFile(file, original.split('\n').filter(Boolean).map(line => JSON.stringify({
+      ...JSON.parse(line), prompt: 'Changed after consent',
+    })).join('\n') + '\n');
+    await assert.rejects(page.evaluate(token => window.desktop.cronRecover(token), stale.token), /changed/i);
+    assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
+    await writeFile(file, original);
+    await assert.rejects(page.evaluate(token => window.desktop.cronRecover(token), stale.token), /expired/i);
+    results.push('Changed native task invalidates the reviewed snapshot and consumes its token');
+
+    await page.getByRole('button', { name: '恢复项目调度 Beta', exact: true }).click();
+    await page.getByRole('button', { name: '核对恢复配置', exact: true }).click();
+    await page.getByRole('button', { name: '确认恢复调度', exact: true }).click();
+    await page.getByText('调度宿主在线', { exact: true }).waitFor({ timeout: 30000 });
+    const recovered = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(recovered.runtimes.length, 1);
+    const overview = await page.evaluate(() => window.desktop.cronList());
+    assert.equal(overview.hosts[0].permission, 'ask');
+    assert.equal(overview.tasks[0].association.source, 'recovered');
+    assert.equal(overview.tasks[0].association.sessionId, 'queue-demo');
+    assert.equal(fixture.requests.length, 0);
+    assert.match(await readFile(join(profile, 'step-runtime/config.toml'), 'utf8'), /permissionPreset = "approve-for-me"/);
+    await assert.rejects(page.evaluate(key => window.desktop.cronRecoveryPreview(key, 'queue-demo'), tasks[0].key), /offline|host/i);
+    results.push('Explicit recovery starts exactly one same-project host in Ask, preserves defaults and invokes no model before due');
+  }
+  assert.deepEqual(errors, []);
   await writeFile('test-results/cron-management.json', JSON.stringify({ profile, results, modelCalls: fixture.requests.length }, null, 2));
   console.log(`Cron management Electron acceptance passed (${results.length} cases).`);
 } finally {

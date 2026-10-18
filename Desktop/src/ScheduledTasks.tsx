@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, CalendarClock, Clock3, Folder, Info, Plus, RotateCw, Search, ShieldCheck, Trash2, X } from 'lucide-react';
+import { ArrowLeft, CalendarClock, Clock3, Folder, Info, Play, Plus, RotateCw, Search, ShieldCheck, Trash2, X } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
 import { AppMenu, type AppMenuItem } from './AppMenu';
-import type { CronHost } from './contracts';
+import type { CronAssociation, CronHost, CronRecoveryPreview, Session } from './contracts';
+import { normalizedWorkspaceKey } from './workspace-key';
 import './scheduled-tasks.css';
 
 export function ScheduledTaskSelect({ label, value, options, onChange, name }: {
@@ -34,6 +35,7 @@ export interface ScheduledTaskView {
   runtimeId?: string;
   jobId?: string;
   hostName?: string;
+  association?: CronAssociation;
 }
 export interface ScheduledTaskCreation { title: string; prompt: string; workspace: string; runtimeId: string; cron: string; recurring: boolean; durable: boolean }
 
@@ -50,17 +52,24 @@ export function SidebarTaskActions({ selected, onNewSession, onScheduledTasks, d
   </div>;
 }
 
-export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], live = false, refreshing = false, issue, onRefresh }: {
+export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], sessions = [], onPrepareRecovery, onRecover,
+  live = false, refreshing = false, issue, onRefresh }: {
   jobs: ScheduledTaskView[];
   onCreate: (value: ScheduledTaskCreation) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
   hosts?: CronHost[]; live?: boolean; refreshing?: boolean; issue?: string; onRefresh?: () => void;
+  sessions?: Session[];
+  onPrepareRecovery?: (key: string, sessionId: string) => Promise<CronRecoveryPreview>;
+  onRecover?: (token: string) => Promise<void>;
 }) {
   const [query, setQuery] = useState('');
   const [project, setProject] = useState('');
   const [selected, setSelected] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [recoverySession, setRecoverySession] = useState('');
+  const [recovery, setRecovery] = useState<CronRecoveryPreview>();
   const [createWorkspace, setCreateWorkspace] = useState('');
   const [hostId, setHostId] = useState('');
   const [cron, setCron] = useState('0 9 * * *');
@@ -74,7 +83,11 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], live = fa
   const navigating = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const deleteButton = useRef<HTMLButtonElement>(null);
+  const recoveryButton = useRef<HTMLButtonElement>(null);
   const task = jobs.find(job => job.id === selected);
+  const recoveryTargets = task ? sessions.filter(session => session.path
+    && normalizedWorkspaceKey(session.cwd, 'win32') === normalizedWorkspaceKey(task.workspace, 'win32')) : [];
+  const associated = task?.association && sessions.find(session => session.id === task.association?.sessionId);
   const projects = [...new Set([...jobs.map(job => job.workspace), ...hosts.map(host => host.workspace)])];
   const selectedHost = hosts.find(host => host.runtimeId === hostId) ?? hosts[0];
   const shown = jobs.filter(job => (!project || job.workspace === project)
@@ -105,11 +118,11 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], live = fa
     pendingNavigation.current = change;
     setLeaving(true);
   };
-  const resetPage = () => { setCreating(false); setSelected(undefined); setConfirmDelete(false); };
+  const resetPage = () => { setCreating(false); setSelected(undefined); setConfirmDelete(false); setRecovering(false); setRecovery(undefined); };
   const back = () => navigate(resetPage);
   const create = () => navigate(() => setCreating(true));
   const cancelDelete = () => { setConfirmDelete(false); deleteButton.current?.focus(); };
-  const save = async (action: () => void | Promise<void>, success: () => void) => {
+  const save = async (action: () => void | Promise<void>, success: () => void, recoveryAction = false) => {
     if (savingRef.current) return;
     savingRef.current = true; setSaving(true); setFailure('');
     try {
@@ -117,7 +130,10 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], live = fa
       savingRef.current = false; setSaving(false);
       success();
     } catch {
-      setFailure('未能确认操作结果。请先刷新列表核对，避免重复创建；同时检查宿主是否空闲、项目信任及时间表达式。');
+      if (recoveryAction) {
+        setRecovery(undefined);
+        setFailure('未能确认恢复结果。请先刷新列表核对宿主状态；若配置或任务已变化、确认已过期，请重新核对，勿重复启动。');
+      } else setFailure('未能确认操作结果。请先刷新列表核对，避免重复创建；同时检查宿主是否空闲、项目信任及时间表达式。');
     } finally { savingRef.current = false; setSaving(false); }
   };
   return <section className="scheduled-tasks" aria-label="定时任务">
@@ -169,12 +185,49 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], live = fa
         <div><dt>任务类型</dt><dd>{task.recurring ? '周期' : '单次'} · {task.durable ? '持久任务' : '临时任务'}</dd></div>
         <div><dt>自动到期</dt><dd>{task.expires ?? (task.recurring ? '未提供' : '触发后移除')}</dd></div>
         {live && task.hostName && <div><dt>当前调度宿主</dt><dd>{task.hostName}</dd></div>}
+        {live && task.durable && <div><dt>关联会话 · Beta</dt><dd>{task.association
+          ? associated?.name || associated?.firstMessage.slice(0, 60) || `${task.association.sessionId.slice(0, 8)}（当前不可用）`
+          : '未记录'}</dd></div>}
       </dl>
       <section className="scheduled-instructions"><h2>任务指令</h2><p>{task.prompt}</p></section>
       <div className="scheduled-boundary"><Info size={16}/><span>{task.host === 'offline'
-        ? '当前没有存活的调度宿主。保存的任务不代表正在调度；需显式打开已信任项目的会话，启动宿主后再管理。'
-        : '应用退出或电脑休眠期间不执行。任务属于项目，未绑定原会话；到时触发不代表执行完成。'}</span></div>
-      <footer className="scheduled-detail-footer">{confirmDelete ? <div className="scheduled-delete-confirm" role="group" aria-label="确认删除任务"
+        ? '当前没有存活的调度宿主。保存的任务不代表正在调度；可手动打开项目会话，或核对配置后恢复项目调度。'
+        : '应用退出或电脑休眠期间不执行。任务由项目共享，关联会话不代表独占调度；到时触发不代表执行完成。'}</span></div>
+      {task.host === 'offline' && onPrepareRecovery && onRecover && <div id="scheduled-recovery"
+        className={`scheduled-recovery-disclosure${recovering ? ' is-open' : ''}`} aria-hidden={!recovering} inert={!recovering}>
+      <section className="scheduled-recovery" aria-label="恢复项目调度">
+      <div className="scheduled-recovery-content">
+        <h2>恢复项目调度 <small>Beta</small></h2>
+        <label>承接会话<ScheduledTaskSelect label="承接会话" value={recoverySession} options={[
+          { id: '', label: '选择同项目会话', disabled: true },
+          ...recoveryTargets.map(session => ({ id: session.id, label: session.name || session.firstMessage.slice(0, 60) || session.id.slice(0, 8) })),
+        ]} onChange={id => { setRecoverySession(id); setRecovery(undefined); }}/></label>
+        {!recoveryTargets.length && <p className="muted">暂无可用的同项目会话，请先创建并保存会话后再恢复。</p>}
+        {recovery && <><dl className="scheduled-properties">
+          <div><dt>当前账户</dt><dd>{recovery.account}</dd></div>
+          <div><dt>恢复模型</dt><dd>{recovery.model.name} · {recovery.model.provider}</dd></div>
+          <div><dt>执行权限</dt><dd>每次询问</dd></div>
+          <div><dt>承接会话</dt><dd>{recovery.sessionName}</dd></div>
+        </dl><ul>{recovery.jobs.map(job => <li key={job.id}>{job.prompt}</li>)}</ul>
+          <div className="scheduled-boundary"><Info size={16}/><span>
+            将在所选会话启动本项目全部 {recovery.jobs.length} 个持久任务，使用以上账户与模型，并将该会话权限设为“每次询问”。
+            逾期及到期任务沿用上游规则，可能投递提醒并调用模型；不重建过期任务，不保证返回创建任务时的上下文。
+          </span></div></>}
+        <footer><button type="button" onClick={() => { setRecovering(false); recoveryButton.current?.focus(); }}>取消恢复</button>
+          {recovery ? <button type="button" onClick={() => void save(() => onRecover!(recovery.token),
+            () => { setRecovery(undefined); setRecovering(false); }, true)}><Play size={15}/>确认恢复调度</button>
+            : <button type="button" disabled={!recoverySession} onClick={() => void save(async () =>
+              setRecovery(await onPrepareRecovery!(task.id, recoverySession)), () => {}, true)}><ShieldCheck size={15}/>核对恢复配置</button>}
+        </footer>
+      </div></section></div>}
+      <footer className="scheduled-detail-footer">
+        {live && task.durable && task.host === 'offline' && onPrepareRecovery && onRecover
+          && <button type="button" ref={recoveryButton} className="scheduled-recover" aria-expanded={recovering} aria-controls="scheduled-recovery" onClick={() => {
+            if (recovering) { setRecovering(false); return; }
+            setRecoverySession(recoveryTargets.some(session => session.id === task.association?.sessionId) ? task.association!.sessionId : '');
+            setRecovery(undefined); setRecovering(true);
+          }}><Play size={15}/>恢复项目调度 <small>Beta</small></button>}
+        {confirmDelete ? <div className="scheduled-delete-confirm" role="group" aria-label="确认删除任务"
         onKeyDown={event => { if (event.key === 'Escape') cancelDelete(); }}>
         <span>删除此定时任务？</span><button type="button" autoFocus onClick={cancelDelete}>保留</button>
         <button type="button" className="scheduled-danger" onClick={() => void save(() => onDelete(task.id), back)}><Trash2 size={14}/>确认删除</button>

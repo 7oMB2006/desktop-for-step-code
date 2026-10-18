@@ -60,7 +60,20 @@
 .scheduled-instructions { padding-block: 25px; border-block: 1px solid var(--border); }
 .scheduled-instructions h2 { font-size: 13px; font-weight: 550; margin-bottom: 12px; }
 .scheduled-instructions p { white-space: pre-wrap; line-height: 1.9; font-size: 13px; margin: 0; overflow-wrap: anywhere; max-width: 75ch; }
-.scheduled-detail-footer { display: flex; justify-content: flex-end; padding-top: 32px; }
+.scheduled-detail-footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; padding-top: 32px; }
+.scheduled-recover { margin-right: auto; }
+.scheduled-recover small, .scheduled-recovery h2 small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.scheduled-recovery-disclosure { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 260ms cubic-bezier(.22, 1, .36, 1), opacity 200ms cubic-bezier(.22, 1, .36, 1); }
+.scheduled-recovery-disclosure.is-open { grid-template-rows: 1fr; opacity: 1; }
+.scheduled-recovery { min-height: 0; overflow: hidden; }
+.scheduled-recovery-content { padding-top: 28px; max-width: 700px; }
+.scheduled-recovery h2 { margin: 0 0 20px; font-size: 14px; font-weight: 600; }
+.scheduled-recovery label { display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
+.scheduled-recovery .scheduled-select { width: 100%; }
+.scheduled-recovery ul { padding-left: 20px; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.scheduled-recovery li { white-space: pre-wrap; margin-block: 8px; }
+.scheduled-recovery footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.scheduled-recovery footer button { font-size: 12px; }
 .scheduled-detail-footer button { font-size: 12px; }
 .scheduled-delete { border: 0; background: transparent; color: var(--muted); transition: color 180ms cubic-bezier(.22, 1, .36, 1), background 180ms cubic-bezier(.22, 1, .36, 1); }
 .scheduled-delete:hover:not(:disabled), .scheduled-delete:focus-visible { color: var(--danger); }
@@ -88,4 +101,4 @@
   .scheduled-row-timing { flex-direction: row; flex-wrap: wrap; align-items: center; flex: 1; gap: 10px; padding-left: 31px; }
   .scheduled-properties { gap: 24px 16px; }
 }
-@media (prefers-reduced-motion: reduce) { .scheduled-page, .scheduled-page.is-leaving { animation: none; } .scheduled-select > button > svg, .scheduled-delete { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .scheduled-page, .scheduled-page.is-leaving { animation: none; } .scheduled-select > button > svg, .scheduled-delete, .scheduled-recovery-disclosure { transition: none; } }

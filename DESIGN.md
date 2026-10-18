@@ -1,5 +1,12 @@
 # Design System
 
+Scheduled-task recovery is an inline disclosure anchored to its detail-page action,
+with cubic height/opacity transitions and a reduced-motion fallback. It uses the
+shared AppMenu and DisclosureChevron for existing same-project conversations.
+The review shows the current account, model, Ask policy and full project-wide task
+prompts before activation. Association and recovery are marked Beta; an association
+is not exclusive upstream ownership, and offline records never appear as running.
+
 Active working labels and total elapsed time share one continuous purple/pink/coral/gold text gradient with slow flow and subtle cubic brightness breathing. Elapsed time is slightly quieter and retains tabular digits. Light theme preserves the exact brand palette without black mixing, outlines or shadows. Pale brand fills on white do not meet 4.5:1 text contrast; this preview prioritizes the requested palette fidelity and must not be represented as contrast-compliant. Reduced motion keeps a static gradient and forced-color mode restores system text colors. This treatment is limited to the working line and its Plan-review action, not prose, task footer controls or performance metrics.
 
 Pending model responses use a five-pixel cross whose center lights before its four arms fade outward. Context compression uses a downward matrix sequence (row-major cells 1235, 4568, 789, then 2) with cubic interpolation. Both remain in the same fixed footprint and crossfade with the other modes; reduced-motion retains a static shape. Response waiting follows request/turn start until output arrives; compression follows the runtime's compacting flag. User approval waiting still takes precedence.

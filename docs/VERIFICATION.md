@@ -1,5 +1,39 @@
 # Verification
 
+## Status With Latest Main Preview (2026-10-19)
+
+Windows preview source `4a1d7a9` integrates latest fetched main `ad39000`
+(Usage III, PR #141) with Status PR #139 and its three review fixes.
+Both Status diagnostics/tabs and Usage display-unit controls are retained.
+Frozen-lockfile installation, typecheck, production build and runtime staging
+passed. The complete serialized suite passed 542 tests with thirteen platform
+skips and no failures.
+
+The local unsigned x64 package is
+`D:\Desktop For Step Code\Desktop\release\status-main-20261019-preview`.
+It retains version 0.5.1; this is not a new public release. The runtime remains
+pinned to `b5dbed938d9ae589397cf522dcf2ff89ecf4c494` with Node 24.16.0 and the
+verified Windows patch set. Package audit matched all 105 Desktop build files
+and 1215 runtime files, plus the native terminal backend and runtime adapter.
+Installer SHA-256 is
+`62c7e79fdb76193c413d1b10d692adfcca2010f0dcf1bbc9653f17f618a86e6c`;
+its update metadata matches. Resource/source identities and checksums are
+recorded beside the installer.
+
+Seven packaged Electron acceptance scripts passed: general startup/RPC,
+Context/Status inspector (including live approval, actual Plan mode and separate
+queues), real runtime Summary, native Usage overview, Usage chart interactions,
+composer menu and composer editing. Tests use isolated profiles and local
+fixtures, not the user's live account or billing. Screenshots/logs are retained
+under the preview's `acceptance` directory.
+
+The ordinary Desktop shortcut was backed up in the preview and retargeted to
+its verified unpacked executable, with empty arguments and matching working
+directory/icon. Other shortcuts, running user processes and old packages were
+preserved. Existing running windows remain on the previous executable until
+the user exits and relaunches. Real-account acceptance, installer lifecycle
+and cloud CI for this new integration are not inferred from these local tests.
+
 ## Desktop Session Status (2026-10-18)
 
 The Status/Context inspector and standalone local `/status` command passed

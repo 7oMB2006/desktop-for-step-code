@@ -18,6 +18,13 @@ checks both editor value and controlled empty state before typing again. This
 sequence also runs on Windows and passed locally. The macOS cloud rerun remains
 required; this Windows replay does not establish the original platform's result.
 
+Run 39147045392 passed that startup check and the file-preview fixture, then
+exposed an undo-fixture ordering dependency. It modifies a file externally after
+the turn ends, but expected an already-mounted status component to notice without
+a file-watch event. The fixture now explicitly reloads before testing that
+conflict, as its later external-edit scenario already does. Production undo and
+its conflict checks are unchanged.
+
 ## Cron Manual Recovery Beta (2026-10-18, Local Development)
 
 Issue #138 adds Desktop-side associations and explicit Windows project recovery

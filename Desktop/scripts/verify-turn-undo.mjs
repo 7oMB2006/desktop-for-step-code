@@ -152,6 +152,8 @@ try {
     return page.evaluate(() => window.desktop.snapshot());
   }
   await fixtureSession();
+  // The fixture changed a file externally; remount to request fresh undo status.
+  await page.reload();
   await page.locator('.turn-changes').nth(1).waitFor({ timeout: 60000 });
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(snapshot.preferences.workspace.startsWith(join(profile, 'workspaces', 'independent')));

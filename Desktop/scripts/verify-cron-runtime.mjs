@@ -7,7 +7,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // Real staged JSONL processes; all profiles, clocks and model calls are isolated.
-const directory = await mkdtemp(join(tmpdir(), 'desktop-cron-runtime-'));
+// CI's TEMP may use an 8.3 alias; upstream's synchronous trust lookup preserves it.
+const directory = await realpath(await mkdtemp(join(tmpdir(), 'desktop-cron-runtime-')));
 await build({
   entryPoints: ['electron/session-runtimes.ts', 'electron/session-collaboration.ts', 'electron/runtime.ts', 'electron/project-trust.ts', 'electron/cron-management.ts'],
   outdir: directory, outExtension: { '.js': '.mjs' }, bundle: true, platform: 'node', format: 'esm',

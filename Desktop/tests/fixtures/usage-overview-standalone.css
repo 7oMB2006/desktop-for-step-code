@@ -1,0 +1,2 @@
+body { margin: 0; background: var(--side); }
+.app-tooltip { position: fixed; z-index: 75; max-width: min(340px, calc(100vw - 24px)); padding: 8px 11px; border-radius: 5px; background: var(--ink); color: var(--bg); font: 11px/1.6 "Segoe UI", sans-serif; pointer-events: none; }

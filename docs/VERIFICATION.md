@@ -3313,3 +3313,10 @@ All 38 shell tests passed (three Linux-only skips); patched-source hashes and
 reverse patch application were checked before fresh runtime staging. The
 Electron fixture now records bounded cancellation elapsed time for cloud
 diagnostics, retaining its no-late-write and unrelated-shell-survival checks.
+
+The following macOS run exposed a fixture ordering issue before its reload-key
+assertions: fill/clear followed immediately by typing produced two copies of the
+draft. The fixture now waits for ProseMirror's model value after both fill and
+clear, rather than treating DOM mutation completion as an editor commit. Composer
+editing acceptance repeats that sequence three times; native reload-shortcut and
+draft-retention assertions remain unchanged and still require macOS cloud proof.

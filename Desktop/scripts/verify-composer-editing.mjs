@@ -47,6 +47,14 @@ try {
     const element = document.querySelector('.composer-input');
     return element?.selectionStart === expected && element.selectionEnd === expected;
   }, expected, { timeout: 5000 });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await input.fill('Retained empty project draft');
+    await value('Retained empty project draft');
+    await input.fill('');
+    await value('');
+    await input.pressSequentially('Retained empty project draft');
+    await value('Retained empty project draft');
+  }
   const longDraft = 'Multiline \u4e2d\u6587 draft 123\n'.repeat(100) + 'end';
   for (const key of ['Backspace', 'Delete', 'Shift+Backspace', 'Control+Backspace', 'Control+Delete']) {
     console.log(`Composer select-all deletion: ${key}`);

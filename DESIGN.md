@@ -7,6 +7,27 @@ The review shows the current account, model, Ask policy and full project-wide ta
 prompts before activation. Association and recovery are marked Beta; an association
 is not exclusive upstream ownership, and offline records never appear as running.
 
+Session Status shares the existing Context inspector as a two-tab surface,
+without adding another right-rail button. Context is the first and default tab;
+the Context rail button always returns to Context. Status follows it and opens
+only through explicit tab selection or `/status`. A standalone `/status` opens Status
+locally, including during a running task or before a draft has a worker.
+It never submits a prompt, consumes launch options, creates a session or queries
+account services. Runtime model/thinking values remain separate from next-turn
+selections. Account method, region and numeric identity come from a local
+allowlisted projection of the applied Desktop credentials; custom providers do
+not inherit the official account identity. Disconnected values are explicitly
+last-known. The existing inspector sizing, dismissal and cubic motion apply.
+The primary Status view also shows runtime activity, actual Plan mode, separately
+reported Desktop/native queues and project trust. Unknown or failed diagnostics
+are not treated as false. A default-collapsed Details section shows the runtime
+version and its source, source commit, embedded Node version, sanitized HTTP(S)
+endpoint and loaded instruction paths without their contents. A source-default
+version is labeled as such rather than inferred from the pinned release.
+Diagnostics reuse the read-only summary RPC only while Status is mounted;
+late results from another session are ignored. Refresh retries failed reads.
+Details use an inert collapsed body, cubic disclosure and reduced-motion fallback.
+
 Active working labels and total elapsed time share one continuous purple/pink/coral/gold text gradient with slow flow and subtle cubic brightness breathing. Elapsed time is slightly quieter and retains tabular digits. Light theme preserves the exact brand palette without black mixing, outlines or shadows. Pale brand fills on white do not meet 4.5:1 text contrast; this preview prioritizes the requested palette fidelity and must not be represented as contrast-compliant. Reduced motion keeps a static gradient and forced-color mode restores system text colors. This treatment is limited to the working line and its Plan-review action, not prose, task footer controls or performance metrics.
 
 Pending model responses use a five-pixel cross whose center lights before its four arms fade outward. Context compression uses a downward matrix sequence (row-major cells 1235, 4568, 789, then 2) with cubic interpolation. Both remain in the same fixed footprint and crossfade with the other modes; reduced-motion retains a static shape. Response waiting follows request/turn start until output arrives; compression follows the runtime's compacting flag. User approval waiting still takes precedence.

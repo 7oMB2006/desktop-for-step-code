@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { scanDesktopUsage } from './usage-overview.mjs';
 
 // Management lives in a separate process so Step globals never enter Electron.
 const root = dirname(fileURLToPath(import.meta.url));
@@ -17,6 +18,10 @@ const safeMcp = servers => Object.fromEntries(Object.entries(servers).map(([name
 }]));
 async function dispatch(message) {
   switch (message.type) {
+    case 'usage_overview': {
+      if (!sessions || !agentDir) throw new Error('Desktop usage requires an isolated profile');
+      return scanDesktopUsage(upstream, sessions, join(agentDir, 'desktop-usage-cache'));
+    }
     case 'cron_saved': {
       if (!agentDir || typeof message.cwd !== 'string' || !message.cwd.trim()) throw new Error('Invalid Cron project');
       const trusted = new upstream.ProjectTrustStore(agentDir).get(message.cwd) === true;

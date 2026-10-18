@@ -32,9 +32,9 @@ diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-a
  	writeRawStdout,
  } from "../../core/output-guard.ts";
 +import { resumeDesktopCronRecovery } from "../../features/step-cron.ts";
+ import { getStepPlanMode } from "../../features/step-plan.ts";
  import { getStepMcpStatuses } from "../../step/mcp.ts";
- import { type Theme, theme } from "../../theme/theme.ts";
- import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+ import { STEPCODE_VERSION } from "../../step/version.ts";
 @@ -460,6 +461,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
  					skillCount: session.resourceLoader.getSkills().skills.length,
  				});

@@ -26,6 +26,9 @@ export const acceptanceGroups = {
     'verify-auth-vault.mjs',
     'verify-account-settings.mjs',
     'verify-usage-account.mjs',
+    'verify-usage-overview-real.mjs',
+    'verify-usage-chart-preview.mjs',
+    'verify-theme-cascade.mjs',
     'verify-account-allowance.mjs',
     'verify-account-balance.mjs',
     'verify-account-routing.mjs',
@@ -66,6 +69,7 @@ export const acceptanceGroups = {
     'verify-workflow-runtime.mjs',
     'verify-summary-runtime.mjs',
     'verify-usage-worker.mjs',
+    'verify-usage-overview-runtime.mjs',
     'verify-background-subagents.mjs',
     'verify-custom-providers.mjs',
     'verify-crash-log.mjs',
@@ -73,9 +77,11 @@ export const acceptanceGroups = {
   ],
 };
 
-// These scripts already existed outside PR CI. This split neither adds nor removes coverage.
+// Local-only checks are explicitly registered rather than silently skipped.
 // A new verify-*.mjs must be explicitly assigned; never silently default to local-only.
 export const localOnly = [
+  // Status RPC coverage runs in verify-summary-runtime; this is the visual fixture.
+  'verify-session-status-view.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

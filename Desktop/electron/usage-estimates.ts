@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Message, RuntimeEvent } from '../src/contracts';
+import type { UsageOverview } from '../src/usage-overview';
 import { defaultEstimateRules, estimateResponse, PRICE_VERSION,
   type EstimateContext, type EstimateRules, type EstimateSettings, type SessionEstimate, type EstimateGroup } from '../src/usage-estimates';
 
@@ -145,6 +146,47 @@ export class UsageEstimates {
     return operation;
   }
   async flush() { await this.ruleUpdates; await this.writes; }
+  async overview(result: UsageOverview): Promise<UsageOverview> {
+    await this.flush();
+    const days = new Map(result.days.map(day => [day.date, { ...day }]));
+    const seen = new Set<string>();
+    let recorded = 0, unknown = 0, limited = false;
+    let files: import('node:fs').Dirent[] = [];
+    try { files = await readdir(this.root, { withFileTypes: true }); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') limited = true; }
+    let read = 0, bytes = 0;
+    for (const file of files) {
+      if (!file.isFile() || !/^[a-f0-9]{64}\.json$/.test(file.name)) continue;
+      if (++read > 5000) { limited = true; break; }
+      try {
+        const path = join(this.root, file.name), info = await lstat(path);
+        if (info.isSymbolicLink() || info.size > 4 * 1024 * 1024 || (bytes += info.size) > 32 * 1024 * 1024) {
+          limited = true; continue;
+        }
+        const entries: unknown = JSON.parse(await readFile(path, 'utf8'));
+        if (!Array.isArray(entries)) { limited = true; continue; }
+        for (const entry of entries) {
+          if (!entry || !/^[a-f0-9]{64}$/.test(entry.id) || !Number.isFinite(entry.at)
+            || !['plan', 'api'].includes(entry.mode) || !['cn', 'global'].includes(entry.region)
+            || !validRules(entry.rules) || typeof entry.priceVersion !== 'string'
+            || (entry.amount !== undefined && (!Number.isFinite(entry.amount) || entry.amount < 0))) {
+            limited = true; continue;
+          }
+          const time = new Date(entry.at);
+          const date = `${time.getFullYear()}-${String(time.getMonth() + 1).padStart(2, '0')}-${String(time.getDate()).padStart(2, '0')}`;
+          const day = days.get(date);
+          if (!day || seen.has(entry.id)) continue;
+          seen.add(entry.id); recorded++;
+          if (entry.amount === undefined) { unknown++; continue; }
+          const field = entry.mode === 'plan' ? 'plan' : entry.region === 'cn' ? 'api' : 'usd';
+          const total = (day[field] ?? 0) + entry.amount;
+          if (!Number.isFinite(total)) { limited = true; unknown++; continue; }
+          day[field] = total;
+        }
+      } catch { limited = true; }
+    }
+    return { ...result, days: [...days.values()], estimates: { recorded, unknown, limited } };
+  }
   async remove(id: string) {
     await this.flush();
     this.sessions.delete(id);

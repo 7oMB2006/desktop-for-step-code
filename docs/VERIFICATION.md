@@ -1,5 +1,23 @@
 # Verification
 
+## Cron Recovery Latest Main Integration (2026-10-19)
+
+PR #140 integrates main `2eff623`, preserving Usage III and Status. All six
+Windows patches applied together to a new pinned-source checkout; every manifest
+post-image hash matched. The recovery patch import context and combined RPC hash
+were updated for Status, without changing the frozen macOS runtime baseline.
+Node v24.16.0 staging, frozen-lockfile installation, typecheck and production build
+passed. The serialized suite passed 555 tests with 13 platform skips; all 15
+CI-policy tests and all 12 native Cron RPC cases passed. Full Windows Electron
+acceptance and composer-editing acceptance passed.
+
+macOS run 39127296032 failed waiting for `fill('')` to clear the controlled
+ProseMirror editor; its screenshot still showed the previous draft. The startup
+fixture now clears via native select-all and Backspace editor transactions, and
+checks both editor value and controlled empty state before typing again. This
+sequence also runs on Windows and passed locally. The macOS cloud rerun remains
+required; this Windows replay does not establish the original platform's result.
+
 ## Cron Manual Recovery Beta (2026-10-18, Local Development)
 
 Issue #138 adds Desktop-side associations and explicit Windows project recovery
@@ -31,6 +49,183 @@ No installer, shortcut update or public release was produced in this phase.
 No real account, user task, trust store or active user application was changed.
 These local deterministic tests do not qualify real billing, installer upgrade,
 sleep/reboot execution, automatic startup recovery or crash exactly-once delivery.
+
+## Status With Latest Main Preview (2026-10-19)
+
+Windows preview source `4a1d7a9` integrates latest fetched main `ad39000`
+(Usage III, PR #141) with Status PR #139 and its three review fixes.
+Both Status diagnostics/tabs and Usage display-unit controls are retained.
+Frozen-lockfile installation, typecheck, production build and runtime staging
+passed. The complete serialized suite passed 542 tests with thirteen platform
+skips and no failures.
+
+The local unsigned x64 package is
+`D:\Desktop For Step Code\Desktop\release\status-main-20261019-preview`.
+It retains version 0.5.1; this is not a new public release. The runtime remains
+pinned to `b5dbed938d9ae589397cf522dcf2ff89ecf4c494` with Node 24.16.0 and the
+verified Windows patch set. Package audit matched all 105 Desktop build files
+and 1215 runtime files, plus the native terminal backend and runtime adapter.
+Installer SHA-256 is
+`62c7e79fdb76193c413d1b10d692adfcca2010f0dcf1bbc9653f17f618a86e6c`;
+its update metadata matches. Resource/source identities and checksums are
+recorded beside the installer.
+
+Seven packaged Electron acceptance scripts passed: general startup/RPC,
+Context/Status inspector (including live approval, actual Plan mode and separate
+queues), real runtime Summary, native Usage overview, Usage chart interactions,
+composer menu and composer editing. Tests use isolated profiles and local
+fixtures, not the user's live account or billing. Screenshots/logs are retained
+under the preview's `acceptance` directory.
+
+The ordinary Desktop shortcut was backed up in the preview and retargeted to
+its verified unpacked executable, with empty arguments and matching working
+directory/icon. Other shortcuts, running user processes and old packages were
+preserved. Existing running windows remain on the previous executable until
+the user exits and relaunches. Real-account acceptance, installer lifecycle
+and cloud CI for this new integration are not inferred from these local tests.
+
+## Desktop Session Status (2026-10-18)
+
+The Status/Context inspector and standalone local `/status` command passed
+typecheck, production build and the complete serialized Desktop protocol suite
+(503 passed, thirteen platform skips). The account projection tests cover all
+four official login profiles, missing credentials, unknown profiles and a
+strict field allowlist; no account service is involved.
+
+`verify-context-panel.mjs` passed with an isolated Electron profile and IPC
+fixture. Added assertions cover Status opening during a running task without
+prompt submission or account requests, next-turn model separation, tab keyboard
+navigation and draft viewing without worker creation. Existing Context checks
+remain in place. `verify-session-status-view.mjs` passed for light/dark,
+1100/375px viewports, English, reduced motion, draft, offline, custom provider
+and API views, default-collapsed details and diagnostic failure states.
+Screenshots are under `Desktop/test-results/session-status-*`.
+
+The real pinned-runtime status test and `verify-summary-runtime.mjs` passed,
+including the Electron main/preload/RPC path. Checks cover actual Plan mode,
+project trust, loaded instruction paths, sanitized endpoint, runtime-reported
+version/source and manifest-provided commit/Node identity. Opening Status makes
+no model request, changes no session messages and exposes no instruction content
+or credentials. The source build reports 0.1.0 with a fallback source; the UI
+labels that source default separately from the actual pinned commit instead of
+claiming an official v0.1.5 runtime version. Full upstream `pnpm run check`
+passed without formatter changes.
+
+These are deterministic local checks, not real-account or packaged acceptance.
+No installer or public release was produced for this change.
+
+After integrating main `f23df66` (Cron PR #137), typecheck, production build and
+the complete serialized Desktop suite passed again: 529 passed, thirteen platform
+skips, zero failures. The merged command catalog retains both local Status and
+project trust entries. All five Windows patches apply in sequence to a pristine
+pinned index, with every resulting normalized source hash matching the manifest.
+The first integration check reused the staged Status runtime. After staging the
+integrated Cron/Status runtime with Node 24.16.0, all twenty runtime-group
+acceptance scripts passed locally (the Summary check was rerun after correcting
+its frame-sampling deadline). The composer menu, Context inspector and turn undo
+checks also passed. The menu check covers a stationary pointer not overriding
+keyboard selection when search results change. Cron recycling waits for pending
+statistics reads, and multi-turn undo fixtures wait for actual turn completion.
+Summary entrance checks still require intermediate frames and cubic easing,
+but wait for a recorded settled frame rather than a fixed sleep. Fifteen CI
+policy/runner tests and typecheck passed. Cloud macOS qualification and local
+installer/real-account acceptance are not inferred from these Windows checks.
+
+The three Status review regressions are covered by the real renderer/IPC
+fixture: approval arrival, answer and expiry update the visible state without a
+snapshot refresh; fresh collaboration diagnostics override contradictory launch
+state and refresh after enter/exit Plan tools; Desktop FIFO and runtime queue
+counts remain separate, preserving unknown versus zero and hiding message
+contents. Drafts retain launch-only semantics. Typecheck, build, the complete
+529-pass suite, Context inspector, themed/narrow Status fixture and real Summary
+runtime acceptance passed again. The composer editing fixture now checks the
+controlled value after each native typed character and reports actual value,
+focus and selection on failure; its deletion/undo/redo coverage is unchanged.
+
+## Usage III Local Overview (2026-10-18, Local Development)
+
+The production main view now reads Desktop-owned session records through a
+typed preload method, `usageOverview`. Neither the renderer nor the dashboard
+receives session paths, message content, credentials or account identifiers.
+Opening or refreshing statistics makes no model or cloud-statistics request.
+The community client does not store statistics with an account in the cloud or
+synchronize them across devices; website billing records are not included.
+
+The Windows v0.1.5 runtime pin is unchanged. Its native `scanUsageOverview`
+owns bounded inventory, parsing, incremental cache and usage-lineage dedup.
+The Desktop adapter reads the matching complete private cache-v1 projection
+for provider/model/hour dimensions, mirroring native origin resolution. Every
+day must reconcile with the public native total. Missing, incompatible or
+inconsistent detail falls back to native totals marked as unclassified instead
+of fabricating a distribution. Unknown-source tokens appear only under All.
+Reasoning/skill-activity coverage warnings do not imply missing Token data.
+Cache hit rate is cache reads divided by complete input, including cache writes.
+
+Conversation counts are unique main sessions, not daily counts added together.
+Recorded child, branch, compaction and CLM tokens are included subject to the
+native coverage limits. Estimates use only Desktop's persisted request-time
+billing sidecars, deduplicate copied response identities, and keep Plan Credit,
+domestic API currency and overseas API currency separate. Missing history
+remains unavailable; the current login never reprices historical requests.
+
+Typecheck and production build passed. The serialized unit/protocol suite passed
+528 tests with 13 platform skips; all 15 CI policy/runner checks passed. Native
+fresh/cache tests cover branch-origin deduplication, children, CLM and unknown
+maintenance. Isolated-profile Electron acceptance covers actual session-file
+and billing-sidecar data through IPC, source filtering, cache-write accounting,
+chart cards, main-window navigation, retained drafts, Settings/Cron transitions,
+390px layout and unchanged session-file contents. These checks do not establish
+official billing accuracy or cloud-history coverage.
+
+The real-data Windows x64 package is
+`D:\Desktop For Step Code\Desktop\release\usage-real-local-20261018-preview`.
+Its 151483161-byte installer has SHA-256
+`0a983042b41c8fbdf142c472ae4dc51fe67a73112697fb04bed05b46f9e4166c`;
+update metadata matches. Packaged real-data and chart-card acceptance passed,
+as did 23 palette/accent cascade checks. The build reuses the previously
+verified staged v0.1.5 runtime unchanged and refreshes only the Desktop admin
+adapters; all 1203 staged upstream files were hash-compared with the prior
+package. This is a local unsigned package, not a published release.
+
+### Date Ranges and Token Display Units (2026-10-18)
+
+Trend filtering supports inclusive local-calendar start/end dates and an exact
+range total that follows the selected provider source. The shared single-button
+unit control cycles exact/K/M/B without changing persisted usage or billing.
+Context-panel totals crossfade between units over 180ms with cubic easing;
+reduced motion removes the effect. Missing totals remain unavailable.
+
+Typecheck and production build passed. The serialized suite passed 533 tests
+with 13 platform skips (546 total). Packaged real-data, chart-card/date-range,
+context-panel/unit/crossfade and 23 palette/accent checks passed. Installer
+metadata, current build assets and all 1213 staged runtime files were checked.
+The unchanged v0.1.5 runtime uses Node 24.16.0; no sample page is packaged.
+The local unsigned Windows x64 package is
+`D:\Desktop For Step Code\Desktop\release\usage-range-units-20261018-preview`.
+The 151481525-byte installer has SHA-256
+`b5abaea2f4da9be3b25154af66045e679d58e623e638de5db7d38211a016225f`.
+This does not publish a Release or establish real-provider billing accuracy.
+
+### Usage Review Follow-Up (2026-10-18)
+
+The selected UI language now reaches the overview, daily analysis, custom date
+picker, chart data cards and token-unit control, including loading, error,
+empty and partial-coverage copy and accessibility labels. Dates, months,
+weekdays and numeric formatting follow the selected locale; stored date keys,
+model identities and billing totals are unchanged.
+
+The Usage RPC now has an explicit 60-second timeout around the native scan,
+cache projection and response transport. The native scan retains its 28-second
+deadline; the global RPC default remains 30 seconds. A regression guard checks
+the separate deadlines and bounded post-scan headroom.
+
+Typecheck, production build and all 15 CI policy/runner tests passed. The
+serialized unit/protocol suite passed 535 tests with 13 platform skips.
+Native fresh/cache acceptance and isolated-profile Electron chart acceptance
+passed, including persisted English preferences, date validation, chart cards,
+source filters, display units and narrow layouts. Browser fixture checks also
+covered English empty/loading/retry/partial states. No new installer was built
+and the user's running packaged application was not changed.
 
 ## Cron With Latest Main Preview (2026-10-18)
 

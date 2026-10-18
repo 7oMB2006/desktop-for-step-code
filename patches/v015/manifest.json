@@ -1,7 +1,7 @@
 {
   "commit": "b5dbed938d9ae589397cf522dcf2ff89ecf4c494",
   "patches": {
-    "step-code-desktop.patch": "01d9dce5f49476e7edada075776e4f9e5764c479",
+    "step-code-desktop.patch": "730c8836b1adb279a4a8c9b519dc08d4beb88111",
     "step-code-desktop-plan.patch": "07dd8afa106a880114907e3028626bdc25b22810",
     "step-code-desktop-clarification.patch": "61a49cb2e8c2923c34ab9b787a2d484e7e1698f0"
   },
@@ -30,7 +30,7 @@
   "patchedSources": {
     "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",
     "packages/coding-agent/src/core/tools/bash.ts": "85c9673b7986948b34b1b9f42ef5e81518d54cff",
-    "packages/coding-agent/src/utils/shell.ts": "c83c770b750fb50a91a28bf2d8a1c2a42af5bfc4",
+    "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "d8067140df6852f5b85aba573e22c255d7da20be",
     "packages/coding-agent/src/index.ts": "96e9d4e3a6af35e2cd87df823f8dec45429b97f8",
     "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "4436313590df496a70791d7a5d41f3131dbb868b",
@@ -39,7 +39,7 @@
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
     "scripts/build-coding-agent-bundle.mjs": "d8c98c84e61705fd814349412aa72ce951d9a5a3",
     "packages/coding-agent/test/step-usage-lifecycle.test.ts": "f0fe0840c8e94073d11e41aa6b65c1caec54e07e",
-    "packages/coding-agent/test/shell-process-tree.test.ts": "0484e8ecbd678e4ba9b2f294d6ab943d68b4d27f",
+    "packages/coding-agent/test/shell-process-tree.test.ts": "bd52649d52f78493c2b4c253e5b1824fa184199b",
     "packages/coding-agent/test/subagent-exit-drain.test.ts": "f0932a44b429332a2c3f34351554c4560472124e",
     "packages/coding-agent/test/step-subagent-events.test.ts": "6c8c04b2358909b87eba18400e05821f29c528ec",
     "packages/coding-agent/test/workflow-extension.test.ts": "93749b4bfbfaac64d03e7fab1e894ddc3cd891ef",

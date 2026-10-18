@@ -201,8 +201,10 @@ try {
     }
     return exists('stop-started');
   });
+  const abortStarted = performance.now();
   await page.evaluate(() => window.desktop.command('abort'));
   const stopped = await wait(state => !state.state.isStreaming);
+  console.log(`then_run cancellation settled after ${Math.round(performance.now() - abortStarted)}ms`);
   assert.equal(await readFile(join(workspace, 'stop.txt'), 'utf8'), 'stop applied\n');
   const stoppedResult = result(stopped, 'THEN-STOP');
   assert.equal(stoppedResult?.isError, true);

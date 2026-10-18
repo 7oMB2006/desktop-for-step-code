@@ -339,7 +339,7 @@ index 188855c..069045c 100644
  			version: 1,
  			sessionId: ctx.sessionManager.getSessionId(),
 diff --git a/packages/coding-agent/src/utils/shell.ts b/packages/coding-agent/src/utils/shell.ts
-index 43b72e1..c83c770 100644
+index 43b72e1..34a10c2 100644
 --- a/packages/coding-agent/src/utils/shell.ts
 +++ b/packages/coding-agent/src/utils/shell.ts
 @@ -1,6 +1,6 @@
@@ -374,17 +374,17 @@ index 43b72e1..c83c770 100644
  		} catch {
  			// Ignore errors if taskkill fails.
  		}
-@@ -368,3 +369,94 @@ export function killProcessTree(pid: number): void {
+@@ -368,3 +369,99 @@ export function killProcessTree(pid: number): void {
  		}
  	}
  }
 +
-+function readProcessTable(executable: string, args: string[]): Promise<string> {
++function readProcessTable(executable: string, args: string[], timeout = 3000): Promise<string> {
 +	return new Promise((resolve) => {
 +		execFile(
 +			executable,
 +			args,
-+			{ encoding: "utf8", timeout: 3000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
++			{ encoding: "utf8", timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
 +			(error, stdout) => resolve(error ? "" : stdout),
 +		);
 +	});
@@ -442,12 +442,17 @@ index 43b72e1..c83c770 100644
 +				"v1.0",
 +				"powershell.exe",
 +			);
-+			const directChildren = await readProcessTable(powershell, [
-+				"-NoProfile",
-+				"-NonInteractive",
-+				"-Command",
-+				`Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${pid}' | Select-Object -ExpandProperty ProcessId`,
-+			]);
++			// A cold CIM startup can exceed three seconds on a loaded Windows host.
++			const directChildren = await readProcessTable(
++				powershell,
++				[
++					"-NoProfile",
++					"-NonInteractive",
++					"-Command",
++					`Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${pid}' | Select-Object -ExpandProperty ProcessId`,
++				],
++				10000,
++			);
 +			if (child.exitCode !== null || child.signalCode !== null) return;
 +			const seeds = [
 +				pid,
@@ -470,7 +475,7 @@ index 43b72e1..c83c770 100644
 +	}
 +}
 diff --git a/packages/coding-agent/test/shell-process-tree.test.ts b/packages/coding-agent/test/shell-process-tree.test.ts
-index c06ae89..0484e8e 100644
+index c06ae89..bd52649 100644
 --- a/packages/coding-agent/test/shell-process-tree.test.ts
 +++ b/packages/coding-agent/test/shell-process-tree.test.ts
 @@ -1,11 +1,17 @@
@@ -492,7 +497,7 @@ index c06ae89..0484e8e 100644
  
  function processStat(pid: number, parent: number, started: string): string {
  	const fields = Array<string>(22).fill("0");
-@@ -16,6 +22,96 @@ function processStat(pid: number, parent: number, started: string): string {
+@@ -16,6 +22,125 @@ function processStat(pid: number, parent: number, started: string): string {
  	return `${pid} (fixture (with parentheses)) ${fields.join(" ")}`;
  }
  
@@ -524,7 +529,10 @@ index c06ae89..0484e8e 100644
 +
 +describe("Windows shell stop lifecycle", () => {
 +	beforeEach(() => vi.clearAllMocks());
-+	afterEach(() => vi.restoreAllMocks());
++	afterEach(() => {
++		vi.useRealTimers();
++		vi.restoreAllMocks();
++	});
 +
 +	function fixture(table = "PID PPID PGID WINPID\n101 1 101 501\n102 101 101 502") {
 +		vi.spyOn(process, "platform", "get").mockReturnValue("win32");
@@ -558,6 +566,32 @@ index c06ae89..0484e8e 100644
 +		await stopShellChild(shell, { shell: "E:\\pwsh.exe", args: [] });
 +		expect(lookup).not.toHaveBeenCalled();
 +		expect(spawn).toHaveBeenCalledWith(expect.any(String), ["/F", "/T", "/PID", "500"], expect.any(Object));
++	});
++
++	it("retains MSYS ownership when a cold CIM query takes more than three seconds", async () => {
++		vi.useFakeTimers();
++		const { shell, lookup, spawn } = fixture();
++		lookup.mockImplementation((...args: unknown[]) => {
++			const options = args[2] as { timeout: number };
++			const callback = args.at(-1) as (error: Error | null, stdout: string) => void;
++			if (String(args[0]).endsWith("ps.exe")) {
++				queueMicrotask(() => callback(null, "PID PPID PGID WINPID\n101 1 101 501\n102 101 101 502"));
++			} else {
++				setTimeout(
++					() => callback(options.timeout < 4000 ? new Error("CIM timed out") : null, "501\n"),
++					Math.min(options.timeout, 4000),
++				);
++			}
++			return {} as childProcess.ChildProcess;
++		});
++		const stopping = stopShellChild(shell, { shell: "E:\\Git\\bin\\bash.exe", args: ["-c"] });
++		await vi.runAllTimersAsync();
++		await stopping;
++		expect(spawn).toHaveBeenCalledWith(
++			expect.any(String),
++			["/F", "/T", "/PID", "502", "/PID", "501", "/PID", "500"],
++			expect.any(Object),
++		);
 +	});
 +
 +	it("does not target a root PID after its child process has exited", async () => {

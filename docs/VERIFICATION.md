@@ -3301,3 +3301,15 @@ TCP-connect fix. Browser installation has its own five-minute deadline so setup
 cannot consume the full job limit. The post-upgrade cloud run is still required.
 With Playwright 1.60.0, a clean Chromium/FFmpeg/headless-shell installation into
 the isolated D: test cache completed on Node 24.16.0; Desktop typecheck passed.
+
+The subsequent cloud run passed interface, sessions and macOS acceptance, but
+runtime exposed a then_run descendant-cancellation failure. Its Windows shell
+cleanup silently discarded CIM discovery after three seconds. A cold-query
+regression reproduces missing MSYS descendants with that budget; giving only
+the CIM query a ten-second deadline passes the same test while retaining the
+three-second ps lookup and the existing ownership checks. This reproduces a
+matching failure route, not proof of the failed runner's exact CIM duration.
+All 38 shell tests passed (three Linux-only skips); patched-source hashes and
+reverse patch application were checked before fresh runtime staging. The
+Electron fixture now records bounded cancellation elapsed time for cloud
+diagnostics, retaining its no-late-write and unrelated-shell-survival checks.

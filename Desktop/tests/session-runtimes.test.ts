@@ -36,6 +36,103 @@ function fixture() {
   return { pool, transports, events, open };
 }
 
+test('native extension dialogs cannot impersonate Desktop project-trust confirmations', async () => {
+  const { pool, transports, events, open } = fixture();
+  try {
+    const worker = await open();
+    transports[0].receive({ type: 'extension_ui_request', method: 'confirm', id: 'native-confirm',
+      title: 'Native tool', projectTrust: { cwd: 'another-project' }, message: 'not a Desktop authorization' });
+    assert.equal(worker.pendingUI.get('native-confirm')?.projectTrust, undefined);
+    assert.equal(events.find(event => event.id === 'native-confirm')?.projectTrust, undefined);
+    pool.respondToRequest(worker, { id: 'native-confirm', confirmed: false });
+    assert.deepEqual(transports[0].answers, [{ id: 'native-confirm', confirmed: false }]);
+  } finally { await pool.stopAll(); }
+});
+
+for (const durable of [true, false]) {
+  test(`Cron ${durable ? 'durable' : 'session'} host survives idle and count-based recycling until native release`, async () => {
+    const { pool, transports, events, open } = fixture();
+    try {
+      const host = await open();
+      host.messages = [{ role: 'user', content: 'schedule' }];
+      host.touched = 0;
+      const notify = (jobs: any[]) => transports[0].receive({ type: 'extension_ui_request',
+        method: 'setStatus', statusKey: 'desktop-cron', statusText: JSON.stringify({ version: 1, status: 'ready', jobs }) });
+      notify([{ id: 'scheduled', recurring: true, durable, nextFireAt: 0, autoExpireAt: 1 }]);
+      for (let i = 0; i < 4; i++) {
+        const other = await open();
+        other.messages = [{ role: 'user', content: 'other' }];
+      }
+      assert.equal(pool.isBusy(host), false, 'Scheduling is not an active model turn');
+      assert.equal(pool.running, true, 'Account changes must not silently move scheduled billing');
+      await pool.assertIdle(host);
+      await assert.rejects(pool.assertIdle(host, { stopHost: true }), /Cron/);
+      await assert.rejects(pool.assertAllIdle(), /Cron/);
+      await assert.rejects(pool.refresh(host, 'node', 'step', {}), /Cron/);
+      await pool.recycle();
+      assert.equal(transports[0].stopped, false);
+      assert.equal(pool.workers.has(host.id), true);
+      assert.ok(!events.some(event => event.statusKey === 'desktop-cron'), 'Internal state is not renderer status text');
+      notify([]);
+      await pool.recycle();
+      assert.equal(transports[0].stopped, true);
+      assert.equal(pool.workers.has(host.id), false);
+    } finally { await pool.stopAll(); }
+  });
+}
+
+test('unknown Cron state keeps its host; stale transports cannot pin a replacement', async () => {
+  const transports: Transport[] = [];
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'same-session');
+    transports.push(transport);
+    return transport;
+  });
+  try {
+    const host = await pool.open('node', 'step', 'workspace', {});
+    host.messages = [{ role: 'user', content: 'history' }];
+    host.touched = 0;
+    pool.activeId = undefined;
+    transports[0].receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-cron', statusText: 'broken' });
+    await pool.recycle();
+    assert.equal(transports[0].stopped, false);
+    assert.equal(host.cron?.status, 'unavailable');
+    transports[0].receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-cron',
+      statusText: JSON.stringify({ version: 1, status: 'ready', jobs: [] }) });
+    await pool.refresh(host, 'node', 'step', {});
+    const replacement = host.rpc;
+    transports[0].receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-cron', statusText: 'broken' });
+    assert.equal(host.cron, undefined);
+    assert.equal(host.rpc, replacement);
+    const live = transports.at(-1)!;
+    live.receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-cron', statusText: 'broken' });
+    assert.equal(pool.running, true);
+    live.receive({ type: 'desktop_exit' });
+    assert.equal(host.cron, undefined, 'A crashed process has no live scheduler or temporary jobs');
+    assert.equal(pool.running, false);
+    await pool.assertAllIdle();
+  } finally { await pool.stopAll(); }
+});
+
+test('host-stop guard rechecks Cron state arriving during the idle RPC read', async () => {
+  const { pool, transports, open } = fixture();
+  try {
+    const host = await open();
+    const transport = transports[0];
+    const request = transport.request.bind(transport);
+    transport.request = async (type, args) => {
+      if (type === 'get_state') transport.receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-cron',
+        statusText: JSON.stringify({ version: 1, status: 'ready', jobs: [
+          { id: 'racing-cron', recurring: true, durable: false, nextFireAt: Date.now() + 60000 },
+        ] }) });
+      return request(type, args);
+    };
+    await assert.rejects(pool.assertIdle(host, { stopHost: true }), /Cron/);
+    assert.equal(transport.stopped, false);
+    await pool.assertIdle(host);
+  } finally { await pool.stopAll(); }
+});
+
 test('clarification has no implicit expiry and only its matching completion clears it', async () => {
   const { pool, transports, events, open } = fixture();
   const worker = await open();
@@ -316,11 +413,16 @@ test('recycling rechecks activation and pending operations after awaiting anothe
   await began;
   pool.activate(workers[2]);
   workers[1].operations++;
+  transports[0].receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-cron',
+    statusText: JSON.stringify({ version: 1, status: 'ready', jobs: [
+      { id: 'late-cron', recurring: true, durable: false, nextFireAt: Date.now() + 60000 },
+    ] }) });
   finish();
   await recycling;
   assert.equal(pool.active, workers[2]);
   assert.equal(pool.workers.has(workers[2].id), true);
   assert.equal(pool.workers.has(workers[1].id), true);
+  assert.equal(pool.workers.has(workers[0].id), true, 'Recheck a Cron pin acquired while another host was stopping');
   workers[1].operations--;
   await pool.stopAll();
 });

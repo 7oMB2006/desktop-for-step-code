@@ -50,6 +50,9 @@ export const acceptanceGroups = {
     'verify-cross-session.mjs',
   ],
   runtime: [
+    'verify-cron-runtime.mjs',
+    'verify-cron-management.mjs',
+    'verify-project-trust.mjs',
     'verify-electron.mjs',
     'verify-permission-approval.mjs',
     'verify-permission-tiers.mjs',
@@ -71,6 +74,7 @@ export const acceptanceGroups = {
 // These scripts already existed outside PR CI. This split neither adds nor removes coverage.
 // A new verify-*.mjs must be explicitly assigned; never silently default to local-only.
 export const localOnly = [
+  'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',
   'verify-composer-action.mjs',
@@ -92,6 +96,9 @@ export const platformOnly = { macos: ['verify-macos-package.mjs', 'verify-macos-
 
 // Retain the two existing per-step timeout limits; other scripts retain the job limit.
 export const acceptanceTimeouts = {
+  'verify-cron-runtime.mjs': 300_000,
+  'verify-cron-management.mjs': 300_000,
+  'verify-project-trust.mjs': 300_000,
   'verify-question-review.mjs': 300_000,
   'verify-windows-commands.mjs': 300_000,
   'verify-context-maintenance.mjs': 300_000,

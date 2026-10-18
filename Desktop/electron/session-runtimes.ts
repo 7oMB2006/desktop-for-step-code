@@ -13,6 +13,7 @@ import { activeHistory, messagesWithEntryIds, type BranchOperation } from './ses
 import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
 import { isFullAccessRisk } from '../src/full-access-risk';
 import { questionnaire } from '../src/questionnaire';
+import { cronState, hasScheduledCron, type CronState } from './cron-state';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -47,6 +48,7 @@ export interface SessionRuntime {
   touched: number;
   queued?: boolean;
   stopping?: boolean;
+  cron?: CronState;
 }
 export function firstUserText(messages: Message[]) {
   const message = messages.find(isUserMessage);
@@ -88,7 +90,7 @@ export class SessionRuntimes {
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
   get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || worker.queued
-    || worker.status === 'connected' && worker.launch?.goal?.status === 'active'); }
+    || worker.status === 'connected' && (worker.launch?.goal?.status === 'active' || hasScheduledCron(worker.cron))); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
   async preparePrompt(worker: SessionRuntime, message: string) { await this.hooks.beforePrompt?.(worker, message); }
   summaries() {
@@ -143,6 +145,7 @@ export class SessionRuntimes {
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), fullAccessCancellationRevision: 0, failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
     };
     worker.status = 'connecting';
+    worker.cron = undefined;
     // A transport-local Full Access grant must not survive process replacement.
     if (existing?.permissionPreset === 'full-access') worker.permissionPreset = undefined;
     worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false };
@@ -201,11 +204,24 @@ export class SessionRuntimes {
       if (event.type === 'message_end' && event.message?.stopReason === 'error') worker.failed = true;
       if (event.type === 'desktop_exit') {
         worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
+        worker.cron = undefined;
         this.hooks.dispose?.(worker);
         if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
         for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
       }
       if (event.type === 'extension_ui_request') {
+        // Only Desktop's explicit confirmation can carry project-trust UI metadata.
+        if ('projectTrust' in event) {
+          const { projectTrust: _projectTrust, ...nativeEvent } = event;
+          event = nativeEvent;
+        }
+        if (event.method === 'setStatus' && event.statusKey === 'desktop-cron') {
+          // A malformed or newer snapshot must not silently release a live host.
+          worker.cron = cronState(event.statusText) ?? { version: 1, status: 'unavailable', jobs: worker.cron?.jobs ?? [] };
+          this.publish();
+          this.emit({ type: 'desktop_cron_changed', runtimeId: worker.id });
+          return;
+        }
         const ultra = ultracodeNotification({ method: event.method, message: event.message, statusKey: event.statusKey, statusText: event.statusText });
         if (ultra !== undefined) {
           worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: ultra };
@@ -400,12 +416,17 @@ export class SessionRuntimes {
     this.launchReads.set(worker, read);
     return read;
   }
-  async assertIdle(worker: SessionRuntime) {
+  async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean } = {}) {
+    const assertCron = () => {
+      if (options.stopHost && hasScheduledCron(worker.cron)) throw new Error('Delete scheduled Cron jobs before restarting or changing this runtime; Cron state must be available');
+    };
+    assertCron();
     if (worker.launch?.goal?.status === 'active') throw new Error('Pause the active goal first');
     if (worker.queued) throw new Error('Send or withdraw the pending messages first');
     if (this.isBusy(worker)) throw new Error('Stop this session task first');
     if (worker.status === 'connected') {
       const state = await worker.rpc.request('get_state');
+      assertCron();
       if (state.isStreaming || state.isCompacting || state.pendingMessageCount) throw new Error('Stop this session task first');
     }
   }
@@ -456,11 +477,11 @@ export class SessionRuntimes {
   async assertAllIdle() {
     for (const worker of this.workers.values()) {
       if (worker.mutating) throw new Error('Session operation in progress');
-      await this.assertIdle(worker);
+      await this.assertIdle(worker, { stopHost: true });
     }
   }
   async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv) {
-    await this.assertIdle(worker);
+    await this.assertIdle(worker, { stopHost: true });
     if (worker.operations || worker.mutating || worker.stopping) throw new Error('Session operation in progress');
     const sessionFile = worker.state?.sessionFile && existsSync(worker.state.sessionFile) ? worker.state.sessionFile : undefined;
     const sessionId = worker.state?.sessionId;
@@ -494,6 +515,7 @@ export class SessionRuntimes {
     // Keep history and navigation identities, but expose no usable mixed-config transport.
     for (const worker of workers) {
       worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
+      worker.cron = undefined;
       worker.failed = true;
       if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
       this.workers.set(worker.id, worker);
@@ -511,7 +533,7 @@ export class SessionRuntimes {
     clearTimeout(worker.uiTimers.get(id));
     worker.uiTimers.delete(id); worker.pendingUI.delete(id);
   }
-  confirm(worker: SessionRuntime, title: string, message: string, signal?: AbortSignal): Promise<boolean> {
+  confirm(worker: SessionRuntime, title: string, message: string, signal?: AbortSignal, projectTrust?: UIRequest['projectTrust']): Promise<boolean> {
     if (signal?.aborted || this.workers.get(worker.id) !== worker) return Promise.resolve(false);
     const id = randomUUID();
     return new Promise(resolve => {
@@ -521,7 +543,8 @@ export class SessionRuntimes {
         this.publish();
       };
       this.confirmations.set(id, { worker, resolve: approved => { signal?.removeEventListener('abort', cancel); resolve(approved); } });
-      const request: UIRequest = { type: 'extension_ui_request', method: 'confirm', id, runtimeId: worker.id, title, message, messageStyle: 'preformatted', timeout: 120000 };
+      const request: UIRequest = { type: 'extension_ui_request', method: 'confirm', id, runtimeId: worker.id, title, message, messageStyle: 'preformatted', timeout: 120000,
+        ...(projectTrust ? { projectTrust } : {}) };
       worker.pendingUI.set(id, request);
       worker.uiTimers.set(id, setTimeout(cancel, 120000).unref());
       signal?.addEventListener('abort', cancel, { once: true });
@@ -557,6 +580,7 @@ export class SessionRuntimes {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
       worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
       worker.launch?.goal?.status !== 'active' &&
+      !hasScheduledCron(worker.cron) &&
       !worker.operations && !worker.mutating && !worker.pendingModel && !worker.queued && worker.messages.length > 0;
     const idle = [...this.workers.values()].filter(recyclable);
     idle.sort((a, b) => b.touched - a.touched);

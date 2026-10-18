@@ -5,11 +5,15 @@ const coreCommands: ComposerCommand[] = [
   { name: 'clm', source: 'core', description: 'Inspect working context; on, off, diff or reset' },
   { name: 'clm-compact', source: 'core', description: 'Organize working context with optional retention instructions' },
 ];
+const localCommands: ComposerCommand[] = [
+  { name: 'trust', source: 'desktop', description: 'Approve project trust for future runtime launches' },
+];
 
 export function desktopCommands(commands: ComposerCommand[]): ComposerCommand[] {
-  const names = new Set(coreCommands.map(command => command.name));
+  const names = new Set([...coreCommands, ...localCommands].map(command => command.name));
   return [
     ...commands.filter(command => !command.name.startsWith('_desktop_') && !names.has(command.name)),
     ...coreCommands.map(command => ({ ...command })),
+    ...localCommands.map(command => ({ ...command })),
   ];
 }

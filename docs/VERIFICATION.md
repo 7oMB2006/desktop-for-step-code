@@ -1,5 +1,65 @@
 # Verification
 
+## Cron Host Lifecycle And Explicit Trust (2026-10-18, Local Development)
+
+Issue #134 starts with a Desktop-only scheduling observer on the existing
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` pin, not a pin upgrade.
+The separate Cron patch preserves native storage, project sharing, delivery,
+jitter and expiry. Main-process snapshots contain scheduling metadata only.
+Resident hosts with jobs or unavailable state are excluded from idle/count
+recycling. Native consumption, deletion and expiry release that protection.
+Account/configuration replacement and explicit host-stopping operations reject
+scheduled work rather than silently discarding session jobs or changing billing.
+Ordinary idle chat and compaction are not blocked just by scheduled jobs.
+
+Frozen-lockfile installation, typecheck, runtime staging and the production
+Desktop build passed. The serialized unit/protocol suite passed 487 tests with
+13 platform-specific skips and no failures. All 13 CI policy/runner tests passed.
+The integration patches reverse-check against the isolated pinned source.
+
+The new `verify-cron-runtime.mjs` is registered in the Windows runtime CI group.
+Ten real staged JSONL RPC/session-pool cases passed: native management without
+model calls or trust bypass, temporary and durable
+host retention followed by one-shot delivery/release, native deletion,
+explicit saved-session reopen, seven-day expiry, storage-lock failure/recovery,
+untrusted durable-create rejection despite Full Access, and explicit native
+trust save with restart-gated durable creation. These use isolated
+profiles, controlled child clocks and a loopback-only deterministic model.
+Unchanged snapshots do not flood RPC, and scheduler JSON never reaches renderer
+events. Electron concurrency, account-routing and permission-tier regressions
+also passed with their isolated fixtures.
+
+The explicit `/trust` entry uses the existing approval drawer with persistent
+scope wording, cancel and review-later actions. Only a confirmed request calls
+the native ProjectTrustStore in the Desktop profile. It does not invoke a model,
+enable Full Access, hot-load project resources or implicitly restart hosts.
+Its new Windows CI acceptance exercises the actual Electron composer, IPC and
+admin process, including native trust persistence and zero model calls.
+Dark/light, minimum-width and expanded screenshots were inspected. Unit tests
+also reject changed directory junctions and stale runtime approvals; expired,
+cancelled and disconnected approvals do not save a trust decision.
+The entry intentionally exposes only the native trust-current-folder subset,
+not parent-folder, session-only or revocation choices.
+
+The basic management UI now uses the narrow preload bridge and native tools,
+not a separate scheduler. `verify-cron-management.mjs` is registered in Windows
+runtime CI; its four real Electron cases cover no implicit host creation, native
+durable creation without chat mutation, detail/delete/cancel, and read-only
+offline discovery after relaunch. Management invokes no model. Dark/light and
+narrow screenshots were inspected. Eight management unit cases cover bounded
+projection, project deduplication, offline records, mutation locks and no retries
+after ambiguous failures. The current serialized unit/protocol suite passes
+495 tests with 13 platform skips. All five patches apply together to pristine
+pinned source. The layout-only fixture remains a mock preview, separate from
+these real-bridge checks.
+
+No installer or public release was produced. No real account, user task or
+trust store was changed. This does not establish sleep/reboot recovery, original
+chat ownership, crash exactly-once delivery or real billing. Pause/edit,
+auto-recovery and a persistent execution ledger remain unimplemented; the
+overall TODO stays unchecked pending packaged acceptance.
+See [Cron scope and remaining phases](CRON.md).
+
 ## v0.5.1 Targeted Candidate (2026-10-17)
 
 Usage PR #129 is merged. The release-preparation candidate was built from

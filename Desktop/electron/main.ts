@@ -13,6 +13,8 @@ import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch
 import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
+import { isProjectTrustInput, trustProject } from './project-trust';
+import { CronManagement } from './cron-management';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
@@ -297,6 +299,8 @@ const pendingMessages = new PendingMessages(worker => {
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
   (worker, message) => runtimes.preparePrompt(worker, message));
 const launchControls = new LaunchControls(runtimes);
+const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
+  () => emit({ type: 'desktop_cron_changed' }));
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
   (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
 setInterval(() => { if (!transition) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error)); }, 60000).unref();
@@ -552,6 +556,15 @@ async function handle(method: string, args: any[]) {
   if (updateInstalling && !['updateState', 'snapshot', 'systemTheme'].includes(method)) throw new Error('Update installation in progress');
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
+    case 'cronList': {
+      if (transition || settingsMutation || providerSettingsPending) throw new Error('Wait for account and workspace changes to finish');
+      return cronManagement.list(preferences.workspaces);
+    }
+    case 'cronCreate':
+    case 'cronDelete': {
+      if (transition || settingsMutation || providerSettingsPending || undoBusy) throw new Error('Wait for account and workspace changes to finish');
+      return method === 'cronCreate' ? cronManagement.create(args[0]) : cronManagement.delete(args[0], args[1]);
+    }
     case 'updateState': return { ...updates.snapshot(), transfer: installer.snapshot() };
     case 'checkUpdates': await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
     case 'openUpdate': return shell.openExternal(updates.openTarget(args[0]));
@@ -893,7 +906,7 @@ async function handle(method: string, args: any[]) {
       try {
         for (const worker of peers()) {
           if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
-          await runtimes.assertIdle(worker);
+          await runtimes.assertIdle(worker, { stopHost: true });
         }
         const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
         if (result.canceled) return null;
@@ -906,7 +919,7 @@ async function handle(method: string, args: any[]) {
           pathKey(preferences.workspace) === pathKey(path);
         for (const worker of peers()) {
           if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
-          await runtimes.assertIdle(worker);
+          await runtimes.assertIdle(worker, { stopHost: true });
         }
         const previous = preferences;
         preferences = next;
@@ -941,9 +954,10 @@ async function handle(method: string, args: any[]) {
       if (transition) throw new Error('Workspace operation in progress');
       const worker = runtimes.active;
       if (!worker) return snapshot();
+      if (worker.mutating || worker.operations || worker.stopping) throw new Error('Session operation in progress');
       const { cwd, state } = worker;
       transition = true;
-      try { await runtimes.assertIdle(worker); await runtimes.remove(worker); }
+      try { await runtimes.assertIdle(worker, { stopHost: true }); await runtimes.remove(worker); }
       finally { transition = false; }
       return connect(cwd, state?.sessionFile && existsSync(state.sessionFile) ? state.sessionFile : undefined, false);
     }
@@ -1074,7 +1088,7 @@ async function handle(method: string, args: any[]) {
         }
         for (const target of targets) {
           const worker = locked.find(worker => worker.state?.sessionId === target.id);
-          if (worker) await runtimes.assertIdle(worker);
+          if (worker) await runtimes.assertIdle(worker, { stopHost: true });
           await managedSessionFile(join(dataRoot, 'sessions'), target.path);
         }
         archivedDeletionTargets(args[0], await listSessions(), preferences.archivedSessionIds ?? []);
@@ -1110,10 +1124,10 @@ async function handle(method: string, args: any[]) {
       if (!target) throw new Error('Unknown session');
       if (target.id === runtimes.active?.state?.sessionId) throw new Error('Open a different session before deleting this one');
       const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
-      if (worker) await runtimes.assertIdle(worker);
+      if (worker) await runtimes.assertIdle(worker, { stopHost: true });
       const response = await dialog.showMessageBox(window, { type: 'question', message: preferences.language === 'zh' ? '将此会话移到回收站？' : 'Move this session to the Recycle Bin?', buttons: ['Cancel', 'Move to Recycle Bin'], defaultId: 0, cancelId: 0 });
       if (response.response !== 1) return false;
-      if (worker) await runtimes.remove(worker);
+      if (worker) { await runtimes.assertIdle(worker, { stopHost: true }); await runtimes.remove(worker); }
       if (target.path) await shell.trashItem(target.path);
       await workflowBindings.remove(target.id);
       return true;
@@ -1156,6 +1170,15 @@ async function handle(method: string, args: any[]) {
       if (worker.stopping && ['prompt', 'queue_steer', 'queue_steer_first', 'abort'].includes(type))
         throw new Error('Wait for this session to stop');
       if (worker.mutating && !['abort', 'extension_ui_response', 'get_commands', 'get_available_thinking_levels', 'get_session_stats'].includes(type)) throw new Error('Session operation in progress');
+      if (type === 'prompt' && isProjectTrustInput(data)) {
+        const result = await trustProject(runtimes, worker, cwd => admin.request('trust_project', { cwd }), preferences.language);
+        if (result.saved) emit({ type: 'extension_ui_request', method: 'notify', notifyType: 'info',
+          runtimeId: worker.id, sessionId: worker.state?.sessionId,
+          message: preferences.language === 'zh'
+            ? '项目信任已保存。重启运行时后生效；当前及其他已打开会话未自动重启。'
+            : 'Project trust saved. Restart the runtime to apply; existing sessions were not restarted.' });
+        return result;
+      }
       const mutating = ['set_permission_preset', 'set_launch_mode', 'goal_action', 'disable_standing_ultracode', 'compact', 'queue_recover'].includes(type);
       if (mutating) worker.mutating = true;
       const wasStreaming = promptNeedsQueue(worker);

@@ -1,0 +1,91 @@
+.sidebar-task-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 17px; flex-shrink: 0; }
+.sidebar-task-actions > button { min-width: 0; height: 35px; padding: 5px 7px; gap: 6px; font-size: 12px; white-space: nowrap; }
+.sidebar-task-actions > button[aria-current=page] { background: var(--surface); border-color: var(--muted); }
+.scheduled-tasks { width: 100%; max-width: 1080px; margin-inline: auto; padding: 36px 40px; overflow-y: auto; min-height: 0; flex: 1; }
+.scheduled-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 30px; }
+.scheduled-heading-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.scheduled-heading h1 { margin: 0; font-size: 22px; font-weight: 600; overflow-wrap: anywhere; outline: none; }
+.scheduled-heading > button { flex-shrink: 0; font-size: 12px; }
+.scheduled-heading-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.scheduled-heading-actions > button { font-size: 12px; }
+.scheduled-failure { font-size: 12px; color: var(--danger); padding-bottom: 16px; line-height: 1.8; }
+.scheduled-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 20px; }
+.scheduled-presets > button { font-size: 11px; min-height: 28px; padding: 4px 8px; }
+.scheduled-editor .scheduled-boundary { margin: 0 0 20px; overflow-wrap: anywhere; }
+.app > main[hidden], .app > nav[hidden] { display: none; }
+.scheduled-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.scheduled-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.scheduled-toolbar > span { flex-shrink: 0; font-size: 11px; color: var(--muted); }
+.scheduled-filters { display: flex; gap: 10px; min-width: 0; align-items: center; }
+.scheduled-select { position: relative; display: inline-flex; min-width: 0; }
+.scheduled-select > button { width: 100%; min-width: 0; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 400; text-align: left; }
+.scheduled-select > button > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scheduled-select > button > svg { color: var(--muted); transition: transform 180ms cubic-bezier(.22, 1, .36, 1); }
+.scheduled-select > button[aria-expanded=true] > svg { transform: rotate(180deg); }
+.scheduled-filters .scheduled-select { max-width: 190px; }
+.scheduled-filters .scheduled-select > button { font-size: 12px; padding: 7px 8px; height: 34px; }
+.scheduled-search { display: flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid var(--border); border-radius: 5px; margin: 0; min-width: 0; color: var(--muted); width: 210px; height: 34px; }
+.scheduled-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.scheduled-search input { width: 100%; padding: 0; height: 30px; border: 0; background: transparent; font-size: 12px; outline: none; }
+.scheduled-search input:focus-visible { outline: none; }
+.scheduled-search .icon-button { width: 20px; height: 25px; min-height: 25px; }
+.scheduled-row { display: flex; align-items: center; gap: 16px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; padding: 22px 4px; }
+.scheduled-row-icon { color: var(--muted); align-self: flex-start; padding-top: 2px; }
+.scheduled-row-content { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 8px; }
+.scheduled-row strong { font-size: 14px; font-weight: 550; overflow-wrap: anywhere; }
+.scheduled-row-prompt { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.scheduled-row-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 11px; color: var(--muted); }
+.scheduled-row-meta > span { display: inline-flex; align-items: center; gap: 5px; overflow-wrap: anywhere; }
+.scheduled-row-timing { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.scheduled-next { display: flex; align-items: baseline; justify-content: flex-end; flex-wrap: wrap; gap: 4px 7px; max-width: 180px; }
+.scheduled-time-label { color: var(--muted); font-size: 11px; }
+.scheduled-next-time, .scheduled-row .scheduled-next-time { color: var(--ink); font-size: inherit; font-weight: 600; font-variant-numeric: tabular-nums; }
+.scheduled-row-timing small { font-size: 11px; }
+.scheduled-row-chevron { color: var(--muted); display: flex; flex-shrink: 0; transform: rotate(-90deg); }
+.scheduled-host { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
+.scheduled-host i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+.scheduled-host.online i { background: var(--green, #318763) !important; }
+.scheduled-host.online { background: transparent !important; }
+.scheduled-host.offline { color: var(--muted); }
+.scheduled-boundary { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 11px; line-height: 1.8; margin-top: 22px; }
+.scheduled-boundary svg { margin-top: 2px; }
+.scheduled-empty { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--muted); }
+.scheduled-empty h2 { font-size: 14px; font-weight: 500; margin: 0; }
+.scheduled-empty button { font-size: 12px; }
+.scheduled-detail-meta { display: flex; flex-wrap: wrap; gap: 20px; color: var(--muted); font-size: 12px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+.scheduled-detail-meta > span { display: inline-flex; align-items: center; gap: 7px; overflow-wrap: anywhere; }
+.scheduled-properties { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px 32px; margin: 28px 0 32px; }
+.scheduled-properties dt { color: var(--muted); font-size: 12px; margin-bottom: 9px; }
+.scheduled-properties dd { font-size: 13px; margin: 0; overflow-wrap: anywhere; }
+.scheduled-instructions { padding-block: 25px; border-block: 1px solid var(--border); }
+.scheduled-instructions h2 { font-size: 13px; font-weight: 550; margin-bottom: 12px; }
+.scheduled-instructions p { white-space: pre-wrap; line-height: 1.9; font-size: 13px; margin: 0; overflow-wrap: anywhere; max-width: 75ch; }
+.scheduled-detail-footer { display: flex; justify-content: flex-end; padding-top: 32px; }
+.scheduled-detail-footer button { font-size: 12px; }
+.scheduled-delete { border: 0; background: transparent; color: var(--muted); transition: color 180ms cubic-bezier(.22, 1, .36, 1), background 180ms cubic-bezier(.22, 1, .36, 1); }
+.scheduled-delete:hover:not(:disabled), .scheduled-delete:focus-visible { color: var(--danger); }
+.scheduled-danger { color: var(--danger, #b32936); }
+.scheduled-delete-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+.scheduled-editor { max-width: 640px; }
+.scheduled-editor input, .scheduled-editor textarea, .scheduled-editor select { font-size: 13px; }
+.scheduled-editor textarea { min-height: 130px; }
+.scheduled-editor footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 26px; }
+.scheduled-editor footer button { font-size: 12px; }
+.scheduled-page { animation: scheduled-enter 200ms cubic-bezier(.22, 1, .36, 1); }
+.scheduled-page.is-leaving { animation: scheduled-exit 120ms cubic-bezier(.22, 1, .36, 1) forwards; }
+@keyframes scheduled-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes scheduled-exit { from { opacity: 1; } to { opacity: 0; } }
+@media (max-width: 1000px) { .scheduled-tasks { padding: 28px 24px; } .scheduled-toolbar { flex-wrap: wrap; gap: 12px; } }
+@media (max-width: 600px) {
+  .scheduled-tasks { padding: 24px 16px; }
+  .scheduled-heading { margin-bottom: 24px; }
+  .scheduled-heading h1 { font-size: 19px; }
+  .scheduled-filters { width: 100%; }
+  .scheduled-search { flex: 1; width: auto; }
+  .scheduled-filters .scheduled-select { max-width: 140px; }
+  .scheduled-row { flex-wrap: wrap; gap: 12px; padding-block: 18px; }
+  .scheduled-row-content { flex-basis: calc(100% - 40px); }
+  .scheduled-row-timing { flex-direction: row; flex-wrap: wrap; align-items: center; flex: 1; gap: 10px; padding-left: 31px; }
+  .scheduled-properties { gap: 24px 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .scheduled-page, .scheduled-page.is-leaving { animation: none; } .scheduled-select > button > svg, .scheduled-delete { transition: none; } }

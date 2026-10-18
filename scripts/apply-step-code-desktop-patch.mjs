@@ -64,5 +64,12 @@ if (gitBlobHash(clarificationPatch) !== "7e876da1dc885e18cae0923102d4189ccc444e8
 if (gitBlobHash(await readFile(path.join(upstreamDir, "packages/coding-agent/src/features/step-questionnaire.ts"))) !== "7301fc9a497581e9e4a88f880c4da12cdc74f8e0")
 	throw new Error("Unexpected pinned clarification source");
 const combined = Buffer.concat([patchBytes, planPatch, clarificationPatch]);
-execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], { ...applyOptions, input: combined });
-execFileSync("git", ["-C", upstreamDir, "apply", "-"], { ...applyOptions, input: combined });
+const cronPatch = Buffer.from((await readFile(path.join(path.dirname(resolvedPatchPath), "step-code-desktop-cron.patch"), "utf8")).replace(/\r\n/g, "\n"));
+if (gitBlobHash(cronPatch) !== "647de75f3a7ef7d4e5b5bdc4ffe8b73955609fff") throw new Error("Unexpected Desktop Cron observer patch");
+if (gitBlobHash(await readFile(path.join(upstreamDir, "packages/coding-agent/src/features/step-cron.ts"))) !== "6f881338a5d4ac34a416706a1e72b1f6e181cff3")
+	throw new Error("Unexpected pinned Cron source");
+const cronManagementPatch = Buffer.from((await readFile(path.join(path.dirname(resolvedPatchPath), "step-code-desktop-cron-management.patch"), "utf8")).replace(/\r\n/g, "\n"));
+if (gitBlobHash(cronManagementPatch) !== "1f228c5b065b2376170e3bca6ea9c8943e5f5dbc") throw new Error("Unexpected Desktop Cron management patch");
+const allPatches = Buffer.concat([combined, cronPatch, cronManagementPatch]);
+execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], { ...applyOptions, input: allPatches });
+execFileSync("git", ["-C", upstreamDir, "apply", "-"], { ...applyOptions, input: allPatches });

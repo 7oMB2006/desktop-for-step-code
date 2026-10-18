@@ -1,0 +1,54 @@
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index 6066759..e6a791e 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -460,6 +460,37 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+ 					skillCount: session.resourceLoader.getSkills().skills.length,
+ 				});
+ 			}
++			case "desktop_cron": {
++				if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is disabled");
++				if (!["list", "create", "delete"].includes(command.action)) throw new Error("Invalid Cron action");
++				if (command.action !== "list" && (session.isStreaming || session.isCompacting || session.pendingMessageCount)) {
++					throw new Error("Wait for this session to become idle");
++				}
++				const runner = session.extensionRunner;
++				const ctx = runner.createContext();
++				const list = runner.getToolDefinition("cron_list");
++				const tool = runner.getToolDefinition(`cron_${command.action}`);
++				if (!list || !tool) throw new Error("Cron tools are unavailable");
++				let result: unknown;
++				if (command.action !== "list") {
++					if (command.action === "create" && (typeof command.cron !== "string" || command.cron.length > 100
++						|| typeof command.prompt !== "string" || !command.prompt.trim() || command.prompt.length > 4000
++						|| typeof command.recurring !== "boolean" || typeof command.durable !== "boolean")) {
++						throw new Error("Invalid Cron creation parameters");
++					}
++					if (command.action === "delete" && (typeof command.jobId !== "string" || !/^[\w-]{1,24}$/.test(command.jobId))) {
++						throw new Error("Invalid Cron job id");
++					}
++					const params = command.action === "create"
++						? { cron: command.cron, prompt: command.prompt, recurring: command.recurring, durable: command.durable }
++						: { id: command.jobId };
++					result = (await tool.execute(crypto.randomUUID(), params, new AbortController().signal, undefined, ctx)).details;
++				}
++				// Do not turn a committed mutation into a failure because a later list read failed.
++				const jobs = command.action === "list"
++					? (await list.execute(crypto.randomUUID(), {}, new AbortController().signal, undefined, ctx)).details : [];
++				return success(id, "desktop_cron", { jobs, result, trusted: ctx.isProjectTrusted() });
++			}
+ 			case "get_state": {
+ 				const state: RpcSessionState = {
+ 					model: session.model,
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 4e897e0..ea782ad 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -29,6 +29,7 @@ export type RpcCommand =
+ 	// State
+ 	| { id?: string; type: "get_state" }
+ 	| { id?: string; type: "get_desktop_summary" }
++	| { id?: string; type: "desktop_cron"; action: "list" | "create" | "delete"; cron?: string; prompt?: string; recurring?: boolean; durable?: boolean; jobId?: string }
+ 
+ 	// Model
+ 	| { id?: string; type: "set_model"; provider: string; modelId: string }

@@ -115,6 +115,7 @@ export interface DesktopBridge {
   accountAllowance(refresh?: boolean): Promise<import('./account-allowance').AccountAllowance>;
   cancelAccountAllowance(): Promise<void>;
   estimateSettings(): Promise<import('./usage-estimates').EstimateSettings>;
+  usageOverview(): Promise<import('./usage-overview').UsageOverview>;
   setEstimateRules(rules: import('./usage-estimates').EstimateRules, accountRef: string): Promise<import('./usage-estimates').EstimateSettings>;
   saveProvider(provider: CustomProvider, key?: string): Promise<Snapshot>;
   discoverProviderModels(provider: CustomProvider, key?: string): Promise<DiscoveredProviderModel[]>;

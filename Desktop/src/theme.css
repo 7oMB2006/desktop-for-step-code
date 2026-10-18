@@ -7,7 +7,8 @@
 @property --primary { syntax: "<color>"; inherits: true; initial-value: #a3214a; }
 @property --on-primary { syntax: "<color>"; inherits: true; initial-value: #fff; }
 @property --code-bg { syntax: "<color>"; inherits: true; initial-value: #f5f5f5; }
-:root {
+/* Resolved palettes must outrank base defaults regardless of CSS chunk order. */
+:root, :root[data-palette] {
   --bg: var(--theme-light-bg, #fff);
   --side: var(--theme-light-side, #f5f5f5);
   --surface: var(--theme-light-surface, #eee);
@@ -18,7 +19,7 @@
   --on-primary: var(--theme-light-on-primary, #fff);
   --code-bg: var(--theme-light-code-bg, var(--side));
 }
-:root[data-theme=dark] {
+:root[data-theme=dark], :root[data-palette][data-theme=dark] {
   --bg: var(--theme-dark-bg, #141414);
   --side: var(--theme-dark-side, #0d0d0d);
   --surface: var(--theme-dark-surface, #1f1f1f);

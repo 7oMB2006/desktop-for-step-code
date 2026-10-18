@@ -1,4 +1,6 @@
 import { normalizedWorkspaceKey } from './workspace-key';
+import { UsageOverviewPanel } from './UsageOverviewPanel';
+import { BarChart3 } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -172,6 +174,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [tab, setTab] = useState('account');
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
@@ -323,14 +326,14 @@ function App() {
   }, [navigationTarget?.session.id]);
   useLayoutEffect(followLayout, [navigationTarget, followLayout]);
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
-  const visibleRightPanel = scheduledOpen ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+  const visibleRightPanel = usageOpen || scheduledOpen ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = expandedRightPanel === visibleRightPanel && !details &&
     (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent');
   useEffect(() => {
-    if (expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
-  }, [expandedRightPanel, visibleRightPanel, details]);
+    if (!usageOpen && expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
+  }, [expandedRightPanel, visibleRightPanel, details, usageOpen]);
   useLayoutEffect(() => {
     const app = appLayout.current;
     if (!app) return;
@@ -463,6 +466,7 @@ function App() {
     if (succeeded) void run(refresh);
   };
   const navigateSession = async (session: Session) => {
+    setUsageOpen(false);
     setScheduledOpen(false);
     if (!bridge || switching.current && !navigationPending.current) return;
     if (!navigationPending.current && session.id === view.current.sessionId) return;
@@ -777,6 +781,12 @@ function App() {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) finishSettingsClose();
     else setSettingsClosing(true);
   };
+  const openUsage = () => {
+    finishSettingsClose();
+    setScheduledOpen(false);
+    setUsageOpen(true);
+    setCompactSidebarOpen(false);
+  };
   useEffect(() => {
     if (!settingsClosing) return;
     // Keep dismissal reliable if an animation is cancelled or motion preferences change.
@@ -1076,12 +1086,13 @@ function App() {
   const toggleWorkspace = (key: string) => { void run(() => setWorkspaceExpanded(key)); };
   const independentExpanded = !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, _sessions: typeof data.sessions) => {
+    setUsageOpen(false);
     setScheduledOpen(false);
     await run(() => setWorkspaceExpanded(workspaceKey(path), true));
     await applySnapshot(() => bridge!.beginSession(path));
   };
-  const newSession = () => { setScheduledOpen(false); return applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace)); };
-  const openProject = () => { setScheduledOpen(false); return applySnapshot(() => bridge!.chooseSessionProject()); };
+  const newSession = () => { setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace)); };
+  const openProject = () => { setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.chooseSessionProject()); };
   const repairProject = async (path: string) => {
     if (loading) return;
     setLoading(true);
@@ -1254,9 +1265,10 @@ function App() {
     {error && (settingsOpen || removeProject || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
     {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
     <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
-      <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
+      <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
+          aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
       <SidebarTaskActions selected={scheduledOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
-        onScheduledTasks={() => { if (!bridge) return; setDetails(''); setExpandedRightPanel(null); setScheduledOpen(true); setCompactSidebarOpen(false); }}/>
+        onScheduledTasks={() => { if (!bridge) return; setUsageOpen(false); setDetails(''); setExpandedRightPanel(null); setScheduledOpen(true); setCompactSidebarOpen(false); }}/>
       <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
           <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
@@ -1292,7 +1304,8 @@ function App() {
         </>}
         <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
       </div>}
-      <div className="main-content" inert={inspectorExpanded}>
+      {usageOpen && <UsageOverviewPanel language={data.preferences.language} onBack={() => setUsageOpen(false)}/>}
+      <div className="main-content" style={usageOpen ? { display: 'none' } : undefined} inert={inspectorExpanded || usageOpen}>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
       {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && !reviewQuestion && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
@@ -1444,14 +1457,14 @@ function App() {
       </div>
     </main>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
-      enabled={!scheduledOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
+      enabled={!scheduledOpen && !usageOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
       onError={setError} onQuote={quote => {
         if (quotes.some(item => item.messageIndex === quote.messageIndex && item.text === quote.text)) return true;
         if (quotes.length >= MAX_QUOTES) { setError(t('最多添加 8 段引用', 'Maximum 8 quotes')); return false; }
         follow.current = false;
         setQuotes(value => [...value, quote]); return true;
       }}/>
-    {details && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
+    {details && !usageOpen && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
     <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
@@ -1518,7 +1531,7 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
-    <nav hidden={scheduledOpen} ref={rightRail} className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')} inert={Boolean(navigationTarget) || Boolean(removeProject)}>
+    <nav hidden={scheduledOpen || usageOpen} ref={rightRail} className="right-tool-rail" style={usageOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || Boolean(navigationTarget) || Boolean(removeProject)}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => {
         const close = !details && visibleRightPanel === 'context' && contextView === 'context';
@@ -1596,10 +1609,11 @@ function App() {
         activeModel={data.state?.model}
         onSave={async (provider, key) => { installSnapshot(await bridge!.saveProvider(provider, key)); const next = await bridge!.settings(); setSettings(next); return next.providers ?? []; }}
         onDelete={async id => { installSnapshot(await bridge!.deleteProvider(id)); const next = await bridge!.settings(); setSettings(next); return next.providers ?? []; }}/>
-      : tab === 'account' ? <AccountSettings settings={settings} profile={loginProfile} onProfile={chooseLoginProfile} apiKey={key} onKey={setKey} loggingIn={loggingIn} busy={anyBusy} language={data.preferences.language} onLogin={() => void run(async () => { setLoggingIn(true); try { await bridge!.login(loginProfile, key); setKey(''); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); } finally { setLoggingIn(false); } })} onCancel={() => void run(() => bridge!.cancelLogin())} onLogout={() => void run(async () => { await bridge!.logout(); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); })}
+      : tab === 'account' ? <><AccountSettings settings={settings} profile={loginProfile} onProfile={chooseLoginProfile} apiKey={key} onKey={setKey} loggingIn={loggingIn} busy={anyBusy} language={data.preferences.language} onLogin={() => void run(async () => { setLoggingIn(true); try { await bridge!.login(loginProfile, key); setKey(''); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); } finally { setLoggingIn(false); } })} onCancel={() => void run(() => bridge!.cancelLogin())} onLogout={() => void run(async () => { await bridge!.logout(); setSettings(await bridge!.settings()); await applySnapshot(() => bridge!.snapshot()); })}
         allowance={<><AccountAllowancePanel bridge={bridge!} account={settings.account} language={data.preferences.language} active={!settingsClosing}/>
           <EstimateRules key={`${settings.account.profile}:${settings.account.userId ?? ''}`} bridge={bridge!} account={settings.account}
             language={data.preferences.language} disabled={loggingIn || anyBusy} onChanged={async () => { await applySnapshot(() => bridge!.snapshot()); }}/></>}/>
+          <button onClick={openUsage}><BarChart3 size={15}/>{t('用量统计', 'Usage overview')}</button></>
       : tab === 'mcp' ? <><div className="section-heading"><h3>MCP servers</h3><IconButton title="Add MCP" onClick={() => setMcpEdit({ name: '', config: { command: '', args: [], enabled: true }, args: '[]', secrets: '{}' })}><Plus size={18}/></IconButton></div>
         {Object.entries(settings.mcp).map(([n, c]) => <div className="resource-row" key={n}><Plug size={18}/><div><strong>{n}</strong><small>{c.url || c.command}</small><small>{c.enabled ? t('已启用，重启后生效', 'Enabled; applies after restart') : t('已停用', 'Disabled')}</small></div><IconButton title="Edit" onClick={() => setMcpEdit({ name: n, original: n, config: c, args: JSON.stringify(c.args ?? []), secrets: '{}' })}><Pencil size={14}/></IconButton><IconButton title="Remove" onClick={() => { if (confirm(t(`移除 ${n}？`, `Remove ${n}?`))) void run(async () => { await bridge!.saveMcp(n, null); setSettings(await bridge!.settings()); }); }}><Trash2 size={14}/></IconButton></div>)}
         {!Object.keys(settings.mcp).length && <p className="muted">{t('尚未配置服务器', 'No servers configured')}</p>}<button disabled={!connected || busy} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={15}/>{t('重启并应用', 'Restart to apply')}</button></>

@@ -59,7 +59,8 @@ try {
       globalThis.contextCalls.push([method, method === 'command' ? args[0] : undefined]);
       if (method === 'snapshot') return globalThis.contextFixture;
       if (method === 'summary') return { sessionId: globalThis.contextFixture.state?.sessionId, tasks: [], mcp: [], skillCount: 0,
-        status: { trusted: true, agents: ['D:/fixture/AGENTS.md'], version: '0.1.0', versionSource: 'fallback',
+        status: { trusted: true, collaboration: globalThis.contextCollaboration ?? 'Default',
+          agents: ['D:/fixture/AGENTS.md'], version: '0.1.0', versionSource: 'fallback',
           endpoint: 'http://127.0.0.1:12345/v1', commit: 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494', node: 'v24.16.0' } };
       if (method === 'preferences') { Object.assign(globalThis.contextFixture.preferences, args[0]); return globalThis.contextFixture.preferences; }
       if (method === 'copyText') { globalThis.contextCopies.push(args[0]); return; }
@@ -409,6 +410,10 @@ try {
     fixture.state.thinkingLevel = 'high';
     fixture.statusAccount = { mode: 'api', region: 'global' };
     fixture.permissionPreset = 'full-access';
+    fixture.launch = { plan: true, ultracode: false, goalArmed: false };
+    fixture.requests = [];
+    fixture.pendingMessages = [];
+    delete fixture.state.pendingMessageCount;
     fixture.modelSelection = { model: { id: 'next-model', provider: 'step', name: 'Next model' }, thinkingLevel: 'low' };
   });
   await page.reload();
@@ -425,6 +430,56 @@ try {
   assert.ok((await panel.innerText()).includes('Step 5 Preview'));
   assert.ok((await panel.innerText()).includes('Next model'));
   await panel.getByText('已信任', { exact: true }).waitFor();
+  const statusValue = label => panel.locator('.session-status-row').filter({
+    has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }),
+  }).locator('dd');
+  const waitStatusValue = async (label, expected) => {
+    await page.waitForFunction(({ label, expected }) => [...document.querySelectorAll('.session-status-row')]
+      .some(row => row.querySelector('dt')?.textContent === label && row.querySelector('dd')?.textContent === expected),
+    { label, expected }).catch(async error => {
+      await page.screenshot({ path: 'test-results/session-status-regression-failure.png' });
+      console.error(await panel.innerText());
+      throw error;
+    });
+  };
+  await waitStatusValue('Plan 模式', '未启用');
+  assert.equal(await statusValue('桌面队列').innerText(), '0');
+  assert.equal(await statusValue('运行时队列').innerText(), '未知');
+  await sendContextEvent({ type: 'extension_ui_request', method: 'confirm', id: 'status-approval-expire',
+    title: 'Status fixture approval', message: 'Read-only fixture' });
+  await waitStatusValue('状态', '等待确认');
+  await sendContextEvent({ type: 'desktop_ui_expired', id: 'status-approval-expire' });
+  await waitStatusValue('状态', '运行中');
+  await sendContextEvent({ type: 'extension_ui_request', method: 'confirm', id: 'status-approval-answer',
+    title: 'Status fixture approval', message: 'Read-only fixture' });
+  await waitStatusValue('状态', '等待确认');
+  await page.getByRole('button', { name: '确认', exact: true }).click();
+  await waitStatusValue('状态', '运行中');
+  for (const [collaboration, toolName, expected] of [
+    ['Plan', 'enter_plan_mode', '已启用'], ['Default', 'exit_plan_mode', '未启用'],
+  ]) {
+    await app.evaluate((_electron, value) => { globalThis.contextCollaboration = value; }, collaboration);
+    await sendContextEvent({ type: 'tool_execution_end', toolName, toolCallId: `status-${toolName}`,
+      result: { content: [{ type: 'text', text: 'Fixture result' }], isError: false } });
+    await waitStatusValue('Plan 模式', expected);
+  }
+  await sendContextEvent({ type: 'desktop_queue', pendingMessages: [
+    { id: 'status-queued', message: 'hidden queue content', attachmentCount: 0, version: 0 },
+  ] });
+  await waitStatusValue('桌面队列', '1');
+  assert.equal(await statusValue('运行时队列').innerText(), '未知');
+  for (const [desktopCount, runtimeCount] of [[0, 2], [1, 3], [0, 0]]) {
+    await app.evaluate((_electron, { desktopCount, runtimeCount }) => {
+      globalThis.contextFixture.pendingMessages = Array.from({ length: desktopCount }, (_, index) => ({
+        id: `queued-${index}`, message: 'hidden queue content', attachmentCount: 0, version: 0,
+      }));
+      globalThis.contextFixture.state.pendingMessageCount = runtimeCount;
+    }, { desktopCount, runtimeCount });
+    await panel.getByRole('button', { name: '刷新上下文', exact: true }).click();
+    await waitStatusValue('桌面队列', String(desktopCount));
+    await waitStatusValue('运行时队列', String(runtimeCount));
+  }
+  assert.ok(!(await panel.innerText()).includes('hidden queue content'));
   const statusDetails = panel.getByRole('button', { name: '详细信息', exact: true });
   assert.equal(await statusDetails.getAttribute('aria-expanded'), 'false');
   await statusDetails.click();

@@ -60,7 +60,6 @@ export function SessionStatus({ snapshot, title, onError, revision = 0, busy }: 
   const route = custom ? model?.providerName ?? model?.provider ?? missing
     : account?.mode === 'plan' ? 'Step Plan' : account?.mode === 'api' ? t('官方 API', 'Official API')
     : account?.mode === 'none' ? t('未登录', 'Signed out') : missing;
-  const queued = Boolean(snapshot.pendingMessages?.length || state?.pendingMessageCount);
   const waiting = Boolean(snapshot.requests?.length);
   const active = busy ?? state?.isStreaming;
   const runtimeState = !connected ? t('已断开', 'Disconnected') : snapshot.draftId ? t('待启动', 'Not started')
@@ -68,8 +67,8 @@ export function SessionStatus({ snapshot, title, onError, revision = 0, busy }: 
     : active ? t('运行中', 'Running') : t('空闲', 'Idle');
   const notRead = !canRead ? t('暂无运行时数据', 'Runtime data unavailable') : readFailed ? t('读取失败', 'Read failed')
     : reading.key !== detailKey ? t('读取中', 'Loading') : t('未提供', 'Not provided');
-  const plan = snapshot.launch ? snapshot.launch.plan : details?.collaboration === 'Plan' ? true
-    : details?.collaboration === 'Default' ? false : undefined;
+  const plan = canRead && details?.collaboration === 'Plan' ? true
+    : canRead && details?.collaboration === 'Default' ? false : snapshot.launch?.plan;
   return <div className="session-status-content">
     <div className="context-identity"><strong>{title}</strong><span>{!connected ? t('已断开 · 上次状态', 'Disconnected · Last known state')
       : snapshot.draftId ? t('待启动', 'Not started') : t('当前会话', 'Current session')}</span></div>
@@ -83,9 +82,9 @@ export function SessionStatus({ snapshot, title, onError, revision = 0, busy }: 
         {row(t('Plan 模式', 'Plan mode'), snapshot.draftId ? snapshot.launch?.plan || snapshot.launch?.planArmed
           ? t('发车时启用', 'Enable on send') : t('未选择', 'Not selected')
           : plan === undefined ? notRead : plan ? t('已启用', 'Enabled') : t('未启用', 'Disabled'), <Lightbulb size={14}/>)}
-        {row(t('排队消息', 'Queued messages'), snapshot.draftId ? t('无', 'None') : queued
-          ? t('有待处理消息', 'Messages pending') : state?.pendingMessageCount !== undefined || snapshot.pendingMessages
-            ? t('无', 'None') : missing, <ListOrdered size={14}/>)}
+        {row(t('桌面队列', 'Desktop queue'), snapshot.draftId ? 0 : snapshot.pendingMessages?.length ?? missing, <ListOrdered size={14}/>)}
+        {row(t('运行时队列', 'Runtime queue'), snapshot.draftId ? t('尚未启动', 'Not started')
+          : state?.pendingMessageCount ?? missing, <ListOrdered size={14}/>)}
         {row(t('上下文', 'Context'), snapshot.stats?.contextUsage
           ? `${snapshot.stats.contextUsage.tokens?.toLocaleString() ?? '--'} / ${snapshot.stats.contextUsage.contextWindow.toLocaleString()}`
           : t('暂无数据', 'Unavailable'))}

@@ -44,8 +44,9 @@ function MessageJson({ message, language, onError }: { message: Message; languag
   </div>;
 }
 
-export function ContextPanel({ messages, stats, state, estimate, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError, snapshot, view = 'context', onView }: {
+export function ContextPanel({ messages, stats, state, estimate, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError, snapshot, view = 'context', onView, runtimeRevision = 0 }: {
   snapshot?: Snapshot; view?: 'status' | 'context'; onView?: (view: 'status' | 'context') => void;
+  runtimeRevision?: number;
   messages: Message[]; stats?: SessionStats; state?: RuntimeState; title: string; language: 'zh' | 'en'; busy: boolean; connected: boolean;
   estimate?: SessionEstimate;
   onClose: () => void; onRefresh: () => Promise<void>; onError: (error: string) => void;
@@ -101,7 +102,7 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
     </header>
     <div className="context-panel-scroll context-view-content" key={view} id="inspector-content"
       role={snapshot && onView ? 'tabpanel' : undefined} aria-labelledby={snapshot && onView ? `inspector-tab-${view}` : undefined}>
-      {view === 'status' && snapshot ? <SessionStatus snapshot={snapshot} title={title} onError={onError} revision={statusRevision} busy={busy}/> : <>
+      {view === 'status' && snapshot ? <SessionStatus snapshot={snapshot} title={title} onError={onError} revision={statusRevision + runtimeRevision} busy={busy}/> : <>
       <div className="context-content">
       <div className="context-identity"><strong>{title}</strong><span>{state?.model?.name ?? last?.model ?? '--'}</span>
         <small>{state?.model?.provider ?? last?.provider ?? '--'}</small></div>

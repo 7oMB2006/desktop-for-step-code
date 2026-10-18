@@ -47,6 +47,17 @@ but wait for a recorded settled frame rather than a fixed sleep. Fifteen CI
 policy/runner tests and typecheck passed. Cloud macOS qualification and local
 installer/real-account acceptance are not inferred from these Windows checks.
 
+The three Status review regressions are covered by the real renderer/IPC
+fixture: approval arrival, answer and expiry update the visible state without a
+snapshot refresh; fresh collaboration diagnostics override contradictory launch
+state and refresh after enter/exit Plan tools; Desktop FIFO and runtime queue
+counts remain separate, preserving unknown versus zero and hiding message
+contents. Drafts retain launch-only semantics. Typecheck, build, the complete
+529-pass suite, Context inspector, themed/narrow Status fixture and real Summary
+runtime acceptance passed again. The composer editing fixture now checks the
+controlled value after each native typed character and reports actual value,
+focus and selection on failure; its deletion/undo/redo coverage is unchanged.
+
 ## Cron With Latest Main Preview (2026-10-18)
 
 Local package source `891fbc4` integrates main `28cfd9e`, including Usage II and

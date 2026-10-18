@@ -141,6 +141,12 @@ try {
       await page.waitForFunction(async ({ runtimeId, ids }) => {
         try { return (await window.desktop.turnUndo(runtimeId, ids, 'status')).state === 'available'; } catch { return false; }
       }, { runtimeId: next.runtimeId, ids }, { timeout: 60000 });
+      await page.waitForFunction(async runtimeId => {
+        const current = await window.desktop.snapshot();
+        return current.runtimeId === runtimeId && !current.state?.isStreaming && !current.state?.isCompacting
+          && !current.state?.pendingMessageCount && current.messages.at(-1)?.role === 'assistant'
+          && current.messages.at(-1)?.stopReason === 'stop';
+      }, next.runtimeId, { timeout: 60000 });
     }
     await writeFile(join(next.preferences.workspace, 'src/retry.ts'), 'export const retryLimit = 5;\n');
     return page.evaluate(() => window.desktop.snapshot());

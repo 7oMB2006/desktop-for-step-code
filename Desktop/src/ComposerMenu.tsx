@@ -126,7 +126,7 @@ export function ComposerMenu(props: Props) {
     {open && <div className="composer-discovery" id="composer-discovery" role="listbox" aria-label={mode === '/' ? (zh ? '操作与指令' : 'Actions and commands') : (zh ? '附件与引用' : 'Attachments and references')}>
       <div className="composer-discovery-scroll">{filtered.length ? filtered.map((row, index) => <div key={row.id}>
         {(index === 0 || filtered[index - 1].group !== row.group) && <div className="composer-discovery-group">{row.group}</div>}
-        <button type="button" id={`composer-option-${index}`} role="option" disabled={row.disabled} aria-selected={index === active} onMouseEnter={() => setSelected(index)} onMouseDown={e => e.preventDefault()} onClick={row.activate}>
+        <button type="button" id={`composer-option-${index}`} role="option" disabled={row.disabled} aria-selected={index === active} onMouseMove={() => setSelected(index)} onMouseDown={e => e.preventDefault()} onClick={row.activate}>
           <row.Icon size={16}/><span className="composer-discovery-title">{row.title}</span>{row.keyword && <code>{row.keyword}</code>}<span className="composer-discovery-detail">{row.detail}</span>
         </button>
       </div>) : <div className="composer-discovery-empty">{zh ? '没有匹配的内容' : 'No matches'}</div>}</div>

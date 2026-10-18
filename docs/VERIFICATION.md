@@ -1,5 +1,37 @@
 # Verification
 
+## Cron With Latest Main Preview (2026-10-18)
+
+Local package source `891fbc4` integrates main `28cfd9e`, including Usage II and
+the Windows v0.1.5 runtime. The runtime is pinned to
+`b5dbed938d9ae589397cf522dcf2ff89ecf4c494` with the two Cron patches checked by the
+Windows manifest; Node is `v24.16.0`. Both patch application from pristine source
+and pre/post source hashes passed. The macOS baseline remains unchanged.
+
+Frozen-lockfile installation, typecheck and production build passed. The complete
+serialized unit/protocol suite passed 522 cases with 13 platform skips and no
+failures; all 15 CI policy/runner cases passed. The native Cron suite passed ten
+cases. Source Electron Cron management and project-trust suites passed, as did
+the v0.1.5 native/RPC/UI `then_run` regression.
+
+The Windows x64 preview is in
+`D:\Desktop For Step Code\Desktop\release\cron-main-v015-20261018-preview`.
+Installer `Desktop.for.Step.Code.Setup.0.5.1.exe` is 157557943 bytes with SHA-256
+`d2057800d47615fbc61643e6e17f92bacaca725345ebc5874af52213ee067b4e`.
+Update metadata matches the installer. The package audit compared 1229 runtime
+files with the staged source, verified the Node hash, native terminal backend,
+runtime adapter and asar package version. Packaged Cron management (four groups)
+and project trust (three groups) passed using isolated local profiles and zero
+model calls for management.
+The packaged general Electron startup/RPC acceptance also passed. The normal
+desktop shortcut was backed up inside the preview directory and read back after
+being retargeted to its verified `win-unpacked` executable with empty arguments.
+
+This is a local unsigned preview, not a new public release. Actual-account Cron
+execution, user-visible billing, installer upgrade behavior, sleep/reboot
+recovery and the remaining Desktop Beta features are not qualified by these
+tests. Existing user processes and historical packages are not stopped or removed.
+
 ## Cron Host Lifecycle And Explicit Trust (2026-10-18, Local Development)
 
 Issue #134 started with a Desktop-only scheduling observer on the previous

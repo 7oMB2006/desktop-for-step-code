@@ -8,6 +8,9 @@ import { RightPanelExpandButton } from './RightPanelExpandButton';
 import { isUserMessage } from './user-message';
 import { ContextEstimate } from './ContextEstimate';
 import type { SessionEstimate } from './usage-estimates';
+import { UsageUnitButton } from './UsageUnitButton';
+import { UsageTokenValue } from './UsageTokenValue';
+import type { UsageUnit } from './usage-unit';
 
 function JsonCode({ json }: { json: string }) {
   const nodes: ReactNode[] = [];
@@ -52,6 +55,7 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
   const [filter, setFilter] = useState<MessageFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [unit, setUnit] = useState<UsageUnit>('default');
   const counts = useMemo(() => contextMessageCounts(messages), [messages]);
   const rows = useMemo(() => messages.map((message, index) => ({ message, index, key: message.entryId ?? `${index}:${message.timestamp ?? ''}:${message.role}` }))
     .filter(({ message }) => filter === 'all' || (filter === 'user' ? isUserMessage(message) : message.role === filter)).reverse(), [messages, filter]);
@@ -101,7 +105,8 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
         </div>
       </section>
       <section className="context-session-totals" aria-label={t('会话累计', 'Session totals')}>
-        <div><span>{t('累计用量', 'Total tokens')}</span><strong>{number(stats?.tokens.total)}<small> tok</small></strong></div>
+        <div><div className="context-token-label"><span>{t('累计用量', 'Total tokens')}</span><UsageUnitButton value={unit} onChange={setUnit} language={language}/></div>
+          <strong><UsageTokenValue value={finiteAmount(stats?.tokens.total)} unit={unit}/><small> tok</small></strong></div>
         <ContextEstimate value={estimate} custom={custom} language={language}/>
       </section>
       <section className="context-last-response" aria-label={t('最近一次响应', 'Latest response')}>

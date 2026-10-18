@@ -1,7 +1,6 @@
 import { normalizedWorkspaceKey } from './workspace-key';
-import { UsageOverviewPreview } from './UsageOverviewPreview';
+import { UsageOverviewPanel } from './UsageOverviewPanel';
 import { BarChart3 } from 'lucide-react';
-declare const DESKTOP_USAGE_OVERVIEW_PREVIEW: boolean;
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -1258,10 +1257,8 @@ function App() {
     {error && (settingsOpen || removeProject || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
     {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
     <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
-      {typeof DESKTOP_USAGE_OVERVIEW_PREVIEW !== 'undefined' && DESKTOP_USAGE_OVERVIEW_PREVIEW
-        ? <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
-          aria-pressed={usageOpen} onClick={openUsage}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
-        : <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>}
+      <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
+          aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
       <SidebarTaskActions selected={scheduledOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
         onScheduledTasks={() => { if (!bridge) return; setUsageOpen(false); setDetails(''); setExpandedRightPanel(null); setScheduledOpen(true); setCompactSidebarOpen(false); }}/>
       <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
@@ -1299,7 +1296,7 @@ function App() {
         </>}
         <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
       </div>}
-      {usageOpen && <UsageOverviewPreview language={data.preferences.language} onBack={() => setUsageOpen(false)}/>}
+      {usageOpen && <UsageOverviewPanel language={data.preferences.language} onBack={() => setUsageOpen(false)}/>}
       <div className="main-content" style={usageOpen ? { display: 'none' } : undefined} inert={inspectorExpanded || usageOpen}>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
@@ -1604,7 +1601,7 @@ function App() {
         allowance={<><AccountAllowancePanel bridge={bridge!} account={settings.account} language={data.preferences.language} active={!settingsClosing}/>
           <EstimateRules key={`${settings.account.profile}:${settings.account.userId ?? ''}`} bridge={bridge!} account={settings.account}
             language={data.preferences.language} disabled={loggingIn || anyBusy} onChanged={async () => { await applySnapshot(() => bridge!.snapshot()); }}/></>}/>
-          {typeof DESKTOP_USAGE_OVERVIEW_PREVIEW !== 'undefined' && DESKTOP_USAGE_OVERVIEW_PREVIEW && <button onClick={openUsage}><BarChart3 size={15}/>{t('用量统计预览（示例数据）', 'Usage overview preview (sample data)')}</button>}</>
+          <button onClick={openUsage}><BarChart3 size={15}/>{t('用量统计', 'Usage overview')}</button></>
       : tab === 'mcp' ? <><div className="section-heading"><h3>MCP servers</h3><IconButton title="Add MCP" onClick={() => setMcpEdit({ name: '', config: { command: '', args: [], enabled: true }, args: '[]', secrets: '{}' })}><Plus size={18}/></IconButton></div>
         {Object.entries(settings.mcp).map(([n, c]) => <div className="resource-row" key={n}><Plug size={18}/><div><strong>{n}</strong><small>{c.url || c.command}</small><small>{c.enabled ? t('已启用，重启后生效', 'Enabled; applies after restart') : t('已停用', 'Disabled')}</small></div><IconButton title="Edit" onClick={() => setMcpEdit({ name: n, original: n, config: c, args: JSON.stringify(c.args ?? []), secrets: '{}' })}><Pencil size={14}/></IconButton><IconButton title="Remove" onClick={() => { if (confirm(t(`移除 ${n}？`, `Remove ${n}?`))) void run(async () => { await bridge!.saveMcp(n, null); setSettings(await bridge!.settings()); }); }}><Trash2 size={14}/></IconButton></div>)}
         {!Object.keys(settings.mcp).length && <p className="muted">{t('尚未配置服务器', 'No servers configured')}</p>}<button disabled={!connected || busy} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={15}/>{t('重启并应用', 'Restart to apply')}</button></>

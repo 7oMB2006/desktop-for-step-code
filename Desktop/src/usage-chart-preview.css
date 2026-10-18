@@ -1,0 +1,31 @@
+.usage-chart-preview {
+  position: fixed;
+  z-index: 75;
+  box-sizing: border-box;
+  width: 252px;
+  max-width: calc(100vw - 20px);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  box-shadow: 0 4px 16px #00000018;
+  font: 12px/1.5 "Segoe UI", "Microsoft YaHei", sans-serif;
+  letter-spacing: 0;
+  pointer-events: none;
+  animation: usage-chart-preview-enter 140ms cubic-bezier(.22, 1, .36, 1);
+}
+.usage-chart-preview header { display: grid; gap: 3px; margin-bottom: 10px; }
+.usage-chart-preview header strong { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.usage-chart-preview header > span { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.usage-chart-preview dl { display: grid; gap: 6px; margin: 0; }
+.usage-chart-preview dl > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 14px; }
+.usage-chart-preview dt { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 11px; }
+.usage-chart-preview dt > span { overflow-wrap: anywhere; }
+.usage-chart-preview dt > i { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.usage-chart-preview dt > i.is-line { height: 0; background: none; border-top: 2px dashed currentColor; }
+.usage-chart-preview dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 11px; font-weight: 500; }
+.usage-chart-preview .is-total { margin-top: 3px; padding-top: 9px; border-top: 1px solid var(--border); }
+.usage-chart-preview .is-total :is(dt,dd) { color: var(--ink); font-weight: 600; }
+@keyframes usage-chart-preview-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .usage-chart-preview { animation: none; } }

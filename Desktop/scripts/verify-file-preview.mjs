@@ -70,6 +70,10 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
     ipcMain.handle('desktop', async (event, method, ...args) => {
       if (method === 'snapshot') return { ...globalThis.fileFixture, preferences: (await original(event, method, ...args)).preferences };
       if (method === 'sessions') return globalThis.fileFixture.sessions;
+      if (method === 'browserList' && globalThis.filePreviewDelayNextBrowserRead) {
+        globalThis.filePreviewDelayNextBrowserRead = false;
+        await new Promise(resolve => setTimeout(resolve, 600));
+      }
       return original(event, method, ...args);
     });
   }, { snapshot, messages });
@@ -382,14 +386,19 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   assert.deepEqual(refreshed, { text: 'Updated HTML preview', retained: 'undefined' }, 'explicit refresh reloads HTML and resets page state');
   assert.equal((await page.evaluate(() => window.desktop.browserList())).tabs.find(tab => tab.localFile)?.id, local.id, 'explicit refresh retains the existing tab');
   await page.getByRole('link', { name: '网页参考', exact: true }).click();
-  await waitBrowser(page, snapshot => snapshot.tabs.some(tab => tab.url === address && !tab.loading));
+  await waitBrowser(page, snapshot => snapshot.tabs.some(tab => tab.id === snapshot.activeId && tab.url === address && !tab.loading));
+  const browserPanel = page.locator('#browser-panel');
+  await browserPanel.waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#browser-panel')?.getAttribute('aria-hidden') === 'false');
   assert.equal((await page.evaluate(() => window.desktop.browserList())).tabs.length, 2);
+  await app.evaluate(() => { globalThis.filePreviewDelayNextBrowserRead = true; });
   await page.getByRole('link', { name: '网页参考', exact: true }).click();
-  await page.waitForTimeout(300);
-  assert.equal(await page.locator('#browser-panel').isVisible(), false, 'clicking the current web reference closes its panel');
+  // The exit includes IPC, React and a 260ms animation; wait for its outcome, not a fixed delay.
+  await browserPanel.waitFor({ state: 'hidden' });
+  assert.equal(await browserPanel.isVisible(), false, 'clicking the current web reference closes its panel');
   await page.getByRole('link', { name: '网页参考', exact: true }).click();
-  await page.waitForTimeout(350);
-  assert.equal(await page.locator('#browser-panel').isVisible(), true);
+  await browserPanel.waitFor({ state: 'visible' });
+  assert.equal(await browserPanel.isVisible(), true);
   assert.deepEqual(errors, []);
   await app.close();
   app = await launch();

@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { resolve, dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { assertStagingNodeVersion } from './staging-node-version.mjs';
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
 if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
@@ -17,6 +18,7 @@ if (commit !== PINNED_COMMIT) {
   // Naming both sides keeps a stale build instruction from reading as a broken checkout.
   throw new Error(`Step Code source does not match the pinned Desktop baseline: source is at ${commit}, pinned is ${PINNED_COMMIT}; check out the pinned commit and reapply ${patchFile}`);
 }
+assertStagingNodeVersion(process.version, process.platform);
 // The manifest advertises the patch set below, so staging must prove the sources are
 // actually patched instead of trusting the working tree. `pnpm package` never applies the
 // patch itself; CI does it separately, and an unpatched checkout staged locally would

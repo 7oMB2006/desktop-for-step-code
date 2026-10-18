@@ -34,7 +34,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24.15.0
+          # Includes the Windows TCP-connect crash fix (nodejs/node#63620).
+          node-version: 24.16.0
 
       - name: Validate acceptance group
         env:

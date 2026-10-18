@@ -69,7 +69,7 @@ The Windows release targets Windows x64. A separate macOS Apple Silicon preview 
 
 ### Build from Source
 
-Requirements: Windows x64, Git, Node.js 24.15.0 (or a compatible Node.js version `>=22.19`), and Corepack. Before building, fetch the pinned Step Code upstream revision in the repository root and apply the Windows/Desktop integration patch maintained here.
+Requirements: Windows x64, Git, Node.js 24.16.0 and Corepack. Avoid Node.js 24.0 through 24.15 on Windows: their TCP-connect path can crash the process (nodejs/node#63620). Before building, fetch the pinned Step Code upstream revision in the repository root and apply the Windows/Desktop integration patch maintained here.
 
 Run these commands in PowerShell from the repository root:
 

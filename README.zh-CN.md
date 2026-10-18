@@ -69,7 +69,7 @@ Step 登录凭据使用当前 Windows 用户的加密存储机制保存到 `step
 
 ### 从源码构建
 
-需要 Windows x64、Git、Node.js 24.15.0（或兼容的 Node.js `>=22.19`）和 Corepack。构建前需在仓库根目录获取固定版本的 Step Code 上游代码，并应用本仓库维护的 Windows/Desktop 集成补丁。
+需要 Windows x64、Git、Node.js 24.16.0 和 Corepack。Windows 上请避开 Node.js 24.0 至 24.15：其 TCP 连接路径可能导致进程崩溃（nodejs/node#63620）。构建前需在仓库根目录获取固定版本的 Step Code 上游代码，并应用本仓库维护的 Windows/Desktop 集成补丁。
 
 在仓库根目录的 PowerShell 中运行：
 

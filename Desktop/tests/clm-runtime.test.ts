@@ -172,6 +172,9 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
     const settled = async (worker: Awaited<ReturnType<typeof pool.open>>, previousEnds: number) => {
       const deadline = Date.now() + 30000;
       while (Date.now() < deadline) {
+        assert.deepEqual(errors, [], 'Local model fixture rejected a request before runtime completion');
+        const exit = events.find(event => event.type === 'desktop_exit' && event.runtimeId === worker.id);
+        assert.ok(!exit, `Runtime exited before completion (code ${exit?.code})`);
         const ends = events.filter(event => event.type === 'agent_end' && event.runtimeId === worker.id).length;
         if (ends > previousEnds && !(await worker.rpc.request('get_state')).isStreaming) {
           await new Promise(resolve => setTimeout(resolve, 100));
@@ -179,7 +182,13 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
         }
         await new Promise(resolve => setTimeout(resolve, 20));
       }
-      assert.fail('Runtime did not settle after its authoritative completion event');
+      const state = await worker.rpc.request('get_state');
+      assert.fail(`Runtime did not settle after its authoritative completion event: ${JSON.stringify({
+        requests: requests.length,
+        events: events.filter(event => event.runtimeId === worker.id).map(event => event.type).slice(-30),
+        busy: worker.busy, isStreaming: state.isStreaming, isCompacting: state.isCompacting,
+        pendingMessageCount: state.pendingMessageCount,
+      })}`);
     };
     try {
       const worker = await pool.open(node, step, workspace, env, sessionPath);

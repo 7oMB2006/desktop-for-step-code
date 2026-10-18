@@ -7,6 +7,17 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { acceptanceGroups, acceptanceTimeouts, defaultAcceptanceTimeout, localOnly, platformOnly, validateInventory, windowsGroups } from './ci-acceptance.mjs';
 import { executeScript, groupScripts, runGroup } from './ci-windows.mjs';
+import { assertStagingNodeVersion } from '../Desktop/scripts/staging-node-version.mjs';
+
+test('Windows staging excludes Node 24 releases with the TCP-connect crash', () => {
+  for (const version of ['v24.0.0', 'v24.14.1', 'v24.15.0']) {
+    assert.throws(() => assertStagingNodeVersion(version, 'win32'), /24\.16\.0/);
+    assert.doesNotThrow(() => assertStagingNodeVersion(version, 'darwin'));
+  }
+  for (const version of ['v22.19.0', 'v24.16.0', 'v24.17.0', 'v26.0.0']) {
+    assert.doesNotThrow(() => assertStagingNodeVersion(version, 'win32'));
+  }
+});
 
 const files = readdirSync(new URL('../Desktop/scripts/', import.meta.url)).filter(file => /^verify-.*\.mjs$/.test(file));
 

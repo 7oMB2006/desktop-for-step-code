@@ -3256,3 +3256,27 @@ Local checks passed: all 114 Workflow tests, 496 Desktop tests with 13 platform
 skips (509 total), all 14 CI policy/runner tests and the full custom-provider
 Electron fixture. The patch reverses cleanly against the reviewed Workflow test
 source. These results remain local evidence until the new cloud run passes.
+
+### Windows Node TCP-connect follow-up
+
+Run 39088928068 passed interface acceptance and the separate macOS run, but
+failed on a CLM Plan completion wait and a cross-session tool with no returned
+tool result. The full local runtime group passed all 17 checks; the isolated CLM
+Plan test also passed twelve repetitions on Node 24.15.0. Those local passes did
+not explain or dismiss the cloud failures.
+
+Node's upstream issue nodejs/node#63620 documents silent Windows HTTP/TCP-connect
+crashes in 24.15.0, with the same native exit code seen in the collaboration
+test. A maintainer confirms the fix in nodejs/node#62561, shipped in 24.16.0.
+This matches the observed native failure class; it does not prove that every
+earlier timeout shared that cause. Windows CI and newly staged Windows runtime
+now use 24.16.0. Staging rejects Windows Node 24.x releases below 24.16; macOS
+and historical release records remain unchanged.
+
+The official Windows x64 archive was verified against its published SHA256
+EDACA9BD58EC8E92037DAC4E877D52F6B8F430B81C18B57E264B4E2FB111CD56.
+Fresh runtime staging passed with Node 24.16.0. All 15 CI policy/runner/version
+tests and 14 focused CLM/collaboration/staging tests passed on that host. CLM
+completion waits now expose fixture assertion failures and native child exit
+codes immediately instead of hiding them behind a generic timeout; fallback
+diagnostics contain only event types, counts and activity flags.

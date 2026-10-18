@@ -233,7 +233,7 @@ index 9451c77..96e9d4e 100644
  export {
  	getStepLoginStatus,
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index fd9aabc..7d0f1fb 100644
+index fd9aabc..3f1bce1 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 @@ -25,6 +25,9 @@ import {
@@ -266,7 +266,6 @@ index fd9aabc..7d0f1fb 100644
 +					sessionId: session.sessionId,
 +					tasks: tasks?.type === "custom" ? tasks.data : null,
 +					mcp: getStepMcpStatuses(),
-+					skillCount: session.resourceLoader.getSkills().skills.length,
 +					status: {
 +						trusted: session.settingsManager.isProjectTrusted(),
 +						agents: session.resourceLoader.getAgentsFiles().agentsFiles.map((file) => file.path),
@@ -277,6 +276,7 @@ index fd9aabc..7d0f1fb 100644
 +						provider: session.model?.provider,
 +						model: session.model?.id,
 +					},
++					skillCount: session.resourceLoader.getSkills().skills.length,
 +				});
 +			}
  			case "get_state": {

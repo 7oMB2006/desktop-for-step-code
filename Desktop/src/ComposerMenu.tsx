@@ -14,8 +14,9 @@ const labels: Record<string, [string, string]> = {
   compact: ['压缩上下文', 'Compact context'], init: ['项目指引', 'Project instructions'],
   cron: ['定时任务', 'Scheduled tasks'], plugin: ['插件', 'Plugins'], mcp: ['MCP', 'MCP'],
   clm: ['工作上下文', 'Working context'], 'clm-compact': ['整理工作上下文', 'Organize working context'],
+  trust: ['项目信任', 'Project trust'],
 };
-const icons: Record<string, typeof Terminal> = { status: Activity, goal: Goal, plan: Lightbulb, todo: ListTodo, ultracode: Network, ultraloop: Network, compact: Minimize2, init: FileText, mcp: Plug, plugin: Plug, clm: NotebookPen, 'clm-compact': RefreshCw };
+const icons: Record<string, typeof Terminal> = { status: Activity, goal: Goal, plan: Lightbulb, todo: ListTodo, ultracode: Network, ultraloop: Network, compact: Minimize2, init: FileText, mcp: Plug, plugin: Plug, clm: NotebookPen, 'clm-compact': RefreshCw, trust: Shield };
 const terminalOnly = new Set(['exit', 'quit', 'theme', 'llama', 'clear', 'new']);
 const descriptions: Record<string, string> = {
   status: '查看当前模型、权限、目录与账户状态',
@@ -25,6 +26,7 @@ const descriptions: Record<string, string> = {
   cron: '查看与管理定时任务', plugin: '查看与管理 Step Code 插件',
   clm: '查看状态；支持 on、off、diff、reset',
   'clm-compact': '整理工作上下文，可补充需要保留的重点',
+  trust: '确认项目信任，保存后重启运行时生效',
 };
 
 export function commandRows(commands: ComposerCommand[], zh: boolean) {

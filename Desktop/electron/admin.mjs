@@ -17,6 +17,23 @@ const safeMcp = servers => Object.fromEntries(Object.entries(servers).map(([name
 }]));
 async function dispatch(message) {
   switch (message.type) {
+    case 'cron_saved': {
+      if (!agentDir || typeof message.cwd !== 'string' || !message.cwd.trim()) throw new Error('Invalid Cron project');
+      const trusted = new upstream.ProjectTrustStore(agentDir).get(message.cwd) === true;
+      if (!trusted) return { trusted: false, jobs: [] };
+      const warnings = [];
+      const store = new upstream.CronFileStore(join(message.cwd, '.stepcode/cron/tasks.json'), { warn: value => warnings.push(value) });
+      const jobs = store.load();
+      if (warnings.length) throw new Error('Cron storage is unavailable');
+      return { trusted: true, jobs };
+    }
+    case 'trust_project': {
+      if (!agentDir || typeof message.cwd !== 'string' || !message.cwd.trim())
+        throw new Error('Desktop project trust requires an isolated profile and folder');
+      const store = new upstream.ProjectTrustStore(agentDir);
+      store.set(message.cwd, true);
+      return { saved: true };
+    }
     case 'session_options': {
       upstream.syncStepLoginProfileEndpoint(authPath);
       const settings = upstream.createStepSettingsManager(message.cwd, agentDir);

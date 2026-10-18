@@ -66,7 +66,7 @@ export class SessionCollaboration {
     const token = randomBytes(32).toString('hex');
     this.tokens.set(token, worker);
     return {
-      env: { DESKTOP_SESSION_URL: this.url, DESKTOP_SESSION_TOKEN: token },
+      env: { DESKTOP_SESSION_URL: this.url, DESKTOP_SESSION_TOKEN: token, DESKTOP_CRON_STATE: '1' },
       // Unknown extension tools otherwise get a generic write/execute prompt.
       // The broker gates every send itself, even under Full Access, so only
       // these three desktop-owned tools bypass that duplicate approval.

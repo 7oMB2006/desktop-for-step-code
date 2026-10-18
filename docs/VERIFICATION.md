@@ -1,5 +1,99 @@
 # Verification
 
+## Cron With Latest Main Preview (2026-10-18)
+
+Local package source `891fbc4` integrates main `28cfd9e`, including Usage II and
+the Windows v0.1.5 runtime. The runtime is pinned to
+`b5dbed938d9ae589397cf522dcf2ff89ecf4c494` with the two Cron patches checked by the
+Windows manifest; Node is `v24.16.0`. Both patch application from pristine source
+and pre/post source hashes passed. The macOS baseline remains unchanged.
+
+Frozen-lockfile installation, typecheck and production build passed. The complete
+serialized unit/protocol suite passed 522 cases with 13 platform skips and no
+failures; all 15 CI policy/runner cases passed. The native Cron suite passed ten
+cases. Source Electron Cron management and project-trust suites passed, as did
+the v0.1.5 native/RPC/UI `then_run` regression.
+
+The Windows x64 preview is in
+`D:\Desktop For Step Code\Desktop\release\cron-main-v015-20261018-preview`.
+Installer `Desktop.for.Step.Code.Setup.0.5.1.exe` is 157557943 bytes with SHA-256
+`d2057800d47615fbc61643e6e17f92bacaca725345ebc5874af52213ee067b4e`.
+Update metadata matches the installer. The package audit compared 1229 runtime
+files with the staged source, verified the Node hash, native terminal backend,
+runtime adapter and asar package version. Packaged Cron management (four groups)
+and project trust (three groups) passed using isolated local profiles and zero
+model calls for management.
+The packaged general Electron startup/RPC acceptance also passed. The normal
+desktop shortcut was backed up inside the preview directory and read back after
+being retargeted to its verified `win-unpacked` executable with empty arguments.
+
+This is a local unsigned preview, not a new public release. Actual-account Cron
+execution, user-visible billing, installer upgrade behavior, sleep/reboot
+recovery and the remaining Desktop Beta features are not qualified by these
+tests. Existing user processes and historical packages are not stopped or removed.
+
+## Cron Host Lifecycle And Explicit Trust (2026-10-18, Local Development)
+
+Issue #134 started with a Desktop-only scheduling observer on the previous
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` pin. The Windows preview now integrates
+main `28cfd9e` and its v0.1.5 pin `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`;
+the same two Cron patches are hash-checked by the Windows manifest.
+The separate Cron patch preserves native storage, project sharing, delivery,
+jitter and expiry. Main-process snapshots contain scheduling metadata only.
+Resident hosts with jobs or unavailable state are excluded from idle/count
+recycling. Native consumption, deletion and expiry release that protection.
+Account/configuration replacement and explicit host-stopping operations reject
+scheduled work rather than silently discarding session jobs or changing billing.
+Ordinary idle chat and compaction are not blocked just by scheduled jobs.
+
+Frozen-lockfile installation, typecheck, runtime staging and the production
+Desktop build passed. The serialized unit/protocol suite passed 487 tests with
+13 platform-specific skips and no failures. All 13 CI policy/runner tests passed.
+The integration patches reverse-check against the isolated pinned source.
+
+The new `verify-cron-runtime.mjs` is registered in the Windows runtime CI group.
+Ten real staged JSONL RPC/session-pool cases passed: native management without
+model calls or trust bypass, temporary and durable
+host retention followed by one-shot delivery/release, native deletion,
+explicit saved-session reopen, seven-day expiry, storage-lock failure/recovery,
+untrusted durable-create rejection despite Full Access, and explicit native
+trust save with restart-gated durable creation. These use isolated
+profiles, controlled child clocks and a loopback-only deterministic model.
+Unchanged snapshots do not flood RPC, and scheduler JSON never reaches renderer
+events. Electron concurrency, account-routing and permission-tier regressions
+also passed with their isolated fixtures.
+
+The explicit `/trust` entry uses the existing approval drawer with persistent
+scope wording, cancel and review-later actions. Only a confirmed request calls
+the native ProjectTrustStore in the Desktop profile. It does not invoke a model,
+enable Full Access, hot-load project resources or implicitly restart hosts.
+Its new Windows CI acceptance exercises the actual Electron composer, IPC and
+admin process, including native trust persistence and zero model calls.
+Dark/light, minimum-width and expanded screenshots were inspected. Unit tests
+also reject changed directory junctions and stale runtime approvals; expired,
+cancelled and disconnected approvals do not save a trust decision.
+The entry intentionally exposes only the native trust-current-folder subset,
+not parent-folder, session-only or revocation choices.
+
+The basic management UI now uses the narrow preload bridge and native tools,
+not a separate scheduler. `verify-cron-management.mjs` is registered in Windows
+runtime CI; its four real Electron cases cover no implicit host creation, native
+durable creation without chat mutation, detail/delete/cancel, and read-only
+offline discovery after relaunch. Management invokes no model. Dark/light and
+narrow screenshots were inspected. Eight management unit cases cover bounded
+projection, project deduplication, offline records, mutation locks and no retries
+after ambiguous failures. The current serialized unit/protocol suite passes
+495 tests with 13 platform skips. All five patches apply together to pristine
+pinned source. The layout-only fixture remains a mock preview, separate from
+these real-bridge checks.
+
+No installer or public release was produced. No real account, user task or
+trust store was changed. This does not establish sleep/reboot recovery, original
+chat ownership, crash exactly-once delivery or real billing. Pause/edit,
+auto-recovery and a persistent execution ledger remain unimplemented; the
+overall TODO stays unchecked pending packaged acceptance.
+See [Cron scope and remaining phases](CRON.md).
+
 ## Integrated Windows Preview with Usage II (2026-10-18)
 
 Windows preview source `2066af57c83367248c004ced01e625fcc0cced9a` merges

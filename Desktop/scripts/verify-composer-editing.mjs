@@ -41,8 +41,14 @@ try {
   await page.reload();
   const input = page.locator('.composer > .composer-input');
   await input.waitFor();
-  const value = expected => page.waitForFunction(expected =>
-    document.querySelector('.composer-input')?.value === expected, expected, { timeout: 5000 });
+  await page.waitForFunction(() =>
+    document.querySelector('.composer > .composer-input')?.getAttribute('contenteditable') === 'true',
+  undefined, { timeout: 60000 });
+  // Wait for both the editor transaction and its controlled React value to settle.
+  const value = expected => page.waitForFunction(expected => {
+    const element = document.querySelector('.composer-input');
+    return element?.value === expected && element.dataset.empty === String(!expected);
+  }, expected, { timeout: 5000 });
   const caret = expected => page.waitForFunction(expected => {
     const element = document.querySelector('.composer-input');
     return element?.selectionStart === expected && element.selectionEnd === expected;

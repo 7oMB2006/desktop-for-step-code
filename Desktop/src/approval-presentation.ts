@@ -11,7 +11,7 @@ export interface PermissionApprovalPresentation {
   inputKind: 'command' | 'parameters' | 'summary';
   otherParameters?: string;
   rawMessage: string;
-  operation: 'command' | 'file' | 'question' | 'tool';
+  operation: 'command' | 'file' | 'question' | 'tool' | 'project';
   action: string;
   target?: string;
   preview?: string;
@@ -140,7 +140,21 @@ function describeOperation(result: PermissionApprovalPresentation, input: Record
 export function permissionApprovalPresentation(
   request: UIRequest | undefined, messages: Message[], language: string, runtimeId?: string,
 ): PermissionApprovalPresentation | undefined {
-  if (!request || request.method !== 'confirm' || request.messageStyle === 'preformatted') return;
+  if (!request || request.method !== 'confirm') return;
+  if (request.projectTrust?.cwd && request.runtimeId === runtimeId) {
+    const zh = language === 'zh';
+    return {
+      title: zh ? '信任此项目？' : 'Trust this project?',
+      category: 'hazardous',
+      reason: zh ? '此授权会保存，允许项目资源和扩展代码，并非仅批准一次工具调用。'
+        : 'This saved authorization permits project resources and extension code, not just one tool call.',
+      toolName: '/trust', callId: request.id, input: request.projectTrust.cwd, inputKind: 'parameters',
+      rawMessage: request.message ?? '', operation: 'project',
+      action: zh ? '信任此项目？' : 'Trust this project?', target: request.projectTrust.cwd,
+      preview: request.message ?? '', previewLabel: zh ? '授权范围与生效时间' : 'Scope and activation',
+    };
+  }
+  if (request.messageStyle === 'preformatted') return;
   const title = /^(Approve|Dangerous) (\S+) \[([^\]\r\n]+)\]$/.exec(request.title ?? '');
   const rawMessage = request.message ?? '';
   const envelope = /^Call: (\S+)\n([\s\S]+?)\n\n([^\n]+)\n\nBatch calls may ask separately\nbefore approved tools begin running\.$/.exec(rawMessage.replace(/\r\n/g, '\n'));

@@ -6,6 +6,22 @@ import type { Message, UIRequest } from '../src/contracts';
 const callId = 'permission-call-3d6009f9';
 const summary = 'run_command command=powershell -NoProfile -Command Get-ChildItem...';
 const uncertain = 'Shell command could not be fully analyzed (unsupported-shell); explicit approval is required.';
+
+test('explicit Desktop project trust uses the drawer without pretending it is a one-time tool call', () => {
+  const request: UIRequest = { type: 'extension_ui_request', method: 'confirm', id: 'trust-1',
+    runtimeId: 'worker-1', messageStyle: 'preformatted', projectTrust: { cwd: 'D:\\project' },
+    message: 'Saved scope and restart warning' };
+  for (const language of ['zh', 'en']) {
+    const result = permissionApprovalPresentation(request, [], language, 'worker-1')!;
+    assert.equal(result.operation, 'project');
+    assert.equal(result.target, 'D:\\project');
+    assert.equal(result.preview, request.message);
+    assert.equal(result.toolName, '/trust');
+    assert.equal(result.inputKind, 'parameters');
+  }
+  assert.equal(permissionApprovalPresentation(request, [], 'zh', 'worker-2'), undefined);
+  assert.equal(permissionApprovalPresentation({ ...request, projectTrust: undefined }, [], 'zh', 'worker-1'), undefined);
+});
 function request(reason = uncertain, kind = 'Approve', toolName = 'run_command'): UIRequest {
   return {
     type: 'extension_ui_request', method: 'confirm', id: 'ui-1', runtimeId: 'worker-1',

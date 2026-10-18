@@ -17,7 +17,7 @@ export interface Message { role: string; content: string | Content[]; customType
 export interface RuntimeState { isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
 export interface ModelSelection { model: Model; thinkingLevel?: string }
 export interface ModelChange { id: string; userTimestamp: number; from: Pick<Model, 'id' | 'provider' | 'name'>; to: Pick<Model, 'id' | 'provider' | 'name'> }
-export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string }
+export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string; projectTrust?: { cwd: string } }
 export type RuntimeEvent = { type: string; [key: string]: any };
 export interface Preferences { interfaceSettings?: import('./interface-presets').InterfacePreferences; appearance?: import('./appearance').Appearance; theme: import('./theme').ThemePreference; accentColor?: string | null; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; workspaceSessionRedirects?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; collapsedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide'; updateChannel?: UpdateChannel; autoCheckUpdates?: boolean }
 export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
@@ -36,7 +36,21 @@ export interface ProviderDiagnostic {
   elapsedMs: number; status?: number; model: string; api: ProviderApi; endpoint: string;
 }
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[]; providers?: ProviderInfo[] }
+export interface CronJobData {
+  id: string; cron: string; prompt: string; recurring: boolean; durable: boolean;
+  createdAt: number; nextFireAt: number; autoExpireAt?: number;
+}
+export interface CronHost {
+  runtimeId: string; workspace: string; name: string; trusted: boolean; busy: boolean;
+  model?: string; permission?: PermissionPreset;
+}
+export interface CronTask extends CronJobData { key: string; workspace: string; runtimeId?: string; hostName?: string }
+export interface CronOverview { tasks: CronTask[]; hosts: CronHost[]; issues: { workspace: string; reason: 'unavailable' | 'untrusted' }[] }
+export interface CronCreateInput { runtimeId: string; cron: string; prompt: string; recurring: boolean; durable: boolean }
 export interface DesktopBridge {
+  cronList(): Promise<CronOverview>;
+  cronCreate(input: CronCreateInput): Promise<void>;
+  cronDelete(runtimeId: string, jobId: string): Promise<void>;
   readonly platform?: string;
   removeWorkspace(path: string): Promise<Snapshot>;
   relocateWorkspace(path: string): Promise<Snapshot | null>;

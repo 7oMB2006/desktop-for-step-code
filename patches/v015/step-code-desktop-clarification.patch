@@ -1,0 +1,99 @@
+diff --git a/packages/coding-agent/src/features/step-questionnaire.ts b/packages/coding-agent/src/features/step-questionnaire.ts
+index 7301fc9..4b32f0d 100644
+--- a/packages/coding-agent/src/features/step-questionnaire.ts
++++ b/packages/coding-agent/src/features/step-questionnaire.ts
+@@ -521,9 +521,10 @@ async function executeQuestionnaire(
+ 	params: ClarifyUserParams,
+ 	ctx: ExtensionContext,
+ 	telemetry?: StepTelemetryReporter,
++	desktop?: { callId: string; signal?: AbortSignal },
+ ): Promise<AgentToolResult<StepQuestionnaireDetails>> {
+ 	const questions = normalizeQuestions(params);
+-	if (!ctx.hasUI || ctx.mode !== "tui") {
++	if (!ctx.hasUI || (ctx.mode !== "tui" && !(ctx.mode === "rpc" && desktop))) {
+ 		return response({ questions, answers: [], cancelled: true }, "Error: clarify_user requires an interactive UI");
+ 	}
+ 	if (questions.length === 0 || questions.some((item) => !item.question)) {
+@@ -538,9 +539,11 @@ async function executeQuestionnaire(
+ 
+ 	const askedAt = Date.now();
+ 	const details =
+-		typeof ctx.ui.custom === "function"
+-			? await executeNativeDialog(questions, ctx)
+-			: await executeFallback(questions, ctx);
++		ctx.mode === "rpc" && desktop
++			? await executeDesktopDialog(questions, ctx, desktop)
++			: typeof ctx.ui.custom === "function"
++				? await executeNativeDialog(questions, ctx)
++				: await executeFallback(questions, ctx);
+ 	const outcome = details.cancelled
+ 		? "cancelled"
+ 		: details.answers.some((answer) => answer.wasCustom)
+@@ -558,7 +561,52 @@ async function executeQuestionnaire(
+ 		: response(details, answerText(questions, details.answers));
+ }
+ 
++// Beta desktop transport only. Tool parameters, decision policy and TUI stay upstream-owned.
++async function executeDesktopDialog(
++	questions: NormalizedQuestion[],
++	ctx: ExtensionContext,
++	desktop: { callId: string; signal?: AbortSignal },
++): Promise<StepQuestionnaireDetails> {
++	const value = await ctx.ui.input(
++		`Desktop clarification\n${JSON.stringify({ version: 1, callId: desktop.callId, questions })}`,
++		undefined,
++		{ signal: desktop.signal },
++	);
++	if (value === undefined || desktop.signal?.aborted) return { questions, answers: [], cancelled: true };
++	const raw: unknown = JSON.parse(value);
++	if (!Array.isArray(raw) || raw.length !== questions.length) throw new Error("Incomplete clarification answers");
++	const answers = questions.map((question, i): StepQuestionnaireAnswer => {
++		const answer: unknown = raw[i];
++		if (
++			!isRecord(answer) ||
++			answer.id !== question.id ||
++			typeof answer.value !== "string" ||
++			typeof answer.wasCustom !== "boolean"
++		)
++			throw new Error("Invalid clarification answer");
++		if (answer.wasCustom) {
++			if (!question.allowFreeform || !answer.value.trim()) throw new Error("Invalid custom clarification answer");
++			return { id: question.id, value: answer.value.trim(), label: answer.value.trim(), wasCustom: true };
++		}
++		const index = question.options.findIndex((option) => option.value === answer.value);
++		if (index < 0) throw new Error("Invalid clarification option");
++		return {
++			id: question.id,
++			value: question.options[index].value,
++			label: question.options[index].label,
++			wasCustom: false,
++			index: index + 1,
++		};
++	});
++	return { questions, answers, cancelled: false };
++}
++
+ export function registerStepClarifyUserExtension(pi: ExtensionAPI, telemetry?: StepTelemetryReporter): void {
++	pi.registerFlag("desktop-clarification", {
++		description: "Beta structured clarification transport for Desktop main RPC workers",
++		type: "boolean",
++		default: false,
++	});
+ 	pi.registerTool<typeof ClarifyUserSchema, StepQuestionnaireDetails>({
+ 		name: "clarify_user",
+ 		label: "Clarify user",
+@@ -568,7 +616,13 @@ export function registerStepClarifyUserExtension(pi: ExtensionAPI, telemetry?: S
+ 		parameters: ClarifyUserSchema,
+ 		prepareArguments: prepareClarifyArguments,
+ 		executionMode: "sequential",
+-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => executeQuestionnaire(params, ctx, telemetry),
++		execute: async (toolCallId, params, signal, _onUpdate, ctx) =>
++			executeQuestionnaire(
++				params,
++				ctx,
++				telemetry,
++				pi.getFlag("desktop-clarification") === true ? { callId: toolCallId, signal } : undefined,
++			),
+ 		renderCall: (params, theme) => {
+ 			const count = params.questions?.length ?? (params.question ? 1 : 0);
+ 			return new Text(

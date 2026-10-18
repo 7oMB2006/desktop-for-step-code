@@ -3,21 +3,30 @@ import { createRequire } from 'node:module';
 import { resolve, dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { assertStagingNodeVersion } from './staging-node-version.mjs';
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
 if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
 const nodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
-const PINNED_COMMIT = '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8';
+const windowsManifest = JSON.parse(await readFile(new URL('../../patches/v015/manifest.json', import.meta.url), 'utf8'));
+const PINNED_COMMIT = process.platform === 'win32'
+  ? windowsManifest.commit
+  : '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8';
+const patchFile = process.platform === 'win32' ? 'patches/v015/step-code-desktop.patch' : 'patches/step-code-desktop.patch';
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 if (commit !== PINNED_COMMIT) {
   // Naming both sides keeps a stale build instruction from reading as a broken checkout.
-  throw new Error(`Step Code source does not match the pinned Desktop baseline: source is at ${commit}, pinned is ${PINNED_COMMIT}; check out the pinned commit and reapply patches/step-code-desktop.patch`);
+  throw new Error(`Step Code source does not match the pinned Desktop baseline: source is at ${commit}, pinned is ${PINNED_COMMIT}; check out the pinned commit and reapply ${patchFile}`);
 }
+assertStagingNodeVersion(process.version, process.platform);
 // The manifest advertises the patch set below, so staging must prove the sources are
 // actually patched instead of trusting the working tree. `pnpm package` never applies the
 // patch itself; CI does it separately, and an unpatched checkout staged locally would
 // ship a runtime whose manifest claims patches that are not there.
-const patchedFiles = [
+const patchedFiles = process.platform === 'win32'
+  ? Object.entries(windowsManifest.patchedSources).map(([relative, expected]) => [relative.split('/').at(-1), relative, expected])
+  : [
+  ['step-cron.ts', 'packages/coding-agent/src/features/step-cron.ts', 'ce12a4056070feac64d5847fd743e57c6ac073d7'],
   ['step-questionnaire.ts', 'packages/coding-agent/src/features/step-questionnaire.ts', 'ef6f3da34d401f6bdda4b33765938363df8b9926'],
   ['step-plan.ts', 'packages/coding-agent/src/features/step-plan.ts', '31fcf9db425d54bdba864630488ca7b8aef838bd'],
   ['plan-mode-tools.ts', 'packages/coding-agent/src/features/plan-mode-tools.ts', '671e70c74ad4ca9614fd641db8597649d6121cb4'],
@@ -25,8 +34,8 @@ const patchedFiles = [
   ['index.ts', 'packages/coding-agent/src/index.ts', '8c4e177db7bf1c45b4ea4c9c9508e2be6c1f39a3'],
   ['build-coding-agent-bundle.mjs', 'scripts/build-coding-agent-bundle.mjs', '93aaca8db784bd66e45d0a1e4f177567a7c35272'],
   ['subagent-rpc-adapter.ts', 'packages/coding-agent/src/features/subagent/rpc-adapter.ts', '3ddc850f55fbd4947f0f980db5b4220ed55bb6d0'],
-  ['rpc-mode.ts', 'packages/coding-agent/src/modes/rpc/rpc-mode.ts', '6066759100dc9e8af61d35c8274c6ee52eabfe5f'],
-  ['rpc-types.ts', 'packages/coding-agent/src/modes/rpc/rpc-types.ts', '4e897e03248ce9224b00dd7bd3231bdb8c878eb9'],
+  ['rpc-mode.ts', 'packages/coding-agent/src/modes/rpc/rpc-mode.ts', 'e6a791e25edb478dc65dc4d9c64780e748a6af09'],
+  ['rpc-types.ts', 'packages/coding-agent/src/modes/rpc/rpc-types.ts', 'ea782adea7960179e2ae2a9bb2e5df392cd99cd8'],
   ['mcp.ts', 'packages/coding-agent/src/step/mcp.ts', 'dd9bf2ce923497dcf5519ee5ee1aa88192c06731'],
 ];
 const patchedSourceHashes = {};
@@ -47,6 +56,7 @@ const source = join(upstream, 'packages/coding-agent');
 const npmEntry = resolve(dirname(process.execPath), process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : '../lib/node_modules/npm/bin/npm-cli.js');
 await readFile(npmEntry);
 execFileSync(process.execPath, [npmEntry, '--prefix', source, 'run', 'build'], { cwd: upstream, stdio: 'inherit' });
+if (process.platform === 'win32') await readFile(join(source, 'dist/bundle/chunks/activity-worker.js'));
 const currentNode = await readFile(process.execPath);
 const nodeSha256 = createHash('sha256').update(currentNode).digest('hex');
 let matchingLicense = false;
@@ -88,5 +98,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta'], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management'], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

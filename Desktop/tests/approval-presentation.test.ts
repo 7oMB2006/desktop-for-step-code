@@ -6,6 +6,22 @@ import type { Message, UIRequest } from '../src/contracts';
 const callId = 'permission-call-3d6009f9';
 const summary = 'run_command command=powershell -NoProfile -Command Get-ChildItem...';
 const uncertain = 'Shell command could not be fully analyzed (unsupported-shell); explicit approval is required.';
+
+test('explicit Desktop project trust uses the drawer without pretending it is a one-time tool call', () => {
+  const request: UIRequest = { type: 'extension_ui_request', method: 'confirm', id: 'trust-1',
+    runtimeId: 'worker-1', messageStyle: 'preformatted', projectTrust: { cwd: 'D:\\project' },
+    message: 'Saved scope and restart warning' };
+  for (const language of ['zh', 'en']) {
+    const result = permissionApprovalPresentation(request, [], language, 'worker-1')!;
+    assert.equal(result.operation, 'project');
+    assert.equal(result.target, 'D:\\project');
+    assert.equal(result.preview, request.message);
+    assert.equal(result.toolName, '/trust');
+    assert.equal(result.inputKind, 'parameters');
+  }
+  assert.equal(permissionApprovalPresentation(request, [], 'zh', 'worker-2'), undefined);
+  assert.equal(permissionApprovalPresentation({ ...request, projectTrust: undefined }, [], 'zh', 'worker-1'), undefined);
+});
 function request(reason = uncertain, kind = 'Approve', toolName = 'run_command'): UIRequest {
   return {
     type: 'extension_ui_request', method: 'confirm', id: 'ui-1', runtimeId: 'worker-1',
@@ -65,6 +81,41 @@ test('ordinary writes keep their complete structured parameters and English loca
   assert.equal(result.inputKind, 'parameters');
   assert.deepEqual(JSON.parse(result.input), input);
   assert.match(result.reason, /permission settings/);
+});
+
+test('fused file approvals preserve the complete embedded command, including blank lines and redaction', () => {
+  const command = 'printf checked\n\nprintf second\nAPI_KEY=private-value printf safe';
+  for (const name of ['write_file', 'edit_file']) {
+    const r = request(`${name} can modify the workspace or execute a command\nthen_run: ${command}`, 'Approve', name);
+    const input = { path: 'sample.txt', content: 'after', search: 'before', replace: 'after', then_run: command };
+    const result = permissionApprovalPresentation(r, messages(input, callId, name), 'zh', 'worker-1')!;
+    assert.equal(result.category, 'ordinary');
+    assert.equal(result.target, 'sample.txt');
+    assert.equal(result.preview, name === 'write_file' ? 'after' : '替换前\nbefore\n\n替换后\nafter');
+    assert.match(result.verificationCommand!, /printf checked\n\nprintf second/);
+    assert.doesNotMatch(JSON.stringify(result), /private-value/);
+    const fallback = permissionApprovalPresentation(r, [], 'en', 'worker-2')!;
+    assert.equal(fallback.inputKind, 'summary');
+    assert.equal(fallback.verificationCommand, result.verificationCommand, 'the command comes from this request, not another runtime');
+    assert.equal(fallback.target, undefined);
+  }
+});
+
+test('embedded command policies retain hazardous, uncertain and explicit-confirm classifications', () => {
+  for (const [reason, kind, category] of [
+    ['Dangerous command requires confirmation (recursive-force-remove): run_command command=rm -rf ./empty', 'Dangerous', 'hazardous'],
+    [uncertain, 'Approve', 'uncertain'],
+    ['Policy override for run_command: confirm', 'Approve', 'ordinary'],
+    ['run_command can modify the workspace or execute a command', 'Approve', 'ordinary'],
+  ]) {
+    const r = request(`then_run (run_command): ${reason}\nthen_run: printf checked`, kind, 'write_file');
+    const result = permissionApprovalPresentation(r, [], 'zh', 'worker-1')!;
+    assert.equal(result.category, category);
+    assert.equal(result.verificationCommand, 'printf checked');
+  }
+  assert.equal(permissionApprovalPresentation(request(`unknown reason\nthen_run: printf checked`, 'Approve', 'write_file'), [], 'zh'), undefined);
+  assert.equal(permissionApprovalPresentation(request(`${uncertain}\nthen_run: printf checked`), [], 'zh'), undefined);
+  assert.equal(permissionApprovalPresentation(request(`${uncertain}\nunrecognized suffix`, 'Approve', 'write_file'), [], 'zh'), undefined);
 });
 
 test('redacts credentials from commands, summaries, raw details and auxiliary parameters', () => {

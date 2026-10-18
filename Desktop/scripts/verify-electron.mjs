@@ -707,9 +707,12 @@ try {
   assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained empty project draft');
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
   if (process.platform === 'darwin') {
     const draftInput = page.getByRole('textbox', { name: '消息', exact: true });
     await draftInput.fill('');
+    // fill() can finish before ProseMirror commits its observed DOM change.
+    await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '');
     await draftInput.pressSequentially('Retained empty project draft');
     await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
     const roles = await app.evaluate(({ Menu }) => {

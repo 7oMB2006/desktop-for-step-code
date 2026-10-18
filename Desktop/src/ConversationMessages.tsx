@@ -190,7 +190,7 @@ export function Tool({ item, active, ...props }: {
   const zh = props.language === 'zh';
   const name = item.call?.name ?? item.result?.toolName ?? (zh ? '工具' : 'Tool');
   const subject = toolSubject(item.call);
-  const presentation = toolPresentation(name, item.result, active, props.language);
+  const presentation = toolPresentation(name, item.result, active, props.language, item.call?.arguments);
   const waiting = !item.result && Boolean(item.call?.id && props.awaitingToolCalls?.includes(item.call.id));
   if (name === 'clarify_user') return <QuestionTool item={item} waitingApproval={waiting} zh={zh}/>;
   const { kind, status } = presentation;

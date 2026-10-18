@@ -11,13 +11,14 @@ export interface PermissionApprovalPresentation {
   inputKind: 'command' | 'parameters' | 'summary';
   otherParameters?: string;
   rawMessage: string;
-  operation: 'command' | 'file' | 'question' | 'tool';
+  operation: 'command' | 'file' | 'question' | 'tool' | 'project';
   action: string;
   target?: string;
   preview?: string;
   previewLabel?: string;
   choices?: { label: string; description?: string }[];
   agentNote?: string;
+  verificationCommand?: string;
 }
 
 const dangerousRules: Record<string, [string, string]> = {
@@ -101,8 +102,8 @@ function describeOperation(result: PermissionApprovalPresentation, input: Record
         result.preview = input.edits.map((edit, index) =>
           `${index + 1}. ${t('替换前', 'Before')}\n${redactApprovalText(edit.oldText)}\n\n${t('替换后', 'After')}\n${redactApprovalText(edit.newText)}`).join('\n\n');
       } else if (!Array.isArray(input.edits)) {
-        const before = text('oldText', 'old_text', 'old_string');
-        const after = text('newText', 'new_text', 'new_string');
+        const before = text('search', 'oldText', 'old_text', 'old_string');
+        const after = text('replace', 'newText', 'new_text', 'new_string');
         if (before !== undefined && after !== undefined) {
           result.preview = `${t('替换前', 'Before')}\n${before}\n\n${t('替换后', 'After')}\n${after}`;
         }
@@ -139,13 +140,31 @@ function describeOperation(result: PermissionApprovalPresentation, input: Record
 export function permissionApprovalPresentation(
   request: UIRequest | undefined, messages: Message[], language: string, runtimeId?: string,
 ): PermissionApprovalPresentation | undefined {
-  if (!request || request.method !== 'confirm' || request.messageStyle === 'preformatted') return;
+  if (!request || request.method !== 'confirm') return;
+  if (request.projectTrust?.cwd && request.runtimeId === runtimeId) {
+    const zh = language === 'zh';
+    return {
+      title: zh ? '信任此项目？' : 'Trust this project?',
+      category: 'hazardous',
+      reason: zh ? '此授权会保存，允许项目资源和扩展代码，并非仅批准一次工具调用。'
+        : 'This saved authorization permits project resources and extension code, not just one tool call.',
+      toolName: '/trust', callId: request.id, input: request.projectTrust.cwd, inputKind: 'parameters',
+      rawMessage: request.message ?? '', operation: 'project',
+      action: zh ? '信任此项目？' : 'Trust this project?', target: request.projectTrust.cwd,
+      preview: request.message ?? '', previewLabel: zh ? '授权范围与生效时间' : 'Scope and activation',
+    };
+  }
+  if (request.messageStyle === 'preformatted') return;
   const title = /^(Approve|Dangerous) (\S+) \[([^\]\r\n]+)\]$/.exec(request.title ?? '');
   const rawMessage = request.message ?? '';
-  const envelope = /^Call: (\S+)\n([^\n]+)\n\n([\s\S]+?)\n\nBatch calls may ask separately\nbefore approved tools begin running\.$/.exec(rawMessage.replace(/\r\n/g, '\n'));
+  const envelope = /^Call: (\S+)\n([\s\S]+?)\n\n([^\n]+)\n\nBatch calls may ask separately\nbefore approved tools begin running\.$/.exec(rawMessage.replace(/\r\n/g, '\n'));
   if (!title || !envelope || title[3] !== envelope[1].slice(-8)) return;
-  const [, callId, sourceReason, summary] = envelope;
+  const [, callId, reasonEnvelope, summary] = envelope;
   const toolName = title[2];
+  const fused = /^(?:then_run \(run_command\): )?([^\n]+)\nthen_run: ([\s\S]+)$/.exec(reasonEnvelope);
+  if (fused && !['edit_file', 'write_file'].includes(toolName)) return;
+  if (!fused && reasonEnvelope.includes('\n')) return;
+  const sourceReason = fused?.[1] ?? reasonEnvelope;
   const zh = language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const analysis = /^Shell command could not be fully analyzed \(([^()\n]+)\); explicit approval is required\.$/.exec(sourceReason);
@@ -169,7 +188,9 @@ export function permissionApprovalPresentation(
       : t('这条命令命中了上游的高风险规则，需要你批准后才能执行。', 'This command matched an upstream high-risk rule and needs your approval before execution.');
   } else if (title[1] === 'Approve' && (
     sourceReason === `${toolName} can modify the workspace or execute a command` ||
-    sourceReason === `Policy override for ${toolName}: confirm`
+    sourceReason === `Policy override for ${toolName}: confirm` ||
+    fused && (sourceReason === 'run_command can modify the workspace or execute a command'
+      || sourceReason === 'Policy override for run_command: confirm')
   )) {
     category = 'ordinary';
     reason = t('当前权限设置要求先批准这次工具操作。', 'The current permission settings require approval for this tool call.');
@@ -185,11 +206,15 @@ export function permissionApprovalPresentation(
     operation: commandTool ? 'command' : writingTool ? 'file' : 'tool',
     action: commandTool ? t('执行命令', 'Execute a command') : writingTool ? t('修改文件', 'Change a file') : `${t('调用工具', 'Call tool')} ${toolName}`,
     inputKind: 'summary', rawMessage: redactApprovalText(rawMessage),
+    verificationCommand: fused ? redactApprovalText(fused[2]) : undefined,
   };
   // Never recover inputs by the short display ID or from another runtime.
-  if (request.runtimeId && request.runtimeId !== runtimeId) return result;
+  const describeFused = () => {
+    if (result.verificationCommand !== undefined) result.action += t('并执行验证命令', ' and run a verification command');
+  };
+  if (request.runtimeId && request.runtimeId !== runtimeId) { describeFused(); return result; }
   const context = callContext(messages, callId, toolName);
-  if (!context) return result;
+  if (!context) { describeFused(); return result; }
   const { input } = context;
   result.agentNote = context.note;
   try {
@@ -206,6 +231,7 @@ export function permissionApprovalPresentation(
       result.inputKind = 'parameters';
     }
     describeOperation(result, input, zh);
+    describeFused();
   } catch { return { ...result, input: redactApprovalText(summary), inputKind: 'summary', otherParameters: undefined }; }
   return result;
 }

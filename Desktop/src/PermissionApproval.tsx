@@ -146,8 +146,13 @@ export function PermissionApproval({ presentation, requestId, open, language, on
       <Icon size={17}/><h2>{p.operation === 'question' ? t('允许 Agent 向你提问？', 'Allow the agent to ask you a question?') : p.action}</h2><code>{p.toolName}</code>
     </header>
     <div id={contentId} className="permission-approval-content">
-      {p.category === 'hazardous' && <p className="permission-approval-reason hazardous"><strong>{t('命中高风险规则', 'High-risk rule matched')}</strong> · {p.reason}</p>}
+      {p.category === 'hazardous' && p.verificationCommand === undefined && <p className="permission-approval-reason hazardous"><strong>{p.operation === 'project' ? t('持久授权', 'Persistent authorization') : t('命中高风险规则', 'High-risk rule matched')}</strong> · {p.reason}</p>}
       {p.target && <p className="permission-approval-target"><span>{p.operation === 'command' ? t('工作目录', 'Working directory') : t('目标', 'Target')}</span><code>{p.target}</code></p>}
+      {p.verificationCommand !== undefined && <div className="permission-approval-verification">
+        <div className="permission-approval-input-heading"><strong>{t('文件修改后执行', 'Run after the file change')}</strong></div>
+        <pre className="permission-approval-input" tabIndex={0}>{p.verificationCommand}</pre>
+      </div>}
+      {p.category === 'hazardous' && p.verificationCommand !== undefined && <p className="permission-approval-reason hazardous"><strong>{t('命中高风险规则', 'High-risk rule matched')}</strong> · {p.reason}</p>}
       {p.preview !== undefined && (p.operation === 'question'
         ? <p className="permission-approval-question">{p.preview.split(/(`[^`\n]+`)/g).map((part, index) =>
           part.startsWith('`') && part.endsWith('`') ? <code key={index}>{part.slice(1, -1)}</code> : part)}</p>
@@ -167,7 +172,7 @@ export function PermissionApproval({ presentation, requestId, open, language, on
       {expanded && <div className="permission-approval-detail">
       {p.agentNote && <div className="permission-approval-agent-note question-note"><span>{t('Agent 说明', 'Agent note')}</span><p>{p.agentNote}</p></div>}
       {p.category !== 'hazardous' && p.category !== 'uncertain' && <p className="permission-approval-reason">{p.reason}</p>}
-      {p.inputKind !== 'summary' && <><button type="button" className="permission-approval-disclosure" aria-expanded={inputOpen} aria-controls={inputId} onClick={() => setInputOpen(value => !value)}>
+      {p.inputKind !== 'summary' && p.operation !== 'project' && <><button type="button" className="permission-approval-disclosure" aria-expanded={inputOpen} aria-controls={inputId} onClick={() => setInputOpen(value => !value)}>
         <DisclosureChevron/>{t('完整调用参数', 'Full tool input')}</button>
         {inputOpen && <div id={inputId}><pre className="permission-approval-parameters" tabIndex={0}>{p.input}</pre>
           {p.otherParameters && <pre className="permission-approval-parameters" tabIndex={0}>{p.otherParameters}</pre>}</div>}</>}
@@ -180,10 +185,10 @@ export function PermissionApproval({ presentation, requestId, open, language, on
       </div>}
       </div>
       <footer className="button-row">
-        <span>{p.operation === 'question' ? t('仅允许提问，不会代你选择答案', 'Allows asking only; does not select an answer') : t('仅限本次调用', 'This call only')}</span>
+        <span>{p.operation === 'project' ? t('保存后重启生效', 'Applies on runtime restart') : p.operation === 'question' ? t('仅允许提问，不会代你选择答案', 'Allows asking only; does not select an answer') : t('仅限本次调用', 'This call only')}</span>
         <button type="button" disabled={pending} onClick={onLater}>{t('稍后处理', 'Review later')}</button>
-        <button type="button" aria-label={t('拒绝本次操作', 'Deny this call')} disabled={pending} onClick={() => void respond({ cancelled: true })}>{p.operation === 'question' ? t('不允许', 'Don’t allow') : t('拒绝', 'Deny')}</button>
-        <button type="button" aria-label={t('批准本次操作', 'Approve this call')} className="primary" disabled={pending} onClick={() => void respond({ confirmed: true })}>{p.operation === 'question' ? t('允许提问', 'Allow question') : t('允许一次', 'Allow once')}</button>
+        <button type="button" aria-label={p.operation === 'project' ? t('取消项目信任', 'Cancel project trust') : t('拒绝本次操作', 'Deny this call')} disabled={pending} onClick={() => void respond({ cancelled: true })}>{p.operation === 'project' ? t('取消', 'Cancel') : p.operation === 'question' ? t('不允许', 'Don’t allow') : t('拒绝', 'Deny')}</button>
+        <button type="button" aria-label={p.operation === 'project' ? t('信任项目并保存', 'Trust project and save') : t('批准本次操作', 'Approve this call')} className="primary" disabled={pending} onClick={() => void respond({ confirmed: true })}>{p.operation === 'project' ? t('信任并保存', 'Trust and save') : p.operation === 'question' ? t('允许提问', 'Allow question') : t('允许一次', 'Allow once')}</button>
       </footer>
     </section>;
 }

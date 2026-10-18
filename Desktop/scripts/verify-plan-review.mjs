@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -150,6 +151,14 @@ try {
   await dialog.getByRole('button', { name: '批准并执行', exact: true }).click();
   const runningPlan = page.getByRole('button', { name: '执行计划中', exact: true });
   await runningPlan.waitFor();
+  if (process.platform === 'win32') {
+    const approved = await page.evaluate(async () => (await window.desktop.snapshot()).messages
+      .findLast(message => message.toolName === 'exit_plan_mode' && message.details?.outcome === 'approved'));
+    assert.equal(approved.details.planContents, initialProposal);
+    assert.equal(approved.details.planHash, createHash('sha256').update(initialProposal, 'utf8').digest('hex'));
+    assert.equal(approved.details.planModeExited, true);
+    assert.equal(approved.details.approvalSource, 'external', 'Desktop owns the external review decision');
+  }
   const approvalNote = page.locator('.plan-approval-note');
   assert.equal(await approvalNote.count(), 1, 'A confirmed approval produces exactly one inline note');
   await approvalNote.locator('button').click();

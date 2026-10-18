@@ -2,7 +2,7 @@ import { open, realpath, mkdir, readFile, writeFile, rename, rm } from 'node:fs/
 import { createHash, randomUUID } from 'node:crypto';
 import { join, relative, isAbsolute } from 'node:path';
 import type { Message } from '../src/contracts';
-import { projectWorkflow, preserveWorkflow } from '../src/workflow-state';
+import { projectWorkflow, preserveWorkflow, workflowIsActive } from '../src/workflow-state';
 import type { RuntimeEvent } from '../src/contracts';
 
 type Binding = { runId: string; startedAt: number };
@@ -91,7 +91,7 @@ export async function hydrateWorkflowHistory(cwd: string, messages: Message[], b
         const saved = projectWorkflow(JSON.parse(buffer.subarray(0, bytesRead).toString('utf8')), message.toolCallId);
         if (saved?.runId !== identity.runId || (identity.startedAt !== undefined && saved.startedAt !== identity.startedAt)) return message;
         // An error without structured details cannot replace a bound terminal progress state.
-        if (!current && saved.status !== 'running') return { ...message, desktopWorkflow: saved };
+        if (!current && !workflowIsActive(saved.status)) return { ...message, desktopWorkflow: saved };
         return preserveWorkflow({ ...message, desktopWorkflow: saved }, message);
       } finally { await handle.close(); }
     } catch { return preserveWorkflow(undefined, message); }

@@ -87,12 +87,14 @@ import type { FilePreviewData, FileTarget } from './contracts';
 import { SubagentPanel } from './SubagentPanel';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
-import { currentTurnWorkflows, workflowsFromMessages } from './workflow-state';
+import { currentTurnWorkflows, workflowsFromMessages, workflowIsActive } from './workflow-state';
 import { WorkflowTrigger } from './WorkflowView';
 import './appearance.css';
 import './theme.css';
 import './settings-dialog.css';
 import { AccountAllowancePanel } from './AccountAllowancePanel';
+import { CronManager } from './CronManager';
+import { SidebarTaskActions } from './ScheduledTasks';
 import { EstimateRules } from './EstimateRules';
 
 const bridge = window.desktop;
@@ -171,6 +173,7 @@ function App() {
   // pushes changes here.
   const [systemDark, setSystemDark] = useState(() => window.desktopTheme?.systemDark ?? false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [scheduledOpen, setScheduledOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [tab, setTab] = useState('account');
@@ -220,7 +223,7 @@ function App() {
   const [selectedWorkflowAgent, setSelectedWorkflowAgent] = useState<string | null>(null);
   const workflows = useMemo(() => workflowsFromMessages(data.messages, busy), [data.messages, busy]);
   const turnWorkflows = useMemo(() => currentTurnWorkflows(data.messages, busy), [data.messages, busy]);
-  const runningWorkflow = busy ? [...turnWorkflows].reverse().find(flow => flow.status === 'running') : undefined;
+  const runningWorkflow = busy ? [...turnWorkflows].reverse().find(flow => workflowIsActive(flow.status)) : undefined;
   const latestWorkflow = runningWorkflow ?? workflows.at(-1);
   const currentTurnWorkflow = runningWorkflow ?? turnWorkflows.at(-1);
   const currentGoal = data.launch?.goal?.status === 'complete' ? undefined : data.launch?.goal;
@@ -322,7 +325,7 @@ function App() {
   }, [navigationTarget?.session.id]);
   useLayoutEffect(followLayout, [navigationTarget, followLayout]);
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
-  const visibleRightPanel = usageOpen ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+  const visibleRightPanel = usageOpen || scheduledOpen ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = expandedRightPanel === visibleRightPanel && !details &&
@@ -463,6 +466,7 @@ function App() {
   };
   const navigateSession = async (session: Session) => {
     setUsageOpen(false);
+    setScheduledOpen(false);
     if (!bridge || switching.current && !navigationPending.current) return;
     if (!navigationPending.current && session.id === view.current.sessionId) return;
     if (!navigationPending.current) rememberView();
@@ -625,7 +629,11 @@ function App() {
     return () => clearInterval(timer);
   }, [runMetrics?.startedAt, runMetrics?.finishedAt]);
   useEffect(() => {
-    if (!connected || !data.runtimeId) { setLevels(data.state?.model?.thinkingLevels ?? []); setCommands([]); return; }
+    if (!connected || !data.runtimeId) {
+      setLevels(data.state?.model?.thinkingLevels ?? []);
+      setCommands(data.draftId ? desktopCommands([]).filter(command => command.source === 'desktop') : []);
+      return;
+    }
     const id = data.runtimeId;
     void run(async () => {
       const [effort, available] = await Promise.all([bridge!.command('get_available_thinking_levels', undefined, id), bridge!.command('get_commands', undefined, id)]);
@@ -772,6 +780,7 @@ function App() {
   };
   const openUsage = () => {
     finishSettingsClose();
+    setScheduledOpen(false);
     setUsageOpen(true);
     setCompactSidebarOpen(false);
   };
@@ -1034,9 +1043,9 @@ function App() {
     const activity = status === 'idle' || status === 'completed' ? data.unreadSessionIds?.includes(s.id) ? 'completed' : 'idle' : status;
     const label = activity === 'waiting' ? t('等待确认', 'Awaiting approval') : activity === 'failed' || activity === 'interrupted' ? t('任务已终止', 'Task interrupted') : activity === 'completed' ? t('有未读回复', 'Unread reply') : t('正在运行', 'Running');
     return <div key={s.id} data-reorder-id={s.id} data-reorder-kind="session" data-reorder-group={group} data-reorder-title={sessionTitle(s, t('新会话', 'New session'))}
-      className={`session-row ${s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'selected' : ''} ${sessionDrag?.id === s.id ? 'session-dragging' : ''} ${sessionDrag?.target === s.id ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`}
+      className={`session-row ${!scheduledOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'selected' : ''} ${sessionDrag?.id === s.id ? 'session-dragging' : ''} ${sessionDrag?.target === s.id ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`}
       onContextMenu={e => showContext(e, 'session', s.id)}>
-      <button aria-current={s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
+      <button aria-current={!scheduledOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
         disabled={!bridge || loading && !navigationTarget} onClick={() => void navigateSession(s)}
         aria-keyshortcuts={manualOrder && group !== '__archived__' ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
         onKeyDown={e => {
@@ -1071,11 +1080,12 @@ function App() {
   const independentExpanded = !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, _sessions: typeof data.sessions) => {
     setUsageOpen(false);
+    setScheduledOpen(false);
     await run(() => setWorkspaceExpanded(workspaceKey(path), true));
     await applySnapshot(() => bridge!.beginSession(path));
   };
-  const newSession = () => { setUsageOpen(false); return applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace)); };
-  const openProject = () => { setUsageOpen(false); return applySnapshot(() => bridge!.chooseSessionProject()); };
+  const newSession = () => { setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace)); };
+  const openProject = () => { setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.chooseSessionProject()); };
   const repairProject = async (path: string) => {
     if (loading) return;
     setLoading(true);
@@ -1112,7 +1122,7 @@ function App() {
   };
   const menus: WindowMenu[] = [
     { id: 'file', label: t('文件', 'File'), items: [
-      { label: t('新建独立会话', 'New independent session'), disabled: !bridge || loading, action: () => void applySnapshot(() => bridge!.beginSession()) },
+      { label: t('新建独立会话', 'New independent session'), disabled: !bridge || loading, action: () => { setScheduledOpen(false); void applySnapshot(() => bridge!.beginSession()); } },
       { label: t('打开项目…', 'Open project...'), disabled: !bridge || loading, action: () => void openProject() },
       { label: t('打开会话文件夹', 'Open session folder'), disabled: !bridge || !data.runtimeId || loading, action: () => void run(() => bridge!.openSessionFolder()) },
       { label: t('退出应用', 'Quit application'), disabled: !bridge, action: () => void run(() => bridge!.windowControl('quit')) },
@@ -1252,7 +1262,8 @@ function App() {
         ? <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
           aria-pressed={usageOpen} onClick={openUsage}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
         : <div className="sidebar-identity"><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></div>}
-      <button className="new-chat" disabled={!bridge || loading} onClick={() => void newSession()}><Plus size={17}/>{t('新建会话', 'New session')}</button>
+      <SidebarTaskActions selected={scheduledOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
+        onScheduledTasks={() => { if (!bridge) return; setUsageOpen(false); setDetails(''); setExpandedRightPanel(null); setScheduledOpen(true); setCompactSidebarOpen(false); }}/>
       <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
           <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
@@ -1271,7 +1282,11 @@ function App() {
       <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
-    <main inert={settingsOpen || Boolean(removeProject)}
+    {scheduledOpen && bridge && <main inert={settingsOpen || Boolean(removeProject)}>
+      {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
+        <button onClick={() => { setScheduledOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
+      <CronManager bridge={bridge}/></main>}
+    <main hidden={scheduledOpen} inert={scheduledOpen || settingsOpen || Boolean(removeProject)}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
@@ -1437,7 +1452,7 @@ function App() {
       </div>
     </main>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
-      enabled={connected && !loading && !settingsOpen && !usageOpen && !preview && !requests.length && !renaming}
+      enabled={!scheduledOpen && !usageOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
       onError={setError} onQuote={quote => {
         if (quotes.some(item => item.messageIndex === quote.messageIndex && item.text === quote.text)) return true;
         if (quotes.length >= MAX_QUOTES) { setError(t('最多添加 8 段引用', 'Maximum 8 quotes')); return false; }
@@ -1510,7 +1525,7 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
-    <nav ref={rightRail} className="right-tool-rail" style={usageOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || Boolean(navigationTarget) || Boolean(removeProject)}>
+    <nav hidden={scheduledOpen || usageOpen} ref={rightRail} className="right-tool-rail" style={usageOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || Boolean(navigationTarget) || Boolean(removeProject)}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><FileDiff size={18} strokeWidth={1.5}/></IconButton>

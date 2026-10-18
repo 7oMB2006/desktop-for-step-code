@@ -256,7 +256,9 @@ try {
   assert.equal(count('WORKFLOW-RECOVERY-C'), 1);
   const changedScript = script.replace('WORKFLOW-RECOVERY-B', 'WORKFLOW-RECOVERY-B-CHANGED');
   recoveryCalls.set('WORKFLOW-CHANGED', { script: changedScript, resumeFromRunId: resumedFlow.runId, agentTimeoutMs: 30000 });
-  const changed = await submitRecovery('WORKFLOW-CHANGED');
+  await submitRecovery('WORKFLOW-CHANGED');
+  const changed = await waitSnapshot(state =>
+    state.messages.find(message => message.toolCallId === 'WORKFLOW-CHANGED')?.desktopWorkflow?.agents.length === 3);
   assert.equal(changed.messages.find(message => message.toolCallId === 'WORKFLOW-CHANGED').desktopWorkflow.status, 'completed');
   assert.equal(count('WORKFLOW-RECOVERY-A'), 1);
   assert.equal(count('WORKFLOW-RECOVERY-B-CHANGED'), 1);

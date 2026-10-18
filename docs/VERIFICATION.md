@@ -3280,3 +3280,11 @@ tests and 14 focused CLM/collaboration/staging tests passed on that host. CLM
 completion waits now expose fixture assertion failures and native child exit
 codes immediately instead of hiding them behind a generic timeout; fallback
 diagnostics contain only event types, counts and activity flags.
+
+The Node 24.16.0 local suite passed 496 Desktop tests with 13 platform skips,
+and cross-session Electron acceptance passed. A local Workflow recovery replay
+also exposed a fixture race: the final tool result can arrive before its
+asynchronous orchestration projection contains the nodes. The changed-script
+recovery check now waits for all three projected nodes before asserting their
+exact cached/completed/cached states. The targeted Workflow acceptance passed;
+the full runtime replay and cloud checks remain the final gates.

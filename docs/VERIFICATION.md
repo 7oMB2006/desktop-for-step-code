@@ -3216,3 +3216,21 @@ remain. Typecheck, production build and 481 local tests passed (one Windows-only
 check skipped). The native updater fixture passed download, verification,
 replacement, acknowledgement and completed-ZIP cleanup. OS launch remains a fixture;
 this does not establish real Gatekeeper approval or a public downloaded upgrade.
+
+## PR #136 Windows CI timeout follow-up (2026-10-18)
+
+Run 39056427912 passed the Windows interface and sessions groups, while its runtime
+job was cancelled with a 45-minute maximum-execution annotation. GitHub did not
+provide usable runtime job logs or an uploaded timing report, so the hanging
+script and underlying cause remain unconfirmed. The separate macOS run passed.
+
+Every Windows acceptance script now has a five-minute default deadline, retaining
+per-script overrides. Timeout cleanup targets only the owned process tree and uses
+the Windows system taskkill executable. The timing report records the active
+script, start time and deadline before launch, then clears it after completion.
+
+The CI policy/runner suite passed all 14 tests, including real timeout/cancellation
+and Windows descendant cleanup. A full local runtime-group replay passed all 17
+checks with a two-minute default deadline (existing explicit overrides retained).
+This did not reproduce the cloud hang and is not proof that its cause is fixed;
+the next cloud run remains the integration gate. No application package changed.

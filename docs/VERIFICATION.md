@@ -3288,3 +3288,16 @@ asynchronous orchestration projection contains the nodes. The changed-script
 recovery check now waits for all three projected nodes before asserting their
 exact cached/completed/cached states. The targeted Workflow acceptance passed;
 the full runtime replay and cloud checks remain the final gates.
+
+Both local acceptance groups passed on Node 24.16.0: runtime 17/17 and interface
+28/28. Workflow recovery also passed three additional consecutive repetitions.
+Cloud runtime and sessions passed, as did native macOS packaged acceptance.
+
+Cloud interface setup exposed a separate dependency incompatibility: Playwright
+1.58.2 downloaded Chrome to 100% and then stalled for almost ten minutes. This
+matches microsoft/playwright#41000, whose fix shipped in Playwright 1.60.
+The test-only dependency is now pinned to 1.60.0, retaining the Windows Node
+TCP-connect fix. Browser installation has its own five-minute deadline so setup
+cannot consume the full job limit. The post-upgrade cloud run is still required.
+With Playwright 1.60.0, a clean Chromium/FFmpeg/headless-shell installation into
+the isolated D: test cache completed on Node 24.16.0; Desktop typecheck passed.

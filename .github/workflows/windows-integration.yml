@@ -99,6 +99,7 @@ jobs:
 
       - name: Install startup preview browser
         if: inputs.group == 'interface'
+        timeout-minutes: 5
         working-directory: Desktop
         run: |
           corepack pnpm exec playwright install chromium

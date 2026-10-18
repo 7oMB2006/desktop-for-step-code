@@ -199,6 +199,7 @@ let authData: Record<string, unknown> = {};
 let appliedAuthData: Record<string, unknown> = {};
 const usageEstimates = new UsageEstimates(join(app.getPath('userData'), 'usage-estimates'), () => appliedAuthData,
   error => { void crashLog.record('usage-estimates', error); });
+let usageOverviewPending: Promise<import('../src/usage-overview').UsageOverview> | undefined;
 const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
   (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
   Date.now, () => performance.now(), 12000, async signal => {
@@ -1362,6 +1363,14 @@ async function handle(method: string, args: any[]) {
       if (args[0] !== undefined && typeof args[0] !== 'boolean') throw new Error('Invalid allowance refresh');
       return accountAllowance.query(args[0] === true);
     case 'estimateSettings': return usageEstimates.settings();
+    case 'usageOverview': {
+      // Coalesce scans across windows. The admin worker is local-only and bounded.
+      // The native scan has a 28s deadline; allow bounded cache/projection/IPC headroom.
+      usageOverviewPending ??= admin.request('usage_overview', {}, 60000)
+        .then(result => usageEstimates.overview(result as import('../src/usage-overview').UsageOverview))
+        .finally(() => { usageOverviewPending = undefined; });
+      return usageOverviewPending;
+    }
     case 'setEstimateRules': {
       if (settingsMutation) throw new Error('Account change in progress');
       return usageEstimates.setRules(args[0], args[1]);

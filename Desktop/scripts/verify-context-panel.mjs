@@ -90,6 +90,18 @@ try {
   await verifyTrackless(panel.locator('.context-panel-scroll'));
   await page.waitForTimeout(500);
   assert.equal(await panel.getByRole('meter').getAttribute('aria-valuenow'), '7.1');
+  const unitCycle = panel.locator('.usage-unit-cycle');
+  const tokenValue = panel.locator('.usage-token-current');
+  const totalHeight = (await panel.locator('.context-session-totals').boundingBox()).height;
+  for (const expected of ['42.60K', '0.04M', '<0.01B', '42,600']) {
+    await unitCycle.click();
+    assert.equal(await tokenValue.innerText(), expected);
+    assert.equal(await tokenValue.evaluate(element => getComputedStyle(element).animationTimingFunction), 'cubic-bezier(0.22, 1, 0.36, 1)');
+    await panel.locator('.usage-token-outgoing').waitFor({ state: 'detached' });
+    assert.equal((await panel.locator('.context-session-totals').boundingBox()).height, totalHeight);
+    assert.equal(await panel.getByRole('meter').getAttribute('aria-valuenow'), '7.1');
+    assert.ok((await panel.innerText()).includes('3.4700M'), 'Token units must not change Plan Credit');
+  }
   async function sendContextEvent(event) {
     await app.evaluate(({ BrowserWindow }, event) => {
       BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', event);

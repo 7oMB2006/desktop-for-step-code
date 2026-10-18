@@ -1,5 +1,90 @@
 # Verification
 
+## Usage III Local Overview (2026-10-18, Local Development)
+
+The production main view now reads Desktop-owned session records through a
+typed preload method, `usageOverview`. Neither the renderer nor the dashboard
+receives session paths, message content, credentials or account identifiers.
+Opening or refreshing statistics makes no model or cloud-statistics request.
+The community client does not store statistics with an account in the cloud or
+synchronize them across devices; website billing records are not included.
+
+The Windows v0.1.5 runtime pin is unchanged. Its native `scanUsageOverview`
+owns bounded inventory, parsing, incremental cache and usage-lineage dedup.
+The Desktop adapter reads the matching complete private cache-v1 projection
+for provider/model/hour dimensions, mirroring native origin resolution. Every
+day must reconcile with the public native total. Missing, incompatible or
+inconsistent detail falls back to native totals marked as unclassified instead
+of fabricating a distribution. Unknown-source tokens appear only under All.
+Reasoning/skill-activity coverage warnings do not imply missing Token data.
+Cache hit rate is cache reads divided by complete input, including cache writes.
+
+Conversation counts are unique main sessions, not daily counts added together.
+Recorded child, branch, compaction and CLM tokens are included subject to the
+native coverage limits. Estimates use only Desktop's persisted request-time
+billing sidecars, deduplicate copied response identities, and keep Plan Credit,
+domestic API currency and overseas API currency separate. Missing history
+remains unavailable; the current login never reprices historical requests.
+
+Typecheck and production build passed. The serialized unit/protocol suite passed
+528 tests with 13 platform skips; all 15 CI policy/runner checks passed. Native
+fresh/cache tests cover branch-origin deduplication, children, CLM and unknown
+maintenance. Isolated-profile Electron acceptance covers actual session-file
+and billing-sidecar data through IPC, source filtering, cache-write accounting,
+chart cards, main-window navigation, retained drafts, Settings/Cron transitions,
+390px layout and unchanged session-file contents. These checks do not establish
+official billing accuracy or cloud-history coverage.
+
+The real-data Windows x64 package is
+`D:\Desktop For Step Code\Desktop\release\usage-real-local-20261018-preview`.
+Its 151483161-byte installer has SHA-256
+`0a983042b41c8fbdf142c472ae4dc51fe67a73112697fb04bed05b46f9e4166c`;
+update metadata matches. Packaged real-data and chart-card acceptance passed,
+as did 23 palette/accent cascade checks. The build reuses the previously
+verified staged v0.1.5 runtime unchanged and refreshes only the Desktop admin
+adapters; all 1203 staged upstream files were hash-compared with the prior
+package. This is a local unsigned package, not a published release.
+
+### Date Ranges and Token Display Units (2026-10-18)
+
+Trend filtering supports inclusive local-calendar start/end dates and an exact
+range total that follows the selected provider source. The shared single-button
+unit control cycles exact/K/M/B without changing persisted usage or billing.
+Context-panel totals crossfade between units over 180ms with cubic easing;
+reduced motion removes the effect. Missing totals remain unavailable.
+
+Typecheck and production build passed. The serialized suite passed 533 tests
+with 13 platform skips (546 total). Packaged real-data, chart-card/date-range,
+context-panel/unit/crossfade and 23 palette/accent checks passed. Installer
+metadata, current build assets and all 1213 staged runtime files were checked.
+The unchanged v0.1.5 runtime uses Node 24.16.0; no sample page is packaged.
+The local unsigned Windows x64 package is
+`D:\Desktop For Step Code\Desktop\release\usage-range-units-20261018-preview`.
+The 151481525-byte installer has SHA-256
+`b5abaea2f4da9be3b25154af66045e679d58e623e638de5db7d38211a016225f`.
+This does not publish a Release or establish real-provider billing accuracy.
+
+### Usage Review Follow-Up (2026-10-18)
+
+The selected UI language now reaches the overview, daily analysis, custom date
+picker, chart data cards and token-unit control, including loading, error,
+empty and partial-coverage copy and accessibility labels. Dates, months,
+weekdays and numeric formatting follow the selected locale; stored date keys,
+model identities and billing totals are unchanged.
+
+The Usage RPC now has an explicit 60-second timeout around the native scan,
+cache projection and response transport. The native scan retains its 28-second
+deadline; the global RPC default remains 30 seconds. A regression guard checks
+the separate deadlines and bounded post-scan headroom.
+
+Typecheck, production build and all 15 CI policy/runner tests passed. The
+serialized unit/protocol suite passed 535 tests with 13 platform skips.
+Native fresh/cache acceptance and isolated-profile Electron chart acceptance
+passed, including persisted English preferences, date validation, chart cards,
+source filters, display units and narrow layouts. Browser fixture checks also
+covered English empty/loading/retry/partial states. No new installer was built
+and the user's running packaged application was not changed.
+
 ## Cron With Latest Main Preview (2026-10-18)
 
 Local package source `891fbc4` integrates main `28cfd9e`, including Usage II and

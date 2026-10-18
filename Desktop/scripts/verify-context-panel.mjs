@@ -53,9 +53,14 @@ try {
   await app.evaluate(({ ipcMain }, fixture) => {
     globalThis.contextFixture = fixture;
     globalThis.contextCopies = [];
+    globalThis.contextCalls = [];
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', (_event, method, ...args) => {
+      globalThis.contextCalls.push([method, method === 'command' ? args[0] : undefined]);
       if (method === 'snapshot') return globalThis.contextFixture;
+      if (method === 'summary') return { sessionId: globalThis.contextFixture.state?.sessionId, tasks: [], mcp: [], skillCount: 0,
+        status: { trusted: true, agents: ['D:/fixture/AGENTS.md'], version: '0.1.0', versionSource: 'fallback',
+          endpoint: 'http://127.0.0.1:12345/v1', commit: 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494', node: 'v24.16.0' } };
       if (method === 'preferences') { Object.assign(globalThis.contextFixture.preferences, args[0]); return globalThis.contextFixture.preferences; }
       if (method === 'copyText') { globalThis.contextCopies.push(args[0]); return; }
       if (method === 'settings') return { account: { loggedIn: false, validity: 'unknown' }, profiles: [], mcp: {}, skills: [] };
@@ -397,6 +402,70 @@ try {
   await page.mouse.move(700, 25);
   await navigation.screenshot({ path: 'test-results/navigation-unified-detail-light.png' });
   await page.screenshot({ path: 'test-results/navigation-unified-light.png' });
+  await app.evaluate(() => {
+    const fixture = globalThis.contextFixture;
+    fixture.preferences.language = 'zh';
+    fixture.state.isStreaming = true;
+    fixture.state.thinkingLevel = 'high';
+    fixture.statusAccount = { mode: 'api', region: 'global' };
+    fixture.permissionPreset = 'full-access';
+    fixture.modelSelection = { model: { id: 'next-model', provider: 'step', name: 'Next model' }, thinkingLevel: 'low' };
+  });
+  await page.reload();
+  await input.waitFor();
+  const beforeStatus = await app.evaluate(() => globalThis.contextCalls.length);
+  await input.fill('/status ');
+  await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === '/status ');
+  await input.press('Enter');
+  await panel.locator('.session-status-content').waitFor();
+  assert.ok((await panel.innerText()).includes('官方 API'));
+  assert.ok((await panel.innerText()).includes('海外'));
+  assert.ok((await panel.innerText()).includes('完全访问'));
+  assert.ok((await panel.innerText()).includes('下一轮生效'));
+  assert.ok((await panel.innerText()).includes('Step 5 Preview'));
+  assert.ok((await panel.innerText()).includes('Next model'));
+  await panel.getByText('已信任', { exact: true }).waitFor();
+  const statusDetails = panel.getByRole('button', { name: '详细信息', exact: true });
+  assert.equal(await statusDetails.getAttribute('aria-expanded'), 'false');
+  await statusDetails.click();
+  await panel.getByText('源码默认值', { exact: true }).waitFor();
+  await panel.getByText('D:/fixture/AGENTS.md', { exact: true }).waitFor();
+  assert.equal(await input.evaluate(element => element.value), '');
+  const statusCalls = await app.evaluate((_electron, start) => globalThis.contextCalls.slice(start), beforeStatus);
+  await writeFile('test-results/session-status-calls.json', JSON.stringify(statusCalls, null, 2));
+  assert.ok(!statusCalls.some(([method, type]) => method === 'accountAllowance' || method === 'settings'
+    || method === 'command' && type === 'prompt'), 'Status must not send a prompt or query account services');
+  await panel.getByRole('tab', { name: '上下文', exact: true }).click();
+  await panel.locator('.context-content').waitFor();
+  await panel.getByRole('tab', { name: '状态', exact: true }).focus();
+  await page.keyboard.press('End');
+  await panel.locator('.session-status-content').waitFor();
+  await panel.screenshot({ path: 'test-results/session-status-light.png' });
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await panel.screenshot({ path: 'test-results/session-status-dark.png' });
+  await toggle.click();
+  await panel.locator('.context-content').waitFor();
+  assert.equal(await panel.getByRole('tab', { name: '上下文', exact: true }).getAttribute('aria-selected'), 'true');
+  await toggle.click();
+  await panel.waitFor({ state: 'hidden' });
+  await toggle.click();
+  await panel.locator('.context-content').waitFor();
+  await app.evaluate(() => {
+    globalThis.contextFixture.draftId = 'status-draft';
+    globalThis.contextFixture.runtimeId = undefined;
+    globalThis.contextFixture.state = { isStreaming: false };
+    globalThis.contextFixture.modelSelection = undefined;
+  });
+  await page.reload();
+  await input.waitFor();
+  const beforeDraftStatus = await app.evaluate(() => globalThis.contextCalls.length);
+  await input.fill('/status ');
+  await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === '/status ');
+  await input.press('Enter');
+  await panel.getByText('尚未创建', { exact: true }).waitFor();
+  const draftCalls = await app.evaluate((_electron, start) => globalThis.contextCalls.slice(start), beforeDraftStatus);
+  assert.ok(!draftCalls.some(([method, type]) => ['createDraftSession', 'accountAllowance', 'settings'].includes(method)
+    || method === 'command' && type === 'prompt'), 'Draft status must not create a worker or query the account');
   assert.deepEqual(errors, []);
   console.log('Context inspector presentation passed: roles, usage, cost, unknown occupancy, JSON/copy/redaction, themes, native wheel under overlay, focus and reduced motion. Data is an isolated presentation fixture, not real-provider acceptance.');
 } finally {

@@ -18,6 +18,7 @@ await git('config', 'user.email', 'fixture@example.invalid');
 await git('config', 'commit.gpgsign', 'false');
 await git('config', 'core.hooksPath', join(profile, 'no-hooks'));
 await writeFile(join(workspace, 'summary.txt'), 'Summary board\n');
+await writeFile(join(workspace, 'AGENTS.md'), 'Read-only fixture instructions. Do not expose this document content in status.\n');
 await git('add', '--', '.');
 await git('commit', '-m', 'base');
 await git('switch', '-c', 'codex/summary-board');
@@ -173,6 +174,31 @@ try {
   await page.waitForTimeout(500);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.screenshot({ path: 'test-results/summary-runtime-narrow.png' });
+  if (process.platform === 'win32') {
+    const beforeStatus = calls;
+    const status = await page.evaluate(async () => {
+      const snapshot = await window.desktop.snapshot();
+      return (await window.desktop.summary(snapshot.runtimeId)).status;
+    });
+    assert.equal(typeof status.trusted, 'boolean');
+    assert.equal(status.endpoint, `http://127.0.0.1:${server.address().port}/v1`);
+    assert.match(status.commit, /^[a-f0-9]{40}$/);
+    assert.match(status.node, /^v\d+\.\d+\.\d+$/);
+    assert.ok(Array.isArray(status.agents));
+    const composer = page.locator('.composer > .composer-input');
+    await composer.fill('/status ');
+    await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === '/status ');
+    await composer.press('Enter');
+    const inspector = page.locator('.context-panel');
+    await inspector.locator('.session-status-content').waitFor();
+    await inspector.getByText(status.trusted ? '已信任' : '未信任', { exact: true }).waitFor();
+    await inspector.getByRole('button', { name: '详细信息', exact: true }).click();
+    await inspector.getByText(status.endpoint, { exact: true }).waitFor();
+    await inspector.getByText(status.commit, { exact: true }).waitFor();
+    assert.equal(calls, beforeStatus, 'Inspecting status must not invoke the model');
+    assert.ok(!(await inspector.innerText()).includes('Do not expose this document content'));
+    await page.screenshot({ path: 'test-results/session-status-real-runtime.png' });
+  }
   await page.evaluate(async () => { await window.desktop.newIndependentSession(); });
   await page.reload();
   await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();

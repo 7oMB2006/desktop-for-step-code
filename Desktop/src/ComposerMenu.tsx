@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent } from 'react';
-import { Paperclip, Goal, Lightbulb, ListTodo, Network, Plug, BookOpen, Terminal, Cpu, Shield, Minimize2, FileText, MessageSquare, Sparkles, NotebookPen, RefreshCw } from 'lucide-react';
+import { Paperclip, Goal, Lightbulb, ListTodo, Network, Plug, BookOpen, Terminal, Cpu, Shield, Minimize2, FileText, MessageSquare, Sparkles, NotebookPen, RefreshCw, Activity } from 'lucide-react';
 import type { Message } from './contracts';
 import { messageText } from './conversation-presentation';
 import './composer-menu.css';
@@ -8,15 +8,17 @@ import { composerInput } from './composer-input';
 import type { ComposerCommand } from './composer-commands';
 export type { ComposerCommand } from './composer-commands';
 const labels: Record<string, [string, string]> = {
+  status: ['会话状态', 'Session status'],
   goal: ['目标', 'Goal'], plan: ['计划模式', 'Plan mode'], todo: ['推进清单', 'Tasks'],
   ultracode: ['多代理编排', 'Ultracode'], ultraloop: ['多代理编排', 'Ultraloop'],
   compact: ['压缩上下文', 'Compact context'], init: ['项目指引', 'Project instructions'],
   cron: ['定时任务', 'Scheduled tasks'], plugin: ['插件', 'Plugins'], mcp: ['MCP', 'MCP'],
   clm: ['工作上下文', 'Working context'], 'clm-compact': ['整理工作上下文', 'Organize working context'],
 };
-const icons: Record<string, typeof Terminal> = { goal: Goal, plan: Lightbulb, todo: ListTodo, ultracode: Network, ultraloop: Network, compact: Minimize2, init: FileText, mcp: Plug, plugin: Plug, clm: NotebookPen, 'clm-compact': RefreshCw };
+const icons: Record<string, typeof Terminal> = { status: Activity, goal: Goal, plan: Lightbulb, todo: ListTodo, ultracode: Network, ultraloop: Network, compact: Minimize2, init: FileText, mcp: Plug, plugin: Plug, clm: NotebookPen, 'clm-compact': RefreshCw };
 const terminalOnly = new Set(['exit', 'quit', 'theme', 'llama', 'clear', 'new']);
 const descriptions: Record<string, string> = {
+  status: '查看当前模型、权限、目录与账户状态',
   goal: '查看或设置持续推进的目标', plan: '进入或退出计划模式', todo: '查看与管理任务',
   ultracode: '开启、关闭或查看多代理编排', ultraloop: '开启、关闭或查看多代理编排',
   compact: '压缩当前对话，可补充保留重点', init: '创建或更新项目 AGENTS.md',

@@ -47,7 +47,7 @@ import { ComposerMenu } from './ComposerMenu';
 import { CommandCatalog } from './CommandReference';
 import { ComposerInput } from './ComposerInput';
 import { clmNotice } from './clm-notice';
-import { desktopCommands } from './composer-commands';
+import { desktopCommands, isStatusCommand } from './composer-commands';
 import { composerAction } from './composer-action';
 import { SelectionToolbar } from './SelectionToolbar';
 import { QuotePreview } from './QuotePreview';
@@ -177,6 +177,7 @@ function App() {
   const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
   const [liveChangesOpen, setLiveChangesOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>('auto');
+  const [contextView, setContextView] = useState<'status' | 'context'>('context');
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>(null);
   const [previewFile, setPreviewFile] = useState<FilePreviewData>();
   const [browserWidth, setBrowserWidth] = useState<'standard' | 'wide'>('standard');
@@ -253,7 +254,7 @@ function App() {
   const resubmitPlanLock = useRef(false);
   const [answer, setAnswer] = useState('');
   const [levels, setLevels] = useState<string[]>([]);
-  const [commands, setCommands] = useState<{ name: string; description?: string; source?: string }[]>([]);
+  const [commands, setCommands] = useState<{ name: string; description?: string; source?: string }[]>(desktopCommands([]));
   const [renaming, setRenaming] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ type: 'session' | 'workspace'; id: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'workspace'; id: string; x: number; y: number } | null>(null);
@@ -620,7 +621,7 @@ function App() {
     return () => clearInterval(timer);
   }, [runMetrics?.startedAt, runMetrics?.finishedAt]);
   useEffect(() => {
-    if (!connected || !data.runtimeId) { setLevels(data.state?.model?.thinkingLevels ?? []); setCommands([]); return; }
+    if (!connected || !data.runtimeId) { setLevels(data.state?.model?.thinkingLevels ?? []); setCommands(desktopCommands([])); return; }
     const id = data.runtimeId;
     void run(async () => {
       const [effort, available] = await Promise.all([bridge!.command('get_available_thinking_levels', undefined, id), bridge!.command('get_commands', undefined, id)]);
@@ -832,6 +833,10 @@ function App() {
     });
   };
   const send = async () => {
+    if (!navigationPending.current && !loading && isStatusCommand(draft, attachments.length, quotes.length)) {
+      setDraft(''); setDetails(''); setContextView('status'); setRightPanel('context');
+      return;
+    }
     if (navigationPending.current || (!draft.trim() && !attachments.length && !quotes.length) || !connected || loading || firstSend.current) return;
     const message = draft; const attached = attachments; const sentQuotes = quotes; const scope = quoteScope;
     let id = viewId.current;
@@ -1490,6 +1495,7 @@ function App() {
       </div>}
       {visibleRightPanel === 'context' && !details && <div className={`summary-region context-region right-inspector-surface${inspectorExpanded ? ' is-expanded' : ''}`}>
         <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} messages={data.messages} stats={data.stats} state={data.state} estimate={data.estimate}
+          snapshot={data} view={contextView} onView={setContextView}
           title={activeTitle} language={data.preferences.language} busy={busy} connected={connected} onClose={closeRightPanel}
           expanded={inspectorExpanded} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'context')}
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
@@ -1497,7 +1503,10 @@ function App() {
     </div>
     <nav ref={rightRail} className="right-tool-rail" aria-label={t('右侧工具', 'Right tools')} inert={Boolean(navigationTarget) || Boolean(removeProject)}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
-      <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
+      <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => {
+        const close = !details && visibleRightPanel === 'context' && contextView === 'context';
+        setDetails(''); setContextView('context'); setRightPanel(close ? null : 'context');
+      }}><ScanLine size={18}/></IconButton>
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><FileDiff size={18} strokeWidth={1.5}/></IconButton>
       <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>

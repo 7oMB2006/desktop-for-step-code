@@ -1,5 +1,35 @@
 # Verification
 
+## Desktop Session Status (2026-10-18)
+
+The Status/Context inspector and standalone local `/status` command passed
+typecheck, production build and the complete serialized Desktop protocol suite
+(503 passed, thirteen platform skips). The account projection tests cover all
+four official login profiles, missing credentials, unknown profiles and a
+strict field allowlist; no account service is involved.
+
+`verify-context-panel.mjs` passed with an isolated Electron profile and IPC
+fixture. Added assertions cover Status opening during a running task without
+prompt submission or account requests, next-turn model separation, tab keyboard
+navigation and draft viewing without worker creation. Existing Context checks
+remain in place. `verify-session-status-view.mjs` passed for light/dark,
+1100/375px viewports, English, reduced motion, draft, offline, custom provider
+and API views, default-collapsed details and diagnostic failure states.
+Screenshots are under `Desktop/test-results/session-status-*`.
+
+The real pinned-runtime status test and `verify-summary-runtime.mjs` passed,
+including the Electron main/preload/RPC path. Checks cover actual Plan mode,
+project trust, loaded instruction paths, sanitized endpoint, runtime-reported
+version/source and manifest-provided commit/Node identity. Opening Status makes
+no model request, changes no session messages and exposes no instruction content
+or credentials. The source build reports 0.1.0 with a fallback source; the UI
+labels that source default separately from the actual pinned commit instead of
+claiming an official v0.1.5 runtime version. Full upstream `pnpm run check`
+passed without formatter changes.
+
+These are deterministic local checks, not real-account or packaged acceptance.
+No installer or public release was produced for this change.
+
 ## Integrated Windows Preview with Usage II (2026-10-18)
 
 Windows preview source `2066af57c83367248c004ced01e625fcc0cced9a` merges

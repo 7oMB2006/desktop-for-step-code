@@ -233,18 +233,20 @@ index 9451c77..96e9d4e 100644
  export {
  	getStepLoginStatus,
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index fd9aabc..4436313 100644
+index fd9aabc..7d0f1fb 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-@@ -25,6 +25,7 @@ import {
+@@ -25,6 +25,9 @@ import {
  	waitForRawStdoutBackpressure,
  	writeRawStdout,
  } from "../../core/output-guard.ts";
++import { getStepPlanMode } from "../../features/step-plan.ts";
 +import { getStepMcpStatuses } from "../../step/mcp.ts";
++import { STEPCODE_VERSION } from "../../step/version.ts";
  import { type Theme, theme } from "../../theme/theme.ts";
  import { killTrackedDetachedChildren } from "../../utils/shell.ts";
  import { toJsonEvent } from "../json-event.ts";
-@@ -449,6 +450,18 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -449,6 +452,35 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
  			// State
  			// =================================================================
  
@@ -253,17 +255,34 @@ index fd9aabc..4436313 100644
 +				const tasks = [...entries]
 +					.reverse()
 +					.find((entry) => entry.type === "custom" && entry.customType === "step-tasks");
++				let endpoint: string | undefined;
++				try {
++					const url = new URL(session.model?.baseUrl ?? "");
++					if (url.protocol === "https:" || url.protocol === "http:") endpoint = `${url.origin}${url.pathname}`;
++				} catch {
++					/* No configured endpoint. */
++				}
 +				return success(id, "get_desktop_summary", {
 +					sessionId: session.sessionId,
 +					tasks: tasks?.type === "custom" ? tasks.data : null,
 +					mcp: getStepMcpStatuses(),
 +					skillCount: session.resourceLoader.getSkills().skills.length,
++					status: {
++						trusted: session.settingsManager.isProjectTrusted(),
++						agents: session.resourceLoader.getAgentsFiles().agentsFiles.map((file) => file.path),
++						collaboration: getStepPlanMode(session.sessionManager),
++						version: STEPCODE_VERSION.value,
++						versionSource: STEPCODE_VERSION.source,
++						endpoint,
++						provider: session.model?.provider,
++						model: session.model?.id,
++					},
 +				});
 +			}
  			case "get_state": {
  				const state: RpcSessionState = {
  					model: session.model,
-@@ -605,7 +618,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -605,7 +637,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
  			}
  
  			case "switch_session": {

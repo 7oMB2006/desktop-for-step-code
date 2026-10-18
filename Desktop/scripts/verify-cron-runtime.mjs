@@ -178,6 +178,7 @@ try {
         await until(() => f.worker.messages.some(message => message.customType === 'step-cron')
           && !f.pool.isBusy(f.worker) && f.worker.cron?.jobs.length === 0, 'native fire and release');
         assert.equal(f.worker.messages.filter(message => message.customType === 'step-cron').length, 1);
+        await until(() => f.worker.operations === 0, 'post-run statistics reads complete');
         f.worker.touched = 0;
         await f.pool.recycle();
         assert.equal(f.pool.workers.has(f.worker.id), false);

@@ -45,10 +45,20 @@ try {
     document.querySelector('.composer > .composer-input')?.getAttribute('contenteditable') === 'true',
   undefined, { timeout: 60000 });
   // Wait for both the editor transaction and its controlled React value to settle.
-  const value = expected => page.waitForFunction(expected => {
-    const element = document.querySelector('.composer-input');
-    return element?.value === expected && element.dataset.empty === String(!expected);
-  }, expected, { timeout: 5000 });
+  const value = async expected => {
+    try {
+      await page.waitForFunction(expected => {
+        const element = document.querySelector('.composer-input');
+        return element?.value === expected && element.dataset.empty === String(!expected);
+      }, expected, { timeout: 5000 });
+    } catch (error) {
+      console.error('Composer value mismatch:', { expected, actual: await input.evaluate(element => ({
+        value: element.value, empty: element.dataset.empty, focused: document.activeElement === element,
+        selectionStart: element.selectionStart, selectionEnd: element.selectionEnd,
+      })) });
+      throw error;
+    }
+  };
   const caret = expected => page.waitForFunction(expected => {
     const element = document.querySelector('.composer-input');
     return element?.selectionStart === expected && element.selectionEnd === expected;
@@ -58,8 +68,14 @@ try {
     await value('Retained empty project draft');
     await input.fill('');
     await value('');
-    await input.pressSequentially('Retained empty project draft');
-    await value('Retained empty project draft');
+    await input.focus();
+    await caret(0);
+    let typed = '';
+    for (const character of 'Retained empty project draft') {
+      await input.pressSequentially(character);
+      typed += character;
+      await value(typed);
+    }
   }
   const longDraft = 'Multiline \u4e2d\u6587 draft 123\n'.repeat(100) + 'end';
   for (const key of ['Backspace', 'Delete', 'Shift+Backspace', 'Control+Backspace', 'Control+Delete']) {

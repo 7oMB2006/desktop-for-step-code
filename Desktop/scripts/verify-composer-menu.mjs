@@ -321,6 +321,9 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('.permission-trigger[aria-expanded="false"]').waitFor();
   await input.fill('/模型');
+  await menu.getByRole('option', { name: '模型 选择模型与思考档位', exact: true }).waitFor();
+  assert.equal(await menu.getByRole('option', { selected: true }).innerText().then(text => text.startsWith('模型')), true,
+    'A stationary pointer cannot override the first keyboard match after the list changes');
   await input.press('Enter');
   await page.locator('.model-effort-trigger[aria-expanded="true"]').waitFor();
   await page.keyboard.press('Escape');

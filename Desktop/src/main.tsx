@@ -49,7 +49,7 @@ import { ComposerMenu } from './ComposerMenu';
 import { CommandCatalog } from './CommandReference';
 import { ComposerInput } from './ComposerInput';
 import { clmNotice } from './clm-notice';
-import { desktopCommands } from './composer-commands';
+import { desktopCommands, isStatusCommand } from './composer-commands';
 import { composerAction } from './composer-action';
 import { SelectionToolbar } from './SelectionToolbar';
 import { QuotePreview } from './QuotePreview';
@@ -183,6 +183,8 @@ function App() {
   const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
   const [liveChangesOpen, setLiveChangesOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>('auto');
+  const [contextView, setContextView] = useState<'status' | 'context'>('context');
+  const [statusRevision, setStatusRevision] = useState(0);
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>(null);
   const [previewFile, setPreviewFile] = useState<FilePreviewData>();
   const [browserWidth, setBrowserWidth] = useState<'standard' | 'wide'>('standard');
@@ -259,7 +261,7 @@ function App() {
   const resubmitPlanLock = useRef(false);
   const [answer, setAnswer] = useState('');
   const [levels, setLevels] = useState<string[]>([]);
-  const [commands, setCommands] = useState<{ name: string; description?: string; source?: string }[]>([]);
+  const [commands, setCommands] = useState<{ name: string; description?: string; source?: string }[]>(desktopCommands([]));
   const [renaming, setRenaming] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ type: 'session' | 'workspace'; id: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'workspace'; id: string; x: number; y: number } | null>(null);
@@ -563,6 +565,8 @@ function App() {
       if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current)) return;
       if (['extension_ui_request', 'desktop_ui_expired', 'desktop_model_selection', 'desktop_queue', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
         && !messageRevision.current.acceptEvent(event)) return;
+      if (event.type === 'agent_end' || event.type === 'tool_execution_end'
+        && ['enter_plan_mode', 'exit_plan_mode'].includes(event.toolName)) setStatusRevision(value => value + 1);
       if (event.type === 'desktop_model_selection') setData(d => ({ ...d, modelSelection: event.modelSelection, modelChanges: event.modelChanges, state: event.state ?? d.state }));
       if (event.type === 'desktop_queue') setData(d => ({ ...d, pendingMessages: event.pendingMessages }));
       if (event.type === 'desktop_stats') setData(d => ({ ...d, stats: event.stats }));
@@ -630,7 +634,7 @@ function App() {
   useEffect(() => {
     if (!connected || !data.runtimeId) {
       setLevels(data.state?.model?.thinkingLevels ?? []);
-      setCommands(data.draftId ? desktopCommands([]).filter(command => command.source === 'desktop') : []);
+      setCommands(desktopCommands([]).filter(command => command.name === 'status' || data.draftId && command.source === 'desktop'));
       return;
     }
     const id = data.runtimeId;
@@ -850,6 +854,10 @@ function App() {
     });
   };
   const send = async () => {
+    if (!navigationPending.current && !loading && isStatusCommand(draft, attachments.length, quotes.length)) {
+      setDraft(''); setDetails(''); setContextView('status'); setRightPanel('context');
+      return;
+    }
     if (navigationPending.current || (!draft.trim() && !attachments.length && !quotes.length) || !connected || loading || firstSend.current) return;
     const message = draft; const attached = attachments; const sentQuotes = quotes; const scope = quoteScope;
     let id = viewId.current;
@@ -1517,6 +1525,7 @@ function App() {
       </div>}
       {visibleRightPanel === 'context' && !details && <div className={`summary-region context-region right-inspector-surface${inspectorExpanded ? ' is-expanded' : ''}`}>
         <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} messages={data.messages} stats={data.stats} state={data.state} estimate={data.estimate}
+          snapshot={{ ...data, requests }} runtimeRevision={statusRevision} view={contextView} onView={setContextView}
           title={activeTitle} language={data.preferences.language} busy={busy} connected={connected} onClose={closeRightPanel}
           expanded={inspectorExpanded} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'context')}
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
@@ -1524,7 +1533,10 @@ function App() {
     </div>
     <nav hidden={scheduledOpen || usageOpen} ref={rightRail} className="right-tool-rail" style={usageOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || Boolean(navigationTarget) || Boolean(removeProject)}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
-      <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'context' ? null : 'context'); }}><ScanLine size={18}/></IconButton>
+      <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => {
+        const close = !details && visibleRightPanel === 'context' && contextView === 'context';
+        setDetails(''); setContextView('context'); setRightPanel(close ? null : 'context');
+      }}><ScanLine size={18}/></IconButton>
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><FileDiff size={18} strokeWidth={1.5}/></IconButton>
       <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>

@@ -1,0 +1,30 @@
+.session-status-content { max-width: 720px; margin-inline: auto; }
+.session-status-content section { border-top: 1px solid var(--border); padding: 18px 0; }
+.session-status-content h3 { margin: 0 0 12px; font-size: 11px; font-weight: 500; color: var(--muted); }
+.session-status-content dl { margin: 0; }
+.session-status-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; padding: 10px 0; align-items: baseline; font-size: 12px; }
+.session-status-row dt { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.session-status-row dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.session-status-row strong { font-weight: 550; }
+.session-status-row small { display: block; margin-top: 5px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.session-status-row code { font-size: 11px; white-space: normal; overflow-wrap: anywhere; }
+.session-status-copy { display: flex; align-items: start; gap: 6px; }
+.session-status-copy code { flex: 1; min-width: 0; }
+.session-status-copy .icon-button { width: 24px; height: 24px; min-height: 24px; flex: 0 0 24px; margin-top: -4px; }
+.session-status-pending { display: grid; gap: 6px; border-left: 2px solid var(--primary); padding: 8px 12px; margin-top: 12px; font-size: 12px; background: var(--surface); }
+.session-status-pending span, .session-status-pending small { font-size: 11px; color: var(--muted); }
+.session-status-pending strong { font-weight: 500; overflow-wrap: anywhere; }
+.session-status-detail-toggle { width: 100%; min-height: 32px; border: 0; background: transparent; padding: 0; justify-content: space-between; font-size: 12px; }
+.session-status-detail-toggle svg { transform: rotate(-90deg); transition: transform .22s cubic-bezier(.22, 1, .36, 1); }
+.session-status-detail-toggle[aria-expanded=true] svg { transform: rotate(0); }
+.session-status-details { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .22s cubic-bezier(.22, 1, .36, 1), opacity .22s cubic-bezier(.22, 1, .36, 1); }
+.session-status-details.is-open { grid-template-rows: 1fr; opacity: 1; }
+.session-status-details > div { min-height: 0; overflow: hidden; }
+.session-status-agents { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
+.context-view-tabs { display: flex; flex: 1; gap: 12px; min-width: 0; }
+.context-view-tabs button { border: 0; border-radius: 0; background: transparent; padding: 0; min-height: 30px; font-size: 12px; color: var(--muted); box-shadow: inset 0 -2px transparent; }
+.context-view-tabs button[aria-selected=true] { color: var(--ink); box-shadow: inset 0 -2px var(--primary); }
+.context-view-tabs button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.context-view-content { animation: status-view-in .18s cubic-bezier(.22, 1, .36, 1); }
+@keyframes status-view-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .context-view-content { animation: none; } .session-status-details, .session-status-detail-toggle svg { transition: none; } }

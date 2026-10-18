@@ -1,4 +1,5 @@
 import type { SessionSummary } from '../src/contracts';
+import { statusDetails } from './session-status';
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -27,5 +28,6 @@ export function sessionSummary(value: unknown, sessionId: string): SessionSummar
       toolCount: typeof server.toolCount === 'number' && Number.isSafeInteger(server.toolCount) ? Math.max(0, server.toolCount) : 0 });
   }
   return { sessionId, plan: typeof plan.id === 'string' && typeof plan.title === 'string' ? { id: string(plan.id, 200), title: string(plan.title) } : undefined,
-    tasks, mcp, skillCount: typeof raw.skillCount === 'number' && Number.isSafeInteger(raw.skillCount) ? Math.max(0, raw.skillCount) : 0 };
+    tasks, mcp, skillCount: typeof raw.skillCount === 'number' && Number.isSafeInteger(raw.skillCount) ? Math.max(0, raw.skillCount) : 0,
+    status: statusDetails(raw.status) };
 }

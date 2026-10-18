@@ -77,9 +77,11 @@ export const acceptanceGroups = {
   ],
 };
 
-// These scripts already existed outside PR CI. This split neither adds nor removes coverage.
+// Local-only checks are explicitly registered rather than silently skipped.
 // A new verify-*.mjs must be explicitly assigned; never silently default to local-only.
 export const localOnly = [
+  // Status RPC coverage runs in verify-summary-runtime; this is the visual fixture.
+  'verify-session-status-view.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

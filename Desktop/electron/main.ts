@@ -1,4 +1,6 @@
 import { normalizedWorkspaceKey } from '../src/workspace-key';
+import { statusAccount } from './status-account';
+import { statusBuild } from './session-status';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -378,6 +380,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
   return {
+    statusAccount: statusAccount(appliedAuthData),
     workspaceIssue: unavailableWorkspace,
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
@@ -816,8 +819,13 @@ async function handle(method: string, args: any[]) {
       const sessionId = worker.state?.sessionId;
       if (!sessionId) throw new Error('Session is not ready');
       const result = await worker.rpc.request('get_desktop_summary');
+      let build = {};
+      try { build = statusBuild(JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'))); }
+      catch { /* Source and older runtimes may not have a build manifest. */ }
       if (runtimes.workers.get(worker.id) !== worker || worker.state?.sessionId !== sessionId) throw new Error('Session changed');
-      return sessionSummary(result, sessionId);
+      const summary = sessionSummary(result, sessionId);
+      summary.status = { ...summary.status, ...build };
+      return summary;
     }
     case 'repositoryDiff': {
       const worker = runtimes.require(text(args[0], 80));

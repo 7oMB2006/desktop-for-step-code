@@ -2,6 +2,8 @@ import type { WorkflowState } from './workflow-state';
 import type { LaunchState } from './launch-state';
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Snapshot { workspaceIssue?: string }
+export interface StatusAccount { mode: 'plan' | 'api' | 'none' | 'unknown'; region?: 'cn' | 'global'; userId?: string }
+export interface Snapshot { statusAccount?: StatusAccount }
 export interface Snapshot { estimate?: import('./usage-estimates').SessionEstimate }
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
 export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
@@ -204,5 +206,12 @@ export interface SessionSummary {
   sessionId: string; plan?: { id: string; title: string }; tasks: SummaryTask[];
   mcp: { name: string; status: 'connecting' | 'connected' | 'failed' | 'disabled'; toolCount: number }[];
   skillCount: number;
+  status?: SessionStatusDetails;
+}
+export interface SessionStatusDetails {
+  trusted?: boolean; agents?: string[]; agentsTruncated?: boolean;
+  collaboration?: 'Plan' | 'Default'; version?: string;
+  versionSource?: 'override' | 'embedded' | 'fallback'; endpoint?: string;
+  provider?: string; model?: string; commit?: string; node?: string;
 }
 declare global { interface Window { desktop?: DesktopBridge; desktopTheme?: DesktopTheme } }

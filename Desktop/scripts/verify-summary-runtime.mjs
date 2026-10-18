@@ -18,6 +18,7 @@ await git('config', 'user.email', 'fixture@example.invalid');
 await git('config', 'commit.gpgsign', 'false');
 await git('config', 'core.hooksPath', join(profile, 'no-hooks'));
 await writeFile(join(workspace, 'summary.txt'), 'Summary board\n');
+await writeFile(join(workspace, 'AGENTS.md'), 'Read-only fixture instructions. Do not expose this document content in status.\n');
 await git('add', '--', '.');
 await git('commit', '-m', 'base');
 await git('switch', '-c', 'codex/summary-board');
@@ -93,6 +94,7 @@ try {
     window.summaryMotion = [];
     window.summaryEntrance = [];
     window.summaryFastCompletion = [];
+    window.summaryRecording = true;
     const record = () => {
       const live = [...document.querySelectorAll('.sb-step')].find(element => element.textContent.includes('接入清单与完成动画'));
       window.summaryMotion.push({ settling: live?.querySelector('[data-settling]')?.getAttribute('data-settling'), height: live?.getBoundingClientRect().height, state: live?.className });
@@ -101,14 +103,17 @@ try {
       const created = [...document.querySelectorAll('.sb-task-shell')].find(element => element.textContent.includes('验证清单生成动画'));
       if (created) window.summaryEntrance.push({ height: created.getBoundingClientRect().height, opacity: Number(getComputedStyle(created).opacity),
         easing: getComputedStyle(created).transitionTimingFunction });
-      if (window.summaryMotion.length < 240) requestAnimationFrame(record);
+      if (window.summaryRecording && window.summaryMotion.length < 1800) requestAnimationFrame(record);
     };
     requestAnimationFrame(record);
   });
   await page.locator('.composer > .composer-input').fill('完成第二项');
   await page.locator('.composer > .composer-input').press('Enter');
   await board.getByRole('button', { name: /已完成 3 项/ }).waitFor();
-  await page.waitForTimeout(1500);
+  await page.waitForFunction(() => window.summaryEntrance.some(frame => frame.height >= 34 && frame.opacity === 1));
+  await board.getByRole('button', { name: /接入清单与完成动画/ }).waitFor({ state: 'hidden' });
+  await board.getByRole('button', { name: /验证 MCP 状态和 Skills 数量/ }).waitFor({ state: 'hidden' });
+  await page.evaluate(() => { window.summaryRecording = false; });
   const update = await page.evaluate(async () => {
     const snapshot = await window.desktop.snapshot();
     return window.desktop.summary(snapshot.runtimeId);
@@ -173,6 +178,31 @@ try {
   await page.waitForTimeout(500);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.screenshot({ path: 'test-results/summary-runtime-narrow.png' });
+  if (process.platform === 'win32') {
+    const beforeStatus = calls;
+    const status = await page.evaluate(async () => {
+      const snapshot = await window.desktop.snapshot();
+      return (await window.desktop.summary(snapshot.runtimeId)).status;
+    });
+    assert.equal(typeof status.trusted, 'boolean');
+    assert.equal(status.endpoint, `http://127.0.0.1:${server.address().port}/v1`);
+    assert.match(status.commit, /^[a-f0-9]{40}$/);
+    assert.match(status.node, /^v\d+\.\d+\.\d+$/);
+    assert.ok(Array.isArray(status.agents));
+    const composer = page.locator('.composer > .composer-input');
+    await composer.fill('/status ');
+    await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === '/status ');
+    await composer.press('Enter');
+    const inspector = page.locator('.context-panel');
+    await inspector.locator('.session-status-content').waitFor();
+    await inspector.getByText(status.trusted ? '已信任' : '未信任', { exact: true }).waitFor();
+    await inspector.getByRole('button', { name: '详细信息', exact: true }).click();
+    await inspector.getByText(status.endpoint, { exact: true }).waitFor();
+    await inspector.getByText(status.commit, { exact: true }).waitFor();
+    assert.equal(calls, beforeStatus, 'Inspecting status must not invoke the model');
+    assert.ok(!(await inspector.innerText()).includes('Do not expose this document content'));
+    await page.screenshot({ path: 'test-results/session-status-real-runtime.png' });
+  }
   await page.evaluate(async () => { await window.desktop.newIndependentSession(); });
   await page.reload();
   await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();

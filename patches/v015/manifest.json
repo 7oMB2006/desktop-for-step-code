@@ -1,7 +1,7 @@
 {
   "commit": "b5dbed938d9ae589397cf522dcf2ff89ecf4c494",
   "patches": {
-    "step-code-desktop.patch": "730c8836b1adb279a4a8c9b519dc08d4beb88111",
+    "step-code-desktop.patch": "5332f6d8ea6063e9d673c3e326d1d745c505b7ce",
     "step-code-desktop-plan.patch": "07dd8afa106a880114907e3028626bdc25b22810",
     "step-code-desktop-clarification.patch": "61a49cb2e8c2923c34ab9b787a2d484e7e1698f0",
     "../step-code-desktop-cron.patch": "647de75f3a7ef7d4e5b5bdc4ffe8b73955609fff",
@@ -37,7 +37,7 @@
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "d8067140df6852f5b85aba573e22c255d7da20be",
     "packages/coding-agent/src/index.ts": "96e9d4e3a6af35e2cd87df823f8dec45429b97f8",
-    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "1963e12d4a437c77167eb8f1d063c43adf04520f",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "d4fa3d85380192ba7925445d06b8c14f0e3fd6c2",
     "packages/coding-agent/src/modes/rpc/rpc-types.ts": "ea782adea7960179e2ae2a9bb2e5df392cd99cd8",
     "packages/coding-agent/src/step/mcp.ts": "569b7203dfa2ce28955ac1c2c93b0a9fd317d484",
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",

@@ -66,8 +66,25 @@ try {
   assert.equal(await page.locator('.session-row.selected').count(), 0);
   await page.getByRole('button', { name: '创建任务', exact: true }).first().click();
   await page.getByRole('heading', { name: '创建定时任务' }).waitFor();
-  const durable = page.getByLabel('保存为持久任务', { exact: true });
+  const durable = page.getByRole('radio', { name: '持久任务', exact: true });
   assert.equal(await durable.isEnabled(), true);
+  assert.equal(await durable.isChecked(), true, 'Creation defaults to persistence, independently of frequency');
+  await page.getByRole('checkbox', { name: '周期执行', exact: true }).uncheck();
+  assert.equal(await durable.isChecked(), true, 'One-off jobs can also survive restart');
+  await page.getByRole('checkbox', { name: '周期执行', exact: true }).check();
+  await page.getByRole('radio', { name: '临时任务', exact: true }).check();
+  await page.getByText('仅保留在当前宿主内存中。', { exact: false }).waitFor();
+  await durable.check();
+  for (const [theme, width] of [['dark', 1360], ['light', 560]]) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 950), width);
+    await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
+    await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await page.locator('.scheduled-storage').scrollIntoViewIfNeeded();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ path: `test-results/cron-storage-${theme}-${width}.png` });
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
   // Choose tomorrow's local calendar minute, avoiding a trigger during this test.
   const tomorrow = new Date(Date.now() + 86400000);
   const cron = `0 9 ${tomorrow.getDate()} ${tomorrow.getMonth() + 1} *`;
@@ -182,6 +199,33 @@ try {
     await assert.rejects(page.evaluate(key => window.desktop.cronRecoveryPreview(key, 'queue-demo'), tasks[0].key), /offline|host/i);
     results.push('Explicit recovery starts exactly one same-project host in Ask, preserves defaults and invokes no model before due');
   }
+  await close();
+  await writeFile(join(agent, 'trust.json'), '{}');
+  page = await launch();
+  await page.getByText('队列交互示例（本地模拟）', { exact: true }).click();
+  await page.waitForFunction(async () => (await window.desktop.snapshot()).status === 'connected');
+  await openManager();
+  await page.getByRole('button', { name: '创建任务', exact: true }).first().click();
+  await page.getByRole('heading', { name: '创建定时任务' }).waitFor();
+  const persistentChoice = page.getByRole('radio', { name: '持久任务', exact: true });
+  assert.equal(await persistentChoice.isChecked(), true);
+  await page.getByText('当前宿主未加载项目信任，无法创建持久任务。', { exact: false }).waitFor();
+  await page.getByLabel('任务指令', { exact: true }).fill('未信任项目不得自动降级');
+  assert.equal(await page.getByRole('button', { name: '创建任务', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: '调度宿主', exact: true }).click();
+  await page.getByRole('menuitemradio').first().click();
+  assert.equal(await persistentChoice.isChecked(), true, 'Selecting a host never silently changes storage');
+  assert.equal(await page.getByRole('button', { name: '创建任务', exact: true }).isDisabled(), true);
+  assert.equal((await records()).length, 1, 'Blocked creation neither writes nor recreates a task');
+  await page.locator('.scheduled-storage').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/cron-storage-untrusted.png' });
+  await page.getByRole('radio', { name: '临时任务', exact: true }).check();
+  assert.equal(await page.getByRole('button', { name: '创建任务', exact: true }).isEnabled(), true);
+  await page.getByText('仅保留在当前宿主内存中。', { exact: false }).waitFor();
+  assert.equal(fixture.requests.length, 0);
+  await page.locator('.scheduled-storage').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/cron-storage-temporary.png' });
+  results.push('Creation defaults durable, blocks untrusted hosts without fallback, and discloses explicit temporary loss independently of recurrence');
   assert.deepEqual(errors, []);
   await writeFile('test-results/cron-management.json', JSON.stringify({ profile, results, modelCalls: fixture.requests.length }, null, 2));
   console.log(`Cron management Electron acceptance passed (${results.length} cases).`);

@@ -1,5 +1,11 @@
 # Design System
 
+Scheduled-task creation defaults to durable storage, independently of recurrence.
+The storage radio group names both durable and temporary choices, preserving the
+choice when changing hosts. An untrusted host blocks durable submission with
+explicit `/trust` and manual-restart guidance, never a silent temporary fallback.
+Temporary creation and task details disclose loss on host exit/application update.
+
 Scheduled-task recovery is an inline disclosure anchored to its detail-page action,
 with cubic height/opacity transitions and a reduced-motion fallback. It uses the
 shared AppMenu and DisclosureChevron for existing same-project conversations.

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { SessionRuntimes, taskOutcome, type WorkerTransport } from '../electron/session-runtimes';
-import { WORKSPACE_POLICY, DESKTOP_SYSTEM_POLICY, desktopSystemPolicy } from '../electron/workspace-policy';
+import { WORKSPACE_POLICY, DESKTOP_SYSTEM_POLICY, DESKTOP_CRON_POLICY, desktopSystemPolicy } from '../electron/workspace-policy';
 import type { RuntimeEvent } from '../src/contracts';
 import { QUESTION_TITLE } from '../src/questionnaire';
 import { MessageRevision } from '../src/message-revision';
@@ -825,6 +825,12 @@ test('session workers append shared-workspace rules without replacing project or
   assert.ok(DESKTOP_SYSTEM_POLICY.includes('[Open preview](http://localhost:8765/)'));
   assert.ok(DESKTOP_SYSTEM_POLICY.includes('Do not probe Desktop'));
   assert.ok(DESKTOP_SYSTEM_POLICY.includes('Only publish when the user explicitly requests it'));
+  assert.ok(DESKTOP_SYSTEM_POLICY.includes(DESKTOP_CRON_POLICY));
+  assert.ok(DESKTOP_CRON_POLICY.includes('recurring=true does not make a job durable'));
+  assert.ok(DESKTOP_CRON_POLICY.includes('prefer cron_create with durable=true'));
+  assert.ok(DESKTOP_CRON_POLICY.includes('Do not silently retry as temporary'));
+  assert.ok(DESKTOP_CRON_POLICY.includes('read-only'));
+  assert.ok(DESKTOP_CRON_POLICY.includes('ask for authorization before recreating'));
   await pool.stopAll();
 });
 

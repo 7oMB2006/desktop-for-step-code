@@ -1,5 +1,28 @@
 # Verification
 
+## Cron Creation Persistence Follow-Up (2026-10-19)
+
+Creation now defaults to durable storage and preserves that choice when selecting
+a host. Recurrence remains independent. An untrusted host blocks durable submit
+and explains explicit `/trust` approval and a manual restart; it never selects
+temporary storage as a fallback. Temporary creation and details disclose loss on
+host exit or application update.
+
+The appended Desktop system policy asks models to prefer explicit durable jobs
+for ongoing/cross-restart requests, stop on trust failure rather than downgrade,
+and treat existence checks as read-only rather than permission to recreate.
+This is model guidance, not deterministic enforcement of natural-language intent.
+No upstream scheduler, schema, trust defaults or temporary-job recovery changed.
+
+Typecheck, production build and 86 focused session/Cron/trust tests passed.
+The complete serialized suite passed 555 tests with 13 platform skips.
+Real Electron management acceptance passed eight groups, retaining the native
+create/delete, exit/relaunch, offline discovery and explicit recovery sequence.
+The new group checks untrusted submission blocking, storage choice preservation,
+no task creation/fallback and no model calls; creation also checks single versus
+recurring independence. Light/dark and narrow screenshots were inspected.
+This follow-up has not been packaged; the existing preview shortcut is unchanged.
+
 ## Cron Recovery Latest Main Integration (2026-10-19)
 
 PR #140 integrates main `2eff623`, preserving Usage III and Status. All six

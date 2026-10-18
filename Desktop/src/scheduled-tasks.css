@@ -82,6 +82,14 @@
 .scheduled-editor { max-width: 640px; }
 .scheduled-editor input, .scheduled-editor textarea, .scheduled-editor select { font-size: 13px; }
 .scheduled-editor textarea { min-height: 130px; }
+.scheduled-storage { border: 0; border-block: 1px solid var(--border); padding: 18px 0; margin: 20px 0 0; min-width: 0; }
+.scheduled-storage legend { padding: 0 8px 0 0; font-size: 12px; font-weight: 600; }
+.scheduled-storage-options { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.scheduled-storage-options label { display: inline-flex; align-items: center; flex-direction: row; gap: 8px; margin: 0; font-size: 13px; }
+.scheduled-storage-options input { width: 15px; height: 15px; margin: 0; accent-color: var(--primary); }
+.scheduled-storage p { font-size: 12px; line-height: 1.8; margin: 12px 0 0; overflow-wrap: anywhere; }
+.scheduled-storage-blocked { color: var(--danger); }
+.scheduled-temporary-warning { color: var(--ink); }
 .scheduled-editor footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 26px; }
 .scheduled-editor footer button { font-size: 12px; }
 .scheduled-page { animation: scheduled-enter 200ms cubic-bezier(.22, 1, .36, 1); }

@@ -74,7 +74,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], sessions 
   const [hostId, setHostId] = useState('');
   const [cron, setCron] = useState('0 9 * * *');
   const [recurring, setRecurring] = useState(true);
-  const [durable, setDurable] = useState(false);
+  const [durable, setDurable] = useState(true);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [failure, setFailure] = useState('');
@@ -161,7 +161,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], sessions 
       {!live && <label>任务名称<input name="title" required maxLength={100} placeholder="例如：检查项目的待办事项"/></label>}
       {live ? <><label>调度宿主<ScheduledTaskSelect label="调度宿主" value={selectedHost?.runtimeId ?? ''}
         options={hosts.map(host => ({ id: host.runtimeId, label: `${host.workspace.split(/[\\/]/).pop()} · ${host.name}${host.busy ? '（忙碌）' : ''}` }))}
-        onChange={id => { setHostId(id); setDurable(false); }}/></label>
+        onChange={setHostId}/></label>
         {selectedHost ? <div className="scheduled-boundary"><Info size={15}/><span>{selectedHost.workspace}<br/>
           {selectedHost.model ?? '当前模型'} · {selectedHost.permission ?? '当前权限'} · 沿用宿主当前账户</span></div>
           : <p className="muted">请先打开项目会话并发送消息，启动调度宿主。打开此页面不会自动启动运行时。</p>}
@@ -169,8 +169,21 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], sessions 
         <div className="scheduled-presets">{[{ label: '每天 09:00', value: '0 9 * * *' }, { label: '每周五 18:00', value: '0 18 * * 5' }, { label: '每小时', value: '0 * * * *' }].map(item =>
           <button key={item.value} type="button" onClick={() => setCron(item.value)}>{item.label}</button>)}</div>
         <label className="checkbox"><input type="checkbox" checked={recurring} onChange={event => setRecurring(event.target.checked)}/>周期执行</label>
-        <label className="checkbox"><input type="checkbox" checked={durable} disabled={!selectedHost?.trusted} onChange={event => setDurable(event.target.checked)}/>保存为持久任务</label>
-        <div className="scheduled-boundary"><Info size={15}/><span>周期任务七天后到期，触发沿用上游时间偏移；单次任务在下次匹配时触发后移除。未信任项目需先在会话中执行 /trust，再手动重启宿主。</span></div>
+        <fieldset className="scheduled-storage">
+          <legend>保存方式</legend>
+          <div className="scheduled-storage-options">
+            <label><input type="radio" name="storage" value="durable" checked={durable} onChange={() => setDurable(true)} aria-describedby="scheduled-storage-note"/>持久任务</label>
+            <label><input type="radio" name="storage" value="temporary" checked={!durable} onChange={() => setDurable(false)} aria-describedby="scheduled-storage-note"/>临时任务</label>
+          </div>
+          <p id="scheduled-storage-note" role="status">{durable
+            ? '任务保存到项目，退出或更新应用后仍保留。重开后需启动项目宿主或手动恢复调度，退出期间不执行。'
+            : '仅保留在当前宿主内存中。退出、更新应用或宿主终止后任务丢失，重开不会恢复；周期执行也不例外。'}</p>
+          {durable && selectedHost && !selectedHost.trusted && <p className="scheduled-storage-blocked" role="alert">
+            当前宿主未加载项目信任，无法创建持久任务。请返回对应会话执行 <code>/trust</code>，批准保存后手动重启宿主，再刷新此页。
+            若已有临时任务，请先处理这些任务再重启；不会自动改成临时任务。
+          </p>}
+        </fieldset>
+        <div className="scheduled-boundary"><Info size={15}/><span>执行频率与保存方式互相独立。周期任务七天后到期，触发沿用上游时间偏移；单次任务在下次匹配时触发后移除。</span></div>
       </> : <label>项目<ScheduledTaskSelect name="workspace" label="项目" value={createWorkspace || projects[0] || 'Desktop for Step Code'}
         options={(projects.length ? projects : ['Desktop for Step Code']).map(path => ({ id: path, label: path }))}
         onChange={setCreateWorkspace}/></label>}
@@ -189,6 +202,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, hosts = [], sessions 
           ? associated?.name || associated?.firstMessage.slice(0, 60) || `${task.association.sessionId.slice(0, 8)}（当前不可用）`
           : '未记录'}</dd></div>}
       </dl>
+      {!task.durable && <div className="scheduled-boundary scheduled-temporary-warning"><Info size={16}/><span>临时任务仅在当前宿主存活期间保留；退出或更新应用后丢失，即使是周期任务也不会跨重启恢复。</span></div>}
       <section className="scheduled-instructions"><h2>任务指令</h2><p>{task.prompt}</p></section>
       <div className="scheduled-boundary"><Info size={16}/><span>{task.host === 'offline'
         ? '当前没有存活的调度宿主。保存的任务不代表正在调度；可手动打开项目会话，或核对配置后恢复项目调度。'

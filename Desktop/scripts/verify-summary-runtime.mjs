@@ -94,6 +94,7 @@ try {
     window.summaryMotion = [];
     window.summaryEntrance = [];
     window.summaryFastCompletion = [];
+    window.summaryRecording = true;
     const record = () => {
       const live = [...document.querySelectorAll('.sb-step')].find(element => element.textContent.includes('接入清单与完成动画'));
       window.summaryMotion.push({ settling: live?.querySelector('[data-settling]')?.getAttribute('data-settling'), height: live?.getBoundingClientRect().height, state: live?.className });
@@ -102,14 +103,17 @@ try {
       const created = [...document.querySelectorAll('.sb-task-shell')].find(element => element.textContent.includes('验证清单生成动画'));
       if (created) window.summaryEntrance.push({ height: created.getBoundingClientRect().height, opacity: Number(getComputedStyle(created).opacity),
         easing: getComputedStyle(created).transitionTimingFunction });
-      if (window.summaryMotion.length < 240) requestAnimationFrame(record);
+      if (window.summaryRecording && window.summaryMotion.length < 1800) requestAnimationFrame(record);
     };
     requestAnimationFrame(record);
   });
   await page.locator('.composer > .composer-input').fill('完成第二项');
   await page.locator('.composer > .composer-input').press('Enter');
   await board.getByRole('button', { name: /已完成 3 项/ }).waitFor();
-  await page.waitForTimeout(1500);
+  await page.waitForFunction(() => window.summaryEntrance.some(frame => frame.height >= 34 && frame.opacity === 1));
+  await board.getByRole('button', { name: /接入清单与完成动画/ }).waitFor({ state: 'hidden' });
+  await board.getByRole('button', { name: /验证 MCP 状态和 Skills 数量/ }).waitFor({ state: 'hidden' });
+  await page.evaluate(() => { window.summaryRecording = false; });
   const update = await page.evaluate(async () => {
     const snapshot = await window.desktop.snapshot();
     return window.desktop.summary(snapshot.runtimeId);

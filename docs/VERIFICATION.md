@@ -35,8 +35,17 @@ the complete serialized Desktop suite passed again: 529 passed, thirteen platfor
 skips, zero failures. The merged command catalog retains both local Status and
 project trust entries. All five Windows patches apply in sequence to a pristine
 pinned index, with every resulting normalized source hash matching the manifest.
-This integration check reused the staged Status runtime; integrated Cron/Status
-runtime staging, Electron acceptance and installer acceptance remain pending.
+The first integration check reused the staged Status runtime. After staging the
+integrated Cron/Status runtime with Node 24.16.0, all twenty runtime-group
+acceptance scripts passed locally (the Summary check was rerun after correcting
+its frame-sampling deadline). The composer menu, Context inspector and turn undo
+checks also passed. The menu check covers a stationary pointer not overriding
+keyboard selection when search results change. Cron recycling waits for pending
+statistics reads, and multi-turn undo fixtures wait for actual turn completion.
+Summary entrance checks still require intermediate frames and cubic easing,
+but wait for a recorded settled frame rather than a fixed sleep. Fifteen CI
+policy/runner tests and typecheck passed. Cloud macOS qualification and local
+installer/real-account acceptance are not inferred from these Windows checks.
 
 ## Cron With Latest Main Preview (2026-10-18)
 

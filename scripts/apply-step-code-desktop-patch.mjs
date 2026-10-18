@@ -8,11 +8,36 @@ if (!upstreamDir || !patchPath) {
 	throw new Error("Usage: node apply-step-code-desktop-patch.mjs <step-code-dir> <patch-file>");
 }
 const resolvedPatchPath = path.resolve(patchPath);
+const windowsPatch = path.resolve(import.meta.dirname, "../patches/v015/step-code-desktop.patch");
 
 function gitBlobHash(bytes) {
 	return createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
 }
 
+// macOS retains the original reviewed patch set while Windows moves to v0.1.5.
+if (resolvedPatchPath === windowsPatch) {
+	const directory = path.dirname(windowsPatch);
+	const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8"));
+	const commit = execFileSync("git", ["-C", upstreamDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+	if (commit !== manifest.commit) throw new Error("Unexpected Windows Step Code baseline");
+	for (const [relative, expected] of Object.entries(manifest.sources)) {
+		const hash = execFileSync("git", ["-C", upstreamDir, "hash-object", relative], { encoding: "utf8" }).trim();
+		if (hash !== expected) throw new Error(`Unexpected pinned Windows source: ${relative}`);
+	}
+	const patches = [];
+	for (const [name, expected] of Object.entries(manifest.patches)) {
+		const bytes = Buffer.from((await readFile(path.join(directory, name), "utf8")).replace(/\r\n/g, "\n"));
+		if (gitBlobHash(bytes) !== expected) throw new Error(`Unexpected Windows integration patch: ${name}`);
+		patches.push(bytes);
+	}
+	const options = { input: Buffer.concat(patches), stdio: ["pipe", "inherit", "inherit"] };
+	execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], options);
+	execFileSync("git", ["-C", upstreamDir, "apply", "-"], options);
+	for (const [relative, expected] of Object.entries(manifest.patchedSources)) {
+		const hash = execFileSync("git", ["-C", upstreamDir, "hash-object", relative], { encoding: "utf8" }).trim();
+		if (hash !== expected) throw new Error(`Unexpected patched Windows source: ${relative}`);
+	}
+} else {
 const patchText = (await readFile(resolvedPatchPath, "utf8")).replace(/\r\n/g, "\n");
 if (patchText.includes("\r")) {
 	throw new Error("The Step Code integration patch has unsupported line endings");
@@ -73,3 +98,4 @@ if (gitBlobHash(cronManagementPatch) !== "1f228c5b065b2376170e3bca6ea9c8943e5f5d
 const allPatches = Buffer.concat([combined, cronPatch, cronManagementPatch]);
 execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], { ...applyOptions, input: allPatches });
 execFileSync("git", ["-C", upstreamDir, "apply", "-"], { ...applyOptions, input: allPatches });
+}

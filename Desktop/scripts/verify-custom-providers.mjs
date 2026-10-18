@@ -257,7 +257,19 @@ try {
   await page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true }).click();
   const context = page.getByRole('complementary', { name: '上下文', exact: true });
   await context.waitFor();
-  assert.equal(await context.locator('[title="自定义模型尚未配置价格"] strong').textContent(), '--');
+  await context.evaluate(async element => {
+    const animations = element.getAnimations({ subtree: true })
+      .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime));
+    await Promise.all(animations.map(animation => animation.finished.catch(() => {})));
+  });
+  assert.equal(await context.locator('.context-estimate > strong').textContent(), '--');
+  const estimateInfo = context.getByRole('button', { name: '估算明细', exact: true });
+  await estimateInfo.scrollIntoViewIfNeeded();
+  // Deliver any scroll/resize tooltip dismissal before entering the stable target.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.mouse.move(0, 0);
+  await estimateInfo.hover();
+  await page.getByRole('tooltip').filter({ hasText: '第三方模型不提供费用估算，Token 用量照常统计。' }).waitFor();
   await context.getByRole('button', { name: '关闭上下文', exact: true }).click();
   await page.evaluate(runtimeId => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, runtimeId), state.runtimeId);
   await settings();
@@ -492,6 +504,11 @@ try {
   assert.equal((await snapshot()).models.some(m => m.provider === provider.id), false);
   assert.deepEqual(errors, []);
   console.log('Custom provider UI, three wire protocols with and without authentication, real tool invocation, secure persistence, running save/add/remove, deferred idle application with stable identity, rename, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.');
+} catch (error) {
+  if (page && !page.isClosed()) {
+    await page.screenshot({ path: 'test-results/custom-providers-failure.png' }).catch(() => {});
+  }
+  throw error;
 } finally {
   hold = false; release?.();
   server.closeAllConnections();

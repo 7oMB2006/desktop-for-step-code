@@ -70,7 +70,11 @@ async function dispatch(message) {
     case 'copy_session': {
       // Copy before starting an agent: restoring a cold original can append runtime metadata.
       const copy = upstream.SessionManager.forkFrom(message.sessionPath, message.cwd, sessions);
-      return { path: copy.getSessionFile(), id: copy.getSessionId(), leafId: copy.getLeafId() };
+      const id = copy.getSessionId();
+      // v0.1.5 appends lineage owned by the new copy; compare the copied source leaf.
+      const sourceLeafId = copy.getBranch().findLast(entry => !(entry.type === 'custom'
+        && entry.customType === 'step.usage_lineage' && entry.data?.sessionId === id))?.id ?? null;
+      return { path: copy.getSessionFile(), id, leafId: copy.getLeafId(), sourceLeafId };
     }
     case 'settings': {
       const config = upstream.readGlobalStepConfig();

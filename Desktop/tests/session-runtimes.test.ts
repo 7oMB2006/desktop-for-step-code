@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
 import { SessionRuntimes, taskOutcome, type WorkerTransport } from '../electron/session-runtimes';
 import { WORKSPACE_POLICY, DESKTOP_SYSTEM_POLICY, desktopSystemPolicy } from '../electron/workspace-policy';
 import type { RuntimeEvent } from '../src/contracts';
@@ -12,8 +13,9 @@ class Transport implements WorkerTransport {
   calls: string[] = [];
   answers: Record<string, unknown>[] = [];
   startArgs: string[] = [];
+  startEnv: NodeJS.ProcessEnv = {};
   constructor(readonly receive: (event: RuntimeEvent) => void, readonly sessionId: string) {}
-  start(_node: string, _entry: string, _cwd: string, _env: NodeJS.ProcessEnv, args: string[] = []) { this.startArgs = args; }
+  start(_node: string, _entry: string, _cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) { this.startArgs = args; this.startEnv = env; }
   async request(type: string, _args?: Record<string, unknown>): Promise<any> {
     this.calls.push(type);
     if (type === 'get_state') return { sessionId: this.sessionId, sessionFile: `${this.sessionId}.jsonl`, isStreaming: false };
@@ -752,6 +754,8 @@ test('clone is prepared in a different worker and preserves the source and permi
   assert.equal(transports[0].calls.includes('clone'), false);
   assert.equal(transports[1].calls.includes('clone'), true);
   assert.equal(transports[1].calls.includes('prompt'), true);
+  assert.equal(transports[0].startEnv.STEPCODE_DESKTOP_BRANCH_SOURCE, undefined);
+  assert.equal(transports[1].startEnv.STEPCODE_DESKTOP_BRANCH_SOURCE, resolve('source.jsonl'));
   assert.equal(transports[0].stopped, false);
   await pool.stopAll();
 });
@@ -768,6 +772,7 @@ test('prepared copies open without cloning or clearing the source unread state',
   assert.equal(transports[0].calls.includes('clone'), false);
   assert.equal(transports[1].calls.includes('clone'), false);
   assert.equal(transports[1].calls.includes('switch_session'), true);
+  assert.equal(transports[1].startEnv.STEPCODE_DESKTOP_BRANCH_SOURCE, undefined);
   assert.equal(transports[0].stopped, false);
   await pool.stopAll();
 });

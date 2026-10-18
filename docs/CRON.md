@@ -4,7 +4,7 @@
 
 ## [Ⅰ] 原生状态与宿主生命周期
 
-- 继续使用现有 Step Code 钉点 `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`。
+- Windows 已同步 main 的 Step Code v0.1.5 钉点 `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`；Cron 两份增量补丁由 `patches/v015/manifest.json` 引用并校验。macOS 仍保留原固定基线，不随 Windows 升级。
 - 单独的 `step-code-desktop-cron.patch` 只增加状态观察，不改任务文件 schema、调度器、归属、时间偏移或七天保护。
 - Desktop 在启动环境中显式启用 `DESKTOP_CRON_STATE=1`。原生运行时通过内部状态事件发送任务 ID、单次／周期、临时／持久、下次触发和到期时间，不发送提示词或凭据。相同状态不重复发送；不为观察而额外每秒读盘。
 - Electron 主进程校验快照，不把原始 JSON 转发到聊天或状态栏。保留任务的宿主不进入空闲超时和数量上限回收；任务消耗、删除或原生到期后恢复正常回收。

@@ -112,6 +112,19 @@ try {
   assert.ok(children.some(text => text.includes('CHILD_THREE') && text.includes('STEP_2_SUMMARY')));
   assert.deepEqual(errors, []);
   console.log('Real chain runtime passed: three child processes, previous propagation, final content to parent, failure, cancellation and skipped step. Local HTTP only.');
+} catch (error) {
+  const page = await app.firstWindow().catch(() => undefined);
+  const snapshot = await page?.evaluate(() => window.desktop.snapshot()).catch(() => undefined);
+  console.error('Chain runtime diagnostic', JSON.stringify({
+    heldChild, children, errors,
+    results: snapshot?.messages.filter(message => message.toolName === 'subagent').map(message => ({
+      isError: message.isError, results: message.details?.results?.map(result => ({
+        agent: result.agent, status: result.status, stopReason: result.stopReason, lastEvent: result.lastEvent,
+      })),
+    })),
+    pendingRequests: snapshot?.requests?.map(request => ({ method: request.method, title: request.title })),
+  }));
+  throw error;
 } finally {
   await app.evaluate(({ BrowserWindow }) => { for (const win of BrowserWindow.getAllWindows()) win.destroy(); }).catch(() => {});
   await app.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));

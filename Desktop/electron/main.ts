@@ -23,6 +23,7 @@ import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
+import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
 let providerTestController: AbortController | undefined;
@@ -196,6 +197,8 @@ const env = isolatedEnvironment(dataRoot);
 const vault = new AuthVault(dataRoot);
 let authData: Record<string, unknown> = {};
 let appliedAuthData: Record<string, unknown> = {};
+const usageEstimates = new UsageEstimates(join(app.getPath('userData'), 'usage-estimates'), () => appliedAuthData,
+  error => { void crashLog.record('usage-estimates', error); });
 const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
   (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
   Date.now, () => performance.now(), 12000, async signal => {
@@ -273,19 +276,23 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
   event: (worker, event) => {
+    usageEstimates.event(worker, event);
+    if (['message_end', 'agent_end'].includes(event.type)) event = { ...event, desktopEstimate: usageEstimates.summary(worker) };
     workflowBindings.event(worker.state?.sessionId, event);
     return conversationTiming.event(worker, event);
   },
   messages: async (worker, messages) => {
     if (!worker.state?.sessionId) return messages;
     await modelSelections.load(worker.state.sessionId);
+    await usageEstimates.load(worker.state.sessionId);
     return hydrateWorkflowHistory(worker.cwd, await conversationTiming.decorate(worker.state.sessionId, messages),
       await workflowBindings.load(worker.state.sessionId));
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
-  launch: worker => collaboration.attach(worker),
+  launch: worker => { usageEstimates.attach(worker); return collaboration.attach(worker); },
   dispose: worker => {
     conversationTiming.event(worker, { type: 'desktop_exit' });
+    usageEstimates.detach(worker);
     collaboration.detach(worker);
     if (worker.status === 'disconnected' && worker.queued) pendingMessages.recover(worker);
     else pendingMessages.clear(worker);
@@ -377,6 +384,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
       : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
     modelSelection: worker ? modelSelections.selection(worker) : undefined,
     modelChanges: worker ? modelSelections.changes(worker) : [],
+    estimate: usageEstimates.summary(worker),
     permissionPreset: draft?.permissionPreset ?? worker?.permissionPreset, runtimeRevision: worker?.revision,
     launch: draft?.launch ?? worker?.launch ?? emptyLaunch(),
     messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: providerModelNames(draft?.models ?? worker?.models ?? [], appliedAuthData), stats: worker?.stats,
@@ -596,6 +604,7 @@ async function handle(method: string, args: any[]) {
         await installer.install(async () => {
           if (busy()) throw new InstallerFailure('busy');
           await conversationTiming.flush(); await modelSelections.flush(); await workflowBindings.flush();
+          await usageEstimates.flush();
           await terminals.stopAll();
           await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
         });
@@ -1010,7 +1019,7 @@ async function handle(method: string, args: any[]) {
         const cwd = source?.cwd ?? await realpath(target.cwd);
         const copy = await admin.request('copy_session', { sessionPath: path, cwd });
         copyPath = await managedSessionFile(join(dataRoot, 'sessions'), copy.path);
-        if (!copy.id || copy.id === target.id || source?.leafId && copy.leafId !== source.leafId) throw new Error('Session history changed; try again');
+        if (!copy.id || copy.id === target.id || source?.leafId && copy.sourceLeafId !== source.leafId) throw new Error('Session history changed; try again');
         const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd, authEnvironment(),
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
@@ -1101,6 +1110,7 @@ async function handle(method: string, args: any[]) {
             if (worker) await runtimes.remove(worker);
             await deleteManagedSessionFile(join(dataRoot, 'sessions'), target.path);
             await conversationTiming.remove(target.id);
+            await usageEstimates.remove(target.id);
             await modelSelections.remove(target.id);
             await workflowBindings.remove(target.id);
             sessionCatalog = sessionCatalog.filter(session => session.id !== target.id);
@@ -1130,6 +1140,7 @@ async function handle(method: string, args: any[]) {
       if (worker) { await runtimes.assertIdle(worker, { stopHost: true }); await runtimes.remove(worker); }
       if (target.path) await shell.trashItem(target.path);
       await workflowBindings.remove(target.id);
+      await usageEstimates.remove(target.id);
       return true;
     }
     case 'command': {
@@ -1350,6 +1361,11 @@ async function handle(method: string, args: any[]) {
     case 'accountAllowance':
       if (args[0] !== undefined && typeof args[0] !== 'boolean') throw new Error('Invalid allowance refresh');
       return accountAllowance.query(args[0] === true);
+    case 'estimateSettings': return usageEstimates.settings();
+    case 'setEstimateRules': {
+      if (settingsMutation) throw new Error('Account change in progress');
+      return usageEstimates.setRules(args[0], args[1]);
+    }
     case 'cancelAccountAllowance': accountAllowance.cancel(); return null;
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
     case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
@@ -1539,6 +1555,7 @@ app.on('before-quit', event => {
       await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
+      await usageEstimates.flush();
       await workflowBindings.flush();
       browser?.dispose();
       quitting = true;
@@ -1565,6 +1582,7 @@ else app.whenReady().then(async () => {
   // requires the ready state, which whenReady provides.
   authData = await vault.load();
   appliedAuthData = authData;
+  await usageEstimates.initialize();
   await projectProviders(dataRoot, authData);
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}

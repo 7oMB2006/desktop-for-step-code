@@ -2,6 +2,7 @@ import type { WorkflowState } from './workflow-state';
 import type { LaunchState } from './launch-state';
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Snapshot { workspaceIssue?: string }
+export interface Snapshot { estimate?: import('./usage-estimates').SessionEstimate }
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
 export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
@@ -111,6 +112,8 @@ export interface DesktopBridge {
   settings(): Promise<Settings>;
   accountAllowance(refresh?: boolean): Promise<import('./account-allowance').AccountAllowance>;
   cancelAccountAllowance(): Promise<void>;
+  estimateSettings(): Promise<import('./usage-estimates').EstimateSettings>;
+  setEstimateRules(rules: import('./usage-estimates').EstimateRules, accountRef: string): Promise<import('./usage-estimates').EstimateSettings>;
   saveProvider(provider: CustomProvider, key?: string): Promise<Snapshot>;
   discoverProviderModels(provider: CustomProvider, key?: string): Promise<DiscoveredProviderModel[]>;
   testProvider(provider: CustomProvider, modelId: string, key?: string): Promise<ProviderDiagnostic>;

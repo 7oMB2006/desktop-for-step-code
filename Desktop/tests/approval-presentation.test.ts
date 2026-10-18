@@ -83,6 +83,41 @@ test('ordinary writes keep their complete structured parameters and English loca
   assert.match(result.reason, /permission settings/);
 });
 
+test('fused file approvals preserve the complete embedded command, including blank lines and redaction', () => {
+  const command = 'printf checked\n\nprintf second\nAPI_KEY=private-value printf safe';
+  for (const name of ['write_file', 'edit_file']) {
+    const r = request(`${name} can modify the workspace or execute a command\nthen_run: ${command}`, 'Approve', name);
+    const input = { path: 'sample.txt', content: 'after', search: 'before', replace: 'after', then_run: command };
+    const result = permissionApprovalPresentation(r, messages(input, callId, name), 'zh', 'worker-1')!;
+    assert.equal(result.category, 'ordinary');
+    assert.equal(result.target, 'sample.txt');
+    assert.equal(result.preview, name === 'write_file' ? 'after' : '替换前\nbefore\n\n替换后\nafter');
+    assert.match(result.verificationCommand!, /printf checked\n\nprintf second/);
+    assert.doesNotMatch(JSON.stringify(result), /private-value/);
+    const fallback = permissionApprovalPresentation(r, [], 'en', 'worker-2')!;
+    assert.equal(fallback.inputKind, 'summary');
+    assert.equal(fallback.verificationCommand, result.verificationCommand, 'the command comes from this request, not another runtime');
+    assert.equal(fallback.target, undefined);
+  }
+});
+
+test('embedded command policies retain hazardous, uncertain and explicit-confirm classifications', () => {
+  for (const [reason, kind, category] of [
+    ['Dangerous command requires confirmation (recursive-force-remove): run_command command=rm -rf ./empty', 'Dangerous', 'hazardous'],
+    [uncertain, 'Approve', 'uncertain'],
+    ['Policy override for run_command: confirm', 'Approve', 'ordinary'],
+    ['run_command can modify the workspace or execute a command', 'Approve', 'ordinary'],
+  ]) {
+    const r = request(`then_run (run_command): ${reason}\nthen_run: printf checked`, kind, 'write_file');
+    const result = permissionApprovalPresentation(r, [], 'zh', 'worker-1')!;
+    assert.equal(result.category, category);
+    assert.equal(result.verificationCommand, 'printf checked');
+  }
+  assert.equal(permissionApprovalPresentation(request(`unknown reason\nthen_run: printf checked`, 'Approve', 'write_file'), [], 'zh'), undefined);
+  assert.equal(permissionApprovalPresentation(request(`${uncertain}\nthen_run: printf checked`), [], 'zh'), undefined);
+  assert.equal(permissionApprovalPresentation(request(`${uncertain}\nunrecognized suffix`, 'Approve', 'write_file'), [], 'zh'), undefined);
+});
+
 test('redacts credentials from commands, summaries, raw details and auxiliary parameters', () => {
   const r = request('write_file can modify the workspace or execute a command', 'Approve', 'write_file');
   r.message = r.message!.replace(summary, 'write_file path=note.md Authorization: Bearer visible-token');

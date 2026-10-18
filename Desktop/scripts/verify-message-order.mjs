@@ -20,11 +20,14 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
-  const saved = await prepareSessionFixture(page);
+  await prepareSessionFixture(page);
+  const saved = await page.evaluate(() => window.desktop.snapshot());
+  const baseline = (saved.runtimeRevision ?? 0) + 100;
+  console.log(`Message ordering fixture: current revision ${saved.runtimeRevision ?? 0}, injected baseline ${baseline}.`);
   await app.evaluate(({ ipcMain }, saved) => {
     const text = value => ({ role: 'assistant', content: [{ type: 'text', text: value }], timestamp: 2 });
     globalThis.messageOrderFixture = {
-      saved: { ...saved, runtimeRevision: 10, state: { ...saved.state, isStreaming: true },
+      saved: { ...saved, runtimeRevision: (saved.runtimeRevision ?? 0) + 100, state: { ...saved.state, isStreaming: true },
         messages: [{ role: 'user', content: 'Message ordering fixture', timestamp: 1 }, text('Alpha')] },
       delay: 0, requests: 0,
     };
@@ -57,11 +60,11 @@ try {
     await page.waitForTimeout(200);
     assert.equal(await answer.textContent(), expected);
   };
-  // The snapshot already includes revision 10; its delayed delta must not append again.
-  await delta(10, 'Alpha');
+  // The snapshot already includes this revision; its delayed delta must not append again.
+  await delta(baseline, 'Alpha');
   await checkText('Alpha');
   // Identical text in a genuinely newer delta must still be appended.
-  await delta(11, 'Alpha');
+  await delta(baseline + 1, 'Alpha');
   await checkText('AlphaAlpha');
   // Hold an older snapshot response while a new delta reaches the renderer.
   const requests = await app.evaluate(({ BrowserWindow }) => {
@@ -77,21 +80,21 @@ try {
       await new Promise(resolve => setTimeout(resolve, 5));
     }
   }, requests);
-  await delta(12, 'Beta');
+  await delta(baseline + 2, 'Beta');
   await page.waitForTimeout(600);
   await checkText('AlphaAlphaBeta');
-  await app.evaluate(({ BrowserWindow }) => {
+  await app.evaluate(({ BrowserWindow }, revision) => {
     const fixture = globalThis.messageOrderFixture;
     fixture.delay = 0;
-    fixture.saved.runtimeRevision = 20;
+    fixture.saved.runtimeRevision = revision;
     fixture.saved.messages.at(-1).content[0].text = 'Replaced history';
     BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
-      type: 'desktop_history', runtimeId: fixture.saved.runtimeId, runtimeRevision: 20,
+      type: 'desktop_history', runtimeId: fixture.saved.runtimeId, runtimeRevision: revision,
       messages: fixture.saved.messages,
     });
-  });
+  }, baseline + 10);
   await checkText('Replaced history');
-  await delta(12, 'Beta');
+  await delta(baseline + 2, 'Beta');
   await checkText('Replaced history');
   assert.deepEqual(errors, []);
   console.log('Message ordering passed: snapshot/delta overlap, legitimate repeated text, stale refresh and history reset.');

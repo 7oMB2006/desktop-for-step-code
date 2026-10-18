@@ -214,11 +214,36 @@ const toolLabels: Record<ToolKind, [string, string, string, string, string, stri
   other: ['', '', '', '', '', ''],
 };
 
-export function toolPresentation(name: string, result: Message | undefined, active: boolean, language: 'zh' | 'en') {
-  const state: ToolState = result && !result.desktopToolPending ? (result.isError ? 'failed' : 'done') : active ? 'running' : 'missing';
+export function thenRunStatus(name: string, result: Message | undefined): 'passed' | 'failed' | 'timed-out' | 'unavailable' | undefined {
+  if (!['write_file', 'edit_file'].includes(name) || !result || result.isError || result.desktopToolPending) return;
+  const details = result.details?.thenRun;
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return;
+  const check = details as Record<string, unknown>;
+  if (typeof check.command !== 'string' || !check.command.trim() || typeof check.timedOut !== 'boolean'
+    || check.exitCode !== null && !(typeof check.exitCode === 'number' && Number.isSafeInteger(check.exitCode) && check.exitCode >= 0)) return;
+  return check.timedOut ? 'timed-out' : check.exitCode === 0 ? 'passed' : check.exitCode === null ? 'unavailable' : 'failed';
+}
+
+export function toolPresentation(name: string, result: Message | undefined, active: boolean, language: 'zh' | 'en', input?: unknown) {
+  const verification = thenRunStatus(name, result);
+  const checkFailed = verification !== undefined && verification !== 'passed';
+  const state: ToolState = result && !result.desktopToolPending ? (result.isError || checkFailed ? 'failed' : 'done') : active ? 'running' : 'missing';
   const kind = Object.hasOwn(toolKinds, name) ? toolKinds[name] : 'other';
   const zh = language === 'zh';
   const labels = toolLabels[kind];
+  const embedded = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>).then_run : undefined;
+  // Cancellation can retain a mutation receipt but omit structured check details.
+  if (state === 'failed' && result?.isError && ['write_file', 'edit_file'].includes(name)
+    && typeof embedded === 'string' && embedded.trim()) {
+    const label = zh ? '文件修改或验证未完成' : 'File change or check incomplete';
+    return { state, kind, label, status: label };
+  }
+  if (verification) {
+    const check = zh ? { passed: '验证通过', failed: '验证失败', 'timed-out': '验证超时', unavailable: '验证未完成' }[verification]
+      : { passed: 'check passed', failed: 'check failed', 'timed-out': 'check timed out', unavailable: 'check incomplete' }[verification];
+    const mutation = result?.details?.changed === false ? zh ? '文件内容未变化' : 'File unchanged' : labels[zh ? 1 : 4];
+    return { state, kind, label: `${mutation} · ${check}`, status: `${mutation} · ${check}` };
+  }
   const label = kind === 'other'
     ? (zh ? (state === 'running' ? `正在调用 ${name}` : state === 'done' ? `调用了 ${name}`
       : state === 'failed' ? `调用 ${name} 失败` : `调用 ${name}（未返回）`)

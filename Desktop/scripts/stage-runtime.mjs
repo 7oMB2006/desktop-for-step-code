@@ -3,21 +3,29 @@ import { createRequire } from 'node:module';
 import { resolve, dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { assertStagingNodeVersion } from './staging-node-version.mjs';
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
 if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
 const nodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
-const PINNED_COMMIT = '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8';
+const windowsManifest = JSON.parse(await readFile(new URL('../../patches/v015/manifest.json', import.meta.url), 'utf8'));
+const PINNED_COMMIT = process.platform === 'win32'
+  ? windowsManifest.commit
+  : '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8';
+const patchFile = process.platform === 'win32' ? 'patches/v015/step-code-desktop.patch' : 'patches/step-code-desktop.patch';
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 if (commit !== PINNED_COMMIT) {
   // Naming both sides keeps a stale build instruction from reading as a broken checkout.
-  throw new Error(`Step Code source does not match the pinned Desktop baseline: source is at ${commit}, pinned is ${PINNED_COMMIT}; check out the pinned commit and reapply patches/step-code-desktop.patch`);
+  throw new Error(`Step Code source does not match the pinned Desktop baseline: source is at ${commit}, pinned is ${PINNED_COMMIT}; check out the pinned commit and reapply ${patchFile}`);
 }
+assertStagingNodeVersion(process.version, process.platform);
 // The manifest advertises the patch set below, so staging must prove the sources are
 // actually patched instead of trusting the working tree. `pnpm package` never applies the
 // patch itself; CI does it separately, and an unpatched checkout staged locally would
 // ship a runtime whose manifest claims patches that are not there.
-const patchedFiles = [
+const patchedFiles = process.platform === 'win32'
+  ? Object.entries(windowsManifest.patchedSources).map(([relative, expected]) => [relative.split('/').at(-1), relative, expected])
+  : [
   ['step-cron.ts', 'packages/coding-agent/src/features/step-cron.ts', 'ce12a4056070feac64d5847fd743e57c6ac073d7'],
   ['step-questionnaire.ts', 'packages/coding-agent/src/features/step-questionnaire.ts', 'ef6f3da34d401f6bdda4b33765938363df8b9926'],
   ['step-plan.ts', 'packages/coding-agent/src/features/step-plan.ts', '31fcf9db425d54bdba864630488ca7b8aef838bd'],
@@ -48,6 +56,7 @@ const source = join(upstream, 'packages/coding-agent');
 const npmEntry = resolve(dirname(process.execPath), process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : '../lib/node_modules/npm/bin/npm-cli.js');
 await readFile(npmEntry);
 execFileSync(process.execPath, [npmEntry, '--prefix', source, 'run', 'build'], { cwd: upstream, stdio: 'inherit' });
+if (process.platform === 'win32') await readFile(join(source, 'dist/bundle/chunks/activity-worker.js'));
 const currentNode = await readFile(process.execPath);
 const nodeSha256 = createHash('sha256').update(currentNode).digest('hex');
 let matchingLicense = false;

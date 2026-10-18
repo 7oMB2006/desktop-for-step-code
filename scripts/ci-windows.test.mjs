@@ -5,8 +5,19 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { acceptanceGroups, acceptanceTimeouts, localOnly, platformOnly, validateInventory, windowsGroups } from './ci-acceptance.mjs';
+import { acceptanceGroups, acceptanceTimeouts, defaultAcceptanceTimeout, localOnly, platformOnly, validateInventory, windowsGroups } from './ci-acceptance.mjs';
 import { executeScript, groupScripts, runGroup } from './ci-windows.mjs';
+import { assertStagingNodeVersion } from '../Desktop/scripts/staging-node-version.mjs';
+
+test('Windows staging excludes Node 24 releases with the TCP-connect crash', () => {
+  for (const version of ['v24.0.0', 'v24.14.1', 'v24.15.0']) {
+    assert.throws(() => assertStagingNodeVersion(version, 'win32'), /24\.16\.0/);
+    assert.doesNotThrow(() => assertStagingNodeVersion(version, 'darwin'));
+  }
+  for (const version of ['v22.19.0', 'v24.16.0', 'v24.17.0', 'v26.0.0']) {
+    assert.doesNotThrow(() => assertStagingNodeVersion(version, 'win32'));
+  }
+});
 
 const files = readdirSync(new URL('../Desktop/scripts/', import.meta.url)).filter(file => /^verify-.*\.mjs$/.test(file));
 
@@ -58,7 +69,7 @@ test('each group executes in order with at most one active script and preserves 
         assert.equal(++active, 1);
         assert.ok(options.cwd.endsWith('Desktop'));
         const name = script.replaceAll('\\', '/').split('/').at(-1);
-        assert.equal(options.timeout, acceptanceTimeouts[name]);
+        assert.equal(options.timeout, acceptanceTimeouts[name] ?? defaultAcceptanceTimeout);
         executed.push(name);
         await new Promise(resolve => setImmediate(resolve));
         active--;
@@ -67,6 +78,26 @@ test('each group executes in order with at most one active script and preserves 
     assert.deepEqual(executed, acceptanceGroups[group]);
     assert.ok(rows.every(row => row.status === 'success' && row.seconds >= 0));
   }
+});
+
+test('every script has a finite default deadline and records its identity before execution', async () => {
+  assert.equal(defaultAcceptanceTimeout, 300000);
+  const events = [];
+  await assert.rejects(runGroup('runtime', {
+    log() {},
+    record(rows, active) { events.push({ completed: rows.length, active }); },
+    execute(script, options) {
+      const pending = events.at(-1);
+      assert.equal(pending.completed, 0);
+      assert.equal(pending.active.script, 'verify-electron.mjs');
+      assert.equal(pending.active.timeoutMs, defaultAcceptanceTimeout);
+      assert.ok(Number.isFinite(Date.parse(pending.active.startedAt)));
+      assert.equal(options.timeout, defaultAcceptanceTimeout);
+      throw new Error('fixture stopped');
+    },
+  }), /verify-electron.mjs failed/);
+  assert.equal(events.at(-1).completed, 1);
+  assert.equal(events.at(-1).active, null);
 });
 
 test('failure stops the group without hiding the failing script or running later scripts', async () => {

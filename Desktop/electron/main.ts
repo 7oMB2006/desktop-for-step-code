@@ -3,7 +3,7 @@ import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -16,7 +16,9 @@ import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
 import { isProjectTrustInput, trustProject } from './project-trust';
-import { CronManagement } from './cron-management';
+import { CronManagement, cronJobs } from './cron-management';
+import { CronBindings } from './cron-bindings';
+import { CronRecovery, assertRecoveryJobs, resumeCronHost } from './cron-recovery';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
@@ -279,6 +281,11 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
   event: (worker, event) => {
+    if (event.type === 'tool_execution_end' && event.toolName === 'cron_create') {
+      void cronBindings.created(worker.cwd, worker.state?.sessionId, event).then(changed => {
+        if (changed) emit({ type: 'desktop_cron_changed' });
+      }).catch(error => { void crashLog.record('cron-association', error); });
+    }
     usageEstimates.event(worker, event);
     if (['message_end', 'agent_end'].includes(event.type)) event = { ...event, desktopEstimate: usageEstimates.summary(worker) };
     workflowBindings.event(worker.state?.sessionId, event);
@@ -309,8 +316,70 @@ const pendingMessages = new PendingMessages(worker => {
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
   (worker, message) => runtimes.preparePrompt(worker, message));
 const launchControls = new LaunchControls(runtimes);
+const cronBindings = new CronBindings(join(app.getPath('userData'), 'cron-bindings'));
 const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
-  () => emit({ type: 'desktop_cron_changed' }));
+  () => emit({ type: 'desktop_cron_changed' }), cronBindings);
+const cronRecovery = new CronRecovery(async (key, sessionId) => {
+  if (process.platform !== 'win32') throw new Error('Cron recovery Beta is currently Windows-only');
+  const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
+  if (!manifest.patches?.includes('desktop-cron-recovery')) throw new Error('This runtime does not support gated Cron recovery');
+  const task = (await cronManagement.list(preferences.workspaces)).tasks.find(task => task.key === key);
+  if (!task?.durable || task.runtimeId) throw new Error('Select an offline durable task');
+  const workspace = await workspaceDirectory(task.workspace);
+  for (const worker of runtimes.workers.values()) {
+    if (worker.status !== 'disconnected' && await samePath(worker.cwd, workspace))
+      throw new Error('This project already has a host; refresh its state');
+  }
+  const target = (await listSessions()).find(session => session.id === sessionId);
+  if (!target?.path || preferences.archivedSessionIds?.includes(sessionId) || !(await samePath(target.cwd, workspace)))
+    throw new Error('Select an available conversation in this project');
+  const sessionPath = await managedSessionFile(join(dataRoot, 'sessions'), target.path);
+  const sessionInfo = await stat(sessionPath);
+  const saved = await admin.request('cron_saved', { cwd: workspace });
+  if (!saved.trusted) throw new Error('Project trust is required for recovery');
+  const jobs = cronJobs(saved.jobs).filter(job => job.durable).sort((a, b) => a.id.localeCompare(b.id));
+  if (!jobs.some(job => job.id === task.id && job.createdAt === task.createdAt)) throw new Error('Cron task changed; refresh');
+  const options = await admin.request('session_options', { cwd: workspace });
+  const model = options.models?.find((model: Model) => model.provider === options.model?.provider && model.id === options.model?.id);
+  if (!model) throw new Error('No configured model is available for recovery');
+  const settings = await admin.request('settings', { cwd: workspace });
+  const official = options.officialModel === true;
+  if (official && !settings.account?.loggedIn) throw new Error('Sign in before recovering scheduled tasks');
+  const profile = settings.profiles?.find((profile: { id: string }) => profile.id === settings.account?.profile);
+  const account = official ? `${profile?.title ?? settings.account?.profile ?? 'Step'}${settings.account?.userId ? ` · ${settings.account.userId}` : ''}`
+    : `${providerModelNames([model], appliedAuthData)[0]?.providerName ?? model.provider} · 当前供应商配置`;
+  return { workspace, jobs, sessionId, sessionName: target.name || target.firstMessage.slice(0, 80) || sessionId.slice(0, 8),
+    sessionPath, sessionStamp: JSON.stringify([sessionInfo.size, sessionInfo.mtimeMs, sessionInfo.ino]),
+    configurationRef: createHash('sha256').update(JSON.stringify(appliedAuthData)).digest('hex'), account, model };
+}, async plan => {
+  // Recovery is explicitly confirmed and starts gated, without changing the viewed chat.
+  const worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), plan.workspace,
+    { ...authEnvironment(), DESKTOP_CRON_RECOVERY: '1', STEP_PERMISSION_PRESET: 'ask' }, plan.sessionPath);
+  let activated = false;
+  try {
+    if (worker.state?.sessionId !== plan.sessionId) throw new Error('Recovery conversation identity changed');
+    await worker.rpc.request('set_model', { provider: plan.model.provider, modelId: plan.model.id });
+    await runtimes.read(worker);
+    if (worker.permissionPreset !== 'ask' || worker.state?.model?.provider !== plan.model.provider || worker.state?.model?.id !== plan.model.id
+      || runtimes.isBusy(worker)) throw new Error('Could not verify the recovery model and approval policy');
+    const loaded = await worker.rpc.request('desktop_cron', { action: 'list' });
+    if (loaded.trusted !== true) throw new Error('Project trust changed while opening the host');
+    assertRecoveryJobs(plan.jobs, cronJobs(loaded.jobs));
+    if (createHash('sha256').update(JSON.stringify(appliedAuthData)).digest('hex') !== plan.configurationRef)
+      throw new Error('Recovery account changed while opening the host');
+    await cronBindings.set(plan.workspace, plan.jobs, plan.sessionId, 'recovered');
+    // The resume helper removes explicit rejections; uncertain delivery must retain the host.
+    activated = true;
+    await resumeCronHost(worker.rpc, () => runtimes.remove(worker));
+    emit({ type: 'desktop_cron_changed' });
+    emit({ type: 'desktop_sessions_changed' });
+    return { sessionId: plan.sessionId, runtimeId: worker.id };
+  } catch (error) {
+    if (!activated) await runtimes.remove(worker);
+    else emit({ type: 'desktop_cron_changed' });
+    throw error;
+  }
+});
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
   (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
 setInterval(() => { if (!transition) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error)); }, 60000).unref();
@@ -576,6 +645,15 @@ async function handle(method: string, args: any[]) {
     case 'cronDelete': {
       if (transition || settingsMutation || providerSettingsPending || undoBusy) throw new Error('Wait for account and workspace changes to finish');
       return method === 'cronCreate' ? cronManagement.create(args[0]) : cronManagement.delete(args[0], args[1]);
+    }
+    case 'cronRecoveryPreview':
+    case 'cronRecover': {
+      if (transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || deletingArchived || quitting || quitPending)
+        throw new Error('Wait for account and workspace changes to finish');
+      transition = true;
+      try {
+        return method === 'cronRecoveryPreview' ? await cronRecovery.prepare(args[0], args[1]) : await cronRecovery.recover(args[0]);
+      } finally { transition = false; }
     }
     case 'updateState': return { ...updates.snapshot(), transfer: installer.snapshot() };
     case 'checkUpdates': await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };

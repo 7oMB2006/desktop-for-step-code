@@ -1,5 +1,99 @@
 # Verification
 
+## Cron Resume Rejection Follow-Up (2026-10-19)
+
+An explicit negative RPC response now has a distinct error type. If the recovery
+resume command is rejected before opening its gate, Desktop removes the gated
+host so it cannot falsely occupy the project and prevent another reviewed
+recovery. Successful resume keeps the host. Timeout and transport failures remain
+uncertain: Desktop keeps the potentially activated host and never retries.
+
+Focused recovery/transport tests passed 23 cases with three platform skips,
+including a real JSONL child distinguishing negative replies from timeout and
+disconnect. The full serialized suite passed 558 tests with thirteen platform
+skips. Typecheck, production build and all eight Electron Cron management
+acceptance groups passed. This correction has not been packaged.
+
+## Cron Creation Persistence Follow-Up (2026-10-19)
+
+Creation now defaults to durable storage and preserves that choice when selecting
+a host. Recurrence remains independent. An untrusted host blocks durable submit
+and explains explicit `/trust` approval and a manual restart; it never selects
+temporary storage as a fallback. Temporary creation and details disclose loss on
+host exit or application update.
+
+The appended Desktop system policy asks models to prefer explicit durable jobs
+for ongoing/cross-restart requests, stop on trust failure rather than downgrade,
+and treat existence checks as read-only rather than permission to recreate.
+This is model guidance, not deterministic enforcement of natural-language intent.
+No upstream scheduler, schema, trust defaults or temporary-job recovery changed.
+
+Typecheck, production build and 86 focused session/Cron/trust tests passed.
+The complete serialized suite passed 555 tests with 13 platform skips.
+Real Electron management acceptance passed eight groups, retaining the native
+create/delete, exit/relaunch, offline discovery and explicit recovery sequence.
+The new group checks untrusted submission blocking, storage choice preservation,
+no task creation/fallback and no model calls; creation also checks single versus
+recurring independence. Light/dark and narrow screenshots were inspected.
+This follow-up has not been packaged; the existing preview shortcut is unchanged.
+
+## Cron Recovery Latest Main Integration (2026-10-19)
+
+PR #140 integrates main `2eff623`, preserving Usage III and Status. All six
+Windows patches applied together to a new pinned-source checkout; every manifest
+post-image hash matched. The recovery patch import context and combined RPC hash
+were updated for Status, without changing the frozen macOS runtime baseline.
+Node v24.16.0 staging, frozen-lockfile installation, typecheck and production build
+passed. The serialized suite passed 555 tests with 13 platform skips; all 15
+CI-policy tests and all 12 native Cron RPC cases passed. Full Windows Electron
+acceptance and composer-editing acceptance passed.
+
+macOS run 39127296032 failed waiting for `fill('')` to clear the controlled
+ProseMirror editor; its screenshot still showed the previous draft. The startup
+fixture now clears via native select-all and Backspace editor transactions, and
+checks both editor value and controlled empty state before typing again. This
+sequence also runs on Windows and passed locally. The macOS cloud rerun remains
+required; this Windows replay does not establish the original platform's result.
+
+Run 39147045392 passed that startup check and the file-preview fixture, then
+exposed an undo-fixture ordering dependency. It modifies a file externally after
+the turn ends, but expected an already-mounted status component to notice without
+a file-watch event. The fixture now explicitly reloads before testing that
+conflict, as its later external-edit scenario already does. Production undo and
+its conflict checks are unchanged.
+
+## Cron Manual Recovery Beta (2026-10-18, Local Development)
+
+Issue #138 adds Desktop-side associations and explicit Windows project recovery
+on top of merged #137. The upstream task schema, scheduler and expiry remain
+unchanged. All six Windows patches applied together to a pristine pinned checkout
+and passed pre/post-image checks. Runtime staging with Node v24.16.0, typecheck
+and the production Desktop build passed.
+
+The native RPC suite passed twelve cases, including ordinary due delivery and
+startup missed notices blocked while recovery is gated, released only by explicit
+RPC, rejected repeated release, and Ask without rewriting shared permission
+defaults. Both management-created and live native tool-created associations were
+verified independently of the upstream task file.
+
+The real Electron management suite passed seven groups: baseline management,
+read-only offline discovery, association persistence, review/cancel with no host
+or model, changed-task consent rejection and token consumption, then one-host
+recovery into the selected saved session with Ask and unchanged defaults. All
+management/review operations made zero model calls. Dark/light/narrow screenshots,
+cubic disclosure transitions and reduced-motion behavior were checked.
+
+The serialized unit/protocol suite passed 534 cases with 13 platform skips.
+After adding the post-start loaded-task guard, the focused recovery, management
+and staging subset passed 24 cases. All 15 CI policy/runner tests passed locally.
+The post-start guard allows native time advancement/removal but rejects new or
+changed instructions before release.
+
+No installer, shortcut update or public release was produced in this phase.
+No real account, user task, trust store or active user application was changed.
+These local deterministic tests do not qualify real billing, installer upgrade,
+sleep/reboot execution, automatic startup recovery or crash exactly-once delivery.
+
 ## Status With Latest Main Preview (2026-10-19)
 
 Windows preview source `4a1d7a9` integrates latest fetched main `ad39000`

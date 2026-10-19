@@ -65,6 +65,7 @@ async function dispatch(message) {
       const requested = settings.getDefaultThinkingLevel() ?? 'medium';
       return {
         models,
+        officialModel: model.provider === upstream.STEP_PROVIDER_ID,
         model, thinkingLevel: model.thinkingLevels?.includes(requested) ? requested : model.thinkingLevels?.[0],
         permissionPreset: settings.getStepPermissionPreset() ?? upstream.resolveInitialStepPermissionPreset({
           initialPreset: upstream.readGlobalStepConfig().permissionPreset,

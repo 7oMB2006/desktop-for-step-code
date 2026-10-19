@@ -1,6 +1,7 @@
 import type { CronCreateInput, CronJobData, CronOverview } from '../src/contracts';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
 import { normalizedWorkspaceKey } from '../src/workspace-key';
+import type { CronBindings } from './cron-bindings';
 
 export function cronJobs(value: unknown): CronJobData[] {
   if (!Array.isArray(value) || value.length > 50) throw new Error('Invalid Cron jobs');
@@ -29,7 +30,7 @@ export function cronCreation(input: unknown): CronCreateInput {
 export class CronManagement {
   constructor(private pool: SessionRuntimes,
     private saved: (cwd: string) => Promise<{ jobs: unknown; trusted: boolean }>,
-    private changed: () => void) {}
+    private changed: () => void, private bindings?: CronBindings) {}
   private key(cwd: string) { return normalizedWorkspaceKey(cwd, process.platform); }
   private assertCurrent(worker: SessionRuntime, rpc: SessionRuntime['rpc']) {
     if (this.pool.require(worker.id) !== worker || worker.rpc !== rpc || worker.stopping) throw new Error('Cron host changed; refresh and retry');
@@ -74,6 +75,10 @@ export class CronManagement {
       } catch { overview.issues.push({ workspace: cwd, reason: 'unavailable' }); }
     }
     overview.tasks = [...tasks.values()].sort((a, b) => a.nextFireAt - b.nextFireAt);
+    if (this.bindings) for (const task of overview.tasks) {
+      try { task.association = await this.bindings.get(task.workspace, task); }
+      catch { overview.issues.push({ workspace: task.workspace, reason: 'unavailable' }); }
+    }
     return overview;
   }
   private async mutate(runtimeId: string, args: Record<string, unknown>) {
@@ -87,6 +92,10 @@ export class CronManagement {
       const result = await rpc.request('desktop_cron', args, 15000);
       this.assertCurrent(worker, rpc);
       cronJobs(result.jobs);
+      if (args.action === 'create' && args.durable && this.bindings && worker.state?.sessionId) {
+        const jobs = cronJobs([result.result]);
+        await this.bindings.set(worker.cwd, jobs, worker.state.sessionId, 'created');
+      }
     } finally {
       worker.mutating = false;
       this.pool.publish();

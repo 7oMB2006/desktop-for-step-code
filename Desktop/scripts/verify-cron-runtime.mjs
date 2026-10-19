@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 // CI's TEMP may use an 8.3 alias; upstream's synchronous trust lookup preserves it.
 const directory = await realpath(await mkdtemp(join(tmpdir(), 'desktop-cron-runtime-')));
 await build({
-  entryPoints: ['electron/session-runtimes.ts', 'electron/session-collaboration.ts', 'electron/runtime.ts', 'electron/project-trust.ts', 'electron/cron-management.ts'],
+  entryPoints: ['electron/session-runtimes.ts', 'electron/session-collaboration.ts', 'electron/runtime.ts', 'electron/project-trust.ts', 'electron/cron-management.ts', 'electron/cron-bindings.ts'],
   outdir: directory, outExtension: { '.js': '.mjs' }, bundle: true, platform: 'node', format: 'esm',
 });
 const { SessionRuntimes } = await import(pathToFileURL(join(directory, 'session-runtimes.mjs')));
@@ -18,6 +18,7 @@ const { SessionCollaboration } = await import(pathToFileURL(join(directory, 'ses
 const { RpcProcess, isolatedEnvironment } = await import(pathToFileURL(join(directory, 'runtime.mjs')));
 const { trustProject } = await import(pathToFileURL(join(directory, 'project-trust.mjs')));
 const { CronManagement } = await import(pathToFileURL(join(directory, 'cron-management.mjs')));
+const { CronBindings } = await import(pathToFileURL(join(directory, 'cron-bindings.mjs')));
 const runtime = resolve(process.env.DESKTOP_CRON_VERIFY_RUNTIME ?? 'runtime');
 const node = join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const entry = join(runtime, 'step/dist/bundle/step.js');
@@ -94,11 +95,16 @@ async function fixture(name, trusted = true) {
     NODE_OPTIONS: `--require="${resolve('tests/fixtures/cron-clock.cjs').replaceAll('\\', '/')}"` };
   const raw = [];
   const events = [];
+  const bindings = new CronBindings(join(profile, 'cron-bindings'));
   const pool = new SessionRuntimes(event => events.push(event), receive => new RpcProcess(event => { raw.push(event); receive(event); }),
-    { launch: worker => broker.attach(worker), dispose: worker => broker.detach(worker) });
+    { launch: worker => broker.attach(worker), dispose: worker => broker.detach(worker),
+      event: (worker, event) => {
+        void bindings.created(worker.cwd, worker.state?.sessionId, event).catch(error => errors.push(error.message));
+        return event;
+      } });
   const broker = new SessionCollaboration(pool, join(runtime, 'desktop-sessions.mjs'), () => 'en', () => {});
   await broker.start();
-  const f = { pool, broker, cwd, env, profile, clock, raw, events, store: join(cwd, '.stepcode/cron/tasks.json'),
+  const f = { pool, broker, bindings, cwd, env, profile, clock, raw, events, store: join(cwd, '.stepcode/cron/tasks.json'),
     close: async () => { await pool.stopAll(); await broker.stop(); } };
   fixtures.push(f);
   f.worker = await pool.open(node, entry, cwd, env);
@@ -125,13 +131,16 @@ try {
     const f = await fixture('management');
     try {
       const before = requests;
-      const manager = new CronManagement(f.pool, async () => ({ jobs: [], trusted: true }), () => {});
+      const bindings = new CronBindings(join(f.profile, 'cron-bindings'));
+      const manager = new CronManagement(f.pool, async () => ({ jobs: [], trusted: true }), () => {}, bindings);
       await manager.create({ runtimeId: f.worker.id, cron: '0 9 * * *', prompt: 'management-only-probe', recurring: true, durable: true });
       const result = await manager.list([f.cwd]);
       assert.equal(result.tasks.length, 1);
       assert.equal(result.hosts[0].trusted, true);
       assert.equal(result.tasks[0].prompt, 'management-only-probe');
       assert.equal(result.tasks[0].runtimeId, f.worker.id);
+      assert.equal(result.tasks[0].association.sessionId, f.worker.state.sessionId);
+      assert.equal(result.tasks[0].association.source, 'created');
       const record = JSON.parse((await readFile(f.store, 'utf8')).trim());
       assert.equal('sessionId' in record, false);
       assert.equal('title' in record, false);
@@ -203,6 +212,7 @@ try {
     const f = await fixture('reopen');
     try {
       const { value: job } = await tool(f, 'cron_create', { cron: '* * * * *', prompt: 'reopened-probe', recurring: false, durable: true });
+      await until(async () => (await f.bindings.get(f.cwd, job))?.sessionId === f.worker.state.sessionId, 'native tool association');
       const state = await f.worker.rpc.request('get_state');
       assert.ok(state.sessionFile);
       await f.pool.remove(f.worker);
@@ -215,6 +225,39 @@ try {
         && !f.pool.isBusy(f.worker) && f.worker.cron?.jobs.length === 0, 'reopened native fire');
     } finally { await f.close(); }
   });
+  if (process.platform === 'win32') for (const missed of [false, true]) {
+    await check(`Beta gated recovery blocks ${missed ? 'missed notices' : 'due delivery'} until explicit release`, async () => {
+      assert.ok(manifest.patches.includes('desktop-cron-recovery'));
+      const f = await fixture(missed ? 'recovery-missed' : 'recovery-due');
+      try {
+        await assert.rejects(f.worker.rpc.request('desktop_cron_resume'), /No gated/);
+        const { value: job } = await tool(f, 'cron_create', {
+          cron: '* * * * *', prompt: 'recovery-gated-probe', recurring: false, durable: true,
+        });
+        const previous = await f.worker.rpc.request('get_state');
+        await f.pool.remove(f.worker);
+        if (missed) await writeFile(f.clock, String(job.nextFireAt + 120000));
+        const before = requests;
+        f.worker = await f.pool.prepare(node, entry, f.cwd,
+          { ...f.env, DESKTOP_CRON_RECOVERY: '1', STEP_PERMISSION_PRESET: 'ask' }, previous.sessionFile);
+        assert.equal(f.worker.state.sessionId, previous.sessionId);
+        await f.worker.rpc.request('set_model', { provider: 'fixture', modelId: 'fixture' });
+        await f.pool.read(f.worker);
+        assert.equal(f.worker.permissionPreset, 'ask');
+        if (!missed) await writeFile(f.clock, String(job.nextFireAt + 1));
+        await new Promise(resolve => setTimeout(resolve, 2200));
+        assert.equal(requests, before, 'Unconfirmed recovery must never invoke the model');
+        assert.equal(f.worker.messages.filter(message => message.customType === 'step-cron').length, 0);
+        await f.worker.rpc.request('desktop_cron_resume');
+        await until(() => requests > before && !f.pool.isBusy(f.worker)
+          && f.worker.messages.some(message => message.customType === 'step-cron'), 'explicitly released native delivery');
+        await assert.rejects(f.worker.rpc.request('desktop_cron_resume'), /No gated/);
+        assert.equal(f.worker.permissionPreset, 'ask');
+        assert.match(await readFile(join(f.profile, 'config.toml'), 'utf8'), /permissionPreset = "full-access"/,
+          'Recovery policy must not rewrite shared defaults');
+      } finally { await f.close(); }
+    });
+  }
   await check('native seven-day expiry releases recurring task without auto-recreation', async () => {
     const f = await fixture('expiry');
     try {

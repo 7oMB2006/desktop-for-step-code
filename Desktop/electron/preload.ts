@@ -36,6 +36,8 @@ const bridge: DesktopBridge = {
   cronList: () => invoke('cronList'),
   cronCreate: input => invoke('cronCreate', input),
   cronDelete: (runtimeId, jobId) => invoke('cronDelete', runtimeId, jobId),
+  cronRecoveryPreview: (key, sessionId) => invoke('cronRecoveryPreview', key, sessionId),
+  cronRecover: token => invoke('cronRecover', token),
   platform: process.platform,
   updateState: () => invoke('updateState'),
   checkUpdates: () => invoke('checkUpdates'),

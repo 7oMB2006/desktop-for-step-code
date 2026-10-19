@@ -708,13 +708,15 @@ try {
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained empty project draft');
   await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
+  const draftInput = page.getByRole('textbox', { name: '消息', exact: true });
+  // Exercise editor transactions instead of racing fill('') DOM mutation with React.
+  await draftInput.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
+  await draftInput.press('Backspace');
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '' &&
+    document.querySelector('.composer-input')?.getAttribute('data-empty') === 'true');
+  await draftInput.pressSequentially('Retained empty project draft');
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
   if (process.platform === 'darwin') {
-    const draftInput = page.getByRole('textbox', { name: '消息', exact: true });
-    await draftInput.fill('');
-    // fill() can finish before ProseMirror commits its observed DOM change.
-    await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '');
-    await draftInput.pressSequentially('Retained empty project draft');
-    await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
     const roles = await app.evaluate(({ Menu }) => {
       const collect = menu => menu.items.flatMap(item => [item.role, ...(item.submenu ? collect(item.submenu) : [])]);
       return collect(Menu.getApplicationMenu());

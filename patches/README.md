@@ -20,6 +20,15 @@ decision to the displayed snapshot and stop on cancellation or stale content.
 The upstream usage activity worker must load from a copied runtime bundle,
 without its original checkout or build directory.
 
+The Windows manifest also applies the shared Cron observer and management patches,
+then `step-code-desktop-cron-recovery.patch`. This **Beta** addition gates native
+Cron delivery only when both `DESKTOP_CRON_STATE=1` and
+`DESKTOP_CRON_RECOVERY=1` are explicitly supplied. The one-use
+`desktop_cron_resume` RPC requires an idle trusted session. Desktop verifies
+the selected session, account, model, Ask policy and loaded tasks before release.
+The patch does not replace the scheduler, alter its shared task schema or bypass
+expiry. macOS does not include or advertise this recovery patch. See `docs/CRON.md`.
+
 Windows-specific compatibility also keeps branch preparation read-only:
 `STEPCODE_DESKTOP_BRANCH_SOURCE` suppresses startup usage discovery only for
 that exact original file, while the newly forked session records normally.

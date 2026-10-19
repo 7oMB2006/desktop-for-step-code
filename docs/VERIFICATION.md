@@ -1,5 +1,19 @@
 # Verification
 
+## Cron Resume Rejection Follow-Up (2026-10-19)
+
+An explicit negative RPC response now has a distinct error type. If the recovery
+resume command is rejected before opening its gate, Desktop removes the gated
+host so it cannot falsely occupy the project and prevent another reviewed
+recovery. Successful resume keeps the host. Timeout and transport failures remain
+uncertain: Desktop keeps the potentially activated host and never retries.
+
+Focused recovery/transport tests passed 23 cases with three platform skips,
+including a real JSONL child distinguishing negative replies from timeout and
+disconnect. The full serialized suite passed 558 tests with thirteen platform
+skips. Typecheck, production build and all eight Electron Cron management
+acceptance groups passed. This correction has not been packaged.
+
 ## Cron Creation Persistence Follow-Up (2026-10-19)
 
 Creation now defaults to durable storage and preserves that choice when selecting

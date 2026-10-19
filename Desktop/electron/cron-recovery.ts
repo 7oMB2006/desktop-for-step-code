@@ -1,5 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { CronJobData, CronRecoveryPreview, Model } from '../src/contracts';
+import { RpcCommandError, type RpcProcess } from './runtime';
+
+export async function resumeCronHost(rpc: Pick<RpcProcess, 'request'>, discard: () => Promise<void>) {
+  try {
+    await rpc.request('desktop_cron_resume', {}, 15000);
+  } catch (error) {
+    // Only a negative response proves the gate stayed closed; transport failures are uncertain.
+    if (error instanceof RpcCommandError) await discard();
+    throw error;
+  }
+}
 
 export interface CronRecoveryPlan {
   workspace: string;

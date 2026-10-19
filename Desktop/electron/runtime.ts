@@ -40,6 +40,8 @@ function stderrForLog(text: string, lines = 40): string {
   return tail.length > 0 ? tail.join('\n') : '(no stderr lines passed the redaction filter)';
 }
 
+export class RpcCommandError extends Error {}
+
 export class RpcProcess {
   private child?: ChildProcessWithoutNullStreams;
   private stopping?: Promise<void>;
@@ -58,7 +60,7 @@ export class RpcProcess {
       if (this.child !== child || this.disconnected) return;
       if (value.type === 'response' && value.id && this.pending.has(value.id)) {
         const request = this.pending.get(value.id)!; this.pending.delete(value.id); clearTimeout(request.timer);
-        value.success ? request.resolve(value.data) : request.reject(new Error(value.error || 'Runtime command failed'));
+        value.success ? request.resolve(value.data) : request.reject(new RpcCommandError(value.error || 'Runtime command failed'));
       } else this.event(value);
     });
     child.stdin.on('error', error => {

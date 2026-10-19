@@ -3,12 +3,41 @@ import { test } from 'node:test';
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CronRecovery, assertRecoveryJobs, type CronRecoveryPlan } from '../electron/cron-recovery';
+import { CronRecovery, assertRecoveryJobs, resumeCronHost, type CronRecoveryPlan } from '../electron/cron-recovery';
+import { RpcCommandError } from '../electron/runtime';
 import { CronBindings } from '../electron/cron-bindings';
 import type { CronJobData } from '../src/contracts';
 
 const job: CronJobData = { id: 'one', cron: '* * * * *', prompt: 'Check', durable: true,
   recurring: true, createdAt: 100, nextFireAt: 200 };
+test('Resume retains a successful host and removes an explicitly rejected gated host without retry', async () => {
+  for (const rejected of [false, true]) {
+    let requests = 0, removed = 0;
+    const error = new RpcCommandError('Cron recovery requires an idle trusted project');
+    const resume = resumeCronHost({ request: async (type, args, timeout) => {
+      requests++;
+      assert.equal(type, 'desktop_cron_resume');
+      assert.deepEqual(args, {});
+      assert.equal(timeout, 15000);
+      if (rejected) throw error;
+    } }, async () => { removed++; });
+    if (rejected) await assert.rejects(resume, e => e === error);
+    else await resume;
+    assert.equal(requests, 1);
+    assert.equal(removed, rejected ? 1 : 0);
+  }
+});
+test('Resume timeout and transport failures retain the potentially activated host without retry', async () => {
+  for (const message of ['Runtime timed out: desktop_cron_resume', 'Runtime is not connected',
+    'Runtime exited (1)', 'Cron recovery requires an idle trusted project']) {
+    let requests = 0, removed = 0;
+    const error = new Error(message);
+    await assert.rejects(resumeCronHost({ request: async () => { requests++; throw error; } },
+      async () => { removed++; }), e => e === error);
+    assert.equal(requests, 1);
+    assert.equal(removed, 0);
+  }
+});
 test('Post-start gate allows native time advancement/expiry, never unreviewed work', () => {
   assertRecoveryJobs([job], [{ ...job, nextFireAt: 300 }]);
   assertRecoveryJobs([job], []);

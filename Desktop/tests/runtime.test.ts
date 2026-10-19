@@ -3,10 +3,33 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { JsonLines, RpcProcess, isolatedEnvironment } from '../electron/runtime';
+import { JsonLines, RpcProcess, RpcCommandError, isolatedEnvironment } from '../electron/runtime';
 import { createServer } from 'node:http';
 import { permissionFromStatus } from '../electron/permission-status';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+
+test('Only an explicit negative RPC response is a command rejection, not timeout or disconnect', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rpc-rejection-'));
+  const entry = join(root, 'fixture.cjs');
+  await writeFile(entry, `
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const command = JSON.parse(line);
+      if (command.type === 'pending') return;
+      process.stdout.write(JSON.stringify({ type: 'response', id: command.id,
+        success: command.type === 'ready', error: 'Rejected' }) + '\\n');
+    });
+  `);
+  const rpc = new RpcProcess(() => {});
+  try {
+    await assert.rejects(rpc.request('ready'), e => e instanceof Error && !(e instanceof RpcCommandError));
+    rpc.start(process.execPath, entry, root, isolatedEnvironment(root));
+    await rpc.request('ready');
+    await assert.rejects(rpc.request('reject'), e => e instanceof RpcCommandError && e.message === 'Rejected');
+    await assert.rejects(rpc.request('pending', {}, 20),
+      e => e instanceof Error && !(e instanceof RpcCommandError) && e.message.includes('timed out'));
+    await rpc.request('ready');
+  } finally { await rpc.stop(); }
+});
 
 test('POSIX stop waits for cleanup, joins concurrent stops and prevents overlapping restarts', { skip: process.platform === 'win32', timeout: 15000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rpc-stop-cleanup-'));

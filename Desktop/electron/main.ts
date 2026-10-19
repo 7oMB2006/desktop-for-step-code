@@ -18,7 +18,7 @@ import { SessionCollaboration } from './session-collaboration';
 import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
 import { CronBindings } from './cron-bindings';
-import { CronRecovery, assertRecoveryJobs } from './cron-recovery';
+import { CronRecovery, assertRecoveryJobs, resumeCronHost } from './cron-recovery';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
@@ -368,9 +368,9 @@ const cronRecovery = new CronRecovery(async (key, sessionId) => {
     if (createHash('sha256').update(JSON.stringify(appliedAuthData)).digest('hex') !== plan.configurationRef)
       throw new Error('Recovery account changed while opening the host');
     await cronBindings.set(plan.workspace, plan.jobs, plan.sessionId, 'recovered');
-    // A timeout here is uncertain: never retry or automatically kill a possibly running turn.
+    // The resume helper removes explicit rejections; uncertain delivery must retain the host.
     activated = true;
-    await worker.rpc.request('desktop_cron_resume', {}, 15000);
+    await resumeCronHost(worker.rpc, () => runtimes.remove(worker));
     emit({ type: 'desktop_cron_changed' });
     emit({ type: 'desktop_sessions_changed' });
     return { sessionId: plan.sessionId, runtimeId: worker.id };

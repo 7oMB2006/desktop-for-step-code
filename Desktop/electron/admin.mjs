@@ -2,6 +2,8 @@ import { createInterface } from 'node:readline';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { scanDesktopUsage } from './usage-overview.mjs';
+import { existsSync } from 'node:fs';
+import { reconcileStepPageServers, prepareStepPageServers } from './steppage-config.mjs';
 
 // Management lives in a separate process so Step globals never enter Electron.
 const root = dirname(fileURLToPath(import.meta.url));
@@ -18,6 +20,17 @@ const safeMcp = servers => Object.fromEntries(Object.entries(servers).map(([name
 }]));
 async function dispatch(message) {
   switch (message.type) {
+    case 'prepare_steppage':
+    case 'reconcile_steppage': {
+      if (!agentDir || !process.env.STEPCODE_STORAGE_ROOT_DIR || typeof message.bundlePath !== 'string')
+        throw new Error('StepPage reconciliation requires an isolated profile');
+      const reconcile = message.type === 'prepare_steppage' ? prepareStepPageServers : reconcileStepPageServers;
+      if (message.type === 'prepare_steppage' && !existsSync(message.bundlePath)) throw new Error('Missing StepPage bundle');
+      upstream.updateGlobalMcpConfig(process.env, servers => reconcile(servers, {
+        nodePath: process.execPath, bundlePath: message.bundlePath, bundleExists: existsSync(message.bundlePath), homePath: message.homePath,
+      }));
+      return null;
+    }
     case 'usage_overview': {
       if (!sessions || !agentDir) throw new Error('Desktop usage requires an isolated profile');
       return scanDesktopUsage(upstream, sessions, join(agentDir, 'desktop-usage-cache'));

@@ -476,10 +476,10 @@ export class SessionRuntimes {
       throw error;
     } finally { worker.submissions--; this.publish(); }
   }
-  async assertAllIdle() {
+  async assertAllIdle(options: { stopHost?: boolean } = {}) {
     for (const worker of this.workers.values()) {
       if (worker.mutating) throw new Error('Session operation in progress');
-      await this.assertIdle(worker, { stopHost: true });
+      await this.assertIdle(worker, { stopHost: options.stopHost !== false });
     }
   }
   async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv) {

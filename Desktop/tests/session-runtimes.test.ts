@@ -68,6 +68,7 @@ for (const durable of [true, false]) {
       assert.equal(pool.isBusy(host), false, 'Scheduling is not an active model turn');
       assert.equal(pool.running, true, 'Account changes must not silently move scheduled billing');
       await pool.assertIdle(host);
+      await pool.assertAllIdle({ stopHost: false });
       await assert.rejects(pool.assertIdle(host, { stopHost: true }), /Cron/);
       await assert.rejects(pool.assertAllIdle(), /Cron/);
       await assert.rejects(pool.refresh(host, 'node', 'step', {}), /Cron/);
@@ -82,6 +83,34 @@ for (const durable of [true, false]) {
     } finally { await pool.stopAll(); }
   });
 }
+
+test('non-stopping idle checks retain task, queue, Goal and mutation protection with Cron waiting', async () => {
+  const { pool, transports, open } = fixture();
+  const host = await open();
+  try {
+    transports[0].receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-cron',
+      statusText: JSON.stringify({ version: 1, status: 'ready', jobs: [
+        { id: 'scheduled', recurring: true, durable: false, nextFireAt: Date.now() + 60000 },
+      ] }) });
+    await pool.assertAllIdle({ stopHost: false });
+    host.busy = true;
+    await assert.rejects(pool.assertAllIdle({ stopHost: false }), /Stop/);
+    host.busy = false;
+    host.queued = true;
+    await assert.rejects(pool.assertAllIdle({ stopHost: false }), /pending messages/);
+    host.queued = false;
+    host.mutating = true;
+    await assert.rejects(pool.assertAllIdle({ stopHost: false }), /Session operation/);
+    host.mutating = false;
+    host.launch!.goal = { status: 'active', objective: 'fixture', id: 'goal', sessionId: 'session-0',
+      tokensUsed: 0, timeUsedSeconds: 0, iteration: 1, createdAt: '', updatedAt: '' };
+    await assert.rejects(pool.assertAllIdle({ stopHost: false }), /Pause/);
+    host.launch!.goal = undefined;
+    await pool.assertAllIdle({ stopHost: false });
+    await assert.rejects(pool.assertAllIdle(), /Cron/);
+    assert.equal(transports[0].stopped, false);
+  } finally { await pool.stopAll(); }
+});
 
 test('unknown Cron state keeps its host; stale transports cannot pin a replacement', async () => {
   const transports: Transport[] = [];

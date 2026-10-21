@@ -27,6 +27,11 @@ export interface Snapshot { preferences: Preferences; status: string; providerSe
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
 export interface McpServer { command?: string; args?: string[]; url?: string; cwd?: string; enabled?: boolean; configuredSecrets?: string[] }
+export interface StepPagePreparation {
+  status: 'missing' | 'preparing' | 'ready' | 'failed';
+  installed: boolean; version?: string;
+  error?: 'download' | 'integrity' | 'validation' | 'storage' | 'configuration';
+}
 export type ProviderApi = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
 export interface ProviderThinkingControl { source: 'upstream' | 'manual'; levels: string[]; mapping?: Record<string, string>; adaptive?: boolean; defaultLevel?: string }
 export interface ProviderModel { id: string; name: string; reasoning: boolean; vision: boolean; contextWindow: number; maxTokens: number; thinkingLevels?: string[]; thinkingControl?: ProviderThinkingControl; declaredThinkingLevels?: string[]; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
@@ -56,6 +61,8 @@ export interface CronRecoveryPreview {
 export interface CronOverview { tasks: CronTask[]; hosts: CronHost[]; issues: { workspace: string; reason: 'unavailable' | 'untrusted' }[] }
 export interface CronCreateInput { runtimeId: string; cron: string; prompt: string; recurring: boolean; durable: boolean }
 export interface DesktopBridge {
+  stepPageState(): Promise<StepPagePreparation>;
+  prepareStepPage(): Promise<StepPagePreparation>;
   cronList(): Promise<CronOverview>;
   cronCreate(input: CronCreateInput): Promise<void>;
   cronDelete(runtimeId: string, jobId: string): Promise<void>;

@@ -1,5 +1,97 @@
 # Verification
 
+## StepPage Preparation With Scheduled Cron (2026-10-21)
+
+Preparation now uses a non-stopping idle check: a waiting Cron host is allowed,
+but active tasks, queued messages, active Goals and mutations are still rejected.
+Actual restarts and account changes keep their existing Cron protection.
+StepPage restart rejection reaches localized feedback and survives readiness
+polling instead of being swallowed or erased.
+
+Typecheck/build, 580 serialized tests (thirteen platform skips) and fifteen local
+CI policy/runner tests passed. Source and packaged Electron acceptance created
+a scheduled job before explicit installation, verified that its host and job
+were unchanged, checked persistent protected-restart feedback, and connected a
+new independent session to thirteen StepPage tools. Disabled preparation,
+restart/relaunch and general packaged Electron acceptance also passed.
+
+The unsigned local preview is `steppage-cron-20261021-preview` in the shared D:
+release directory (version 0.5.1, main `61908a9` plus local StepPage changes).
+Installer SHA-256:
+`1f5b5a24b71d94dffd0a94f528583b80bcb4a2ef7e21a07865aea14a78f67a3a`.
+The audit matched 105 built files and 1,242 runtime files; update metadata matches
+installer size/SHA-512. The desktop shortcut was updated with its previous value
+backed up. No running user instance was stopped or personal profile altered.
+Real login, publishing, installer execution and cloud CI are not established.
+The same packaged executable passed eight registration groups (eleven launches)
+and eight Cron management acceptance cases.
+
+## StepPage Windows Explicit Preparation (2026-10-21)
+
+Settings > Resources now offers StepPage installation/preparation and retry;
+MCP settings link to that entry. The main process downloads only on explicit
+action, verifies the pinned official artifact, checks syntax/version using
+packaged Node, and installs atomically into Desktop-owned storage with a separate
+StepPage HOME. No personal credentials are read/copied. Custom transports and
+explicit disable are preserved. Failure categories are safe projections, and
+preparation never automatically restarts a session or enables a disabled server.
+
+Typecheck/build passed; the serialized suite passed 577 cases with thirteen
+platform skips. The real Electron
+preparation acceptance used a disposable fresh profile and the Settings button
+to download from the official CDN. Exactly one service connected with thirteen
+tools; disabling then preparing/restarting yielded zero tools, and application
+relaunch retained disable and installed state. No model prompt, MCP tool call,
+real login or webpage publishing was performed. This does not establish
+installer execution, upgrade lifecycle or cloud CI results. Details and the
+fail-closed mutable-CDN pin policy are in [StepPage](STEPPAGE.md).
+
+The follow-up was packaged as unsigned Windows x64 preview
+`steppage-prepare-20261021-preview` under the shared D: release directory, still
+version 0.5.1 and based on main `61908a9` plus uncommitted StepPage changes.
+Packaged explicit-download/13-tool/disable/relaunch acceptance, eight
+registration groups (eleven launches) and general Electron acceptance passed.
+The audit matched 105 built files and 1,242 runtime files, and verified installer
+size/SHA-512 against update metadata. Installer SHA-256:
+`b16a3a5c0bf9c8204e248c4d1d2626a321548fa1ba49e3a1af20daa6782bc95b`.
+The primary desktop shortcut was updated with its prior version backed up.
+No running user instance was stopped; real login and publishing remain untested.
+
+## StepPage Identity And MCP Disable Compatibility (2026-10-20)
+
+Desktop now reconciles the legacy `steppage` declaration to the upstream
+`steppage__steppage` identity inside the existing admin settings lock. Complete
+declarations survive migration. Managed-path repair preserves explicit disable,
+and ownership checks require the known one-bundle launch shape rather than just
+a matching runtime Node suffix. No upstream source or personal profile changed.
+
+Typecheck/build passed, with 570 serialized unit/protocol tests passing and
+thirteen platform skips. Eight Electron registration groups passed across eleven
+launches; fifteen CI-policy/runner checks passed. Deterministic real-runtime
+coverage includes plugin suppression, relocation, restart, missing/invalid bundle
+failure and later recovery. The optional official-bundle check connected exactly
+one server with thirteen tools, then disabled/restarted with zero and
+re-enabled/restarted with thirteen.
+
+Windows automatic first installation, real authentication, online publishing,
+cloud CI and installer acceptance are not established by these checks. See
+[StepPage compatibility](STEPPAGE.md) for the tested artifact, reproduction and
+remaining issue #112 boundaries.
+
+The Windows x64 local preview `steppage-mcp-20261020-preview` was then built
+from main `61908a9` plus this uncommitted StepPage snapshot in a separate D:
+worktree, excluding the parallel fader changes. Typecheck/build and the serialized
+suite passed again (570 passed, thirteen skipped). All eight registration groups,
+the general Electron acceptance and the official-bundle 13/0/13 check passed
+against the packaged runtime. The audit matched 105 Desktop files and 1,242 runtime
+files, including the new adapter, and verified the installer/update metadata.
+The unsigned installer remains version 0.5.1, with SHA-256
+`dd89f499fe4ec670ee616c286d1442abe7528f70fb85581cc3fbefe53b442440`.
+The package lives under `D:\Desktop For Step Code\Desktop\release\steppage-mcp-20261020-preview`.
+The primary desktop shortcut targets its unpacked executable; the previous
+shortcut is backed up with the package. The running user application was not
+stopped. This does not establish NSIS upgrade or real login/publishing acceptance.
+
 ## Cron Resume Rejection Follow-Up (2026-10-19)
 
 An explicit negative RPC response now has a distinct error type. If the recovery

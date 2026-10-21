@@ -80,6 +80,9 @@ export const acceptanceGroups = {
 // Local-only checks are explicitly registered rather than silently skipped.
 // A new verify-*.mjs must be explicitly assigned; never silently default to local-only.
 export const localOnly = [
+  // Requires a separately obtained official bundle; deterministic protocol coverage is in unit tests.
+  'verify-steppage-bundle.mjs',
+  'verify-steppage-prepare.mjs',
   // Status RPC coverage runs in verify-summary-runtime; this is the visual fixture.
   'verify-session-status-view.mjs',
   'verify-scheduled-tasks-preview.mjs',

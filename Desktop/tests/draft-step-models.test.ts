@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import { pathToFileURL } from 'node:url';
 import { RpcProcess, isolatedEnvironment } from '../electron/runtime';
 
 test('draft management registers Step under its canonical credential/model identity', { timeout: 30000 }, async () => {
@@ -82,17 +83,25 @@ test('draft keeps the official catalog when only a custom provider is available'
   }
 });
 
-test('draft reuses discovered Step models only for the same credential and endpoint', { timeout: 60000 }, async () => {
+for (const delayedRegistration of [false, true]) test(
+  `draft reuses discovered Step models only for the same credential and endpoint${delayedRegistration ? ' with delayed registration refresh' : ''}`,
+  { timeout: 60000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'draft-discovered-models-'));
   await mkdir(join(root, 'agent'));
   await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture-custom"\ndefaultModel = "custom-chat"\n');
   let available = true;
   let modelId = 'step-discovered-a';
+  const requests: { path?: string; available: boolean; modelId: string }[] = [];
   const server = createServer((request, response) => {
+    requests.push({ path: request.url, available, modelId });
     if (!available) { response.writeHead(503, { Connection: 'close' }); response.end(); return; }
     response.setHeader('Content-Type', 'application/json');
-    response.end(JSON.stringify({ data: [{ id: modelId,
-      max_input_tokens: 32768, enable_reason: true, reasoning_effort_support_list: ['low', 'high'] }] }));
+    const body = JSON.stringify({ data: [{ id: modelId,
+      max_input_tokens: 32768, enable_reason: true, reasoning_effort_support_list: ['low', 'high'] }] });
+    if (delayedRegistration) {
+      const timer = setTimeout(() => response.end(body), 120);
+      response.on('close', () => clearTimeout(timer));
+    } else response.end(body);
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -105,15 +114,17 @@ test('draft reuses discovered Step models only for the same credential and endpo
   } });
   await writeFile(join(root, 'models.json'), JSON.stringify(providers('fixture-official-a')));
   await writeFile(join(root, 'auth.json'), JSON.stringify({ step: { type: 'api_key', key: 'fixture-official-a' } }));
-  const rpc = new RpcProcess(() => {});
+  let delayed = 0;
+  const rpc = new RpcProcess(event => { if (event.type === 'fixture_registration_delayed') delayed++; });
   const env = { ...isolatedEnvironment(root), STEP_PROVIDER_API_URL: baseUrl,
+    ...(delayedRegistration ? { NODE_OPTIONS: `--import=${pathToFileURL(resolve('tests/fixtures/model-refresh-delay.mjs')).href}` } : {}),
     STEPCODE_DEVCENTER_AUTH_CN_URL: `https://127.0.0.1:${address.port}` };
   try {
     rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/admin.mjs'), root, env);
     const read = () => rpc.request('session_options', { cwd: root }, 20000);
     const official = (options: any) => options.models.filter((model: any) => model.provider === 'step');
     const first = await read();
-    assert.deepEqual(official(first).map((model: any) => model.id), [modelId]);
+    assert.deepEqual(official(first).map((model: any) => model.id), [modelId], JSON.stringify({ requests }));
     available = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       const cached = await read();
@@ -134,13 +145,15 @@ test('draft reuses discovered Step models only for the same credential and endpo
     assert.deepEqual(official(await read()), [], 'a different credential cannot reuse the previous account catalog');
     available = true;
     modelId = 'step-discovered-b';
-    assert.deepEqual(official(await read()).map((model: any) => model.id), [modelId], 'successful discovery replaces the old catalog');
+    assert.deepEqual(official(await read()).map((model: any) => model.id), [modelId],
+      `successful discovery replaces the old catalog: ${JSON.stringify({ requests })}`);
     available = false;
     await writeFile(join(root, 'models.json'), JSON.stringify({ providers: {
       ...providers('fixture-official-a').providers,
       step: { ...providers('fixture-official-a').providers.step, baseUrl: 'http://127.0.0.1:1/v1' },
     } }));
     assert.deepEqual(official(await read()), [], 'a different endpoint cannot reuse the previous catalog');
+    if (delayedRegistration) assert.ok(delayed >= 8, 'Every registration must exercise the delayed background refresh');
   } finally {
     await rpc.stop();
     server.closeAllConnections();

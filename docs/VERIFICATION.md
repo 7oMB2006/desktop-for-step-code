@@ -4106,3 +4106,24 @@ The rebuilt unsigned Windows preview at
 acceptance (including next-turn retirement and renderer reload) and general
 Electron acceptance with isolated profiles and a local fixture provider.
 No real-account/model acceptance or fresh cloud-CI success is claimed.
+
+### Model Discovery Registration Refresh Race
+
+Runs `39787315956` (Windows sessions) and `39787315934` (macOS ARM64)
+failed the same discovered-model catalog test after credential replacement.
+Provider registration schedules an asynchronous offline refresh. If that pass
+reaches the runtime after explicit discovery starts, it can cancel the network
+pass and replace its catalog with an empty offline snapshot.
+
+Desktop's per-request management runtime now serializes those refreshes, without
+changing the upstream pin, authentication routing or credential-scoped cache
+rules. A test-only preload delays registration refresh while the loopback
+provider holds its response; the new regression fails before the fix and passes
+after it. Normal and delayed cases retain account/endpoint isolation, failed and
+cancelled login, cached capability and recovery assertions.
+
+Locally, 76 related tests and typecheck passed, followed by 25 repetitions of
+both discovery cases (50 cases total). Real Electron model-switch acceptance
+passed, including persistent selection, missing-model protection and explicit
+recovery. This follow-up does not rebuild or retarget the existing preview
+package. Replacement cloud CI must validate both native platforms.

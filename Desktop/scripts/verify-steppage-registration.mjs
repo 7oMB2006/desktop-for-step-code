@@ -3,7 +3,8 @@
 // Verifies the startup registration path only: the app must register a
 // spawnable server (staged node + official bundle) when the bundle is present,
 // stay idempotent, never overwrite a user-configured server of the same name,
-// and register nothing when no bundle is present. The bundle here is a fixture
+// preserve disable on relocation, migrate the legacy name, and register nothing
+// when no bundle is present. The bundle here is a fixture
 // file: a real MCP handshake needs the real bundle and is recorded separately.
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
@@ -12,7 +13,8 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-const serverName = 'steppage';
+const windows = process.platform === 'win32';
+const serverName = windows ? 'steppage__steppage' : 'steppage';
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const nodeName = process.platform === 'darwin' ? 'node' : 'node.exe';
 const resources = executablePath ? (process.platform === 'darwin' ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
@@ -53,6 +55,15 @@ const launchCase = async (profile, bundlePath) => {
     await page.evaluate(() => window.desktop.snapshot());
     phase = `launch ${launchNumber}: settings`;
     const settings = await page.evaluate(() => window.desktop.settings());
+    if (!windows) {
+      await assert.rejects(page.evaluate(() => window.desktop.stepPageState()), /Windows-only/);
+      await assert.rejects(page.evaluate(() => window.desktop.prepareStepPage()), /Windows-only/);
+      await page.locator('.sidebar-bottom button').filter({ hasText: /设置|Settings/ }).click();
+      await page.getByRole('button', { name: /^(资源|Resources)$/ }).click();
+      assert.equal(await page.locator('.steppage-settings').count(), 0);
+      await page.getByRole('button', { name: /^MCP$/ }).click();
+      assert.equal(await page.getByRole('button', { name: /准备内置插件|Set up built-in plugins/ }).count(), 0);
+    }
     return settings.mcp ?? {};
   } catch (error) {
     console.error(`StepPage acceptance failed during ${phase}`);
@@ -114,6 +125,7 @@ const runCases = async () => {
   await writeFile(join(profile, 'step-runtime', 'config.toml'), 'permissionPreset = "ask"\n\n[mcp_servers.steppage]\nenabled = true\ncommand = "' + userCommand + '"\nargs = []\n');  const bundle = await writeFakeBundle(profile);
   const mcp = await launchCase(profile, bundle);
   assert.equal(mcp[serverName]?.command, userCommand, 'a user-configured server must not be overwritten');
+  if (windows) assert.ok(!mcp.steppage, 'the legacy name must migrate, not duplicate the plugin server');
   console.log('case 3 ok: user configuration preserved');
 }
 
@@ -129,10 +141,13 @@ const runCases = async () => {
 //    the startup path must recognise the parsed entry and leave it alone.
 {
   const profile = await makeProfile(); profiles.push(profile);
-  await writeFile(join(profile, 'step-runtime', 'config.toml'), 'permissionPreset = "ask"\n\n[mcp_servers."steppage"]\nenabled = true\ncommand = "C:\\\\Windows\\\\System32\\\\where.exe"\nargs = []\n');
+  await writeFile(join(profile, 'step-runtime', 'config.toml'), 'permissionPreset = "ask"\n\n[mcp_servers."steppage"]\nenabled = false\ncommand = "C:\\\\Windows\\\\System32\\\\where.exe"\nargs = ["custom"]\n');
   const bundle = await writeFakeBundle(profile);
   const mcp = await launchCase(profile, bundle);
   assert.equal(mcp[serverName]?.command, 'C:\\Windows\\System32\\where.exe', 'an equivalent TOML spelling must not be overwritten');
+  assert.equal(mcp[serverName]?.enabled, false, 'legacy disable must suppress the qualified plugin identity');
+  assert.deepEqual(mcp[serverName]?.args, ['custom']);
+  if (windows) assert.ok(!mcp.steppage);
   console.log('case 5 ok: quoted-key configuration recognised and left alone');
 }
 
@@ -149,10 +164,47 @@ const runCases = async () => {
   const escaped = expectedCommand.replace(/\\/g, '\\\\');
   assert.ok(written.includes(`command = "${escaped}"`), 'the registered command must be on disk');
   const stalePath = join(profile, 'gone-install', 'runtime', 'node', nodeName);
-  await writeFile(configPath, written.replace(`command = "${escaped}"`, `command = "${stalePath.replace(/\\/g, '\\\\')}"`));
+  await writeFile(configPath, written.replace(`command = "${escaped}"`, `command = "${stalePath.replace(/\\/g, '\\\\')}"`).replace('enabled = true', 'enabled = false'));
   const second = await launchCase(profile, bundle);
   assert.equal(second[serverName]?.command, expectedCommand, 'a stale managed entry must be refreshed to the current node');
-  console.log('case 6 ok: stale managed entry refreshed');
+  assert.equal(second[serverName]?.enabled, !windows, 'Windows preserves disable; other platforms retain their frozen behavior');
+  console.log('case 6 ok: stale managed entry follows its platform policy');
+}
+
+// 7. Inline TOML and an absent bundle must not erase an explicit disable or secrets.
+if (windows) {
+  const profile = await makeProfile(); profiles.push(profile);
+  await writeFile(join(profile, 'step-runtime', 'config.toml'),
+    'permissionPreset = "ask"\nmcp_servers = { steppage = { enabled = false, command = "custom", args = ["--user"], env = { FIXTURE_SECRET = "not-a-real-secret" } } }\n');
+  const missing = join(profile, 'not-installed.mjs');
+  const first = await launchCase(profile, missing);
+  assert.deepEqual(first[serverName]?.args, ['--user']);
+  assert.equal(first[serverName]?.enabled, false);
+  assert.ok(first[serverName]?.configuredSecrets.includes('FIXTURE_SECRET'));
+  assert.ok(!JSON.stringify(first).includes('not-a-real-secret'), 'secret values must never reach settings');
+  const bundle = await writeFakeBundle(profile);
+  const retry = await launchCase(profile, bundle);
+  assert.equal(retry[serverName]?.command, 'custom');
+  assert.equal(retry[serverName]?.enabled, false, 'retry must not undo an explicit disable');
+  assert.ok((await configOf(profile)).includes('not-a-real-secret'), 'migration must retain the original secret on disk');
+  console.log('case 7 ok: inline disable and secrets survive missing bundle, retry and restart');
+}
+
+// 8. A qualified user setting is authoritative over an obsolete managed alias.
+if (windows) {
+  const profile = await makeProfile(); profiles.push(profile);
+  const bundle = await writeFakeBundle(profile);
+  await launchCase(profile, bundle);
+  const written = await configOf(profile);
+  await writeFile(join(profile, 'step-runtime', 'config.toml'),
+    written.replace(`[mcp_servers.${serverName}]`, '[mcp_servers.steppage]')
+    + `\n[mcp_servers.${serverName}]\nenabled = false\ncommand = "custom-qualified"\nargs = ["--retain"]\n`);
+  const mcp = await launchCase(profile, bundle);
+  assert.ok(!mcp.steppage);
+  assert.equal(mcp[serverName]?.command, 'custom-qualified');
+  assert.equal(mcp[serverName]?.enabled, false);
+  assert.deepEqual(mcp[serverName]?.args, ['--retain']);
+  console.log('case 8 ok: canonical user setting wins without duplicate managed alias');
 }
 
 };

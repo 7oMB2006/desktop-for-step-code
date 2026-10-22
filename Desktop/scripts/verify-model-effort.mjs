@@ -32,10 +32,38 @@ try {
   await page.getByRole('button', { name: '模型与思考强度' }).click();
   const dialog = page.getByRole('dialog', { name: '模型与思考强度' });
   const slider = dialog.getByRole('slider', { name: '思考强度' });
+  const recordFaderMotion = async (interact, label) => {
+    await page.evaluate(() => {
+      const frames = [];
+      window.faderMotionFrames = frames;
+      window.faderMotionSampling = true;
+      const sample = () => {
+        if (window.faderMotionFrames !== frames) return;
+        const thumb = document.querySelector('.model-effort-fader-thumb').getBoundingClientRect();
+        const fill = document.querySelector('.model-effort-fader-fill').getBoundingClientRect();
+        frames.push({ thumb: thumb.y + thumb.height / 2, fill: fill.y });
+        if (window.faderMotionSampling) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    await interact();
+    await page.waitForTimeout(300);
+    const frames = await page.evaluate(() => {
+      window.faderMotionSampling = false;
+      return window.faderMotionFrames;
+    });
+    assert.ok(frames.length >= 3, `${label}: should sample motion, not just endpoints`);
+    const centers = frames.map(frame => frame.thumb);
+    assert.ok(Math.max(...centers) - Math.min(...centers) > 1, `${label}: must exercise visible movement`);
+    assert.ok(new Set(centers.map(center => center.toFixed(2))).size > 3, `${label}: motion must have intermediate positions, not jump`);
+    const drift = Math.max(...frames.map(frame => Math.abs(frame.thumb - frame.fill)));
+    assert.ok(drift <= 1, `${label}: fill must follow the thumb center on every frame, drift ${drift.toFixed(2)}px`);
+    console.log(`${label}: ${frames.length} frames, max fill/thumb drift ${drift.toFixed(2)}px`);
+  };
   await slider.waitFor();
   const box = await slider.boundingBox();
   assert.ok(box);
-  const step = (box.height - 38) / 6;
+  const step = await slider.locator('.model-effort-fader-travel').evaluate(element => element.getBoundingClientRect().height / 6);
   const x = box.x + box.width / 2;
   const startY = box.y + box.height - 19 - step * 2;
   await page.waitForTimeout(220);
@@ -115,10 +143,12 @@ try {
   assert.equal(await slider.getAttribute('aria-valuenow'), '2', 'Clicking the rail must not jump');
   await page.mouse.move(x, startY);
   await page.mouse.down();
-  await page.mouse.move(x, startY - step * .4, { steps: 8 });
+  await recordFaderMotion(async () => {
+    await page.mouse.move(x, startY - step * .4, { steps: 8 });
+  }, 'Sub-threshold drag');
   assert.equal(await slider.getAttribute('aria-valuenow'), '2');
-  const pressure = await dialog.locator('.model-effort-fader-thumb').evaluate(element => element.style.getPropertyValue('--pressure'));
-  assert.notEqual(pressure, '0px', 'Sub-threshold drag should visibly compress the thumb');
+  const pressure = await slider.evaluate(element => element.style.getPropertyValue('--effort-fader-pressure'));
+  assert.notEqual(pressure, '0', 'Sub-threshold drag should visibly compress the thumb');
   await page.screenshot({ path: 'test-results/model-effort-pressure.png' });
   assert.deepEqual(await page.evaluate(() => window.effortCalls), []);
   await page.mouse.move(x, startY - step * .8, { steps: 8 });
@@ -188,7 +218,48 @@ try {
   });
   assert.ok(Math.abs(risingPeak - 12.8) < .5, `A higher level should hit the right threshold, got ${risingPeak}px`);
   await page.waitForTimeout(420);
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    await slider.press('Home');
+    await page.waitForTimeout(250);
+    const bottomThumb = await slider.locator('.model-effort-fader-thumb').boundingBox();
+    const origin = bottomThumb.y + bottomThumb.height / 2;
+    const callsBefore = await page.evaluate(() => window.effortCalls.length);
+    await recordFaderMotion(async () => {
+      await page.mouse.move(x, origin);
+      await page.mouse.down();
+      await page.mouse.move(x, origin - step * 4.8, { steps: 12 });
+      await page.mouse.move(x, origin - step * 1.4, { steps: 10 });
+      assert.equal(await slider.getAttribute('aria-valuenow'), '1');
+      assert.equal(await page.evaluate(() => window.effortCalls.length), callsBefore, 'Crossing and reversing must not submit while dragging');
+      await page.mouse.up();
+    }, `${theme}: multi-stop drag, reversal and release`);
+    assert.equal(await page.evaluate(() => window.effortCalls.length), callsBefore + 1, 'Release must commit exactly once');
+    assert.equal(await slider.getAttribute('aria-valuetext'), '极简');
+    await recordFaderMotion(async () => {
+      const handle = await slider.locator('.model-effort-fader-thumb').boundingBox();
+      await page.mouse.move(x, handle.y + handle.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(x, handle.y + handle.height / 2 - step * 3, { steps: 8 });
+      await slider.dispatchEvent('pointercancel', { pointerId: 1 });
+      await page.mouse.up();
+    }, `${theme}: cancelled drag returns to committed level`);
+    assert.equal(await slider.getAttribute('aria-valuetext'), '极简');
+    assert.equal(await page.evaluate(() => window.effortCalls.length), callsBefore + 1, 'Cancel must not commit a preview');
+    await recordFaderMotion(async () => {
+      await slider.press('End');
+    }, `${theme}: keyboard full-range jump`);
+    await recordFaderMotion(async () => {
+      await page.mouse.move(x, box.y + box.height / 2);
+      await page.mouse.wheel(0, 100);
+      await page.waitForFunction(() => document.querySelector('[role=slider]').getAttribute('aria-valuenow') === '5');
+    }, `${theme}: wheel step`);
+    await page.screenshot({ path: `test-results/model-effort-synced-${theme}.png` });
+  }
+  await slider.press('End');
+  await page.waitForTimeout(250);
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await slider.evaluate(element => getComputedStyle(element).transitionDuration), '0s', 'Reduced motion must disable the shared transition');
   assert.equal(await slider.locator('.model-effort-fader-pixel').first().evaluate(element => getComputedStyle(element).display), 'none');
   assert.equal(await slider.locator('.model-effort-fader-fill').evaluate(element => getComputedStyle(element, '::before').animationName), 'none');
   await slider.press('ArrowDown');

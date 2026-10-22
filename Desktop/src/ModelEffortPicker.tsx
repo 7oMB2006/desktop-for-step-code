@@ -5,7 +5,6 @@ import { ProviderBrand } from './ProviderBrand';
 
 const DRAG_THRESHOLD = 0.62;
 const THUMB_SIZE = 38;
-const FADER_HEIGHT = 228;
 const EFFORT_COLORS = ['#FFDC62', '#FFD083', '#FDB3A2', '#E7A1CF', '#D58FEF', '#BB81F5', '#9E72FB'];
 
 const labels: Record<string, string> = {
@@ -113,7 +112,6 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
   const previewLevel = levels[previewIndex] ?? activeLevel;
   const effortColor = effortColorForIndex(previewIndex, levels.length);
   const position = (index: number) => levels.length > 1 ? index / (levels.length - 1) * 100 : 0;
-  const fillHeight = (THUMB_SIZE / 2 + position(previewIndex) / 100 * (FADER_HEIGHT - THUMB_SIZE)) / FADER_HEIGHT * 100;
   const commitEffort = (index: number) => {
     const next = levels[index];
     if (next && next !== level && next !== submitted.current) {
@@ -123,7 +121,7 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
   };
   const moveFader = (clientY: number) => {
     if (!drag.current || !fader.current || levels.length < 2) return previewIndex;
-    const step = (fader.current.getBoundingClientRect().height - THUMB_SIZE) / (levels.length - 1);
+    const step = (fader.current.clientHeight - THUMB_SIZE) / (levels.length - 1);
     const distance = (drag.current.startY - clientY) / step;
     const index = draggedEffortIndex(drag.current.startIndex, distance, levels.length);
     setPreviewIndex(index);
@@ -217,7 +215,7 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
           </button>
         </div>
         <div className="model-effort-fader-column" ref={faderColumn}>
-          {levels.length ? <div ref={fader} className={`model-effort-fader${levels.length > 1 && previewIndex === levels.length - 1 ? ' is-max' : ''}`} role="slider" tabIndex={levels.length > 1 ? 0 : -1} aria-disabled={levels.length < 2} aria-label={zh ? '思考强度' : 'Thinking level'} aria-orientation="vertical" aria-valuemin={0} aria-valuemax={levels.length - 1} aria-valuenow={previewIndex} aria-valuetext={previewLevel ? effortLabel(previewLevel, language) : ''} onKeyDown={onFaderKey}
+          {levels.length ? <div ref={fader} className={`model-effort-fader${levels.length > 1 && previewIndex === levels.length - 1 ? ' is-max' : ''}`} style={{ '--effort-fader-position': position(previewIndex) / 100, '--effort-fader-pressure': pressure } as CSSProperties} role="slider" tabIndex={levels.length > 1 ? 0 : -1} aria-disabled={levels.length < 2} aria-label={zh ? '思考强度' : 'Thinking level'} aria-orientation="vertical" aria-valuemin={0} aria-valuemax={levels.length - 1} aria-valuenow={previewIndex} aria-valuetext={previewLevel ? effortLabel(previewLevel, language) : ''} onKeyDown={onFaderKey}
             onPointerDown={event => {
               if (event.button !== 0 || drag.current || levels.length < 2) return;
               event.currentTarget.setPointerCapture(event.pointerId);
@@ -226,12 +224,12 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
             onPointerMove={event => { if (drag.current?.pointerId === event.pointerId) moveFader(event.clientY); }}
             onPointerUp={event => stopFader(event.pointerId, event.clientY)}
             onPointerCancel={event => stopFader(event.pointerId)}>
-            <div className="model-effort-fader-well"><span className="model-effort-fader-fill" style={{ height: `calc(${fillHeight}% + ${pressure * .6}px)` }}>
+            <div className="model-effort-fader-well"><span className="model-effort-fader-fill">
               {levels.length > 1 && previewIndex === levels.length - 1 && Array.from({ length: 9 }, (_, index) => <span className="model-effort-fader-pixel" key={index} />)}
             </span></div>
             <div className="model-effort-fader-travel">
               {levels.map((value, index) => <span className="model-effort-fader-tick" key={value} style={{ bottom: `${position(index)}%` }}/>)}
-              <span className="model-effort-fader-thumb" style={{ bottom: `${position(previewIndex)}%`, '--pressure': `${-pressure}px`, '--squeeze': `${Math.min(Math.abs(pressure) / 110, .08)}`, '--stretch': `${Math.min(Math.abs(pressure) / 65, .13)}` } as CSSProperties}><span className="model-effort-fader-grip"/></span>
+              <span className="model-effort-fader-thumb"><span className="model-effort-fader-grip"/></span>
             </div>
           </div> : <span className="model-effort-single">{model?.thinkingServiceDefault ? zh ? '服务默认' : 'Service default' : activeLevel ? effortLabel(activeLevel, language) : zh ? '暂无可用档位' : 'No levels available'}</span>}
         </div>

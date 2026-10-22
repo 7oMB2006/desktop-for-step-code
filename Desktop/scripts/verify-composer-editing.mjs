@@ -64,9 +64,13 @@ try {
     return element?.selectionStart === expected && element.selectionEnd === expected;
   }, expected, { timeout: 5000 });
   for (let attempt = 0; attempt < 3; attempt++) {
+    console.log(`Composer draft replacement: ${attempt + 1}`);
     await input.fill('Retained empty project draft');
     await value('Retained empty project draft');
-    await input.fill('');
+    // Use the editor's selection transaction before native deletion. fill('')
+    // selects the DOM directly and can race ProseMirror's selection observer.
+    await input.press('ControlOrMeta+a');
+    await input.press('Backspace');
     await value('');
     await input.focus();
     await caret(0);

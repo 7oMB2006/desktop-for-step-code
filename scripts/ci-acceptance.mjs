@@ -85,6 +85,9 @@ export const localOnly = [
   // Real Electron coverage above complements these visual fixture matrices.
   'verify-cron-transcript.mjs',
   'verify-quit-confirmation.mjs',
+  // Requires a separately obtained official bundle; deterministic protocol coverage is in unit tests.
+  'verify-steppage-bundle.mjs',
+  'verify-steppage-prepare.mjs',
   // Status RPC coverage runs in verify-summary-runtime; this is the visual fixture.
   'verify-session-status-view.mjs',
   'verify-scheduled-tasks-preview.mjs',

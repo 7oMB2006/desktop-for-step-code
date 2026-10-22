@@ -110,7 +110,8 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
     const profile = await mkdtemp(join(tmpdir(), 'desktop-clm-rpc-'));
     const workspace = join(profile, 'workspace');
     await mkdir(workspace); await mkdir(join(profile, 'sessions'));
-    await writeFile(join(profile, 'config.toml'), `defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[compaction]\nreserveTokens = 8192\nkeepRecentTokens = 20000\n[compaction.autoClm]\nsoftThresholdRatio = 0.6\nmaxRequests = 1\n`);
+    // CLM fixtures must not provision or connect the unrelated built-in MCP.
+    await writeFile(join(profile, 'config.toml'), `defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[compaction]\nreserveTokens = 8192\nkeepRecentTokens = 20000\n[compaction.autoClm]\nsoftThresholdRatio = 0.6\nmaxRequests = 1\n[mcp_servers.steppage__steppage]\nenabled = false\n`);
     await writeFile(join(profile, 'models.json'), JSON.stringify({ providers: { fixture: {
       api: 'openai-completions', baseUrl: `http://127.0.0.1:${(server.address() as any).port}/v1`, apiKey: 'isolated-test',
       models: [{ id: 'fixture', name: 'CLM fixture', contextWindow: 64000, maxTokens: 8192 }],

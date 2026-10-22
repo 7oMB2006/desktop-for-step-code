@@ -3773,3 +3773,20 @@ The dedicated native quit and Cron transcript checks are registered in Windows
 acceptance; visual-only matrices are explicitly local checks.
 This is source acceptance, not validation of a new installer or cloud CI.
 The existing preview installer and desktop shortcut have not been rebuilt here.
+
+### Account Allowance CI Shutdown Follow-Up
+
+PR #145 run `39721715313` timed out in `verify-account-allowance.mjs` after
+300 seconds. The unmodified fixture reproduces locally: all account assertions
+reach the success log, but final shutdown remains blocked until a 40-second
+diagnostic watchdog terminates only that isolated test process tree.
+The fixture still answered only the old native message box.
+Both shutdown points now use the existing application quit-review helper,
+preserving orderly cleanup and credential/rule flushes rather than force-exiting.
+All original business assertions remain. Locator waits are bounded to 15 seconds,
+and phase logs plus a failure screenshot identify any future stalled assertion.
+
+Three consecutive source runs and one run against the existing
+`cron-quit-20261022-preview` package passed locally, as did all 15 CI policy/runner
+tests. This follow-up changes only acceptance code and documentation; it does not
+change the packaged application. Replacement cloud CI remains required.

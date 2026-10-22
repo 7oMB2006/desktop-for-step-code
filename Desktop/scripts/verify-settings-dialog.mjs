@@ -33,6 +33,7 @@ try {
   await page.locator('.sidebar-bottom > button').click();
   await page.locator('.account-settings').waitFor();
   const dialog = page.locator('.settings-dialog');
+  assert.equal(await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: 'MCP', exact: true }).locator('svg.lucide-mcp').count(), 1);
   await page.waitForTimeout(250);
   const baseline = await dialog.boundingBox();
   const lightTint = await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).backgroundColor);

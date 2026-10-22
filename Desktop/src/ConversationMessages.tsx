@@ -324,8 +324,26 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     </span>
   </div>;
 }
-  function Response({ items, active, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, execution, ...props }: {
+function HistoricalAgents({ count, language, children, onLayoutChange }: {
+  count: number; language: 'zh' | 'en'; children: ReactNode; onLayoutChange?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [visited, setVisited] = useState(false);
+  const { details, body } = useAnimatedDisclosure(expanded, onLayoutChange);
+  return <details ref={details} className="process-tool historical-agents" data-expanded={expanded}>
+    <summary aria-expanded={expanded} onClick={event => {
+      event.preventDefault(); setVisited(true); setExpanded(!expanded);
+    }}><Bot size={14}/><span>{language === 'zh' ? '代理过程' : 'Agent activity'}</span>
+      <span className="thinking-chevron"><DisclosureChevron/></span>
+      <span className="process-group-preview">{language === 'zh' ? `${count} 组调用` : `${count} calls`}</span>
+    </summary>
+    <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{visited && children}</div>
+  </details>;
+}
+
+  function Response({ items, active, historical, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, execution, ...props }: {
     items: { message: Message; index: number }[]; active: boolean;
+    historical: boolean;
     canBranch: boolean; branch: Props['branch'];
     runtimeId?: string;
     modelChange?: ModelChange;
@@ -339,6 +357,15 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     const liveThought = liveThinkingKey(content, active);
     const presentation = props.interfaceSettings?.compactProcess ? groupProcesses(content, active, props.awaitingToolCalls)
       : props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
+    const historicalAgents = historical ? content.filter(item => {
+      if (item.type !== 'tool') return false;
+      const name = item.call?.name ?? item.result?.toolName;
+      if (name === 'workflow') return true;
+      return name === 'subagent' && !subagentTasks(item.call, item.result, background).some(task =>
+        task.backgroundAgentId && background.has(task.backgroundAgentId)
+        && (task.status === 'running' || task.status === 'queued'));
+    }) : [];
+    const historicalKeys = new Set(historicalAgents.map(item => item.key));
     const changes = useMemo(() => turnChanges(active ? [] : items, window.desktop?.platform ?? 'win32'), [items, active]);
     const outputPaths = useMemo(() => active ? [] : turnOutputPaths(items, window.desktop?.platform ?? 'win32'), [items, active]);
     const finalItem = [...content].reverse().find(item => item.type === 'text');
@@ -383,7 +410,11 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
       <div className="response-content message-body">{presentation.map(item =>
-        item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} {...props}>{onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}</ProcessGroup>
+        historicalKeys.has(item.key) ? item.key === historicalAgents[0]?.key
+          ? <HistoricalAgents key={`history:${item.key}`} count={historicalAgents.length} language={props.language} onLayoutChange={props.onLayoutChange}>
+            {historicalAgents.map(member => renderItem(member))}
+          </HistoricalAgents> : null
+        : item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} {...props}>{onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}</ProcessGroup>
           : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} {...props}/>
             : renderItem(item))}</div>
       {!active && <TurnArtifacts text={finalProse} outputPaths={outputPaths} language={props.language}/>}
@@ -491,6 +522,7 @@ export function ConversationMessages(props: Props) {
     const settledStatus = hasSettledFooter && index === entries.length - 1 ? props.settledStatus : undefined;
     const completedStatus = props.completedStatus?.responseIndex === entry.index ? props.completedStatus.content : undefined;
     return <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
+      historical={index < entries.length - 1}
       modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props} interfaceSettings={interfaceSettings} disclosureReset={disclosureReset} execution={executions.get(entry.index)}
       settledStatus={completedStatus ? <>{completedStatus}{settledStatus}</> : settledStatus}/>;
   })}{props.settledStatus && !hasSettledFooter && <div className="working working-idle">{props.settledStatus}</div>}</>;

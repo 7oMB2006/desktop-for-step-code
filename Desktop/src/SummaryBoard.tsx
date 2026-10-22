@@ -128,8 +128,9 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
       <div className="sb-section-heading"><h4>{t('代理记录', 'Agent records')}</h4><span className="sb-step-count">{agents.length}</span></div>
       <ul>{agents.map(agent => {
         const state = ({ queued: 'pending', running: 'running', completed: 'done', failed: 'failed', aborted: 'stopped', skipped: 'skipped', cached: 'done', unknown: 'unknown' } as const)[agent.status];
-        const label = { queued: t('待执行', 'Queued'), running: t('进行中', 'Running'), completed: t('已完成', 'Completed'),
+        const statusLabel = { queued: t('待执行', 'Queued'), running: t('进行中', 'Running'), completed: t('已完成', 'Completed'),
           failed: t('已失败', 'Failed'), aborted: t('已停止', 'Stopped'), skipped: t('已跳过', 'Skipped'), cached: t('缓存复用', 'Cached'), unknown: t('未知', 'Unknown') }[agent.status];
+        const label = agent.carried ? `${t('后台', 'Background')} · ${statusLabel}` : statusLabel;
         return <li key={agent.key}><button type="button" className="sb-agent-row" data-agent-status={agent.status}
           disabled={agent.target.type === 'subagent' ? !onOpenSubagent : !onOpenWorkflow}
           aria-label={`${t('查看代理记录', 'Open agent record')}: ${label}, ${agent.task || agent.agent}`}
@@ -140,7 +141,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
           <span className="sb-agent-chevron"><DisclosureChevron/></span>
         </button></li>;
       })}</ul>
-      {!agents.length && <p className="sb-state">{t(sessionId ? '暂无代理记录' : '请先打开一个会话', sessionId ? 'No agent records yet' : 'Open a session first')}</p>}
+      {!agents.length && <p className="sb-state">{t(sessionId ? '本轮暂无代理记录' : '请先打开一个会话', sessionId ? 'No agent records this turn' : 'Open a session first')}</p>}
     </section>
     <section className="sb-mcp">
       <button className="sb-mcp-trigger" type="button" aria-expanded={mcpOpen} aria-controls={mcpId} onClick={() => setMcpOpen(!mcpOpen)}>

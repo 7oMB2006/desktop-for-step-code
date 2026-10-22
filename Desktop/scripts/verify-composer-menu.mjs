@@ -57,7 +57,7 @@ try {
         if (args[0] === 'get_available_thinking_levels') return { levels: ['low', 'medium', 'high'] };
         if (args[0] === 'get_commands') return { commands: [
           ...(globalThis.menuPermissionsSupported ? [{ name: 'permissions', source: 'extension' }] : []),
-          ...['goal', 'plan', 'todo', 'ultracode', 'compact', 'cron', 'init', 'exit', 'theme', 'llama'].map(name => ({ name, source: 'extension', description: `${name} command` })),
+          ...['goal', 'plan', 'todo', 'ultracode', 'compact', 'cron', 'init', 'mcp', 'exit', 'theme', 'llama'].map(name => ({ name, source: 'extension', description: `${name} command` })),
           { name: 'review-code', source: 'skill', description: '审查代码变更' },
           { name: 'daily-note', source: 'prompt', description: '整理每日记录' },
         ] };
@@ -83,6 +83,7 @@ try {
   assert.equal(await menu.locator('svg.lucide-goal').count(), 1);
   assert.equal(await menu.locator('svg.lucide-lightbulb').count(), 1);
   assert.equal(await menu.locator('svg.lucide-network').count(), 1);
+  assert.equal(await menu.getByRole('option', { name: /MCP/ }).locator('svg.lucide-mcp').count(), 1);
   await page.waitForTimeout(220);
   const geometry = await page.evaluate(() => {
     const menu = document.querySelector('.composer-discovery').getBoundingClientRect();
@@ -93,6 +94,10 @@ try {
   assert.equal(await page.locator('.composer').evaluate(element => getComputedStyle(element).borderTopLeftRadius), '8px');
   assert.equal(await menu.evaluate(element => getComputedStyle(element).borderBottomLeftRadius), '8px');
   await page.screenshot({ path: 'test-results/composer-slash-dark.png' });
+  await input.fill('/mcp inspect');
+  await page.locator('.composer-inline-command-icon svg.lucide-mcp').waitFor();
+  await input.fill('/plugin inspect');
+  await page.locator('.composer-inline-command-icon svg.lucide-plug').waitFor();
   await input.fill('/cl');
   assert.equal(await menu.getByRole('option').count(), 2, 'Core CLM commands are discoverable even when get_commands omits them');
   assert.equal(await menu.getByText('/clm', { exact: true }).count(), 1);

@@ -71,3 +71,52 @@ test('workflow records retain structured states and navigate to the existing orc
   assert.deepEqual(records[0].target, { type: 'workflow', id: 'wf_test' });
   assert.notEqual(records[0].key, records[1].key);
 });
+
+test('new visible inputs retire previous agent rows without deleting history or changing current identities', () => {
+  const previous = [call, result([{ agent: 'reader', task: 'Old', status: 'failed' }])];
+  const next: Message = { role: 'user', content: 'Next turn' };
+  const currentCall = structuredClone(call);
+  currentCall.content = [{ type: 'toolCall', id: 'new-dispatch', name: 'subagent', arguments: { agent: 'reader', task: 'New' } }];
+  const currentResult: Message = { ...result([{ agent: 'reader', task: 'New', status: 'completed' }]), toolCallId: 'new-dispatch' };
+  const messages = [...previous, next, currentCall, currentResult];
+  const before = structuredClone(messages);
+  const records = summaryAgents(messages, false);
+  assert.deepEqual(records.map(record => record.task), ['New']);
+  assert.equal(summaryAgents([...messages, { role: 'assistant', content: 'Done' }], false)[0].key, records[0].key);
+  assert.deepEqual(messages, before);
+  assert.deepEqual(summaryAgents([...previous, next], false), []);
+  assert.deepEqual(summaryAgents([call, next, result([{ agent: 'reader', task: 'Late old result', status: 'completed' }])], false), []);
+});
+
+test('visible Goal input starts a turn but hidden reminders do not clear the current records', () => {
+  const previous = [call, result([{ agent: 'reader', task: 'Old', status: 'completed' }])];
+  assert.equal(summaryAgents([...previous, { role: 'user', content: 'Reminder', display: false }], false).length, 1);
+  assert.equal(summaryAgents([...previous, { role: 'custom', customType: 'desktop-goal-input', content: 'New Goal' }], false).length, 0);
+});
+
+test('registered live background work survives turn changes and retires on completion', () => {
+  const messages: Message[] = [call, {
+    ...result([{ agent: 'reader', task: 'Background', status: 'running' }]),
+    details: { agentId: 'background-live', status: 'running', results: [{ agent: 'reader', task: 'Background', status: 'running' }] },
+  }, { role: 'user', content: 'Next turn' }];
+  const records = summaryAgents(messages, false);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].carried, true);
+  assert.equal(records[0].status, 'running');
+  const completed: Message = { role: 'custom', content: '', customType: 'agent-notification',
+    details: { agentId: 'background-live', event: 'background_done', status: 'completed' } };
+  assert.deepEqual(summaryAgents([...messages, completed], false), []);
+  assert.equal(summaryAgents(messages.slice(0, -1), false)[0].key, records[0].key);
+});
+
+test('historical workflow records and late results never become current-turn records', () => {
+  const workflowCall: Message = { role: 'assistant', content: [{ type: 'toolCall', id: 'old-flow', name: 'workflow', arguments: {} }] };
+  const workflowResult: Message = { role: 'toolResult', toolName: 'workflow', toolCallId: 'old-flow', content: '', details: {
+    schemaVersion: 1, runId: 'wf_old', status: 'completed',
+    agents: [{ id: 'a', label: 'worker', task: 'Old flow', status: 'completed' }],
+  } };
+  const next: Message = { role: 'user', content: 'Next turn' };
+  assert.equal(summaryAgents([workflowCall, workflowResult], false).length, 1);
+  assert.deepEqual(summaryAgents([workflowCall, workflowResult, next], false), []);
+  assert.deepEqual(summaryAgents([workflowCall, next, workflowResult], false), []);
+});

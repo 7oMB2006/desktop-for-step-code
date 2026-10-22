@@ -44,6 +44,20 @@ function Harness() {
       <button onClick={() => { setMessages([thought]); setBusy(true); }}>单条思考</button>
       <button onClick={() => { setMessages([command, result]); setBusy(false); }}>单条工具</button>
       <button onClick={() => { setMessages([thought, command, result, ...agents]); setBusy(true); }}>组合过程</button>
+      <button onClick={() => {
+        setMessages([
+          { role: 'user', content: '检查上一轮的模块' },
+          { role: 'assistant', content: [{ type: 'toolCall', id: 'previous-agents', name: 'subagent', arguments: {} }] },
+          { role: 'toolResult', toolName: 'subagent', toolCallId: 'previous-agents', content: '', details: { results: [
+            { agent: 'reader', task: '读取上一轮模块', status: 'completed', messages: [] },
+            { agent: 'tester', task: '检查上一轮边界', status: 'failed', messages: [] },
+          ] } },
+          { role: 'assistant', content: '上一轮检查记录已保留。' },
+          { role: 'user', content: '继续本轮的交互检查' },
+          thought, command, result, ...agents,
+        ]);
+        setBusy(true);
+      }}>跨轮记录</button>
       <select aria-label="复杂度" value={preset} onChange={event => setPreset(event.target.value as typeof preset)}>
         <option value="simple">简洁</option><option value="standard">标准</option><option value="detailed">详细</option>
       </select>

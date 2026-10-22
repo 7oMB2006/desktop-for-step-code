@@ -20,6 +20,12 @@ The activity dot breathes in the accent color while running, settles to green
 only when nonempty task/agent records have all succeeded, and stays muted while
 idle. Pending, failed, stopped and skipped records never imply completion.
 Header task counts use the shared checklist icon; MCP uses the official mark.
+Summary agent rows are scoped to the latest visible user/Goal turn, plus
+registered background tasks still running or queued from earlier turns.
+Late results retain their dispatch turn. Historical transcript agent calls are
+collected into one initially collapsed disclosure per response, with the same
+cubic native-details motion and existing inspector links; live background calls
+stay visible. This changes presentation only, not stored history.
 
 Scheduled-task creation defaults to durable storage, independently of recurrence.
 The storage radio group names both durable and temporary choices, preserving the

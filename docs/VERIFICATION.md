@@ -23,6 +23,12 @@ The activity indicator settles to green only for nonempty, fully successful
 task/agent records. Empty, pending, failed, stopped, skipped, unknown and stale
 states are covered separately; checklist counts and the official MCP mark retain
 the compact header and theme colors.
+The agent list now keeps only the latest visible user/Goal turn and registered
+live background work carried across turns. Earlier transcript agent calls fold
+into one disclosure per response, retain inspector navigation and never
+repopulate Summary when expanded. Ten focused state tests cover turn changes,
+hidden reminders, late results, background completion and Workflow ownership.
+The browser regression also checks history folding, lazy mounting and navigation.
 
 Typecheck and production build passed. The final serialized suite passed 564
 tests with 13 platform skips; all 15 CI-policy/runner tests passed.

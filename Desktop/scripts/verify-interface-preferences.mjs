@@ -245,21 +245,22 @@ try {
   await closeSettings(page);
   await load(thinkingHistory, true);
   const compact = messages.locator('.compact-process');
-  await compact.locator('.process-group-preview').getByText(longPreview, { exact: true }).waitFor();
-  assert.equal(await compact.locator('.process-group-preview').evaluate(element =>
+  await compact.locator('.thinking-preview').getByText(longPreview, { exact: true }).waitFor();
+  assert.equal(await compact.locator('.thinking-preview').evaluate(element =>
     getComputedStyle(element).whiteSpace === 'nowrap' && element.scrollWidth > element.clientWidth
     && element.getBoundingClientRect().right <= element.parentElement.getBoundingClientRect().right), true, 'long live detail stays inside a single clipped row');
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-compact-process-live.png' });
   assert.equal(await compact.locator('.thinking').getAttribute('data-expanded'), 'false');
-  assert.equal(await compact.locator('.tool-group-trigger > .lucide-brain').count(), 1);
-  await compact.locator('.tool-group-trigger').click();
-  await page.evaluate(() => { globalThis.compactTrigger = document.querySelector('.messages .compact-process > button'); });
+  assert.equal(await compact.locator('.tool-group-trigger').isVisible(), false, 'a singleton has only its own disclosure');
+  assert.equal(await compact.locator('.tool-group-disclosure > div').evaluate(element => getComputedStyle(element).paddingLeft), '0px');
+  await compact.locator('.thinking > summary').click();
+  await page.evaluate(() => { globalThis.compactThought = document.querySelector('.messages .compact-process .thinking'); });
   await load(withTool, true);
   await compact.getByRole('button', { name: /读取文件/ }).waitFor();
   assert.equal(await compact.locator('.tool-group-trigger').getAttribute('aria-expanded'), 'true');
   assert.equal(await compact.locator('.tool-group-trigger > .lucide-wrench').count(), 1, 'tool activity does not keep a misleading thinking icon');
   assert.equal(await compact.locator('.thinking .tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused', 'the running group never reanimates settled children');
-  assert.equal(await page.evaluate(() => globalThis.compactTrigger === document.querySelector('.messages .compact-process > button')), true, 'tool arrival retains the same process trigger');
+  assert.equal(await page.evaluate(() => globalThis.compactThought === document.querySelector('.messages .compact-process .thinking')), true, 'tool arrival retains the singleton member and its manual expansion');
   const completedProcess = [...withTool,
     { role: 'toolResult', toolCallId: 'live-tool', toolName: 'read_file', content: 'ok' },
     { role: 'assistant', content: [{ type: 'text', text: '检查完成。' }] },

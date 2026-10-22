@@ -1,6 +1,9 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Check, FileDiff, GitBranch, Layers3, Plug } from 'lucide-react';
-import type { RepositoryDiff, SessionSummary, SummaryTask } from './contracts';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUpRight, Bot, Check, CircleHelp, FileDiff, GitBranch, Layers3, ListTodo, X } from 'lucide-react';
+import { McpIcon } from './McpIcon';
+import type { Message, RepositoryDiff, SessionSummary, SummaryTask } from './contracts';
+import type { SubagentTask } from './conversation-presentation';
+import { summaryActivity, summaryAgents } from './summary-activity';
 import { DisclosureChevron } from './DisclosureChevron';
 import { DiffCount } from './DiffCount';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
@@ -24,8 +27,9 @@ function TaskRow({ task, visible, language, animateEntrance }: { task: SummaryTa
   </li>;
 }
 
-export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges }: {
+export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], busy = false, onOpenSubagent, onOpenWorkflow, onClose }: {
   runtimeId?: string; sessionId?: string; language: 'zh' | 'en'; onOpenChanges: () => void;
+  messages?: Message[]; busy?: boolean; onOpenSubagent?: (task: SubagentTask) => void; onOpenWorkflow?: (id: string) => void; onClose?: () => void;
 }) {
   const [model, setModel] = useState<SessionSummary>();
   const [repository, setRepository] = useState<RepositoryDiff>();
@@ -68,7 +72,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges }: 
     const newlyCompleted = model?.tasks.filter(task => {
       const before = previous.current.get(key(task));
       return task.status === 'completed' && before !== undefined && before !== 'completed';
-    }).map(task => task.id) ?? [];
+    }).map(key) ?? [];
     previous.current = new Map(model?.tasks.map(task => [key(task), task.status]));
     if (model) hasSnapshot.current = true;
     if (newlyCompleted.length) setRecent(ids => [...new Set([...ids, ...newlyCompleted])]);
@@ -79,10 +83,22 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges }: 
     return () => clearTimeout(timer);
   }, [recent]);
   const tasks = model?.tasks ?? [];
+  const agents = useMemo(() => sessionId ? summaryAgents(messages, busy) : [], [messages, busy, sessionId]);
+  const activity = summaryActivity(model?.tasks, agents, failed, busy);
   const done = tasks.filter(task => task.status === 'completed');
   const connected = model?.mcp.filter(server => server.status === 'connected').length ?? 0;
   const root = repository?.root?.replace(/\\/g, '/').split('/').at(-1);
-  return <div className="sb-content">
+  const activityLabel = activity === 'running' ? busy ? t('会话运行中', 'Conversation running') : t('任务或代理进行中', 'Task or agent running')
+    : activity === 'completed' ? t('任务与代理已全部完成', 'All tasks and agents completed')
+    : activity === 'unknown' ? t('活动状态未知', 'Activity unknown') : t('暂无进行中的任务或代理', 'No running tasks or agents');
+  return <><header>
+    <h2 className="sb-header-title"><span className="sb-activity" data-state={activity} role="img" aria-label={activityLabel} data-tooltip={activityLabel}/>{t('摘要', 'Summary')}</h2>
+    <div className="sb-header-metrics">
+      {!!tasks.length && <span aria-label={t(`任务 ${done.length} / ${tasks.length} 项完成`, `${done.length} of ${tasks.length} tasks completed`)}><ListTodo size={12} aria-hidden="true"/>{done.length}/{tasks.length}</span>}
+      {!!agents.length && <span aria-label={t(`${agents.length} 条代理记录`, `${agents.length} agent records`)}><Bot size={12}/>{agents.length}</span>}
+    </div>
+    <button type="button" className="icon-button" aria-label={t('关闭侧栏', 'Close panel')} data-tooltip={t('关闭侧栏', 'Close panel')} onClick={onClose}><X size={16}/></button>
+  </header><div className="summary-content"><div className="sb-content">
     {repository && ['ready', 'unborn'].includes(repository.state) && <section className="sb-repository" aria-label={t('仓库概览', 'Repository overview')}>
       <h3>{root}</h3><div className="sb-repo-branch"><GitBranch size={12}/><span>{repository.branch || t('尚无提交', 'No commits')}</span></div>
       <button className="sb-repo-change" type="button" onClick={onOpenChanges}>
@@ -92,7 +108,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges }: 
         <span>{repository.truncated ? '≥ ' : ''}{repository.files.length} {t('个文件', 'files')}</span></div>
     </section>}
     <section className="sb-steps" aria-label={t('推进清单', 'Task plan')}>
-      <div className="sb-section-heading"><h4>{t('推进清单', 'Task plan')}</h4><span className="sb-step-count"><strong>{done.length}</strong> / {tasks.length}</span></div>
+      <div className="sb-section-heading"><h4>{t('推进清单', 'Task plan')}</h4><span className="sb-step-count">{model ? <><strong>{done.length}</strong> / {tasks.length}</> : '--'}</span></div>
       {model?.plan && <p className="sb-plan-title">{model.plan.title}</p>}
       {failed && <p className="sb-state" role="status">{t('暂时无法读取，正在重试', 'Could not refresh. Retrying.')}</p>}
       {!tasks.length && <p className="sb-state">{!runtimeId || !sessionId ? t('请先打开一个会话', 'Open a session first') : model ? t('暂无任务清单', 'No task plan yet') : t('读取中', 'Loading')}</p>}
@@ -102,11 +118,34 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges }: 
       <ol>{tasks.map(task =>
         <TaskRow key={`${model?.plan?.id ?? ''}:${task.id}`} task={task} language={language}
           animateEntrance={hasSnapshot.current && !previous.current.has(`${model?.plan?.id ?? ''}:${task.id}`)}
-          visible={task.status !== 'completed' || completedOpen || recent.includes(task.id)}/>)}</ol>
+          visible={task.status !== 'completed' || completedOpen || recent.includes(`${model?.plan?.id ?? ''}:${task.id}`)}/>)}</ol>
+      {!!tasks.length && <div className="sb-task-progress" role="progressbar" aria-label={t('任务完成进度', 'Task completion')}
+        aria-valuemin={0} aria-valuemax={tasks.length} aria-valuenow={done.length}
+        aria-valuetext={t(`${done.length} / ${tasks.length} 项完成`, `${done.length} of ${tasks.length} completed`)}>
+        <div style={{ width: `${100 * done.length / tasks.length}%` }}/></div>}
+    </section>
+    <section className="sb-agents" aria-label={t('代理记录', 'Agent records')}>
+      <div className="sb-section-heading"><h4>{t('代理记录', 'Agent records')}</h4><span className="sb-step-count">{agents.length}</span></div>
+      <ul>{agents.map(agent => {
+        const state = ({ queued: 'pending', running: 'running', completed: 'done', failed: 'failed', aborted: 'stopped', skipped: 'skipped', cached: 'done', unknown: 'unknown' } as const)[agent.status];
+        const statusLabel = { queued: t('待执行', 'Queued'), running: t('进行中', 'Running'), completed: t('已完成', 'Completed'),
+          failed: t('已失败', 'Failed'), aborted: t('已停止', 'Stopped'), skipped: t('已跳过', 'Skipped'), cached: t('缓存复用', 'Cached'), unknown: t('未知', 'Unknown') }[agent.status];
+        const label = agent.carried ? `${t('后台', 'Background')} · ${statusLabel}` : statusLabel;
+        return <li key={agent.key}><button type="button" className="sb-agent-row" data-agent-status={agent.status}
+          disabled={agent.target.type === 'subagent' ? !onOpenSubagent : !onOpenWorkflow}
+          aria-label={`${t('查看代理记录', 'Open agent record')}: ${label}, ${agent.task || agent.agent}`}
+          onClick={() => agent.target.type === 'subagent' ? onOpenSubagent?.(agent.target.task) : onOpenWorkflow?.(agent.target.id)}>
+          <Bot size={14}/>{state === 'unknown' ? <CircleHelp size={16} aria-hidden="true"/> : <SubagentStatusIcon state={state} language={language}/>}
+          <span className="sb-agent-text"><span><strong>{agent.agent || t('子代理', 'Subagent')}</strong><small>{label}</small></span>
+            <span>{agent.task || t('无任务描述', 'No task description')}</span></span>
+          <span className="sb-agent-chevron"><DisclosureChevron/></span>
+        </button></li>;
+      })}</ul>
+      {!agents.length && <p className="sb-state">{t(sessionId ? '本轮暂无代理记录' : '请先打开一个会话', sessionId ? 'No agent records this turn' : 'Open a session first')}</p>}
     </section>
     <section className="sb-mcp">
       <button className="sb-mcp-trigger" type="button" aria-expanded={mcpOpen} aria-controls={mcpId} onClick={() => setMcpOpen(!mcpOpen)}>
-        <Plug size={14}/><span>MCP</span><span className={`sb-fold-icon${mcpOpen ? ' is-open' : ''}`}><DisclosureChevron/></span>
+        <McpIcon size={14}/><span>MCP</span><span className={`sb-fold-icon${mcpOpen ? ' is-open' : ''}`}><DisclosureChevron/></span>
         <span className="sb-mcp-count">{model ? `${connected} / ${model.mcp.length}` : '--'}</span>
       </button><div id={mcpId} className={`sb-disclosure${mcpOpen ? ' is-open' : ''}`} aria-hidden={!mcpOpen} inert={!mcpOpen}><div><ul className="sb-mcp-list">
         {model?.mcp.map(server => <li key={server.name} className={`sb-mcp-server is-${server.status}`}>
@@ -118,5 +157,5 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges }: 
       </ul></div></div>
     </section>
     <section className="sb-skills"><Layers3 size={14}/><span>{t('可用 Skills', 'Available Skills')}</span><strong>{model?.skillCount ?? '--'}</strong></section>
-  </div>;
+  </div></div></>;
 }

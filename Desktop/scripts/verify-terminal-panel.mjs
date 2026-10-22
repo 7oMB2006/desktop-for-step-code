@@ -126,27 +126,38 @@ try {
   assert.ok(ease.includes('cubic-bezier(0.22, 1, 0.36, 1)'));
   const widthControl = panel.getByRole('button', { name: '终端宽度', exact: true });
   const initialWidth = (await panel.boundingBox()).width;
+  const sampleWidths = async action => {
+    await panel.evaluate(element => {
+      element.widthFrames = [];
+      const sample = () => {
+        element.widthFrames.push(element.getBoundingClientRect().width);
+        element.widthFrame = requestAnimationFrame(sample);
+      };
+      sample();
+    });
+    try {
+      await action();
+      await page.waitForTimeout(350);
+      return await panel.evaluate(element => element.widthFrames);
+    } finally {
+      await panel.evaluate(element => {
+        cancelAnimationFrame(element.widthFrame);
+        delete element.widthFrame; delete element.widthFrames;
+      });
+    }
+  };
   const chooseWidth = async value => {
     await app.evaluate((_, choice) => { globalThis.rightPanelWidthMenuFixture.choice = choice; },
       { standard: '标准', wide: '宽幅', fullscreen: '全屏' }[value]);
     await widthControl.click();
     await page.waitForFunction(() => document.querySelector('#terminal-panel .right-panel-width-control').getAttribute('aria-expanded') === 'false');
   };
-  await chooseWidth('wide');
+  const wideFrames = await sampleWidths(() => chooseWidth('wide'));
   assert.deepEqual(await app.evaluate(() => globalThis.rightPanelWidthMenuFixture.menus[0]), [
     { label: '标准', checked: true, type: 'radio' },
     { label: '宽幅', checked: false, type: 'radio' },
     { label: '全屏', checked: false, type: 'radio' },
   ]);
-  const wideFrames = await panel.evaluate(async element => {
-    const widths = [];
-    const start = performance.now();
-    while (performance.now() - start < 350) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      widths.push(element.getBoundingClientRect().width);
-    }
-    return widths;
-  });
   const wideWidth = (await panel.boundingBox()).width;
   assert.ok(wideWidth > initialWidth + 30 && wideFrames.some(width => width > initialWidth + 1 && width < wideWidth - 1),
     'terminal wide mode animates and adds useful output space');
@@ -162,16 +173,7 @@ try {
   await page.waitForTimeout(350);
   assert.equal(await widthControl.getAttribute('data-width'), 'standard', 'fullscreen menu restores the selected width mode');
   const beforeWidth = (await panel.boundingBox()).width;
-  await panel.getByRole('button', { name: '全屏查看', exact: true }).click();
-  const expansion = await panel.evaluate(async element => {
-    const frames = [];
-    const start = performance.now();
-    while (performance.now() - start < 350) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      frames.push(element.getBoundingClientRect().width);
-    }
-    return frames;
-  });
+  const expansion = await sampleWidths(() => panel.getByRole('button', { name: '全屏查看', exact: true }).click());
   assert.equal(await page.locator('.main-content').evaluate(element => element.inert), true);
   const rect = await panel.boundingBox();
   const sidebar = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.app')).getPropertyValue('--sidebar-track')));

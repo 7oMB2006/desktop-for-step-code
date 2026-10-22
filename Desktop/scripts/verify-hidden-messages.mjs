@@ -102,12 +102,17 @@ try {
   await send({ role: 'toolResult', toolName: 'subagent', toolCallId: 's1', content: 'Failed', entryId: 'dispatch',
     details: { status: 'failed', results: [{ agent: 'explore', task: 'Check files',
       status: 'failed', messages: [{ role: 'user', content: 'Check files' }, childHidden] }] } });
+  const history = page.locator('.historical-agents');
+  assert.equal(await history.getAttribute('data-expanded'), 'false', 'previous-turn agents start folded');
+  assert.equal(await row.count(), 0, 'historical lanes mount only after expansion');
+  await history.locator(':scope > summary').click();
   await page.waitForFunction(() => document.querySelector('.lane-row')?.getAttribute('data-tool-state') === 'failed');
   await row.click();
   await page.locator('#subagent-panel .panel-empty').filter({ hasText: '无过程记录。' }).waitFor();
   assert.equal(await page.locator('#subagent-panel .lane-text').count(), 0);
   assert.equal(await page.getByText(childHidden.content, { exact: true }).count(), 0);
   await page.reload();
+  await history.locator(':scope > summary').click();
   await page.waitForFunction(() => document.querySelector('.lane-row')?.getAttribute('data-tool-state') === 'failed');
   await row.click();
   await page.locator('#subagent-panel .panel-empty').filter({ hasText: '无过程记录。' }).waitFor();

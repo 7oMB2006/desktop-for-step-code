@@ -1,5 +1,81 @@
 # Verification
 
+## Summary Turn Alignment And CI Replay (2026-10-22)
+
+The Summary activity dot now follows live conversation execution immediately;
+it does not wait for the summary poll or rewrite canonical task progress.
+Visible native Cron notices, including missed notices, start a Summary turn
+just as they do in the transcript. Historical agents remain inspectable there;
+registered queued/running background agents carry forward until settlement.
+Late results retain their original dispatch ownership.
+
+Fourteen Summary state tests and the browser regression cover these cases,
+including repeated Cron, hidden/non-Cron notices, saved replay, Workflow records
+and history expansion without repopulating Summary. The related 49-test run,
+typecheck and production build passed.
+
+CI replay now opens lazily mounted tool details before reading their status,
+expands historical agent disclosures before inspecting their rows, waits for
+the connected page before evaluating the bridge, and arms terminal width-frame
+sampling before triggering transitions. The existing assertions are retained.
+Local source Electron, hidden-message, clarification and real PowerShell terminal
+acceptance passed. The local shared node-pty input was incomplete; generated
+terminal resources were repaired from the version 1.1.0 npm archive after
+verifying its SHA-512 against the lockfile, without changing shared dependencies.
+Cloud and packaged acceptance are tracked separately from these source results.
+Background-agent acceptance now addresses each original dispatch independently
+of row order and opens settled history before inspecting it. Source and packaged
+runs passed completion, failure, restart, interruption, follow-up and reload
+checks with identical task descriptions.
+
+## Transcript And Summary Follow-Up (2026-10-21)
+
+The compact transcript now exposes singleton thinking/tool records through their
+own disclosure, without another group header or indentation. Stable keyed members
+retain manual expansion and output controls when siblings arrive; keyboard focus
+moves to the remaining member when its group header disappears. Existing
+approval/failure and dedicated-interaction boundaries are unchanged.
+
+Thinking and ordinary tools share the native-details animation hook: 240ms cubic
+height/opacity transitions in both directions, inert closed content and lazy
+tool-output mounting. Disclosure arrows follow labels/timing before previews.
+Thinking completion still folds the active thought, while settled history can
+be reopened. Presets, custom defaults and historical reapplication are retained.
+
+Summary adds activity and compact header counts, canonical task progress, and
+structured Subagent/Workflow records opening existing read-only inspectors.
+Parent streaming and successful dispatches do not imply running/completed tasks.
+Unknown legacy records and failed refreshes remain unknown. Repository overview,
+theme tokens, panel geometry and existing task completion animations remain.
+The activity indicator settles to green only for nonempty, fully successful
+task/agent records. Empty, pending, failed, stopped, skipped, unknown and stale
+states are covered separately; checklist counts and the official MCP mark retain
+the compact header and theme colors.
+The agent list now keeps only the latest visible user/Goal turn and registered
+live background work carried across turns. Earlier transcript agent calls fold
+into one disclosure per response, retain inspector navigation and never
+repopulate Summary when expanded. Ten focused state tests cover turn changes,
+hidden reminders, late results, background completion and Workflow ownership.
+The browser regression also checks history folding, lazy mounting and navigation.
+
+Typecheck and production build passed. The final serialized suite passed 564
+tests with 13 platform skips; all 15 CI-policy/runner tests passed.
+Electron interface-preference, Summary runtime and Summary layout acceptance
+passed, including real pinned task RPC, completion animations, session isolation,
+repository navigation and nonmodal layout. The reused Windows runtime's
+patched-source hashes match the current manifest; no runtime source was changed.
+
+The new `verify-disclosure-summary.mjs` is registered in interface CI. Local
+Playwright validation used installed Edge through its explicit channel override;
+CI defaults to its installed Chromium. It passed singleton identity/focus,
+member-local controls, keyboard and rapid toggles, intermediate closing frames,
+canonical progress, agent-record navigation, zh/en, light/dark, 320/390px and
+reduced-motion checks. Screenshots under `Desktop/test-results/` were inspected.
+The first Summary/full-suite replay used an older staged runtime and failed the
+existing Status-field assertion; replaying against the manifest-matching staged
+runtime passed without modifying that assertion. No new installer, real-model
+acceptance or cloud result is claimed; the running user package is unchanged.
+
 ## Cron Transcript Source Disclosure (2026-10-20)
 
 Follow-up: source disclosure alone did not split response entries. The first

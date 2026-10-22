@@ -25,9 +25,9 @@ try {
   const task = '只读盘点 Markdown 文件，整理结果。';
   const messages = [
     { role: 'user', content: '派发两个后台任务。' },
-    { role: 'assistant', content: ['a', 'b'].map(id => ({
+    ...['a', 'b'].map(id => ({ role: 'assistant', content: [{
       type: 'toolCall', id, name: 'subagent', arguments: { agent: 'explore', task, run_in_background: true },
-    })) },
+    }] })),
     ...['a', 'b'].map(id => ({ role: 'toolResult', toolName: 'subagent', toolCallId: id, content: 'Started',
       details: { agentId: `lane-${id}`, status: 'running', results: [] } })),
     { role: 'assistant', content: '主会话已结束本轮，后台继续运行。' },
@@ -43,9 +43,15 @@ try {
           : method === 'command' && args[0] === 'get_commands' ? { commands: [] } : {});
   }, { ...snapshot, messages, state: { ...snapshot.state, isStreaming: true } });
   const rows = page.locator('.lane-row');
+  const row = index => page.locator(`.subagent-lanes[data-message-index="${index + 1}"] .lane-row`);
   const state = async (index, expected) => {
+    if (expected !== 'running') {
+      const history = page.locator('.historical-agents');
+      await history.waitFor();
+      if (await history.getAttribute('data-expanded') !== 'true') await history.locator('summary').click();
+    }
     await page.waitForFunction(({ index, expected }) =>
-      document.querySelectorAll('.lane-row')[index]?.getAttribute('data-tool-state') === expected, { index, expected });
+      document.querySelector(`.subagent-lanes[data-message-index="${index + 1}"] .lane-row`)?.getAttribute('data-tool-state') === expected, { index, expected });
   };
   const send = async message => {
     await app.evaluate(({ BrowserWindow }, message) => {
@@ -62,7 +68,7 @@ try {
   await page.reload();
   await state(0, 'running');
   await state(1, 'running');
-  await rows.nth(0).click();
+  await row(0).click();
   await page.locator('#subagent-panel .subagent-status[data-lane-state="running"]').waitFor();
   await notify('a', 'background_done', 'completed');
   await state(0, 'done');
@@ -70,34 +76,34 @@ try {
   await page.locator('#subagent-panel .subagent-status[data-lane-state="completed"]').waitFor();
   await page.waitForTimeout(750);
   assert.equal(await rows.count(), 2, 'completion updates the original row, not a duplicate');
-  assert.equal(await rows.nth(0).locator('.subagent-status-check').count(), 1);
+  assert.equal(await row(0).locator('.subagent-status-check').count(), 1);
   assert.equal(await page.locator('#subagent-panel .lane-text').count(), 0, 'no invented activity');
   await page.screenshot({ path: 'test-results/background-subagent-completed.png' });
   await page.reload();
   await state(0, 'done');
-  assert.equal(await rows.nth(0).locator('.subagent-status-icon').getAttribute('data-settling'), 'false');
-  await rows.nth(1).click();
+  assert.equal(await row(0).locator('.subagent-status-icon').getAttribute('data-settling'), 'false');
+  await row(1).click();
   await page.locator('#subagent-panel .subagent-status[data-lane-state="running"]').waitFor();
   await notify('b', 'background_failed', 'failed');
   await state(1, 'failed');
   await page.locator('#subagent-panel .subagent-status[data-lane-state="failed"]').waitFor();
   await notify('a', 'background_restarted', 'running');
   await state(0, 'running');
-  await rows.nth(0).click();
+  await row(0).click();
   await page.locator('#subagent-panel .subagent-status[data-lane-state="running"]').waitFor();
   await notify('a', 'background_interrupted', 'aborted');
   await state(0, 'stopped');
   await page.locator('#subagent-panel .subagent-status[data-lane-state="aborted"]').waitFor();
   assert.equal(await page.locator('#subagent-panel .subagent-status').getAttribute('aria-label'), '已终止');
-  await rows.nth(0).locator('.subagent-status-icon[data-state="stopped"]').waitFor();
-  assert.match(await rows.nth(0).getAttribute('aria-label'), /已终止/);
+  await row(0).locator('.subagent-status-icon[data-state="stopped"]').waitFor();
+  assert.match(await row(0).getAttribute('aria-label'), /已终止/);
   await send({ role: 'toolResult', toolName: 'agent_send', toolCallId: 'follow-up', content: 'Follow-up',
     details: { agentId: 'lane-a', status: 'running' } });
   await state(0, 'running');
   await notify('a', 'background_done', 'completed');
   await state(0, 'done');
   await page.locator('#subagent-panel .subagent-status[data-lane-state="completed"]').waitFor();
-  await rows.nth(0).click();
+  await row(0).click();
   await page.locator('#subagent-panel').waitFor({ state: 'detached' });
   assert.deepEqual(errors, []);
   console.log('Background subagents passed: cross-turn completion, panel sync, identical task isolation, reload, failure, interruption and follow-up.');

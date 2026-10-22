@@ -4,6 +4,7 @@ import type { Message } from './contracts';
 import { messageText } from './conversation-presentation';
 import './composer-menu.css';
 import { composerInput } from './composer-input';
+import { McpIcon } from './McpIcon';
 
 import type { ComposerCommand } from './composer-commands';
 export type { ComposerCommand } from './composer-commands';
@@ -16,7 +17,7 @@ const labels: Record<string, [string, string]> = {
   clm: ['工作上下文', 'Working context'], 'clm-compact': ['整理工作上下文', 'Organize working context'],
   trust: ['项目信任', 'Project trust'],
 };
-const icons: Record<string, typeof Terminal> = { status: Activity, goal: Goal, plan: Lightbulb, todo: ListTodo, ultracode: Network, ultraloop: Network, compact: Minimize2, init: FileText, mcp: Plug, plugin: Plug, clm: NotebookPen, 'clm-compact': RefreshCw, trust: Shield };
+const icons: Record<string, typeof Terminal> = { status: Activity, goal: Goal, plan: Lightbulb, todo: ListTodo, ultracode: Network, ultraloop: Network, compact: Minimize2, init: FileText, mcp: McpIcon, plugin: Plug, clm: NotebookPen, 'clm-compact': RefreshCw, trust: Shield };
 const terminalOnly = new Set(['exit', 'quit', 'theme', 'llama', 'clear', 'new']);
 const descriptions: Record<string, string> = {
   status: '查看当前模型、权限、目录与账户状态',
@@ -79,7 +80,7 @@ export function ComposerMenu(props: Props) {
   const actions: Row[] = [
     { id: 'model', title: zh ? '模型' : 'Model', detail: zh ? '选择模型与思考档位' : 'Model and reasoning effort', Icon: Cpu, group: zh ? '操作' : 'Actions', activate: () => { consumeToken(); props.onAction('model'); } },
     { id: 'permissions', title: zh ? '访问权限' : 'Permissions', detail: zh ? '调整此会话的权限' : 'Session permissions', Icon: Shield, group: zh ? '操作' : 'Actions', activate: () => { consumeToken(); props.onAction('permissions'); } },
-    { id: 'mcp', title: 'MCP', detail: zh ? '查看与管理服务器' : 'Manage servers', Icon: Plug, group: zh ? '操作' : 'Actions', activate: () => { consumeToken(); props.onAction('mcp'); } },
+    { id: 'mcp', title: 'MCP', detail: zh ? '查看与管理服务器' : 'Manage servers', Icon: McpIcon, group: zh ? '操作' : 'Actions', activate: () => { consumeToken(); props.onAction('mcp'); } },
   ];
   const rows: Row[] = mode === '/' ? [
     ...actions.filter(row => row.id !== 'permissions' || props.permissionsSupported),

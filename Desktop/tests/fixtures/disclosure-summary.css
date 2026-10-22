@@ -1,0 +1,10 @@
+.disclosure-fixture { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.disclosure-fixture nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+.disclosure-fixture-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 32px; align-items: start; }
+.disclosure-fixture .messages { width: 100%; padding: 0; min-width: 0; }
+.disclosure-fixture .summary-board { animation: none; }
+@media (max-width: 700px) {
+  .disclosure-fixture { padding: 16px; }
+  .disclosure-fixture-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .disclosure-fixture .summary-board { width: min(320px, 100%); }
+}

@@ -41,6 +41,9 @@ const url = `http://127.0.0.1:${port}/`;
 const profile = await mkdtemp(join(tmpdir(), 'step-browser-panel-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
 await mkdir('test-results', { recursive: true });
+// WebContentsView targets can be classified as "other", not a BrowserWindow page.
+// Keep Playwright attached to those real native renderers in this isolated test.
+process.env.PW_CHROMIUM_ATTACH_TO_OTHER = '1';
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
@@ -88,7 +91,14 @@ try {
     });
     const deadline = Date.now() + 15000;
     while (!(webPage = app.windows().find(value => value.url().startsWith(url)))) {
-      if (Date.now() >= deadline) throw new Error('native WebContentsView exposes a real page');
+      if (Date.now() >= deadline) {
+        const native = await app.evaluate(({ webContents }) => webContents.getAllWebContents().map(contents => ({
+          id: contents.id, type: contents.getType(), url: contents.getURL(), loading: contents.isLoading(),
+        })));
+        throw new Error(`Native page attachment failed: ${JSON.stringify({
+          native, attached: app.windows().map(value => ({ url: value.url(), closed: value.isClosed() })),
+        })}`);
+      }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     await webPage.getByRole('textbox', { name: '测试输入' }).waitFor();

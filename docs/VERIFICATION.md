@@ -76,6 +76,52 @@ existing Status-field assertion; replaying against the manifest-matching staged
 runtime passed without modifying that assertion. No new installer, real-model
 acceptance or cloud result is claimed; the running user package is unchanged.
 
+## Model Selection Persistence (2026-10-22)
+
+Explicit picker choices now persist only provider, model ID and display name in
+Desktop's own preferences. New drafts and reused empty runtimes honor that choice;
+passively reopening a conversation does not rewrite it. Existing conversations
+restore the active branch's last model-change entry, with assistant metadata only
+as a legacy fallback. Runtime configuration refresh no longer selects models[0]
+when the previous model is absent. Missing selections remain named on new drafts
+and creation/restoration fails explicitly rather than sending on another model.
+Confirmed Cron recovery retains its separately reviewed model contract.
+
+The management process also retains its last successful official discovery
+catalog in memory, scoped by credential, endpoint and model configuration.
+Unavailable discovery must not hide Step merely because custom models remain.
+No built-in model list is fabricated; the cache does not survive process restart.
+Failed or cancelled sign-in leaves the unchanged account's discovered catalog
+intact; invalidation follows successful credential replacement. The discovery
+fixture returns an explicit 503 during outages instead of abruptly destroying
+pooled sockets across its recovery boundary.
+
+Typecheck, build and 119 focused tests passed. Real Electron model-switch
+acceptance covers orderly application restart, on-disk default identity,
+independent old-session selection, cloning/branching, missing-model rejection
+without a generation request, and explicit alternative selection. These are
+isolated local fixtures, not live official-account or packaged acceptance.
+The elapsed-time Electron fixture now configures its recorded model explicitly,
+so missing-model protection is retained rather than bypassed. Its history,
+reload, dark/light/narrow, ticking and freezing checks passed locally.
+The review-fix replay passed typecheck, build, model-switch and account-routing
+Electron checks. The full local protocol run reported 628 passes, 13 platform
+skips and one existing terminal-host cleanup timeout (nine concurrent hosts,
+three-second tree termination). Its unchanged terminal code is outside this
+model fix; this run is not claimed as an all-green suite.
+Follow-up provider-save coverage exposed a separate missing-model boundary:
+disabling/removing the active provider must save successfully without selecting
+an alternative. Explicit provider application now suspends only the affected
+model-unavailable worker and retries that same identity on later configuration
+application; unrelated transport/application errors still fail closed.
+The focused suite now passes 120 tests, including disable/re-enable identity
+recovery and rejection of unrelated refresh failures.
+Real Electron custom-provider acceptance passed all three wire protocols,
+keyed/keyless operation, deferred application, disable/re-enable with unchanged
+session/model identity and no generation, removal and restart. The remaining
+runtime checks after elapsed-time acceptance also passed locally, including
+commands, then_run, workflow, Summary, Usage, background agents and StepPage.
+
 ## Cron Transcript Source Disclosure (2026-10-20)
 
 Follow-up: source disclosure alone did not split response entries. The first

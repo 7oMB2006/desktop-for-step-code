@@ -58,8 +58,19 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
   CODEX_HOME: sourceRoot, CLAUDE_CONFIG_DIR: join(profile, 'absent-claude') };
 delete env.ELECTRON_RUN_AS_NODE;
 const errors = [];
-const launch = () => electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE }
-  : { args: [resolve('.')] }), env, timeout: 60000 });
+const launch = async () => {
+  const app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE }
+    : { args: [resolve('.')] }), env, timeout: 60000 });
+  await app.firstWindow();
+  // Hidden packaged windows can stall screenshot capture on Windows.
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setOpacity(0);
+    window.setIgnoreMouseEvents(true);
+    window.showInactive();
+  });
+  return app;
+};
 let app = await launch();
 await mkdir('test-results', { recursive: true });
 try {

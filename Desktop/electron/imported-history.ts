@@ -6,7 +6,7 @@ type Entry = HistoryEntry & {
   customType?: string; content?: Message['content']; display?: boolean;
   details?: Message['details']; timestamp?: string; summary?: string;
 };
-const imported = (entry: Entry) => ['codex', 'claude-code'].includes(entry.imported?.source ?? '')
+export const isImportedHistoryEntry = (entry: Entry) => ['codex', 'claude-code'].includes(entry.imported?.source ?? '')
   && typeof entry.imported?.sessionId === 'string' && typeof entry.imported?.itemId === 'string';
 const historicalCallId = (entry: Entry, id: string) => `desktop-import:${JSON.stringify([entry.imported?.source, entry.imported?.sessionId, id])}`;
 
@@ -14,10 +14,10 @@ const historicalCallId = (entry: Entry, id: string) => `desktop-import:${JSON.st
 // active-path entries, never that model-only projection or a flattened branch.
 export function importedHistoryMessages(messages: Message[], entries: Entry[], leafId: string | null): Message[] {
   const path = activeHistory(entries, leafId) as Entry[];
-  if (!path.some(imported)) return messages;
+  if (!path.some(isImportedHistoryEntry)) return messages;
   return path.flatMap((entry): Message[] => {
     if (entry.type === 'message' && entry.message) {
-      const historical = imported(entry);
+      const historical = isImportedHistoryEntry(entry);
       const message = entry.message;
       return [{
         ...message, entryId: entry.id,

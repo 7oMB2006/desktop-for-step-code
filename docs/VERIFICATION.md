@@ -4015,3 +4015,18 @@ The full unit run encountered an unchanged Windows terminal-count teardown
 failure; this is not recorded as a fully green unit suite.
 Rerunning the other unit files completed with 609 passing and 13 skipped tests;
 all 15 CI policy/runner tests also passed.
+
+### Delayed Final Task Snapshot
+
+PR #147 review identified a race between live round completion and asynchronous
+summary refresh. A held-summary fixture reproduces the missing animation before
+the fix. The mounted progress component now retains its matching completion
+until the task snapshot confirms a full list. Only visuals are deferred; the
+original event still plays the sound once. A new round, scope change or unmount
+discards the buffer, and events received while hidden or with reduced motion
+cannot start a delayed impact.
+
+The regression verifies the delayed snapshot, no duplicate sound, cancellation
+on a new round and unmount, plus the existing scope and motion matrix.
+Typecheck, build, completion-sound tests and real Electron progress acceptance
+passed. This follow-up does not rebuild the existing local preview installer.

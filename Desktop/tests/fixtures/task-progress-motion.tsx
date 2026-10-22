@@ -18,6 +18,7 @@ let summary: SessionSummary = {
 };
 let muted = false;
 let generation = 0;
+let heldSummary: { promise: Promise<SessionSummary>; release: (value: SessionSummary) => void } | undefined;
 const mediaPlay = HTMLMediaElement.prototype.play;
 HTMLMediaElement.prototype.play = function () {
   this.muted = muted;
@@ -29,7 +30,7 @@ const emit = (type: string, runtimeId = 'preview-runtime', sessionId = 'preview-
   if (type === 'desktop_task_completed') playCompletionSound(event);
 };
 window.desktop = {
-  summary: async () => summary,
+  summary: async () => heldSummary ? heldSummary.promise : summary,
   repositoryDiff: async () => ({ state: 'not-repository', files: [] }),
   onEvent: (listener: (event: any) => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
 } as unknown as DesktopBridge;
@@ -50,6 +51,12 @@ function Harness() {
     emit('tool_execution_end', 'preview-runtime', session);
   };
   Object.assign(window, { taskProgressFixture: {
+    holdSummary: () => {
+      let release!: (value: SessionSummary) => void;
+      const promise = new Promise<SessionSummary>(resolve => { release = resolve; });
+      heldSummary = { promise, release };
+    },
+    releaseSummary: () => { const held = heldSummary; heldSummary = undefined; held?.release(summary); },
     update, complete: (runtime = 'preview-runtime', session = scope) => emit('desktop_task_completed', runtime, session),
     idle: () => setBusy(false), visible: setVisible,
     session: (session: string) => { generation++; setScope(session); update(5, false, session); },

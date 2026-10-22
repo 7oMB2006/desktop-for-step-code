@@ -70,6 +70,20 @@ try {
   await page.evaluate(() => window.taskProgressFixture.complete());
   assert.equal(await progress.getAttribute('data-phase'), 'running');
   assert.equal(await progress.getAttribute('aria-valuenow'), '3', 'Round completion cannot fabricate finished tasks');
+  // Hold the async refresh so completion is delivered before the final task snapshot.
+  await page.evaluate(() => {
+    window.taskProgressFixture.holdSummary();
+    window.taskProgressFixture.update(5);
+  });
+  assert.equal(await progress.getAttribute('aria-valuenow'), '3');
+  const beforeDelayedSnapshot = await page.evaluate(() => window.audioCalls.length);
+  await page.evaluate(() => { window.taskProgressFixture.idle(); window.taskProgressFixture.releaseSummary(); });
+  await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '5');
+  assert.equal(await progress.getAttribute('data-phase'), 'settling', 'A delayed final snapshot must consume the buffered completion');
+  assert.equal(await page.evaluate(() => window.audioCalls.length), beforeDelayedSnapshot, 'A delayed snapshot cannot replay sound');
+  await page.waitForFunction(() => document.querySelector('.sb-task-progress')?.dataset.phase === 'complete');
+  await page.evaluate(() => window.taskProgressFixture.update(3));
+  await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '3');
   await page.evaluate(() => window.taskProgressFixture.update(5));
   await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '5');
   await page.evaluate(() => window.taskProgressFixture.complete('other-runtime', 'other-session'));
@@ -79,6 +93,26 @@ try {
   await page.evaluate(() => window.taskProgressFixture.session('other-session'));
   await page.waitForFunction(() => document.querySelector('.sb-task-progress')?.dataset.phase === 'complete');
   assert.equal(await page.locator('.task-progress-dust i').count(), 0, 'Session change cancels old particles');
+  await page.evaluate(() => window.taskProgressFixture.update(3, false));
+  await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '3');
+  await page.evaluate(() => window.taskProgressFixture.complete('preview-runtime', 'other-session'));
+  await page.evaluate(() => window.taskProgressFixture.update(3, true));
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await page.evaluate(() => window.taskProgressFixture.update(5));
+  await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '5');
+  assert.equal(await progress.getAttribute('data-phase'), 'running', 'A new round must discard an older buffered completion');
+  await page.evaluate(() => window.taskProgressFixture.idle());
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await page.evaluate(() => window.taskProgressFixture.update(3, false));
+  await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '3');
+  await page.evaluate(() => window.taskProgressFixture.complete('preview-runtime', 'other-session'));
+  await page.evaluate(() => window.taskProgressFixture.visible(false));
+  await progress.waitFor({ state: 'detached' });
+  await page.evaluate(() => { window.taskProgressFixture.update(5, false); window.taskProgressFixture.visible(true); });
+  await progress.waitFor();
+  await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '5');
+  assert.equal(await progress.getAttribute('data-phase'), 'complete');
+  assert.equal(await progress.evaluate(element => element.getAnimations().length), 0, 'Unmount discards a buffered completion without replay');
   const soundCount = await page.evaluate(() => window.audioCalls.length);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.evaluate(() => window.taskProgressFixture.update(4));
@@ -94,7 +128,7 @@ try {
   await page.screenshot({ path: 'test-results/task-progress-complete-dark-narrow.png' });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(errors, []);
-  console.log('Task progress verified: flowing/full, impact/sweep/audio, reopen, incomplete, scope, reduced motion and narrow dark.');
+  console.log('Task progress verified: flowing/full, impact/sweep/audio, delayed snapshot, buffer reset, reopen, incomplete, scope, reduced motion and narrow dark.');
 } finally {
   await browser?.close();
   await server.close();

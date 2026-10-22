@@ -71,19 +71,40 @@ export function TaskProgress(props: ProgressProps) {
   const current = useRef(props);
   const stop = useRef<(() => void) | null>(null);
   const notified = useRef(false);
+  const pending = useRef<{ animate: boolean } | null>(null);
   const previousBusy = useRef(busy);
+  const previousScope = useRef({ runtimeId, sessionId });
+  const startPending = () => {
+    const state = current.current;
+    const element = root.current;
+    if (!element || !pending.current || !state.total || state.completed !== state.total) return;
+    const animate = pending.current.animate;
+    pending.current = null;
+    if (!animate || document.hidden || !element.getClientRects().length) {
+      element.dataset.phase = 'complete';
+      return;
+    }
+    stop.current = completeProgress(element, matchMedia('(prefers-reduced-motion: reduce)').matches);
+  };
   useLayoutEffect(() => {
     current.current = props;
     if (!root.current) return;
-    if (!total || completed !== total || busy && !previousBusy.current) {
-      stop.current?.(); stop.current = null;
+    const newRun = busy && !previousBusy.current;
+    const scopeChanged = runtimeId !== previousScope.current.runtimeId || sessionId !== previousScope.current.sessionId;
+    if (newRun || scopeChanged) {
+      pending.current = null;
       notified.current = false;
+    }
+    if (!total || completed !== total || newRun || scopeChanged) {
+      stop.current?.(); stop.current = null;
       root.current.dataset.phase = 'running';
       root.current.querySelector<HTMLElement>('.task-progress-green')!.style.maskImage = '';
     } else if (!stop.current && !busy) {
       root.current.dataset.phase = 'complete';
     }
     previousBusy.current = busy;
+    previousScope.current = { runtimeId, sessionId };
+    startPending();
   }, [completed, total, busy, runtimeId, sessionId]);
   useLayoutEffect(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)');
@@ -94,18 +115,17 @@ export function TaskProgress(props: ProgressProps) {
       const state = current.current;
       const element = root.current;
       if (!element || notified.current || scope.runtimeId !== state.runtimeId || scope.sessionId !== state.sessionId
-        || !state.runtimeId || !state.sessionId || state.total === 0 || state.completed !== state.total) return;
+        || !state.runtimeId || !state.sessionId) return;
       notified.current = true;
-      if (document.hidden || !element.getClientRects().length) {
-        element.dataset.phase = 'complete';
-        return;
-      }
-      stop.current = completeProgress(element, media.matches);
+      // Completion may precede the asynchronous final task snapshot.
+      pending.current = { animate: !document.hidden && !!element.getClientRects().length && !media.matches };
+      startPending();
     });
     document.addEventListener('visibilitychange', settle);
     media.addEventListener('change', settle);
     return () => {
       unsubscribe();
+      pending.current = null;
       stop.current?.();
       document.removeEventListener('visibilitychange', settle);
       media.removeEventListener('change', settle);

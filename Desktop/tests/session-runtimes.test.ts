@@ -308,6 +308,50 @@ test('configuration refresh suspends a missing selected model instead of applyin
   } finally { await pool.stopAll(); }
 });
 
+test('provider saves can suspend an unavailable model and restore only that identity when enabled again', async () => {
+  const transports: Transport[] = [];
+  const step = { provider: 'step', id: 'step-5', name: 'Step 5' };
+  const sol = { provider: 'fixture', id: 'sol', name: 'Sol' };
+  let enabled = true;
+  let broken = false;
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'same-session');
+    let selected = transports.length === 0 ? step : sol;
+    const request = transport.request.bind(transport);
+    transport.request = async (type, args) => {
+      if (broken) throw new Error('Transport failed');
+      if (type === 'get_state') return { sessionId: 'same-session', isStreaming: false, model: selected };
+      if (type === 'get_available_models') return { models: enabled ? [sol, step] : [sol] };
+      if (type === 'set_model') {
+        assert.deepEqual(args, { provider: step.provider, modelId: step.id });
+        selected = step;
+      }
+      return request(type, args);
+    };
+    transports.push(transport);
+    return transport;
+  });
+  try {
+    const worker = await pool.open('node', 'step', 'workspace', {});
+    enabled = false;
+    await pool.refresh(worker, 'node', 'step', {}, { allowUnavailableModel: true });
+    assert.equal(worker.modelUnavailable, true);
+    assert.equal(worker.status, 'disconnected');
+    assert.equal(worker.state?.model?.id, step.id);
+    assert.equal(transports[1].stopped, true);
+    assert.equal(transports[1].calls.includes('set_model'), false);
+    enabled = true;
+    await pool.refresh(worker, 'node', 'step', {}, { allowUnavailableModel: true });
+    assert.equal(worker.modelUnavailable, false);
+    assert.equal(worker.status, 'connected');
+    assert.equal(worker.state?.model?.id, step.id);
+    assert.equal(worker.state?.sessionId, 'same-session');
+    broken = true;
+    await assert.rejects(pool.refresh(worker, 'node', 'step', {}, { allowUnavailableModel: true }), /Transport failed/);
+    assert.equal(worker.modelUnavailable, false, 'unrelated failures are not treated as a disabled model');
+  } finally { await pool.stopAll(); }
+});
+
 test('model initialization verifies saved sessions before activation and does not change the viewed chat on failure', async () => {
   const transports: Transport[] = [];
   const initializing: boolean[] = [];

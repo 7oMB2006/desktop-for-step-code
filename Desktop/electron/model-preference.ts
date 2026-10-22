@@ -34,8 +34,10 @@ export function savedSessionModel(entries: HistoryEntry[], leafId: string | null
   }
 }
 
+export class UnavailableModelError extends Error {}
+
 export function unavailableModel(model: ModelPreference, language: 'zh' | 'en' = 'en') {
-  return new Error(language === 'zh'
+  return new UnavailableModelError(language === 'zh'
     ? `模型 ${model.provider}/${model.id} 当前不可用。请检查供应商配置或稍后重试，未自动切换到其他模型。`
     : `Model ${model.provider}/${model.id} is unavailable. Check its provider configuration or retry; no alternative model was selected.`);
 }

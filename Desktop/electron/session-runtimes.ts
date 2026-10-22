@@ -14,7 +14,7 @@ import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, Ru
 import { isFullAccessRisk } from '../src/full-access-risk';
 import { questionnaire } from '../src/questionnaire';
 import { cronState, hasScheduledCron, type CronState } from './cron-state';
-import { restoreSelectedModel } from './model-preference';
+import { restoreSelectedModel, UnavailableModelError } from './model-preference';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -39,6 +39,7 @@ export interface SessionRuntime {
   messages: Message[];
   models: Model[];
   pendingModel?: ModelSelection;
+  modelUnavailable?: boolean;
   stats?: SessionStats;
   pendingUI: Map<string, UIRequest>;
   uiTimers: Map<string, NodeJS.Timeout>;
@@ -489,7 +490,8 @@ export class SessionRuntimes {
       await this.assertIdle(worker, { stopHost: options.stopHost !== false });
     }
   }
-  async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv) {
+  async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv,
+    options: { allowUnavailableModel?: boolean } = {}) {
     await this.assertIdle(worker, { stopHost: true });
     if (worker.operations || worker.mutating || worker.stopping) throw new Error('Session operation in progress');
     const sessionFile = worker.state?.sessionFile && existsSync(worker.state.sessionFile) ? worker.state.sessionFile : undefined;
@@ -498,6 +500,7 @@ export class SessionRuntimes {
     const thinkingLevel = worker.state?.thinkingLevel;
     const permissionPreset = worker.permissionPreset;
     const previousState = worker.state;
+    worker.modelUnavailable = false;
     worker.mutating = true;
     // Ignore late exit events from the old transport without changing the UI identity.
     this.workers.delete(worker.id);
@@ -516,6 +519,10 @@ export class SessionRuntimes {
     } catch (error) {
       worker.state = previousState;
       await this.suspend([worker]);
+      if (error instanceof UnavailableModelError) {
+        worker.modelUnavailable = true;
+        if (options.allowUnavailableModel) return;
+      }
       throw error;
     } finally { worker.mutating = false; this.publish(); }
   }

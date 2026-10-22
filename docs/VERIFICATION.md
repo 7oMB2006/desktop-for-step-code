@@ -109,6 +109,18 @@ Electron checks. The full local protocol run reported 628 passes, 13 platform
 skips and one existing terminal-host cleanup timeout (nine concurrent hosts,
 three-second tree termination). Its unchanged terminal code is outside this
 model fix; this run is not claimed as an all-green suite.
+Follow-up provider-save coverage exposed a separate missing-model boundary:
+disabling/removing the active provider must save successfully without selecting
+an alternative. Explicit provider application now suspends only the affected
+model-unavailable worker and retries that same identity on later configuration
+application; unrelated transport/application errors still fail closed.
+The focused suite now passes 120 tests, including disable/re-enable identity
+recovery and rejection of unrelated refresh failures.
+Real Electron custom-provider acceptance passed all three wire protocols,
+keyed/keyless operation, deferred application, disable/re-enable with unchanged
+session/model identity and no generation, removal and restart. The remaining
+runtime checks after elapsed-time acceptance also passed locally, including
+commands, then_run, workflow, Summary, Usage, background agents and StepPage.
 
 ## Cron Transcript Source Disclosure (2026-10-20)
 

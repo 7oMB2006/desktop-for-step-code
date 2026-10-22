@@ -520,8 +520,9 @@ async function performProviderSettings() {
   await admin.stop();
   admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
   for (const worker of workers) {
-    if (worker.status !== 'connected') continue;
-    await runtimes.refresh(worker, nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), authEnvironment());
+    if (worker.status !== 'connected' && !worker.modelUnavailable) continue;
+    await runtimes.refresh(worker, nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), authEnvironment(),
+      { allowUnavailableModel: true });
     if (worker.pendingModel && !worker.models.some(m => m.provider === worker.pendingModel?.model.provider && m.id === worker.pendingModel?.model.id))
       worker.pendingModel = undefined;
   }

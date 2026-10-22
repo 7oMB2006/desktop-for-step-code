@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-summary-runtime-'));
 const workspace = join(profile, 'summary-board');
@@ -101,7 +102,7 @@ try {
       const fast = [...document.querySelectorAll('.sb-task-shell')].find(element => element.textContent.includes('验证 MCP 状态和 Skills 数量'));
       window.summaryFastCompletion.push({ settling: fast?.querySelector('[data-settling]')?.getAttribute('data-settling'), height: fast?.getBoundingClientRect().height });
       const created = [...document.querySelectorAll('.sb-task-shell')].find(element => element.textContent.includes('验证清单生成动画'));
-      if (created) window.summaryEntrance.push({ height: created.getBoundingClientRect().height, opacity: Number(getComputedStyle(created).opacity),
+      if (created) window.summaryEntrance.push({ state: created.className, height: created.getBoundingClientRect().height, opacity: Number(getComputedStyle(created).opacity),
         easing: getComputedStyle(created).transitionTimingFunction });
       if (window.summaryRecording && window.summaryMotion.length < 1800) requestAnimationFrame(record);
     };
@@ -109,7 +110,8 @@ try {
   });
   await page.locator('.composer > .composer-input').fill('完成第二项');
   await page.locator('.composer > .composer-input').press('Enter');
-  await board.getByRole('button', { name: /已完成 3 项/ }).waitFor();
+  await board.getByRole('button', { name: /已完成 2 项/ }).waitFor();
+  await board.locator('.sb-task-history').getByRole('button', { name: /已完成任务.*1 项/ }).waitFor();
   await page.waitForFunction(() => window.summaryEntrance.some(frame => frame.height >= 34 && frame.opacity === 1));
   await board.getByRole('button', { name: /接入清单与完成动画/ }).waitFor({ state: 'hidden' });
   await board.getByRole('button', { name: /验证 MCP 状态和 Skills 数量/ }).waitFor({ state: 'hidden' });
@@ -122,7 +124,9 @@ try {
   assert.equal(update.tasks.find(task => task.id === '3').status, 'completed', 'A pending task can complete directly');
   assert.ok(update.tasks.some(task => task.subject === '验证清单生成动画'), 'Actual task_create must reach the board');
   const entrance = await page.evaluate(() => window.summaryEntrance);
-  assert.ok(entrance.some(frame => frame.height > 0 && frame.height < 30 && frame.opacity > 0 && frame.opacity < 1), 'New tasks must have intermediate height and opacity frames');
+  const finalHeight = entrance.at(-1)?.height ?? 0;
+  assert.ok(entrance.some(frame => frame.height > 0 && frame.height < finalHeight - 0.5 && frame.opacity > 0 && frame.opacity < 1),
+    `New tasks must have intermediate height and opacity frames: ${JSON.stringify(entrance.slice(0, 8))}`);
   assert.ok(entrance.some(frame => frame.easing.includes('cubic-bezier(0.22, 1, 0.36, 1)')), 'Entrance uses shared cubic easing');
   assert.ok(entrance.some(frame => frame.height >= 34 && frame.opacity === 1), 'New tasks settle at full height and opacity');
   const frames = await page.evaluate(() => window.summaryMotion);
@@ -131,7 +135,7 @@ try {
   assert.ok(fastFrames.some(frame => frame.settling === 'true' && frame.height > 20), 'Pending-to-completed tasks must stay visible through the completion animation');
   assert.equal(await board.getByRole('button', { name: /接入清单与完成动画/ }).isVisible(), false, 'completed row collapses after its animation');
   assert.equal(await board.getByRole('button', { name: /验证 MCP 状态和 Skills 数量/ }).isVisible(), false, 'Direct completion folds after animation');
-  await board.getByRole('button', { name: /已完成 3 项/ }).click();
+  await board.getByRole('button', { name: /已完成 2 项/ }).click();
   await board.getByRole('button', { name: /接入清单与完成动画/ }).waitFor();
   await page.waitForTimeout(350);
   await page.screenshot({ path: 'test-results/summary-runtime-completed.png' });
@@ -207,11 +211,11 @@ try {
   await page.reload();
   await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
   await board.waitFor();
-  await board.getByText('暂无任务清单', { exact: true }).waitFor();
+  await board.getByText('本轮暂无任务清单', { exact: true }).waitFor();
   assert.equal(await board.locator('.sb-repository').count(), 0);
   assert.deepEqual(errors, []);
   console.log('Summary runtime acceptance passed: real task_create/update, cubic entrance frames, no history replay, reduced motion, repository link, live MCP/Skills, completion folding, themes, narrow layout and session isolation.');
 } finally {
-  await app.close();
+  await closeDesktopFixture(app);
   await new Promise(resolve => server.close(resolve));
 }

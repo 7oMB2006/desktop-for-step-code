@@ -4030,3 +4030,25 @@ The regression verifies the delayed snapshot, no duplicate sound, cancellation
 on a new round and unmount, plus the existing scope and motion matrix.
 Typecheck, build, completion-sound tests and real Electron progress acceptance
 passed. This follow-up does not rebuild the existing local preview installer.
+
+### Task History Across Turns
+
+Completed tasks from earlier turns now leave current progress and appear in a
+collapsed entry above the current list. Incomplete/failed work carries over.
+The bounded main-process projection includes original task timestamps and
+explicit archived plans, without metadata or configuration. Renderer projection
+reconstructs history from persisted records rather than mounted state, with a
+conservative successful-tool-result fallback for legacy tasks lacking timestamps.
+
+Focused projection tests, typecheck/build, browser progress and disclosure
+acceptance, and real Electron progress/summary-runtime checks passed locally.
+Coverage includes independent current counts, partial-plan wording, history
+anchor stability, original archived statuses, narrow dark/reduced-motion and
+English layouts, panel reopen, and renderer reload against the real staged
+runtime with a local streaming fixture provider. The existing completion sound,
+impact/sweep/dust and delayed-final-snapshot regressions remain covered.
+The refreshed Electron acceptance uses the existing orderly quit-review helper
+after reload. Entrance-frame assertions compare with final measured row height
+rather than requiring a particular early-frame pixel threshold.
+The remaining unit files passed with 615 passing and 13 skipped tests; the
+unchanged Windows terminal-session teardown file noted above remains excluded.

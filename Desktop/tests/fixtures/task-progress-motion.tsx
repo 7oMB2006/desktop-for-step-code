@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Moon, Play, RotateCcw, Sun, Volume2, VolumeX } from 'lucide-react';
 import { SummaryBoard } from '../../src/SummaryBoard';
 import { playCompletionSound, prepareCompletionSound } from '../../src/completion-sound';
-import type { DesktopBridge, SessionSummary } from '../../src/contracts';
+import type { DesktopBridge, Message, SessionSummary } from '../../src/contracts';
 import '../../src/style.css';
 import '../../src/layout.css';
 import './task-progress-motion.css';
@@ -39,6 +39,8 @@ function Harness() {
   const [busy, setBusy] = useState(true);
   const [visible, setVisible] = useState(true);
   const [scope, setScope] = useState('preview-session');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [language, setLanguage] = useState<'zh' | 'en'>('zh');
   const [dark, setDark] = useState(new URLSearchParams(location.search).get('theme') === 'dark');
   const [silent, setSilent] = useState(false);
   useEffect(() => { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; }, [dark]);
@@ -51,6 +53,13 @@ function Harness() {
     emit('tool_execution_end', 'preview-runtime', session);
   };
   Object.assign(window, { taskProgressFixture: {
+    snapshot: (value: SessionSummary, history: Message[] = []) => {
+      summary = value;
+      setMessages(history);
+      setBusy(false);
+      emit('tool_execution_end', 'preview-runtime', scope);
+    },
+    language: setLanguage,
     holdSummary: () => {
       let release!: (value: SessionSummary) => void;
       const promise = new Promise<SessionSummary>(resolve => { release = resolve; });
@@ -88,7 +97,7 @@ function Harness() {
         onClick={() => setDark(!dark)}>{dark ? <Sun size={16}/> : <Moon size={16}/>}</button>
     </nav>
     {visible && <aside className="summary-board" aria-label="摘要"><SummaryBoard key={scope} runtimeId="preview-runtime" sessionId={scope}
-      language="zh" busy={busy} onOpenChanges={() => {}} onClose={() => setVisible(false)}/></aside>}
+      language={language} messages={messages} busy={busy} onOpenChanges={() => {}} onClose={() => setVisible(false)}/></aside>}
   </div>;
 }
 createRoot(document.getElementById('root')!).render(<Harness/>);

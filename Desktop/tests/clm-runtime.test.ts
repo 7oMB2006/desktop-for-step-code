@@ -160,7 +160,8 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
       assert.deepEqual(raw.tasks.tasks, tasks, 'Canonical task IDs, statuses, owners and dependencies survive maintenance');
       const summary = sessionSummary(raw, expectedSessionId);
       assert.deepEqual(summary.plan, taskPlan);
-      assert.deepEqual(summary.tasks, tasks.map(({ id, subject, description, status }) => ({ id, subject, description, status })));
+      assert.deepEqual(summary.tasks, tasks.map(({ id, subject, description, status, createdAt, updatedAt }) =>
+        ({ id, subject, description, status, createdAt, updatedAt })));
       const history = await worker.rpc.request('get_messages');
       assert.ok(!history.messages.some((message: any) => message.customType === 'step-tasks-state'),
         'Request-local task snapshots do not accumulate in the conversation');

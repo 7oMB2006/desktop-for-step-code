@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-task-progress-'));
 const workspace = join(profile, 'workspace');
@@ -101,7 +102,9 @@ try {
   });
   await page.locator('.composer > .composer-input').fill('完成最后一项，然后总结。');
   await page.locator('.composer > .composer-input').press('Enter');
-  await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '2');
+  await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '1'
+    && document.querySelector('[role=progressbar]')?.getAttribute('aria-valuemax') === '1');
+  await board.locator('.sb-task-history').getByRole('button', { name: /已完成任务.*1 项/ }).waitFor();
   assert.equal(await progress.getAttribute('data-phase'), 'running', 'Task completion must wait for round completion');
   assert.equal(await page.evaluate(() => window.progressAudio.length), 0);
   await page.screenshot({ path: 'test-results/task-progress-electron-full-waiting.png' });
@@ -125,9 +128,26 @@ try {
   await page.waitForFunction(() => document.querySelector('.sb-task-progress')?.dataset.phase === 'complete');
   assert.equal(await page.evaluate(() => window.progressAudio.length), 1);
   assert.equal(await progress.evaluate(element => element.getAnimations().length), 0);
+  await page.locator('.composer > .composer-input').fill('下一轮只回复确认即可。');
+  await page.locator('.composer > .composer-input').press('Enter');
+  const history = board.locator('.sb-task-history');
+  const trigger = history.getByRole('button', { name: /已完成计划.*2 项/ });
+  await trigger.waitFor();
+  assert.equal(await progress.count(), 0, 'Next turn retires all previous completed tasks');
+  assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+  await trigger.click();
+  await history.getByRole('button', { name: /验证并归档/ }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false');
+  await page.screenshot({ path: 'test-results/task-history-electron.png' });
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false');
+  if (!await board.isVisible()) await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
+  await trigger.waitFor();
+  assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(await progress.count(), 0, 'Reload reconstructs history from persisted runtime/message records');
   assert.deepEqual(errors, []);
-  console.log('Real Electron task progress verified: runtime tasks, round event, sound/impact/sweep, reopen and cleanup.');
+  console.log('Real Electron task progress verified: runtime tasks, round event, sound/impact/sweep, next-turn retirement, history and renderer reload.');
 } finally {
-  await app?.close();
+  if (app) await closeDesktopFixture(app);
   await new Promise(resolve => server.close(resolve));
 }

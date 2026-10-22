@@ -1,13 +1,14 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Bot, Check, CircleHelp, FileDiff, GitBranch, Layers3, ListTodo, X } from 'lucide-react';
 import { McpIcon } from './McpIcon';
-import type { Message, RepositoryDiff, SessionSummary, SummaryTask } from './contracts';
+import type { Message, RepositoryDiff, SessionSummary, SummaryPlan, SummaryTask } from './contracts';
 import type { SubagentTask } from './conversation-presentation';
 import { summaryActivity, summaryAgents } from './summary-activity';
 import { DisclosureChevron } from './DisclosureChevron';
 import { DiffCount } from './DiffCount';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import { TaskProgress } from './TaskProgress';
+import { summaryTasks } from './summary-tasks';
 import './summary-board.css';
 
 function TaskRow({ task, visible, language, animateEntrance }: { task: SummaryTask; visible: boolean; language: 'zh' | 'en'; animateEntrance: boolean }) {
@@ -28,6 +29,28 @@ function TaskRow({ task, visible, language, animateEntrance }: { task: SummaryTa
   </li>;
 }
 
+function TaskHistory({ plans, partial, language }: { plans: SummaryPlan[]; partial: boolean; language: 'zh' | 'en' }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const completed = plans.length === 1 && plans[0].tasks.every(task => task.status === 'completed');
+  const label = completed ? partial ? language === 'zh' ? '已完成任务' : 'Completed tasks' : language === 'zh' ? '已完成计划' : 'Completed plan'
+    : language === 'zh' ? '历史计划' : 'Plan history';
+  const count = completed ? language === 'zh' ? `${plans[0].tasks.length} 项` : `${plans[0].tasks.length} tasks`
+    : language === 'zh' ? `${plans.length} 份` : `${plans.length} plans`;
+  return <div className="sb-task-history">
+    <button type="button" className="sb-completed-trigger sb-history-trigger" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+      {completed ? <Check size={13}/> : <ListTodo size={13}/>}<span>{label}</span><span className="sb-history-count">{count}</span>
+      <span className={`sb-fold-icon${open ? ' is-open' : ''}`}><DisclosureChevron/></span>
+    </button>
+    <div id={id} className={`sb-disclosure${open ? ' is-open' : ''}`} aria-hidden={!open} inert={!open}>
+      <div>{plans.map(plan => <div key={plan.id} className="sb-history-plan">
+        {plan.title && <p className="sb-plan-title">{plan.title}</p>}
+        <ol>{plan.tasks.map(task => <TaskRow key={task.id} task={task} visible={true} language={language} animateEntrance={false}/>)}</ol>
+      </div>)}</div>
+    </div>
+  </div>;
+}
+
 export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], busy = false, onOpenSubagent, onOpenWorkflow, onClose }: {
   runtimeId?: string; sessionId?: string; language: 'zh' | 'en'; onOpenChanges: () => void;
   messages?: Message[]; busy?: boolean; onOpenSubagent?: (task: SubagentTask) => void; onOpenWorkflow?: (id: string) => void; onClose?: () => void;
@@ -41,6 +64,8 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
   const previous = useRef(new Map<string, string>());
   const hasSnapshot = useRef(false);
   const mcpId = useId();
+  const taskView = useMemo(() => summaryTasks(model, messages), [model, messages]);
+  const tasks = taskView.tasks;
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
   useEffect(() => {
     if (!runtimeId || !sessionId || !window.desktop) return;
@@ -85,22 +110,22 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
   }, [runtimeId]);
   useLayoutEffect(() => {
     const key = (task: SummaryTask) => `${model?.plan?.id ?? ''}:${task.id}`;
-    const newlyCompleted = model?.tasks.filter(task => {
+    const newlyCompleted = tasks.filter(task => {
       const before = previous.current.get(key(task));
       return task.status === 'completed' && before !== undefined && before !== 'completed';
-    }).map(key) ?? [];
-    previous.current = new Map(model?.tasks.map(task => [key(task), task.status]));
+    }).map(key);
+    previous.current = new Map(tasks.map(task => [key(task), task.status]));
     if (model) hasSnapshot.current = true;
     if (newlyCompleted.length) setRecent(ids => [...new Set([...ids, ...newlyCompleted])]);
-  }, [model]);
+  }, [model, tasks]);
+  useLayoutEffect(() => { setCompletedOpen(false); setRecent([]); }, [taskView.turnKey]);
   useEffect(() => {
     if (!recent.length) return;
     const timer = setTimeout(() => setRecent([]), 1100);
     return () => clearTimeout(timer);
   }, [recent]);
-  const tasks = model?.tasks ?? [];
   const agents = useMemo(() => sessionId ? summaryAgents(messages, busy) : [], [messages, busy, sessionId]);
-  const activity = summaryActivity(model?.tasks, agents, failed, busy);
+  const activity = summaryActivity(model ? tasks : undefined, agents, failed, busy);
   const done = tasks.filter(task => task.status === 'completed');
   const connected = model?.mcp.filter(server => server.status === 'connected').length ?? 0;
   const root = repository?.root?.replace(/\\/g, '/').split('/').at(-1);
@@ -124,10 +149,12 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
         <span>{repository.truncated ? '≥ ' : ''}{repository.files.length} {t('个文件', 'files')}</span></div>
     </section>}
     <section className="sb-steps" aria-label={t('推进清单', 'Task plan')}>
-      <div className="sb-section-heading"><h4>{t('推进清单', 'Task plan')}</h4><span className="sb-step-count">{model ? <><strong>{done.length}</strong> / {tasks.length}</> : '--'}</span></div>
-      {model?.plan && <p className="sb-plan-title">{model.plan.title}</p>}
+      <div className="sb-section-heading"><h4>{t('推进清单', 'Task plan')}</h4>{(!model || !!tasks.length) && <span className="sb-step-count">{model ? <><strong>{done.length}</strong> / {tasks.length}</> : '--'}</span>}</div>
+      {!!taskView.history.length && <TaskHistory key={taskView.turnKey} plans={taskView.history}
+        partial={!!tasks.length && taskView.history.some(plan => plan.id === (model?.plan?.id ?? 'legacy-plan'))} language={language}/>}
+      {!!tasks.length && model?.plan && <p className="sb-plan-title">{model.plan.title}</p>}
       {failed && <p className="sb-state" role="status">{t('暂时无法读取，正在重试', 'Could not refresh. Retrying.')}</p>}
-      {!tasks.length && <p className="sb-state">{!runtimeId || !sessionId ? t('请先打开一个会话', 'Open a session first') : model ? t('暂无任务清单', 'No task plan yet') : t('读取中', 'Loading')}</p>}
+      {!tasks.length && <p className="sb-state">{!runtimeId || !sessionId ? t('请先打开一个会话', 'Open a session first') : model ? t('本轮暂无任务清单', 'No task plan this turn') : t('读取中', 'Loading')}</p>}
       {!!done.length && <button className="sb-completed-trigger" type="button" aria-expanded={completedOpen} onClick={() => setCompletedOpen(!completedOpen)}>
         <Check size={13}/><span>{t(`已完成 ${done.length} 项`, `${done.length} completed`)}</span><span className={`sb-fold-icon${completedOpen ? ' is-open' : ''}`}><DisclosureChevron/></span>
       </button>}

@@ -148,7 +148,8 @@ try {
   assert.equal(await page.locator('.sb-agent-row').count(), 1, 'expanding pre-Cron history does not restore it to summary');
   const currentSummary = { sessionId: 'fixture', tasks: [], mcp: [], skillCount: 0 };
   await page.evaluate(value => window.disclosureFixture.summary(value), currentSummary);
-  await page.waitForFunction(() => document.querySelector('.sb-step-count')?.textContent === '0 / 0');
+  await page.locator('.sb-steps').getByText('本轮暂无任务清单', { exact: true }).waitFor();
+  assert.equal(await page.locator('.sb-steps .sb-step-count').count(), 0, 'empty current turns have no task counter');
   assert.equal(await progress.count(), 0, 'empty tasks do not imply a completion percentage');
   await load('thought', true);
   assert.equal(await page.locator('.sb-activity').getAttribute('data-state'), 'running', 'live conversation does not wait for summary polling');

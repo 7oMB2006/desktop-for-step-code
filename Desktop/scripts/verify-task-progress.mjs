@@ -127,8 +127,53 @@ try {
   await page.getByRole('button', { name: '切换暗色' }).click();
   await page.screenshot({ path: 'test-results/task-progress-complete-dark-narrow.png' });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.evaluate(() => window.taskProgressFixture.snapshot({
+    sessionId: 'other-session', plan: { id: 'plan', title: '当前计划' }, mcp: [], skillCount: 0,
+    tasks: [
+      { id: 'old', subject: '上一轮已完成任务', status: 'completed', updatedAt: 1000 },
+      { id: 'carry', subject: '跨轮未完成任务', status: 'in_progress', updatedAt: 1000 },
+      { id: 'failed', subject: '跨轮失败任务', status: 'failed', updatedAt: 1000 },
+      { id: 'new', subject: '本轮已完成任务', status: 'completed', updatedAt: 3000 },
+    ],
+  }, [{ role: 'user', content: '开始下一轮', timestamp: 2000 }]));
+  const history = page.locator('.sb-task-history');
+  const trigger = history.getByRole('button', { name: /^已完成任务/ });
+  await trigger.waitFor();
+  assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(await progress.getAttribute('aria-valuemax'), '3');
+  assert.equal(await progress.getAttribute('aria-valuenow'), '1');
+  assert.equal(await history.getByRole('button', { name: /上一轮已完成任务/ }).count(), 0);
+  const before = await trigger.boundingBox();
+  await trigger.click();
+  await history.getByRole('button', { name: /上一轮已完成任务/ }).waitFor();
+  await page.waitForTimeout(400);
+  const after = await trigger.boundingBox();
+  assert.ok(Math.abs(before.y - after.y) < 1, 'History trigger remains anchored during expansion');
+  assert.ok(after.y < (await page.locator('.sb-steps > .sb-plan-title').boundingBox()).y, 'History is above current tasks');
+  assert.equal(await page.getByRole('button', { name: /跨轮失败任务/ }).count(), 1);
+  await page.screenshot({ path: 'test-results/task-history-integrated-dark-narrow.png' });
+  await page.evaluate(() => window.taskProgressFixture.visible(false));
+  await history.waitFor({ state: 'detached' });
+  await page.evaluate(() => window.taskProgressFixture.visible(true));
+  await trigger.waitFor();
+  assert.equal(await trigger.getAttribute('aria-expanded'), 'false', 'Reopening reconstructs collapsed history');
+  assert.equal(await progress.getAttribute('aria-valuemax'), '3');
+  await page.evaluate(() => window.taskProgressFixture.snapshot({
+    sessionId: 'other-session', tasks: [], mcp: [], skillCount: 0,
+    archivedPlans: [
+      { id: 'a', title: '已结束计划', tasks: [{ id: '1', subject: '完成记录', status: 'completed' }] },
+      { id: 'b', title: '中断计划', tasks: [{ id: '2', subject: '失败记录', status: 'failed' }] },
+    ],
+  }));
+  await history.getByRole('button', { name: /历史计划/ }).waitFor();
+  assert.equal(await progress.count(), 0, 'History never contributes an active progress bar');
+  await history.getByRole('button', { name: /历史计划/ }).click();
+  await history.getByRole('button', { name: /失败记录/ }).waitFor();
+  await page.evaluate(() => window.taskProgressFixture.language('en'));
+  await history.getByRole('button', { name: /Plan history/ }).waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(errors, []);
-  console.log('Task progress verified: flowing/full, impact/sweep/audio, delayed snapshot, buffer reset, reopen, incomplete, scope, reduced motion and narrow dark.');
+  console.log('Task progress verified: motion/audio, delayed snapshot, scope, top-anchored history, cross-turn counts, reopen, archives, English and narrow dark/reduced motion.');
 } finally {
   await browser?.close();
   await server.close();

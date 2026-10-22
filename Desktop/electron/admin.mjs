@@ -22,12 +22,15 @@ async function dispatch(message) {
   switch (message.type) {
     case 'prepare_steppage':
     case 'reconcile_steppage': {
+      if (process.platform !== 'win32') throw new Error('StepPage preparation is Windows-only');
       if (!agentDir || !process.env.STEPCODE_STORAGE_ROOT_DIR || typeof message.bundlePath !== 'string')
         throw new Error('StepPage reconciliation requires an isolated profile');
       const reconcile = message.type === 'prepare_steppage' ? prepareStepPageServers : reconcileStepPageServers;
       if (message.type === 'prepare_steppage' && !existsSync(message.bundlePath)) throw new Error('Missing StepPage bundle');
       upstream.updateGlobalMcpConfig(process.env, servers => reconcile(servers, {
-        nodePath: process.execPath, bundlePath: message.bundlePath, bundleExists: existsSync(message.bundlePath), homePath: message.homePath,
+        nodePath: process.execPath, bundlePath: message.bundlePath,
+        bundleExists: existsSync(message.bundlePath) && message.bundlePath !== message.rejectedBundlePath,
+        rejectedBundlePath: message.rejectedBundlePath, homePath: message.homePath,
       }));
       return null;
     }

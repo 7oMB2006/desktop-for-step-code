@@ -17,8 +17,15 @@ export function desktopManaged(server, bundlePath, platform) {
 }
 
 /** Runs inside the upstream settings lock, with the full config (never its UI projection). */
-export function reconcileStepPageServers(servers, { nodePath, bundlePath, bundleExists, homePath, platform = process.platform }) {
+export function reconcileStepPageServers(servers, { nodePath, bundlePath, bundleExists, homePath, rejectedBundlePath, platform = process.platform }) {
   const next = { ...servers };
+  // A failed Desktop fingerprint must not leave its executable declaration enabled.
+  if (rejectedBundlePath) for (const name of [LEGACY_STEPPAGE_SERVER, STEPPAGE_SERVER]) {
+    const server = next[name];
+    if (desktopManaged(server, rejectedBundlePath, platform)
+      && pathKey(server.args[0], platform) === pathKey(rejectedBundlePath, platform))
+      next[name] = { ...server, enabled: false };
+  }
   const legacy = next[LEGACY_STEPPAGE_SERVER];
   const hasCanonical = Object.hasOwn(next, STEPPAGE_SERVER);
   if (!hasCanonical && record(legacy)) {
@@ -28,7 +35,7 @@ export function reconcileStepPageServers(servers, { nodePath, bundlePath, bundle
   } else if (hasCanonical && desktopManaged(legacy, bundlePath, platform)) {
     // An explicit qualified declaration wins over the obsolete Desktop-generated alias.
     // An old explicit disable remains conservative even if another version added the new name.
-    if (legacy.enabled === false && record(next[STEPPAGE_SERVER]))
+    if (servers[LEGACY_STEPPAGE_SERVER]?.enabled === false && record(next[STEPPAGE_SERVER]))
       next[STEPPAGE_SERVER] = { ...next[STEPPAGE_SERVER], enabled: false };
     delete next[LEGACY_STEPPAGE_SERVER];
   }

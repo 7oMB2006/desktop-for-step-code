@@ -1,7 +1,7 @@
 // Explicit local-only network acceptance. No login, model prompt, tool call or publishing.
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 if (process.platform !== 'win32') throw new Error('Windows acceptance only');
@@ -120,8 +120,30 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.settings())).mcp.steppage__steppage.enabled, false);
   const raw = await readFile(join(root, 'config.toml'), 'utf8');
   assert.ok(raw.includes(join(root, 'steppage/home').replaceAll('\\', '\\\\')));
+  // An enabled declaration must not execute bytes that fail verification on next launch.
+  await page.evaluate(async () => {
+    const s = await window.desktop.settings();
+    await window.desktop.saveMcp('steppage__steppage', { ...s.mcp.steppage__steppage, enabled: true });
+  });
+  await app.close(); app = undefined;
+  const marker = join(profile, 'unverified-bundle-executed');
+  await writeFile(join(root, 'steppage/bin/steppage-mcp.mjs'),
+    `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'must-not-run');\n`);
+  page = await launch();
+  assert.equal((await page.evaluate(() => window.desktop.stepPageState())).installed, false);
+  assert.equal((await page.evaluate(() => window.desktop.settings())).mcp.steppage__steppage.enabled, false);
+  const quarantined = await page.evaluate(async () => {
+    const active = await window.desktop.newIndependentSession();
+    return (await window.desktop.summary(active.runtimeId)).mcp.filter(s => s.name.includes('steppage'));
+  });
+  assert.deepEqual(quarantined, [{ name: 'steppage__steppage', status: 'disabled', toolCount: 0 }]);
+  assert.equal(await stat(marker).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error; }), false);
+  assert.equal((await page.evaluate(() => window.desktop.prepareStepPage())).status, 'ready');
+  assert.equal((await page.evaluate(() => window.desktop.settings())).mcp.steppage__steppage.enabled, false,
+    'Repair must not silently undo the protective disable');
   const report = { checkedAt: new Date().toISOString(), explicitSettingsInstall: true, connected, disabled,
     idleCronPreparation: true, cronHostAndJobPreserved: true, cronRestartStillProtected: true, feedbackSurvivesPoll: true,
+    rejectedBundleDisabledOnLaunch: true, unverifiedBundleNeverExecuted: true, repairKeptDisable: true,
     relaunchKeptDisable: true, desktopOwnedHome: true,
     scope: 'Official download, pinned integrity and startup checks, UI entry, real MCP handshake and disable/relaunch only; no login, publishing, model prompt or installer acceptance' };
   await writeFile(join(output, 'steppage-preparation-check.json'), JSON.stringify(report, null, 2) + '\n');

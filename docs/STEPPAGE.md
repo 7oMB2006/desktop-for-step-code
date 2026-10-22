@@ -190,3 +190,27 @@ publishing, installer execution and cloud CI remain outside this acceptance.
 
 The same packaged executable also passed all eight registration groups across
 eleven launches and eight Cron management acceptance cases.
+
+## Review Follow-Up (2026-10-22)
+
+The new setup UI, main-process preparer and admin preparation/reconciliation
+requests are Windows-only. Other platforms retain the pre-change registration
+path and do not migrate MCP declarations on startup. Native non-Windows
+registration acceptance also checks hidden setup controls and rejected setup
+requests; it must run on that platform before claiming native acceptance.
+
+If an existing Desktop-owned file fails verification, startup passes its exact
+path to the locked reconciler and disables only matching Desktop-managed
+declarations before a session can start. It never treats that rejected file as
+a usable bundle or silently falls back to the personal candidate. Custom
+transports remain untouched. Repair preserves the protective disable; the user
+must explicitly re-enable the plugin afterward.
+
+The review follow-up passed typecheck/build, 582 serialized tests with thirteen
+platform skips, fifteen local CI policy/runner tests, focused configuration
+tests and eleven Windows Electron registration launches. Real Electron
+preparation acceptance additionally replaced an enabled plugin's file with a
+marker-writing invalid bundle, relaunched Desktop, and verified a disabled
+service with zero tools and no marker execution. Re-preparation restored file
+readiness without undoing disable. The previously delivered preview does not
+contain these review follow-ups; no new package was generated for this change.

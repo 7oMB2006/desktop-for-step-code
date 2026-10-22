@@ -1,5 +1,23 @@
 # Verification
 
+## StepPage Review Guards (2026-10-22)
+
+The new StepPage setup controls and main/admin preparation path now run only on
+Windows. Other platforms keep their pre-change legacy registration behavior.
+Non-Windows native registration acceptance checks hidden controls and rejected
+setup requests in addition to its original cases; it was not run on this
+Windows host.
+
+Startup disables matching Desktop-managed MCP declarations when an installed
+file fails verification, without executing it, using it as a valid candidate,
+or modifying unrelated custom transports. Repair does not silently re-enable
+the service. Typecheck/build, 582 serialized tests (thirteen platform skips),
+fifteen local CI policy/runner tests and eleven Windows Electron registration
+launches passed. Extended real Electron preparation acceptance verified
+corruption, protected relaunch, zero tools/no execution marker, and successful
+repair with disable preserved. These checks used isolated profiles, not real
+credentials or publishing. No review-follow-up package was generated.
+
 ## StepPage Preparation With Scheduled Cron (2026-10-21)
 
 Preparation now uses a non-stopping idle check: a waiting Cron host is allowed,

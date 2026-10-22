@@ -26,3 +26,19 @@ test('only preparation opts out of host-stop guards; polling cannot erase operat
   assert.match(view, /setState\(value\); setReadError\(''\)/);
   assert.doesNotMatch(view, /setState\(value\); setError\(''\)/);
 });
+test('StepPage setup is Windows-only and startup carries failed Desktop verification to the config lock', async () => {
+  const main = await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /const stepPage = process\.platform === 'win32'\s*\? new StepPagePreparer/);
+  for (const method of ['stepPageState', 'prepareStepPage']) {
+    const start = main.indexOf(`case '${method}':`);
+    assert.match(main.slice(start, start + 180), /if \(!stepPage\) throw new Error\('StepPage preparation is Windows-only'\)/);
+  }
+  assert.match(main, /const rejectedBundlePath = !desktopBundle && existsSync\(stepPage\.bundlePath\) \? stepPage\.bundlePath : undefined/);
+  assert.match(main, /admin\.request\('reconcile_steppage', \{ bundlePath: steppageBundle, rejectedBundlePath/);
+  const admin = await readFile(new URL('../electron/admin.mjs', import.meta.url), 'utf8');
+  assert.match(admin, /case 'reconcile_steppage': \{\s*if \(process\.platform !== 'win32'\)/);
+  assert.match(admin, /bundleExists: existsSync\(message\.bundlePath\) && message\.bundlePath !== message\.rejectedBundlePath/);
+  const app = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.match(app, /bridge\?\.platform === 'win32' && <button onClick=\{\(\) => setTab\('skills'\)\}/);
+  assert.match(app, /bridge\?\.platform === 'win32' && <><h3>\{t\('内置插件', 'Built-in plugins'\)\}<\/h3><StepPageSettings/);
+});

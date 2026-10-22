@@ -110,3 +110,24 @@ test('Desktop-owned StepPage relocation repairs its home without overwriting cus
   const custom = { ...previous, env: { HOME: 'D:\\Custom Home', USERPROFILE: 'D:\\Custom Home' } };
   assert.deepEqual(reconcile({ [name]: custom }, { bundlePath: newBundle, homePath: newHome })[name].env, custom.env);
 });
+test('rejected Desktop bundles disable only their managed declarations and stay disabled after repair', () => {
+  const rejectedBundlePath = 'D:\\Desktop\\step-runtime\\steppage\\bin\\steppage-mcp.mjs';
+  const source = managed({ args: [rejectedBundlePath], env: { KEEP: 'fixture' }, tool_timeout_sec: 42 });
+  for (const key of ['steppage', name]) {
+    const input = { [key]: source };
+    const before = structuredClone(input);
+    const disabled = reconcile(input, { bundlePath: rejectedBundlePath, bundleExists: false, rejectedBundlePath });
+    assert.deepEqual(disabled, { [name]: { ...source, enabled: false } });
+    assert.deepEqual(input, before);
+    assert.equal(reconcile(disabled, { bundlePath: rejectedBundlePath })[name].enabled, false);
+  }
+  const otherBundle = managed({ args: ['D:\\Other\\.steppage-mcp\\bin\\steppage-mcp.mjs'] });
+  const custom = { command: 'custom-node', args: [rejectedBundlePath], enabled: true };
+  for (const server of [otherBundle, custom])
+    assert.deepEqual(reconcile({ [name]: server }, { bundleExists: false, rejectedBundlePath }), { [name]: server });
+  assert.deepEqual(reconcile({}, { bundlePath: rejectedBundlePath, bundleExists: false, rejectedBundlePath }), {});
+  const fallback = reconcile({ [name]: source }, { rejectedBundlePath });
+  assert.equal(fallback[name].enabled, false, 'Even a different candidate must not silently undo quarantine');
+  assert.deepEqual(reconcile({ steppage: source, [name]: custom }, { bundleExists: false, rejectedBundlePath }),
+    { [name]: custom }, 'Quarantining a managed alias must not disable a different user-owned transport');
+});

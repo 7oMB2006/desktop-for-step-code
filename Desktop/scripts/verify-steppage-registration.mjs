@@ -13,7 +13,8 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-const serverName = 'steppage__steppage';
+const windows = process.platform === 'win32';
+const serverName = windows ? 'steppage__steppage' : 'steppage';
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const nodeName = process.platform === 'darwin' ? 'node' : 'node.exe';
 const resources = executablePath ? (process.platform === 'darwin' ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
@@ -54,6 +55,15 @@ const launchCase = async (profile, bundlePath) => {
     await page.evaluate(() => window.desktop.snapshot());
     phase = `launch ${launchNumber}: settings`;
     const settings = await page.evaluate(() => window.desktop.settings());
+    if (!windows) {
+      await assert.rejects(page.evaluate(() => window.desktop.stepPageState()), /Windows-only/);
+      await assert.rejects(page.evaluate(() => window.desktop.prepareStepPage()), /Windows-only/);
+      await page.locator('.sidebar-bottom button').filter({ hasText: /设置|Settings/ }).click();
+      await page.getByRole('button', { name: /^(资源|Resources)$/ }).click();
+      assert.equal(await page.locator('.steppage-settings').count(), 0);
+      await page.getByRole('button', { name: /^MCP$/ }).click();
+      assert.equal(await page.getByRole('button', { name: /准备内置插件|Set up built-in plugins/ }).count(), 0);
+    }
     return settings.mcp ?? {};
   } catch (error) {
     console.error(`StepPage acceptance failed during ${phase}`);
@@ -115,7 +125,7 @@ const runCases = async () => {
   await writeFile(join(profile, 'step-runtime', 'config.toml'), 'permissionPreset = "ask"\n\n[mcp_servers.steppage]\nenabled = true\ncommand = "' + userCommand + '"\nargs = []\n');  const bundle = await writeFakeBundle(profile);
   const mcp = await launchCase(profile, bundle);
   assert.equal(mcp[serverName]?.command, userCommand, 'a user-configured server must not be overwritten');
-  assert.ok(!mcp.steppage, 'the legacy name must migrate, not duplicate the plugin server');
+  if (windows) assert.ok(!mcp.steppage, 'the legacy name must migrate, not duplicate the plugin server');
   console.log('case 3 ok: user configuration preserved');
 }
 
@@ -137,7 +147,7 @@ const runCases = async () => {
   assert.equal(mcp[serverName]?.command, 'C:\\Windows\\System32\\where.exe', 'an equivalent TOML spelling must not be overwritten');
   assert.equal(mcp[serverName]?.enabled, false, 'legacy disable must suppress the qualified plugin identity');
   assert.deepEqual(mcp[serverName]?.args, ['custom']);
-  assert.ok(!mcp.steppage);
+  if (windows) assert.ok(!mcp.steppage);
   console.log('case 5 ok: quoted-key configuration recognised and left alone');
 }
 
@@ -157,12 +167,12 @@ const runCases = async () => {
   await writeFile(configPath, written.replace(`command = "${escaped}"`, `command = "${stalePath.replace(/\\/g, '\\\\')}"`).replace('enabled = true', 'enabled = false'));
   const second = await launchCase(profile, bundle);
   assert.equal(second[serverName]?.command, expectedCommand, 'a stale managed entry must be refreshed to the current node');
-  assert.equal(second[serverName]?.enabled, false, 'relocation must not re-enable the server');
-  console.log('case 6 ok: stale managed entry refreshed without re-enabling');
+  assert.equal(second[serverName]?.enabled, !windows, 'Windows preserves disable; other platforms retain their frozen behavior');
+  console.log('case 6 ok: stale managed entry follows its platform policy');
 }
 
 // 7. Inline TOML and an absent bundle must not erase an explicit disable or secrets.
-{
+if (windows) {
   const profile = await makeProfile(); profiles.push(profile);
   await writeFile(join(profile, 'step-runtime', 'config.toml'),
     'permissionPreset = "ask"\nmcp_servers = { steppage = { enabled = false, command = "custom", args = ["--user"], env = { FIXTURE_SECRET = "not-a-real-secret" } } }\n');
@@ -181,7 +191,7 @@ const runCases = async () => {
 }
 
 // 8. A qualified user setting is authoritative over an obsolete managed alias.
-{
+if (windows) {
   const profile = await makeProfile(); profiles.push(profile);
   const bundle = await writeFakeBundle(profile);
   await launchCase(profile, bundle);

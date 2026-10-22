@@ -194,7 +194,8 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
-const stepPage = new StepPagePreparer(dataRoot, nodePath, (url, options) => net.fetch(url, options));
+const stepPage = process.platform === 'win32'
+  ? new StepPagePreparer(dataRoot, nodePath, (url, options) => net.fetch(url, options)) : undefined;
 const terminals = new TerminalSessions(nodePath,
   app.isPackaged ? join(process.resourcesPath, 'terminal-runtime/host.cjs') : resolve('terminal-runtime/host.cjs'),
   event => { if (window && !window.isDestroyed()) window.webContents.send('terminal-event', event); });
@@ -1464,8 +1465,12 @@ async function handle(method: string, args: any[]) {
       return usageEstimates.setRules(args[0], args[1]);
     }
     case 'cancelAccountAllowance': accountAllowance.cancel(); return null;
-    case 'stepPageState': return stepPage.snapshot();
+    case 'stepPageState': {
+      if (!stepPage) throw new Error('StepPage preparation is Windows-only');
+      return stepPage.snapshot();
+    }
     case 'prepareStepPage': {
+      if (!stepPage) throw new Error('StepPage preparation is Windows-only');
       // Preparation only writes files/config; existing workers and Cron hosts stay alive.
       await guardIdle({ stopHost: false });
       return stepPage.prepare((bundlePath, homePath) => admin.request('prepare_steppage', { bundlePath, homePath }));
@@ -1702,11 +1707,28 @@ else app.whenReady().then(async () => {
   // Reconcile full TOML declarations inside the admin settings lock. The qualified
   // plugin identity prevents duplicate discovery; relocation must retain explicit disable.
   try {
-    const desktopBundle = (await stepPage.snapshot()).installed;
-    const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim()
-      || (desktopBundle ? stepPage.bundlePath : join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs'));
-    await admin.request('reconcile_steppage', { bundlePath: steppageBundle,
-      ...(steppageBundle === stepPage.bundlePath ? { homePath: stepPage.homePath } : {}) });
+    if (stepPage) {
+      const desktopBundle = (await stepPage.snapshot()).installed;
+      const rejectedBundlePath = !desktopBundle && existsSync(stepPage.bundlePath) ? stepPage.bundlePath : undefined;
+      const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim()
+        || (desktopBundle || rejectedBundlePath ? stepPage.bundlePath : join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs'));
+      await admin.request('reconcile_steppage', { bundlePath: steppageBundle, rejectedBundlePath,
+        ...(steppageBundle === stepPage.bundlePath ? { homePath: stepPage.homePath } : {}) });
+    } else {
+      // Preserve the frozen non-Windows registration path; do not migrate declarations.
+      const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim() || join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs');
+      if (existsSync(steppageBundle)) {
+        const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
+        const existing = settings?.mcp?.steppage;
+        const looksDesktopWritten = /runtime[/\\]node[/\\]node(?:\.exe)?$/i.test(String(existing?.command ?? ''));
+        const staleManaged = Boolean(existing) && looksDesktopWritten
+          && typeof existing.command === 'string' && !(await samePath(existing.command, nodePath));
+        if (!existing || staleManaged) {
+          await admin.request('mcp', { name: 'steppage', config: { command: nodePath, args: [steppageBundle], enabled: true }, secrets: {} });
+          crashLog.setPhase('steppage registered');
+        }
+      }
+    }
   } catch {
     // Registration failure must not prevent launching the rest of Desktop.
   }

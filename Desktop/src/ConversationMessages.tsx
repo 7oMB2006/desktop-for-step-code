@@ -201,10 +201,14 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
   const subject = toolSubject(item.call);
   const presentation = toolPresentation(name, item.result, active, props.language, item.call?.arguments);
   const waiting = !item.result && Boolean(item.call?.id && props.awaitingToolCalls?.includes(item.call.id));
-  if (name === 'clarify_user') return <QuestionTool item={item} waitingApproval={waiting} zh={zh}/>;
+  const historical = item.call?.historical || item.result?.desktopImported;
+  if (name === 'clarify_user' && !historical) return <QuestionTool item={item} waitingApproval={waiting} zh={zh}/>;
   const { kind, status } = presentation;
-  const state = waiting ? 'waiting' : presentation.state;
-  const label = waiting ? (zh ? `等待批准 · ${name}` : `Awaiting approval · ${name}`) : presentation.label;
+  const historicalStatus = !item.result || item.result.details?.importedStatus !== 'completed' && !item.result.isError
+    ? (zh ? '结果未知' : 'Outcome unknown') : item.result.isError ? (zh ? '失败' : 'Failed') : (zh ? '完成' : 'Completed');
+  const state = historical ? item.result?.isError ? 'failed' : item.result?.details?.importedStatus === 'completed' ? 'done' : 'missing' : waiting ? 'waiting' : presentation.state;
+  const label = historical ? `${zh ? '历史工具' : 'Historical tool'} · ${name} · ${historicalStatus}`
+    : waiting ? (zh ? `等待批准 · ${name}` : `Awaiting approval · ${name}`) : presentation.label;
   const Icon = { command: Terminal, read: FileText, write: FilePenLine, edit: FilePenLine,
     search: Search, folder: FolderSearch, web: Globe, sessions: MessagesSquare, 'session-read': MessageSquare, 'session-send': Send, other: Wrench }[kind];
   return <details ref={details} className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state} data-expanded={expanded}>
@@ -224,7 +228,7 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
           : !messageBlocks(item.result).some(block => block.type === 'image') && <p className="process-pending">{zh ? '无输出' : 'No output'}</p>}
         {messageBlocks(item.result).filter(block => block.type === 'image').map((block, index) => <Image key={index} block={block} {...props}/>)}
       </details> : null}
-      <div className="process-tool-status">{state === 'done' && <Check size={12}/>}<span>{status}</span></div>
+      <div className="process-tool-status">{state === 'done' && <Check size={12}/>}<span>{historical ? historicalStatus : status}</span></div>
     </div>}</div>
   </details>;
 }
@@ -387,7 +391,9 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     const renderItem = (item: ResponseItem, onExpandedChange?: (expanded: boolean) => void): ReactNode => item.type === 'cron'
       ? <CronMessage key={item.key} notice={item.notice} index={item.index} language={props.language} onLayoutChange={props.onLayoutChange}/>
       : item.type === 'tool'
-            ? approvedPlan(item.result)
+            ? item.call?.historical || item.result?.desktopImported
+              ? <Tool key={item.key} item={item} active={false} {...props}/>
+              : approvedPlan(item.result)
               ? <PlanExecution key={item.key} plan={approvedPlan(item.result)!} state={execution?.state ?? 'interrupted'} note language={props.language}/>
               : item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
               ? <SubagentLane key={item.key} item={item} active={active} background={background} onOpen={onOpenSubagent} {...props}/>

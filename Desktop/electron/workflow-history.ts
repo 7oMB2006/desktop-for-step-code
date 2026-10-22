@@ -70,7 +70,7 @@ export class WorkflowBindings {
 /** Read only the bounded, runtime-owned progress file; never follow result scriptPath. */
 export async function hydrateWorkflowHistory(cwd: string, messages: Message[], bindings: Record<string, Binding> = {}): Promise<Message[]> {
   return Promise.all(messages.map(async message => {
-    if (message.role !== 'toolResult' || message.toolName !== 'workflow' || !message.toolCallId) return message;
+    if (message.desktopImported || message.role !== 'toolResult' || message.toolName !== 'workflow' || !message.toolCallId) return message;
     const current = projectWorkflow(message.details, message.toolCallId);
     const binding = Object.hasOwn(bindings, message.toolCallId) ? bindings[message.toolCallId] : undefined;
     const identity = current ?? (binding && projectWorkflow({ schemaVersion: 1, status: 'running',

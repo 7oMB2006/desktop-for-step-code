@@ -76,6 +76,7 @@ await cp(join(source, 'dist'), join(runtime, 'step/dist'), { recursive: true });
 for (const name of ['package.json', 'README.md']) await cp(join(source, name), join(runtime, 'step', name));
 for (const name of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) await cp(join(upstream, name), join(runtime, name));
 await cp('electron/admin.mjs', join(runtime, 'admin.mjs'));
+await cp('electron/session-import.mjs', join(runtime, 'session-import.mjs'));
 await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
@@ -100,5 +101,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', ...(process.platform === 'win32' ? ['desktop-cron-recovery'] : [])], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', ...(process.platform === 'win32' ? ['desktop-cron-recovery', 'desktop-session-import'] : [])], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

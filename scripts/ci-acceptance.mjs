@@ -52,6 +52,7 @@ export const acceptanceGroups = {
     'verify-send-queue.mjs',
     'verify-model-switch.mjs',
     'verify-cross-session.mjs',
+    'verify-session-import.mjs',
   ],
   runtime: [
     'verify-electron.mjs',

@@ -20,6 +20,17 @@ decision to the displayed snapshot and stop on cancellation or stale content.
 The upstream usage activity worker must load from a copied runtime bundle,
 without its original checkout or build directory.
 
+`patches/v015/step-code-session-import.patch` backports the offline Codex/Claude
+adapters and reviewed-snapshot service from Step-Code PR #291
+(`6a0984573275d2398faa812bbf661a9dc5557e06`). It also supplies historical
+context projection and usage exclusion, so source tools are evidence rather than
+live execution protocol and source model selection is not resumed. The v0.1.5
+port uses a local callback type because that baseline predates the source's
+session-index notification interface; Desktop refreshes its catalog instead.
+Source/preimage and resulting hashes are part of the existing Windows manifest.
+The frozen macOS patch set does not include this addition. See
+`docs/SESSION_IMPORT.md` for boundaries and verification.
+
 The Windows manifest also applies the shared Cron observer and management patches,
 then `step-code-desktop-cron-recovery.patch`. This **Beta** addition gates native
 Cron delivery only when both `DESKTOP_CRON_STATE=1` and

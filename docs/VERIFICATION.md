@@ -3993,3 +3993,27 @@ The complete 31-script Windows interface acceptance group also passed locally,
 including the theme bootstrap startup race and final performance matrix check.
 This local run preceded synchronization with main's StepPage and fader changes;
 replacement cloud CI must validate the combined tree.
+
+## Windows Offline Session Migration
+
+The Desktop adaptation of Step-Code PR #291 retains the existing Windows runtime
+pin and ports the shared import service through a separately hashed source patch.
+Settings exposes explicit Codex/Claude discovery, reviewed snapshots, destination
+mapping, batch jobs and cancellation. The importer owns a separate credential-free
+child; copies and journals remain in the Desktop profile.
+
+Local source verification on 2026-10-22 passed: typecheck, production build,
+610 Desktop unit tests (13 skips), 90 upstream import/context/compaction/usage
+tests, 15 CI policy/runner tests, the dedicated native import acceptance and
+general Electron acceptance. The native migration case covers both formats,
+archive opt-in and child exclusion, source append after review, duplicate
+protection, stubbed directory-selection IPC, real transcript navigation, a native
+continuation through a local fake provider and journal/copy retention on relaunch.
+Historical tools are inert evidence, not current Plan/Workflow or filesystem
+receipts; their display IDs cannot collide with native tool calls.
+
+Native light/dark and narrow-window screenshots were checked. The separate mock
+browser fixture also received Chinese/light and English/dark 375px layout checks.
+See `docs/SESSION_IMPORT.md` for commands, bounds and evidence details.
+No new installer, real personal-source migration, paid-provider request, remote
+CI or macOS import acceptance is implied.

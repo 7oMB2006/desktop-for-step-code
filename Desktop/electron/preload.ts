@@ -33,6 +33,12 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  importScan: options => invoke('importScan', options),
+  importPreview: id => invoke('importPreview', id),
+  importStart: selections => invoke('importStart', selections),
+  importJobs: () => invoke('importJobs'),
+  importCancel: id => invoke('importCancel', id),
+  importChooseDirectory: () => invoke('importChooseDirectory'),
   stepPageState: () => invoke('stepPageState'),
   prepareStepPage: () => invoke('prepareStepPage'),
   cronList: () => invoke('cronList'),

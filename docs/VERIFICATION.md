@@ -4096,5 +4096,13 @@ impact/sweep/dust and delayed-final-snapshot regressions remain covered.
 The refreshed Electron acceptance uses the existing orderly quit-review helper
 after reload. Entrance-frame assertions compare with final measured row height
 rather than requiring a particular early-frame pixel threshold.
-The remaining unit files passed with 615 passing and 13 skipped tests; the
+After integrating main through model-preference fix #148, the remaining unit
+files passed with 632 passing and 13 skipped tests; all 15 CI policy/runner
+tests passed. The staged Desktop admin adapter was refreshed from the merged
+source; the upstream runtime pin is unchanged. The
 unchanged Windows terminal-session teardown file noted above remains excluded.
+The rebuilt unsigned Windows preview at
+`Desktop/release/task-history-20261022-preview` passed packaged task-progress
+acceptance (including next-turn retirement and renderer reload) and general
+Electron acceptance with isolated profiles and a local fixture provider.
+No real-account/model acceptance or fresh cloud-CI success is claimed.

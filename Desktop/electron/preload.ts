@@ -33,6 +33,8 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  stepPageState: () => invoke('stepPageState'),
+  prepareStepPage: () => invoke('prepareStepPage'),
   cronList: () => invoke('cronList'),
   cronCreate: input => invoke('cronCreate', input),
   cronDelete: (runtimeId, jobId) => invoke('cronDelete', runtimeId, jobId),

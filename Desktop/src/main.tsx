@@ -1,6 +1,6 @@
 import { normalizedWorkspaceKey } from './workspace-key';
 import { UsageOverviewPanel } from './UsageOverviewPanel';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, Plug } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -69,6 +69,7 @@ import { ReviewPanel } from './ReviewPanel';
 import { SummaryBoard } from './SummaryBoard';
 import { AccountSettings, ProviderIcon, StepPlatformIcon } from './AccountSettings';
 import { ProviderSettings } from './ProviderSettings';
+import { StepPageSettings } from './StepPageSettings';
 import { NewSession } from './NewSession';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
 import { AppearanceSettings } from './AppearanceSettings';
@@ -1615,10 +1616,18 @@ function App() {
           <EstimateRules key={`${settings.account.profile}:${settings.account.userId ?? ''}`} bridge={bridge!} account={settings.account}
             language={data.preferences.language} disabled={loggingIn || anyBusy} onChanged={async () => { await applySnapshot(() => bridge!.snapshot()); }}/></>}/>
           <button onClick={openUsage}><BarChart3 size={15}/>{t('用量统计', 'Usage overview')}</button></>
-      : tab === 'mcp' ? <><div className="section-heading"><h3>MCP servers</h3><IconButton title="Add MCP" onClick={() => setMcpEdit({ name: '', config: { command: '', args: [], enabled: true }, args: '[]', secrets: '{}' })}><Plus size={18}/></IconButton></div>
+      : tab === 'mcp' ? <>{bridge?.platform === 'win32' && <button onClick={() => setTab('skills')}><Plug size={15}/>{t('准备内置插件', 'Set up built-in plugins')}</button>}<div className="section-heading"><h3>MCP servers</h3><IconButton title="Add MCP" onClick={() => setMcpEdit({ name: '', config: { command: '', args: [], enabled: true }, args: '[]', secrets: '{}' })}><Plus size={18}/></IconButton></div>
         {Object.entries(settings.mcp).map(([n, c]) => <div className="resource-row" key={n}><McpIcon size={18}/><div><strong>{n}</strong><small>{c.url || c.command}</small><small>{c.enabled ? t('已启用，重启后生效', 'Enabled; applies after restart') : t('已停用', 'Disabled')}</small></div><IconButton title="Edit" onClick={() => setMcpEdit({ name: n, original: n, config: c, args: JSON.stringify(c.args ?? []), secrets: '{}' })}><Pencil size={14}/></IconButton><IconButton title="Remove" onClick={() => { if (confirm(t(`移除 ${n}？`, `Remove ${n}?`))) void run(async () => { await bridge!.saveMcp(n, null); setSettings(await bridge!.settings()); }); }}><Trash2 size={14}/></IconButton></div>)}
         {!Object.keys(settings.mcp).length && <p className="muted">{t('尚未配置服务器', 'No servers configured')}</p>}<button disabled={!connected || busy} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={15}/>{t('重启并应用', 'Restart to apply')}</button></>
-      : <><h3>{t('Skills 与命令', 'Skills and commands')}</h3>
+      : <>{bridge?.platform === 'win32' && <><h3>{t('内置插件', 'Built-in plugins')}</h3><StepPageSettings bridge={bridge!} language={data.preferences.language}
+        config={settings.mcp.steppage__steppage} busy={anyBusy || busy}
+        onPrepared={async () => { setSettings(await bridge!.settings()); }}
+        onRestart={async () => {
+          const next = await bridge!.restart();
+          setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
+          installSnapshot(next);
+        }}/></>}
+        <h3>{t('Skills 与命令', 'Skills and commands')}</h3>
         {settings.skills.map(s => <div className="resource-row" key={`${s.source}/${s.name}`}><BookOpen size={17}/><div><strong>{s.name}</strong><small>{s.description}</small><small>{s.source}</small></div></div>)}
         {commands.map(c => <div className="resource-row" key={c.name}><Terminal size={17}/><div><strong>/{c.name}</strong><small>{c.description}</small><small>{c.source}</small></div></div>)}
         {!settings.skills.length && !commands.length && <p className="muted">{t('没有已发现的资源', 'No resources discovered')}</p>}</>}

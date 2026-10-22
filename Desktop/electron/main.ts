@@ -27,6 +27,7 @@ import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
+import { StepPagePreparer } from './steppage-prepare';
 import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
@@ -193,6 +194,8 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
+const stepPage = process.platform === 'win32'
+  ? new StepPagePreparer(dataRoot, nodePath, (url, options) => net.fetch(url, options)) : undefined;
 const terminals = new TerminalSessions(nodePath,
   app.isPackaged ? join(process.resourcesPath, 'terminal-runtime/host.cjs') : resolve('terminal-runtime/host.cjs'),
   event => { if (window && !window.isDestroyed()) window.webContents.send('terminal-event', event); });
@@ -466,9 +469,9 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     sessions, independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
   };
 }
-async function guardIdle() {
+async function guardIdle(options: { stopHost?: boolean } = {}) {
   if (transition) throw new Error('Workspace operation in progress');
-  await runtimes.assertAllIdle();
+  await runtimes.assertAllIdle(options);
 }
 function canApplyProviders() {
   return !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
@@ -1462,6 +1465,16 @@ async function handle(method: string, args: any[]) {
       return usageEstimates.setRules(args[0], args[1]);
     }
     case 'cancelAccountAllowance': accountAllowance.cancel(); return null;
+    case 'stepPageState': {
+      if (!stepPage) throw new Error('StepPage preparation is Windows-only');
+      return stepPage.snapshot();
+    }
+    case 'prepareStepPage': {
+      if (!stepPage) throw new Error('StepPage preparation is Windows-only');
+      // Preparation only writes files/config; existing workers and Cron hosts stay alive.
+      await guardIdle({ stopHost: false });
+      return stepPage.prepare((bundlePath, homePath) => admin.request('prepare_steppage', { bundlePath, homePath }));
+    }
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
     case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
     case 'cancelProviderTest': providerTestController?.abort(); return;
@@ -1691,37 +1704,33 @@ else app.whenReady().then(async () => {
   try { await writeFile(join(dataRoot, 'config.toml'), 'permissionPreset = "ask"\n[telemetry]\nenabled = false\n', { flag: 'wx' }); } catch (e: any) { if (e.code !== 'EEXIST') throw e; }
   admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
   crashLog.setPhase('admin started');
-  // Windows 上内置的 StepPage 插件登记的是 command: steppage-mcp，而官方文档让
-  // 用户填进 MCP 客户端的正是 install.sh 写到 ~/.local/bin 的那个 shell 包装；
-  // MCP 传输不走 shell、直接 spawn，所以在 Windows 上必然失败，上游
-  // provisionBuiltinPlugin 在 win32 上也直接跳过自动安装，安装途径只有 install.sh。
-  // bundle 本体在 Windows 上是健康的，这里在探测到官方安装位置的 bundle 时注册一个
-  // 可用配置：command 用暂存的 runtime node（打包后 process.execPath 是 electron.exe，
-  // 不是 node），args 指向 bundle。
-  // 存在性判断读 settings 返回的解析后配置，不做文件子串匹配：TOML 有等价写法
-  // （带引号的键、inline table），子串认不出来，会把用户自己的 command/args/enabled
-  // 覆盖掉。只有从未配过、或现存项是桌面自己上次写且它的 command 不是当前 runtime 的
-  // node 时才刷新。判据用是不是当前这个 node，而不是那个路径还在不在——开发机上
-  // 源码模式写进去的路径恰好存在，用它判会漏，换到用户机器上反倒会被刷新。
-  // 其余一律视为用户配置不动。
-  // 整段静默容错：失败不影响启动，内置插件照旧失败并留在设置里，用户看到真实故障。
+  // Reconcile full TOML declarations inside the admin settings lock. The qualified
+  // plugin identity prevents duplicate discovery; relocation must retain explicit disable.
   try {
-    const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim() || join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs');
-    const steppageName = 'steppage';
-    if (existsSync(steppageBundle)) {
-      const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
-      const existing = settings?.mcp?.[steppageName];
-      const looksDesktopWritten = /runtime[/\\]node[/\\]node(?:\.exe)?$/i.test(String(existing?.command ?? ''));
-      const staleManaged = Boolean(existing) && looksDesktopWritten
-        && typeof existing.command === 'string'
-        && !(await samePath(existing.command, nodePath));
-      if (!existing || staleManaged) {
-        await admin.request('mcp', { name: steppageName, config: { command: nodePath, args: [steppageBundle], enabled: true }, secrets: {} });
-        crashLog.setPhase('steppage registered');
+    if (stepPage) {
+      const desktopBundle = (await stepPage.snapshot()).installed;
+      const rejectedBundlePath = !desktopBundle && existsSync(stepPage.bundlePath) ? stepPage.bundlePath : undefined;
+      const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim()
+        || (desktopBundle || rejectedBundlePath ? stepPage.bundlePath : join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs'));
+      await admin.request('reconcile_steppage', { bundlePath: steppageBundle, rejectedBundlePath,
+        ...(steppageBundle === stepPage.bundlePath ? { homePath: stepPage.homePath } : {}) });
+    } else {
+      // Preserve the frozen non-Windows registration path; do not migrate declarations.
+      const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim() || join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs');
+      if (existsSync(steppageBundle)) {
+        const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
+        const existing = settings?.mcp?.steppage;
+        const looksDesktopWritten = /runtime[/\\]node[/\\]node(?:\.exe)?$/i.test(String(existing?.command ?? ''));
+        const staleManaged = Boolean(existing) && looksDesktopWritten
+          && typeof existing.command === 'string' && !(await samePath(existing.command, nodePath));
+        if (!existing || staleManaged) {
+          await admin.request('mcp', { name: 'steppage', config: { command: nodePath, args: [steppageBundle], enabled: true }, secrets: {} });
+          crashLog.setPhase('steppage registered');
+        }
       }
     }
   } catch {
-    // 探测或注册失败不该影响启动
+    // Registration failure must not prevent launching the rest of Desktop.
   }
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   // The renderer cannot read the Windows dark mode reliably: prefers-color-scheme
@@ -1801,11 +1810,11 @@ else app.whenReady().then(async () => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
-    const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method);
-    if (undoBusy && ['removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
+    const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage'].includes(method);
+    if (undoBusy && ['prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
       'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
-    if (settingsMutation && ['removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
     if (!updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
       await applyProviderSettings();
     }

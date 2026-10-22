@@ -1,6 +1,7 @@
 import type { Content, Message } from './contracts';
 import { visibleInputBlocks } from './ultracode-input';
 import { isUserMessage } from './user-message';
+import { cronMessage, type CronNotice } from './cron-message';
 
 export const messageBlocks = (message: Message): Content[] => visibleInputBlocks(message);
 export const messageText = (message: Message): string => messageBlocks(message)
@@ -19,7 +20,7 @@ export function conversationEntries(messages: Message[]): ConversationEntry[] {
       entries.push({ type: 'user', item: { message, index } });
     else {
       const last = entries.at(-1);
-      if (last?.type === 'response') last.items.push({ message, index });
+      if (last?.type === 'response' && !cronMessage(message)) last.items.push({ message, index });
       else entries.push({ type: 'response', index, items: [{ message, index }] });
     }
   });
@@ -27,6 +28,7 @@ export function conversationEntries(messages: Message[]): ConversationEntry[] {
 }
 
 export type ResponseItem =
+  | { type: 'cron'; notice: CronNotice; index: number; key: string }
   | { type: 'thinking' | 'text' | 'image'; block: Content; index: number; key: string }
   | { type: 'tool'; call?: Content; result?: Message; index: number; key: string };
 
@@ -35,6 +37,11 @@ export function responsePresentation(items: IndexedMessage[]) {
   const pending = new Map<string, Extract<ResponseItem, { type: 'tool' }>>();
   for (const { message, index } of items) {
     if (message.display === false) continue;
+    const notice = cronMessage(message);
+    if (notice) {
+      content.push({ type: 'cron', notice, index, key: `${index}:cron` });
+      continue;
+    }
     if (message.role === 'toolResult') {
       const call = message.toolCallId ? pending.get(message.toolCallId) : undefined;
       if (call) {

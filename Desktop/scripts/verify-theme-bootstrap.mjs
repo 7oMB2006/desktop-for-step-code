@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const execFileAsync = promisify(execFile);
 const closeApp = async (app, label) => {
@@ -32,12 +33,12 @@ const closeApp = async (app, label) => {
   try {
     await Promise.race([
       (async () => {
-        // Teardown may run during initial worker startup. The isolated test has
-        // no user to accept the normal running-task quit confirmation.
+        // Keep the native crash fallback covered, then answer the normal
+        // application-owned review if startup is still in progress.
         await app.evaluate(({ dialog }) => {
           dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
         });
-        await app.close();
+        await closeDesktopFixture(app);
       })(),
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label}: Electron close timed out`)), 15000); }),
     ]);

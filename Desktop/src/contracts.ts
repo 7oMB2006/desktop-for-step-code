@@ -4,7 +4,7 @@ export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?:
 export interface Snapshot { workspaceIssue?: string }
 export interface StatusAccount { mode: 'plan' | 'api' | 'none' | 'unknown'; region?: 'cn' | 'global'; userId?: string }
 export interface Snapshot { statusAccount?: StatusAccount }
-export interface Snapshot { estimate?: import('./usage-estimates').SessionEstimate }
+export interface Snapshot { estimate?: import('./usage-estimates').SessionEstimate; quitReview?: import('./quit-confirmation').QuitReviewState }
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
 export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
@@ -106,6 +106,7 @@ export interface DesktopBridge {
   repositoryFileDiff(runtimeId: string, base: string, path: string): Promise<RepositoryFileDiff>;
   turnUndo(runtimeId: string, toolIds: string[], action: 'status' | 'prepare' | 'undo', token?: string): Promise<TurnUndoState>;
   windowControl(action: 'state' | 'minimize' | 'toggleMaximize' | 'close' | 'quit'): Promise<{ maximized: boolean; fullscreen: boolean; focused: boolean }>;
+  quitRespond(id: string, confirmed: boolean): Promise<void>;
   systemTheme(): Promise<{ systemDark: boolean }>;
   snapshot(): Promise<Snapshot>;
   beginSession(workspace?: string): Promise<Snapshot>;

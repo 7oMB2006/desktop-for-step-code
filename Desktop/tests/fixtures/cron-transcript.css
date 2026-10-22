@@ -1,0 +1,30 @@
+.cron-chat-preview { height:100vh; display:grid; grid-template-columns:244px minmax(0,1fr) 44px; grid-template-rows:44px minmax(0,1fr); background:var(--bg); color:var(--ink); font:14px "Segoe UI","Microsoft YaHei",sans-serif; letter-spacing:0; }
+.cron-chat-preview * { box-sizing:border-box; }
+.cron-chat-preview > .window-bar { position:static; height:44px; }
+.cron-chat-preview > .preview-sidebar { grid-column:1; grid-row:2; }
+.cron-chat-preview > .preview-main { grid-column:2; grid-row:2; }
+.cron-chat-preview > .preview-rail { grid-column:3; grid-row:2; }
+.window-bar { grid-column:1/-1; display:flex; align-items:center; gap:25px; padding:0 20px; background:var(--side); border-bottom:1px solid var(--border); font-size:12px; }
+.window-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.window-bar small { margin-left:auto; white-space:nowrap; color:var(--muted); }
+.window-bar button { flex-shrink:0; min-height:26px; font-size:11px; padding:3px 7px; }
+.preview-sidebar { display:flex; flex-direction:column; padding:20px 13px 14px; background:var(--side); border-right:1px solid var(--border); min-height:0; }
+.preview-brand { display:flex; gap:13px; align-items:center; margin:4px 4px 23px; }
+.sidebar-actions { display:flex; gap:6px; margin-bottom:28px; }
+.sidebar-actions button { display:flex; align-items:center; justify-content:center; gap:7px; flex:1; height:34px; background:var(--bg); border:1px solid var(--border); border-radius:5px; font-size:12px; }
+.sidebar-heading { display:flex; align-items:center; gap:8px; padding:12px 3px; }
+.sidebar-caption { font-size:11px; color:var(--muted); padding:19px 3px 0; }
+.preview-session { padding:10px 12px; font-size:12px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin:2px 0 2px 18px; border-radius:4px; }
+.preview-session.selected { background:var(--bg); }
+.sidebar-foot { margin-top:auto; display:grid; gap:14px; border-top:1px solid var(--border); padding-top:17px; }
+.sidebar-foot span { display:flex; gap:9px; align-items:center; }.sidebar-foot small { font-size:10px; color:var(--muted); }
+.preview-main { display:flex; flex-direction:column; min-width:0; overflow:auto; padding:0 44px; }
+.preview-transcript { width:100%; max-width:860px; margin:0 auto; flex:1; }
+.previous-response { font-size:14px; color:var(--muted); padding:14px 0 24px; line-height:1.8; }.previous-response p { margin:0 0 6px; }.previous-response ul { margin:0; padding-left:23px; color:var(--primary); }
+.cron-turn { padding-top:18px; border-top:1px solid var(--border); }
+.preview-compose { width:100%; max-width:860px; margin:20px auto 0; border:1px solid var(--border); background:var(--side); border-radius:8px; padding:16px; }.compose-input { color:var(--muted); height:43px; }.compose-controls { display:flex; align-items:center; gap:18px; }.permission { display:flex; align-items:center; gap:7px; color:#a74c18; font-size:12px; }.model { margin-left:auto; font-size:12px; }.compose-controls button { display:grid; place-items:center; width:32px; height:32px; border:0; border-radius:5px; color:white; background:var(--primary); }
+.preview-performance { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:8px; color:var(--muted); font-size:10px; padding:12px 0; }.preview-performance svg:not(:first-child) { margin-left:8px; }
+.preview-rail { display:flex; flex-direction:column; align-items:center; gap:28px; padding-top:24px; color:var(--muted); border-left:1px solid var(--border); }
+@media(max-width:850px) { .cron-chat-preview { grid-template-columns:190px minmax(0,1fr) 36px; }.preview-main { padding:0 22px; }.preview-brand img:last-child { width:128px; }.preview-brand { gap:7px; }.window-bar { gap:14px; }.window-title { display:none; } }
+@media(max-width:600px) { .cron-chat-preview { grid-template-columns:minmax(0,1fr) 32px; }.preview-sidebar { display:none; }.preview-main { padding:0 16px; }.model { font-size:10px; }.compose-controls { gap:10px; } }
+@media(max-width:600px) { .cron-chat-preview > .preview-main { grid-column:1; }.cron-chat-preview > .preview-rail { grid-column:2; }.window-bar small { display:none; }.window-bar { gap:10px; padding:0 12px; } }

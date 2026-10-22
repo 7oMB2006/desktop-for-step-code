@@ -1,0 +1,24 @@
+.cron-message { margin: 12px 0 18px; min-width: 0; }
+.cron-message-trigger { display: flex; width: 100%; min-width: 0; min-height: 34px; gap: 9px; padding: 4px 0; border: 0; border-radius: 3px; background: transparent; text-align: left; font-size: 12px; }
+.cron-message-trigger > svg, .cron-message-label { color: var(--primary); }
+.cron-message-label { flex-shrink: 0; font-weight: 600; }
+.cron-message-separator, .cron-message-title, .cron-message-trigger time, .cron-message-chevron { color: var(--muted); }
+.cron-message-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cron-message-trigger time { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.cron-message-chevron { display: flex; margin-left: auto; flex-shrink: 0; transform: rotate(-90deg); transition: transform 280ms cubic-bezier(.215,.61,.355,1); }
+.cron-message-trigger time + .cron-message-chevron { margin-left: 0; }
+.cron-message-trigger[aria-expanded=true] .cron-message-chevron { transform: rotate(0); }
+.cron-message-details { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 280ms cubic-bezier(.215,.61,.355,1), opacity 280ms cubic-bezier(.215,.61,.355,1); }
+.cron-message-details.is-expanded { grid-template-rows: 1fr; opacity: 1; }
+.cron-message-details > div { overflow: hidden; min-height: 0; }
+.cron-message-fields { margin: 6px 0 0 24px; padding: 10px 0 14px; border-bottom: 1px solid var(--border); display: grid; gap: 12px; font-size: 12px; }
+.cron-message-fields > div { display: grid; grid-template-columns: minmax(80px,max-content) minmax(0,1fr); gap: 12px; }
+.cron-message-fields dt { color: var(--muted); }
+.cron-message-fields dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.cron-message-fields code { font-size: inherit; }
+@media(max-width:600px) {
+  .cron-message-trigger { gap: 6px; }
+  .cron-message-label { flex-shrink: 1; }
+  .cron-message-fields { margin-left: 0; }
+}
+@media(prefers-reduced-motion:reduce) { .cron-message-details, .cron-message-chevron { transition: none; } }

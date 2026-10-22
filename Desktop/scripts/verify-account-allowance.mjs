@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-allowance-'));
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
@@ -16,10 +17,13 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.STEP_API_KEY;
 let app;
+let phase = 'launch';
+const mark = value => { phase = value; console.log(`Account allowance acceptance: ${phase}`); };
 try {
   const executablePath = process.env.DESKTOP_VERIFY_EXE;
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
+  page.setDefaultTimeout(15000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ net, BrowserWindow, dialog }) => {
@@ -50,6 +54,7 @@ try {
       });
     };
   });
+  mark('initial account and quota');
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
   await page.locator('.sidebar-bottom > button').click();
   const allowance = page.getByRole('region', { name: '套餐与额度' });
@@ -60,6 +65,7 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.accountAllowance())).plan.name, '官方套餐示例');
   assert.equal(await app.evaluate(() => globalThis.allowanceFixture.requests), 1, 'cached reads do not query again');
   const rules = page.getByRole('checkbox', { name: '按历史订阅保护规则估算' });
+  mark('estimate rules and account isolation');
   await rules.waitFor();
   assert.equal(await rules.isChecked(), false);
   await rules.check();
@@ -71,6 +77,7 @@ try {
     catch { return true; }
   }), true, 'a stale account reference cannot change another account’s rules');
   await page.screenshot({ path: 'test-results/account-allowance-token-light.png', animations: 'disabled' });
+  mark('restricted and stale quota');
   await app.evaluate(() => { globalThis.allowanceFixture.blocked = true; globalThis.allowanceFixture.crossedReset = true; });
   await allowance.getByRole('button', { name: '刷新额度' }).click();
   await allowance.getByText('官方已限制当前账户使用；剩余额度不代表当前可用。', { exact: true }).waitFor();
@@ -81,6 +88,7 @@ try {
   assert.equal(restricted.status, 'stale');
   await app.evaluate(() => { globalThis.allowanceFixture.blocked = false; globalThis.allowanceFixture.crossedReset = false; });
   await app.evaluate(() => { globalThis.allowanceFixture.status = 503; });
+  mark('temporary and authentication failures');
   await allowance.getByRole('button', { name: '刷新额度' }).click();
   await allowance.getByText(/显示的是上次获取的数据/).waitFor();
   assert.equal(await allowance.getByRole('meter').count(), 2, 'temporary error keeps stale quota');
@@ -90,6 +98,7 @@ try {
   assert.equal(await allowance.getByRole('meter').count(), 0);
   assert.equal(await page.getByText('未订阅套餐', { exact: true }).count(), 0);
   await app.evaluate(() => { globalThis.allowanceFixture.status = 200; globalThis.allowanceFixture.family = 'coding'; });
+  mark('Coding projection and tab cancellation');
   await allowance.getByRole('button', { name: '刷新额度' }).click();
   await allowance.getByText('5 小时额度', { exact: true }).waitFor();
   await app.evaluate(() => { globalThis.allowanceFixture.delay = 600; });
@@ -99,6 +108,7 @@ try {
   await allowance.getByText('5 小时额度', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+  mark('credential privacy and refreshed vault');
   const result = await page.evaluate(() => window.desktop.accountAllowance());
   for (const privateText of ['allowance-fixture-only', 'private-upstream-error', '100000']) {
     assert.equal(JSON.stringify(result).includes(privateText), false);
@@ -112,17 +122,24 @@ try {
   assert.equal(await app.evaluate(refreshedVault, encrypted), true, 'upstream refresh is persisted in the Desktop vault');
   await assert.rejects(readFile(join(profile, 'step-runtime/auth.json')), { code: 'ENOENT' });
   assert.deepEqual(errors, []);
-  await app.close();
+  mark('orderly shutdown before restart');
+  await closeDesktopFixture(app);
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const reopened = await app.firstWindow();
+  reopened.setDefaultTimeout(15000);
   await app.evaluate(({ BrowserWindow, dialog }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
     dialog.showMessageBox = async () => ({ response: 1 });
   });
+  mark('restored estimate rules and credentials');
   await reopened.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
   assert.equal(await reopened.evaluate(async () => (await window.desktop.estimateSettings()).rules.planProtected), true,
     'manual estimate rule survives restart and OAuth credential renewal');
   assert.equal(await app.evaluate(refreshedVault, encrypted), true, 'refreshed credential remains readable after restart');
   console.log('Account allowance Electron passed: normal vault/IPC, upstream credential refresh and persistence/restart, Token/Coding projection, cache, stale/error, tab cancellation, encrypted fixture credentials.');
-} finally { await app?.close(); }
+} catch (error) {
+  console.error(`Account allowance failed during ${phase}`);
+  await app?.firstWindow().then(page => page.screenshot({ path: 'test-results/account-allowance-failure.png' })).catch(() => {});
+  throw error;
+} finally { if (app) await closeDesktopFixture(app); }

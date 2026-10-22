@@ -1,5 +1,20 @@
 # Design System
 
+Visible upstream `custom/step-cron` messages use an inline scheduled-task source
+disclosure, not ordinary assistant prose or a user bubble. Its clock icon and
+source label use the theme accent; instruction preview and recorded message time
+remain muted. All complexity presets retain it as a process-group boundary.
+The shared DisclosureChevron stays anchored through cubic height/opacity motion,
+with inert collapsed details and a reduced-motion fallback. Missed one-shot
+notices are labeled separately and preserve their original batched text.
+Show only supplied metadata: ordinary fire messages do not include planned fire
+time, so do not infer one from the current task or cron expression. This is a
+trigger source, not a success outcome or a new scheduler.
+Each visible native Cron notice starts an independent response turn, never a
+synthetic user bubble. The preceding response retains its own footer, timing,
+artifacts and completed Plan/Goal ownership, including while Cron is running.
+Cron does not inherit a preceding user's model-change note or current workflow.
+
 Scheduled-task creation defaults to durable storage, independently of recurrence.
 The storage radio group names both durable and temporary choices, preserving the
 choice when changing hosts. An untrusted host blocks durable submission with
@@ -147,6 +162,20 @@ Composer thumbnails and transcript images share an anchored image preview: cubic
 Closing the main window hides it to the Windows tray without stopping Agent tasks, queued messages, terminal processes or browser tabs. The tray uses the product icon and supplies Open and Quit in the selected language. Clicking it or launching another instance restores the existing window. File > Quit application and tray Quit perform the existing confirmed shutdown and wait for runtime/terminal cleanup; cancellation keeps the application available. A failed tray creation falls back to the explicit shutdown path instead of hiding an unreachable window. Windows session end does not request interactive task confirmation.
 
 The tray's right-click menu is an application-rendered, transparent utility window, not a Windows native context menu. It reuses AppMenu styling and theme variables with cubic enter/exit, reduced-motion support, keyboard navigation and Escape/blur dismissal. Placement uses Electron's device-independent screen work area to remain within the selected monitor. It never appears in the taskbar. A sandboxed, sender-validated dedicated preload exposes only menu state and Open/Quit/Dismiss, not the main Desktop bridge.
+
+Explicit Quit opens an application-themed modal when scheduled tasks, running
+tasks, active Goals or session transitions need review. It names each reason
+before explaining the consequence. Cron alone is not called a running task.
+Temporary jobs are lost on exit; durable records remain without promising
+automatic resumption. Unknown Cron state is disclosed rather than counted as
+zero, and shared durable records are counted once per project and job identity.
+Cancel quit is the default focus; explicit Quit never offers hide-to-tray.
+The main process owns a versioned confirmation request, rechecks reasons before
+acceptance and retains it across renderer reloads. The modal contains keyboard
+focus, blocks embedded browser views and respects reduced motion. Ordinary
+window close still hides to tray; Windows session end does not await a decision.
+Only a crashed renderer falls back to a native warning, using the same reasons
+and cancel-first decision so an unavailable UI cannot trap explicit Quit.
 
 ## Embedded Terminal
 

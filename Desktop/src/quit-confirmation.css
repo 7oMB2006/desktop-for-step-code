@@ -1,0 +1,52 @@
+.quit-confirmation {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 24px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  letter-spacing: 0;
+  -webkit-app-region: no-drag;
+}
+.quit-confirmation[open] { animation: quit-enter 220ms cubic-bezier(.22, 1, .36, 1); }
+.quit-confirmation::backdrop {
+  background: oklch(0 0 0 / .18);
+  backdrop-filter: blur(5px);
+  animation: quit-backdrop-enter 180ms cubic-bezier(.22, 1, .36, 1);
+}
+.quit-confirmation.is-closing { animation: quit-exit 220ms cubic-bezier(.4, 0, 1, 1) forwards; }
+.quit-confirmation.is-closing::backdrop { animation: quit-backdrop-exit 220ms cubic-bezier(.4, 0, 1, 1) forwards; }
+.quit-confirmation header { display: flex; gap: 12px; align-items: flex-start; }
+.quit-confirmation h2 { margin: 2px 0 0; flex: 1; font-size: 16px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.quit-confirmation header .icon-button { flex: 0 0 28px; width: 28px; height: 28px; min-height: 28px; margin: -2px -6px 0 0; }
+.quit-reasons { display: grid; gap: 20px; margin: 24px 0 0; padding: 0; list-style: none; }
+.quit-reasons li { display: flex; align-items: flex-start; gap: 12px; }
+.quit-reasons li > svg { flex: 0 0 19px; margin-top: 1px; color: var(--primary); }
+.quit-reasons strong { font-size: 14px; font-weight: 600; }
+.quit-confirmation p { margin: 6px 0 0; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.quit-notes { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+.quit-confirmation .quit-loss, .quit-confirmation .quit-error { color: var(--danger, #ba2828); }
+.quit-confirmation footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+.quit-confirmation footer button { min-height: 34px; display: inline-flex; gap: 7px; align-items: center; justify-content: center; padding: 7px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--ink); font-size: 13px; }
+.quit-confirmation footer button:hover:not(:disabled) { background: var(--surface); }
+.quit-confirmation footer .quit-confirm { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
+.quit-confirmation footer .quit-confirm:hover:not(:disabled) { background: var(--primary); filter: brightness(1.08); }
+.quit-confirmation button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.quit-confirmation button:disabled { opacity: .55; cursor: default; }
+@keyframes quit-enter { from { opacity: 0; transform: translateY(6px) scale(.99); } to { opacity: 1; transform: none; } }
+@keyframes quit-exit { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(6px) scale(.99); } }
+@keyframes quit-backdrop-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes quit-backdrop-exit { from { opacity: 1; } to { opacity: 0; } }
+@media (max-width: 480px) { .quit-confirmation { padding: 20px; } }
+@media (prefers-reduced-motion: reduce) {
+  .quit-confirmation[open], .quit-confirmation.is-closing, .quit-confirmation::backdrop,
+  .quit-confirmation.is-closing::backdrop { animation: none; }
+}
+@media (forced-colors: active) {
+  .quit-confirmation::backdrop { backdrop-filter: none; }
+  .quit-confirmation footer .quit-confirm { border-color: ButtonText; background: ButtonFace; color: ButtonText; }
+}

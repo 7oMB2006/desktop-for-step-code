@@ -1,5 +1,6 @@
 import type { Message } from './contracts';
 import { conversationEntries } from './conversation-presentation';
+import { cronMessage } from './cron-message';
 
 export type ApprovedPlan = { path: string; content: string; title: string };
 export type PlanExecutionState = 'running' | 'completed' | 'failed' | 'interrupted';
@@ -39,6 +40,9 @@ export function planExecutionResponses(messages: Message[], busy: boolean) {
     if (entry.type === 'user') {
       if (!entry.item.message.desktopSteered) { flush(false); run = []; responseIndex = undefined; }
     } else {
+      if (cronMessage(entry.items[0].message)) {
+        flush(false); run = []; responseIndex = undefined;
+      }
       run.push(...entry.items.map(item => item.message));
       responseIndex = entry.index;
     }

@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const requests = [];
 const server = createServer(async (req, res) => {
@@ -40,8 +41,7 @@ const open = async () => {
 };
 const close = async () => {
   console.log(`[ultracode-restore] closing ${generation}`);
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
-  await app.close(); app = undefined;
+  await closeDesktopFixture(app); app = undefined;
   console.log(`[ultracode-restore] closed ${generation}`);
 };
 try {

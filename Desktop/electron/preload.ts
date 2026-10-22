@@ -86,6 +86,7 @@ const bridge: DesktopBridge = {
   repositoryFileDiff: (runtimeId, base, path) => invoke('repositoryFileDiff', runtimeId, base, path),
   turnUndo: (runtimeId, toolIds, action, token) => invoke('turnUndo', runtimeId, toolIds, action, token),
   windowControl: action => invoke('windowControl', action),
+  quitRespond: (id, confirmed) => invoke('quitRespond', id, confirmed),
   systemTheme: () => ipcRenderer.invoke('desktop-system-theme'),
   newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'), openWorkspaceFolder: path => invoke('openWorkspaceFolder', path),
   snapshot: () => invoke('snapshot'), chooseWorkspace: () => invoke('chooseWorkspace'), workspace: path => invoke('workspace', path),

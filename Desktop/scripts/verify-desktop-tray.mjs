@@ -167,30 +167,37 @@ try {
   assert.deepEqual(await popup.getByRole('menuitem').allTextContents(), ['Open Desktop for Step Code', 'Quit application']);
   await page.evaluate(() => window.desktop.windowControl('close'));
   await popup.getByRole('menuitem', { name: 'Quit application', exact: true }).click();
-  await page.waitForTimeout(200);
-  assert.equal(await app.evaluate(() => globalThis.trayFixture.confirmations), 1);
+  await page.locator('.quit-confirmation').waitFor();
+  assert.equal(await app.evaluate(() => globalThis.trayFixture.confirmations), 0);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window =>
     !window.webContents.getURL().includes('tray-menu.html')).isVisible()), true);
+  await page.reload();
+  await page.locator('.quit-confirmation').waitFor();
+  await page.getByRole('button', { name: 'Cancel quit', exact: true }).last().click();
+  await page.locator('.quit-confirmation').waitFor({ state: 'detached' });
   assert.equal(streamClosed, false, 'cancelled quit keeps the task running');
+  assert.ok((await page.evaluate(id => window.desktop.terminalList(id), before.runtimeId)).some(item => item.id === terminal.id));
   // Exercise the independent in-app Quit entry as well as tray Quit.
   await page.reload();
   await page.getByRole('button', { name: 'File', exact: true }).waitFor();
   await page.getByRole('button', { name: 'File', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Quit application', exact: true }).click();
-  await page.waitForTimeout(200);
-  assert.equal(await app.evaluate(() => globalThis.trayFixture.confirmations), 2);
+  await page.locator('.quit-confirmation').waitFor();
+  await page.getByRole('button', { name: 'Cancel quit', exact: true }).last().click();
+  await page.locator('.quit-confirmation').waitFor({ state: 'detached' });
+  assert.equal(await app.evaluate(() => globalThis.trayFixture.confirmations), 0);
   const exit = new Promise(resolve => app.process().once('exit', resolve));
   await app.evaluate(() => { globalThis.trayFixture.response = 1; });
   await openMenu();
   await popup.getByRole('menuitem', { name: 'Quit application', exact: true }).click();
+  await page.getByRole('button', { name: 'Stop tasks and quit', exact: true }).click();
   await Promise.race([exit, new Promise((_, reject) => setTimeout(() => reject(new Error('Confirmed quit did not terminate')), 15000).unref())]);
   exited = true;
   assert.equal(streamClosed, true, 'confirmed quit stops the runtime stream');
   console.log('Tray acceptance passed: hide preserves streaming/terminal; restore, relabel, cancel and confirmed quit.');
 } finally {
   if (app && !exited) {
-    await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); }).catch(() => {});
-    await app.close().catch(() => {});
+    await app.evaluate(({ app }) => app.exit()).catch(() => {});
   }
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));

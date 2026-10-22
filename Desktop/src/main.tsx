@@ -95,6 +95,8 @@ import { AccountAllowancePanel } from './AccountAllowancePanel';
 import { CronManager } from './CronManager';
 import { SidebarTaskActions } from './ScheduledTasks';
 import { EstimateRules } from './EstimateRules';
+import { QuitConfirmation } from './QuitConfirmation';
+import type { QuitReviewState } from './quit-confirmation';
 
 const bridge = window.desktop;
 // Seed the placeholder with the main-process-resolved theme so the first React
@@ -110,6 +112,10 @@ function App() {
   const appUpdate = useAppUpdates(bridge);
   const updateAvailable = appUpdate?.updateAvailable === true;
   const [data, setData] = useState(initial);
+  const [quitReview, setQuitReview] = useState<QuitReviewState>({ revision: -1 });
+  const acceptQuitReview = (next: QuitReviewState | undefined) => {
+    if (next) setQuitReview(previous => next.revision >= previous.revision ? next : previous);
+  };
   const interfaceSettings = useMemo(() => normalizeInterfaceSettings(data.preferences.interfaceSettings), [data.preferences.interfaceSettings]);
   const [interfaceRevision, setInterfaceRevision] = useState(0);
   useEffect(() => { applyAppearance(data.preferences.appearance); }, [data.preferences.appearance]);
@@ -425,6 +431,7 @@ function App() {
     if (session) readingCache.current.set(session, latestData.current.messages, latestData.current.modelChanges);
   };
   const installSnapshot = (value: Snapshot) => {
+    acceptQuitReview(value.quitReview);
     if (!messageRevision.current.acceptSnapshot(value)) return false;
     const previous = view.current;
     if (previous.runtimeId !== value.runtimeId || navigationPending.current) {
@@ -525,6 +532,7 @@ function App() {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
     const unsubscribe = bridge.onEvent(event => {
+      if (event.type === 'desktop_quit_review') { acceptQuitReview(event.state); return; }
       if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') { playCompletionSound(); return; }
       if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
@@ -736,6 +744,7 @@ function App() {
     return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape); window.removeEventListener('resize', dismiss); };
   }, [contextMenu]);
   useEffect(() => {
+    if (quitReview.request) return;
     if (!settingsOpen && !mcpEdit && !(requests.length && approvalOpen && !questionnaire(requests[0]) && !planReview(requests[0]) && requests[0]?.title !== 'Desktop Plan refinements' && !permissionApprovalPresentation(requests[0], data.messages, data.preferences.language, data.runtimeId)) && !renaming) return;
     const previous = document.activeElement as HTMLElement | null;
     const dialog = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1);
@@ -760,7 +769,7 @@ function App() {
     };
     document.addEventListener('keydown', handler);
     return () => { document.removeEventListener('keydown', handler); previous?.focus(); };
-  }, [settingsOpen, Boolean(mcpEdit), requests[0]?.id, approvalOpen, renaming]);
+  }, [settingsOpen, Boolean(mcpEdit), requests[0]?.id, approvalOpen, renaming, quitReview.request?.id]);
   const respond = async (value: Record<string, unknown>) => {
     if (navigationPending.current) return;
     const r = requests[0]; if (!r) return;
@@ -794,6 +803,7 @@ function App() {
     const reduce = () => { if (motion.matches) finishSettingsClose(); };
     const timer = window.setTimeout(finishSettingsClose, 260);
     const containKeyboard = (event: KeyboardEvent) => {
+      if ((event.target as Element)?.closest?.('.quit-confirmation')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
     };
@@ -1221,6 +1231,11 @@ function App() {
       x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
   }}>
     <AppTooltip/>
+    {quitReview.request && <QuitConfirmation key={quitReview.request.id}
+      reasons={quitReview.request.reasons} language={data.preferences.language}
+      stopping={quitReview.request.phase === 'stopping'}
+      onCancel={() => bridge!.quitRespond(quitReview.request!.id, false)}
+      onConfirm={() => bridge!.quitRespond(quitReview.request!.id, true)}/>}
     <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}/>
     {removeProject && <ProjectRemoval title={workspaceTitle(removeProject)} path={removeProject} language={data.preferences.language}
       onCancel={() => setRemoveProject(null)} onConfirm={async () => {
@@ -1485,7 +1500,7 @@ function App() {
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}

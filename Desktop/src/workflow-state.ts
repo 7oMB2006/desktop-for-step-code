@@ -1,6 +1,10 @@
 import type { Message } from './contracts';
 import { redactSensitiveText } from './subagent-redact';
 import { isUserMessage } from './user-message';
+import { cronMessage } from './cron-message';
+
+const lastTurnBoundary = (messages: Message[]) => messages.reduce((last, message, index) =>
+  isUserMessage(message) || cronMessage(message) ? index : last, -1);
 
 export interface WorkflowAgent {
   id: string; label: string; task: string; phase?: string;
@@ -119,7 +123,7 @@ export function preserveWorkflow(previous: Message | undefined, next: Message): 
 }
 
 export function workflowsFromMessages(messages: Message[], active = true): WorkflowState[] {
-  const lastUser = messages.reduce((last, message, index) => isUserMessage(message) ? index : last, -1);
+  const lastUser = lastTurnBoundary(messages);
   const activeCalls = new Set(messages.slice(lastUser + 1).flatMap(message => Array.isArray(message.content)
     ? message.content.filter(block => block.type === 'toolCall' && block.name === 'workflow').map(block => block.id) : []));
   const results = new Map(messages.filter(m => m.role === 'toolResult' && m.toolCallId).map(m => [m.toolCallId!, m]));
@@ -150,7 +154,7 @@ export function workflowIcon(status: WorkflowState['status'] | WorkflowAgent['st
 }
 
 export function currentTurnWorkflows(messages: Message[], active = true): WorkflowState[] {
-  const lastUser = messages.reduce((last, message, index) => isUserMessage(message) ? index : last, -1);
+  const lastUser = lastTurnBoundary(messages);
   return workflowsFromMessages(messages.slice(lastUser + 1), active);
 }
 export function workflowCount(flow: WorkflowState) {

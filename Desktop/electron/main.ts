@@ -51,6 +51,8 @@ import { MacUpdateDriver, macUpdateVersion, acknowledgeMacUpdate } from './macos
 import { NativeUpdateDriver } from './native-update-driver';
 import { cleanInstalledUpdate } from './update-cache';
 import { DesktopTray } from './desktop-tray';
+import { QuitReview, quitReasons, needsQuitReview } from './quit-review';
+import { quitConfirmation } from '../src/quit-confirmation';
 import { StartupWindow } from './startup-window';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
@@ -240,6 +242,7 @@ async function persistAuth(next: Record<string, unknown>) {
   authData = next;
 }
 const emit = (event: unknown) => { if (window && !window.isDestroyed()) window.webContents.send('runtime-event', event); };
+const quitReview = new QuitReview(state => emit({ type: 'desktop_quit_review', state }));
 function publishModelSelection(worker: import('./session-runtimes').SessionRuntime) {
   emit({ type: 'desktop_model_selection', runtimeId: worker.id, sessionId: worker.state?.sessionId,
     runtimeRevision: ++worker.revision, modelSelection: modelSelections.selection(worker),
@@ -449,6 +452,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
   return {
+    quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
     workspaceIssue: unavailableWorkspace,
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, providerSettingsPending,
@@ -944,6 +948,11 @@ async function handle(method: string, args: any[]) {
         emit({ type: 'desktop_undo_ready', runtimeId: worker.id });
         return result;
       } finally { for (const peer of lockedPeers) peer.mutating = false; undoBusy = false; }
+    }
+    case 'quitRespond': {
+      if (args[1] === true) quitReview.refresh(quitReasons(runtimes, transition));
+      quitReview.respond(args[0], args[1]);
+      return;
     }
     case 'windowControl': {
       switch (args[0]) {
@@ -1639,13 +1648,21 @@ app.on('before-quit', event => {
   if (quitPending) return;
   quitPending = true;
   void (async () => {
-    if (!sessionEnding && (runtimes.running || transition) && window && !window.isDestroyed()) {
-      showMainWindow();
-      const zh = preferences.language === 'zh';
-      const r = await dialog.showMessageBox(window, { message: zh ? '仍有会话在运行。停止所有任务并退出？' : 'Sessions are still running. Stop all tasks and quit?', buttons: zh ? ['取消', '停止并退出'] : ['Cancel', 'Stop and quit'], cancelId: 0, defaultId: 0 });
-      if (r.response !== 1) { quitPending = false; return; }
-    }
     try {
+      const reasons = quitReasons(runtimes, transition);
+      if (!sessionEnding && needsQuitReview(reasons) && window && !window.isDestroyed()) {
+        showMainWindow();
+        if (window.webContents.isCrashed()) {
+          const presentation = quitConfirmation(reasons, preferences.language);
+          const result = await dialog.showMessageBox(window, {
+            type: 'warning', message: presentation.title,
+            detail: [...presentation.items.map(item => `${item.title}\n${item.description}`), ...presentation.notes].join('\n\n'),
+            buttons: [preferences.language === 'zh' ? '取消退出' : 'Cancel quit', presentation.confirm],
+            defaultId: 0, cancelId: 0, noLink: true,
+          });
+          if (result.response !== 1) { quitPending = false; return; }
+        } else if (!await quitReview.ask(reasons)) { quitPending = false; return; }
+      }
       await terminals.stopAll();
       await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
       await conversationTiming.flush();
@@ -1657,6 +1674,7 @@ app.on('before-quit', event => {
       app.quit();
     } catch {
       quitPending = false;
+      quitReview.reset();
       if (!sessionEnding) showMainWindow();
       emit({ type: 'desktop_error', message: preferences.language === 'zh' ? '无法结束终端，请关闭终端后重试退出。' : 'Could not stop terminals. Close them and try exiting again.' });
     }
@@ -1762,6 +1780,7 @@ else app.whenReady().then(async () => {
     if (isMainFrame && code !== -3) revealShell();
   });
   window.webContents.on('render-process-gone', revealShell);
+  window.webContents.on('render-process-gone', () => quitReview.reset());
   nativeTheme.on('updated', () => {
     tray?.relabel();
     if (window && !window.isDestroyed()) {
@@ -1796,9 +1815,15 @@ else app.whenReady().then(async () => {
     if (tray && !sessionEnding) window.hide();
     else app.quit();
   });
-  window.on('session-end', () => { sessionEnding = true; app.quit(); });
+  window.on('session-end', () => {
+    sessionEnding = true;
+    const request = quitReview.state.request;
+    if (request?.phase === 'review') quitReview.respond(request.id, true);
+    app.quit();
+  });
   ipcMain.handle('desktop', async (event, method, ...args) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Untrusted sender');
+    if (method === 'quitRespond' || method === 'windowControl') return handle(method, args);
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
     const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method);

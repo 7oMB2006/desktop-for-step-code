@@ -56,6 +56,8 @@ export const acceptanceGroups = {
     'verify-electron.mjs',
     'verify-cron-runtime.mjs',
     'verify-cron-management.mjs',
+    'verify-cron-transcript-electron.mjs',
+    'verify-quit-confirmation-electron.mjs',
     'verify-project-trust.mjs',
     'verify-permission-approval.mjs',
     'verify-permission-tiers.mjs',
@@ -80,6 +82,9 @@ export const acceptanceGroups = {
 // Local-only checks are explicitly registered rather than silently skipped.
 // A new verify-*.mjs must be explicitly assigned; never silently default to local-only.
 export const localOnly = [
+  // Real Electron coverage above complements these visual fixture matrices.
+  'verify-cron-transcript.mjs',
+  'verify-quit-confirmation.mjs',
   // Status RPC coverage runs in verify-summary-runtime; this is the visual fixture.
   'verify-session-status-view.mjs',
   'verify-scheduled-tasks-preview.mjs',

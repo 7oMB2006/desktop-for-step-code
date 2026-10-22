@@ -23,6 +23,10 @@ acceptance passed. The local shared node-pty input was incomplete; generated
 terminal resources were repaired from the version 1.1.0 npm archive after
 verifying its SHA-512 against the lockfile, without changing shared dependencies.
 Cloud and packaged acceptance are tracked separately from these source results.
+Background-agent acceptance now addresses each original dispatch independently
+of row order and opens settled history before inspecting it. Source and packaged
+runs passed completion, failure, restart, interruption, follow-up and reload
+checks with identical task descriptions.
 
 ## Transcript And Summary Follow-Up (2026-10-21)
 

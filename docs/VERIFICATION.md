@@ -48,6 +48,67 @@ existing Status-field assertion; replaying against the manifest-matching staged
 runtime passed without modifying that assertion. No new installer, real-model
 acceptance or cloud result is claimed; the running user package is unchanged.
 
+## Cron Transcript Source Disclosure (2026-10-20)
+
+Follow-up: source disclosure alone did not split response entries. The first
+preview below still merged preceding assistant content with Cron output, losing
+its independent footer. That package is not evidence of correct turn boundaries.
+The fixture now puts both replies in the same production message list, rather
+than mocking the preceding reply outside the renderer. Regression checks cover
+separate settled footers, the previous footer during active Cron, repeated Cron,
+reload, and Plan/Goal/workflow ownership. No scheduler behavior is changed.
+The corrected source passed typecheck, production build, 113 related unit tests
+(three additional platform-specific skips), 24 browser combinations and native
+Electron saved-history replay. Both prior and Cron footers survive reload;
+the prior footer also survives active Cron. Separate 8s/4s timings, file changes
+and delivered output paths are covered. Light/dark separate-footer screenshots
+are under `output/playwright/cron-turn-boundary-20261020` on D:.
+The corrected Windows x64 preview is
+`Desktop/release/cron-turn-boundary-20261020-preview` on D:. Its packaged
+saved-history replay passed eight checks, Cron management passed eight cases,
+project trust passed three cases and general Electron acceptance passed.
+All 105 dist and 1,232 runtime files match the inputs byte for byte.
+Installer/update metadata matches; installer SHA-256 is
+`6c8f94a0904690477bc1bac4b4e5786f396e2f186de2b4082afaf556753d9a0f`.
+The unsigned local preview remains version 0.5.1, not a public release.
+The desktop shortcut was backed up, updated and read back. The running earlier
+preview was not stopped; it still predates the boundary fix.
+
+Visible `role=custom`, `customType=step-cron` records now render as a dedicated
+source disclosure in the shared conversation renderer, including saved reading
+and nested transcripts. Ordinary user/assistant text containing `[cron]` is not
+reclassified. Normal deliveries and upstream `details.kind=missed` notices have
+distinct labels; the latter preserve their original batched notice. Hidden
+records stay hidden. All interface presets keep the source outside process/tool
+groups. Copy projection and original message storage remain unchanged.
+
+Details expose only supplied instruction, message timestamp, cron expression and
+task ID. Ordinary upstream deliveries do not supply a planned fire time, so the
+UI does not infer one. No scheduler, account route or task recovery changes.
+
+Typecheck and production build passed. Five new projection tests and the related
+conversation, grouping, event, navigation, interface, workflow, Plan and subagent
+tests passed (81 total). `node scripts/verify-cron-transcript.mjs` passed 24
+theme/preset/language/viewport combinations, pointer and keyboard disclosure,
+snapshot-state retention, missed notices, reduced motion, forged-prefix/hidden
+record checks and active/reloaded rendering without page errors. Screenshots
+were inspected after replacing the static mock with the production renderer.
+
+The follow-up local Windows x64 preview is
+`Desktop/release/cron-transcript-20261020-preview` on D:. It includes current
+main `61908a9` plus the local transcript changes. Packaged Electron acceptance
+passed six native saved-Cron-message replay checks, eight Cron management cases,
+three project-trust cases and the general Electron suite. All 105 dist and 1,232
+runtime files match the build inputs byte for byte. Installer/update metadata
+and SHA-256 were checked; the installer is unsigned and remains version 0.5.1,
+not a public release. The desktop shortcut was backed up and updated with readback.
+
+This is not paid-model or installer-upgrade acceptance. Existing user tasks,
+accounts and the running old application were not modified or stopped. Cleanup
+of five inactive preview directories was requested but blocked by local policy;
+those directories remain. The active old package and v0.5.1 release archive
+were preserved.
+
 ## StepPage Review Guards (2026-10-22)
 
 The new StepPage setup controls and main/admin preparation path now run only on
@@ -3843,3 +3904,64 @@ draft. The fixture now waits for ProseMirror's model value after both fill and
 clear, rather than treating DOM mutation completion as an editor commit. Composer
 editing acceptance repeats that sequence three times; native reload-shortcut and
 draft-retention assertions remain unchanged and still require macOS cloud proof.
+
+## Application-Themed Quit Confirmation
+
+Source integration replaces the ordinary native quit warning with the approved
+application-themed modal. The main process publishes a versioned request through
+the narrow preload bridge and includes it in snapshots. Replies must match the
+current request and contain a boolean; changed task counts require another review.
+Renderer reload retains a pending decision, cancellation leaves workers and
+terminals intact, and confirmed exit uses the existing orderly cleanup and flush.
+Cron counts distinguish temporary and durable storage, deduplicate shared durable
+records, ignore disconnected stale hosts and disclose unavailable state.
+
+Local checks passed: Desktop typecheck/build; 74 focused quit, Cron and runtime
+tests; 32 browser theme/scenario/viewport/language combinations with keyboard,
+reduced-motion and simulated failure coverage; real Electron tray cancellation
+and confirmed shutdown with a continuous local stream and owned terminal; isolated
+real Cron creation, counts, reload, cancellation, stale/malformed reply rejection
+and persistent-record retention after exit; all eight Cron management cases; and
+Ultracode restart/restore acceptance. No real account or model was used.
+General Electron acceptance, including new and reopened profile proposals, also
+passed. A separate real renderer crash verifies that a pending themed decision
+is cancelled and native fallback can both cancel and confirm orderly exit.
+Normal operation never invokes that fallback. All 15 CI policy/runner tests pass.
+The dedicated native quit and Cron transcript checks are registered in Windows
+acceptance; visual-only matrices are explicitly local checks.
+This is source acceptance, not validation of a new installer or cloud CI.
+The existing preview installer and desktop shortcut have not been rebuilt here.
+
+### Account Allowance CI Shutdown Follow-Up
+
+PR #145 run `39721715313` timed out in `verify-account-allowance.mjs` after
+300 seconds. The unmodified fixture reproduces locally: all account assertions
+reach the success log, but final shutdown remains blocked until a 40-second
+diagnostic watchdog terminates only that isolated test process tree.
+The fixture still answered only the old native message box.
+Both shutdown points now use the existing application quit-review helper,
+preserving orderly cleanup and credential/rule flushes rather than force-exiting.
+All original business assertions remain. Locator waits are bounded to 15 seconds,
+and phase logs plus a failure screenshot identify any future stalled assertion.
+
+Three consecutive source runs and one run against the existing
+`cron-quit-20261022-preview` package passed locally, as did all 15 CI policy/runner
+tests. This follow-up changes only acceptance code and documentation; it does not
+change the packaged application. Replacement cloud CI remains required.
+
+### Theme Bootstrap CI Shutdown Follow-Up
+
+Run `39725588859` passed account allowance, balance and routing, then failed
+`verify-theme-bootstrap.mjs` at `first frame wine: Electron close timed out`.
+That fixture also mocked only the native dialog; startup can still require the
+application-owned review when teardown begins. Its bounded, orderly close now
+uses `closeDesktopFixture`, without changing first-frame or system-race assertions.
+
+Real Electron regression cases retain a durable Cron across shutdown and restart,
+covering both an already-pending review and a review raised by fixture teardown.
+Replacing the helper with the former `app.close()` reproduces the 15-second
+timeout; both cases pass with the helper. All 15 CI policy/runner tests pass.
+The complete 31-script Windows interface acceptance group also passed locally,
+including the theme bootstrap startup race and final performance matrix check.
+This local run preceded synchronization with main's StepPage and fader changes;
+replacement cloud CI must validate the combined tree.

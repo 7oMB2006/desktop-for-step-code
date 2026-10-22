@@ -1,5 +1,6 @@
 import type { Message } from './contracts';
 import { conversationEntries } from './conversation-presentation';
+import { cronMessage } from './cron-message';
 
 export interface GoalState {
   id: string; sessionId: string; objective: string;
@@ -34,7 +35,7 @@ export function goalCompletionResponse(messages: Message[], goal?: GoalState): n
   if (owners.length !== 1) return;
   let response: number | undefined;
   for (const entry of entries.slice(owners[0] + 1)) {
-    if (entry.type === 'user') break;
+    if (entry.type === 'user' || cronMessage(entry.items[0].message)) break;
     response = entry.index;
   }
   return response;

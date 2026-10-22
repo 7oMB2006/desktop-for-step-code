@@ -32,6 +32,8 @@ import { groupProcesses, liveThinkingKey, processGroupSummary, thinkingPreview, 
 import './tool-groups.css';
 import { QuestionTool } from './QuestionTool';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
+import { CronMessage } from './CronMessage';
+import { cronMessage } from './cron-message';
 
 type Props = {
   interfaceSettings?: InterfacePreferences;
@@ -382,7 +384,9 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
         total language={props.language}/>
       <Timestamp value={stamp} language={props.language}/>
     </footer>;
-    const renderItem = (item: ResponseItem, onExpandedChange?: (expanded: boolean) => void): ReactNode => item.type === 'tool'
+    const renderItem = (item: ResponseItem, onExpandedChange?: (expanded: boolean) => void): ReactNode => item.type === 'cron'
+      ? <CronMessage key={item.key} notice={item.notice} index={item.index} language={props.language} onLayoutChange={props.onLayoutChange}/>
+      : item.type === 'tool'
             ? approvedPlan(item.result)
               ? <PlanExecution key={item.key} plan={approvedPlan(item.result)!} state={execution?.state ?? 'interrupted'} note language={props.language}/>
               : item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
@@ -518,6 +522,7 @@ export function ConversationMessages(props: Props) {
       arriving={entry.item.message === props.arrivingUser} {...props}
       canEdit={props.canEdit && entry.item.message.role === 'user' && entry.item.message === latestUser}/>;
     }
+    if (cronMessage(entry.items[0].message)) userTimestamp = undefined;
     const modelChange = userTimestamp === undefined ? undefined : props.modelChanges?.find(change => change.userTimestamp === userTimestamp);
     const settledStatus = hasSettledFooter && index === entries.length - 1 ? props.settledStatus : undefined;
     const completedStatus = props.completedStatus?.responseIndex === entry.index ? props.completedStatus.content : undefined;

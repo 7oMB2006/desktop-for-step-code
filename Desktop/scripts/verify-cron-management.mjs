@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-cron-management-')));
 const fixture = await queueFixture(profile, { duration: 500 });
@@ -32,8 +33,7 @@ const launch = async () => {
   return page;
 };
 const close = async () => {
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
-  await app.close(); app = undefined;
+  await closeDesktopFixture(app); app = undefined;
 };
 try {
   let page = await launch();

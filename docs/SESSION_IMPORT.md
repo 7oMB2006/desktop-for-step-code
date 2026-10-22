@@ -117,3 +117,13 @@ upgrade are separate acceptance, never implied by these tests.
 
 No installer was built, real personal history was not imported, and no paid
 provider, remote CI, macOS import or first-install migration was accepted here.
+
+## PR Integration Check (2026-10-22)
+
+Rebased onto main `079540c`, preserving its tool disclosure animation and MCP icon.
+Typecheck, production build and 15 CI policy/runner tests passed. The complete
+serial Desktop run reported 623 passed, 13 skipped and one failure in the existing
+terminal-count test: its nine mock terminal processes did not terminate within
+the cleanup deadline. That test and the terminal implementation are unchanged
+by this feature. Owned test descendants were explicitly stopped so the runner
+could report the failure; this is not a fully green suite.

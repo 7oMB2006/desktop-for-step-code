@@ -782,11 +782,14 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .model-parameters-footer button { font-size:11px; padding:4px 7px; }
 @media (prefers-reduced-motion: reduce) { .model-effort-effort-panel, .model-effort-parameters-panel, .model-effort-popover.parameters-view .model-effort-parameters-panel { transition:none; } }
 .model-effort-fader-column { display: grid; place-items: center; min-width: 0; }
-.model-effort-fader { position: relative; width: 82px; height: 228px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--side); box-shadow: inset 0 2px 8px oklch(0 0 0/.14); cursor: grab; touch-action: none; user-select: none; }
+@property --effort-fader-position { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --effort-fader-pressure { syntax: "<number>"; inherits: true; initial-value: 0; }
+/* Animate the shared center once, so fill and thumb cannot settle independently. */
+.model-effort-fader { --fader-height: 228px; --fader-thumb-size: 38px; --fader-travel: calc(var(--fader-height) - 2px - var(--fader-thumb-size)); position: relative; width: 82px; height: var(--fader-height); overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--side); box-shadow: inset 0 2px 8px oklch(0 0 0/.14); cursor: grab; touch-action: none; user-select: none; transition: --effort-fader-position .2s cubic-bezier(.2,.75,.2,1), --effort-fader-pressure .14s ease-out; }
 .model-effort-fader:active { cursor: grabbing; }
 .model-effort-fader[aria-disabled="true"] { cursor: default; }
 .model-effort-fader-well { position: absolute; inset: 5px; overflow: hidden; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); box-shadow: inset 0 3px 7px oklch(0 0 0/.15); pointer-events: none; }
-.model-effort-fader-fill { position: absolute; right: 0; bottom: 0; left: 0; overflow: hidden; background: linear-gradient(to top, #FFDC62 0%, #FDB3A2 32%, #D58FEF 66%, #9E72FB 100%) bottom / 100% 216px no-repeat; transition: height .2s cubic-bezier(.2,.75,.2,1); }
+.model-effort-fader-fill { position: absolute; right: 0; bottom: 0; left: 0; height: calc(var(--fader-thumb-size) / 2 - 6px + var(--effort-fader-position) * var(--fader-travel) + var(--effort-fader-pressure) * 1px); overflow: hidden; background: linear-gradient(to top, #FFDC62 0%, #FDB3A2 32%, #D58FEF 66%, #9E72FB 100%) bottom / 100% 216px no-repeat; }
 .model-effort-fader.is-max .model-effort-fader-fill::before { content: ''; position: absolute; inset: 0; background: linear-gradient(to bottom, transparent, oklch(1 0 0 / .2), transparent) 0 -94px / 100% 94px no-repeat; animation: model-effort-current 3s linear infinite; }
 @keyframes model-effort-current { to { background-position: 0 216px; } }
 .model-effort-fader-pixel { position: absolute; top: -6px; left: 16%; width: 4px; height: 4px; background: oklch(1 0 0 / .78); opacity: 0; animation: model-effort-pixel-fall 2.8s linear infinite; animation-delay: -.2s; }
@@ -799,9 +802,9 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .model-effort-fader-pixel:nth-child(8) { left: 9%; width: 3px; height: 3px; animation-delay: -2.1s; animation-duration: 3.9s; }
 .model-effort-fader-pixel:nth-child(9) { left: 60%; width: 3px; height: 3px; animation-delay: -1.1s; animation-duration: 3.2s; }
 @keyframes model-effort-pixel-fall { 0% { opacity: 0; transform: translateY(0); } 12% { opacity: .78; } 78% { opacity: .55; } 100% { opacity: 0; transform: translateY(216px); } }
-.model-effort-fader-travel { position: absolute; inset: 19px 0; }
+.model-effort-fader-travel { position: absolute; inset: calc(var(--fader-thumb-size) / 2) 0; }
 .model-effort-fader-tick { position: absolute; left: 50%; width: 18px; height: 2px; transform: translate(-50%, 50%); border-radius: 2px; background: var(--muted); opacity: .7; pointer-events: none; }
-.model-effort-fader-thumb { position: absolute; left: 50%; width: 78px; height: 38px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--ink); box-shadow: 0 2px 7px oklch(0 0 0/.28), inset 0 1px oklch(1 0 0/.18); transform: translate(-50%, calc(50% + var(--pressure))) scale(calc(1 - var(--squeeze)), calc(1 + var(--stretch))); transition: bottom .2s cubic-bezier(.2,.75,.2,1), transform .14s ease-out; pointer-events: none; }
+.model-effort-fader-thumb { --fader-flex: max(var(--effort-fader-pressure), calc(-1 * var(--effort-fader-pressure))); position: absolute; left: 50%; bottom: calc(var(--effort-fader-position) * 100%); width: 78px; height: var(--fader-thumb-size); display: grid; place-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--ink); box-shadow: 0 2px 7px oklch(0 0 0/.28), inset 0 1px oklch(1 0 0/.18); transform: translate(-50%, calc(50% - var(--effort-fader-pressure) * 1px)) scale(calc(1 - min(var(--fader-flex) / 110, .08)), calc(1 + min(var(--fader-flex) / 65, .13))); pointer-events: none; }
 .model-effort-fader-grip { width: 20px; height: 2px; border-radius: 2px; background: var(--bg); box-shadow: 0 -5px var(--bg), 0 5px var(--bg); opacity: .7; }
 :root:not([data-theme=dark]) .model-effort-fader-thumb { background: #fff; box-shadow: 0 1px 4px oklch(0 0 0/.09), inset 0 1px #fff; }
 :root:not([data-theme=dark]) .model-effort-fader-grip { background: oklch(.46 0 0); box-shadow: 0 -5px oklch(.46 0 0), 0 5px oklch(.46 0 0); opacity: .68; }
@@ -907,7 +910,7 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) {
   .app::before, .sidebar, .sidebar-hidden .sidebar, .sidebar-backdrop, .sidebar-hidden .sidebar-backdrop { transition: none; }
   .model-effort-popover { animation: none; }
-  .model-effort-fader-thumb, .model-effort-fader-fill { transition: none; }
+  .model-effort-fader, .model-effort-fader-thumb, .model-effort-fader-fill { transition: none; }
   .model-effort-heading-level-outgoing, .model-effort-heading-level-entering { animation: none; }
   .model-effort-heading-level-outgoing { display: none; }
   .model-effort-fader.is-max .model-effort-fader-fill::before { animation: none; }

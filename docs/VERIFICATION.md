@@ -3993,3 +3993,25 @@ The complete 31-script Windows interface acceptance group also passed locally,
 including the theme bootstrap startup race and final performance matrix check.
 This local run preceded synchronization with main's StepPage and fader changes;
 replacement cloud CI must validate the combined tree.
+
+## Task Progress Completion Motion
+
+The summary task progress now uses the existing yellow-to-purple palette while
+unfinished, including the interval between checklist completion and the final
+round completion event. Only a matching live `desktop_task_completed` event can
+start the impact, right-to-left green sweep and square dust. The existing sound
+and visual subscribers share that event delivery; task counts, reopening the
+panel and restored sessions do not play another sound. Original row completion
+and folding animations remain unchanged. Incomplete lists never fill falsely.
+
+Local source checks passed: typecheck/build, completion sound tests, browser
+motion acceptance, existing summary disclosure acceptance, real Electron motion
+acceptance with a local streaming provider, and summary runtime acceptance.
+Motion acceptance covers scope isolation, reduced motion, narrow layout, impact,
+dust cleanup, waiting for the round to end and reopening without replay.
+Media playback is intercepted in automated acceptance to count trigger timing;
+actual speaker latency is not measured. No real account or paid model is used.
+The full unit run encountered an unchanged Windows terminal-count teardown
+failure; this is not recorded as a fully green unit suite.
+Rerunning the other unit files completed with 609 passing and 13 skipped tests;
+all 15 CI policy/runner tests also passed.

@@ -7,6 +7,7 @@ import { summaryActivity, summaryAgents } from './summary-activity';
 import { DisclosureChevron } from './DisclosureChevron';
 import { DiffCount } from './DiffCount';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
+import { TaskProgress } from './TaskProgress';
 import './summary-board.css';
 
 function TaskRow({ task, visible, language, animateEntrance }: { task: SummaryTask; visible: boolean; language: 'zh' | 'en'; animateEntrance: boolean }) {
@@ -44,16 +45,31 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
   useEffect(() => {
     if (!runtimeId || !sessionId || !window.desktop) return;
     let live = true;
+    let reading = false;
+    let queued = false;
     let timer: ReturnType<typeof setTimeout>;
     const read = async () => {
+      if (!live) return;
+      if (reading) { queued = true; return; }
+      reading = true;
+      clearTimeout(timer);
       try {
         const value = await window.desktop!.summary(runtimeId);
         if (live && value.sessionId === sessionId) { setModel(value); setFailed(false); }
       } catch { if (live) setFailed(true); }
-      if (live) timer = setTimeout(read, 1200);
+      reading = false;
+      if (live) {
+        const delay = queued ? 0 : 1200;
+        queued = false;
+        timer = setTimeout(read, delay);
+      }
     };
     void read();
-    return () => { live = false; clearTimeout(timer); };
+    const unsubscribe = window.desktop.onEvent?.(event => {
+      if (event.runtimeId === runtimeId && (!event.sessionId || event.sessionId === sessionId)
+        && ['tool_execution_end', 'agent_end'].includes(event.type)) void read();
+    });
+    return () => { live = false; clearTimeout(timer); unsubscribe?.(); };
   }, [runtimeId, sessionId]);
   useEffect(() => {
     if (!runtimeId || !window.desktop) return;
@@ -119,10 +135,8 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
         <TaskRow key={`${model?.plan?.id ?? ''}:${task.id}`} task={task} language={language}
           animateEntrance={hasSnapshot.current && !previous.current.has(`${model?.plan?.id ?? ''}:${task.id}`)}
           visible={task.status !== 'completed' || completedOpen || recent.includes(`${model?.plan?.id ?? ''}:${task.id}`)}/>)}</ol>
-      {!!tasks.length && <div className="sb-task-progress" role="progressbar" aria-label={t('任务完成进度', 'Task completion')}
-        aria-valuemin={0} aria-valuemax={tasks.length} aria-valuenow={done.length}
-        aria-valuetext={t(`${done.length} / ${tasks.length} 项完成`, `${done.length} of ${tasks.length} completed`)}>
-        <div style={{ width: `${100 * done.length / tasks.length}%` }}/></div>}
+      {!!tasks.length && <TaskProgress key={JSON.stringify([model?.plan?.id, tasks.map(task => task.id)])}
+        runtimeId={runtimeId} sessionId={sessionId} total={tasks.length} completed={done.length} busy={busy} language={language}/>}
     </section>
     <section className="sb-agents" aria-label={t('代理记录', 'Agent records')}>
       <div className="sb-section-heading"><h4>{t('代理记录', 'Agent records')}</h4><span className="sb-step-count">{agents.length}</span></div>

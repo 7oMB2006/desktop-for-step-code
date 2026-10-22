@@ -276,6 +276,17 @@ labels animate independently, so a live process group never reanimates its
 already-settled children. Reduced motion disables both shimmer and disclosure
 transitions.
 
+# Summary Task Progress Motion
+
+Unfinished task progress uses the established yellow-to-purple palette with a
+flowing highlight. Completing the checklist is not the same as finishing the
+round: keep the full bar flowing during the final response. A matching live
+round-completed event starts the bar impact, cubic-out right-to-left green sweep
+and small square dust, alongside the existing completion notification sound.
+Keep task-row completion and folding motion unchanged. Restored or reopened
+panels show settled state without replay; hidden panels do not gate sound.
+Reduced motion settles directly without impact or particles.
+
 # Product Icon
 
 The canonical product icon is `Desktop/public/StepCode.svg`, copied unchanged from the user's StepCode.svg artwork. Use it for all product identity surfaces. `Desktop/scripts/icons.mjs` generates the Windows ICO from this asset during build/dev. Do not replace it with a terminal glyph or the default Electron icon. The sidebar begins with navigation, without a duplicate brand header.

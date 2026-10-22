@@ -1,5 +1,26 @@
 # Design System
 
+Compact process singletons show the original thinking/tool disclosure directly,
+without a second heading or indentation. Stable keyed members retain manual
+expansion, output controls and focus as siblings arrive or leave. Multi-member
+groups keep the existing summary and failure/approval boundaries.
+Transcript disclosure chevrons sit immediately after labels/timing, before
+previews. Thinking and ordinary tool details share a 240ms cubic height/opacity
+transition in both directions; closed content is inert and tool output mounts
+on first expansion. Reduced motion bypasses these transitions.
+
+Summary retains its compact floating layout and repository overview. Its header
+shows canonical task completion and agent-record counts, plus activity derived
+only from in-progress tasks or explicitly running agent records, never parent
+streaming. Missing/stale data is unknown. A task progress track uses completed
+tasks only; empty plans have no percentage. Agent records reuse existing read-only
+Subagent/Workflow inspectors, without execution controls or invented legacy
+completion. Existing task completion animation and theme tokens remain shared.
+The activity dot breathes in the accent color while running, settles to green
+only when nonempty task/agent records have all succeeded, and stays muted while
+idle. Pending, failed, stopped and skipped records never imply completion.
+Header task counts use the shared checklist icon; MCP uses the official mark.
+
 Scheduled-task creation defaults to durable storage, independently of recurrence.
 The storage radio group names both durable and temporary choices, preserving the
 choice when changing hosts. An untrusted host blocks durable submission with

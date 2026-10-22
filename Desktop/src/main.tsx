@@ -1518,9 +1518,9 @@ function App() {
     <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
-          <header><h2>{t('摘要', 'Summary')}</h2><IconButton title={t('关闭侧栏', 'Close panel')} onClick={closeRightPanel}><X size={16}/></IconButton></header>
-          <div className="summary-content"><SummaryBoard key={`${data.runtimeId ?? 'empty'}:${data.state?.sessionId ?? ''}`} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
-            language={data.preferences.language} onOpenChanges={() => { setRepositoryRequest(value => ({ runtimeId: data.runtimeId, sequence: (value?.sequence ?? 0) + 1 })); setDetails(''); setRightPanel('review'); }}/></div>
+          <SummaryBoard key={`${data.runtimeId ?? 'empty'}:${data.state?.sessionId ?? ''}`} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
+            messages={data.messages} busy={busy} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow} onClose={closeRightPanel}
+            language={data.preferences.language} onOpenChanges={() => { setRepositoryRequest(value => ({ runtimeId: data.runtimeId, sequence: (value?.sequence ?? 0) + 1 })); setDetails(''); setRightPanel('review'); }}/>
         </aside>
       </div>}
       {visibleRightPanel === 'context' && !details && <div className={`summary-region context-region right-inspector-surface${inspectorExpanded ? ' is-expanded' : ''}`}>

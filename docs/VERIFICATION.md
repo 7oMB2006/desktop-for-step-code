@@ -1,5 +1,47 @@
 # Verification
 
+## Transcript And Summary Follow-Up (2026-10-21)
+
+The compact transcript now exposes singleton thinking/tool records through their
+own disclosure, without another group header or indentation. Stable keyed members
+retain manual expansion and output controls when siblings arrive; keyboard focus
+moves to the remaining member when its group header disappears. Existing
+approval/failure and dedicated-interaction boundaries are unchanged.
+
+Thinking and ordinary tools share the native-details animation hook: 240ms cubic
+height/opacity transitions in both directions, inert closed content and lazy
+tool-output mounting. Disclosure arrows follow labels/timing before previews.
+Thinking completion still folds the active thought, while settled history can
+be reopened. Presets, custom defaults and historical reapplication are retained.
+
+Summary adds activity and compact header counts, canonical task progress, and
+structured Subagent/Workflow records opening existing read-only inspectors.
+Parent streaming and successful dispatches do not imply running/completed tasks.
+Unknown legacy records and failed refreshes remain unknown. Repository overview,
+theme tokens, panel geometry and existing task completion animations remain.
+The activity indicator settles to green only for nonempty, fully successful
+task/agent records. Empty, pending, failed, stopped, skipped, unknown and stale
+states are covered separately; checklist counts and the official MCP mark retain
+the compact header and theme colors.
+
+Typecheck and production build passed. The final serialized suite passed 564
+tests with 13 platform skips; all 15 CI-policy/runner tests passed.
+Electron interface-preference, Summary runtime and Summary layout acceptance
+passed, including real pinned task RPC, completion animations, session isolation,
+repository navigation and nonmodal layout. The reused Windows runtime's
+patched-source hashes match the current manifest; no runtime source was changed.
+
+The new `verify-disclosure-summary.mjs` is registered in interface CI. Local
+Playwright validation used installed Edge through its explicit channel override;
+CI defaults to its installed Chromium. It passed singleton identity/focus,
+member-local controls, keyboard and rapid toggles, intermediate closing frames,
+canonical progress, agent-record navigation, zh/en, light/dark, 320/390px and
+reduced-motion checks. Screenshots under `Desktop/test-results/` were inspected.
+The first Summary/full-suite replay used an older staged runtime and failed the
+existing Status-field assertion; replaying against the manifest-matching staged
+runtime passed without modifying that assertion. No new installer, real-model
+acceptance or cloud result is claimed; the running user package is unchanged.
+
 ## Cron Resume Rejection Follow-Up (2026-10-19)
 
 An explicit negative RPC response now has a distinct error type. If the recovery

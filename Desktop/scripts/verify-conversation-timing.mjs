@@ -4,11 +4,16 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-elapsed-ui-'));
 const workspace = join(profile, 'workspace');
 await mkdir(workspace);
 await mkdir(join(profile, 'step-runtime', 'sessions'), { recursive: true });
+await writeFile(join(profile, 'step-runtime', 'models.json'), JSON.stringify({ providers: {
+  fixture: { apiKey: 'isolated-fixture-only', baseUrl: 'http://127.0.0.1:1/v1', api: 'openai-completions',
+    models: [{ id: 'fixture', name: 'Timing fixture', reasoning: true, contextWindow: 32768, maxTokens: 2048 }] },
+} }));
 await mkdir(join(profile, 'conversation-timing'));
 await mkdir('test-results', { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
@@ -116,4 +121,4 @@ try {
   console.log(JSON.stringify(await (await app.firstWindow()).evaluate(() => window.desktop.snapshot()), null, 2));
   await (await app.firstWindow()).screenshot({ path: 'test-results/conversation-elapsed-failure.png' });
   throw error;
-} finally { await app.close(); }
+} finally { await closeDesktopFixture(app); }

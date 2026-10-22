@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
@@ -89,7 +89,7 @@ test('draft reuses discovered Step models only for the same credential and endpo
   let available = true;
   let modelId = 'step-discovered-a';
   const server = createServer((request, response) => {
-    if (!available) { request.socket.destroy(); return; }
+    if (!available) { response.writeHead(503, { Connection: 'close' }); response.end(); return; }
     response.setHeader('Content-Type', 'application/json');
     response.end(JSON.stringify({ data: [{ id: modelId,
       max_input_tokens: 32768, enable_reason: true, reasoning_effort_support_list: ['low', 'high'] }] }));
@@ -106,7 +106,8 @@ test('draft reuses discovered Step models only for the same credential and endpo
   await writeFile(join(root, 'models.json'), JSON.stringify(providers('fixture-official-a')));
   await writeFile(join(root, 'auth.json'), JSON.stringify({ step: { type: 'api_key', key: 'fixture-official-a' } }));
   const rpc = new RpcProcess(() => {});
-  const env = { ...isolatedEnvironment(root), STEP_PROVIDER_API_URL: baseUrl };
+  const env = { ...isolatedEnvironment(root), STEP_PROVIDER_API_URL: baseUrl,
+    STEPCODE_DEVCENTER_AUTH_CN_URL: `https://127.0.0.1:${address.port}` };
   try {
     rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/admin.mjs'), root, env);
     const read = () => rpc.request('session_options', { cwd: root }, 20000);
@@ -120,6 +121,15 @@ test('draft reuses discovered Step models only for the same credential and endpo
       assert.equal(cached.model.provider, 'fixture-custom', 'cached catalog must not switch billing provider');
       assert.equal(cached.officialModel, false);
     }
+    const originalAuth = await readFile(join(root, 'auth.json'), 'utf8');
+    await assert.rejects(rpc.request('login', { profile: 'platform_cn', key: '' }), /Management operation failed: login/);
+    assert.deepEqual(official(await read()), official(first), 'failed login preserves the unchanged account catalog');
+    await Promise.all([
+      assert.rejects(rpc.request('login', { profile: 'step_plan' }), /Management operation failed: login/),
+      rpc.request('cancel_login'),
+    ]);
+    assert.equal(await readFile(join(root, 'auth.json'), 'utf8'), originalAuth, 'cancelled login preserves the credential');
+    assert.deepEqual(official(await read()), official(first), 'cancelled login preserves the unchanged account catalog');
     await writeFile(join(root, 'auth.json'), JSON.stringify({ step: { type: 'api_key', key: 'fixture-official-b' } }));
     assert.deepEqual(official(await read()), [], 'a different credential cannot reuse the previous account catalog');
     available = true;

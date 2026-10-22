@@ -91,12 +91,24 @@ The management process also retains its last successful official discovery
 catalog in memory, scoped by credential, endpoint and model configuration.
 Unavailable discovery must not hide Step merely because custom models remain.
 No built-in model list is fabricated; the cache does not survive process restart.
+Failed or cancelled sign-in leaves the unchanged account's discovered catalog
+intact; invalidation follows successful credential replacement. The discovery
+fixture returns an explicit 503 during outages instead of abruptly destroying
+pooled sockets across its recovery boundary.
 
 Typecheck, build and 119 focused tests passed. Real Electron model-switch
 acceptance covers orderly application restart, on-disk default identity,
 independent old-session selection, cloning/branching, missing-model rejection
 without a generation request, and explicit alternative selection. These are
 isolated local fixtures, not live official-account or packaged acceptance.
+The elapsed-time Electron fixture now configures its recorded model explicitly,
+so missing-model protection is retained rather than bypassed. Its history,
+reload, dark/light/narrow, ticking and freezing checks passed locally.
+The review-fix replay passed typecheck, build, model-switch and account-routing
+Electron checks. The full local protocol run reported 628 passes, 13 platform
+skips and one existing terminal-host cleanup timeout (nine concurrent hosts,
+three-second tree termination). Its unchanged terminal code is outside this
+model fix; this run is not claimed as an all-green suite.
 
 ## Cron Transcript Source Disclosure (2026-10-20)
 

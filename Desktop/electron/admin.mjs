@@ -146,7 +146,6 @@ async function dispatch(message) {
       if (login) throw new Error('Login already in progress');
       const profile = upstream.resolveStepLoginProfiles().find(p => p.id === message.profile);
       if (!profile) throw new Error('Unknown login profile');
-      stepModelCache = undefined;
       login = new AbortController();
       try {
         let apiKey = message.key;
@@ -161,6 +160,7 @@ async function dispatch(message) {
         }
         if (typeof apiKey !== 'string' || !apiKey.trim()) throw new Error('API key is required');
         await upstream.writeStepLoginCredential({ authPath, profile: profile.id, apiKey, uid });
+        stepModelCache = undefined;
         return desktopAuth ? upstream.readDesktopAuthData() : null;
       } finally { login = undefined; }
     }

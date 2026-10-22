@@ -3,6 +3,7 @@ import { backgroundSubagentStates, conversationEntries, responsePresentation, su
 import { workflowsFromMessages } from './workflow-state';
 import { redactSensitiveText } from './subagent-redact';
 import { isUserMessage } from './user-message';
+import { cronMessage } from './cron-message';
 
 export type SummaryAgent = {
   key: string; agent: string; task: string;
@@ -15,7 +16,8 @@ export type SummaryAgent = {
 export function summaryAgents(messages: Message[], busy: boolean): SummaryAgent[] {
   const background = backgroundSubagentStates(messages);
   const entries = conversationEntries(messages);
-  const lastUser = messages.reduce((last, message, index) => isUserMessage(message) ? index : last, -1);
+  const lastTurn = messages.reduce((last, message, index) =>
+    isUserMessage(message) || cronMessage(message) ? index : last, -1);
   const callOrigins = new Map<string, number>();
   messages.forEach((message, index) => {
     if (message.display === false || !Array.isArray(message.content)) return;
@@ -42,7 +44,7 @@ export function summaryAgents(messages: Message[], busy: boolean): SummaryAgent[
         const status = registered || explicit ? task.status
           : item.result?.isError ? 'failed' : !item.result && active ? 'queued' : 'unknown';
         const callId = item.call?.id ?? item.result?.toolCallId;
-        const carried = (callId ? callOrigins.get(callId) ?? item.index : item.index) < lastUser;
+        const carried = (callId ? callOrigins.get(callId) ?? item.index : item.index) < lastTurn;
         if (carried && !(registered && (status === 'running' || status === 'queued'))) return;
         records.push({ key: `subagent:${item.key}:${index}`, agent: redactSensitiveText(task.agent),
           task: redactSensitiveText(task.task), status, carried, target: { type: 'subagent', task } });
@@ -50,7 +52,7 @@ export function summaryAgents(messages: Message[], busy: boolean): SummaryAgent[
     }
   });
   for (const flow of workflowsFromMessages(messages, busy)) {
-    if ((callOrigins.get(flow.toolCallId) ?? -1) < lastUser) continue;
+    if ((callOrigins.get(flow.toolCallId) ?? -1) < lastTurn) continue;
     for (const agent of flow.agents) records.push({
       key: `workflow:${flow.toolCallId}:${agent.id}`, agent: agent.label, task: agent.task, status: agent.status,
       target: { type: 'workflow', id: flow.runId ?? flow.toolCallId },
@@ -59,7 +61,8 @@ export function summaryAgents(messages: Message[], busy: boolean): SummaryAgent[
   return records;
 }
 
-export function summaryActivity(tasks: SummaryTask[] | undefined, agents: SummaryAgent[], stale = false) {
+export function summaryActivity(tasks: SummaryTask[] | undefined, agents: SummaryAgent[], stale = false, busy = false) {
+  if (busy) return 'running';
   if (stale || !tasks) return 'unknown';
   if (tasks.some(task => task.status === 'in_progress') || agents.some(agent => agent.status === 'running')) return 'running';
   if (agents.some(agent => agent.status === 'unknown')) return 'unknown';

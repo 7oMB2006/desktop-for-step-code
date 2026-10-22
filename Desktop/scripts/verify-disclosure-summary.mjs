@@ -123,12 +123,50 @@ try {
   assert.equal(await page.locator('.historical-agents .lane-row').count(), 2, 'history does not duplicate on reopen');
   await page.locator('.historical-agents > summary').click();
   await page.screenshot({ path: 'test-results/disclosure-summary-turn-scope.png', fullPage: true });
+  await page.evaluate(() => {
+    const dispatch = (id, task) => [
+      { role: 'assistant', content: [{ type: 'toolCall', id, name: 'subagent', arguments: {} }] },
+      { role: 'toolResult', toolName: 'subagent', toolCallId: id, content: '',
+        details: { results: [{ agent: 'reader', task, status: 'completed', messages: [] }] } },
+    ];
+    const history = [
+      { role: 'user', content: 'Original task' },
+      ...dispatch('before-cron', 'Previous agent'),
+      { role: 'custom', customType: 'step-cron', content: '[cron] Check again' },
+      ...dispatch('after-cron', 'Cron agent'),
+    ];
+    window.disclosureFixture.load(history, false);
+  });
+  await page.locator('.cron-message-trigger').waitFor();
+  assert.equal(await page.locator('.message.assistant').count(), 2);
+  assert.equal(await page.locator('.historical-agents').count(), 1, 'previous response folds at the same Cron boundary');
+  assert.equal(await page.locator('.sb-agent-row').count(), 1, 'summary shows only the Cron turn');
+  assert.match(await page.locator('.sb-agent-row').innerText(), /Cron agent/);
+  await page.locator('.historical-agents > summary').click();
+  await page.locator('.historical-agents .lane-row').waitFor();
+  assert.match(await page.locator('.historical-agents').innerText(), /Previous agent/);
+  assert.equal(await page.locator('.sb-agent-row').count(), 1, 'expanding pre-Cron history does not restore it to summary');
   const currentSummary = { sessionId: 'fixture', tasks: [], mcp: [], skillCount: 0 };
   await page.evaluate(value => window.disclosureFixture.summary(value), currentSummary);
   await page.waitForFunction(() => document.querySelector('.sb-step-count')?.textContent !== '--');
   assert.equal(await progress.count(), 0, 'empty tasks do not imply a completion percentage');
   await load('thought', true);
-  assert.equal(await page.locator('.sb-activity').getAttribute('data-state'), 'idle', 'parent streaming is not task activity');
+  assert.equal(await page.locator('.sb-activity').getAttribute('data-state'), 'running', 'live conversation does not wait for summary polling');
+  assert.equal(await page.locator('.sb-activity').getAttribute('aria-label'), '会话运行中');
+  await load('pending', true);
+  assert.equal(await page.locator('.sb-activity').getAttribute('data-state'), 'running', 'ordinary tool execution is live activity');
+  assert.equal(await progress.count(), 0, 'live activity never invents task completion');
+  await load('tool', false);
+  assert.equal(await page.locator('.sb-activity').getAttribute('data-state'), 'idle', 'ending an unplanned turn does not invent completion');
+  await page.evaluate(value => window.disclosureFixture.summary(value), { ...currentSummary,
+    tasks: [{ id: '1', subject: '任务', description: '', status: 'completed' }] });
+  await page.waitForFunction(() => document.querySelector('.sb-activity')?.getAttribute('data-state') === 'completed');
+  await load('thought', true);
+  assert.equal(await page.locator('.sb-activity').getAttribute('data-state'), 'running', 'a new turn overrides the preceding completed plan immediately');
+  assert.equal(await progress.getAttribute('aria-valuenow'), '1', 'runtime activity does not rewrite canonical task counts');
+  await load('tool', false);
+  assert.equal(await page.locator('.sb-activity').getAttribute('data-state'), 'completed');
+  await load('thought', true);
   await page.evaluate(value => window.disclosureFixture.summary(value), { ...currentSummary,
     tasks: [{ id: '1', subject: '任务', description: '', status: 'in_progress' }] });
   for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [390, 'light'], [320, 'dark']]) {

@@ -84,11 +84,11 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
   }, [recent]);
   const tasks = model?.tasks ?? [];
   const agents = useMemo(() => sessionId ? summaryAgents(messages, busy) : [], [messages, busy, sessionId]);
-  const activity = summaryActivity(model?.tasks, agents, failed);
+  const activity = summaryActivity(model?.tasks, agents, failed, busy);
   const done = tasks.filter(task => task.status === 'completed');
   const connected = model?.mcp.filter(server => server.status === 'connected').length ?? 0;
   const root = repository?.root?.replace(/\\/g, '/').split('/').at(-1);
-  const activityLabel = activity === 'running' ? t('任务或代理进行中', 'Task or agent running')
+  const activityLabel = activity === 'running' ? busy ? t('会话运行中', 'Conversation running') : t('任务或代理进行中', 'Task or agent running')
     : activity === 'completed' ? t('任务与代理已全部完成', 'All tasks and agents completed')
     : activity === 'unknown' ? t('活动状态未知', 'Activity unknown') : t('暂无进行中的任务或代理', 'No running tasks or agents');
   return <><header>

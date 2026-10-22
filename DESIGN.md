@@ -10,9 +10,11 @@ transition in both directions; closed content is inert and tool output mounts
 on first expansion. Reduced motion bypasses these transitions.
 
 Summary retains its compact floating layout and repository overview. Its header
-shows canonical task completion and agent-record counts, plus activity derived
-only from in-progress tasks or explicitly running agent records, never parent
-streaming. Missing/stale data is unknown. A task progress track uses completed
+shows canonical task completion and agent-record counts. Its activity indicator
+responds immediately to live conversation execution, without waiting for summary
+polling; otherwise it reflects in-progress tasks or running agent records.
+Missing/stale summary data is unknown unless the live conversation is running.
+A task progress track uses completed
 tasks only; empty plans have no percentage. Agent records reuse existing read-only
 Subagent/Workflow inspectors, without execution controls or invented legacy
 completion. Existing task completion animation and theme tokens remain shared.
@@ -20,7 +22,7 @@ The activity dot breathes in the accent color while running, settles to green
 only when nonempty task/agent records have all succeeded, and stays muted while
 idle. Pending, failed, stopped and skipped records never imply completion.
 Header task counts use the shared checklist icon; MCP uses the official mark.
-Summary agent rows are scoped to the latest visible user/Goal turn, plus
+Summary agent rows are scoped to the latest visible user/Goal/Cron turn, plus
 registered background tasks still running or queued from earlier turns.
 Late results retain their dispatch turn. Historical transcript agent calls are
 collected into one initially collapsed disclosure per response, with the same

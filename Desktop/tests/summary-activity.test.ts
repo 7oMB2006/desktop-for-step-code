@@ -27,12 +27,25 @@ test('unobserved legacy and interrupted histories stay unknown; planned work sta
   assert.equal(summaryActivity([], records), 'unknown');
 });
 
-test('activity represents tasks and agents, not parent-model streaming; stale data stays unknown', () => {
+test('settled activity represents tasks and agents; stale data stays unknown', () => {
   assert.equal(summaryActivity(undefined, []), 'unknown');
   assert.equal(summaryActivity([], []), 'idle');
   assert.equal(summaryActivity([task('in_progress')], []), 'running');
   assert.equal(summaryActivity([task('completed')], []), 'completed');
   assert.equal(summaryActivity([task('in_progress')], [], true), 'unknown');
+});
+
+test('live conversation activity takes effect before summary polling without changing task completion', () => {
+  for (const tasks of [undefined, [], [task('pending')], [task('completed')]]) {
+    const before = structuredClone(tasks);
+    assert.equal(summaryActivity(tasks, [], false, true), 'running');
+    assert.equal(summaryActivity(tasks, [], true, true), 'running', 'live runtime evidence survives a failed summary read');
+    assert.deepEqual(tasks, before);
+  }
+  assert.equal(summaryActivity([], [], false, false), 'idle', 'ending an unplanned turn is not task completion');
+  assert.equal(summaryActivity([task('pending')], [], false, false), 'idle');
+  assert.equal(summaryActivity([task('completed')], [], false, false), 'completed');
+  assert.equal(summaryActivity([task('completed')], [], true, false), 'unknown');
 });
 
 test('completion requires nonempty work and successful states for every task and agent', () => {
@@ -94,6 +107,46 @@ test('visible Goal input starts a turn but hidden reminders do not clear the cur
   assert.equal(summaryAgents([...previous, { role: 'custom', customType: 'desktop-goal-input', content: 'New Goal' }], false).length, 0);
 });
 
+test('visible Cron notices start summary turns without losing history or claiming late results', () => {
+  const previous = [call, result([{ agent: 'reader', task: 'Old', status: 'completed' }])];
+  const fire: Message = { role: 'custom', customType: 'step-cron', content: '[cron] Check the module' };
+  const currentCall: Message = { role: 'assistant', content: [
+    { type: 'toolCall', id: 'cron-dispatch', name: 'subagent', arguments: {} },
+  ] };
+  const currentResult: Message = { ...result([{ agent: 'reader', task: 'Cron task', status: 'completed' }]),
+    toolCallId: 'cron-dispatch' };
+  for (const notice of [fire, { ...fire, details: { kind: 'missed', count: 1 } }]) {
+    const messages = [...previous, notice, currentCall, currentResult];
+    const before = structuredClone(messages);
+    const records = summaryAgents(messages, false);
+    assert.deepEqual(records.map(record => record.task), ['Cron task']);
+    assert.deepEqual(summaryAgents([...previous, notice], true), []);
+    assert.deepEqual(summaryAgents([call, notice, previous[1]], false), [], 'late results retain their dispatch turn');
+    assert.deepEqual(summaryAgents([...messages, notice], true), [], 'each visible Cron starts another turn');
+    assert.deepEqual(summaryAgents(JSON.parse(JSON.stringify(messages)), false), records, 'saved history uses the same boundaries');
+    assert.deepEqual(messages, before);
+  }
+  for (const notice of [{ ...fire, display: false }, { ...fire, role: 'assistant' },
+    { ...fire, customType: 'other' }]) {
+    assert.equal(summaryAgents([...previous, notice], false).length, 1, 'hidden or non-Cron notices do not retire records');
+  }
+});
+
+test('live background agents cross Cron turns and retire only after their terminal notification', () => {
+  for (const status of ['running', 'queued'] as const) {
+    const messages: Message[] = [call, {
+      ...result([{ agent: 'reader', task: 'Background', status }]),
+      details: { agentId: 'cron-background', status, results: [{ agent: 'reader', task: 'Background', status }] },
+    }, { role: 'custom', customType: 'step-cron', content: '[cron] Next task' }];
+    const records = summaryAgents(messages, true);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].carried, true);
+    assert.equal(records[0].status, status);
+    assert.deepEqual(summaryAgents([...messages, { role: 'custom', customType: 'agent-notification', content: '',
+      details: { agentId: 'cron-background', event: 'background_done', status: 'completed' } }], true), []);
+  }
+});
+
 test('registered live background work survives turn changes and retires on completion', () => {
   const messages: Message[] = [call, {
     ...result([{ agent: 'reader', task: 'Background', status: 'running' }]),
@@ -119,4 +172,16 @@ test('historical workflow records and late results never become current-turn rec
   assert.equal(summaryAgents([workflowCall, workflowResult], false).length, 1);
   assert.deepEqual(summaryAgents([workflowCall, workflowResult, next], false), []);
   assert.deepEqual(summaryAgents([workflowCall, next, workflowResult], false), []);
+});
+
+test('Cron summary workflows belong to their dispatch turn rather than their result arrival', () => {
+  const workflowCall: Message = { role: 'assistant', content: [{ type: 'toolCall', id: 'cron-flow', name: 'workflow', arguments: {} }] };
+  const workflowResult: Message = { role: 'toolResult', toolName: 'workflow', toolCallId: 'cron-flow', content: '', details: {
+    schemaVersion: 1, runId: 'wf_cron', status: 'completed',
+    agents: [{ id: 'a', label: 'worker', task: 'Cron flow', status: 'completed' }],
+  } };
+  const fire: Message = { role: 'custom', customType: 'step-cron', content: '[cron] Run workflow' };
+  assert.deepEqual(summaryAgents([workflowCall, workflowResult, fire], true), []);
+  assert.deepEqual(summaryAgents([workflowCall, fire, workflowResult], false), []);
+  assert.equal(summaryAgents([fire, workflowCall, workflowResult], false).length, 1);
 });

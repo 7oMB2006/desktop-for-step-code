@@ -67,8 +67,8 @@ try {
   await app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0]; w.setOpacity(0); w.setIgnoreMouseEvents(true); w.showInactive(); w.setSize(1360, 900);
   });
-  await page.evaluate(() => window.desktop.snapshot());
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  await page.evaluate(() => window.desktop.snapshot());
   const dialog = page.getByRole('dialog', { name: '回答问题', exact: true });
   const send = async (prompt, approval = false) => {
     await page.waitForFunction(() => document.querySelector('.composer-action-button')?.getAttribute('data-action') === 'send');

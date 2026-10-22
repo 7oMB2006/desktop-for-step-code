@@ -1403,8 +1403,13 @@ try {
     const label = document.querySelector('.message.assistant:last-of-type .process-tool > summary .process-tool-label');
     return getComputedStyle(label).transform === 'matrix(1, 0, 0, 1, 0, 0)';
   });
+  assert.equal(await liveCommand.locator('.process-tool-status').count(), 0, 'unvisited tool details mount lazily');
+  await liveCommand.locator(':scope > summary').click();
+  await liveCommand.locator('.process-tool-status').waitFor();
   assert.equal(await liveCommand.locator(':scope > summary').evaluate(element => getComputedStyle(element).color),
     await liveCommand.locator('.process-tool-status').evaluate(element => getComputedStyle(element).color));
+  await liveCommand.locator(':scope > summary').click();
+  await page.waitForFunction(() => !document.querySelector('.message.assistant:last-of-type .process-tool')?.open);
   await page.waitForFunction(() => !document.querySelector('.message.assistant:last-of-type .thinking')?.open);
   assert.equal(await liveResponse.locator('.thinking').getAttribute('open'), null);
   await liveResponse.scrollIntoViewIfNeeded();

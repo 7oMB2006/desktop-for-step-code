@@ -1,5 +1,29 @@
 # Verification
 
+## Summary Turn Alignment And CI Replay (2026-10-22)
+
+The Summary activity dot now follows live conversation execution immediately;
+it does not wait for the summary poll or rewrite canonical task progress.
+Visible native Cron notices, including missed notices, start a Summary turn
+just as they do in the transcript. Historical agents remain inspectable there;
+registered queued/running background agents carry forward until settlement.
+Late results retain their original dispatch ownership.
+
+Fourteen Summary state tests and the browser regression cover these cases,
+including repeated Cron, hidden/non-Cron notices, saved replay, Workflow records
+and history expansion without repopulating Summary. The related 49-test run,
+typecheck and production build passed.
+
+CI replay now opens lazily mounted tool details before reading their status,
+expands historical agent disclosures before inspecting their rows, waits for
+the connected page before evaluating the bridge, and arms terminal width-frame
+sampling before triggering transitions. The existing assertions are retained.
+Local source Electron, hidden-message, clarification and real PowerShell terminal
+acceptance passed. The local shared node-pty input was incomplete; generated
+terminal resources were repaired from the version 1.1.0 npm archive after
+verifying its SHA-512 against the lockfile, without changing shared dependencies.
+Cloud and packaged acceptance are tracked separately from these source results.
+
 ## Transcript And Summary Follow-Up (2026-10-21)
 
 The compact transcript now exposes singleton thinking/tool records through their

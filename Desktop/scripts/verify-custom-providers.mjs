@@ -339,13 +339,24 @@ try {
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   await settings();
+  const beforeDisable = await snapshot();
+  const requestsBeforeDisable = requests.length;
   await page.getByRole('switch', { name: '启用供应商' }).click();
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('已保存', { exact: true }).waitFor();
   assert.equal((await snapshot()).models.some(m => m.provider === provider.id), false);
+  const disabled = await snapshot();
+  assert.equal(disabled.status, 'disconnected', 'disabled selection cannot run on an alternative model');
+  assert.equal(disabled.state.model.provider, provider.id, 'history keeps the explicitly selected model');
+  assert.equal(requests.length, requestsBeforeDisable, 'disabling a provider sends no generation request');
   await page.getByRole('switch', { name: '启用供应商' }).click();
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('已保存', { exact: true }).waitFor();
+  const reenabled = await snapshot();
+  assert.equal(reenabled.status, 'connected');
+  assert.equal(reenabled.state.model.provider, provider.id);
+  assert.equal(reenabled.state.sessionId, beforeDisable.state.sessionId, 'reenabling restores the same conversation');
+  assert.equal(requests.length, requestsBeforeDisable, 'reenabling restores identity without generating');
   for (const [label, promptText, path, reply] of [
     ['Responses · /responses', 'Test Responses provider', '/v1/responses', 'Responses fixture reply.'],
     ['Anthropic Messages · /messages', 'Test Anthropic provider', '/v1/messages', 'Anthropic fixture reply.'],

@@ -15,6 +15,7 @@ import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, Ru
 import { isFullAccessRisk } from '../src/full-access-risk';
 import { questionnaire } from '../src/questionnaire';
 import { cronState, hasScheduledCron, type CronState } from './cron-state';
+import { restoreSelectedModel, UnavailableModelError } from './model-preference';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -39,6 +40,7 @@ export interface SessionRuntime {
   messages: Message[];
   models: Model[];
   pendingModel?: ModelSelection;
+  modelUnavailable?: boolean;
   stats?: SessionStats;
   pendingUI: Map<string, UIRequest>;
   uiTimers: Map<string, NodeJS.Timeout>;
@@ -90,6 +92,7 @@ export class SessionRuntimes {
     private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void;
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
+      initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
@@ -128,6 +131,7 @@ export class SessionRuntimes {
         !worker.failed && !worker.interrupted);
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
+        await this.hooks.initializeModel?.(empty, false);
         this.activate(empty);
         return empty;
       }
@@ -303,6 +307,10 @@ export class SessionRuntimes {
       worker.status = 'connected';
       worker.state = await worker.rpc.request('get_state');
       await this.read(worker);
+      // Recovery is already explicitly confirmed with its own model, and refresh
+      // below restores the captured live selection rather than a global default.
+      if (!existing && env.DESKTOP_CRON_RECOVERY !== '1')
+        await this.hooks.initializeModel?.(worker, Boolean(sessionPath || branch));
       if (activate) this.activate(worker);
       else this.publish();
       return worker;
@@ -487,7 +495,8 @@ export class SessionRuntimes {
       await this.assertIdle(worker, { stopHost: options.stopHost !== false });
     }
   }
-  async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv) {
+  async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv,
+    options: { allowUnavailableModel?: boolean } = {}) {
     await this.assertIdle(worker, { stopHost: true });
     if (worker.operations || worker.mutating || worker.stopping) throw new Error('Session operation in progress');
     const sessionFile = worker.state?.sessionFile && existsSync(worker.state.sessionFile) ? worker.state.sessionFile : undefined;
@@ -496,6 +505,7 @@ export class SessionRuntimes {
     const thinkingLevel = worker.state?.thinkingLevel;
     const permissionPreset = worker.permissionPreset;
     const previousState = worker.state;
+    worker.modelUnavailable = false;
     worker.mutating = true;
     // Ignore late exit events from the old transport without changing the UI identity.
     this.workers.delete(worker.id);
@@ -504,9 +514,8 @@ export class SessionRuntimes {
       await worker.rpc.stop();
       await this.openWorker(node, entry, worker.cwd, env, sessionFile, undefined, false, worker);
       if (worker.state?.sessionId !== sessionId) throw new Error('Runtime changed session identity');
-      const selected = worker.models.find(item => item.provider === model?.provider && item.id === model?.id) ?? worker.models[0];
-      if (selected) await worker.rpc.request('set_model', { provider: selected.provider, modelId: selected.id });
-      if (selected?.provider === model?.provider && selected?.id === model?.id && thinkingLevel) {
+      await restoreSelectedModel(worker, model);
+      if (model && thinkingLevel) {
         const { levels } = await worker.rpc.request('get_available_thinking_levels');
         if (levels?.includes(thinkingLevel)) await worker.rpc.request('set_thinking_level', { level: thinkingLevel });
       }
@@ -515,6 +524,10 @@ export class SessionRuntimes {
     } catch (error) {
       worker.state = previousState;
       await this.suspend([worker]);
+      if (error instanceof UnavailableModelError) {
+        worker.modelUnavailable = true;
+        if (options.allowUnavailableModel) return;
+      }
       throw error;
     } finally { worker.mutating = false; this.publish(); }
   }

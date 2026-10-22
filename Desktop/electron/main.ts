@@ -26,6 +26,7 @@ import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/in
 import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } from '../src/theme';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
+import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
@@ -308,6 +309,11 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
       await workflowBindings.load(worker.state.sessionId));
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
+  initializeModel: async (worker, restoring) => {
+    const history = restoring ? await worker.rpc.request('get_entries') : undefined;
+    const expected = history ? savedSessionModel(history.entries ?? [], history.leafId ?? null) : preferences.preferredModel;
+    await restoreSelectedModel(worker, expected, preferences.language);
+  },
   launch: worker => { usageEstimates.attach(worker); return collaboration.attach(worker); },
   dispose: worker => {
     conversationTiming.event(worker, { type: 'desktop_exit' });
@@ -412,6 +418,16 @@ function savePreferences() {
   preferenceWrites = write;
   return write;
 }
+async function rememberModel(model: Model) {
+  const previous = preferences.preferredModel;
+  const selected = modelPreference(model)!;
+  preferences.preferredModel = selected;
+  try { await savePreferences(); }
+  catch (error) {
+    if (preferences.preferredModel === selected) preferences.preferredModel = previous;
+    throw error;
+  }
+}
 let sessionCatalog: Session[] = [];
 // Upstream spawns one real session per subagent so it can resume the child transcript.
 // Those are an implementation detail of the subagent feature, not sessions the user opened,
@@ -507,8 +523,9 @@ async function performProviderSettings() {
   await admin.stop();
   admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
   for (const worker of workers) {
-    if (worker.status !== 'connected') continue;
-    await runtimes.refresh(worker, nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), authEnvironment());
+    if (worker.status !== 'connected' && !worker.modelUnavailable) continue;
+    await runtimes.refresh(worker, nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), authEnvironment(),
+      { allowUnavailableModel: true });
     if (worker.pendingModel && !worker.models.some(m => m.provider === worker.pendingModel?.model.provider && m.id === worker.pendingModel?.model.id))
       worker.pendingModel = undefined;
   }
@@ -621,11 +638,14 @@ async function beginSession(workspace?: string) {
     if (selected) await workspaceDirectory(selected);
     const previous = sessionDraft;
     const options = await admin.request('session_options', { cwd: selected ?? app.getPath('documents') });
+    options.model = preferredModel(options.models, preferences.preferredModel, options.model);
+    if (!options.model?.thinkingLevels?.includes(options.thinkingLevel))
+      options.thinkingLevel = options.model?.thinkingLevels?.[0];
     const next: NonNullable<typeof sessionDraft> = { id: previous?.id ?? randomUUID(), workspace: selected, ...options,
       permissionPreset: previous?.permissionPreset ?? options.permissionPreset, permissionChanged: previous?.permissionChanged,
       launch: previous?.launch ?? emptyLaunch() };
     const selectedModel = previous?.modelChanged
-      ? options.models.find((m: Model) => m.provider === previous.model?.provider && m.id === previous.model?.id) : undefined;
+      ? preferredModel(options.models, modelPreference(previous.model)) : undefined;
     if (selectedModel) {
       Object.assign(next, { model: selectedModel, modelChanged: true });
       if (!selectedModel.thinkingLevels?.includes(next.thinkingLevel!))
@@ -823,6 +843,8 @@ async function handle(method: string, args: any[]) {
     case 'createDraftSession': {
       if (!sessionDraft || sessionDraft.id !== text(args[0], 80)) throw new Error('This session draft is no longer active');
       const draft = sessionDraft;
+      if (draft.model && !draft.models?.some(model => model.provider === draft.model!.provider && model.id === draft.model!.id))
+        throw unavailableModel(draft.model, preferences.language);
       const created = await (draft.workspace ? connect(draft.workspace) : newIndependentSession());
       try {
         if (draft.model && (draft.modelChanged || draft.model.provider !== created.state?.model?.provider || draft.model.id !== created.state?.model?.id))
@@ -1269,6 +1291,7 @@ async function handle(method: string, args: any[]) {
         if (type === 'set_model') {
           const model = sessionDraft.models?.find(model => model.id === data.modelId && model.provider === data.provider);
           if (!model) throw new Error('Unknown model');
+          await rememberModel(model);
           sessionDraft.model = model; sessionDraft.modelChanged = true;
           if (!model.thinkingLevels?.includes(sessionDraft.thinkingLevel!)) sessionDraft.thinkingLevel = model.thinkingLevels?.[0];
           sessionDraft.thinkingChanged = Boolean(sessionDraft.thinkingLevel);
@@ -1331,6 +1354,10 @@ async function handle(method: string, args: any[]) {
             modelSelections.select(worker, { ...configured, thinkingLevels: modelThinkingLevels(configured) });
           } else modelSelections.selectEffort(worker, text(data.level, 30));
           if (!runtimes.isBusy(worker)) await modelSelections.apply(worker);
+          if (type === 'set_model') {
+            const selected = worker.pendingModel?.model ?? worker.state?.model;
+            if (selected) await rememberModel(selected);
+          }
           return;
         }
         if (type === 'get_available_thinking_levels') {
@@ -1734,6 +1761,7 @@ else app.whenReady().then(async () => {
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
   preferences = migrateWorkspaceIdentity(preferences);
+  preferences.preferredModel = modelPreference(preferences.preferredModel);
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.theme = normalizeTheme(preferences.theme);
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;

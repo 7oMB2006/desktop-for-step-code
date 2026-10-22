@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { queueFixture } from './queue-demo-fixture.mjs';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-quit-review-')));
 const fixture = await queueFixture(profile, { duration: 500 });
@@ -76,6 +77,34 @@ try {
     .split('\n').filter(Boolean).map(line => JSON.parse(line));
   assert.equal(stored.length, 1);
   assert.equal(stored[0].durable, true);
+
+  // Exercise fixture teardown with both a future review event and an existing
+  // pending review. A durable Cron guarantees that shutdown needs approval.
+  for (const pending of [false, true]) {
+    app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE
+      ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
+    exited = false;
+    const fixturePage = await app.firstWindow();
+    await fixturePage.getByText('队列交互示例（本地模拟）', { exact: true }).click({ timeout: 60000 });
+    await fixturePage.waitForFunction(async () => {
+      const value = await window.desktop.snapshot();
+      return value.state?.sessionId === 'queue-demo' && value.status === 'connected';
+    });
+    await fixturePage.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
+    await fixturePage.waitForFunction(async () => (await window.desktop.cronList()).tasks.length === 1);
+    if (pending) {
+      await fixturePage.evaluate(() => window.desktop.windowControl('quit'));
+      await fixturePage.locator('.quit-confirmation').waitFor();
+    }
+    await Promise.race([
+      closeDesktopFixture(app),
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`Fixture quit timed out (pending=${pending})`)), 15000).unref()),
+    ]);
+    exited = true;
+    console.log(`Fixture orderly quit passed: pending=${pending}, durable Cron retained.`);
+    assert.equal((await readFile(join(fixture.workspace, '.stepcode/cron/tasks.json'), 'utf8'))
+      .split('\n').filter(Boolean).length, 1);
+  }
 
   // A crashed renderer cannot show an application-owned modal; verify safe native fallback separately.
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE

@@ -3790,3 +3790,16 @@ Three consecutive source runs and one run against the existing
 `cron-quit-20261022-preview` package passed locally, as did all 15 CI policy/runner
 tests. This follow-up changes only acceptance code and documentation; it does not
 change the packaged application. Replacement cloud CI remains required.
+
+### Theme Bootstrap CI Shutdown Follow-Up
+
+Run `39725588859` passed account allowance, balance and routing, then failed
+`verify-theme-bootstrap.mjs` at `first frame wine: Electron close timed out`.
+That fixture also mocked only the native dialog; startup can still require the
+application-owned review when teardown begins. Its bounded, orderly close now
+uses `closeDesktopFixture`, without changing first-frame or system-race assertions.
+
+Real Electron regression cases retain a durable Cron across shutdown and restart,
+covering both an already-pending review and a review raised by fixture teardown.
+Replacing the helper with the former `app.close()` reproduces the 15-second
+timeout; both cases pass with the helper. All 15 CI policy/runner tests pass.

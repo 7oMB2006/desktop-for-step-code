@@ -1,8 +1,10 @@
 import { createInterface } from 'node:readline';
+import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { scanDesktopUsage } from './usage-overview.mjs';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { reconcileStepPageServers, prepareStepPageServers } from './steppage-config.mjs';
 
 // Management lives in a separate process so Step globals never enter Electron.
@@ -14,6 +16,7 @@ const sessions = process.env.STEP_CODING_AGENT_SESSION_DIR;
 const agentDir = process.env.STEP_CODING_AGENT_DIR;
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 let login;
+let stepModelCache;
 const safeMcp = servers => Object.fromEntries(Object.entries(servers).map(([name, item]) => [name, {
   command: item.command, args: item.args, cwd: item.cwd, url: item.url, enabled: item.enabled !== false,
   configuredSecrets: [...Object.keys(item.env ?? {}), ...Object.keys(item.http_headers ?? {})],
@@ -63,13 +66,29 @@ async function dispatch(message) {
       });
       const registry = new upstream.ModelRegistry(runtime);
       const config = upstream.createStepProviderConfig({ authPath });
+      const modelConfig = await readFile(join(dirname(authPath), 'models.json'), 'utf8').catch(error => {
+        if (error.code === 'ENOENT') return '';
+        throw error;
+      });
+      const refreshModels = config.refreshModels;
+      config.refreshModels = async context => {
+        const key = context.credential ? createHash('sha256')
+          .update(JSON.stringify([config.baseUrl, context.credential, modelConfig])).digest('hex') : undefined;
+        const models = await refreshModels(context);
+        // Upstream returns an empty baseline on discovery failure. Keep only this
+        // process's last successful catalog for the exact same endpoint/credential.
+        if (key && models.length && context.allowNetwork) stepModelCache = { key, models };
+        return models.length || !key || stepModelCache?.key !== key ? models : stepModelCache.models;
+      };
       registry.registerProvider(upstream.STEP_PROVIDER_ID, config);
       try {
         await runtime.refresh({ allowNetwork: true, signal: AbortSignal.timeout(5000) });
       } catch { /* Keep the provider's local catalog when discovery is unavailable. */ }
       // Project only the runtime model's declared levels; never guess xhigh/max support.
       const available = registry.getAvailable();
-      const catalog = available.length ? available : registry.getAll().filter(model => model.provider === upstream.STEP_PROVIDER_ID);
+      // Custom-provider availability must not suppress the official offline fallback.
+      const catalog = available.some(model => model.provider === upstream.STEP_PROVIDER_ID) ? available
+        : [...available, ...registry.getAll().filter(model => model.provider === upstream.STEP_PROVIDER_ID)];
       const models = catalog.map(({ id, provider, name, reasoning, thinkingLevelMap, input, contextWindow, maxTokens }) => ({
         id, provider, name, reasoning, input, contextWindow, maxTokens,
         thinkingLevels: reasoning ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].filter(level =>
@@ -127,6 +146,7 @@ async function dispatch(message) {
       if (login) throw new Error('Login already in progress');
       const profile = upstream.resolveStepLoginProfiles().find(p => p.id === message.profile);
       if (!profile) throw new Error('Unknown login profile');
+      stepModelCache = undefined;
       login = new AbortController();
       try {
         let apiKey = message.key;
@@ -154,7 +174,7 @@ async function dispatch(message) {
       return { ...credential, ...await config.oauth.refreshToken(credential, AbortSignal.timeout(10000)) };
     }
     case 'cancel_login': login?.abort(); return null;
-    case 'logout': await upstream.logoutStepCredentials({ nativePath: authPath, legacyPath: process.env.STEPCODE_LEGACY_AUTH_PATH, env: process.env }); return desktopAuth ? upstream.readDesktopAuthData() : null;
+    case 'logout': stepModelCache = undefined; await upstream.logoutStepCredentials({ nativePath: authPath, legacyPath: process.env.STEPCODE_LEGACY_AUTH_PATH, env: process.env }); return desktopAuth ? upstream.readDesktopAuthData() : null;
     default: throw new Error('Unsupported management request');
   }
 }

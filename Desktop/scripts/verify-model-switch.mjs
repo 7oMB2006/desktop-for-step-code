@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { prepareSessionFixture } from './session-fixture.mjs';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-model-switch-')));
 const root = join(profile, 'step-runtime');
@@ -151,7 +152,7 @@ try {
   await page.screenshot({ path: 'test-results/model-switch-narrow.png' });
   assert.equal((await readFile(state.state.sessionFile, 'utf8')).includes('模型已切换'), false, 'upstream JSONL contains no client notice');
   assert.deepEqual(errors, []);
-  await app.close();
+  await closeDesktopFixture(app);
   app = await launch();
   const reopened = await app.firstWindow();
   await app.evaluate(({ BrowserWindow, dialog }) => {
@@ -160,6 +161,9 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
   await reopened.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  const restarted = await reopened.evaluate(() => window.desktop.snapshot());
+  assert.equal(restarted.state.model.id, 'model-b', 'full restart remembers the explicit choice, not first-listed model-a');
+  assert.equal(restarted.preferences.preferredModel.id, 'model-b');
   await reopened.locator('.session-row > button:first-child').filter({ hasText: 'FIRST:' }).click();
   await reopened.locator('.client-model-change').waitFor();
   assert.equal(await reopened.locator('.client-model-change').count(), 1, 'sidecar survives a full application restart');
@@ -177,7 +181,37 @@ try {
   await reopened.reload();
   await reopened.locator('.client-model-change').waitFor();
   assert.equal(await reopened.locator('.client-model-change').count(), 1);
-  console.log('Model switch passed: active selection, effort, cancellation, reload, navigation, old-model steering, new-model FIFO dispatch, sidecar history, styles and context isolation.');
+  await reopened.evaluate(() => window.desktop.beginSession());
+  await reopened.evaluate(() => window.desktop.command('set_model', { provider: 'switch-fixture', modelId: 'model-a' }));
+  const savedPreferences = JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8'));
+  assert.deepEqual(savedPreferences.preferredModel, { provider: 'switch-fixture', id: 'model-a', name: 'Step-3.5-Flash' });
+  const original = await reopened.evaluate(id => window.desktop.switchSession(id), history.state.sessionId);
+  assert.equal(original.state.model.id, 'model-b', 'changing the new-session default does not overwrite an existing conversation');
+  assert.equal(original.preferences.preferredModel.id, 'model-a', 'restoring old history must not rewrite the default');
+  assert.equal((await reopened.evaluate(() => window.desktop.beginSession())).state.model.id, 'model-a');
+  await reopened.evaluate(() => window.desktop.command('set_model', { provider: 'switch-fixture', modelId: 'model-b' }));
+  await closeDesktopFixture(app);
+  const catalog = JSON.parse(await readFile(join(root, 'models.json'), 'utf8'));
+  catalog.providers['switch-fixture'].models = catalog.providers['switch-fixture'].models.filter(model => model.id !== 'model-b');
+  await writeFile(join(root, 'models.json'), JSON.stringify(catalog));
+  const beforeMissing = requests.length;
+  app = await launch();
+  const missingPage = await app.firstWindow();
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
+  });
+  await missingPage.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  const missing = await missingPage.evaluate(() => window.desktop.snapshot());
+  assert.equal(missing.state.model.id, 'model-b', 'an unavailable remembered model remains visible, not replaced with model-a');
+  await assert.rejects(missingPage.evaluate(id => window.desktop.createDraftSession(id), missing.draftId), /当前不可用|unavailable/);
+  await assert.rejects(missingPage.evaluate(id => window.desktop.switchSession(id), history.state.sessionId), /当前不可用|unavailable/);
+  assert.equal(requests.length, beforeMissing, 'failed restoration makes no model request on another provider/model');
+  await missingPage.evaluate(() => window.desktop.command('set_model', { provider: 'switch-fixture', modelId: 'model-a' }));
+  const recoveredDraft = await missingPage.evaluate(() => window.desktop.snapshot());
+  const recovered = await missingPage.evaluate(id => window.desktop.createDraftSession(id), recoveredDraft.draftId);
+  assert.equal(recovered.state.model.id, 'model-a', 'explicitly choosing an available alternative restores new-session creation');
+  console.log('Model switch passed: active selection, effort, cancellation, reload, navigation, old-model steering, new-model FIFO dispatch, sidecar history, styles, persistent defaults, independent session models, missing-model protection and explicit recovery.');
 } catch (error) {
   console.error(error);
   throw error;
@@ -191,6 +225,6 @@ try {
     finish();
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
-    await app.close();
+    await closeDesktopFixture(app);
   } finally { clearTimeout(cleanupTimeout); }
 }

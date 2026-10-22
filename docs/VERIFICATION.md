@@ -76,6 +76,28 @@ existing Status-field assertion; replaying against the manifest-matching staged
 runtime passed without modifying that assertion. No new installer, real-model
 acceptance or cloud result is claimed; the running user package is unchanged.
 
+## Model Selection Persistence (2026-10-22)
+
+Explicit picker choices now persist only provider, model ID and display name in
+Desktop's own preferences. New drafts and reused empty runtimes honor that choice;
+passively reopening a conversation does not rewrite it. Existing conversations
+restore the active branch's last model-change entry, with assistant metadata only
+as a legacy fallback. Runtime configuration refresh no longer selects models[0]
+when the previous model is absent. Missing selections remain named on new drafts
+and creation/restoration fails explicitly rather than sending on another model.
+Confirmed Cron recovery retains its separately reviewed model contract.
+
+The management process also retains its last successful official discovery
+catalog in memory, scoped by credential, endpoint and model configuration.
+Unavailable discovery must not hide Step merely because custom models remain.
+No built-in model list is fabricated; the cache does not survive process restart.
+
+Typecheck, build and 119 focused tests passed. Real Electron model-switch
+acceptance covers orderly application restart, on-disk default identity,
+independent old-session selection, cloning/branching, missing-model rejection
+without a generation request, and explicit alternative selection. These are
+isolated local fixtures, not live official-account or packaged acceptance.
+
 ## Cron Transcript Source Disclosure (2026-10-20)
 
 Follow-up: source disclosure alone did not split response entries. The first

@@ -282,6 +282,66 @@ test('idle configuration refresh preserves runtime identity and ignores the reti
   await pool.stopAll();
 });
 
+test('configuration refresh suspends a missing selected model instead of applying the first provider', async () => {
+  const transports: Transport[] = [];
+  const step = { provider: 'step', id: 'step-5', name: 'Step 5' };
+  const sol = { provider: 'fixture', id: 'sol', name: 'Sol' };
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'same-session');
+    const first = transports.length === 0;
+    const request = transport.request.bind(transport);
+    transport.request = async (type, args) => {
+      if (type === 'get_state') return { sessionId: 'same-session', isStreaming: false, model: first ? step : sol };
+      if (type === 'get_available_models') return { models: first ? [sol, step] : [sol] };
+      return request(type, args);
+    };
+    transports.push(transport);
+    return transport;
+  });
+  try {
+    const worker = await pool.open('node', 'step', 'workspace', {});
+    await assert.rejects(pool.refresh(worker, 'node', 'step', {}), /step\/step-5.*unavailable/);
+    assert.equal(transports[1].calls.includes('set_model'), false);
+    assert.equal(transports[1].stopped, true);
+    assert.equal(worker.status, 'disconnected');
+    assert.equal(worker.state?.model?.provider, 'step', 'UI retains the original identity, not the runtime fallback');
+  } finally { await pool.stopAll(); }
+});
+
+test('model initialization verifies saved sessions before activation and does not change the viewed chat on failure', async () => {
+  const transports: Transport[] = [];
+  const initializing: boolean[] = [];
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, `session-${transports.length}`);
+    transports.push(transport);
+    return transport;
+  }, { initializeModel: async (_worker, restoring) => {
+    initializing.push(restoring);
+    if (restoring) throw new Error('Saved model unavailable');
+  } });
+  try {
+    const original = await pool.open('node', 'step', 'workspace', {});
+    await assert.rejects(pool.prepare('node', 'step', 'workspace', {}, 'saved.jsonl'), /Saved model unavailable/);
+    assert.equal(pool.active, original);
+    assert.equal(transports[1].stopped, true);
+    assert.deepEqual(initializing, [false, true]);
+  } finally { await pool.stopAll(); }
+});
+
+test('reused empty sessions recheck the current new-session model preference', async () => {
+  let initialized = 0;
+  const pool = new SessionRuntimes(() => {}, receive => new Transport(receive, 'same-session'),
+    { initializeModel: async (_worker, restoring) => {
+      assert.equal(restoring, false);
+      initialized++;
+    } });
+  try {
+    const first = await pool.open('node', 'step', 'workspace', {});
+    assert.equal(await pool.open('node', 'step', 'workspace', {}), first);
+    assert.equal(initialized, 2);
+  } finally { await pool.stopAll(); }
+});
+
 test('configuration refresh never stops running, queued or mutating workers', async () => {
   for (const field of ['busy', 'queued', 'mutating', 'operations', 'stopping'] as const) {
     const { pool, transports, open } = fixture();

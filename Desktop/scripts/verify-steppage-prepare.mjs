@@ -49,7 +49,8 @@ try {
   assert.equal(cronHost.tasks.length, 1);
   // Exercise the actual settings entry rather than installing through a fixture hook.
   await page.locator('.sidebar-bottom button').filter({ hasText: /设置|Settings/ }).click();
-  await page.getByRole('button', { name: /^(资源|Resources)$/ }).click();
+  await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click();
+  await page.locator('.cap-preparation > summary').click();
   const setup = page.getByRole('button', { name: /安装并准备|Install and prepare/ });
   await setup.click();
   await page.getByRole('status').filter({ hasText: /文件就绪|Files ready/ }).waitFor({ timeout: 60000 });
@@ -67,7 +68,7 @@ try {
   assert.equal(afterPreparation.snapshot.state.sessionId, cronHost.sessionId);
   assert.deepEqual(afterPreparation.cron.tasks.filter(job => job.runtimeId === cronHost.runtimeId), cronHost.tasks);
   // Preparation is allowed, but this very same scheduled host must remain protected from restart.
-  await page.getByRole('button', { name: /重启当前会话|Restart current session/ }).click();
+  await page.locator('.steppage-settings').getByRole('button', { name: /重启当前会话|Restart current session/ }).click();
   const protection = page.getByRole('alert').filter({ hasText: /未执行重启|was not restarted/ });
   await protection.waitFor();
   await page.waitForTimeout(1800); // Cross a readiness poll; operation feedback must not disappear.
@@ -75,14 +76,16 @@ try {
   await page.screenshot({ path: join(output, 'steppage-cron-restart-protected.png') });
   assert.deepEqual((await page.evaluate(() => window.desktop.cronList())).tasks.filter(job => job.runtimeId === cronHost.runtimeId), cronHost.tasks);
   await page.getByRole('button', { name: /^MCP$/ }).click();
-  await page.getByRole('button', { name: /^(资源|Resources)$/ }).click();
+  await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click();
+  await page.locator('.cap-preparation > summary').click();
   await page.getByRole('status').filter({ hasText: /文件就绪|Files ready/ }).waitFor();
   await page.screenshot({ path: join(output, 'steppage-preparation-ready.png') });
   await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
   await page.reload();
   await page.locator('.app').waitFor();
   await page.locator('.sidebar-bottom button').filter({ hasText: 'Settings' }).click();
-  await page.getByRole('button', { name: /^Resources$/ }).click();
+  await page.getByRole('button', { name: /^Plugins$/ }).click();
+  await page.locator('.cap-preparation > summary').click();
   await page.getByRole('status').filter({ hasText: 'Files ready' }).waitFor();
   await page.screenshot({ path: join(output, 'steppage-preparation-light-en.png') });
   const mainWindow = await app.browserWindow(page);

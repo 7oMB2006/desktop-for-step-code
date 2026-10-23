@@ -43,7 +43,7 @@ try {
     const bounds = element.getBoundingClientRect();
     return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)?.classList.contains('settings-backdrop');
   }), true, 'The entire titlebar is behind the settings backdrop');
-  for (const title of ['账户', '供应商', 'MCP', '资源', '通用', '外观', '版本更新', '已归档']) {
+  for (const title of ['账户', '供应商', '插件', 'MCP', 'Skills', '通用', '外观', '版本更新', '已归档']) {
     await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: title, exact: true }).click();
     const bounds = await dialog.boundingBox();
     assert.deepEqual(bounds, baseline, `${title}: same outer bounds across all categories`);

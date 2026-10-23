@@ -13,11 +13,11 @@ const labels: Record<string, [string, string]> = {
   goal: ['目标', 'Goal'], plan: ['计划模式', 'Plan mode'], todo: ['推进清单', 'Tasks'],
   ultracode: ['多代理编排', 'Ultracode'], ultraloop: ['多代理编排', 'Ultraloop'],
   compact: ['压缩上下文', 'Compact context'], init: ['项目指引', 'Project instructions'],
-  cron: ['定时任务', 'Scheduled tasks'], plugin: ['插件', 'Plugins'], mcp: ['MCP', 'MCP'],
+  cron: ['定时任务', 'Scheduled tasks'], plugin: ['插件', 'Plugins'], mcp: ['MCP', 'MCP'], skills: ['技能', 'Skills'],
   clm: ['工作上下文', 'Working context'], 'clm-compact': ['整理工作上下文', 'Organize working context'],
   trust: ['项目信任', 'Project trust'],
 };
-const icons: Record<string, typeof Terminal> = { status: Activity, goal: Goal, plan: Lightbulb, todo: ListTodo, ultracode: Network, ultraloop: Network, compact: Minimize2, init: FileText, mcp: McpIcon, plugin: Plug, clm: NotebookPen, 'clm-compact': RefreshCw, trust: Shield };
+const icons: Record<string, typeof Terminal> = { status: Activity, goal: Goal, plan: Lightbulb, todo: ListTodo, ultracode: Network, ultraloop: Network, compact: Minimize2, init: FileText, mcp: McpIcon, plugin: Plug, skills: BookOpen, clm: NotebookPen, 'clm-compact': RefreshCw, trust: Shield };
 const terminalOnly = new Set(['exit', 'quit', 'theme', 'llama', 'clear', 'new']);
 const descriptions: Record<string, string> = {
   status: '查看当前模型、权限、目录与账户状态',
@@ -25,6 +25,7 @@ const descriptions: Record<string, string> = {
   ultracode: '开启、关闭或查看多代理编排', ultraloop: '开启、关闭或查看多代理编排',
   compact: '压缩当前对话，可补充保留重点', init: '创建或更新项目 AGENTS.md',
   cron: '查看与管理定时任务', plugin: '查看与管理 Step Code 插件',
+  skills: '查看与管理已安装技能',
   clm: '查看状态；支持 on、off、diff、reset',
   'clm-compact': '整理工作上下文，可补充需要保留的重点',
   trust: '确认项目信任，保存后重启运行时生效',

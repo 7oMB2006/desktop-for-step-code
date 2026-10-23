@@ -1,5 +1,49 @@
 # Verification
 
+## Plugin, MCP And Skills Management (2026-10-23)
+
+Management follows the upstream Web/Desktop MVP user-scope APIs, isolated under
+Desktop-owned storage. The renderer receives bounded, redacted data through typed
+IPC. Configuration changes do not silently reload sessions or stop Cron hosts.
+
+The serial Node 24.16.0 suite passed 652 tests with 13 platform skips and no
+failures. Typecheck, production build, CI policy tests and upstream barrel lint
+passed. Clean Windows patch replay and the macOS index patch/hash check passed;
+the latter is not native macOS acceptance.
+
+After final runtime staging, real isolated-profile Electron acceptance passed
+local marketplace/plugin operations, Skill lifecycle and runtime command reload,
+MCP configuration versus live connection state, explicit restart, command routing,
+theme and narrow-window rendering. Uninstalling a plugin used by a resident MCP
+is blocked before deleting files; disabling and restarting permits removal.
+Standalone usage-worker acceptance also passed against the final bundle.
+
+Plugin details, StepPage preparation and session commands now share
+DisclosureChevron and useAnimatedDisclosure rather than default markers or a
+separate CSS disclosure. Electron acceptance verifies both 240ms cubic directions,
+inert collapsed bodies, keyboard activation and reduced-motion settling.
+Typecheck and production build passed again after this alignment.
+
+The DFSC Beta icon extension reads only bounded plugin-local PNG files from the
+optional `step.plugin.json` icon field. All 12 management tests passed, including
+install preservation, invalid/link/oversized paths and built-in placeholder
+selection. Real Electron acceptance passed discovery/installed PNG decoding,
+corrupt-image fallback and the existing management/disclosure regressions.
+Typecheck and production build passed; this is not an upstream schema extension.
+
+The shared SidebarTaskActions now presents equal-width New chat and Plugins
+buttons above right-aligned, adjacent Schedules and Search icons. The plugin entry
+opens Discover without sending a model prompt. Search expands leftward from its
+fixed right-hand trigger using cubic easing; it remains a labeled, read-only
+placeholder, not a working session filter. Electron acceptance checks navigation,
+equal primary widths, paired icons, containment, the six-pixel inter-row gap, fixed trigger/list geometry, focus return
+on Escape, inert hidden controls and reduced-motion behavior. Typecheck and
+production build passed; screenshots include the real sidebar and expanded search.
+
+These checks use deterministic local resources, not paid model requests or real
+third-party login/publishing. No installer, first-install acceptance or cloud CI
+result is established by this run. See `docs/CAPABILITIES.md` for scope.
+
 ## Summary Turn Alignment And CI Replay (2026-10-22)
 
 The Summary activity dot now follows live conversation execution immediately;

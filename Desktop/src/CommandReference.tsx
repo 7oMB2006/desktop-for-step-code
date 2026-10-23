@@ -13,6 +13,6 @@ export function commandReference(text: string, commands: ComposerCommand[]) {
   return { name: match[1], source: command?.source, length: match[0].length };
 }
 export function CommandReference({ name, source }: { name: string; source?: string }) {
-  const Icon = source === 'skill' ? BookOpen : name === 'mcp' ? McpIcon : name === 'plugin' ? Plug : Command;
+  const Icon = source === 'skill' || name === 'skills' ? BookOpen : name === 'mcp' ? McpIcon : name === 'plugin' ? Plug : Command;
   return <span className="command-reference"><span className="command-reference-icon"><Icon aria-hidden="true"/></span><span>{name}</span></span>;
 }

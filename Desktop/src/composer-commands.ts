@@ -3,6 +3,8 @@ export interface ComposerCommand { name: string; description?: string; source?: 
 // The pinned runtime handles these commands in core, outside get_commands.
 const coreCommands: ComposerCommand[] = [
   { name: 'status', source: 'desktop', description: 'View current session, model, permissions and account' },
+  { name: 'plugin', source: 'desktop', description: 'Browse and manage upstream plugins and marketplaces' },
+  { name: 'skills', source: 'desktop', description: 'Manage installed Skills' },
   { name: 'clm', source: 'core', description: 'Inspect working context; on, off, diff or reset' },
   { name: 'clm-compact', source: 'core', description: 'Organize working context with optional retention instructions' },
 ];

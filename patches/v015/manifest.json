@@ -6,7 +6,8 @@
     "step-code-desktop-clarification.patch": "61a49cb2e8c2923c34ab9b787a2d484e7e1698f0",
     "../step-code-desktop-cron.patch": "647de75f3a7ef7d4e5b5bdc4ffe8b73955609fff",
     "../step-code-desktop-cron-management.patch": "1f228c5b065b2376170e3bca6ea9c8943e5f5dbc",
-    "step-code-desktop-cron-recovery.patch": "1e1cfa22c2d8f1646b26111a41072987b2745d35"
+    "step-code-desktop-cron-recovery.patch": "1e1cfa22c2d8f1646b26111a41072987b2745d35",
+    "../step-code-desktop-plugins.patch": "b0642b17db291a9d1d3f110d4b16c55350c18ca3"
   },
   "sources": {
     "packages/coding-agent/src/features/step-cron.ts": "6f881338a5d4ac34a416706a1e72b1f6e181cff3",
@@ -37,7 +38,7 @@
     "packages/coding-agent/src/core/tools/bash.ts": "85c9673b7986948b34b1b9f42ef5e81518d54cff",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "d8067140df6852f5b85aba573e22c255d7da20be",
-    "packages/coding-agent/src/index.ts": "96e9d4e3a6af35e2cd87df823f8dec45429b97f8",
+    "packages/coding-agent/src/index.ts": "6c871459700c4ddd16cbfd2160abd0b16683022c",
     "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "8bdc9a01c4285cb1fcc25a633523e7dac934e7cb",
     "packages/coding-agent/src/modes/rpc/rpc-types.ts": "5b07ed229979b4ecbc8a4b2f341269527efbdc3a",
     "packages/coding-agent/src/step/mcp.ts": "569b7203dfa2ce28955ac1c2c93b0a9fd317d484",

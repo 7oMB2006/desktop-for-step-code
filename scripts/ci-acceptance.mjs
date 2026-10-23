@@ -13,6 +13,7 @@ export const acceptanceGroups = {
     'verify-disclosure-summary.mjs',
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',
+    'verify-capabilities.mjs',
     'verify-desktop-tray.mjs',
     'verify-composer-menu.mjs',
     'verify-composer-editing.mjs',

@@ -1,0 +1,290 @@
+import { _electron as electron } from 'playwright';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+const profile = await mkdtemp(join(tmpdir(), 'desktop-capability-ui-'));
+const market = join(profile, 'fixture-market');
+const iconPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jCj0AAAAASUVORK5CYII=', 'base64');
+await mkdir(join(market, '.step-plugin'), { recursive: true });
+await mkdir(join(market, 'example', 'skills', 'review'), { recursive: true });
+await writeFile(join(market, '.step-plugin', 'marketplace.json'), JSON.stringify({
+  name: 'fixture-market', plugins: [{ name: 'example', source: './example', description: 'Local verification plugin' }],
+}));
+await writeFile(join(market, 'example', 'step.plugin.json'), JSON.stringify({
+  id: 'example', name: 'Example plugin', version: '1.0.0', skills: ['skills'], icon: 'logo.png',
+  mcpServers: { tools: { command: process.execPath, args: [resolve('tests/fixtures/steppage-mcp-server.mjs')],
+    env: { FIXTURE_API_KEY: 'must-not-enter-the-renderer' } } },
+}));
+await writeFile(join(market, 'example', 'logo.png'), iconPng);
+await writeFile(join(market, 'example', 'skills', 'review', 'SKILL.md'),
+  '---\nname: review\ndescription: Review fixture\n---\nReview the task.\n');
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
+await mkdir(join(profile, 'step-runtime'), { recursive: true });
+await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(profile, 'step-runtime', 'models.json'), JSON.stringify({ providers: { fixture: {
+  api: 'openai-completions', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'fixture-only',
+  models: [{ id: 'fixture', name: 'Offline management verification', contextWindow: 32768, maxTokens: 1024 }],
+} } }));
+await mkdir('test-results', { recursive: true });
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
+delete env.ELECTRON_RUN_AS_NODE;
+delete env.STEP_API_KEY;
+const executablePath = process.env.DESKTOP_VERIFY_EXE;
+const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+const errors = [];
+async function verifyDisclosure(locator, reducedMotion = false) {
+  const result = await locator.evaluate(async (panel) => {
+    const summary = panel.querySelector('summary');
+    const body = panel.querySelector('.cap-disclosure-body');
+    const chevron = summary.querySelector('.cap-chevron svg');
+    const check = { chevron: chevron?.getAttribute('viewBox'), closed: !panel.open && body.inert };
+    summary.click();
+    await new Promise(requestAnimationFrame);
+    const opening = body.getAnimations();
+    check.opening = opening.map(animation => animation.effect.getTiming());
+    check.accessible = summary.getAttribute('aria-expanded') === 'true' && !body.inert;
+    await Promise.all(opening.map(animation => animation.finished));
+    check.open = panel.open && body.getBoundingClientRect().height > 0;
+    summary.click();
+    await new Promise(requestAnimationFrame);
+    const closing = body.getAnimations();
+    check.closing = closing.map(animation => animation.effect.getTiming());
+    check.inertOnClose = body.inert && body.getAttribute('aria-hidden') === 'true';
+    check.retainedDuringClose = panel.open;
+    await Promise.all(closing.map(animation => animation.finished));
+    check.settled = !panel.open;
+    return check;
+  });
+  assert.equal(result.chevron, '0 0 14 14', 'Use the shared disclosure icon');
+  for (const key of ['closed', 'accessible', 'open', 'inertOnClose', 'settled']) assert.equal(result[key], true, key);
+  for (const direction of ['opening', 'closing']) {
+    assert.equal(result[direction].length, reducedMotion ? 0 : 1, direction);
+    if (!reducedMotion) {
+      assert.equal(result[direction][0].duration, 240);
+      assert.equal(result[direction][0].easing, 'cubic-bezier(0.215, 0.61, 0.355, 1)');
+    }
+  }
+  assert.equal(result.retainedDuringClose, !reducedMotion);
+}
+try {
+  const page = await app.firstWindow();
+  page.on('pageerror', error => errors.push(error.message));
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
+  });
+  await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
+  const host = await page.evaluate(() => window.desktop.newIndependentSession());
+  assert.ok(host.runtimeId);
+  const commands = () => page.evaluate(async () => {
+    const active = await window.desktop.snapshot();
+    return (await window.desktop.command('get_commands', undefined, active.runtimeId)).commands;
+  });
+  const initialCommands = await commands();
+  assert.equal(initialCommands.some(command => command.name === 'skill:local-review'), false);
+  await page.reload();
+  const sidebarActions = page.getByRole('group', { name: '快捷入口', exact: true });
+  const searchButton = sidebarActions.getByRole('button', { name: '搜索', exact: true });
+  assert.equal(await searchButton.isEnabled(), true);
+  await sidebarActions.getByRole('button', { name: '插件市场', exact: true }).click();
+  await page.getByRole('tab', { name: /^发现/ }).waitFor();
+  assert.equal(await page.getByRole('tab', { name: /^发现/ }).getAttribute('aria-selected'), 'true');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+  const geometry = await page.locator('.sidebar-task-actions').evaluate(element => {
+    const primary = element.querySelector('.sidebar-primary-actions').getBoundingClientRect();
+    const primaryButtons = [...element.querySelectorAll('.sidebar-primary-actions > button')].map(button => button.getBoundingClientRect());
+    const row = element.querySelector('.sidebar-utility-row').getBoundingClientRect();
+    const buttons = [...element.querySelectorAll('.sidebar-utility-row button')].map(button => button.getBoundingClientRect());
+    return { equalPrimary: primaryButtons.length === 2 && Math.abs(primaryButtons[0].width - primaryButtons[1].width) < 1,
+      pairedIcons: Math.abs(buttons[1].left - buttons[0].right - 2) < 1 && Math.abs(buttons[1].right - row.right) < 1,
+      sameRow: buttons.every(button => Math.abs(button.top - buttons[0].top) < 1),
+      contained: element.scrollWidth <= element.clientWidth,
+      compactGap: Math.abs(row.top - primary.bottom - 6) < 1 };
+  });
+  assert.deepEqual(geometry, { equalPrimary: true, pairedIcons: true, sameRow: true, contained: true, compactGap: true });
+  const actionsBox = await page.locator('.sidebar-task-actions').boundingBox();
+  const sessionsBox = await page.locator('.workspace-tree').boundingBox();
+  assert.ok(Math.abs(sessionsBox.y - actionsBox.y - actionsBox.height) < 1, 'No extra spacer before the session list');
+  await page.screenshot({ path: 'test-results/capabilities-sidebar-light.png' });
+  const anchorBefore = await page.locator('.sidebar-search-toggle').boundingBox();
+  const treeBefore = await page.locator('.workspace-tree').boundingBox();
+  await searchButton.press('Enter');
+  const searchInput = page.getByRole('textbox', { name: '会话搜索（待接入）', exact: true });
+  await searchInput.waitFor();
+  assert.equal(await searchInput.evaluate(input => input.readOnly && document.activeElement === input), true);
+  assert.equal(await page.locator('.sidebar-utility-links').evaluate(element => element.inert), true);
+  await page.locator('.sidebar-search-field').evaluate(async element => {
+    await Promise.all(element.getAnimations().map(animation => animation.finished));
+  });
+  assert.deepEqual(await page.locator('.sidebar-search-toggle').boundingBox(), anchorBefore, 'Search keeps its original anchor');
+  assert.deepEqual(await page.locator('.workspace-tree').boundingBox(), treeBefore, 'Search does not push the session list');
+  await page.screenshot({ path: 'test-results/capabilities-sidebar-search-light.png' });
+  await searchInput.press('Escape');
+  assert.equal(await searchButton.evaluate(button => document.activeElement === button), true);
+  await page.locator('.sidebar-search-field').evaluate(async element => {
+    await Promise.all(element.getAnimations().map(animation => animation.finished));
+  });
+  assert.equal(await page.locator('.sidebar-search-field').evaluate(element => element.inert), true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await searchButton.click();
+  assert.equal(await page.locator('.sidebar-search-field').evaluate(element => element.getAnimations().length), 0);
+  await page.getByRole('button', { name: '收起搜索', exact: true }).click();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => window.desktop.preferences({ theme: 'dark', language: 'en' }));
+  await page.reload();
+  await page.getByRole('button', { name: 'Schedules', exact: true }).waitFor();
+  assert.equal(await page.locator('.sidebar-primary-actions > button > span').evaluateAll(elements =>
+    elements.length === 2 && elements.every(element => element.scrollWidth <= element.clientWidth)), true, 'English primary labels fit');
+  await page.screenshot({ path: 'test-results/capabilities-sidebar-dark-en.png' });
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Session search (coming soon)', exact: true }).press('Escape');
+  await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'zh' }));
+  await page.reload();
+  await page.getByRole('button', { name: '定时任务', exact: true }).waitFor();
+  await page.locator('.sidebar-bottom > button').click();
+  await page.getByRole('button', { name: '插件', exact: true }).click();
+  await page.getByRole('tab', { name: /^已安装/ }).waitFor();
+  await page.getByRole('tab', { name: /^市场来源/ }).click();
+  await page.getByRole('button', { name: '添加市场', exact: true }).click();
+  await page.getByRole('textbox', { name: '市场来源', exact: true }).fill(market);
+  await page.locator('.cap-form').getByRole('button', { name: '添加市场', exact: true }).click();
+  await page.locator('.cap-form').waitFor({ state: 'detached' });
+  await page.getByRole('tab', { name: /^发现/ }).click();
+  await page.locator('.cap-row').filter({ hasText: 'steppage' }).locator('[data-icon-kind="step"]').waitFor();
+  await page.getByRole('textbox', { name: '搜索资源' }).fill('example');
+  await page.waitForFunction(() => document.querySelector('.cap-row .cap-plugin-icon img')?.naturalWidth === 1);
+  await page.getByRole('button', { name: '安装 example', exact: true }).click();
+  await page.getByText('已安装', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: /^已安装/ }).click();
+  const examplePanel = page.locator('.cap-resource').filter({ hasText: 'Example plugin' });
+  await examplePanel.locator('.cap-plugin-icon img').waitFor();
+  await page.waitForFunction(() => document.querySelector('.cap-resource .cap-plugin-icon img')?.naturalWidth === 1);
+  await writeFile(join(profile, 'step-runtime', 'plugins', 'example', 'logo.png'), iconPng.subarray(0, 33));
+  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await examplePanel.locator('[data-icon-kind="fallback"]').waitFor();
+  await writeFile(join(profile, 'step-runtime', 'plugins', 'example', 'logo.png'), iconPng);
+  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await examplePanel.locator('.cap-plugin-icon img').waitFor();
+  await verifyDisclosure(page.locator('.cap-resource').filter({ hasText: 'Example plugin' }));
+  const preparation = page.locator('.cap-preparation').filter({ hasText: 'StepPage' });
+  await verifyDisclosure(preparation);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await verifyDisclosure(preparation, true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.getByText('Example plugin', { exact: true }).click();
+  await page.locator('.cap-resource[open]').evaluate(async panel => {
+    await Promise.all(panel.querySelector('.cap-disclosure-body').getAnimations().map(animation => animation.finished));
+  });
+  await page.screenshot({ path: 'test-results/capabilities-plugins-light.png' });
+  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  await page.getByText('review', { exact: true }).waitFor();
+  const sessionCommands = page.locator('.cap-preparation').filter({ hasText: '会话命令' });
+  await verifyDisclosure(sessionCommands);
+  await sessionCommands.locator('summary').focus();
+  await sessionCommands.locator('summary').press('Enter');
+  await page.waitForFunction(() => document.querySelector('.cap-preparation > summary')?.getAttribute('aria-expanded') === 'true');
+  await sessionCommands.evaluate(async panel => {
+    await Promise.all(panel.querySelector('.cap-disclosure-body').getAnimations().map(animation => animation.finished));
+  });
+  await sessionCommands.locator('summary').press('Space');
+  await page.waitForFunction(() => !document.querySelector('.cap-preparation')?.open);
+  assert.equal(await page.getByRole('button', { name: '删除 review', exact: true }).count(), 0);
+  await page.getByRole('button', { name: '新建 Skill', exact: true }).click();
+  await page.getByRole('textbox', { name: '名称', exact: true }).fill('local-review');
+  await page.getByRole('textbox', { name: '描述', exact: true }).fill('Local review fixture');
+  await page.getByRole('textbox', { name: '指令内容', exact: true }).fill('Inspect the current task.');
+  await page.getByRole('button', { name: '创建 Skill', exact: true }).click();
+  const toggle = page.getByRole('switch', { name: '启用 local-review', exact: true });
+  await toggle.waitFor();
+  await toggle.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="启用 local-review"]')?.getAttribute('aria-checked') === 'false');
+  const catalog = await page.evaluate(() => window.desktop.capabilityCatalog());
+  assert.equal(catalog.skills.find(skill => skill.name === 'local-review').enabled, false);
+  await toggle.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="启用 local-review"]')?.getAttribute('aria-checked') === 'true');
+  assert.equal((await commands()).some(command => command.name === 'skill:local-review'), false, 'Changes never implicitly reload an existing session');
+  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.cap-footer button')?.disabled);
+  assert.ok((await commands()).some(command => command.name === 'skill:local-review'), 'Explicit restart loads the new Skill');
+  await toggle.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="启用 local-review"]')?.getAttribute('aria-checked') === 'false');
+  assert.ok((await commands()).some(command => command.name === 'skill:local-review'), 'Disabling in configuration does not rewrite a live session');
+  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.cap-footer button')?.disabled);
+  assert.equal((await commands()).some(command => command.name === 'skill:local-review'), false, 'Restart respects the upstream disabled pattern');
+  await page.getByRole('button', { name: 'MCP', exact: true }).click();
+  const serverToggle = page.getByRole('switch', { name: '启用 example__tools', exact: true });
+  await serverToggle.waitFor();
+  const serverRow = serverToggle.locator('..');
+  await serverRow.getByText(/已连接 · 1 个工具/).waitFor();
+  assert.equal(await serverRow.getByRole('button', { name: /^编辑/ }).count(), 0, 'Plugin declarations are not edited independently');
+  await serverToggle.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="启用 example__tools"]')?.getAttribute('aria-checked') === 'false');
+  await serverRow.getByText(/配置已停用 · 已连接/).waitFor();
+  assert.doesNotMatch(JSON.stringify(await page.evaluate(() => window.desktop.capabilityCatalog())), /must-not-enter-the-renderer/);
+  await page.screenshot({ path: 'test-results/capabilities-mcp-light.png' });
+  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await serverRow.getByText(/会话中已停用/).waitFor();
+  await serverToggle.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="启用 example__tools"]')?.getAttribute('aria-checked') === 'true');
+  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await serverRow.getByText(/已连接 · 1 个工具/).waitFor();
+  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  await page.getByText('local-review', { exact: true }).waitFor();
+  await page.screenshot({ path: 'test-results/capabilities-skills-light.png' });
+  await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
+  await page.reload();
+  await page.locator('.sidebar-bottom > button').click();
+  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  await page.getByText('local-review', { exact: true }).waitFor();
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  await page.screenshot({ path: 'test-results/capabilities-skills-dark.png' });
+  await page.setViewportSize({ width: 640, height: 720 });
+  await page.screenshot({ path: 'test-results/capabilities-skills-narrow.png' });
+  assert.equal(await page.locator('.settings-content').evaluate(element => element.scrollWidth > element.clientWidth + 1), false);
+  await page.getByRole('button', { name: '删除 local-review', exact: true }).click();
+  await page.getByRole('button', { name: '确认移除', exact: true }).click();
+  await toggle.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: '插件', exact: true }).click();
+  await page.getByText('Example plugin', { exact: true }).click();
+  await page.getByRole('button', { name: '卸载插件', exact: true }).click();
+  await page.getByRole('button', { name: '确认移除', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: '插件仍被会话占用' }).waitFor();
+  assert.ok((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'));
+  assert.match(await readFile(join(profile, 'step-runtime', 'plugins', 'example', 'step.plugin.json'), 'utf8'), /Example plugin/);
+  assert.match(await readFile(join(profile, 'step-runtime', 'plugins', 'example', 'skills', 'review', 'SKILL.md'), 'utf8'), /Review fixture/);
+  await page.getByRole('button', { name: 'MCP', exact: true }).click();
+  await page.getByRole('switch', { name: '启用 example__tools', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="启用 example__tools"]')?.getAttribute('aria-checked') === 'false');
+  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await page.getByText(/会话中已停用/).waitFor();
+  await page.getByRole('button', { name: '插件', exact: true }).click();
+  await page.getByText('Example plugin', { exact: true }).click();
+  await page.getByRole('button', { name: '卸载插件', exact: true }).click();
+  await page.getByRole('button', { name: '确认移除', exact: true }).click();
+  await page.getByText('Example plugin', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'), false);
+  const messagesBefore = (await page.evaluate(() => window.desktop.snapshot())).messages.length;
+  for (const [command, heading] of [['/plugin browse', '插件'], ['/mcp', 'MCP'], ['/skills', 'Skills']]) {
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill(command);
+    await page.getByRole('textbox', { name: '消息', exact: true }).press('Escape');
+    await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+    await page.locator('.cap-heading').getByRole('heading', { name: heading, exact: true }).waitFor();
+  }
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).messages.length, messagesBefore, 'Management commands are local navigation, not model prompts');
+  assert.match(await readFile(join(market, 'example', 'step.plugin.json'), 'utf8'), /Example plugin/);
+  assert.deepEqual(errors, []);
+  console.log('Capability Electron acceptance passed (isolated profile, real upstream management APIs).');
+} catch (error) {
+  const page = await app.firstWindow();
+  await page.screenshot({ path: 'test-results/capabilities-failure.png' }).catch(() => {});
+  console.error('Visible errors:', await page.locator('[role="alert"]').allTextContents());
+  throw error;
+} finally {
+  await app.close();
+}

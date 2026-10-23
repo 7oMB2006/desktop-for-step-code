@@ -99,6 +99,8 @@ export const localOnly = [
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',
+  // Requires the manually started quote-annotations Vite preview on port 5195.
+  'verify-quote-annotations-fixture.mjs',
   'verify-composer-action.mjs',
   'verify-context-panel.mjs',
   'verify-inspector-expansion.mjs',

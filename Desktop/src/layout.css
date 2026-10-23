@@ -28,11 +28,36 @@
 }
 .selection-toolbar button:hover { background: var(--surface); }
 .selection-toolbar-divider { width: 1px; height: 17px; background: var(--border); margin: 0 2px; }
+::highlight(quote-annotation-selection) { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--ink); }
+::highlight(quote-annotation-marks) { background: color-mix(in srgb, var(--primary) 18%, transparent); }
+::highlight(quote-annotation-focus) { background: color-mix(in srgb, var(--primary) 32%, transparent); }
+.annotation-footnote { position: fixed; z-index: 14; min-height: 18px; height: 18px; min-width: 22px; padding: 0 2px; border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--bg)); border-radius: 4px; background: color-mix(in srgb, var(--primary) 14%, var(--bg)); color: var(--primary); font-size: 11px; line-height: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.annotation-footnote:hover:not(:disabled), .annotation-footnote[aria-expanded=true] { background: color-mix(in srgb, var(--primary) 24%, var(--bg)); border-color: color-mix(in srgb, var(--primary) 40%, var(--bg)); }
+.annotation-footnote-panel { position: fixed; inset: auto; margin: 0; padding: 12px; width: min(320px, calc(100vw - 24px)); max-height: calc(100dvh - 80px); overflow: auto; color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 4px 16px rgb(0 0 0 / 12%), 0 1px 3px rgb(0 0 0 / 6%); }
+.annotation-footnote-panel:popover-open { animation: selection-enter 180ms cubic-bezier(.22, 1, .36, 1); }
+.annotation-footnote-panel header, .annotation-footnote-panel header > span { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.annotation-footnote-panel header { justify-content: space-between; margin-bottom: 8px; }
+.annotation-actions { display: flex; align-items: center; gap: 2px; }
+.annotation-footnote-panel .icon-button { width: 25px; height: 25px; min-height: 25px; }
+.annotation-note-text { max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; padding: 0 2px 3px; }
+.annotation-source-excerpt { max-height: 72px; overflow: auto; font-size: 12px; line-height: 1.65; color: var(--muted); overflow-wrap: anywhere; margin-bottom: 10px; white-space: pre-wrap; }
+.annotation-footnote-panel textarea { display: block; width: 100%; min-height: 72px; max-height: 160px; font-size: 13px; line-height: 1.65; resize: vertical; }
+.annotation-footnote-panel footer { display: flex; justify-content: flex-end; margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .annotation-footnote-panel:popover-open { animation: none; } }
+.selection-annotation { display: flex; align-items: flex-end; width: min(320px, calc(100vw - 48px)); gap: 6px; padding: 4px; }
+.selection-annotation textarea { flex: 1; min-width: 0; resize: none; max-height: 140px; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 13px; line-height: 1.6; padding: 4px; user-select: text; }
+.selection-annotation-actions { display: flex; flex-direction: column; gap: 2px; }
+.selection-annotation textarea:focus-visible { outline: 1px solid var(--border); outline-offset: 2px; border-radius: 4px; }
+.quote-annotation-editor { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 6px; min-width: 0; margin-bottom: 0; }
+.quote-annotation-editor > span { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+.quote-annotation-editor textarea { width: 100%; min-width: 0; resize: vertical; min-height: 54px; max-height: 140px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; line-height: 1.6; }
+.sent-quote-annotation { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sent-quote-annotation > span { display: block; margin-bottom: 4px; font-size: 11px; color: var(--muted); }
 .composer-context-bar {
   display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center; gap: 8px; height: 34px; margin-bottom: 8px;
 }
-.composer-quotes { min-width: 0; max-width: 100%; grid-column: 1; grid-row: 1; justify-self: start; }
+.composer-quotes { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; grid-column: 1; grid-row: 1; justify-self: start; }
 .composer-context-bar > .jump-to-bottom { grid-column: 3; grid-row: 1; justify-self: end; }
 .quote-chip {
   display: inline-flex; align-items: center; max-width: 100%; border: 1px solid var(--border);

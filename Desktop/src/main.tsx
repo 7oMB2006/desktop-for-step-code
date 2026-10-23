@@ -54,7 +54,8 @@ import { desktopCommands, isStatusCommand } from './composer-commands';
 import { composerAction } from './composer-action';
 import { SelectionToolbar } from './SelectionToolbar';
 import { QuotePreview } from './QuotePreview';
-import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, quotePrompt, restoreQuotes, type ChatQuote } from './chat-quotes';
+import { QuoteAnnotations } from './QuoteAnnotations';
+import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, MAX_ANNOTATION_LENGTH, quotePrompt, restoreQuotes, sameQuoteSelection, type ChatQuote } from './chat-quotes';
 import { playCompletionSound, prepareCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
@@ -134,6 +135,7 @@ function App() {
   const [draft, setDraft] = useState('');
   const [referencesOpen, setReferencesOpen] = useState(false);
   const [quotes, setQuotes] = useState<ChatQuote[]>([]);
+  const [focusedQuoteId, setFocusedQuoteId] = useState<string | null>(null);
   const quoteScope = `${data.preferences.workspace ?? ''}:${data.state?.sessionId ?? ''}`;
   const quoteScopeRef = useRef(quoteScope);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -1385,6 +1387,8 @@ function App() {
         <div className="composer-underlay" inert={Boolean(permissionApproval && approvalOpen)}>
         {!navigationTarget && <ComposerContextBar queued={queuedMessages.length > 0}>
         <QuotePreview quotes={quotes} language={data.preferences.language}
+          onHighlight={setFocusedQuoteId}
+          annotate={(id, annotation) => setQuotes(value => value.map(quote => quote.id === id ? { ...quote, annotation } : quote))}
           clear={() => setQuotes([])}
           remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}
           reveal={quote => {
@@ -1478,10 +1482,26 @@ function App() {
         sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
       </div>
     </main>
+    <QuoteAnnotations root={transcript} scope={quoteScope} language={data.preferences.language}
+      remove={id => setQuotes(value => value.filter(item => item.id !== id))}
+      focusedId={focusedQuoteId}
+      quotes={settingsOpen || preview || requests.length || scheduledOpen || usageOpen ? [] : quotes}
+      annotate={(id, annotation) => setQuotes(value => value.map(item => item.id === id ? { ...item, annotation } : item))}/>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
       enabled={!scheduledOpen && !usageOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
       onError={setError} onQuote={quote => {
-        if (quotes.some(item => item.messageIndex === quote.messageIndex && item.text === quote.text)) return true;
+        const existing = quotes.find(item => sameQuoteSelection(item, quote));
+        if (existing) {
+          if (quote.annotation) {
+            const annotation = [existing.annotation, quote.annotation].filter(Boolean).join('\n');
+            if (annotation.length > MAX_ANNOTATION_LENGTH) {
+              setError(t('这段引用的批注过长，请在引用预览中编辑', 'This annotation is too long; edit it in the quote preview'));
+              return false;
+            }
+            setQuotes(value => value.map(item => item.id === existing.id ? { ...item, annotation } : item));
+          }
+          return true;
+        }
         if (quotes.length >= MAX_QUOTES) { setError(t('最多添加 8 段引用', 'Maximum 8 quotes')); return false; }
         follow.current = false;
         setQuotes(value => [...value, quote]); return true;

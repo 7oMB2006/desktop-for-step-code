@@ -168,6 +168,7 @@ function UserText({ text, ...props }: { text: string } & BodyProps) {
         <div className="sent-quote-source">{quote.role === 'assistant'
           ? (zh ? '助手' : 'Assistant') : (zh ? '用户' : 'User')}</div>
         <div className="sent-quote-content"><Text text={quote.markdown} {...props}/></div>
+        {quote.annotation && <div className="sent-quote-annotation"><span>{zh ? '批注' : 'Annotation'}</span><div>{quote.annotation}</div></div>}
       </blockquote>)}</div>
     {presentation.draft && <div className="sent-quote-reply"><Text text={presentation.draft} {...props}/></div>}
   </div>;

@@ -58,3 +58,26 @@ test('ordinary and malformed quote text remains ordinary Markdown', () => {
     assert.equal(quotePresentation(text), null);
   }
 });
+
+test('annotations round-trip independently for each quote, including delimiter-like text', () => {
+  for (const language of ['zh', 'en'] as const) {
+    const annotation = '请改成按原目录归组。\n\n| prefix\n用户本轮消息：\n> quote\nUser annotation on this quote:';
+    const prompt = quotePrompt('一起调整', [quote, { ...quote, annotation }], language);
+    const parsed = quotePresentation(prompt);
+    assert.ok(parsed);
+    assert.equal(parsed.quotes[0].annotation, undefined);
+    assert.equal(parsed.quotes[1].annotation, annotation);
+    assert.equal(parsed.quotes[1].markdown, quote.markdown);
+    assert.equal(parsed.draft, '一起调整');
+    assert.equal(quotePrompt(parsed.draft, parsed.quotes, language), prompt);
+    assert.equal(quotePresentation(quotePrompt('', [{ ...quote, annotation }], language))?.draft, '');
+    assert.equal(quotePresentation(prompt.replace('| 请改成按原目录归组。', 'broken')), null);
+  }
+});
+
+test('annotations survive delivery failure and whitespace edits without changing legacy quotes', () => {
+  const annotated = { ...quote, annotation: '  note\n ' };
+  assert.equal(restoreQuotes([annotated], [])[0].annotation, annotated.annotation);
+  assert.equal(quotePresentation(quotePrompt('', [annotated], 'en'))?.quotes[0].annotation, annotated.annotation);
+  assert.equal(quotePrompt('', [{ ...quote, annotation: '' }], 'en'), quotePrompt('', [quote], 'en'));
+});

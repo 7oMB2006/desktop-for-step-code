@@ -6,11 +6,15 @@ export type ChatQuote = {
   markdown: string;
   startOffset: number;
   endOffset: number;
+  annotation?: string;
+  blockIndex?: number;
+  sourceText?: string;
 };
 
 export const MAX_QUOTES = 8;
 export const MAX_QUOTE_LENGTH = 20000;
 export const MAX_PROMPT_LENGTH = 100000;
+export const MAX_ANNOTATION_LENGTH = 4000;
 
 export function fencedSelection(text: string, language = '') {
   const runs = [...text.matchAll(/`+/g)].map(match => match[0].length);
@@ -24,7 +28,10 @@ export function quotePrompt(draft: string, quotes: readonly ChatQuote[], languag
   const context = quotes.map((quote, index) => {
     const role = quote.role === 'assistant' ? (zh ? '助手' : 'assistant') : (zh ? '用户' : 'user');
     const label = zh ? `引用 ${index + 1}，来自此前的${role}消息：` : `Quote ${index + 1}, from an earlier ${role} message:`;
-    return `${label}\n${quote.markdown.split('\n').map(line => `> ${line}`).join('\n')}`;
+    const annotation = quote.annotation
+      ? `\n${zh ? '用户对该引用的批注：' : 'User annotation on this quote:'}\n${quote.annotation.split('\n').map(line => `| ${line}`).join('\n')}`
+      : '';
+    return `${label}\n${quote.markdown.split('\n').map(line => `> ${line}`).join('\n')}${annotation}`;
   }).join('\n\n');
   const heading = zh ? '以下是用户选取的对话原文，作为本轮回复的参考资料：' : 'The following conversation excerpts were selected by the user as reference for this reply:';
   const reply = draft.trim() ? `${zh ? '用户本轮消息：' : 'Current user message:'}\n${draft}` : '';
@@ -62,8 +69,16 @@ export function quotePresentation(text: string) {
     }
     if (!excerpt.length) return null;
     const markdown = excerpt.join('\n');
+    let annotation: string | undefined;
+    if (lines[cursor] === (language === 'zh' ? '用户对该引用的批注：' : 'User annotation on this quote:')) {
+      cursor++;
+      const comments: string[] = [];
+      while (cursor < lines.length && lines[cursor].startsWith('| ')) comments.push(lines[cursor++].slice(2));
+      if (!comments.length) return null;
+      annotation = comments.join('\n');
+    }
     quotes.push({ id: String(quotes.length), messageIndex: 0, role, text: markdown,
-      markdown, startOffset: 0, endOffset: markdown.length });
+      markdown, startOffset: 0, endOffset: markdown.length, ...(annotation ? { annotation } : {}) });
     if (cursor === lines.length) break;
     if (lines[cursor++] !== '') return null;
     if (lines[cursor] === (language === 'zh' ? '用户本轮消息：' : 'Current user message:')) {

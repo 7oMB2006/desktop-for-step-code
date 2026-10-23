@@ -23,7 +23,7 @@ try {
   await app.evaluate(({ ipcMain }, snapshot) => {
     const model = { provider: 'stepfun', id: 'step-3.5-flash', name: 'Step 3.5 Flash', contextWindow: 256000, thinkingLevels: ['low', 'medium', 'high'] };
     globalThis.menuFixture = { ...snapshot, state: { ...snapshot.state, model, thinkingLevel: 'medium' }, models: [model], messages: [
-      { role: 'user', content: '请整理 /clm **这个项目** 的结构，再看 /usage。\n`/clm` 和 [/clm](https://example.com) 保留原样。' },
+      { role: 'user', content: '请整理 /clm **这个项目** 的结构，再看 /usage。\n`/clm` 和 [/clm](https://example.com) 保留原样。\n\n[label](https://example.com)/clm \\/clm &#47;clm **label**/clm' },
       { role: 'assistant', content: '项目包含桌面界面、运行时桥接和验收脚本。可以先从聊天栏交互开始。' },
     ] };
     globalThis.menuPrompts = 0;
@@ -91,7 +91,30 @@ try {
   const sent = page.locator('.message.user').first();
   assert.equal(await sent.locator('.command-reference').count(), 2, 'Sent prose recognizes inline commands without marking code or links');
   assert.equal(await sent.locator('.command-reference svg.lucide-chart-bar').count(), 1);
-  assert.equal(await sent.locator('strong').innerText(), '这个项目', 'Command decoration retains Markdown');
+  assert.equal(await sent.locator('strong').first().innerText(), '这个项目', 'Command decoration retains Markdown');
+  assert.equal(await sent.locator('p').last().locator('.command-reference').count(), 0,
+    'Escapes, entities and adjacent Markdown nodes do not invent transcript commands');
+  assert.equal(await sent.locator('.command-reference').first().evaluate(element => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const text = selection.toString();
+    selection.removeAllRanges();
+    return text;
+  }), '/clm', 'Selecting a sent command preserves its slash');
+  assert.equal(await sent.locator('p').first().evaluate(element => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const text = selection.toString();
+    selection.removeAllRanges();
+    return text;
+  }), '请整理 /clm 这个项目 的结构，再看 /usage。 /clm 和 /clm 保留原样。',
+  'Selecting the paragraph preserves slashes without adding icon whitespace');
   assert.equal(await menu.getByRole('option', { name: /MCP/ }).locator('svg.lucide-mcp').count(), 1);
   await page.waitForTimeout(220);
   const geometry = await page.evaluate(() => {

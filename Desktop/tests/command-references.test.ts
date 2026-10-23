@@ -55,3 +55,19 @@ test('sent messages decorate commands inline without losing Markdown or decorati
   assert.match(html, /<a href="https:\/\/example.com">\/todos<\/a>/);
   assert.match(html, /a <span data-command="clm"/);
 });
+
+test('sent command boundaries and escapes agree with the original Markdown source', () => {
+  for (const source of [
+    '[label](https://example.com)/clm', '**label**/clm', '\\/clm', '&#47;clm',
+    'literal \\/clm then /usage', 'escaped \\* and &amp; /clm and /usage',
+    'two \\/clm /clm', 'line\r\n/clm', '**bold /clm** then /usage',
+  ]) {
+    const html = renderToStaticMarkup(createElement(Markdown, {
+      children: source, remarkPlugins: [[remarkCommandReferences, commands]],
+    }));
+    const marked = [...html.matchAll(/data-command="([^"]+)"/g)].map(match => match[1]);
+    assert.deepEqual(marked, commandRanges(source, commands).map(range => range.name), source);
+    for (const match of html.matchAll(/<span data-command="([^"]+)"[^>]*>([^<]*)<\/span>/g))
+      assert.equal(match[2], `/${match[1]}`, source);
+  }
+});

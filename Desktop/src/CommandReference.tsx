@@ -12,5 +12,5 @@ export function commandReference(text: string, commands: ComposerCommand[]) {
 }
 export function CommandReference({ name, source }: { name: string; source?: string }) {
   const { Icon } = commandPresentation({ name, source }, false);
-  return <span className="command-reference"><span className="command-reference-icon"><Icon aria-hidden="true"/></span><span>{name}</span></span>;
+  return <span className="command-reference"><span className="command-reference-icon" contentEditable={false}><Icon aria-hidden="true"/></span><span><span className="command-reference-slash">/</span>{name}</span></span>;
 }

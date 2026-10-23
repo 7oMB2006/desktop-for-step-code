@@ -2,6 +2,8 @@
 
 Audited against the staged Windows runtime pin
 `b5dbed938d9ae589397cf522dcf2ff89ecf4c494` on 2026-10-23.
+The macOS preview still stages `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`,
+which has no native Usage extension; the Desktop Usage mapping is shared.
 `get_commands` remains the authority for runtime extensions, skills and prompt
 templates. Desktop adds its own Status, trust and compact entries and the two
 core CLM commands absent from that reply.
@@ -21,6 +23,9 @@ occurrences. Code, links and paths remain ordinary source. Decorations do not
 rewrite editable text, clipboard content or transport. An inline reference such
 as `explain /clm` is not an instruction to execute CLM. Assistant prose and quoted
 excerpts do not acquire command markers.
+Sent-message matching uses the original Markdown source boundaries and maps
+decoded escapes/entities back to the displayed text. The visual slash replacement
+retains a selectable slash, so selecting transcript text does not remove it.
 
 ## Dispatch
 

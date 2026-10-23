@@ -1,6 +1,7 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
+import { decodeString } from 'micromark-util-decode-string';
 import type { Nodes, Root } from 'mdast';
 import type { ComposerCommand } from './composer-commands';
 
@@ -36,15 +37,22 @@ export function commandRanges(text: string, commands: ComposerCommand[]): Comman
 }
 
 export function remarkCommandReferences(commands: ComposerCommand[]) {
-  const rangesFor = commandMatcher(commands);
-  return (tree: Root) => {
+  return (tree: Root, file: { value: unknown }) => {
+    const source = String(file.value);
+    const sourceRanges = commandRanges(source, commands);
     const visit = (node: Nodes) => {
       if (['link', 'linkReference', 'code', 'inlineCode', 'html'].includes(node.type) || !('children' in node)) return;
       const children = node.children as Nodes[];
       for (let index = 0; index < children.length; index++) {
         const child = children[index];
         if (child.type !== 'text') { visit(child); continue; }
-        const ranges = rangesFor(child.value);
+        const start = child.position?.start.offset, end = child.position?.end.offset;
+        if (start === undefined || end === undefined) continue;
+        // Markdown decoding changes offsets; match source first, then decode only the prefix.
+        const ranges = sourceRanges.filter(range => range.from >= start && range.to <= end).map(range => {
+          const from = decodeString(source.slice(start, range.from)).length;
+          return { ...range, from, to: from + range.name.length + 1 };
+        }).filter(range => child.value.slice(range.from, range.to) === `/${range.name}`);
         if (!ranges.length) continue;
         const replacements: Nodes[] = [];
         let offset = 0;

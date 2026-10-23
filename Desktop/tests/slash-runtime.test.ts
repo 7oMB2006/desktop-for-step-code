@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { RpcProcess, isolatedEnvironment } from '../electron/runtime';
@@ -39,7 +39,13 @@ test('pinned slash handlers support read-only commands, cancellable dialogs and 
       resolve('runtime/step/dist/bundle/step.js'), workspace,
       { ...isolatedEnvironment(profile), STEPCODE_FEEDBACK_ENDPOINT: `${origin}/feedback` });
     const { commands } = await rpc.request('get_commands');
-    for (const name of ['todos', 'workflows', 'usage', 'cron', 'feedback', 'plugin', 'plan', 'goal', 'ultracode', 'init']) {
+    const manifest = JSON.parse(await readFile(resolve('runtime/manifest.json'), 'utf8'));
+    // macOS remains on the older baseline; it has no native Usage extension yet.
+    assert.equal(manifest.commit, process.platform === 'win32'
+      ? 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494' : '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8');
+    assert.equal(commands.some((command: { name: string }) => command.name === 'usage'), process.platform === 'win32',
+      'Native Usage registration matches the staged baseline; Desktop provides its own Usage mapping');
+    for (const name of ['todos', 'workflows', 'cron', 'feedback', 'plugin', 'plan', 'goal', 'ultracode', 'init']) {
       assert.ok(commands.some((command: { name: string }) => command.name === name), `${name} is registered`);
     }
     const prompt = async (message: string) => {

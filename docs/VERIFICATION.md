@@ -89,6 +89,30 @@ deadlines remain unchanged. Three consecutive packaged `then_run` runs pass and
 complete orderly shutdown, and all 15 CI runner/policy tests pass. The replacement
 head still requires cloud verification.
 
+Run `39953993378` again passes interface, sessions and macOS, but exposes the
+same runtime teardown hang. Using CI's Node 24.16.0 locally reproduces a successful
+launcher `exit` without ChildProcess `close`: Playwright waits for every inherited
+pipe, including its additional stdio handles, before completing application
+closure. The exact process retaining those handles is not identified.
+
+The `then_run` fixture still requests orderly application shutdown. A narrowly
+installed guard releases its controller-owned pipes only after successful
+launcher exit and every application page has closed. It cannot turn a live or
+failed process into success. The fixture also observes both application and
+browser-context closure instead of depending solely on the controller's final
+close-RPC reply; it explicitly checks successful exit, a closed context and no
+remaining windows. Five regression tests cover both event orders,
+nonzero exit, multiple windows and listener disposal. Native shell probes now run
+asynchronously after Electron has closed, rather than blocking the browser
+controller. Functional assertions and the outer five-minute deadline remain
+unchanged; a separate 30-second shutdown deadline localizes future failures.
+The complete serial unit/protocol suite passes 668 tests with 13 skips and no
+failures, and typecheck passes. With CI's Node version and `CI=true`, five
+consecutive source runs and five packaged runs complete every RPC/UI assertion,
+orderly shutdown and native command probe. All 15 CI policy/runner tests pass.
+These test-only changes do not alter the preview's bundled Desktop/runtime files;
+the replacement head still requires cloud verification.
+
 ## Migration CI Paths And Unavailable Projects (2026-10-23)
 
 Windows sessions run `39900979276` reached the new grouping assertion with a

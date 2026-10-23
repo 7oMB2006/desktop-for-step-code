@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
-import { SessionImports } from './session-import';
+import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
@@ -199,7 +199,19 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-import.mjs'), dataRoot,
-  () => emit({ type: 'desktop_sessions_changed' }));
+  () => emit({ type: 'desktop_sessions_changed' }), async sessionIds => {
+    const independent = pathKey(await realpath(independentRoot).catch(() => independentRoot));
+    for (const sessionId of sessionIds) {
+      const directory = await importedProjectDirectory(dataRoot, sessionId);
+      const canonical = await realpath(directory);
+      if (!(await stat(canonical)).isDirectory()) continue;
+      if (pathKey(canonical) === independent || pathKey(canonical).startsWith(`${independent}/`)) continue;
+      const existing = await sessionWorkspacePath(canonical);
+      if (!existing && !preferences.workspaces.some(path => pathKey(path) === pathKey(canonical)))
+        preferences.workspaces = [...preferences.workspaces, canonical];
+    }
+    await savePreferences();
+  });
 const stepPage = process.platform === 'win32'
   ? new StepPagePreparer(dataRoot, nodePath, (url, options) => net.fetch(url, options)) : undefined;
 const terminals = new TerminalSessions(nodePath,
@@ -677,7 +689,7 @@ async function handle(method: string, args: any[]) {
       if (quitting || quitPending) throw new Error('Application is closing');
       if (method === 'importScan') return sessionImports.scan(args[0]);
       if (method === 'importPreview') return sessionImports.preview(text(args[0], 80));
-      if (method === 'importStart') return sessionImports.start(args[0]);
+      if (method === 'importStart') return sessionImports.start(args[0], args[1]);
       if (method === 'importJobs') return sessionImports.jobs();
       if (method === 'importCancel') return sessionImports.cancel(text(args[0], 80));
       const selected = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });

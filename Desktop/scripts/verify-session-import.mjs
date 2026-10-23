@@ -14,9 +14,11 @@ const profile = await mkdtemp(join(tmpdir(), 'desktop-session-import-'));
 const fixture = await queueFixture(profile, { duration: 100 });
 const sourceRoot = join(profile, 'codex');
 const claudeRoot = join(profile, 'claude');
+const claudeWorkspace = join(profile, 'claude-workspace');
 await mkdir(join(sourceRoot, 'sessions'), { recursive: true });
 await mkdir(join(sourceRoot, 'archived_sessions'));
 await mkdir(claudeRoot);
+await mkdir(claudeWorkspace);
 const now = '2026-10-22T00:00:00.000Z';
 const meta = { type: 'session_meta', timestamp: now, payload: {
   id: 'source-codex', cwd: fixture.workspace, cli_version: 'test', history_mode: 'paginated',
@@ -46,7 +48,7 @@ await writeFile(join(sourceRoot, 'sessions', 'rollout-child.jsonl'), jsonl([
   user('Child sample'), assistant('Child answer'),
 ]));
 await writeFile(join(claudeRoot, 'claude.jsonl'), jsonl([
-  { type: 'user', uuid: 'one', parentUuid: null, sessionId: 'claude-one', cwd: fixture.workspace, version: 'test',
+  { type: 'user', uuid: 'one', parentUuid: null, sessionId: 'claude-one', cwd: claudeWorkspace, version: 'test',
     timestamp: now, message: { role: 'user', content: 'Claude migration sample' } },
   { type: 'assistant', uuid: 'two', parentUuid: 'one', sessionId: 'claude-one', timestamp: now,
     message: { role: 'assistant', content: [{ type: 'text', text: 'Claude historical answer' }] } },
@@ -153,6 +155,16 @@ try {
   // Keep the exact reviewed content, even if the source appends while the review is open.
   await writeFile(sourcePath, sourceBytes + jsonl([user('Later source turn'), assistant('Must not enter old preview')]));
   await page.getByRole('button', { name: '导入所选会话' }).click();
+  let confirmation = page.getByRole('dialog', { name: '确认导入会话', exact: true });
+  await confirmation.waitFor();
+  await page.screenshot({ path: 'test-results/session-import-confirmation-dark.png', animations: 'disabled' });
+  assert.equal(await confirmation.getByRole('checkbox').isChecked(), true);
+  assert.equal((await page.evaluate(() => window.desktop.importJobs())).length, 0, 'confirmation does not import');
+  assert.deepEqual((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaces, [fixture.workspace]);
+  await confirmation.getByRole('button', { name: '返回选择', exact: true }).click();
+  assert.match(await page.locator('.import-selection').innerText(), /已选 2/);
+  await page.getByRole('button', { name: '导入所选会话' }).click();
+  await confirmation.getByRole('button', { name: '确认导入', exact: true }).click();
   await page.waitForFunction(() => [...document.querySelectorAll('.import-jobs li')].filter(element => element.textContent.includes('已导入')).length === 2);
   const jobs = await page.evaluate(() => window.desktop.importJobs());
   const result = jobs[0].results[0];
@@ -168,12 +180,16 @@ try {
   const after = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(after.draftId, before.draftId, 'migration does not switch active session');
   assert.ok(after.sessions.some(session => session.id === result.sessionId));
+  assert.ok(after.preferences.workspaces.includes(claudeWorkspace), 'saved import adds its original directory');
+  assert.equal(after.sessions.find(session => session.id === claudeResult.sessionId).workspacePath, claudeWorkspace);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(600, 850));
   await page.screenshot({ path: 'test-results/session-import-narrow.png' });
   assert.ok(await page.locator('.session-import-settings').evaluate(element => element.scrollWidth <= element.clientWidth + 1));
   // Reimporting the same reviewed fingerprint cannot overwrite a continued copy.
   await page.locator('.import-candidate').filter({ hasText: 'Codex' }).locator('input[type=checkbox]').check();
   await page.getByRole('button', { name: '导入所选会话' }).click();
+  await confirmation.getByRole('checkbox').uncheck();
+  await confirmation.getByRole('button', { name: '确认导入', exact: true }).click();
   await page.locator('.import-job-summary').filter({ hasText: '跳过 1' }).waitFor();
   assert.equal(await page.locator('.import-job-trigger').first().getAttribute('aria-expanded'), 'false');
   assert.equal(await readFile(target, 'utf8'), importedBytes);
@@ -220,17 +236,22 @@ try {
   await closeDesktopFixture(app);
   app = await launch();
   page = await app.firstWindow();
+  confirmation = page.getByRole('dialog', { name: '确认导入会话', exact: true });
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => window.desktop && document.querySelector('.new-chat')?.disabled === false);
   const persisted = await page.evaluate(() => window.desktop.importJobs());
   assert.equal(persisted.length, 2);
   assert.ok(persisted.every(job => job.status === 'completed'));
   const ids = (await page.evaluate(() => window.desktop.sessions())).map(session => session.id);
+  assert.ok((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaces.includes(claudeWorkspace));
   assert.ok(ids.includes(result.sessionId));
   assert.equal((await readdir(join(profile, 'step-runtime', 'sessions', 'imported'))).filter(name => name.endsWith('.jsonl')).length, 2);
+  const standaloneWorkspace = join(profile, 'independent-import-project');
+  await mkdir(standaloneWorkspace);
   for (let index = 0; index < 23; index++) {
     await writeFile(join(sourceRoot, 'sessions', `rollout-pagination-${index}.jsonl`), jsonl([
-      { ...meta, payload: { ...meta.payload, id: `page-${String(index).padStart(2, '0')}` } },
+      { ...meta, payload: { ...meta.payload, id: `page-${String(index).padStart(2, '0')}`,
+        cwd: index === 0 ? standaloneWorkspace : fixture.workspace } },
       user(`Pagination sample ${index}`), assistant(`Pagination answer ${index}`),
     ]));
   }
@@ -267,6 +288,8 @@ try {
   await page.getByRole('checkbox', { name: '全选本页', exact: true }).check();
   assert.match(await page.locator('.import-selection').innerText(), /已选 25 \/ 100/);
   await page.getByRole('button', { name: '导入所选会话', exact: true }).click();
+  await confirmation.getByRole('checkbox').uncheck();
+  await confirmation.getByRole('button', { name: '确认导入', exact: true }).click();
   const batch = page.locator('.import-job').filter({
     has: page.locator('header span').filter({ hasText: /^\s*25\s*\/\s*25\s*$/ }),
   });
@@ -278,6 +301,29 @@ try {
   assert.equal(await batch.locator('li').count(), 25);
   assert.equal(await batch.locator('.import-error').count(), 0);
   for (const text of await batch.locator('li').allTextContents()) assert.match(text, /已导入|已有相同副本/);
+  const ungrouped = await page.evaluate(() => window.desktop.snapshot());
+  assert.ok(!ungrouped.preferences.workspaces.includes(standaloneWorkspace), 'unchecked option never adds missing projects');
+  assert.ok(ungrouped.sessions.some(session => session.cwd === standaloneWorkspace && session.independent));
+  assert.ok(ungrouped.sessions.some(session => session.id === claudeResult.sessionId && session.workspacePath === claudeWorkspace),
+    'unchecked option does not detach existing projects');
+  // Explicitly reimporting an existing copy can repair grouping without rewriting its cwd/history.
+  const repair = await page.evaluate(async ({ sourceRoot, claudeRoot, standaloneWorkspace, destination }) => {
+    const scan = await window.desktop.importScan({ codexRoot: sourceRoot, claudeRoot });
+    const candidate = scan.candidates.find(item => item.cwd === standaloneWorkspace);
+    const preview = await window.desktop.importPreview(candidate.id);
+    return window.desktop.importStart([{ candidateId: candidate.id, fingerprint: preview.fingerprint, cwd: destination }],
+      { addProjects: true });
+  }, { sourceRoot, claudeRoot, standaloneWorkspace, destination: fixture.workspace });
+  let repaired;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    repaired = (await page.evaluate(() => window.desktop.importJobs())).find(job => job.id === repair.id);
+    if (repaired.status !== 'running') break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal(repaired.results[0].status, 'skipped');
+  const regrouped = await page.evaluate(() => window.desktop.snapshot());
+  assert.ok(regrouped.preferences.workspaces.includes(standaloneWorkspace), 'repair uses the saved copy directory, not the new selection');
+  assert.equal(regrouped.preferences.workspaces.filter(path => path === fixture.workspace).length, 1);
   assert.deepEqual(errors, []);
   console.log('Session migration passed: isolated scan, optional preview, immutable import, duplicate protection, native history/model/usage, themes, narrow layout, durable relaunch, pagination and bulk import with automatic snapshots.');
 } catch (error) {

@@ -4,6 +4,7 @@ import type { SessionImportBridge, ImportCandidate, ImportPreview, ImportJob, Im
 import { importWarning } from './session-import';
 import { AppMenu } from './AppMenu';
 import { DisclosureChevron } from './DisclosureChevron';
+import { ImportConfirmation } from './ImportConfirmation';
 import './session-import.css';
 
 const PAGE_SIZE = 20;
@@ -89,6 +90,7 @@ export function SessionImportSettings({ bridge, language, onOpen }: {
   ];
   const [pending, setPending] = useState(false);
   const [preparing, setPreparing] = useState<{ done: number; total: number }>();
+  const [confirmation, setConfirmation] = useState<ImportSelection[]>();
   const preparationCancelled = useRef(false);
   const selectPage = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
@@ -170,11 +172,7 @@ export function SessionImportSettings({ bridge, language, onOpen }: {
       if (alive.current) setPreparing(undefined);
     }
     if (!alive.current || version !== revision.current || preparationCancelled.current) return;
-    const job = await bridge.importStart(selections);
-    if (!alive.current) return;
-    setJobs(old => [job, ...old.filter(item => item.id !== job.id)]);
-    setHistoryPage(1);
-    setSelected(new Set());
+    setConfirmation(selections);
   });
   const cancel = (id: string) => act(async () => {
     await bridge.importCancel(id);
@@ -216,6 +214,16 @@ export function SessionImportSettings({ bridge, language, onOpen }: {
     completed: t('已结束', 'Finished'), cancelled: t('已取消', 'Cancelled'), interrupted: t('已中断', 'Interrupted'),
   }[job.status]);
   return <section className="session-import-settings" aria-label={t('会话迁移', 'Session migration')}>
+    {confirmation && <ImportConfirmation selections={confirmation} language={language}
+      onCancel={() => setConfirmation(undefined)} onConfirm={async addProjects => {
+        setPending(true);
+        try {
+          const job = await bridge.importStart(confirmation, { addProjects });
+          if (!alive.current) return;
+          setJobs(old => [job, ...old.filter(item => item.id !== job.id)]);
+          setHistoryPage(1); setSelected(new Set()); setConfirmation(undefined);
+        } finally { if (alive.current) setPending(false); }
+      }}/>}
     <h3>{t('会话迁移', 'Session migration')}</h3>
     <p className="muted">{t('从本机 Codex 或 Claude Code 导入历史。不会运行来源工具，也不会迁入凭据、审批和模型配置。', 'Import local Codex or Claude Code history. Source tools are not replayed; credentials, approvals and model settings are not migrated.')}</p>
     <div className="import-sources">

@@ -28,6 +28,16 @@ runtime pin. The separately frozen macOS runtime and setup UI are unchanged.
   changes. Imported copies never silently refresh from the source.
 - Map each selected session to an existing absolute project directory, including
   through the native directory chooser. Import batches contain 1 to 100 sessions.
+- Import preparation opens a confirmation dialog listing target directories and
+  session counts. Returning or pressing Escape preserves selection and publishes
+  nothing. "Add missing directories as sidebar projects" defaults on; turning it
+  off leaves unregistered directories under independent sessions without detaching
+  matches from existing projects. Only imported/skipped copies register projects,
+  not failed or unprocessed candidates. Registration does not create directories,
+  activate a runtime, grant project trust or change the active conversation.
+  Reimporting an existing copy with this option enabled can repair its grouping
+  without rewriting history. Its saved native directory takes precedence over a
+  newly selected destination, since duplicate imports do not relocate copies.
 - Import runs offline in its own Desktop-owned Node child, without credentials,
   source-agent execution, provider requests or changes to the active conversation.
   Account/admin-process reloads do not destroy its reviewed snapshots.

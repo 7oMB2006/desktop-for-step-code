@@ -8,6 +8,7 @@ export interface ImportPreview extends ImportCandidate {
   warnings: { code: string; count: number }[]; excerpt: string;
 }
 export interface ImportSelection { candidateId: string; fingerprint: string; cwd: string }
+export interface ImportStartOptions { addProjects: boolean }
 export interface ImportResult {
   candidateId: string; title?: string; status: 'imported' | 'skipped' | 'failed';
   sessionId?: string; error?: string; warning?: string;
@@ -23,7 +24,7 @@ export interface ImportScanResult {
 export interface SessionImportBridge {
   importScan(options: ImportScanOptions): Promise<ImportScanResult>;
   importPreview(candidateId: string): Promise<ImportPreview>;
-  importStart(selections: ImportSelection[]): Promise<ImportJob>;
+  importStart(selections: ImportSelection[], options?: ImportStartOptions): Promise<ImportJob>;
   importJobs(): Promise<ImportJob[]>;
   importCancel(id: string): Promise<ImportJob>;
   importChooseDirectory(): Promise<string | null>;

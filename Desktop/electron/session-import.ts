@@ -1,6 +1,38 @@
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join } from 'node:path';
+import { open } from 'node:fs/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
-import type { ImportJob, ImportScanOptions, ImportSelection } from '../src/session-import';
+import type { ImportJob, ImportScanOptions, ImportSelection, ImportStartOptions } from '../src/session-import';
+
+export function importStartOptions(input: unknown): ImportStartOptions {
+  if (input === undefined) return { addProjects: false };
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || Object.keys(input).some(key => key !== 'addProjects')
+    || typeof (input as ImportStartOptions).addProjects !== 'boolean') throw new Error('Invalid import grouping options');
+  return { addProjects: (input as ImportStartOptions).addProjects };
+}
+
+export async function importedProjectDirectory(root: string, sessionId: string): Promise<string> {
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-a[a-f0-9]{3}-[a-f0-9]{12}$/.test(sessionId))
+    throw new Error('Invalid imported session ID');
+  const file = await open(join(root, 'sessions', 'imported', `${sessionId}.jsonl`), 'r');
+  try {
+    // Only the native header is needed, even when a transcript is many megabytes.
+    const buffer = Buffer.alloc(64 * 1024);
+    let length = 0;
+    let end = -1;
+    while (length < buffer.length && end < 0) {
+      const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
+      if (!bytesRead) break;
+      length += bytesRead;
+      end = buffer.subarray(0, length).indexOf(10);
+    }
+    if (end < 0) throw new Error('Invalid imported session header');
+    const header = JSON.parse(buffer.toString('utf8', 0, end));
+    if (header.type !== 'session' || header.id !== sessionId
+      || !boundedText(header.cwd, 4096) || !isAbsolute(header.cwd)) throw new Error('Invalid imported directory');
+    return header.cwd;
+  } finally { await file.close(); }
+}
 
 const boundedText = (value: unknown, max: number) => typeof value === 'string' && value.length > 0
   && value.length <= max && !value.includes('\0');
@@ -36,14 +68,38 @@ export class SessionImports {
   private rpc?: RpcProcess;
   private closing = false;
   private running = false;
+  private projectSelections = new Map<string, Set<string>>();
+  private projectWrites: Promise<void> = Promise.resolve();
   get busy() { return this.running || Boolean(this.rpc?.hasPendingRequests); }
-  constructor(private node: string, private entry: string, private root: string, private changed: () => void) {}
+  constructor(private node: string, private entry: string, private root: string, private changed: () => void,
+    private addProjects: (sessionIds: string[]) => Promise<void> = async () => {}) {}
+  private reconcile(jobs: ImportJob[]) {
+    const write = this.projectWrites.catch(() => {}).then(async () => {
+      for (const job of jobs) {
+        const selections = this.projectSelections.get(job.id);
+        if (!selections) continue;
+        const saved = job.results.filter(result => result.sessionId && (result.status === 'imported' || result.status === 'skipped'))
+          .filter(result => selections.has(result.candidateId));
+        if (saved.length) {
+          await this.addProjects([...new Set(saved.map(result => result.sessionId!))]);
+          for (const result of saved) selections.delete(result.candidateId);
+          this.changed();
+        }
+        if (job.status !== 'running') this.projectSelections.delete(job.id);
+      }
+    });
+    this.projectWrites = write;
+    return write;
+  }
   private process() {
     if (this.closing) throw new Error('Session importer is closing');
     if (!this.rpc) {
       const rpc = new RpcProcess(event => {
         if (event.type === 'desktop_sessions_changed') this.changed();
-        if (event.type === 'desktop_import_state') this.running = event.running === true;
+        if (event.type === 'desktop_import_state') {
+          this.running = event.running === true;
+          if (!this.running) void this.jobs().catch(() => {});
+        }
         if (event.type === 'desktop_exit' && this.rpc === rpc) { this.rpc = undefined; this.running = false; }
       });
       // No credentials are needed for offline history migration.
@@ -54,11 +110,19 @@ export class SessionImports {
   }
   scan(input: unknown) { return this.process().request('scan', { options: importScanOptions(input) }, 120000); }
   preview(id: string) { return this.process().request('preview', { candidateId: id }, 120000); }
-  async start(input: unknown): Promise<ImportJob> {
+  async start(input: unknown, options?: unknown): Promise<ImportJob> {
     const selections = importSelections(input);
+    const grouping = importStartOptions(options);
     const rpc = this.process();
     this.running = true;
-    try { return await rpc.request('start', { selections }); }
+    try {
+      const job: ImportJob = await rpc.request('start', { selections });
+      if (grouping.addProjects) this.projectSelections.set(job.id,
+        new Set(selections.map(selection => selection.candidateId)));
+      // The job is already accepted. A project-write failure must not invite a second start.
+      await this.reconcile([job]).catch(() => {});
+      return job;
+    }
     catch (error) {
       // Reconcile a rejected start without clearing another batch's busy state.
       await this.jobs().catch(() => {});
@@ -68,6 +132,7 @@ export class SessionImports {
   async jobs(): Promise<ImportJob[]> {
     const jobs: ImportJob[] = await this.process().request('jobs');
     this.running = jobs.some(job => job.status === 'running');
+    await this.reconcile(jobs);
     return jobs;
   }
   cancel(id: string): Promise<ImportJob> { return this.process().request('cancel', { jobId: id }); }
@@ -75,7 +140,11 @@ export class SessionImports {
     this.closing = true;
     const rpc = this.rpc;
     if (!rpc) { this.closing = false; return; }
-    try { await rpc.request('close', {}, 120000); }
+    try {
+      await rpc.request('close', {}, 120000);
+      const jobs: ImportJob[] = await rpc.request('jobs');
+      await this.reconcile(jobs);
+    }
     finally { await rpc.stop(); this.rpc = undefined; this.running = false; this.closing = false; }
   }
 }

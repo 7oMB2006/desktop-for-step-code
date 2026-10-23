@@ -75,6 +75,14 @@
 .import-job li small { width: 100%; color: var(--muted); }
 .import-result-title { flex: 1; min-width: 80px; overflow-wrap: anywhere; }
 .import-job li button { width: 30px; height: 28px; }
+.import-confirmation { max-height: calc(100dvh - 32px); overflow: auto; }
+.import-confirmation p { font-size: 12px; line-height: 1.7; }
+.import-confirmation-directories { list-style: none; margin: 16px 0; padding: 0; max-height: 240px; overflow: auto; overscroll-behavior: contain; }
+.import-confirmation-directories li { display: flex; align-items: flex-start; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.import-confirmation-directories svg { flex-shrink: 0; margin-top: 2px; color: var(--muted); }
+.import-confirmation-directories span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.import-confirmation-directories small { flex-shrink: 0; color: var(--muted); }
+.import-confirmation footer { flex-wrap: wrap; }
 @media (max-width: 600px) {
   .import-filter { flex-wrap: wrap; }
   .import-filter .import-search { flex-basis: 100%; order: 1; }

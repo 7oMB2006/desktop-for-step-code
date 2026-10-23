@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SessionImports, importEnvironment, importScanOptions, importSelections } from '../electron/session-import';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SessionImports, importedProjectDirectory, importEnvironment, importScanOptions, importSelections, importStartOptions } from '../electron/session-import';
 import { importedHistoryMessages } from '../electron/imported-history';
 import { messagesWithEntryIds } from '../electron/session-branching';
 import { responsePresentation } from '../src/conversation-presentation';
@@ -69,6 +72,70 @@ test('a rejected start reconciles busy state without forgetting other live batch
 test('native messages keep the existing projection by identity', () => {
   const messages: Message[] = [{ role: 'assistant', content: 'native' }];
   assert.equal(importedHistoryMessages(messages, [], null), messages);
+});
+
+test('project grouping is an explicit validated opt-in at the bridge boundary', () => {
+  assert.deepEqual(importStartOptions(undefined), { addProjects: false });
+  assert.deepEqual(importStartOptions({ addProjects: true }), { addProjects: true });
+  for (const value of [null, [], {}, { addProjects: 'true' }, { addProjects: true, cwd: 'extra' }])
+    assert.throws(() => importStartOptions(value));
+});
+
+test('grouping reads the saved native directory, not the new selection or foreign source body', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'import-project-header-'));
+  const id = '12345678-1234-4234-a234-123456789012';
+  try {
+    await mkdir(join(root, 'sessions', 'imported'), { recursive: true });
+    const file = join(root, 'sessions', 'imported', `${id}.jsonl`);
+    await writeFile(file, JSON.stringify({ type: 'session', id, cwd: process.cwd() }) + '\n' + 'not JSON'.repeat(100_000));
+    assert.equal(await importedProjectDirectory(root, id), process.cwd());
+    await assert.rejects(importedProjectDirectory(root, '../outside'));
+    await writeFile(file, JSON.stringify({ type: 'session', id, cwd: '../relative' }) + '\n');
+    await assert.rejects(importedProjectDirectory(root, id));
+    await writeFile(file, 'x'.repeat(70_000) + '\n');
+    await assert.rejects(importedProjectDirectory(root, id), /header/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('only saved import results register projects; repeated polling is idempotent', async () => {
+  for (const addProjects of [false, true]) {
+    const added: string[][] = [];
+    let job: any = { id: 'batch', status: 'running', results: [], total: 4 };
+    const host = new SessionImports('', '', '', () => {}, async paths => { added.push(paths); });
+    Object.assign(host, { rpc: { request: async (method: string) => method === 'start' ? job : [job] } });
+    const selections = ['saved', 'skipped', 'failed', 'unprocessed'].map(candidateId =>
+      ({ candidateId, fingerprint: 'a'.repeat(64), cwd: process.cwd() }));
+    await host.start(selections, { addProjects });
+    assert.deepEqual(added, [], 'preparation/start alone never adds a project');
+    job = { ...job, status: 'cancelled', results: [
+      { candidateId: 'saved', status: 'imported', sessionId: 'native-copy' },
+      { candidateId: 'skipped', status: 'skipped', sessionId: 'native-copy' },
+      { candidateId: 'failed', status: 'failed' },
+    ] };
+    await Promise.all([host.jobs(), host.jobs()]);
+    assert.deepEqual(added, addProjects ? [['native-copy']] : []);
+  }
+});
+
+test('grouping uses saved session identities and retries persistence without starting another import', async () => {
+  let writes = 0;
+  let starts = 0;
+  const destination = process.cwd();
+  const job = { id: 'saved', status: 'completed', results: [{ candidateId: 'one', status: 'skipped', sessionId: 'original-copy' }] };
+  const host = new SessionImports('', '', '', () => {}, async sessionIds => {
+    assert.deepEqual(sessionIds, ['original-copy']);
+    if (++writes === 1) throw new Error('temporary preference write failure');
+  });
+  Object.assign(host, { rpc: { request: async (method: string) => {
+    if (method === 'start') { starts++; return job; }
+    return [job];
+  } } });
+  assert.equal((await host.start([{ candidateId: 'one', fingerprint: 'a'.repeat(64), cwd: destination }],
+    { addProjects: true })).id, job.id);
+  await host.jobs();
+  await host.jobs();
+  assert.equal(writes, 2);
+  assert.equal(starts, 1);
 });
 
 test('historical transcript uses raw active-path records, with usage stripped and tools marked historical', () => {

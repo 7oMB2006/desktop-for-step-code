@@ -344,8 +344,9 @@ export class SessionRuntimes {
       worker.rpc.request('get_entries'),
     ]);
     if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker) return;
-    const savedMessages = importedHistoryMessages(
-      messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null), history.entries ?? [], history.leafId ?? null);
+    const projected = importedHistoryMessages(messages, history.entries ?? [], history.leafId ?? null);
+    const savedMessages = projected === messages
+      ? messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null) : projected;
     if (revision === worker.revision && state.sessionId)
       worker.launch = projectLaunch(history.entries ?? [], history.leafId ?? null, state.sessionId, worker.launch);
     const decorated = this.hooks.messages ? await this.hooks.messages(worker, savedMessages) : savedMessages;

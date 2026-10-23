@@ -35,7 +35,7 @@ const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('deskt
 const bridge: DesktopBridge = {
   importScan: options => invoke('importScan', options),
   importPreview: id => invoke('importPreview', id),
-  importStart: selections => invoke('importStart', selections),
+  importStart: (selections, options) => invoke('importStart', selections, options),
   importJobs: () => invoke('importJobs'),
   importCancel: id => invoke('importCancel', id),
   importChooseDirectory: () => invoke('importChooseDirectory'),

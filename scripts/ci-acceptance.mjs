@@ -11,6 +11,7 @@ export const acceptanceGroups = {
     'verify-interface-settings.mjs',
     'verify-interface-preferences.mjs',
     'verify-disclosure-summary.mjs',
+    'verify-import-performance.mjs',
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',
     'verify-capabilities.mjs',
@@ -54,6 +55,8 @@ export const acceptanceGroups = {
     'verify-send-queue.mjs',
     'verify-model-switch.mjs',
     'verify-cross-session.mjs',
+    'verify-session-import.mjs',
+    'verify-import-large-electron.mjs',
   ],
   runtime: [
     'verify-electron.mjs',
@@ -97,6 +100,8 @@ export const localOnly = [
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',
+  // Requires the manually started quote-annotations Vite preview on port 5195.
+  'verify-quote-annotations-fixture.mjs',
   'verify-composer-action.mjs',
   'verify-context-panel.mjs',
   'verify-inspector-expansion.mjs',

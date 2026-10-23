@@ -44,6 +44,66 @@ These checks use deterministic local resources, not paid model requests or real
 third-party login/publishing. No installer, first-install acceptance or cloud CI
 result is established by this run. See `docs/CAPABILITIES.md` for scope.
 
+## Migration CI Paths And Unavailable Projects (2026-10-23)
+
+Windows sessions run `39900979276` reached the new grouping assertion with a
+`RUNNER~1` temporary-path alias. The client correctly stores native real paths;
+the fixture now canonicalizes its isolated profile before constructing and
+comparing workspace paths, rather than weakening the grouping assertions.
+
+A separate regression reproduced a saved copy whose original project directory
+was deleted before duplicate-import grouping repair. The previous build returned
+ENOENT from import-history queries and failed to finish orderly fixture shutdown.
+Registration now skips unavailable saved directories without creating replacements
+or rewriting the copy. The extended source Electron migration acceptance passes,
+including subsequent journal reads and orderly shutdown. Cloud checks remain
+required for the replacement head.
+
+## Import Confirmation And Project Grouping (2026-10-23)
+
+Import now confirms directory counts and an optional, default-on sidebar project
+registration before starting. Cancel preserves selection and creates no copies
+or projects. The host only registers saved imported/skipped results and reads
+their bounded native headers, not foreign source text or entire transcripts.
+Duplicate copies keep their saved cwd even if a later selection changes it.
+
+Typecheck, production build and 17 focused import/history tests passed.
+Source Electron acceptance passed confirmation cancellation, default grouping,
+unchecked independent placement, existing project matches, relaunch persistence,
+bulk import and explicit duplicate-copy grouping repair. The local fake-provider
+continuation and large-text browser responsiveness checks also passed.
+The browser fixture is available on port 5194; the prior port 5193 serves a
+different checkout. This follow-up was source-only when first verified. CI repair
+has since resumed, integrating main's model-refresh race fix without changing the
+macOS runtime pin. Replacement cloud checks must validate the combined tree.
+
+## Imported Large-History Responsiveness (2026-10-23)
+
+A real imported conversation exposed two unbounded paths missed by the small
+migration fixtures: the RPC decoder repeatedly rescanned the accumulated history,
+and multi-megabyte historical text was eagerly parsed as Markdown. A synthetic
+56 MiB frame reproduced a roughly 51-second main-thread stall. Fragment-based
+decoding reduces that local test to roughly 0.23 seconds while retaining
+per-record limits and split UTF-8 handling.
+
+Oversized prose and tool inputs/results now use a bounded, plain-text section
+viewer with full-content copying. Closed thinking bodies mount on first opening,
+and transcript images use lazy decoding/loading. Imported active-path messages
+already carry entry IDs, avoiding redundant full-content identity serialization.
+No saved messages, images or model context were removed or rewritten.
+
+`verify-import-performance.mjs` covers a three-million-character historical
+payload, deferred thinking and section navigation. `verify-import-large-electron.mjs`
+imports a synthetic 62 MB source, opens its actual native copy, expands and pages
+the historical tool result, then continues via an isolated local provider. The
+source Electron run opened in about 2.8 seconds and completed local continuation
+in about 1.9 seconds. These are local observations, not production latency
+guarantees. Official-provider prefill with image-heavy history remains separate;
+no paid model or private conversation was used in these acceptance requests.
+The unsigned D: preview also passed packaged migration and general Electron
+acceptance; its synthetic large-history open/continuation measured about
+2.6/2.1 seconds. Distribution and staged runtime hashes match the package.
+
 ## Summary Turn Alignment And CI Replay (2026-10-22)
 
 The Summary activity dot now follows live conversation execution immediately;
@@ -4083,6 +4143,30 @@ The complete 31-script Windows interface acceptance group also passed locally,
 including the theme bootstrap startup race and final performance matrix check.
 This local run preceded synchronization with main's StepPage and fader changes;
 replacement cloud CI must validate the combined tree.
+
+## Windows Offline Session Migration
+
+The Desktop adaptation of Step-Code PR #291 retains the existing Windows runtime
+pin and ports the shared import service through a separately hashed source patch.
+Settings exposes explicit Codex/Claude discovery, reviewed snapshots, destination
+mapping, batch jobs and cancellation. The importer owns a separate credential-free
+child; copies and journals remain in the Desktop profile.
+
+Local source verification on 2026-10-22 passed: typecheck, production build,
+610 Desktop unit tests (13 skips), 90 upstream import/context/compaction/usage
+tests, 15 CI policy/runner tests, the dedicated native import acceptance and
+general Electron acceptance. The native migration case covers both formats,
+archive opt-in and child exclusion, source append after review, duplicate
+protection, stubbed directory-selection IPC, real transcript navigation, a native
+continuation through a local fake provider and journal/copy retention on relaunch.
+Historical tools are inert evidence, not current Plan/Workflow or filesystem
+receipts; their display IDs cannot collide with native tool calls.
+
+Native light/dark and narrow-window screenshots were checked. The separate mock
+browser fixture also received Chinese/light and English/dark 375px layout checks.
+See `docs/SESSION_IMPORT.md` for commands, bounds and evidence details.
+No new installer, real personal-source migration, paid-provider request, remote
+CI or macOS import acceptance is implied.
 
 ## Task Progress Completion Motion
 

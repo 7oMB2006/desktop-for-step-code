@@ -10,11 +10,17 @@ test('Windows v0.1.5 patch manifest pins every reviewed pre-image, result and pa
   const root = resolve('../patches/v015');
   const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
   assert.equal(manifest.commit, 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494');
-  assert.deepEqual(Object.keys(manifest.sources).sort(), Object.keys(manifest.patchedSources).sort());
+  assert.ok(Object.keys(manifest.sources).every(path => path in manifest.patchedSources));
+  assert.deepEqual(Object.keys(manifest.patchedSources).filter(path => !(path in manifest.sources)).sort(), [
+    'packages/coding-agent/src/core/session-import/parsers.ts',
+    'packages/coding-agent/src/core/session-import/service.ts',
+    'packages/coding-agent/src/core/session-import/types.ts',
+    'packages/coding-agent/test/session-import.test.ts',
+  ]);
   assert.deepEqual(Object.keys(manifest.patches).sort(),
     ['../step-code-desktop-cron-management.patch', '../step-code-desktop-cron.patch', '../step-code-desktop-plugins.patch',
       'step-code-desktop-clarification.patch', 'step-code-desktop-cron-recovery.patch',
-      'step-code-desktop-plan.patch', 'step-code-desktop.patch']);
+      'step-code-desktop-plan.patch', 'step-code-desktop.patch', 'step-code-session-import.patch']);
   assert.equal(manifest.sources['packages/coding-agent/src/features/step-cron.ts'], '6f881338a5d4ac34a416706a1e72b1f6e181cff3');
   assert.equal(manifest.patchedSources['packages/coding-agent/src/features/step-cron.ts'], 'ba42caa552e5f00ea6f97b4fbbbdd494234715dc');
   for (const [name, hash] of Object.entries(manifest.patches)) {

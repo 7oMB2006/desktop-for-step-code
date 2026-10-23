@@ -2,7 +2,7 @@ import { memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, u
 import { CommandCatalog, CommandReference, commandReference } from './CommandReference';
 import type { ComponentProps, Dispatch, ReactNode, SetStateAction } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
-import { ArrowRight, ArrowRightLeft, Bot, Brain, Check, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowRightLeft, Bot, Brain, Check, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, ModelChange, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
@@ -84,7 +84,7 @@ function Image({ block, openImage, language }: { block: Content } & Omit<BodyPro
 function PreviewImage({ src, alt, openImage, language }: {
   src: string; alt: string;
 } & Omit<BodyProps, 'onError'>) {
-  return <img src={src} alt={alt} className="attachment previewable-image" role="button" tabIndex={0}
+  return <img src={src} alt={alt} loading="lazy" decoding="async" className="attachment previewable-image" role="button" tabIndex={0}
     aria-label={`${language === 'zh' ? '预览' : 'Preview'} ${alt}`}
     onClick={event => openImage(src, alt, event.currentTarget)}
     onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') {
@@ -99,7 +99,31 @@ function Code({ children, className, language, onError }: Omit<ComponentProps<'c
     <CopyButton text={String(children)} getText={() => code.current?.textContent ?? ''} language={language} onError={onError}/>
   </span><code ref={code} className={className}>{children}</code></span>;
 }
-export function Text({ text, streaming = false, ...props }: { text: string; streaming?: boolean } & BodyProps) {
+export function Text({ text, ...props }: { text: string; streaming?: boolean } & BodyProps) {
+  return text.length > 32_768 ? <LargeText text={text} {...props}/> : <RevealedText text={text} {...props}/>;
+}
+function LargeText({ text, language, onError }: { text: string } & Pick<BodyProps, 'language' | 'onError'>) {
+  const [page, setPage] = useState(0);
+  const size = 16_384;
+  const pages = Math.ceil(text.length / size);
+  const current = Math.min(page, pages - 1);
+  const zh = language === 'zh';
+  const boundary = (offset: number) => offset > 0 && /[\uDC00-\uDFFF]/u.test(text[offset] ?? '') ? offset - 1 : offset;
+  return <div className="large-message-text" data-page={current + 1}>
+    <div className="large-message-controls">
+      <button className="icon-button" type="button" aria-label={zh ? '上一段' : 'Previous section'}
+        data-tooltip={zh ? '上一段' : 'Previous section'}
+        disabled={current === 0} onClick={() => setPage(current - 1)}><ArrowLeft size={14}/></button>
+      <span>{current + 1} / {pages}</span>
+      <button className="icon-button" type="button" aria-label={zh ? '下一段' : 'Next section'}
+        data-tooltip={zh ? '下一段' : 'Next section'}
+        disabled={current === pages - 1} onClick={() => setPage(current + 1)}><ArrowRight size={14}/></button>
+      <CopyButton text={text} language={language} onError={onError}/>
+    </div>
+    <pre>{text.slice(boundary(current * size), boundary((current + 1) * size))}</pre>
+  </div>;
+}
+function RevealedText({ text, streaming = false, ...props }: { text: string; streaming?: boolean } & BodyProps) {
   const [reveal, setReveal] = useState<RevealState>({ text: '', active: false, nextId: 0, batches: [] });
   if (text !== reveal.text || streaming !== reveal.active) {
     setReveal(updateReveal(reveal, text, streaming, performance.now()));
@@ -144,6 +168,7 @@ function UserText({ text, ...props }: { text: string } & BodyProps) {
         <div className="sent-quote-source">{quote.role === 'assistant'
           ? (zh ? '助手' : 'Assistant') : (zh ? '用户' : 'User')}</div>
         <div className="sent-quote-content"><Text text={quote.markdown} {...props}/></div>
+        {quote.annotation && <div className="sent-quote-annotation"><span>{zh ? '批注' : 'Annotation'}</span><div>{quote.annotation}</div></div>}
       </blockquote>)}</div>
     {presentation.draft && <div className="sent-quote-reply"><Text text={presentation.draft} {...props}/></div>}
   </div>;
@@ -201,10 +226,14 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
   const subject = toolSubject(item.call);
   const presentation = toolPresentation(name, item.result, active, props.language, item.call?.arguments);
   const waiting = !item.result && Boolean(item.call?.id && props.awaitingToolCalls?.includes(item.call.id));
-  if (name === 'clarify_user') return <QuestionTool item={item} waitingApproval={waiting} zh={zh}/>;
+  const historical = item.call?.historical || item.result?.desktopImported;
+  if (name === 'clarify_user' && !historical) return <QuestionTool item={item} waitingApproval={waiting} zh={zh}/>;
   const { kind, status } = presentation;
-  const state = waiting ? 'waiting' : presentation.state;
-  const label = waiting ? (zh ? `等待批准 · ${name}` : `Awaiting approval · ${name}`) : presentation.label;
+  const historicalStatus = !item.result || item.result.details?.importedStatus !== 'completed' && !item.result.isError
+    ? (zh ? '结果未知' : 'Outcome unknown') : item.result.isError ? (zh ? '失败' : 'Failed') : (zh ? '完成' : 'Completed');
+  const state = historical ? item.result?.isError ? 'failed' : item.result?.details?.importedStatus === 'completed' ? 'done' : 'missing' : waiting ? 'waiting' : presentation.state;
+  const label = historical ? `${zh ? '历史工具' : 'Historical tool'} · ${name} · ${historicalStatus}`
+    : waiting ? (zh ? `等待批准 · ${name}` : `Awaiting approval · ${name}`) : presentation.label;
   const Icon = { command: Terminal, read: FileText, write: FilePenLine, edit: FilePenLine,
     search: Search, folder: FolderSearch, web: Globe, sessions: MessagesSquare, 'session-read': MessageSquare, 'session-send': Send, other: Wrench }[kind];
   return <details ref={details} className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state} data-expanded={expanded}>
@@ -218,15 +247,19 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
     <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{visited &&
     <div className="process-tool-content">
       <div className="process-tool-meta"><code>{name}</code>{subject && <span className="process-tool-subject">{subject}</span>}</div>
-      {item.call && <details className="tool-input"><summary>{zh ? '输入' : 'Input'}</summary><pre>{JSON.stringify(item.call.arguments ?? {}, null, 2)}</pre></details>}
+      {item.call && <details className="tool-input"><summary>{zh ? '输入' : 'Input'}</summary><ToolText text={JSON.stringify(item.call.arguments ?? {}, null, 2)} {...props}/></details>}
       {item.result ? <details className="tool-output" open><summary>{zh ? '结果' : 'Result'}</summary>
-        {messageText(item.result) ? <pre>{messageText(item.result)}</pre>
+        {messageText(item.result) ? <ToolText text={messageText(item.result)} {...props}/>
           : !messageBlocks(item.result).some(block => block.type === 'image') && <p className="process-pending">{zh ? '无输出' : 'No output'}</p>}
         {messageBlocks(item.result).filter(block => block.type === 'image').map((block, index) => <Image key={index} block={block} {...props}/>)}
       </details> : null}
-      <div className="process-tool-status">{state === 'done' && <Check size={12}/>}<span>{status}</span></div>
+      <div className="process-tool-status">{state === 'done' && <Check size={12}/>}<span>{historical ? historicalStatus : status}</span></div>
     </div>}</div>
   </details>;
+}
+
+function ToolText({ text, ...props }: { text: string } & Pick<BodyProps, 'language' | 'onError'>) {
+  return text.length > 32_768 ? <LargeText text={text} {...props}/> : <pre>{text}</pre>;
 }
 
 function ToolGroup({ items, active, ...props }: { items: ToolItem[]; active: boolean } & BodyProps) {
@@ -387,7 +420,9 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     const renderItem = (item: ResponseItem, onExpandedChange?: (expanded: boolean) => void): ReactNode => item.type === 'cron'
       ? <CronMessage key={item.key} notice={item.notice} index={item.index} language={props.language} onLayoutChange={props.onLayoutChange}/>
       : item.type === 'tool'
-            ? approvedPlan(item.result)
+            ? item.call?.historical || item.result?.desktopImported
+              ? <Tool key={item.key} item={item} active={false} {...props}/>
+              : approvedPlan(item.result)
               ? <PlanExecution key={item.key} plan={approvedPlan(item.result)!} state={execution?.state ?? 'interrupted'} note language={props.language}/>
               : item.call?.name === 'subagent' || item.result?.toolName === 'subagent'
               ? <SubagentLane key={item.key} item={item} active={active} background={background} onOpen={onOpenSubagent} {...props}/>

@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Copy } from 'lucide-react';
-import { fencedSelection, MAX_QUOTE_LENGTH, type ChatQuote } from './chat-quotes';
+import { Check, Copy, PencilLine, X } from 'lucide-react';
+import { fencedSelection, MAX_QUOTE_LENGTH, MAX_ANNOTATION_LENGTH, type ChatQuote } from './chat-quotes';
 import { selectionMarkdown } from './selection-markdown';
 
 type Selected = { quote: ChatQuote; range: Range };
@@ -50,7 +50,8 @@ function capture(root: HTMLElement): Selected | null {
       id: crypto.randomUUID(), messageIndex: index,
       role: article.classList.contains('user') ? 'user' : 'assistant',
       text, markdown: inCode ? fencedSelection(selection.toString(), language) : selectionMarkdown(fragment, text),
-      startOffset, endOffset: startOffset + selection.toString().length,
+      startOffset, endOffset: startOffset + range.toString().length, sourceText: range.toString(),
+      blockIndex: blocks.indexOf(first),
     },
   };
 }
@@ -59,18 +60,22 @@ export function SelectionToolbar({ root, scope, language, enabled, onQuote, onEr
   const [selected, setSelected] = useState<Selected | null>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [annotating, setAnnotating] = useState(false);
+  const [annotation, setAnnotation] = useState('');
   const menu = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const zh = language === 'zh';
 
-  useEffect(() => { setSelected(null); setPosition(null); }, [scope, enabled]);
+  useEffect(() => { setSelected(null); setPosition(null); setAnnotating(false); setAnnotation(''); }, [scope, enabled]);
   useEffect(() => {
     const update = () => {
       if (dragging.current || menu.current?.contains(document.activeElement)) return;
       const next = root.current && enabled ? capture(root.current) : null;
       setSelected(next);
       setCopied(false);
+      setAnnotating(false);
+      setAnnotation('');
     };
     const down = (event: PointerEvent) => {
       if (menu.current?.contains(event.target as Node)) return;
@@ -96,6 +101,11 @@ export function SelectionToolbar({ root, scope, language, enabled, onQuote, onEr
     };
   }, [root, enabled]);
   useEffect(() => () => clearTimeout(copyTimer.current), []);
+  useEffect(() => {
+    if (!annotating || !selected || !('highlights' in CSS)) return;
+    CSS.highlights.set('quote-annotation-selection', new Highlight(selected.range));
+    return () => { CSS.highlights.delete('quote-annotation-selection'); };
+  }, [annotating, selected]);
 
   useLayoutEffect(() => {
     if (!selected) { setPosition(null); return; }
@@ -119,16 +129,18 @@ export function SelectionToolbar({ root, scope, language, enabled, onQuote, onEr
     window.addEventListener('resize', place);
     const observer = new ResizeObserver(place);
     if (root.current) observer.observe(root.current);
+    if (menu.current) observer.observe(menu.current);
     return () => {
       document.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
       observer.disconnect();
     };
-  }, [selected, root, language]);
+  }, [selected, root, language, annotating]);
 
-  const add = () => {
-    if (!selected || !onQuote(selected.quote)) return;
+  const add = (comment = '') => {
+    if (!selected || !onQuote({ ...selected.quote, ...(comment.trim() ? { annotation: comment.trim() } : {}) })) return;
     setSelected(null);
+    setAnnotating(false); setAnnotation('');
     window.getSelection()?.removeAllRanges();
     document.querySelector<HTMLElement>('.composer > .composer-input')?.focus({ preventScroll: true });
   };
@@ -144,10 +156,27 @@ export function SelectionToolbar({ root, scope, language, enabled, onQuote, onEr
   return createPortal(selected && enabled ? <div ref={menu} className="selection-toolbar" role="toolbar"
     aria-label={zh ? '选中文字' : 'Selected text'}
     style={{ left: position?.left ?? 0, top: position?.top ?? 0, visibility: position ? 'visible' : 'hidden' }}
-    onMouseDown={event => event.preventDefault()}>
-    <button type="button" onClick={add}>{zh ? '引用' : 'Quote'}</button>
+    onMouseDown={event => { if (!(event.target instanceof HTMLTextAreaElement)) event.preventDefault(); }}>
+    {annotating ? <div className="selection-annotation">
+      <textarea autoFocus rows={3} maxLength={MAX_ANNOTATION_LENGTH} value={annotation}
+        aria-label={zh ? '选段批注' : 'Selection annotation'} placeholder={zh ? '对这段话添加批注…' : 'Annotate this excerpt…'}
+        onChange={event => setAnnotation(event.target.value)}
+        onKeyDown={event => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); if (annotation.trim()) add(annotation); }
+          if (event.key === 'Escape') { event.stopPropagation(); setAnnotating(false); setAnnotation(''); }
+        }}/>
+      <div className="selection-annotation-actions">
+        <button type="button" aria-label={zh ? '取消批注' : 'Cancel annotation'} onClick={() => { setAnnotating(false); setAnnotation(''); }}><X size={15}/></button>
+        <button type="button" disabled={!annotation.trim()} aria-label={zh ? '添加批注' : 'Add annotation'}
+          onClick={() => add(annotation)}><Check size={15}/></button>
+      </div>
+    </div> : <>
+    <button type="button" onClick={() => add()}>{zh ? '引用' : 'Quote'}</button>
+    <button type="button" onClick={() => setAnnotating(true)}><PencilLine size={16}/>{zh ? '批注' : 'Annotate'}</button>
     <span className="selection-toolbar-divider"/>
     <button type="button" onClick={() => void copy()} aria-label={zh ? '复制选段' : 'Copy selection'}
       data-tooltip={zh ? '复制选段' : 'Copy selection'}>{copied ? <Check size={15}/> : <Copy size={15}/>}</button>
+    </>}
   </div> : null, document.body);
 }

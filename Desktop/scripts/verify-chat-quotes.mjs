@@ -98,6 +98,33 @@ try {
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.querySelector('.quote-chip > button')?.getAttribute('aria-expanded') === 'false');
   };
+  await select('.response-text > p', '引用是');
+  await toolbar.getByRole('button', { name: '批注', exact: true }).click();
+  const annotationInput = page.getByRole('textbox', { name: '选段批注', exact: true });
+  await annotationInput.fill('请保留原文，再单独显示我的意见。');
+  await annotationInput.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+  assert.equal(await page.locator('.composer-quote').count(), 0, 'IME confirmation must not add the annotation');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await page.screenshot({ path: `test-results/quote-annotation-entry-${theme}.png`, animations: 'disabled' });
+  }
+  await annotationInput.press('Enter');
+  await page.getByRole('button', { name: '查看批注 1', exact: true }).click();
+  await page.getByRole('button', { name: '编辑批注', exact: true }).click();
+  const inlineAnnotation = page.getByRole('textbox', { name: '编辑正文批注', exact: true });
+  assert.equal(await inlineAnnotation.inputValue(), '请保留原文，再单独显示我的意见。');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '查看批注', exact: true }).click();
+  const annotationEditor = page.getByRole('textbox', { name: '批注 1 内容', exact: true });
+  assert.equal(await annotationEditor.inputValue(), '请保留原文，再单独显示我的意见。');
+  await annotationEditor.fill('支持逐条修改批注。\n保留换行。');
+  await closeQuotes();
+  await page.getByRole('button', { name: '查看批注', exact: true }).click();
+  assert.equal(await annotationEditor.inputValue(), '支持逐条修改批注。\n保留换行。');
+  await annotationEditor.fill('');
+  await closeQuotes();
+  assert.equal(await page.locator('.quote-chip .lucide-pencil-line').count(), 1);
+  await page.getByRole('button', { name: '清空批注', exact: true }).click();
   await input.fill('这一段我想进一步讨论。');
   await paragraph.scrollIntoViewIfNeeded();
   const focusedRect = await paragraph.boundingBox();
@@ -159,7 +186,7 @@ try {
   assert.ok(await excerpt.evaluate(element => element.scrollHeight > element.clientHeight));
   assert.equal(await excerpt.evaluate(element => getComputedStyle(element).scrollbarWidth), 'none');
   const removeBounds = await longRow.getByRole('button', { name: '移除引用 2', exact: true }).boundingBox();
-  const railBounds = await rail.boundingBox();
+  let railBounds = await rail.boundingBox();
   assert.ok(railBounds.y >= removeBounds.y + removeBounds.height, 'scroll rail belongs below X');
   assert.ok(Math.abs(railBounds.x + railBounds.width / 2 - removeBounds.x - removeBounds.width / 2) < 1);
   const excerptBounds = await excerpt.boundingBox();
@@ -170,6 +197,7 @@ try {
     return Math.abs(element.scrollTop - (element.scrollHeight - element.clientHeight)) < 1;
   });
   const thumbEnd = await rail.locator('.conversation-scroll-thumb').boundingBox();
+  railBounds = await rail.boundingBox();
   assert.ok(Math.abs(thumbEnd.y + thumbEnd.height - railBounds.y - railBounds.height) < 1);
   await rail.press('Home');
   const thumbStart = await rail.locator('.conversation-scroll-thumb').boundingBox();
@@ -213,7 +241,9 @@ try {
   await page.getByText('看看引用和选区的效果。', { exact: true }).click();
   await paragraph.waitFor();
   await select('.response-text > p', '可读的选区');
-  await toolbar.getByRole('button', { name: '引用', exact: true }).click();
+  await toolbar.getByRole('button', { name: '批注', exact: true }).click();
+  await annotationInput.fill('请保持紧凑布局。');
+  await annotationInput.press('Enter');
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
   await app.evaluate(({ ipcMain }, snapshot) => {
     globalThis.quoteFixture = { snapshot, calls: [], fail: true };
@@ -232,13 +262,19 @@ try {
   await input.press('Enter');
   await page.getByRole('alert').filter({ hasText: 'Fixture quote send failure' }).waitFor();
   assert.equal(await input.evaluate(element => element.value), '这一段我想进一步讨论。');
-  assert.equal(await page.locator('.composer-quote').count(), 1);
+  assert.equal(await page.locator('.composer-quote').count(), 2, 'A restored plain quote and a new annotation on the same excerpt remain separate');
+  assert.equal(await page.getByRole('button', { name: '查看引用', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: '查看批注', exact: true }).count(), 1);
+  await page.getByRole('button', { name: '查看批注', exact: true }).click();
+  assert.equal(await page.getByRole('textbox', { name: '批注 1 内容', exact: true }).inputValue(), '请保持紧凑布局。');
+  await closeQuotes();
   await page.getByRole('button', { name: '关闭', exact: true }).click();
   await app.evaluate(() => { globalThis.quoteFixture.fail = false; });
   await input.press('Enter');
   await page.waitForFunction(() => document.querySelectorAll('.composer-quote').length === 0);
   const prompt = await app.evaluate(() => globalThis.quoteFixture.calls.filter(call => call[0] === 'prompt').at(-1)[1].message);
   assert.match(prompt, /> 可读的选区不会抢走正文的注意力。/);
+  assert.match(prompt, /用户对该引用的批注：\n\| 请保持紧凑布局。/);
   assert.ok(prompt.endsWith('用户本轮消息：\n这一段我想进一步讨论。'));
   await select('.response-text > p', '重点');
   await toolbar.getByRole('button', { name: '引用', exact: true }).click();

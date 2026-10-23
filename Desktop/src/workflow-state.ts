@@ -123,6 +123,7 @@ export function preserveWorkflow(previous: Message | undefined, next: Message): 
 }
 
 export function workflowsFromMessages(messages: Message[], active = true): WorkflowState[] {
+  messages = messages.filter(message => !message.desktopImported);
   const lastUser = lastTurnBoundary(messages);
   const activeCalls = new Set(messages.slice(lastUser + 1).flatMap(message => Array.isArray(message.content)
     ? message.content.filter(block => block.type === 'toolCall' && block.name === 'workflow').map(block => block.id) : []));

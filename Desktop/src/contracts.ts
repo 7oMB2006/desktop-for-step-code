@@ -1,6 +1,9 @@
 import type { WorkflowState } from './workflow-state';
+import type { SessionImportBridge } from './session-import';
 import type { LaunchState } from './launch-state';
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
+export interface Message { desktopImported?: boolean }
+export interface Content { historical?: boolean }
 export interface Snapshot { workspaceIssue?: string }
 export interface StatusAccount { mode: 'plan' | 'api' | 'none' | 'unknown'; region?: 'cn' | 'global'; userId?: string }
 export interface Snapshot { statusAccount?: StatusAccount }
@@ -61,7 +64,7 @@ export interface CronRecoveryPreview {
 }
 export interface CronOverview { tasks: CronTask[]; hosts: CronHost[]; issues: { workspace: string; reason: 'unavailable' | 'untrusted' }[] }
 export interface CronCreateInput { runtimeId: string; cron: string; prompt: string; recurring: boolean; durable: boolean }
-export interface DesktopBridge {
+export interface DesktopBridge extends SessionImportBridge {
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;

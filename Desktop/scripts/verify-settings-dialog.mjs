@@ -34,6 +34,19 @@ try {
   await page.locator('.account-settings').waitFor();
   const dialog = page.locator('.settings-dialog');
   assert.equal(await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: 'MCP', exact: true }).locator('svg.lucide-mcp').count(), 1);
+  const navigation = page.getByRole('navigation', { name: '设置分类' });
+  const archivedTab = navigation.getByRole('button', { name: '已归档', exact: true });
+  const migrationTab = navigation.getByRole('button', { name: '会话迁移', exact: true });
+  if (process.platform === 'win32') {
+    assert.deepEqual((await navigation.getByRole('button').allTextContents()).slice(-3), ['版本更新', '会话迁移', '已归档']);
+    assert.equal(await migrationTab.locator('svg.lucide-arrow-right-left').count(), 1);
+    assert.equal(await migrationTab.evaluate(element => getComputedStyle(element).marginTop), '22px');
+    assert.equal(await archivedTab.evaluate(element => getComputedStyle(element).marginTop), '0px');
+  } else {
+    assert.equal(await migrationTab.count(), 0);
+    assert.equal(await archivedTab.evaluate(element => getComputedStyle(element).marginTop), '22px');
+  }
+  assert.equal(await navigation.getByRole('button', { name: '版本更新', exact: true }).locator('svg.lucide-download').count(), 1);
   await page.waitForTimeout(250);
   const baseline = await dialog.boundingBox();
   const lightTint = await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).backgroundColor);
@@ -55,6 +68,11 @@ try {
   await capture('settings-fixed-appearance-light');
   await page.getByRole('button', { name: '账户', exact: true }).click();
   await capture('settings-fixed-account-light');
+  if (process.platform === 'win32') {
+    await migrationTab.click();
+    await capture('settings-fixed-import-light');
+    assert.deepEqual(await dialog.boundingBox(), baseline, 'Session migration retains the settings shell bounds');
+  }
   await page.getByRole('button', { name: '供应商', exact: true }).click();
   await page.getByRole('button', { name: '添加供应商', exact: true }).first().click();
   await page.getByLabel('Base URL', { exact: true }).waitFor();

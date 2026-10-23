@@ -55,7 +55,7 @@ import { composerAction } from './composer-action';
 import { SelectionToolbar } from './SelectionToolbar';
 import { QuotePreview } from './QuotePreview';
 import { QuoteAnnotations } from './QuoteAnnotations';
-import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, MAX_ANNOTATION_LENGTH, quotePrompt, restoreQuotes, type ChatQuote } from './chat-quotes';
+import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, MAX_ANNOTATION_LENGTH, quotePrompt, restoreQuotes, sameQuoteSelection, type ChatQuote } from './chat-quotes';
 import { playCompletionSound, prepareCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
@@ -1490,8 +1490,7 @@ function App() {
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
       enabled={!scheduledOpen && !usageOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
       onError={setError} onQuote={quote => {
-        const existing = quotes.find(item => item.messageIndex === quote.messageIndex && item.text === quote.text
-          && (item.annotation !== undefined) === (quote.annotation !== undefined));
+        const existing = quotes.find(item => sameQuoteSelection(item, quote));
         if (existing) {
           if (quote.annotation) {
             const annotation = [existing.annotation, quote.annotation].filter(Boolean).join('\n');

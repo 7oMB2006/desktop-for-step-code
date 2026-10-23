@@ -1,10 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fencedSelection, quotePresentation, quotePrompt, restoreQuotes, type ChatQuote } from '../src/chat-quotes';
+import { fencedSelection, quotePresentation, quotePrompt, restoreQuotes, sameQuoteSelection, type ChatQuote } from '../src/chat-quotes';
 import { composerAction } from '../src/composer-action';
 
 const quote: ChatQuote = { id: 'q1', messageIndex: 1, role: 'assistant', text: 'One\nTwo',
   markdown: 'One\nTwo', startOffset: 0, endOffset: 7 };
+
+test('annotations merge only when their source coordinates match', () => {
+  const note = { ...quote, annotation: 'first', blockIndex: 0 };
+  assert.equal(sameQuoteSelection(note, { ...note, id: 'new', annotation: 'second' }), true);
+  assert.equal(sameQuoteSelection(note, { ...note, startOffset: 10, endOffset: 17 }), false);
+  assert.equal(sameQuoteSelection(note, { ...note, blockIndex: 1 }), false);
+  assert.equal(sameQuoteSelection(note, { ...note, endOffset: 8 }), false);
+  assert.equal(sameQuoteSelection(note, quote), false);
+  assert.equal(sameQuoteSelection(quote, { ...quote, startOffset: 10, endOffset: 17 }), true);
+});
 
 test('plain drafts remain unchanged, including slash commands', () => {
   assert.equal(quotePrompt('/compact', [], 'zh'), '/compact');

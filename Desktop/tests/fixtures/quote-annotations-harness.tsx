@@ -57,7 +57,9 @@ function Demo() {
     <header><MessageSquare size={18}/><h1>{zh ? '会话迁移' : 'Session migration'}</h1></header>
     <div className="conversation">
       <div ref={root}>
-        <article className="message assistant" data-message-index="0"><div className="message-body response-text">
+        <article className="message assistant" data-message-index="0">
+          {params.has('grouped') && <div className="thinking">已完成思考</div>}
+          <div className="message-body response-text" data-message-index={params.has('grouped') ? '1' : undefined}>
           {paragraphs.map(text => <p key={text}>{text}</p>)}
         </div></article>
         {sent.map((text, index) => {

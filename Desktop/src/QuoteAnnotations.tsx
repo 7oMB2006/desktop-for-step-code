@@ -5,7 +5,7 @@ import { MAX_ANNOTATION_LENGTH, type ChatQuote } from './chat-quotes';
 
 // Reconstruct only verified selections. Never attach a note to a guessed occurrence.
 function sourceRange(root: HTMLElement, quote: ChatQuote) {
-  const message = root.querySelector(`[data-message-index="${quote.messageIndex}"]`);
+  const message = root.querySelector(`[data-message-index="${quote.messageIndex}"]`)?.closest('.message');
   const blocks = message?.querySelectorAll('.response-text, .user > .message-body');
   const block = blocks?.[quote.blockIndex ?? 0];
   if (!block) return null;

@@ -8,6 +8,18 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
+  await page.goto('http://127.0.0.1:5195/tests/fixtures/quote-annotations.html?grouped=1');
+  await page.locator('.response-text p').first().waitFor();
+  await page.evaluate(() => {
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector('.response-text p'));
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+  });
+  await page.getByRole('button', { name: '批注', exact: true }).click();
+  await page.getByRole('textbox', { name: '选段批注', exact: true }).fill('思考之后的正文');
+  await page.getByRole('button', { name: '添加批注', exact: true }).click();
+  await page.getByRole('button', { name: '查看批注 1', exact: true }).waitFor({ timeout: 3000 });
+  await page.getByRole('button', { name: '清空批注', exact: true }).click();
   for (const theme of ['light', 'dark']) {
     for (const width of [1000, 390]) {
       await page.setViewportSize({ width, height: 800 });

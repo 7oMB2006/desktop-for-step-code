@@ -2,14 +2,16 @@
 .artifact-strip { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 5px 0; }
 .artifact-strip-label { color: var(--muted); font-size: 11px; flex-shrink: 0; }
 .artifact-entries { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 8px; flex: 1; min-width: 0; }
-.artifact-row { display: flex; align-items: center; min-width: 0; max-width: 100%; position: relative; padding: 2px 3px 2px 5px; border: 1px solid var(--border); border-radius: 5px; background: color-mix(in oklch, var(--side) 65%, var(--bg)); transition: border-color 160ms ease, background 160ms ease; }
-.artifact-row:hover { border-color: color-mix(in oklch, var(--muted) 55%, var(--border)); }
+.artifact-row { display: flex; align-items: center; min-width: 0; max-width: 100%; position: relative; padding: 2px 3px 2px 5px; border: 1px solid var(--border); border-radius: 5px; background: var(--side); transition: border-color 160ms ease, background 160ms ease; }
+.artifact-row:hover, .artifact-row:focus-within { border-color: var(--primary); background: color-mix(in oklch, var(--primary) 7%, var(--bg)); }
 .artifact-row.is-selected { border-color: var(--primary); background: color-mix(in oklch, var(--primary) 7%, var(--bg)); }
 .artifact-row.is-selected::after { content: ''; position: absolute; bottom: -11px; left: 16px; width: 1px; height: 10px; background: var(--primary); }
 .artifact-main { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 5px; min-height: 28px; border: 0; border-radius: 3px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; }
 .artifact-main > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; }
 .artifact-main > svg:first-child { color: var(--muted); }
-.artifact-main > svg:last-child { color: var(--primary); }
+.artifact-main > svg:last-child { color: var(--muted); transition: color 160ms ease; }
+.artifact-row:is(:hover, :focus-within, .is-selected) .artifact-main > svg:last-child { color: var(--primary); }
+.artifact-main:hover:not(:disabled), .artifact-details-trigger:hover:not(:disabled) { background: transparent; }
 .artifact-main:disabled { opacity: .65; cursor: default; }
 .artifact-details-trigger { width: 26px; height: 24px; min-height: 24px; margin-left: 3px; padding: 0; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 0 3px 3px 0; flex-shrink: 0; }
 .artifact-details-trigger[aria-expanded=true] { color: var(--primary); }
@@ -30,4 +32,4 @@
 .artifact-options button { border: 0; padding: 4px; min-height: 26px; font-size: 11px; background: transparent; color: var(--ink); }
 .turn-artifacts + .turn-changes { margin-top: 6px; }
 @media (max-width: 650px) { .artifact-strip { gap: 8px; } .artifact-entries { gap: 3px 8px; } .artifact-count { display: none; } .artifact-main > span { max-width: 160px; } .artifact-detail { margin-left: 0; } }
-@media (prefers-reduced-motion: reduce) { .artifact-detail-shell { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .artifact-detail-shell, .artifact-row, .artifact-main > svg:last-child { transition: none; } }

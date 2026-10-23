@@ -276,6 +276,27 @@ labels animate independently, so a live process group never reanimates its
 already-settled children. Reduced motion disables both shimmer and disclosure
 transitions.
 
+# Summary Task Progress Motion
+
+Unfinished task progress uses the established yellow-to-purple palette with a
+flowing highlight. Completing the checklist is not the same as finishing the
+round: keep the full bar flowing during the final response. A matching live
+round-completed event starts the bar impact, cubic-out right-to-left green sweep
+and small square dust, alongside the existing completion notification sound.
+Keep task-row completion and folding motion unchanged. Restored or reopened
+panels show settled state without replay; hidden panels do not gate sound.
+Reduced motion settles directly without impact or particles.
+
+Completed tasks from earlier visible user, Goal or fired Cron turns move into a
+collapsed history entry below the Task plan heading and above current work.
+Unfinished and failed active-plan tasks carry across turns; only current work
+contributes to the counter and progress bar. A partially completed active plan
+uses "Completed tasks", not "Completed plan". Explicit runtime plan archives
+retain their original statuses. Expansion keeps its trigger anchored and uses
+the shared cubic disclosure. Task timestamps, with successful structured tool
+results as a legacy fallback, reconstruct the same projection after reopening
+or reload; canonical runtime records are never cleared or rewritten.
+
 # Product Icon
 
 The canonical product icon is `Desktop/public/StepCode.svg`, copied unchanged from the user's StepCode.svg artwork. Use it for all product identity surfaces. `Desktop/scripts/icons.mjs` generates the Windows ICO from this asset during build/dev. Do not replace it with a terminal glyph or the default Electron icon. The sidebar begins with navigation, without a duplicate brand header.

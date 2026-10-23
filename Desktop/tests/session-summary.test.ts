@@ -33,3 +33,26 @@ test('summary preserves explicit task failure without inferring failure from too
   assert.equal(result.tasks[0].description, 'Validation did not pass');
   assert.equal(JSON.stringify(result).includes('A tool failed'), false);
 });
+
+test('summary exposes bounded plan history and timestamps without task metadata', () => {
+  const summary = sessionSummary({ sessionId: 'a', tasks: {
+    activePlan: { id: 'active', title: 'Now' },
+    tasks: [{ id: 'a', status: 'pending', createdAt: 100, updatedAt: 200 }],
+    archivedPlans: [
+      { id: 'active', title: 'Duplicate active', tasks: [{ id: 'x', status: 'completed' }] },
+      { id: 'old', title: 'Before', tasks: [{ id: '1', status: 'completed', updatedAt: 150, metadata: { secret: 'hidden' } }] },
+      { id: 'old', title: 'Duplicate history', tasks: [{ id: '2', status: 'pending' }] },
+      { id: 'invalid', title: 'Invalid timestamps', tasks: [{ id: '3', status: 'failed', createdAt: Infinity, updatedAt: -1 }] },
+    ],
+  } }, 'a');
+  assert.equal(summary.tasks[0].createdAt, 100);
+  assert.equal(summary.tasks[0].updatedAt, 200);
+  assert.deepEqual(summary.archivedPlans?.map(plan => plan.id), ['old', 'invalid']);
+  assert.equal(summary.archivedPlans?.[0].tasks[0].updatedAt, 150);
+  assert.equal(summary.archivedPlans?.[1].tasks[0].updatedAt, undefined);
+  assert.equal(JSON.stringify(summary).includes('hidden'), false);
+  const many = sessionSummary({ sessionId: 'a', tasks: { archivedPlans: Array.from({ length: 60 }, (_, index) =>
+    ({ id: String(index), title: 'History', tasks: Array.from({ length: 30 }, (_, id) => ({ id: String(id), status: 'completed' })) })) } }, 'a');
+  assert.equal(many.archivedPlans?.reduce((sum, plan) => sum + plan.tasks.length, 0), 1000);
+  assert.ok(many.archivedPlans!.length <= 50);
+});

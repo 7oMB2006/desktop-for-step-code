@@ -55,7 +55,7 @@ import { composerAction } from './composer-action';
 import { SelectionToolbar } from './SelectionToolbar';
 import { QuotePreview } from './QuotePreview';
 import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, quotePrompt, restoreQuotes, type ChatQuote } from './chat-quotes';
-import { playCompletionSound } from './completion-sound';
+import { playCompletionSound, prepareCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
 import { useSidebarReorder } from './use-sidebar-reorder';
@@ -534,10 +534,14 @@ function App() {
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
+    prepareCompletionSound();
     const unsubscribe = bridge.onEvent(event => {
       if (event.type === 'desktop_quit_review') { acceptQuitReview(event.state); return; }
       if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
-      if (event.type === 'desktop_task_completed') { playCompletionSound(); return; }
+      if (event.type === 'desktop_task_completed') {
+        playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId });
+        return;
+      }
       if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
       if (event.sessionId && ['desktop_model_selection', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)) {
         readingCache.current.delete(event.sessionId);

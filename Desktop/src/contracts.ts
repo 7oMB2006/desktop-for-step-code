@@ -221,9 +221,12 @@ export interface DesktopTheme {
 }
 export interface SummaryTask {
   id: string; subject: string; description: string; status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  createdAt?: number; updatedAt?: number;
 }
+export interface SummaryPlan { id: string; title: string; tasks: SummaryTask[] }
 export interface SessionSummary {
   sessionId: string; plan?: { id: string; title: string }; tasks: SummaryTask[];
+  archivedPlans?: SummaryPlan[];
   mcp: { name: string; status: 'connecting' | 'connected' | 'failed' | 'disabled'; toolCount: number }[];
   skillCount: number;
   status?: SessionStatusDetails;

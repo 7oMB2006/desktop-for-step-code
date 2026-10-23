@@ -80,6 +80,15 @@ async function dispatch(message) {
         if (key && models.length && context.allowNetwork) stepModelCache = { key, models };
         return models.length || !key || stepModelCache?.key !== key ? models : stepModelCache.models;
       };
+      // Registration schedules an offline refresh. Serialize it with explicit
+      // discovery so a late offline pass cannot abort or replace network results.
+      const refresh = runtime.refresh.bind(runtime);
+      let pendingRefresh = Promise.resolve();
+      runtime.refresh = options => {
+        const result = pendingRefresh.then(() => refresh(options));
+        pendingRefresh = result.catch(() => {});
+        return result;
+      };
       registry.registerProvider(upstream.STEP_PROVIDER_ID, config);
       try {
         await runtime.refresh({ allowNetwork: true, signal: AbortSignal.timeout(5000) });

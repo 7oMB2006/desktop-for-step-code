@@ -6,7 +6,7 @@ export type ApprovedPlan = { path: string; content: string; title: string };
 export type PlanExecutionState = 'running' | 'completed' | 'failed' | 'interrupted';
 
 export function approvedPlan(message?: Message): ApprovedPlan | undefined {
-  if (message?.role !== 'toolResult' || message.toolName !== 'exit_plan_mode' || message.isError
+  if (message?.desktopImported || message?.role !== 'toolResult' || message.toolName !== 'exit_plan_mode' || message.isError
     || message.details?.outcome !== 'approved') return;
   const { planFilePath: path, planContents: content } = message.details;
   if (typeof path !== 'string' || typeof content !== 'string' || !path.trim() || !content.trim()) return;

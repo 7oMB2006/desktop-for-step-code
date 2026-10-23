@@ -50,6 +50,7 @@ export function turnOutputPaths(items: IndexedMessage[], platform: string = 'win
   const calls = new Map<string, Content>();
   const found = new Map<string, string>();
   for (const { message } of items) {
+    if (message.desktopImported) continue;
     if (message.role === 'assistant' && Array.isArray(message.content)) {
       for (const part of message.content) if (part.type === 'toolCall' && part.id) calls.set(part.id, part);
     }

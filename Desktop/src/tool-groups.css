@@ -26,4 +26,7 @@
 .thinking > summary > .process-tool-label { flex-shrink: 0; }
 .thinking-chevron { display: flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform .24s cubic-bezier(.215,.61,.355,1); }
 .thinking[data-expanded="true"] > summary > .thinking-chevron { transform: rotate(0); }
+.large-message-text { min-width: 0; }
+.large-message-controls { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.large-message-text > pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; }
 @media (prefers-reduced-motion: reduce) { .tool-group-disclosure, .tool-group-chevron, .thinking-chevron { transition: none; } }

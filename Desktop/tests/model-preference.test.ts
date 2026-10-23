@@ -44,6 +44,24 @@ test('legacy assistant metadata can recover a model when no model-change entry e
   ], 'a'), { ...modelPreference(step), name: step.id });
 });
 
+test('imported model metadata never overrides native selection, including later continuations', () => {
+  const imported = { source: 'codex', sessionId: 'source', itemId: 'item' };
+  const history = [
+    { id: 'm', parentId: null, type: 'model_change', provider: 'codex', modelId: 'historical', imported },
+    { id: 'a', parentId: 'm', type: 'message', imported,
+      message: { role: 'assistant', content: '', provider: 'codex', model: 'historical' } },
+  ];
+  assert.equal(savedSessionModel(history, 'a'), undefined);
+  const continued = [...history,
+    { id: 'native', parentId: 'a', type: 'message',
+      message: { role: 'assistant', content: '', provider: 'step', model: 'step-5' } }];
+  assert.equal(savedSessionModel(continued, 'native')?.id, 'step-5');
+  const choice = { id: 'choice', parentId: 'native', type: 'model_change', provider: 'fixture', modelId: 'sol' };
+  assert.equal(savedSessionModel([...continued, choice], 'choice')?.id, 'sol');
+  const incomplete = { ...history[1], parentId: null, imported: { source: 'codex' } };
+  assert.equal(savedSessionModel([incomplete], 'a')?.id, 'historical');
+});
+
 test('explicit model changes take precedence over an assistant-reported model alias', () => {
   const entries = [
     { id: 'm', parentId: null, type: 'model_change', provider: 'step', modelId: 'step-5' },

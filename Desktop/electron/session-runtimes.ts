@@ -10,6 +10,7 @@ import { isUserMessage } from '../src/user-message';
 import { desktopSystemPolicy } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
+import { importedHistoryMessages } from './imported-history';
 import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
 import { isFullAccessRisk } from '../src/full-access-risk';
 import { questionnaire } from '../src/questionnaire';
@@ -84,7 +85,10 @@ export class SessionRuntimes {
   private confirmations = new Map<string, { worker: SessionRuntime; resolve: (approved: boolean) => void }>();
   constructor(
     private emit: (event: RuntimeEvent) => void,
-    private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive => new RpcProcess(receive),
+    // Reviewed imports can contain 128 MiB of source history plus embedded
+    // images. Keep Windows history RPC bounded without disconnecting at 32 MiB.
+    private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive =>
+      new RpcProcess(receive, process.platform === 'win32' ? 256 * 1024 * 1024 : undefined),
     private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void;
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
@@ -340,7 +344,9 @@ export class SessionRuntimes {
       worker.rpc.request('get_entries'),
     ]);
     if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker) return;
-    const savedMessages = messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null);
+    const projected = importedHistoryMessages(messages, history.entries ?? [], history.leafId ?? null);
+    const savedMessages = projected === messages
+      ? messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null) : projected;
     if (revision === worker.revision && state.sessionId)
       worker.launch = projectLaunch(history.entries ?? [], history.leafId ?? null, state.sessionId, worker.launch);
     const decorated = this.hooks.messages ? await this.hooks.messages(worker, savedMessages) : savedMessages;

@@ -1,5 +1,6 @@
 import type { Model } from '../src/contracts';
 import { activeHistory, type HistoryEntry } from './session-branching';
+import { isImportedHistoryEntry } from './imported-history';
 import type { SessionRuntime } from './session-runtimes';
 
 export type ModelPreference = Pick<Model, 'provider' | 'id' | 'name'>;
@@ -18,7 +19,7 @@ export function preferredModel(models: Model[], preferred: ModelPreference | und
 }
 
 export function savedSessionModel(entries: HistoryEntry[], leafId: string | null): ModelPreference | undefined {
-  const path = activeHistory(entries, leafId).reverse();
+  const path = activeHistory(entries, leafId).filter(entry => !isImportedHistoryEntry(entry)).reverse();
   for (const entry of path) {
     if (entry.type === 'model_change') {
       const change = entry as HistoryEntry & { provider?: string; modelId?: string };

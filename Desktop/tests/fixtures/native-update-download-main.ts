@@ -16,6 +16,7 @@ if (!process.env.DESKTOP_TEST_USER_DATA) throw new Error('An isolated fixture pr
 app.setPath('userData', process.env.DESKTOP_TEST_USER_DATA);
 let mode = 'complete';
 let requests = 0;
+let metadataDelay = 0;
 const server = createServer((request, response) => {
   if (request.url === '/probe') {
     response.writeHead(200, { 'Content-Length': 8 });
@@ -25,7 +26,7 @@ const server = createServer((request, response) => {
   if (request.url?.split('?')[0].endsWith('latest.yml')) {
     const metadata = `version: ${mode === 'metadata' ? '0.6.0' : '0.5.0'}\nfiles:\n  - url: Desktop.for.Step.Code.Setup.0.5.0.exe\n    sha512: ${digest}\n    size: ${payload.length}\n`;
     response.writeHead(200, { 'Content-Length': Buffer.byteLength(metadata), 'Content-Type': 'text/yaml', 'Cache-Control': 'no-store' });
-    response.end(metadata);
+    setTimeout(() => response.end(metadata), metadataDelay);
   } else {
     response.writeHead(200, { 'Content-Length': payload.length, 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' });
     const bytes = mode === 'corrupt' ? Buffer.alloc(payload.length, 8) : payload;
@@ -64,22 +65,24 @@ app.whenReady().then(async () => {
       return Promise.all([session.defaultSession, session.fromPartition('electron-updater', { cache: false })]
         .map(async network => (await network.fetch(url)).text()));
     },
-    run: async (nextMode: string) => {
+    run: async (nextMode: string, delay = 0) => {
       await transport.clearCache();
-      mode = nextMode; requests = 0;
+      mode = nextMode; requests = 0; metadataDelay = delay;
       const driver = new NativeUpdateDriver(join(root, nextMode));
       // Replay the Windows provider on a Mac for local fixture diagnostics only.
       if (process.platform !== 'win32') (driver as any).updater._testOnlyOptions = { platform: 'win32' };
       const abort = new AbortController();
-      const timer = nextMode === 'cancel' ? setTimeout(() => abort.abort(), 150) : undefined;
       let progress = 0;
       try {
-        await driver.download(release, abort.signal, () => { progress++; });
+        await driver.download(release, abort.signal, () => {
+          progress++;
+          if (nextMode === 'cancel') abort.abort();
+        });
         if (!abort.signal.aborted) await driver.verify();
         return { outcome: abort.signal.aborted ? 'cancelled' : 'verified', requests, progress };
       } catch (error: any) {
         return { outcome: abort.signal.aborted ? 'cancelled' : error instanceof InstallerFailure ? error.kind : error.code ?? 'error', requests, progress, diagnostic: String(error.message).slice(0, 500), location: String(error.stack ?? '').split('\n').filter(line => line.trim().startsWith('at ')).slice(0, 4).join('\n').slice(0, 2000) };
-      } finally { clearTimeout(timer); }
+      }
     },
   };
   const window = new BrowserWindow({ width: 500, height: 300, show: false, focusable: false,

@@ -46,6 +46,7 @@ export function turnChanges(items: IndexedMessage[], platform: string = 'win32')
   const files = new Map<string, TurnFile>();
   let incomplete = false; let totalRows = 0;
   for (const { message, index } of items) {
+    if (message.desktopImported) continue;
     if (message.role === 'assistant' && Array.isArray(message.content)) {
       for (const part of message.content) if (part.type === 'toolCall' && part.id) calls.set(part.id, part);
     }

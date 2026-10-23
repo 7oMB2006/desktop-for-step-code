@@ -11,6 +11,7 @@ export const acceptanceGroups = {
     'verify-interface-settings.mjs',
     'verify-interface-preferences.mjs',
     'verify-disclosure-summary.mjs',
+    'verify-import-performance.mjs',
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',
     'verify-desktop-tray.mjs',
@@ -54,6 +55,8 @@ export const acceptanceGroups = {
     'verify-send-queue.mjs',
     'verify-model-switch.mjs',
     'verify-cross-session.mjs',
+    'verify-session-import.mjs',
+    'verify-import-large-electron.mjs',
   ],
   runtime: [
     'verify-electron.mjs',

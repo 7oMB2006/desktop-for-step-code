@@ -22,10 +22,19 @@ Reopening or explicitly restarting redirected history starts gated.
 
 Running, compacting, approval-waiting, queued-message, active-Goal and
 structured running/queued background-agent workers cannot move. Live Cron hosts
-are retained; known saved source associations and
-destination schedules are checked before preparing another host. Unknown saved
-source ownership or unreadable schedule state fails closed. This first version
+are retained; only saved jobs actually associated with the moved session block
+movement. Unrelated or unbound jobs in either project remain there and do not
+block a cold conversation. Unreadable schedule/association state fails closed
+with distinct host, associated-job and verification messages. This first version
 does not offer an independent destination or filesystem movement.
+
+Moved Windows transports use an optional session-scoped view of the original
+shared Cron store, including after restart or provider refresh. Foreign/unbound
+jobs are not adopted, dispatched, advanced or deleted by that transport. It can
+still create and execute its own jobs; shared mutations preserve other records
+and enforce the project-wide limit. This requires the additional reviewed
+`desktop-session-cron-scope` runtime patch; the upstream commit is unchanged.
+The frozen macOS runtime does not gain this patch.
 
 The prepared runtime's loaded messages are also checked before saving the
 redirect, so cold histories cannot bypass the background-agent guard. Regression
@@ -38,8 +47,10 @@ provider, never personal CLI credentials or a paid model. It covers cancellation
 dragging with updated sorting, menu confirmation, light/dark/narrow layouts,
 Full Access reset, identical session/history identity, a real relative-path tool
 write in the new cwd, busy/approval/queued-message/missing-directory rejection,
-background movement, app relaunch, explicit runtime restart, and live/offline
-Cron guards without starting a scheduler. Existing sidebar-order acceptance also
+background movement, app relaunch, explicit runtime restart, unrelated live
+destination hosts, unrelated cold-source tasks, new scoped-task creation/deletion
+and related Cron guards. The unrelated original host remains registered and its
+saved task bytes stay unchanged. Existing sidebar-order acceptance also
 passes. The browser fixture uses the real dialog and drag hook but mocked
 association updates; it is not runtime or installer evidence. No new installer,
 cloud CI result or official-provider continuation is claimed here.
@@ -49,6 +60,14 @@ tests with 13 platform/dependency skips; the 15 CI policy/inventory tests also
 passed. An initial concurrent full-suite run hit the existing terminal-count
 fixture's process-tree cleanup timeout; that fixture passed independently and
 in the subsequent serial full run. Terminal cleanup code was not changed.
+
+The Cron-scope follow-up reproduced the former destination-wide rejection before
+the fix. Its 49 upstream Cron tests, 98 focused Desktop tests and 15 CI policy
+tests pass. The final serial Desktop suite passes 663 tests with 13 skips and no
+failures. All patch pre/post-images match a replay from the pristine pinned Git
+index. Source Electron movement, Cron management (8 cases) and real Cron RPC
+(12 cases) acceptance pass with a separately rebuilt/staged Node 24.16.0 runtime.
+This follow-up has not replaced the icon-corrected local installer.
 
 ## Migration CI Paths And Unavailable Projects (2026-10-23)
 

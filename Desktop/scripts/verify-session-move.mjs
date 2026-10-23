@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-session-move-')));
@@ -15,7 +16,7 @@ for (const directory of [join(root, 'sessions'), origin, ...projects.slice(0, 2)
 await mkdir('test-results', { recursive: true });
 await writeFile(join(origin, 'original.txt'), 'Never move this file\n');
 const bytes = {};
-for (const [id, cwd] of [['move-one', origin], ['move-two', projects[0]]]) {
+for (const [id, cwd] of [['move-one', origin], ['move-two', projects[0]], ['move-three', projects[0]]]) {
   const timestamp = new Date().toISOString();
   bytes[id] = [
     { type: 'session', version: 3, id, cwd, timestamp },
@@ -272,11 +273,44 @@ try {
     prompt: 'Offline guard', recurring: false, durable: true, createdAt: Date.now(), nextFireAt: tomorrow.getTime(),
   }) + '\n');
   page = await launch();
-  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-one', destination), projects[0]), /scheduled/i);
-  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-two', destination), projects[1]), /scheduled/i);
-  assert.equal((await snapshot(page)).runtimes.length, 0, 'saved Cron guards run before any candidate host starts');
-  console.log('Session move: offline source/destination Cron guards do not start a scheduler');
+  const savedCronBytes = await readFile(join(projects[0], '.stepcode', 'cron', 'tasks.json'), 'utf8');
+  const cronOwner = await page.evaluate(() => window.desktop.navigateSession('move-two'));
+  const ownerCron = await page.evaluate(() => window.desktop.cronList());
+  assert.ok(ownerCron.tasks.some(task => task.id === 'move-guard' && task.runtimeId === cronOwner.runtimeId));
+  const foreignTarget = await page.evaluate(destination => window.desktop.moveSessionToProject('move-one', destination), projects[0]);
+  assert.equal(foreignTarget.runtimeId, cronOwner.runtimeId, 'moving a background conversation leaves the Cron host viewed');
+  assert.ok(foreignTarget.runtimes.some(runtime => runtime.runtimeId === cronOwner.runtimeId));
+  const targetCron = await page.evaluate(() => window.desktop.cronList());
+  assert.equal(targetCron.tasks.find(task => task.id === 'move-guard')?.runtimeId, cronOwner.runtimeId);
+  assert.equal(await readFile(join(projects[0], '.stepcode', 'cron', 'tasks.json'), 'utf8'), savedCronBytes);
+  const foreignSource = await page.evaluate(destination => window.desktop.moveSessionToProject('move-three', destination), projects[1]);
+  assert.equal(foreignSource.sessions.find(session => session.id === 'move-three').cwd, projects[1]);
+  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-two', destination), projects[1]), /Cron|scheduled/i);
+  const scoped = await page.evaluate(() => window.desktop.navigateSession('move-one'));
+  await page.evaluate(input => window.desktop.cronCreate(input), { runtimeId: scoped.runtimeId,
+    cron: `0 10 ${tomorrow.getDate()} ${tomorrow.getMonth() + 1} *`, prompt: 'New moved-session task', recurring: false, durable: true });
+  const scopedTasks = await page.evaluate(() => window.desktop.cronList());
+  const own = scopedTasks.tasks.find(task => task.prompt === 'New moved-session task');
+  assert.ok(own);
+  assert.equal(own.association?.sessionId, 'move-one');
+  await page.evaluate(({ runtimeId, jobId }) => window.desktop.cronDelete(runtimeId, jobId),
+    { runtimeId: scoped.runtimeId, jobId: own.id });
+  assert.equal(await readFile(join(projects[0], '.stepcode', 'cron', 'tasks.json'), 'utf8'), savedCronBytes);
+  const scopedRestart = await page.evaluate(() => window.desktop.restart());
+  assert.equal(scopedRestart.state.sessionId, 'move-one');
+  assert.equal(scopedRestart.permissionPreset, 'ask');
+  const restartedCron = await page.evaluate(() => window.desktop.cronList());
+  assert.equal(restartedCron.tasks.find(task => task.id === 'move-guard')?.runtimeId, cronOwner.runtimeId);
+  const bindingKey = JSON.stringify([projects[0].replaceAll('\\', '/').toLowerCase(), 'move-guard',
+    JSON.parse(savedCronBytes).createdAt]);
+  await mkdir(join(profile, 'cron-bindings'), { recursive: true });
+  await writeFile(join(profile, 'cron-bindings', `${createHash('sha256').update(bindingKey).digest('hex')}.json`),
+    JSON.stringify({ sessionId: 'move-one', source: 'created', at: Date.now() }));
+  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-one', destination), projects[1]), /Cron|scheduled/i);
+  console.log('Session move: unrelated source/destination schedules stay with their original host; associated jobs still block movement');
+  await closeDesktopFixture(app); app = undefined;
   await writeFile(join(projects[0], '.stepcode', 'cron', 'tasks.json'), '');
+  page = await launch();
   const draft = await snapshot(page);
   const coldMove = await page.evaluate(destination => window.desktop.moveSessionToProject('move-two', destination), projects[1]);
   assert.equal(coldMove.draftId, draft.draftId);

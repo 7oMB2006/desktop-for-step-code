@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ArrowRightLeft, FolderOpen, Search, ShieldCheck, X } from 'lucide-react';
 import { normalizedWorkspaceKey } from './workspace-key';
 import type { Preferences, Session } from './contracts';
+import { sessionMoveError } from './session-move-error';
 import './quit-confirmation.css';
 import './session-move.css';
 
@@ -78,16 +79,7 @@ export function SessionMoveDialog({ session, preferences, platform, initialDesti
         try { await onConfirm(selected); }
         catch (cause) {
           locked.current = false; setPending(false);
-          const message = cause instanceof Error ? cause.message : '';
-          setError(/scheduled|cron/i.test(message)
-            ? t('会话或目标项目的定时任务尚未清空或无法核验，请先处理后再移动。', 'Scheduled tasks remain or cannot be verified in the conversation or destination. Resolve them before moving.')
-            : /goal/.test(message)
-              ? t('请先暂停当前目标，再移动会话。', 'Pause the active goal before moving.')
-              : /background agents/.test(message)
-                ? t('后台子代理尚未确认结束，请先处理后再移动。', 'Background agents have not settled. Resolve them before moving.')
-              : /ENOENT|ENOTDIR|directory|unavailable/.test(message)
-                ? t('目标目录不可用，请检查目录是否存在。', 'The destination folder is unavailable. Check that it exists.')
-                : t('未能移动，请确认会话已停止、待发消息与审批已处理后重试。', 'Could not move. Stop the session and resolve queued messages and approvals, then retry.'));
+          setError(sessionMoveError(cause, zh));
         }
       }}><ArrowRightLeft size={15}/>{pending ? t('正在移动…', 'Moving…') : t('确认移动', 'Confirm move')}</button></footer>
   </dialog>;

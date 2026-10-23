@@ -40,6 +40,16 @@ the selected session, account, model, Ask policy and loaded tasks before release
 The patch does not replace the scheduler, alter its shared task schema or bypass
 expiry. macOS does not include or advertise this recovery patch. See `docs/CRON.md`.
 
+`step-code-desktop-cron-scope.patch` adds an optional Desktop conversation view
+over the existing shared Cron file. Only moved/restored Desktop transports supply
+`DESKTOP_CRON_SCOPE_DIR`, pointing to Desktop-owned task associations. Such a
+transport loads its own jobs, not foreign or unbound project tasks. Shared-file
+transactions retain foreign and unknown records; newly created jobs remain
+usable while their association is being persisted. The project-wide job limit
+and identity-conflict checks still apply. The runtime manifest advertises
+`desktop-session-cron-scope`; ordinary CLI scheduling and the frozen macOS
+patches remain unchanged.
+
 Windows-specific compatibility also keeps branch preparation read-only:
 `STEPCODE_DESKTOP_BRANCH_SOURCE` suppresses startup usage discovery only for
 that exact original file, while the newly forked session records normally.

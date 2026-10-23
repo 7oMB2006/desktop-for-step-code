@@ -114,7 +114,7 @@ jobs:
       - name: Upstream command and usage compatibility tests
         working-directory: Step-Code/packages/coding-agent
         run: |
-          corepack pnpm exec vitest run test/step-then-run-command-parity.test.ts test/step-permissions.test.ts test/shell-process-tree.test.ts test/step-subagent-events.test.ts test/subagent-exit-drain.test.ts test/step-usage-lifecycle.test.ts
+          corepack pnpm exec vitest run test/step-then-run-command-parity.test.ts test/step-permissions.test.ts test/shell-process-tree.test.ts test/step-subagent-events.test.ts test/subagent-exit-drain.test.ts test/step-usage-lifecycle.test.ts test/step-cron.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream command and usage compatibility tests failed' }
 
       - name: Upstream automatic CLM tests

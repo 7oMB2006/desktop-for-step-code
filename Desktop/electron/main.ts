@@ -248,9 +248,14 @@ let providerApplyFailed = false;
 let providerApplication: Promise<void> | undefined;
 const authEnvironment = () => ({
   ...env,
+  DESKTOP_CRON_SCOPE_DIR: undefined,
   STEPCODE_DESKTOP_AUTH_PATH: env.STEPCODE_AUTH_PATH,
   STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(runtimeAuth(appliedAuthData)),
   ...keylessEnvironment(appliedAuthData, app.isPackaged ? join(process.resourcesPath, 'runtime-adapters/keyless-fetch.cjs') : join(__dirname, 'keyless-fetch.cjs')),
+});
+const movedSessionEnvironment = () => ({
+  STEP_PERMISSION_PRESET: 'ask',
+  ...(process.platform === 'win32' ? { DESKTOP_CRON_SCOPE_DIR: join(app.getPath('userData'), 'cron-bindings') } : {}),
 });
 async function persistAuth(next: Record<string, unknown>) {
   try { await vault.save(next); }
@@ -589,7 +594,7 @@ const sessionNavigation = new SessionNavigation(async (id: string) => {
     const canonical = await workspaceDirectory(target.cwd);
     if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
     worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
-      { ...authEnvironment(), ...(preferences.workspaceSessionRedirects?.[id] ? { STEP_PERMISSION_PRESET: 'ask' } : {}) }, target.path);
+      { ...authEnvironment(), ...(preferences.workspaceSessionRedirects?.[id] ? movedSessionEnvironment() : {}) }, target.path);
     if (worker.state?.sessionId !== id) {
       await runtimes.remove(worker);
       throw new Error('Session history identity changed');
@@ -616,7 +621,7 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
     const canonical = await workspaceDirectory(cwd);
     status = 'connecting';
     const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
-      { ...authEnvironment(), ...(resetPermission ? { STEP_PERMISSION_PRESET: 'ask' } : {}) }, sessionPath);
+      { ...authEnvironment(), ...(resetPermission ? movedSessionEnvironment() : {}) }, sessionPath);
     sessionDraft = undefined;
     preferences.workspace = canonical;
     if (rememberProject && !pathKey(canonical).startsWith(`${pathKey(independentRoot)}/`)) {
@@ -1148,6 +1153,9 @@ async function handle(method: string, args: any[]) {
         for (const worker of sources) worker.mutating = true;
         locked = true;
         for (const worker of sources) {
+          if (worker.cron?.status === 'unavailable') throw new Error('MOVE_CRON_UNAVAILABLE');
+          if (hasScheduledCron(worker.cron))
+            throw new Error(`MOVE_CRON_HOST: ${worker.cron?.jobs.map(job => job.id).join(', ') || 'unavailable'}`);
           await runtimes.assertIdle(worker, { stopHost: true });
           if (worker.status === 'connected' && [...backgroundSubagentStates(worker.messages).values()]
             .some(status => status === 'running' || status === 'queued'))
@@ -1157,25 +1165,29 @@ async function handle(method: string, args: any[]) {
         if (!target?.path) throw new Error('Save this conversation before moving it');
         const canonical = await workspaceDirectory(destination);
         if (await samePath(target.cwd, canonical)) throw new Error('Conversation is already in this project');
-        const sourceCron = await admin.request('cron_saved', { cwd: target.cwd });
-        for (const job of cronJobs(sourceCron.jobs)) {
-          const binding = await cronBindings.get(target.cwd, job);
-          if (!binding || binding.sessionId === id)
-            throw new Error('Remove scheduled tasks associated with this conversation before moving it');
+        const associated: string[] = [];
+        try {
+          for (const cwd of [target.cwd, canonical]) {
+            const saved = await admin.request('cron_saved', { cwd });
+            for (const job of cronJobs(saved.jobs)) {
+              const binding = await cronBindings.get(cwd, job);
+              if (binding?.sessionId === id) associated.push(job.id);
+            }
+          }
+        } catch {
+          throw new Error('MOVE_CRON_UNAVAILABLE');
         }
-        const savedCron = await admin.request('cron_saved', { cwd: canonical });
-        if (cronJobs(savedCron.jobs).length) throw new Error('Remove scheduled tasks in the destination project before moving this conversation');
-        for (const worker of runtimes.workers.values()) {
-          if (await samePath(worker.cwd, canonical) && hasScheduledCron(worker.cron))
-            throw new Error('Remove scheduled tasks in the destination project before moving this conversation');
-        }
+        if (associated.length) throw new Error(`MOVE_CRON_ASSOCIATED: ${associated.join(', ')}`);
+        const runtimeManifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
+        if (process.platform !== 'win32' || !runtimeManifest.patches?.includes('desktop-session-cron-scope'))
+          throw new Error('MOVE_CRON_UNAVAILABLE: runtime');
         const path = await managedSessionFile(join(dataRoot, 'sessions'), target.path);
         const source = sources[0];
         const wasActive = sources.some(worker => worker.id === runtimes.activeId) && !sessionDraft;
         // Validate a new cwd-bound transport before changing the durable association.
         // Permissions and project trust from the source are not carried into it.
         prepared = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
-          { ...authEnvironment(), STEP_PERMISSION_PRESET: 'ask' }, path);
+          { ...authEnvironment(), ...movedSessionEnvironment() }, path);
         prepared.mutating = true;
         if (prepared.state?.sessionId !== id || prepared.permissionPreset !== 'ask')
           throw new Error('Could not verify the destination conversation and approval policy');

@@ -26,16 +26,19 @@ for (const [id, cwd] of [['move-one', origin], ['move-two', projects[0]]]) {
   await writeFile(join(root, 'sessions', `${id}.jsonl`), bytes[id]);
 }
 const backgroundStamp = new Date().toISOString();
-await writeFile(join(root, 'sessions', 'move-background.jsonl'), [
-  { type: 'session', version: 3, id: 'move-background', cwd: origin, timestamp: backgroundStamp },
-  { type: 'message', id: 'bg-call', parentId: null, timestamp: backgroundStamp,
-    message: { role: 'assistant', content: [{ type: 'toolCall', id: 'bg-tool', name: 'subagent',
-      arguments: { agent: 'explore', task: 'Unsettled background work', run_in_background: true } }],
-    provider: 'fixture', model: 'fixture', stopReason: 'toolUse', timestamp: Date.now() } },
-  { type: 'message', id: 'bg-result', parentId: 'bg-call', timestamp: backgroundStamp,
-    message: { role: 'toolResult', toolName: 'subagent', toolCallId: 'bg-tool', content: [{ type: 'text', text: 'Started' }],
-      details: { agentId: 'move-lane', status: 'running', results: [] }, timestamp: Date.now() } },
-].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+for (const status of ['running', 'queued']) {
+  const id = status === 'running' ? 'move-background' : 'move-background-queued';
+  await writeFile(join(root, 'sessions', `${id}.jsonl`), [
+    { type: 'session', version: 3, id, cwd: origin, timestamp: backgroundStamp },
+    { type: 'message', id: 'bg-call', parentId: null, timestamp: backgroundStamp,
+      message: { role: 'assistant', content: [{ type: 'toolCall', id: 'bg-tool', name: 'subagent',
+        arguments: { agent: 'explore', task: 'Unsettled background work', run_in_background: true } }],
+      provider: 'fixture', model: 'fixture', stopReason: 'toolUse', timestamp: Date.now() } },
+    { type: 'message', id: 'bg-result', parentId: 'bg-call', timestamp: backgroundStamp,
+      message: { role: 'toolResult', toolName: 'subagent', toolCallId: 'bg-tool', content: [{ type: 'text', text: 'Started' }],
+        details: { agentId: 'move-lane', status, results: [] }, timestamp: Date.now() } },
+  ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+}
 let commandId = 0;
 let hold = false;
 const responses = new Set();
@@ -280,6 +283,18 @@ try {
   assert.equal(coldMove.runtimeId, draft.runtimeId);
   assert.equal(coldMove.sessions.find(session => session.id === 'move-two').cwd, projects[1]);
   console.log('Session move: moving a cold conversation preserves the active draft');
+  for (const id of ['move-background', 'move-background-queued']) {
+    const beforeBlocked = await snapshot(page);
+    assert.equal(beforeBlocked.runtimes.some(runtime => runtime.sessionId === id), false);
+    await assert.rejects(page.evaluate(({ id, destination }) => window.desktop.moveSessionToProject(id, destination),
+      { id, destination: projects[1] }), /background agents/);
+    const afterBlocked = await snapshot(page);
+    assert.deepEqual(afterBlocked.preferences.workspaceSessionRedirects, beforeBlocked.preferences.workspaceSessionRedirects);
+    assert.equal(afterBlocked.draftId, beforeBlocked.draftId);
+    assert.equal(afterBlocked.runtimeId, beforeBlocked.runtimeId);
+    assert.equal(afterBlocked.runtimes.length, beforeBlocked.runtimes.length, 'failed cold move removes its candidate runtime');
+  }
+  console.log('Session move: cold running and queued background work blocks movement without changing the draft or association');
   const backgroundOwner = await page.evaluate(() => window.desktop.navigateSession('move-background'));
   assert.equal(backgroundOwner.state.isStreaming, false);
   await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-background', destination), projects[0]), /background agents/);

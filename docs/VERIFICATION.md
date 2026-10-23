@@ -27,6 +27,12 @@ destination schedules are checked before preparing another host. Unknown saved
 source ownership or unreadable schedule state fails closed. This first version
 does not offer an independent destination or filesystem movement.
 
+The prepared runtime's loaded messages are also checked before saving the
+redirect, so cold histories cannot bypass the background-agent guard. Regression
+cases for both `running` and `queued` records reproduced the missing rejection
+before the fix and pass afterward, preserving redirects, the viewed draft and
+resident runtime count on rejection.
+
 Source Electron acceptance uses an isolated Desktop profile and localhost
 provider, never personal CLI credentials or a paid model. It covers cancellation,
 dragging with updated sorting, menu confirmation, light/dark/narrow layouts,

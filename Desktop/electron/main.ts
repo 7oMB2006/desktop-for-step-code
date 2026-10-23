@@ -1187,6 +1187,9 @@ async function handle(method: string, args: any[]) {
             await prepared.rpc.request('set_thinking_level', { level: source.state.thinkingLevel });
         }
         await runtimes.read(prepared);
+        if ([...backgroundSubagentStates(prepared.messages).values()]
+          .some(status => status === 'running' || status === 'queued'))
+          throw new Error('Wait for background agents to finish before moving this conversation');
         const previous = preferences;
         preferences = moveSessionToWorkspace(preferences, target, destination);
         if (wasActive) preferences.workspace = canonical;

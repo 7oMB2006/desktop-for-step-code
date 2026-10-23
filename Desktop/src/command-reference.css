@@ -1,5 +1,6 @@
-.command-reference { display: inline-flex; align-items: baseline; color: var(--primary); white-space: nowrap; font: inherit; vertical-align: baseline; }
-.command-reference-icon { display: inline-flex; align-self: center; width: .95em; margin-right: .2em; flex-shrink: 0; }
+.command-reference { display: inline; color: var(--primary); white-space: nowrap; font: inherit; vertical-align: baseline; }
+.command-reference-icon { display: inline-flex; vertical-align: -.12em; width: .95em; margin-right: .2em; user-select: none; }
 .command-reference-icon svg { width: .95em; height: .95em; overflow: visible; }
+.command-reference-slash { font-size: 0; }
 .composer { position: relative; }
 .command-reference-text { white-space: pre-wrap; overflow-wrap: anywhere; }

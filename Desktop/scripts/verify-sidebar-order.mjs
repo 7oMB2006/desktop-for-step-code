@@ -100,7 +100,12 @@ try {
   await drag(page, session(page, 0), session(page, 1), true, true);
   assert.deepEqual(await rows(project(page, 0)), reorderedSessions, 'Escape cancels without changing order');
   await drag(page, session(page, 0), session(page, 3));
-  assert.deepEqual(await rows(project(page, 0)), reorderedSessions, 'cross-project session drag is ignored');
+  const moveDialog = page.getByRole('dialog', { name: '移至项目', exact: true });
+  await moveDialog.waitFor();
+  assert.deepEqual(await rows(project(page, 0)), reorderedSessions, 'cross-project movement requires confirmation');
+  await moveDialog.getByRole('button', { name: '取消', exact: true }).click();
+  await moveDialog.waitFor({ state: 'detached' });
+  assert.deepEqual(await rows(project(page, 0)), reorderedSessions, 'cancel preserves grouping and order');
 
   mark('project drag and pinning');
   await drag(page, project(page, 2).locator('.workspace-toggle'), project(page, 0));
@@ -129,14 +134,15 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-reorder-id="sidebar-0"]').parentElement.firstElementChild.dataset.reorderId === 'sidebar-0');
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[0]), key(projects[2])]);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   const beforeUpdatedDrag = await rows(project(page, 0));
-  const updatedSource = await session(page, 2).boundingBox();
-  await page.mouse.move(updatedSource.x + 65, updatedSource.y + 17);
-  await page.mouse.down(); await page.waitForTimeout(340);
-  assert.equal(await page.locator('.session-drag-preview').count(), 0, 'updated sessions cannot be manually dragged');
-  await page.mouse.move(400, updatedSource.y);
-  await page.mouse.up();
-  assert.deepEqual(await rows(project(page, 0)), beforeUpdatedDrag);
+  await drag(page, session(page, 2), session(page, 0));
+  assert.deepEqual(await rows(project(page, 0)), beforeUpdatedDrag, 'updated sort does not allow manual same-group reordering');
+  await drag(page, session(page, 0), session(page, 3));
+  await moveDialog.waitFor();
+  await page.keyboard.press('Escape');
+  await moveDialog.waitFor({ state: 'detached' });
+  assert.deepEqual(await rows(project(page, 0)), beforeUpdatedDrag, 'updated sort supports cancelled cross-project movement');
   await drag(page, project(page, 1).locator('.workspace-toggle'), project(page, 0), true);
   await waitOrder(page, [key(projects[0]), key(projects[1]), key(projects[2])]);
   await drag(page, project(page, 1).locator('.workspace-toggle'), project(page, 0));

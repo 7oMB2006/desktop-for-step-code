@@ -57,6 +57,7 @@ export const acceptanceGroups = {
     'verify-model-switch.mjs',
     'verify-cross-session.mjs',
     'verify-session-import.mjs',
+    'verify-session-move.mjs',
     'verify-import-large-electron.mjs',
   ],
   runtime: [

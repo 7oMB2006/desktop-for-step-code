@@ -102,6 +102,7 @@ const bridge: DesktopBridge = {
   newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'), openWorkspaceFolder: path => invoke('openWorkspaceFolder', path),
   snapshot: () => invoke('snapshot'), chooseWorkspace: () => invoke('chooseWorkspace'), workspace: path => invoke('workspace', path),
   removeWorkspace: path => invoke('removeWorkspace', path), relocateWorkspace: path => invoke('relocateWorkspace', path),
+  moveSessionToProject: (id, destination) => invoke('moveSessionToProject', id, destination),
   beginSession: workspace => invoke('beginSession', workspace),
   chooseSessionProject: () => invoke('chooseSessionProject'),
   createDraftSession: draftId => invoke('createDraftSession', draftId),

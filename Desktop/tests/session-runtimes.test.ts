@@ -38,6 +38,23 @@ function fixture() {
   return { pool, transports, events, open };
 }
 
+test('Moved-session Cron isolation survives provider-driven transport refresh', async () => {
+  const transports: Transport[] = [];
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'moved');
+    transports.push(transport);
+    return transport;
+  });
+  try {
+    const worker = await pool.prepare('node', 'step', 'project',
+      { DESKTOP_CRON_SCOPE_DIR: 'desktop-owned-bindings' }, 'moved.jsonl');
+    assert.equal(transports[0].startEnv.DESKTOP_CRON_SCOPE_DIR, 'desktop-owned-bindings');
+    await pool.refresh(worker, 'node', 'step', {});
+    assert.equal(transports[1].startEnv.DESKTOP_CRON_SCOPE_DIR, 'desktop-owned-bindings');
+    assert.equal(worker.state?.sessionId, 'moved');
+  } finally { await pool.stopAll(); }
+});
+
 test('native extension dialogs cannot impersonate Desktop project-trust confirmations', async () => {
   const { pool, transports, events, open } = fixture();
   try {

@@ -78,6 +78,7 @@ export interface DesktopBridge extends SessionImportBridge {
   readonly platform?: string;
   removeWorkspace(path: string): Promise<Snapshot>;
   relocateWorkspace(path: string): Promise<Snapshot | null>;
+  moveSessionToProject(sessionId: string, destination: string): Promise<Snapshot>;
   updateState(): Promise<AppUpdateState>;
   checkUpdates(): Promise<AppUpdateState>;
   openUpdate(action: 'release' | 'download'): Promise<void>;

@@ -52,6 +52,7 @@ export interface SessionRuntime {
   queued?: boolean;
   stopping?: boolean;
   cron?: CronState;
+  cronScopeDirectory?: string;
 }
 export function firstUserText(messages: Message[]) {
   const message = messages.find(isUserMessage);
@@ -152,6 +153,7 @@ export class SessionRuntimes {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), fullAccessCancellationRevision: 0, failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
     };
+    worker.cronScopeDirectory = env.DESKTOP_CRON_SCOPE_DIR ?? existing?.cronScopeDirectory;
     worker.status = 'connecting';
     worker.cron = undefined;
     // A transport-local Full Access grant must not survive process replacement.
@@ -274,7 +276,7 @@ export class SessionRuntimes {
     this.workers.set(worker.id, worker);
     try {
       const launch = this.hooks.launch?.(worker);
-      worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env,
+      worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env, DESKTOP_CRON_SCOPE_DIR: worker.cronScopeDirectory,
         STEPCODE_DESKTOP_BRANCH_SOURCE: branch && branch.kind !== 'open-copy' && sessionPath ? resolve(sessionPath) : undefined,
       }, ['--append-system-prompt', desktopSystemPolicy(cwd),
         ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);

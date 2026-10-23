@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { ArrowRight, ChevronLeft, ChevronRight, Download, Eye, FolderOpen, RefreshCw, Search, Square, AlertCircle, MessageSquare, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, ArrowRightLeft, Eye, FolderOpen, RefreshCw, Search, Square, AlertCircle, MessageSquare, X } from 'lucide-react';
 import type { SessionImportBridge, ImportCandidate, ImportPreview, ImportJob, ImportSelection } from './session-import';
 import { importWarning } from './session-import';
 import { AppMenu } from './AppMenu';
@@ -265,7 +265,7 @@ export function SessionImportSettings({ bridge, language, onOpen }: {
         onClick={() => setSelected(new Set())}><X size={14}/></button>}
       {preparing && <button type="button" className="import-clear" aria-label={t('取消准备', 'Cancel preparation')}
         data-tooltip={t('取消准备', 'Cancel preparation')} onClick={() => { preparationCancelled.current = true; }}><Square size={12}/></button>}
-      <button type="button" disabled={pending || selected.size === 0} onClick={() => void start()}><Download size={15}/>{preparing
+      <button type="button" disabled={pending || selected.size === 0} onClick={() => void start()}><ArrowRightLeft size={15}/>{preparing
         ? t(`准备中 ${preparing.done} / ${preparing.total}`, `Preparing ${preparing.done} / ${preparing.total}`)
         : t('导入所选会话', 'Import selected sessions')}</button>
     </div>}

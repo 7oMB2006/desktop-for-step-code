@@ -844,7 +844,7 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .empty-state h1 { font-size: 23px; }
 .empty-actions { margin-top: 10px; }
 .community-note { margin-top: 22px; }
-.settings-layout > nav .archive-tab { margin-top: 22px; }
+.settings-layout > nav .settings-group-start { margin-top: 22px; }
 .archive-heading { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .archive-heading h3 { margin: 0; font-size: 18px; }
 .archive-delete-all { color: var(--danger); border-color: transparent; background: color-mix(in oklch, var(--danger) 7%, var(--bg)); font-size: 12px; flex-shrink: 0; }

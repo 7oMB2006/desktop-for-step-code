@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Download } from 'lucide-react';
+import { ArrowRightLeft } from 'lucide-react';
 import { SessionImportSettings } from '../../src/SessionImportSettings';
 import type { ImportCandidate, ImportJob, SessionImportBridge } from '../../src/session-import';
 import { applyTheme } from '../../src/theme';
@@ -67,7 +67,7 @@ createRoot(document.getElementById('root')!).render(
   <div className="modal-backdrop settings-backdrop" style={{ position: 'absolute' }}>
     <section className="settings-dialog" role="dialog" aria-label={language === 'zh' ? '设置' : 'Settings'}>
       <header><h2>{language === 'zh' ? '设置' : 'Settings'}</h2></header>
-      <div className="settings-layout"><nav><button aria-current="page" className="selected"><Download size={17}/>{language === 'zh' ? '会话迁移' : 'Session migration'}</button></nav>
+      <div className="settings-layout"><nav><button aria-current="page" className="selected"><ArrowRightLeft size={17}/>{language === 'zh' ? '会话迁移' : 'Session migration'}</button></nav>
         <div className="settings-content"><SessionImportSettings bridge={bridge} language={language} onOpen={async () => {}}/></div>
       </div>
     </section>

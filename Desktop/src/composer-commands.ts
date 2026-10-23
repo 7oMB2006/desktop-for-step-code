@@ -10,10 +10,21 @@ const coreCommands: ComposerCommand[] = [
 ];
 const localCommands: ComposerCommand[] = [
   { name: 'trust', source: 'desktop', description: 'Approve project trust for future runtime launches' },
+  { name: 'compact', source: 'desktop', description: 'Compact the current conversation with optional retention instructions' },
 ];
 
 export function isStatusCommand(message: string, attachments = 0, quotes = 0): boolean {
   return message.trim() === '/status' && attachments === 0 && quotes === 0;
+}
+
+export function desktopCommand(message: string, attachments = 0, quotes = 0) {
+  if (attachments || quotes) return;
+  const match = /^\/(status|usage|cron|compact)(?:\s+([\s\S]*))?$/.exec(message.trim());
+  if (!match) return;
+  const name = match[1], args = match[2]?.trim() ?? '';
+  if ((name === 'status' || name === 'cron') && args) return;
+  if (name === 'usage' && args && !['overview', 'account'].includes(args)) return;
+  return { name, args };
 }
 
 export function desktopCommands(commands: ComposerCommand[]): ComposerCommand[] {

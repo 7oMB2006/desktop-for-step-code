@@ -17,6 +17,7 @@ export const acceptanceGroups = {
     'verify-capabilities.mjs',
     'verify-desktop-tray.mjs',
     'verify-composer-menu.mjs',
+    'verify-command-dispatch.mjs',
     'verify-composer-editing.mjs',
     'verify-terminal-panel.mjs',
     'verify-terminal-scopes.mjs',

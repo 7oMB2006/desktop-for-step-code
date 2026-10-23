@@ -1,19 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { desktopCommands, isStatusCommand } from '../src/composer-commands';
+import { desktopCommand, desktopCommands, isStatusCommand } from '../src/composer-commands';
 
 test('Desktop discovers the pinned core CLM commands absent from upstream get_commands', () => {
   const original = [{ name: 'goal', source: 'extension' }, { name: 'daily', source: 'prompt' },
     { name: 'skill:review', source: 'skill' }, { name: '_desktop_retry', source: 'extension' }];
   const result = desktopCommands(original);
-  assert.deepEqual(result.map(command => command.name), ['goal', 'daily', 'skill:review', 'status', 'plugin', 'skills', 'clm', 'clm-compact', 'trust']);
+  assert.deepEqual(result.map(command => command.name), ['goal', 'daily', 'skill:review', 'status', 'plugin', 'skills', 'clm', 'clm-compact', 'trust', 'compact']);
   assert.ok(result.filter(command => command.name.startsWith('clm')).every(command => command.source === 'core'));
   assert.equal(original.length, 4, 'Catalog projection does not mutate the runtime reply');
 });
 
 test('Core CLM handlers take precedence over same-name catalog entries without duplicates', () => {
   const result = desktopCommands([{ name: 'clm', source: 'prompt' }, { name: 'clm-compact', source: 'extension' }]);
-  assert.deepEqual(result.map(command => command.name), ['status', 'plugin', 'skills', 'clm', 'clm-compact', 'trust']);
+  assert.deepEqual(result.map(command => command.name), ['status', 'plugin', 'skills', 'clm', 'clm-compact', 'trust', 'compact']);
   assert.ok(result.filter(command => command.name.startsWith('clm')).every(command => command.source === 'core'));
   assert.deepEqual(desktopCommands(result), result, 'Repeated projection remains idempotent');
   result[0].description = 'changed';
@@ -36,4 +36,27 @@ test('Desktop trust entry takes precedence over same-name runtime commands', () 
     { name: 'trust', source: 'desktop', description: 'Approve project trust for future runtime launches' },
   ]);
   assert.deepEqual(desktopCommands(commands), commands);
+});
+
+test('only complete supported standalone commands select a Desktop action', () => {
+  for (const [message, name, args] of [
+    [' /status \n', 'status', ''], ['/usage', 'usage', ''],
+    ['/usage overview', 'usage', 'overview'], ['/usage account', 'usage', 'account'],
+    ['/cron', 'cron', ''], ['/compact keep protocol\nand tests', 'compact', 'keep protocol\nand tests'],
+  ]) assert.deepEqual(desktopCommand(message), { name, args });
+  for (const message of ['explain /usage', '/cron list', '/cron delete job', '/usage other', '/status extra', '/compactness', '/clm']) {
+    assert.equal(desktopCommand(message), undefined, message);
+  }
+  for (const message of ['/usage', '/cron', '/compact keep notes', '/status']) {
+    assert.equal(desktopCommand(message, 1), undefined);
+    assert.equal(desktopCommand(message, 0, 1), undefined);
+  }
+});
+
+test('Desktop compact is discoverable and overrides a same-name entry only once', () => {
+  const catalog = desktopCommands([{ name: 'compact', source: 'extension' }]);
+  assert.deepEqual(catalog.filter(command => command.name === 'compact'), [
+    { name: 'compact', source: 'desktop', description: 'Compact the current conversation with optional retention instructions' },
+  ]);
+  assert.deepEqual(desktopCommands(catalog), catalog);
 });

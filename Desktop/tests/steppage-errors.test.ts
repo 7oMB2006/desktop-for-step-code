@@ -43,6 +43,6 @@ test('StepPage setup is Windows-only and startup carries failed Desktop verifica
   assert.match(admin, /case 'reconcile_steppage': \{\s*if \(process\.platform !== 'win32'\)/);
   assert.match(admin, /bundleExists: existsSync\(message\.bundlePath\) && message\.bundlePath !== message\.rejectedBundlePath/);
   const view = await readFile(new URL('../src/CapabilitySettings.tsx', import.meta.url), 'utf8');
-  assert.match(view, /bridge\.platform === 'win32' && <details className="cap-preparation"/);
+  assert.match(view, /bridge\.platform === 'win32' && <CapabilityDisclosure className="cap-preparation"/);
   assert.match(view, /const stepPage = <StepPageSettings/);
 });

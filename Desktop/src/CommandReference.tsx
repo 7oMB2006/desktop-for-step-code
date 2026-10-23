@@ -1,18 +1,17 @@
 import { createContext } from 'react';
-import { BookOpen, Command, Plug } from 'lucide-react';
-import { McpIcon } from './McpIcon';
+import { commandPresentation } from './command-presentation';
+import { commandRanges } from './command-references';
 import type { ComposerCommand } from './composer-commands';
 import './command-reference.css';
+import './context-command-icon.css';
 
 export const CommandCatalog = createContext<ComposerCommand[]>([]);
 export function commandReference(text: string, commands: ComposerCommand[]) {
-  const match = /^\/([^\s/]+)(?=\s|$)/.exec(text);
-  if (!match) return;
-  const command = commands.find(item => item.name === match[1]);
-  if (!command && !['clm', 'clm-compact', 'plugin'].includes(match[1])) return;
-  return { name: match[1], source: command?.source, length: match[0].length };
+  const range = commandRanges(text, commands)[0];
+  if (range?.from !== 0) return;
+  return { name: range.name, source: range.source, length: range.to };
 }
 export function CommandReference({ name, source }: { name: string; source?: string }) {
-  const Icon = source === 'skill' || name === 'skills' ? BookOpen : name === 'mcp' ? McpIcon : name === 'plugin' ? Plug : Command;
-  return <span className="command-reference"><span className="command-reference-icon"><Icon aria-hidden="true"/></span><span>{name}</span></span>;
+  const { Icon } = commandPresentation({ name, source }, false);
+  return <span className="command-reference"><span className="command-reference-icon" contentEditable={false}><Icon size={14} aria-hidden="true"/></span><span><span className="command-reference-slash">/</span>{name}</span></span>;
 }

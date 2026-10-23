@@ -41,6 +41,9 @@ importers:
       lucide-react:
         specifier: 1.48.0
         version: 1.48.0(react@19.3.0)
+      micromark-util-decode-string:
+        specifier: 2.0.1
+        version: 2.0.1
       prosemirror-commands:
         specifier: 1.7.2
         version: 1.7.2

@@ -1,5 +1,7 @@
 import { memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CommandCatalog, CommandReference, commandReference } from './CommandReference';
+import { CommandCatalog, CommandReference } from './CommandReference';
+import { remarkCommandReferences } from './command-references';
+import type { ComposerCommand } from './composer-commands';
 import type { ComponentProps, Dispatch, ReactNode, SetStateAction } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Bot, Brain, Check, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
@@ -99,7 +101,7 @@ function Code({ children, className, language, onError }: Omit<ComponentProps<'c
     <CopyButton text={String(children)} getText={() => code.current?.textContent ?? ''} language={language} onError={onError}/>
   </span><code ref={code} className={className}>{children}</code></span>;
 }
-export function Text({ text, ...props }: { text: string; streaming?: boolean } & BodyProps) {
+export function Text({ text, ...props }: { text: string; streaming?: boolean; commands?: ComposerCommand[] } & BodyProps) {
   return text.length > 32_768 ? <LargeText text={text} {...props}/> : <RevealedText text={text} {...props}/>;
 }
 function LargeText({ text, language, onError }: { text: string } & Pick<BodyProps, 'language' | 'onError'>) {
@@ -123,7 +125,7 @@ function LargeText({ text, language, onError }: { text: string } & Pick<BodyProp
     <pre>{text.slice(boundary(current * size), boundary((current + 1) * size))}</pre>
   </div>;
 }
-function RevealedText({ text, streaming = false, ...props }: { text: string; streaming?: boolean } & BodyProps) {
+function RevealedText({ text, streaming = false, commands, ...props }: { text: string; streaming?: boolean; commands?: ComposerCommand[] } & BodyProps) {
   const [reveal, setReveal] = useState<RevealState>({ text: '', active: false, nextId: 0, batches: [] });
   if (text !== reveal.text || streaming !== reveal.active) {
     setReveal(updateReveal(reveal, text, streaming, performance.now()));
@@ -136,14 +138,19 @@ function RevealedText({ text, streaming = false, ...props }: { text: string; str
   const plugins = useMemo<ComponentProps<typeof Markdown>['rehypePlugins']>(() => reveal.batches.length
     ? [...messageRehypePlugins!, [rehypeStreamReveal, { batches: reveal.batches }]]
     : messageRehypePlugins, [reveal.batches]);
-  return <MarkdownText text={text} language={props.language} openImage={props.openImage} onError={props.onError} plugins={plugins}/>;
+  return <MarkdownText text={text} language={props.language} openImage={props.openImage} onError={props.onError} plugins={plugins} commands={commands}/>;
 }
 // Layout-only parent updates must not parse the entire saved Markdown history.
-const MarkdownText = memo(function MarkdownText({ text, language, openImage, onError, plugins }: {
-  text: string; plugins: ComponentProps<typeof Markdown>['rehypePlugins'];
+const MarkdownText = memo(function MarkdownText({ text, language, openImage, onError, plugins, commands }: {
+  text: string; plugins: ComponentProps<typeof Markdown>['rehypePlugins']; commands?: ComposerCommand[];
 } & Pick<BodyProps, 'language' | 'openImage' | 'onError'>) {
-  return <Markdown skipHtml urlTransform={url => localReference(url) ? url : defaultUrlTransform(url)} remarkPlugins={messageRemarkPlugins} rehypePlugins={plugins}
+  const remarkPlugins = useMemo<ComponentProps<typeof Markdown>['remarkPlugins']>(() => commands
+    ? [...messageRemarkPlugins!, [remarkCommandReferences, commands]] : messageRemarkPlugins, [commands]);
+  return <Markdown skipHtml urlTransform={url => localReference(url) ? url : defaultUrlTransform(url)} remarkPlugins={remarkPlugins} rehypePlugins={plugins}
     components={{
+      span: ({ node, children, ...props }) => typeof node?.properties['data-command'] === 'string'
+        ? <CommandReference name={node.properties['data-command']} source={String(node.properties['data-command-source'] ?? '')}/>
+        : <span {...props}>{children}</span>,
       code: ({ children, className }) => <Code className={className} language={language} onError={onError}>{children}</Code>,
       a: ({ children, href }) => localReference(href) ? <FileReference href={href!}>{children}</FileReference> : <MessageLink href={href} language={language}>{children}</MessageLink>,
       img: ({ src, alt }) => src?.startsWith('data:image/')
@@ -157,10 +164,8 @@ function Body({ blocks, ...props }: { blocks: Content[] } & BodyProps) {
 }
 function UserText({ text, ...props }: { text: string } & BodyProps) {
   const commands = useContext(CommandCatalog);
-  const reference = commandReference(text, commands);
   const presentation = useMemo(() => quotePresentation(text), [text]);
-  if (reference) return <p className="command-reference-text"><CommandReference {...reference}/>{text.slice(reference.length)}</p>;
-  if (!presentation) return <Text text={text} {...props}/>;
+  if (!presentation) return <Text text={text} {...props} commands={commands}/>;
   const zh = props.language === 'zh';
   return <div className="sent-quote-message">
     <div className="sent-quotes">{presentation.quotes.map(quote =>
@@ -170,7 +175,7 @@ function UserText({ text, ...props }: { text: string } & BodyProps) {
         <div className="sent-quote-content"><Text text={quote.markdown} {...props}/></div>
         {quote.annotation && <div className="sent-quote-annotation"><span>{zh ? '批注' : 'Annotation'}</span><div>{quote.annotation}</div></div>}
       </blockquote>)}</div>
-    {presentation.draft && <div className="sent-quote-reply"><Text text={presentation.draft} {...props}/></div>}
+    {presentation.draft && <div className="sent-quote-reply"><Text text={presentation.draft} {...props} commands={commands}/></div>}
   </div>;
 }
 export function PendingUserMessages({ messages, connected, busy, onRecover, ...props }: {

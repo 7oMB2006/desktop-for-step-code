@@ -57,6 +57,58 @@ In particular, upstream Usage refresh flags are not yet Desktop aliases.
 Compact requires a connected, existing, idle session and is never queued as
 ordinary prose while a task is running.
 
+## Desktop Adaptation Backlog
+
+2026-10-23 清点：以下是待讨论和待适配清单，不代表本轮已经实现。
+同一类型按 `[Ⅰ]`、`[Ⅱ]` 分阶段；已有能力不重复算作未实现。
+
+### [Ⅰ] 图标与可用性
+
+- [ ] `/workflows` 与 `/ultracode` 区分图标。目前两者都使用 Network，
+  是视觉复用，不是重复命令。
+- [ ] `/clm`、`/clm-compact` 改用能表达上下文维护的图标。目前显式使用
+  Command，并非识别失败；需同时与 `/compact` 的手动压缩含义区分。
+- 暂缓 `/feedback`：目前没有 Desktop 反馈接收端，本轮不实现发送。
+  当前打包体验
+  返回 “Feedback endpoint is not configured.”，不能算反馈可用。
+  接收地址、提交内容与用户确认方式需另行敲定，不自动上传会话或日志。
+
+### [Ⅱ] 已有后端、缺少专用桌面映射
+
+| 指令 | 现状 | 待适配边界 |
+| --- | --- | --- |
+| `/todos` | 返回上游清单通知 | 映射到已有右栏清单；保留空状态与历史边界 |
+| `/workflows` | 通知列出已保存工作流与近期运行记录，仍有英文原始输出 | 中文列表与运行详情；不直接等同于当前代理面板 |
+| `/clm`、`/clm-compact` | 状态查看和手动整理已可用 | 接续 TODO 中已有 CLM 二级详情项，不重复立项 |
+| `/plugin` | 通用请求界面承接上游选择对话框 | 接续 TODO 中已有插件市场管理项；尚未验收完整安装、卸载流程 |
+
+`/workflows` 本身只查询列表，不负责启动工作流。工作流执行是上游
+`workflow` 工具的能力；保存的工作流定义、历史运行与当前轮代理状态是不同对象，
+后续界面不能混成同一个列表。
+
+### [Ⅲ] 参数入口与验收边界
+
+- [ ] `/cron` 带参数操作保留上游语义；核对是否需要复用已有定时管理界面。
+  裸命令打开管理页已经完成，不重复列为缺口。
+- [ ] `/usage` 刷新等其他参数尚无 Desktop 别名；总览和账户入口已完成，
+  后续与 Usage 主线协调，不另造统计页面。
+- [ ] `/plan`、`/goal`、`/ultracode` 保留现有模式适配，补齐各自操作场景验收，
+  不能因只测过状态查询就宣称全流程可用，也不能整体标为未映射。
+- [ ] `/init` 已走正常 Agent 任务链路；真实项目生成结果仍需验收，
+  不应为此另造配置页面。
+- [ ] 技能和提示模板按运行时来源保留动态入口；逐项资源验收与内置指令映射分开。
+
+`/status`、模型、权限、MCP、`/compact`、`/trust` 等已有 Desktop 映射，
+不在本次“未映射”清单中。
+
+### 工作流面板预览
+
+`Desktop/tests/fixtures/workflow-panel.html` 提供独立模拟预览，尚未替换
+真实 `/workflows` 通知或接入真实运行数据。顶部三次方缓动滑入和收回，
+5 秒后自动收起；悬停、聚焦、展开说明或拖动时暂停计时。
+底部抓手支持上推至少 48px 收起、短距离拖动回位，以及点击或键盘激活收起；
+保留关闭按钮、Esc、亮暗色、空状态、长列表滚动和减少动态效果适配。
+
 ## Hidden Shell Commands
 
 `exit`, `quit`, `theme`, `llama`, `clear` and `new` are not offered as Desktop

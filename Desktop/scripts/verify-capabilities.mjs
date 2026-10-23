@@ -276,6 +276,21 @@ try {
     await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
     await page.locator('.cap-heading').getByRole('heading', { name: heading, exact: true }).waitFor();
   }
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+  const composer = page.getByRole('textbox', { name: '消息', exact: true });
+  await composer.fill('/plugin install filter-only-for-plugins');
+  await composer.press('Escape');
+  await composer.press('Enter');
+  const resourceSearch = page.getByRole('textbox', { name: '搜索资源', exact: true });
+  await resourceSearch.waitFor();
+  assert.equal(await resourceSearch.inputValue(), 'filter-only-for-plugins');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+  await composer.fill('/mcp');
+  await page.getByRole('option', { name: /MCP/ }).click();
+  await page.locator('.cap-heading').getByRole('heading', { name: 'MCP', exact: true }).waitFor();
+  assert.equal(await resourceSearch.inputValue(), '', 'Plugin command filters cannot leak into MCP action navigation');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).messages.length, messagesBefore, 'Management commands are local navigation, not model prompts');
   assert.match(await readFile(join(market, 'example', 'step.plugin.json'), 'utf8'), /Example plugin/);
   assert.deepEqual(errors, []);

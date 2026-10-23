@@ -6,7 +6,7 @@ Management follows the upstream Web/Desktop MVP user-scope APIs, isolated under
 Desktop-owned storage. The renderer receives bounded, redacted data through typed
 IPC. Configuration changes do not silently reload sessions or stop Cron hosts.
 
-The serial Node 24.16.0 suite passed 652 tests with 13 platform skips and no
+The final serial Node 24.16.0 suite passed 686 tests with 13 platform skips and no
 failures. Typecheck, production build, CI policy tests and upstream barrel lint
 passed. Clean Windows patch replay and the macOS index patch/hash check passed;
 the latter is not native macOS acceptance.
@@ -43,6 +43,11 @@ production build passed; screenshots include the real sidebar and expanded searc
 These checks use deterministic local resources, not paid model requests or real
 third-party login/publishing. No installer, first-install acceptance or cloud CI
 result is established by this run. See `docs/CAPABILITIES.md` for scope.
+
+Mainline integration retains session migration, quote annotations and shared
+command presentation. Fresh Windows patch replay and runtime staging passed with
+the combined import/plugin exports and source hashes. Migration, command dispatch
+and composer-menu Electron regressions also passed against the combined source.
 
 ## Command Presentation And Dispatch (2026-10-23)
 

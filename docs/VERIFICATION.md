@@ -1,5 +1,22 @@
 # Verification
 
+## API Balance Fixture Shutdown (2026-10-24)
+
+After integrating main `985f372`, cloud run `39985959681` passes Windows
+sessions/runtime but times out in `verify-account-balance.mjs`. Local repetition
+with Node 24.16.0 reproduces a successful balance scenario followed by an
+unanswered native quit review: `transitioning` is true while task, Goal and
+Cron counts are zero. The direct Playwright close waits for that review.
+
+The balance fixture now uses the existing orderly-shutdown helper, answers
+updated review requests, logs each phase and applies a 30-second shutdown
+deadline. It retains every balance assertion and checks successful launcher
+exit and closed windows; it does not force application exit. A regression
+checks existing and changed review requests. Five consecutive packaged balance
+runs (both regions), the six shutdown regressions and real quit/Cron acceptance
+pass locally. These are fixture-only changes; the replacement head still
+requires cloud verification.
+
 ## Single-Conversation Project Movement (2026-10-23)
 
 Saved top-level conversations can move from independent history into a registered

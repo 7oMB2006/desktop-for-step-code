@@ -1,9 +1,39 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 
-const { releaseExitedFixturePipes } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
+const { closeDesktopFixture, releaseExitedFixturePipes } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
+
+test('orderly fixture shutdown answers existing and changed quit reviews without forcing application exit', async () => {
+  const replies: [string, boolean][] = [];
+  let onEvent: (event: unknown) => void = () => {};
+  const desktop = {
+    onEvent: (listener: typeof onEvent) => { onEvent = listener; },
+    snapshot: async () => ({ quitReview: { request: { id: 'initial', phase: 'review' } } }),
+    quitRespond: async (id: string, approved: boolean) => {
+      replies.push([id, approved]);
+      if (id === 'initial') throw new Error('Quit confirmation changed');
+    },
+  };
+  const page = {
+    evaluate: async (callback: () => void) => runInNewContext(`(${callback.toString()})()`, { window: { desktop } }),
+  };
+  let closed = false;
+  await closeDesktopFixture({
+    windows: () => [page],
+    close: async () => {
+      onEvent({ type: 'unrelated', state: { request: { id: 'ignored', phase: 'review' } } });
+      onEvent({ type: 'desktop_quit_review', state: { request: { id: 'waiting', phase: 'closing' } } });
+      onEvent({ type: 'desktop_quit_review', state: { request: { id: 'updated', phase: 'review' } } });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(replies, [['initial', true], ['updated', true]]);
+      closed = true;
+    },
+  });
+  assert.equal(closed, true);
+});
 
 function fixture() {
   const pipes = Array.from({ length: 4 }, () => new PassThrough());

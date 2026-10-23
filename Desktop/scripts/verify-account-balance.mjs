@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 await mkdir('test-results', { recursive: true });
 for (const profileId of ['platform_cn', 'platform_oversea']) {
@@ -19,10 +20,14 @@ for (const profileId of ['platform_cn', 'platform_oversea']) {
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.STEP_API_KEY;
   let app;
+  let phase = 'launch';
+  const mark = value => { phase = value; console.log(`API balance ${profileId}: ${value}`); };
   try {
+    mark('launch');
     const executablePath = process.env.DESKTOP_VERIFY_EXE;
     app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
     const page = await app.firstWindow();
+    page.setDefaultTimeout(15000);
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await app.evaluate(({ net, shell, BrowserWindow, dialog }, profileId) => {
@@ -45,6 +50,7 @@ for (const profileId of ['platform_cn', 'platform_oversea']) {
           total_cash_balance: 9, total_voucher_balance: 3788 });
       };
     }, profileId);
+    mark('initial balance');
     await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
     await page.locator('.sidebar-bottom > button').click();
     const balance = page.getByRole('region', { name: 'API 账户余额' });
@@ -61,6 +67,7 @@ for (const profileId of ['platform_cn', 'platform_oversea']) {
     assert.deepEqual(await app.evaluate(() => globalThis.balanceFixture.links),
       [profileId === 'platform_cn' ? 'https://platform.stepfun.com/account-overview' : 'https://platform.stepfun.ai/']);
     await page.screenshot({ path: `test-results/account-balance-${profileId}.png`, animations: 'disabled' });
+    mark('zero, stale and authentication failure');
     await app.evaluate(() => { globalThis.balanceFixture.amount = 0; });
     await balance.getByRole('button', { name: '刷新余额' }).click();
     await balance.getByText('0.00', { exact: true }).waitFor();
@@ -73,6 +80,7 @@ for (const profileId of ['platform_cn', 'platform_oversea']) {
     await balance.getByRole('button', { name: '刷新余额' }).click();
     await balance.getByText(/无法验证余额查询权限/).waitFor();
     assert.equal(await balance.getByText('0.00', { exact: true }).count(), 0);
+    mark('postpaid and invalid amount');
     await app.evaluate(() => { globalThis.balanceFixture.status = 200; globalThis.balanceFixture.type = 'postpaid'; globalThis.balanceFixture.amount = -12.3; });
     await balance.getByRole('button', { name: '刷新余额' }).click();
     await balance.getByText('-12.30', { exact: true }).waitFor();
@@ -80,6 +88,7 @@ for (const profileId of ['platform_cn', 'platform_oversea']) {
     await app.evaluate(() => { globalThis.balanceFixture.amount = 'invalid-amount'; });
     await balance.getByRole('button', { name: '刷新余额' }).click();
     await balance.getByText(/暂时无法解析官方余额数据/).waitFor();
+    mark('tab cancellation');
     await app.evaluate(() => { globalThis.balanceFixture.amount = 100; globalThis.balanceFixture.delay = 400; });
     await balance.getByRole('button', { name: '刷新余额' }).click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
@@ -91,6 +100,26 @@ for (const profileId of ['platform_cn', 'platform_oversea']) {
     }
     assert.equal((await readFile(join(profile, 'step-runtime/auth.dpapi'))).includes(Buffer.from('balance-fixture-only')), false);
     assert.deepEqual(errors, []);
-  } finally { await app?.close(); }
+    mark('assertions passed');
+  } catch (error) {
+    console.error(`API balance ${profileId} failed during ${phase}`, error);
+    await app?.firstWindow().then(page => page.screenshot({ path: `test-results/account-balance-${profileId}-failure.png` })).catch(() => {});
+    throw error;
+  } finally {
+    mark('shutdown');
+    if (app) {
+      const child = app.process();
+      let timer;
+      try {
+        await Promise.race([
+          closeDesktopFixture(app),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`API balance ${profileId}: orderly shutdown timed out after 30s`)), 30000); }),
+        ]);
+        assert.equal(child.exitCode, 0);
+        assert.equal(app.windows().length, 0);
+      } finally { clearTimeout(timer); }
+    }
+    mark('closed');
+  }
 }
 console.log('API balance Electron passed: CN/Global fixed endpoints, literal vault credential, real IPC, no invented currency, zero/error/stale/postpaid, website, cancellation and encrypted storage.');

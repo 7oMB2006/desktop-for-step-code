@@ -1,0 +1,208 @@
+diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
+--- a/packages/coding-agent/src/features/step-cron.ts
++++ b/packages/coding-agent/src/features/step-cron.ts
+@@ -872,6 +872,65 @@ function formatCronStatus(jobs: readonly CronJob[]): string {
+ 		.join("\n");
+ }
+ 
++// A moved Desktop conversation must not adopt another conversation's project jobs.
++export class DesktopSessionCronStore extends CronFileStore {
++	private readonly created = new Set<string>();
++	private readonly directory: string;
++	private readonly owner: () => { cwd: string; sessionId: string } | undefined;
++	constructor(filePath: string, directory: string, owner: () => { cwd: string; sessionId: string } | undefined) {
++		super(filePath);
++		this.directory = directory;
++		this.owner = owner;
++	}
++	private identity(job: CronJob): string {
++		return JSON.stringify([job.id, job.createdAt]);
++	}
++	private bindingKey(cwd: string, job: CronJob): string {
++		const workspace = (process.platform === "win32" ? cwd.replace(/\\/g, "/") : cwd).replace(/\/+$/, "");
++		return JSON.stringify([process.platform === "win32" ? workspace.toLowerCase() : workspace, job.id, job.createdAt]);
++	}
++	private owns(job: CronJob): boolean {
++		const owner = this.owner();
++		if (!owner) return false;
++		const key = this.bindingKey(owner.cwd, job);
++		if (this.created.has(JSON.stringify([owner.sessionId, key]))) return true;
++		try {
++			const bytes = readFileSync(path.join(this.directory, createHash("sha256").update(key).digest("hex") + ".json"));
++			if (bytes.length > 4096) return false;
++			const binding = JSON.parse(bytes.toString("utf8"));
++			return binding.sessionId === owner.sessionId && ["created", "recovered"].includes(binding.source)
++				&& Number.isFinite(binding.at);
++		} catch {
++			// Unowned or unreadable associations stay in the shared file, never adopted.
++			return false;
++		}
++	}
++	override load(): CronJob[] {
++		return super.load().filter((job) => this.owns(job));
++	}
++	override update(mutate: (jobs: CronJob[]) => readonly CronJob[]): void {
++		const newlyCreated: string[] = [];
++		super.update((stored) => {
++			const owned: CronJob[] = [], foreign: CronJob[] = [];
++			for (const job of stored) (this.owns(job) ? owned : foreign).push(job);
++			const next = mutate(owned);
++			if (next.some((job) => foreign.some((other) => other.id === job.id)))
++				throw new Error("Cron job identity conflicts with another conversation");
++			if (next.length + foreign.length > MAX_JOBS)
++				throw new Error(`At most ${MAX_JOBS} cron jobs can be scheduled in a project`);
++			const owner = this.owner();
++			if (owner) for (const job of next) {
++				if (stored.some((other) => this.identity(other) === this.identity(job))) continue;
++				const key = this.bindingKey(owner.cwd, job);
++				newlyCreated.push(JSON.stringify([owner.sessionId, key]));
++			}
++			return [...foreign, ...next];
++		});
++		// Only keep local ownership after the shared-file transaction succeeds.
++		for (const key of newlyCreated) this.created.add(key);
++	}
++}
++
+ /** Register expression-based Cron tools; this extension has no Loop dependency. */
+ export function createStepCronExtension(options: StepCronExtensionOptions = {}): ExtensionFactory {
+ 	return (pi: ExtensionAPI): void => {
+@@ -881,6 +940,10 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 		const runtime =
+ 			options.runtime ??
+ 			new StepCronRuntime({
++				...(process.env.DESKTOP_CRON_STATE === "1" && process.env.DESKTOP_CRON_SCOPE_DIR ? {
++					storeFactory: (filePath: string) => new DesktopSessionCronStore(filePath, process.env.DESKTOP_CRON_SCOPE_DIR!, () =>
++						currentContext ? { cwd: currentContext.cwd, sessionId: currentContext.sessionManager.getSessionId() } : undefined),
++				} : {}),
+ 				telemetry: options.telemetry,
+ 				onStateChange: (jobs, healthy) => {
+ 					if (process.env.DESKTOP_CRON_STATE !== "1" || !currentContext) return;
+diff --git a/packages/coding-agent/test/step-cron.test.ts b/packages/coding-agent/test/step-cron.test.ts
+--- a/packages/coding-agent/test/step-cron.test.ts
++++ b/packages/coding-agent/test/step-cron.test.ts
+@@ -1,4 +1,5 @@
+ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { createHash } from "node:crypto";
+ import { tmpdir } from "node:os";
+ import path from "node:path";
+ import { afterEach, describe, expect, test, vi } from "vitest";
+@@ -6,6 +7,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core
+ import {
+ 	type CronDelivery,
+ 	CronFileStore,
++	DesktopSessionCronStore,
+ 	type CronJob,
+ 	createStepCronExtension,
+ 	SimpleCronExpression,
+@@ -26,6 +28,110 @@ function makeDirectory(): string {
+ 	return directory;
+ }
+ 
++describe("DesktopSessionCronStore", () => {
++	function scoped() {
++		const cwd = makeDirectory();
++		const directory = path.join(cwd, "bindings");
++		mkdirSync(directory);
++		const file = path.join(cwd, ".stepcode", "cron", "tasks.json");
++		const store = new CronFileStore(file);
++		const job: CronJob = { schemaVersion: 1, id: "foreign", cron: "* * * * *", prompt: "Keep",
++			recurring: true, durable: true, createdAt: 100, nextFireAt: 200 };
++		store.save([job]);
++		const bind = (job: CronJob, sessionId: string) => {
++			const workspace = (process.platform === "win32" ? cwd.replace(/\\/g, "/") : cwd).replace(/\/+$/, "");
++			const key = JSON.stringify([process.platform === "win32" ? workspace.toLowerCase() : workspace, job.id, job.createdAt]);
++			const binding = path.join(directory, createHash("sha256").update(key).digest("hex") + ".json");
++			writeFileSync(binding, JSON.stringify({ sessionId, source: "created", at: 100 }));
++			return binding;
++		};
++		let sessionId = "moved";
++		const create = () => new DesktopSessionCronStore(file, directory, () => ({ cwd, sessionId }));
++		return { cwd, directory, file, store, job, bind, create, session: (id: string) => { sessionId = id; } };
++	}
++	test("does not adopt foreign, unbound, corrupt or reused task identities", () => {
++		const f = scoped();
++		expect(f.create().load()).toEqual([]);
++		f.bind(f.job, "other");
++		expect(f.create().load()).toEqual([]);
++		const binding = f.bind(f.job, "moved");
++		expect(f.create().load()).toEqual([f.job]);
++		writeFileSync(binding, "{invalid");
++		expect(f.create().load()).toEqual([]);
++		f.bind(f.job, "moved");
++		f.store.save([{ ...f.job, createdAt: 101 }]);
++		expect(f.create().load()).toEqual([]);
++	});
++	test("foreign records and unknown JSONL rows survive edits to owned jobs", () => {
++		const f = scoped();
++		const own = { ...f.job, id: "own" };
++		f.store.save([f.job, own]);
++		f.bind(own, "moved");
++		const unknown = '{"schemaVersion":99,"id":"future"}\n';
++		writeFileSync(f.file, readFileSync(f.file, "utf8") + unknown);
++		const foreignLine = readFileSync(f.file, "utf8").split("\n")[0];
++		const view = f.create();
++		view.update(jobs => jobs.map(job => ({ ...job, prompt: "Updated" })));
++		expect(f.store.load()).toEqual([f.job, { ...own, prompt: "Updated" }]);
++		expect(readFileSync(f.file, "utf8")).toContain(foreignLine + "\n");
++		expect(readFileSync(f.file, "utf8")).toContain(unknown);
++		view.save([]);
++		expect(f.store.load()).toEqual([f.job]);
++	});
++	test("new tasks retain local ownership until their durable binding is saved", () => {
++		const f = scoped();
++		const own = { ...f.job, id: "new" };
++		const view = f.create();
++		view.save([own]);
++		expect(view.load()).toEqual([own]);
++		expect(f.create().load()).toEqual([]);
++		f.bind(own, "moved");
++		expect(f.create().load()).toEqual([own]);
++		f.session("other");
++		expect(view.load()).toEqual([]);
++	});
++	test("conflicts and the shared project limit fail without losing any records", () => {
++		const f = scoped();
++		const view = f.create();
++		const bytes = readFileSync(f.file, "utf8");
++		expect(() => view.save([{ ...f.job, createdAt: 999 }])).toThrow(/conflicts/);
++		expect(readFileSync(f.file, "utf8")).toBe(bytes);
++		f.store.save(Array.from({ length: 50 }, (_, index) => ({ ...f.job, id: `job-${index}` })));
++		const full = readFileSync(f.file, "utf8");
++		expect(() => view.save([{ ...f.job, id: "new" }])).toThrow(/At most/);
++		expect(readFileSync(f.file, "utf8")).toBe(full);
++		expect(view.load()).toEqual([]);
++	});
++	test("starting and ticking a moved host neither consumes nor advances foreign due tasks", () => {
++		const f = scoped();
++		const bytes = readFileSync(f.file, "utf8");
++		const sendMessage = vi.fn();
++		const runtime = new StepCronRuntime({ storeFactory: () => f.create(), sendMessage, now: () => 1_000,
++			setInterval: () => 0 as unknown as ReturnType<typeof setInterval>, clearInterval: () => {} });
++		runtime.start(f.cwd, true);
++		runtime.tick();
++		expect(runtime.list()).toEqual([]);
++		expect(sendMessage).not.toHaveBeenCalled();
++		expect(readFileSync(f.file, "utf8")).toBe(bytes);
++		runtime.stop();
++	});
++	test("new tasks still fire in a moved host without consuming unrelated due jobs", () => {
++		const f = scoped();
++		let now = 1_000;
++		const deliveries: CronDelivery[] = [];
++		const runtime = new StepCronRuntime({ storeFactory: () => f.create(), sendMessage: job => deliveries.push(job),
++			now: () => now, jitterRatio: 0, setInterval: () => 0 as unknown as ReturnType<typeof setInterval>, clearInterval: () => {} });
++		runtime.start(f.cwd, true);
++		const own = runtime.create("* * * * *", "Own", false, true);
++		now = 60_001;
++		runtime.tick();
++		expect(deliveries).toHaveLength(1);
++		expect(deliveries[0].job?.id).toBe(own.job.id);
++		expect(f.store.load()).toEqual([f.job]);
++		runtime.stop();
++	});
++});
++
+ describe("SimpleCronExpression", () => {
+ 	test("parses five-field steps and computes the next local minute", () => {
+ 		const expression = SimpleCronExpression.parse("*/5 * * * *");

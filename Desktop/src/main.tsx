@@ -63,6 +63,7 @@ import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-ord
 import { useSidebarReorder } from './use-sidebar-reorder';
 import { useSidebarMotion } from './use-sidebar-motion';
 import { ProjectRemoval } from './ProjectRemoval';
+import { SessionMoveDialog } from './SessionMoveDialog';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
 import { QueuePreview } from './QueuePreview';
@@ -278,6 +279,7 @@ function App() {
   const [renameTarget, setRenameTarget] = useState<{ type: 'session' | 'workspace'; id: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'workspace'; id: string; x: number; y: number } | null>(null);
   const [removeProject, setRemoveProject] = useState<string | null>(null);
+  const [sessionMove, setSessionMove] = useState<{ session: Session; destination?: string } | null>(null);
   const [unavailableWorkspace, setUnavailableWorkspace] = useState<string | null>(null);
   const sidebarTree = useSidebarMotion(JSON.stringify([data.preferences.workspaces, data.preferences.pinnedWorkspaces,
     data.preferences.sessionOrder, data.preferences.sessionSort, data.preferences.archivedSessionIds,
@@ -296,8 +298,12 @@ function App() {
       void setPreference({ workspaces: keys.map(key => paths.find(path => workspaceKey(path) === key)!) });
     }
   };
-  const sessionDrag = useSidebarReorder(!loading && (compactSidebar ? compactSidebarOpen : sidebar), manualOrder,
-    (id, target, after, kind) => kind === 'session' ? reorderSession(id, target, after) : reorderWorkspace(id, target, after));
+  const sessionDrag = useSidebarReorder(!loading && !sessionMove && (compactSidebar ? compactSidebarOpen : sidebar), manualOrder,
+    (id, target, after, kind) => kind === 'session' ? reorderSession(id, target, after) : reorderWorkspace(id, target, after),
+    (id, destination) => {
+      const session = data.sessions.find(session => session.id === id);
+      if (session?.path) { setContextMenu(null); setSessionMove({ session, destination }); }
+    });
   const [name, setName] = useState('');
   const [loginProfile, setLoginProfile] = useState('step_plan');
   const [key, setKey] = useState('');
@@ -1035,7 +1041,8 @@ function App() {
   for (const session of visibleSessions) if (!independentSessions.includes(session)) workspaceGroups.get(sessionWorkspaceKey(session))?.sessions.push(session);
   const showContext = (event: React.MouseEvent, type: 'session' | 'workspace', id: string) => {
     event.preventDefault();
-    setContextMenu({ type, id, x: Math.min(event.clientX, window.innerWidth - 206), y: Math.min(event.clientY, window.innerHeight - 190) });
+    setContextMenu({ type, id, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 206)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 230)) });
   };
   const beginRename = (type: 'session' | 'workspace', id: string) => {
     const session = data.sessions.find(s => s.id === id);
@@ -1097,6 +1104,7 @@ function App() {
     const activity = status === 'idle' || status === 'completed' ? data.unreadSessionIds?.includes(s.id) ? 'completed' : 'idle' : status;
     const label = activity === 'waiting' ? t('等待确认', 'Awaiting approval') : activity === 'failed' || activity === 'interrupted' ? t('任务已终止', 'Task interrupted') : activity === 'completed' ? t('有未读回复', 'Unread reply') : t('正在运行', 'Running');
     return <div key={s.id} data-reorder-id={s.id} data-reorder-kind="session" data-reorder-group={group} data-reorder-title={sessionTitle(s, t('新会话', 'New session'))}
+      data-reorder-locked={!s.path || ['running', 'waiting'].includes(activity)}
       className={`session-row ${!scheduledOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'selected' : ''} ${sessionDrag?.id === s.id ? 'session-dragging' : ''} ${sessionDrag?.target === s.id ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`}
       onContextMenu={e => showContext(e, 'session', s.id)}>
       <button aria-current={!scheduledOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
@@ -1155,7 +1163,8 @@ function App() {
   const toggleSidebar = () => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open);
   const renderWorkspace = ([key, group]: [string, { path: string; sessions: Session[] }]) => {
     const expanded = !collapsedWorkspaces.has(key);
-    return <section className={`workspace-group ${sessionDrag?.id === key ? 'session-dragging' : ''} ${sessionDrag?.target === key ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`} key={key} aria-label={group.path}
+    return <section className={`workspace-group ${sessionDrag?.id === key ? 'session-dragging' : ''} ${sessionDrag?.target === key ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''} ${sessionDrag?.workspaceTarget === group.path ? 'session-drop-target' : ''}`} key={key} aria-label={group.path}
+      data-session-workspace={group.path}
       data-reorder-id={key} data-reorder-kind="workspace" data-reorder-group={pinnedWorkspaces.has(key) ? '__pinned__' : '__projects__'} data-reorder-title={workspaceTitle(group.path)}>
       <div className={`workspace-heading ${key === workspaceKey(data.preferences.workspace ?? '') ? 'current' : ''}`} onContextMenu={e => showContext(e, 'workspace', group.path)}>
         <button className="workspace-toggle" aria-label={workspaceTitle(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}
@@ -1274,6 +1283,22 @@ function App() {
       onCancel={() => bridge!.quitRespond(quitReview.request!.id, false)}
       onConfirm={() => bridge!.quitRespond(quitReview.request!.id, true)}/>}
     <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}/>
+    {sessionMove && <SessionMoveDialog session={sessionMove.session} preferences={data.preferences} platform={bridge?.platform}
+      initialDestination={sessionMove.destination} onCancel={() => setSessionMove(null)}
+      onConfirm={async destination => {
+        if (!bridge || switching.current) throw new Error(t('请等待会话切换完成', 'Wait for session navigation to finish'));
+        switching.current = true; setLoading(true);
+        try {
+          const activeMove = latestData.current.state?.sessionId === sessionMove.session.id && !latestData.current.draftId;
+          const value = await bridge.moveSessionToProject(sessionMove.session.id, destination);
+          readingCache.current.delete(sessionMove.session.id);
+          installSnapshot(value); setSessionMove(null);
+          if (activeMove) { setDetails(''); setRightPanel(null); setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); }
+          setNotice({ id: ++nextNoticeId.current, message: t('会话已移至目标项目', 'Conversation moved to the destination project'), type: 'info' });
+          const id = sessionMove.session.id;
+          requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`.session-row[data-reorder-id="${CSS.escape(id)}"] > button`)?.focus());
+        } finally { switching.current = false; setLoading(false); }
+      }}/>}
     {removeProject && <ProjectRemoval title={workspaceTitle(removeProject)} path={removeProject} language={data.preferences.language}
       onCancel={() => setRemoveProject(null)} onConfirm={async () => {
         const result = await run(() => bridge!.removeWorkspace(removeProject));
@@ -1297,6 +1322,13 @@ function App() {
         <div className="context-separator"/>
         <button role="menuitem" className="project-remove-menu" disabled={!bridge || loading} onClick={() => { confirmRemoveProject(contextMenu.id); setContextMenu(null); }}><Trash2 size={15}/>{t('移除项目…', 'Remove project...')}</button>
       </> : <>
+        <button role="menuitem" disabled={!bridge || loading || !data.sessions.some(session => session.id === contextMenu.id && session.path
+          && !archived.has(session.id) && data.preferences.workspaces.some(path => workspaceKey(path) !== workspaceKey(session.cwd))) ||
+          data.runtimes?.some(runtime => runtime.sessionId === contextMenu.id && ['running', 'waiting'].includes(runtime.status))}
+          onClick={() => {
+            const session = data.sessions.find(session => session.id === contextMenu.id);
+            setContextMenu(null); if (session) setSessionMove({ session });
+          }}><ArrowRightLeft size={15}/>{t('移至项目…', 'Move to project...')}</button>
         <button role="menuitem" onClick={() => void updateArchive(contextMenu.id, archived.has(contextMenu.id))}><Archive size={15}/>{archived.has(contextMenu.id) ? t('恢复会话', 'Restore session') : t('归档会话', 'Archive session')}</button>
         <div className="context-separator"/>
         <button role="menuitem" disabled={!bridge} onClick={() => {
@@ -1555,7 +1587,7 @@ function App() {
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}

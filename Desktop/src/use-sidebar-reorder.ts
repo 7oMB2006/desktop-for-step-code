@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 
-type Drag = { id: string; kind: 'session' | 'workspace'; group: string; title: string; x: number; y: number; target?: string; after: boolean };
+type Drag = { id: string; kind: 'session' | 'workspace'; group: string; title: string; x: number; y: number; target?: string; workspaceTarget?: string; after: boolean };
 type Pending = { x: number; y: number; pointerId: number; timer: ReturnType<typeof setTimeout> };
 
-export function useSidebarReorder(enabled: boolean, manualSessions: boolean, onMove: (id: string, target: string, after: boolean, kind: Drag['kind']) => void) {
+export function useSidebarReorder(enabled: boolean, manualSessions: boolean,
+  onMove: (id: string, target: string, after: boolean, kind: Drag['kind']) => void,
+  onTransfer?: (id: string, workspace: string) => void) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const active = useRef<Drag | null>(null);
   const pending = useRef<Pending | null>(null);
   const suppressClick = useRef(false);
   const callback = useRef(onMove);
   callback.current = onMove;
+  const transfer = useRef(onTransfer);
+  transfer.current = onTransfer;
   useEffect(() => {
     let frame = 0;
     let clickTimer: ReturnType<typeof setTimeout> | undefined;
@@ -23,9 +27,15 @@ export function useSidebarReorder(enabled: boolean, manualSessions: boolean, onM
     const updateTarget = () => {
       const current = active.current;
       if (!current) return;
-      const row = document.elementFromPoint(current.x, current.y)?.closest<HTMLElement>(`[data-reorder-kind="${current.kind}"]`);
-      const valid = row?.dataset.reorderGroup === current.group && row.dataset.reorderId !== current.id;
+      const element = document.elementFromPoint(current.x, current.y);
+      const row = element?.closest<HTMLElement>(`[data-reorder-kind="${current.kind}"]`);
+      const project = current.kind === 'session' && transfer.current
+        ? element?.closest<HTMLElement>('[data-session-workspace]') : undefined;
+      const workspaceTarget = project && project.dataset.reorderId !== current.group ? project.dataset.sessionWorkspace : undefined;
+      const valid = !workspaceTarget && (current.kind === 'workspace' || manualSessions)
+        && row?.dataset.reorderGroup === current.group && row.dataset.reorderId !== current.id;
       const next = { ...current, target: valid ? row!.dataset.reorderId : undefined,
+        workspaceTarget,
         after: valid ? current.y > row!.getBoundingClientRect().top + row!.offsetHeight / 2 : false };
       active.current = next;
       setDrag(next);
@@ -54,8 +64,8 @@ export function useSidebarReorder(enabled: boolean, manualSessions: boolean, onM
       const row = button?.closest<HTMLElement>('[data-reorder-id]');
       if (!row || button?.hasAttribute('disabled')) return;
       const { reorderId: id, reorderGroup: group, reorderTitle: title, reorderKind: kind } = row.dataset;
-      if (!id || !group || group === '__archived__') return;
-      if (kind !== 'workspace' && (kind !== 'session' || !manualSessions)) return;
+      if (!id || !group || group === '__archived__' || row.dataset.reorderLocked === 'true') return;
+      if (kind !== 'workspace' && (kind !== 'session' || !manualSessions && !transfer.current)) return;
       pending.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId,
         timer: setTimeout(() => {
           if (!pending.current) return;
@@ -81,7 +91,8 @@ export function useSidebarReorder(enabled: boolean, manualSessions: boolean, onM
       if (pending.current?.pointerId !== event.pointerId) return;
       const current = active.current;
       clear();
-      if (current?.target) callback.current(current.id, current.target, current.after, current.kind);
+      if (current?.workspaceTarget) transfer.current?.(current.id, current.workspaceTarget);
+      else if (current?.target) callback.current(current.id, current.target, current.after, current.kind);
     };
     const click = (event: MouseEvent) => {
       if (!suppressClick.current) return;

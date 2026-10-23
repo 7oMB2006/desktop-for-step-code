@@ -7,9 +7,11 @@
     "../step-code-desktop-cron.patch": "647de75f3a7ef7d4e5b5bdc4ffe8b73955609fff",
     "../step-code-desktop-cron-management.patch": "1f228c5b065b2376170e3bca6ea9c8943e5f5dbc",
     "step-code-desktop-cron-recovery.patch": "1e1cfa22c2d8f1646b26111a41072987b2745d35",
-    "step-code-session-import.patch": "b2f1bff2ac3a4eba50f1f1ebdd94c757ced89524"
+    "step-code-session-import.patch": "b2f1bff2ac3a4eba50f1f1ebdd94c757ced89524",
+    "step-code-desktop-cron-scope.patch": "a26f3d5f8c99a443fe35b7177b11e91905ef90c7"
   },
   "sources": {
+    "packages/coding-agent/test/step-cron.test.ts": "0b0cc15a31f53ee9fe682ca5cdb2747749a5b2ad",
     "packages/coding-agent/src/features/step-cron.ts": "6f881338a5d4ac34a416706a1e72b1f6e181cff3",
     "packages/coding-agent/src/core/auth-storage.ts": "b7d72e885b80c53e17920a405ec7ce9612a3e2e7",
     "packages/coding-agent/src/core/tools/bash.ts": "46bceab79addce18e5edc7abe17d354f24be7c7e",
@@ -35,7 +37,8 @@
     "packages/coding-agent/src/core/usage-totals.ts": "35c533e167a824d8605630c641a3d3dafcf5ce80"
   },
   "patchedSources": {
-    "packages/coding-agent/src/features/step-cron.ts": "ba42caa552e5f00ea6f97b4fbbbdd494234715dc",
+    "packages/coding-agent/src/features/step-cron.ts": "e8c8b01996e2db1ce4da00c0217dd5b1f62a6a7c",
+    "packages/coding-agent/test/step-cron.test.ts": "4d3d79b237d1f3adaaa8f186bd9394d6cc7f5687",
     "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",
     "packages/coding-agent/src/core/tools/bash.ts": "85c9673b7986948b34b1b9f42ef5e81518d54cff",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",

@@ -1,5 +1,49 @@
 # Verification
 
+## Single-Conversation Project Movement (2026-10-23)
+
+Saved top-level conversations can move from independent history into a registered
+project, or between registered projects. A sidebar long-press drop opens a
+destination-preselected confirmation; the session context menu opens the same
+dialog with a project picker. Updated sorting still permits cross-project drops
+without enabling manual same-group ordering. Cancel does not change association
+or history. Project removal, whole-project relocation and same-group reordering
+remain separate actions.
+
+Movement preserves the session ID and native history file, storing the future
+cwd in Desktop's existing per-session redirect metadata. The host prepares a
+new cwd-bound transport and verifies its identity and `ask` permission tier
+before saving the association. A failed preparation retains the original
+association and source worker. Active movement retains the viewed conversation;
+background movement preserves the viewed chat or draft. Existing project files,
+changes and terminals are not transferred, and historical path references are
+not rewritten. Full Access and project trust are not carried from the source.
+Reopening or explicitly restarting redirected history starts gated.
+
+Running, compacting, approval-waiting, queued-message, active-Goal and
+structured running/queued background-agent workers cannot move. Live Cron hosts
+are retained; known saved source associations and
+destination schedules are checked before preparing another host. Unknown saved
+source ownership or unreadable schedule state fails closed. This first version
+does not offer an independent destination or filesystem movement.
+
+Source Electron acceptance uses an isolated Desktop profile and localhost
+provider, never personal CLI credentials or a paid model. It covers cancellation,
+dragging with updated sorting, menu confirmation, light/dark/narrow layouts,
+Full Access reset, identical session/history identity, a real relative-path tool
+write in the new cwd, busy/approval/queued-message/missing-directory rejection,
+background movement, app relaunch, explicit runtime restart, and live/offline
+Cron guards without starting a scheduler. Existing sidebar-order acceptance also
+passes. The browser fixture uses the real dialog and drag hook but mocked
+association updates; it is not runtime or installer evidence. No new installer,
+cloud CI result or official-provider continuation is claimed here.
+
+Typecheck and production build pass. The serial unit/protocol run passed 660
+tests with 13 platform/dependency skips; the 15 CI policy/inventory tests also
+passed. An initial concurrent full-suite run hit the existing terminal-count
+fixture's process-tree cleanup timeout; that fixture passed independently and
+in the subsequent serial full run. Terminal cleanup code was not changed.
+
 ## Migration CI Paths And Unavailable Projects (2026-10-23)
 
 Windows sessions run `39900979276` reached the new grouping assertion with a

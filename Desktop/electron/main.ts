@@ -18,6 +18,7 @@ import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
 import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
+import { hasScheduledCron } from './cron-state';
 import { CronBindings } from './cron-bindings';
 import { CronRecovery, assertRecoveryJobs, resumeCronHost } from './cron-recovery';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
@@ -59,11 +60,11 @@ import { quitConfirmation } from '../src/quit-confirmation';
 import { StartupWindow } from './startup-window';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
-import { conversationEntries } from '../src/conversation-presentation';
+import { backgroundSubagentStates, conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Model, PermissionPreset, Preferences, Session, Snapshot } from '../src/contracts';
 import { validateSidebarPreferences } from '../src/sidebar-order';
-import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace } from './workspace-management';
+import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace, moveSessionToWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
@@ -587,7 +588,8 @@ const sessionNavigation = new SessionNavigation(async (id: string) => {
     if (!target?.path) throw new Error('This session history is unavailable');
     const canonical = await workspaceDirectory(target.cwd);
     if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
-    worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment(), target.path);
+    worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
+      { ...authEnvironment(), ...(preferences.workspaceSessionRedirects?.[id] ? { STEP_PERMISSION_PRESET: 'ask' } : {}) }, target.path);
     if (worker.state?.sessionId !== id) {
       await runtimes.remove(worker);
       throw new Error('Session history identity changed');
@@ -607,13 +609,14 @@ const sessionNavigation = new SessionNavigation(async (id: string) => {
   transition = busy;
   if (!busy) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error));
 });
-async function connect(cwd: string, sessionPath?: string, rememberProject = true) {
+async function connect(cwd: string, sessionPath?: string, rememberProject = true, resetPermission = false) {
   if (transition) throw new Error('Workspace operation in progress');
   transition = true;
   try {
     const canonical = await workspaceDirectory(cwd);
     status = 'connecting';
-    const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment(), sessionPath);
+    const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
+      { ...authEnvironment(), ...(resetPermission ? { STEP_PERMISSION_PRESET: 'ask' } : {}) }, sessionPath);
     sessionDraft = undefined;
     preferences.workspace = canonical;
     if (rememberProject && !pathKey(canonical).startsWith(`${pathKey(independentRoot)}/`)) {
@@ -1121,7 +1124,90 @@ async function handle(method: string, args: any[]) {
       transition = true;
       try { await runtimes.assertIdle(worker, { stopHost: true }); await runtimes.remove(worker); }
       finally { transition = false; }
-      return connect(cwd, state?.sessionFile && existsSync(state.sessionFile) ? state.sessionFile : undefined, false);
+      return connect(cwd, state?.sessionFile && existsSync(state.sessionFile) ? state.sessionFile : undefined, false,
+        Boolean(state?.sessionId && preferences.workspaceSessionRedirects?.[state.sessionId]));
+    }
+    case 'moveSessionToProject': {
+      if (transition || deletingArchived || sessionNavigation.busy || quitting || quitPending)
+        throw new Error('Wait for the current workspace operation to finish');
+      const id = text(args[0], 200), destination = text(args[1], 4096);
+      if (isChildSession(id)) throw new Error('Child sessions belong to their parent task');
+      if (!preferences.workspaces.some(path => pathKey(path) === pathKey(destination)))
+        throw new Error('Unknown destination project');
+      transition = true;
+      const sources = [...runtimes.workers.values()].filter(worker => worker.state?.sessionId === id);
+      let prepared: typeof runtimes.active;
+      let committed = false;
+      let locked = false;
+      try {
+        if (preferences.archivedSessionIds?.includes(id)) throw new Error('Restore this conversation before moving it');
+        for (const worker of sources) {
+          if (worker.operations || worker.mutating || worker.submissions || worker.stopping || worker.pendingModel)
+            throw new Error('Session operation in progress');
+        }
+        for (const worker of sources) worker.mutating = true;
+        locked = true;
+        for (const worker of sources) {
+          await runtimes.assertIdle(worker, { stopHost: true });
+          if (worker.status === 'connected' && [...backgroundSubagentStates(worker.messages).values()]
+            .some(status => status === 'running' || status === 'queued'))
+            throw new Error('Wait for background agents to finish before moving this conversation');
+        }
+        const target = (await listSessions()).find(session => session.id === id);
+        if (!target?.path) throw new Error('Save this conversation before moving it');
+        const canonical = await workspaceDirectory(destination);
+        if (await samePath(target.cwd, canonical)) throw new Error('Conversation is already in this project');
+        const sourceCron = await admin.request('cron_saved', { cwd: target.cwd });
+        for (const job of cronJobs(sourceCron.jobs)) {
+          const binding = await cronBindings.get(target.cwd, job);
+          if (!binding || binding.sessionId === id)
+            throw new Error('Remove scheduled tasks associated with this conversation before moving it');
+        }
+        const savedCron = await admin.request('cron_saved', { cwd: canonical });
+        if (cronJobs(savedCron.jobs).length) throw new Error('Remove scheduled tasks in the destination project before moving this conversation');
+        for (const worker of runtimes.workers.values()) {
+          if (await samePath(worker.cwd, canonical) && hasScheduledCron(worker.cron))
+            throw new Error('Remove scheduled tasks in the destination project before moving this conversation');
+        }
+        const path = await managedSessionFile(join(dataRoot, 'sessions'), target.path);
+        const source = sources[0];
+        const wasActive = sources.some(worker => worker.id === runtimes.activeId) && !sessionDraft;
+        // Validate a new cwd-bound transport before changing the durable association.
+        // Permissions and project trust from the source are not carried into it.
+        prepared = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
+          { ...authEnvironment(), STEP_PERMISSION_PRESET: 'ask' }, path);
+        prepared.mutating = true;
+        if (prepared.state?.sessionId !== id || prepared.permissionPreset !== 'ask')
+          throw new Error('Could not verify the destination conversation and approval policy');
+        await runtimes.assertIdle(prepared, { stopHost: true });
+        await restoreSelectedModel(prepared, source?.state?.model, preferences.language);
+        if (source?.state?.thinkingLevel) {
+          const { levels } = await prepared.rpc.request('get_available_thinking_levels');
+          if (levels?.includes(source.state.thinkingLevel))
+            await prepared.rpc.request('set_thinking_level', { level: source.state.thinkingLevel });
+        }
+        await runtimes.read(prepared);
+        const previous = preferences;
+        preferences = moveSessionToWorkspace(preferences, target, destination);
+        if (wasActive) preferences.workspace = canonical;
+        try { await savePreferences(); } catch (error) { preferences = previous; throw error; }
+        committed = true;
+        if (wasActive) runtimes.activate(prepared);
+        for (const worker of sources) await runtimes.remove(worker);
+        startupError = undefined;
+        emit({ type: 'desktop_sessions_changed' });
+        return await snapshot();
+      } finally {
+        try {
+          if (prepared) {
+            prepared.mutating = false;
+            if (!committed) await runtimes.remove(prepared);
+          }
+        } finally {
+          if (locked) for (const worker of sources) worker.mutating = false;
+          transition = false;
+        }
+      }
     }
     case 'navigateSession': {
       if (deletingArchived || transition && !sessionNavigation.busy) throw new Error('Workspace operation in progress');
@@ -1143,7 +1229,7 @@ async function handle(method: string, args: any[]) {
       const target = (await listSessions()).find(s => s.id === text(args[0]));
       if (!target) throw new Error('Unknown session');
       if (!target.path) throw new Error('This empty session runtime is unavailable');
-      return connect(target.cwd, target.path, false);
+      return connect(target.cwd, target.path, false, Boolean(preferences.workspaceSessionRedirects?.[target.id]));
     }
     case 'cloneSession': {
       if (transition || deletingArchived) throw new Error('Workspace operation in progress');
@@ -1897,10 +1983,10 @@ else app.whenReady().then(async () => {
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
     const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage'].includes(method);
-    if (undoBusy && ['prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
+    if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
       'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
-    if (settingsMutation && ['prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
     if (!updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
       await applyProviderSettings();
     }

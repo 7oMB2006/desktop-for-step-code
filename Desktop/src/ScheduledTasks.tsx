@@ -65,8 +65,8 @@ export function SidebarTaskActions({ selected, onNewSession, onScheduledTasks, o
     </div>
     <div className="sidebar-utility-row" data-search-open={searchOpen}>
       <div className="sidebar-utility-links" inert={searchOpen} aria-hidden={searchOpen}>
-        <button type="button" disabled={disabled} aria-current={selected ? 'page' : undefined}
-          aria-label={zh ? '定时任务' : 'Schedules'} data-tooltip={zh ? '定时任务' : 'Schedules'} onClick={onScheduledTasks}>
+        <button type="button" disabled={disabled} aria-current={selected ? 'page' : undefined} aria-pressed={selected}
+          aria-label={zh ? '定时任务' : 'Schedules'} data-tooltip={selected ? zh ? '返回会话' : 'Back to conversation' : zh ? '定时任务' : 'Schedules'} onClick={onScheduledTasks}>
           <Clock3 size={15} aria-hidden="true"/>
         </button>
       </div>

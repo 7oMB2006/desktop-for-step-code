@@ -243,6 +243,9 @@ select:disabled { cursor: not-allowed; opacity: .45; }
 .sidebar:hover .workspace-tree, .sidebar:focus-within .workspace-tree {
   --sidebar-scroll-thumb: color-mix(in srgb, var(--muted) 38%, transparent);
 }
+.workspace-tree[data-scrolled="true"]:not(:has(:focus-visible)) {
+  mask-image: linear-gradient(to bottom, transparent, black 18px);
+}
 .workspace-tree::-webkit-scrollbar { width: 12px; }
 .workspace-tree::-webkit-scrollbar-thumb {
   background: var(--sidebar-scroll-thumb); background-clip: padding-box;

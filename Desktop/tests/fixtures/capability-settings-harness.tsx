@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Plug, BookOpen, MessageSquare, X } from 'lucide-react';
 import { CapabilitySettings, type CapabilityPage, type CapabilityBridge, type CapabilityTarget } from '../../src/CapabilitySettings';
@@ -12,6 +12,13 @@ import '../../src/settings-dialog.css';
 
 const params = new URLSearchParams(location.search);
 const language = params.get('lang') === 'en' ? 'en' : 'zh';
+const fadePreview = params.has('fade');
+const sessionTitles = language === 'zh'
+  ? ['前端设计', '插件开发', '检查账户设置与额度展示', '整理本周的更新记录', '修复侧栏交互与焦点状态', '核对任务清单和完成提示', '为新插件添加图标', '排查运行时连接问题']
+  : ['Frontend design', 'Plugin development', 'Review account settings', 'Weekly release notes', 'Sidebar interaction fixes', 'Task completion review', 'Plugin icon support', 'Runtime connection checks'];
+const previewSessions = Array.from({ length: fadePreview ? 32 : 2 }, (_, index) => ({
+  id: index, title: sessionTitles[index % sessionTitles.length],
+}));
 document.documentElement.dataset.theme = params.get('theme') === 'light' ? 'light' : 'dark';
 const catalog: CapabilityCatalog = {
   plugins: [{ id: 'playwright', name: 'Playwright', version: '1.0.0', description: '浏览器自动化与页面测试', mcpServers: ['playwright__playwright'], warnings: [], icon: { kind: 'step' } }],
@@ -64,17 +71,27 @@ const bridge: CapabilityBridge = {
 function Preview() {
   const [page, setPage] = useState<CapabilityPage>((params.get('page') as CapabilityPage) || 'plugins');
   const [edit, setEdit] = useState<string>();
-  const sidebarPreview = params.has('sidebar');
+  const sidebarPreview = params.has('sidebar') || fadePreview;
   const [settingsOpen, setSettingsOpen] = useState(!sidebarPreview);
   const [target, setTarget] = useState<CapabilityTarget>();
+  const [selectedSession, setSelectedSession] = useState(0);
+  const tree = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!fadePreview || !tree.current) return;
+    const offset = Number(params.get('scroll') ?? 48);
+    tree.current.scrollTop = Number.isFinite(offset) ? Math.max(0, offset) : 48;
+    tree.current.dataset.scrolled = String(tree.current.scrollTop > 0);
+  }, []);
   return <div className="app">{sidebarPreview && <><aside className="sidebar" inert={settingsOpen}>
     <div className="sidebar-identity"><img src="/StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="/wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="/wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
     <SidebarTaskActions selected={false} language={language} onNewSession={() => {}} onScheduledTasks={() => {}}
       onPlugins={() => { setTarget({ page: 'plugins', tab: 'discover' }); setPage('plugins'); setSettingsOpen(true); }}/>
-    <nav className="workspace-tree" aria-label={language === 'zh' ? '会话' : 'Sessions'}>
-      <div className="workspace-heading"><button className="workspace-toggle"><MessageSquare size={15}/><span>{language === 'zh' ? '独立会话' : 'Independent sessions'}</span><small>2</small></button></div>
-      <div className="session-row"><button>{language === 'zh' ? '前端设计' : 'Frontend design'}</button></div>
-      <div className="session-row"><button>{language === 'zh' ? '插件开发' : 'Plugin development'}</button></div>
+    <nav ref={tree} className="workspace-tree" aria-label={language === 'zh' ? '会话' : 'Sessions'}
+      onScroll={event => { event.currentTarget.dataset.scrolled = String(event.currentTarget.scrollTop > 0); }}>
+      <div className="workspace-heading"><button className="workspace-toggle"><MessageSquare size={15}/><span>{language === 'zh' ? '独立会话' : 'Independent sessions'}</span><small>{previewSessions.length}</small></button></div>
+      {previewSessions.map(session => <div key={session.id} className={`session-row${selectedSession === session.id ? ' selected' : ''}`}>
+        <button aria-current={selectedSession === session.id ? 'page' : undefined} onClick={() => setSelectedSession(session.id)}>{session.title}</button>
+      </div>)}
     </nav>
   </aside><main/></>}{settingsOpen && <div className="modal-backdrop settings-backdrop"><section className="settings-dialog" role="dialog" aria-label={language === 'zh' ? '设置' : 'Settings'}>
     <header><h2>{language === 'zh' ? '设置' : 'Settings'}</h2><button className="icon-button" aria-label="Close" onClick={() => { setEdit(undefined); if (sidebarPreview) setSettingsOpen(false); }}><X size={18}/></button></header>

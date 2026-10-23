@@ -78,6 +78,38 @@ try {
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
   const draft = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(draft.draftId && !draft.runtimeId, 'Management navigation starts from a draft without a runtime');
+  const schedules = page.getByRole('button', { name: '定时任务', exact: true });
+  const message = page.getByRole('textbox', { name: '消息', exact: true });
+  await message.fill('Preserve this draft when toggling schedules');
+  await schedules.click();
+  await page.locator('.scheduled-tasks').waitFor();
+  assert.equal(await schedules.getAttribute('aria-pressed'), 'true');
+  assert.equal(await schedules.getAttribute('data-tooltip'), '返回会话');
+  await schedules.click();
+  await page.locator('.scheduled-tasks').waitFor({ state: 'detached' });
+  assert.equal(await schedules.getAttribute('aria-pressed'), 'false');
+  assert.equal(await message.innerText(), 'Preserve this draft when toggling schedules');
+  const returned = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(returned.draftId, draft.draftId);
+  assert.equal(returned.runtimeId, undefined, 'Toggling schedules does not create a worker');
+  const tree = page.locator('.workspace-tree');
+  await tree.evaluate(element => {
+    const spacer = document.createElement('div');
+    spacer.dataset.focusFadeFixture = 'true';
+    spacer.style.height = '1200px';
+    element.append(spacer);
+    element.scrollTop = 24;
+  });
+  await page.waitForFunction(() => document.querySelector('.workspace-tree')?.dataset.scrolled === 'true');
+  assert.match(await tree.evaluate(element => getComputedStyle(element).maskImage), /linear-gradient/);
+  await tree.getByRole('button').first().focus();
+  await tree.getByRole('button').first().press('ArrowRight');
+  assert.equal(await tree.evaluate(element => getComputedStyle(element).maskImage), 'none', 'Keep keyboard-focused controls fully visible');
+  await schedules.focus();
+  await tree.evaluate(element => { element.scrollTop = 0; });
+  await page.waitForFunction(() => document.querySelector('.workspace-tree')?.dataset.scrolled === 'false');
+  assert.equal(await tree.evaluate(element => getComputedStyle(element).maskImage), 'none', 'Do not fade stationary first rows');
+  await tree.locator('[data-focus-fade-fixture]').evaluate(element => element.remove());
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('/mcp');
   await page.getByRole('option', { name: /MCP/ }).click();
   await page.locator('.cap-heading').getByRole('heading', { name: 'MCP', exact: true }).waitFor();
@@ -201,6 +233,44 @@ try {
   await page.waitForFunction(() => !document.querySelector('.cap-preparation')?.open);
   assert.equal(await page.getByRole('button', { name: '删除 review', exact: true }).count(), 0);
   await page.getByRole('button', { name: '新建 Skill', exact: true }).click();
+  const originalViewport = page.viewportSize() ?? await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  const originalTheme = await page.evaluate(() => document.documentElement.dataset.theme);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    for (const [layout, width, height] of [['wide', 1280, 900], ['narrow', 640, 720]]) {
+      await page.setViewportSize({ width, height });
+      for (const name of ['名称', '描述', '指令内容']) {
+        const field = page.getByRole('textbox', { name, exact: true });
+        await field.click();
+        await field.focus();
+        await field.evaluate(element => element.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+        const focus = await field.evaluate(element => {
+          const style = getComputedStyle(element);
+          const extent = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
+          const rect = element.getBoundingClientRect();
+          const clipped = [];
+          for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            const css = getComputedStyle(parent);
+            const box = parent.getBoundingClientRect();
+            const left = box.left + parent.clientLeft;
+            const top = box.top + parent.clientTop;
+            if (css.overflowX !== 'visible' && (rect.left - extent < left - .5 || rect.right + extent > left + parent.clientWidth + .5)) clipped.push(`${parent.className}: horizontal`);
+            if (css.overflowY !== 'visible' && (rect.top - extent < top - .5 || rect.bottom + extent > top + parent.clientHeight + .5)) clipped.push(`${parent.className}: vertical`);
+          }
+          return { focused: document.activeElement === element, extent, clipped };
+        });
+        assert.equal(focus.focused, true, `${theme}/${layout}/${name}: focus`);
+        assert.ok(focus.extent > 0, 'Preserve the shared outer focus outline');
+        assert.deepEqual(focus.clipped, [], `${theme}/${layout}/${name}: full focus indicator`);
+      }
+      await page.screenshot({ path: `test-results/capabilities-form-focus-${theme}-${layout}.png` });
+    }
+  }
+  await page.setViewportSize(originalViewport);
+  await page.evaluate(theme => {
+    if (theme) document.documentElement.dataset.theme = theme;
+    else delete document.documentElement.dataset.theme;
+  }, originalTheme);
   await page.getByRole('textbox', { name: '名称', exact: true }).fill('local-review');
   await page.getByRole('textbox', { name: '描述', exact: true }).fill('Local review fixture');
   await page.getByRole('textbox', { name: '指令内容', exact: true }).fill('Inspect the current task.');

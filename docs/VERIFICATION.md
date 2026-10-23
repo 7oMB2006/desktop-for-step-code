@@ -1,5 +1,20 @@
 # Verification
 
+## Capability Form And Sidebar Follow-Up (2026-10-24)
+
+The Skill creation form reproduced horizontal clipping of its outer focus outline
+at the capability scroll container. That container now reserves focus gutters and
+scroll padding/margins without replacing the shared focus treatment. AGENTS.md
+and DESIGN.md require complete four-sided focus indicators for future forms.
+Source Electron acceptance checks Name, Description and Instructions against
+clipping ancestors in light/dark and wide/narrow layouts, with focused screenshots.
+It also verifies that the Schedules icon toggles back to the original draft without
+creating a runtime, and that the sidebar's top fade applies only after scrolling,
+clears at scroll origin and does not obscure keyboard-visible focus.
+Typecheck, production build and the complete capability Electron acceptance passed.
+This follow-up has not been repackaged; no installer or paid-model acceptance is
+claimed.
+
 ## Plugin, MCP And Skills Management (2026-10-23)
 
 Management follows the upstream Web/Desktop MVP user-scope APIs, isolated under

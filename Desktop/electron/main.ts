@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
+import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText } from './session-runtimes';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
@@ -197,6 +198,20 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
+const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-import.mjs'), dataRoot,
+  () => emit({ type: 'desktop_sessions_changed' }), async sessionIds => {
+    const independent = pathKey(await realpath(independentRoot).catch(() => independentRoot));
+    for (const sessionId of sessionIds) {
+      const directory = await importedProjectDirectory(dataRoot, sessionId);
+      const canonical = await realpath(directory).catch(() => undefined);
+      if (!canonical || !(await stat(canonical).catch(() => undefined))?.isDirectory()) continue;
+      if (pathKey(canonical) === independent || pathKey(canonical).startsWith(`${independent}/`)) continue;
+      const existing = await sessionWorkspacePath(canonical);
+      if (!existing && !preferences.workspaces.some(path => pathKey(path) === pathKey(canonical)))
+        preferences.workspaces = [...preferences.workspaces, canonical];
+    }
+    await savePreferences();
+  });
 const stepPage = process.platform === 'win32'
   ? new StepPagePreparer(dataRoot, nodePath, (url, options) => net.fetch(url, options)) : undefined;
 const terminals = new TerminalSessions(nodePath,
@@ -664,6 +679,22 @@ async function handle(method: string, args: any[]) {
   if (updateInstalling && !['updateState', 'snapshot', 'systemTheme'].includes(method)) throw new Error('Update installation in progress');
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
+    case 'importScan':
+    case 'importPreview':
+    case 'importStart':
+    case 'importJobs':
+    case 'importCancel':
+    case 'importChooseDirectory': {
+      if (process.platform !== 'win32') throw new Error('Session migration is currently Windows-only');
+      if (quitting || quitPending) throw new Error('Application is closing');
+      if (method === 'importScan') return sessionImports.scan(args[0]);
+      if (method === 'importPreview') return sessionImports.preview(text(args[0], 80));
+      if (method === 'importStart') return sessionImports.start(args[0], args[1]);
+      if (method === 'importJobs') return sessionImports.jobs();
+      if (method === 'importCancel') return sessionImports.cancel(text(args[0], 80));
+      const selected = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
+      return selected.canceled ? null : selected.filePaths[0] ?? null;
+    }
     case 'cronList': {
       if (transition || settingsMutation || providerSettingsPending) throw new Error('Wait for account and workspace changes to finish');
       return cronManagement.list(preferences.workspaces);
@@ -702,7 +733,7 @@ async function handle(method: string, args: any[]) {
         buttons: zh ? ['稍后', '重启并安装'] : ['Later', 'Restart and install'], defaultId: 0, cancelId: 0,
       });
       if (confirmation.response !== 1) return;
-      const busy = () => runtimes.running || transition || settingsMutation || deletingArchived || quitPending || providerTestController || providerApplication || undoBusy
+      const busy = () => sessionImports.busy || runtimes.running || transition || settingsMutation || deletingArchived || quitPending || providerTestController || providerApplication || undoBusy
         || terminals.list().some(terminal => terminal.status === 'running' || terminal.status === 'starting')
         || [...runtimes.workers.values()].some(worker => runtimes.isBusy(worker) || worker.operations || worker.mutating
           || worker.stopping || worker.queued || worker.status === 'connecting' || pendingMessages.list(worker).length);
@@ -715,6 +746,7 @@ async function handle(method: string, args: any[]) {
           await conversationTiming.flush(); await modelSelections.flush(); await workflowBindings.flush();
           await usageEstimates.flush();
           await terminals.stopAll();
+          await sessionImports.close();
           await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
         });
         success = true;
@@ -1704,6 +1736,7 @@ app.on('before-quit', event => {
         } else if (!await quitReview.ask(reasons)) { quitPending = false; return; }
       }
       await terminals.stopAll();
+      await sessionImports.close();
       await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
@@ -1912,5 +1945,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
+  quitting = true; void Promise.all([sessionImports.close(), runtimes.stopAll(), admin.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
 });

@@ -1,0 +1,93 @@
+.session-import-settings { min-width: 0; max-width: 760px; }
+.session-import-settings h3 { margin: 0 0 12px; }
+.session-import-settings h4 { font-size: 14px; margin: 0 0 12px; overflow-wrap: anywhere; }
+.session-import-settings p { font-size: 12px; line-height: 1.7; }
+.session-import-settings button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.session-import-settings input:not([type=checkbox]) { width: 100%; min-width: 0; }
+.session-import-settings label { display: block; font-size: 12px; }
+.session-import-settings input[type=checkbox] { accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; }
+.session-import-settings .import-checkbox { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+.import-sources { border-bottom: 1px solid var(--border); padding: 10px 0 14px; }
+.session-import-settings .import-sources-trigger { justify-content: flex-start; padding: 4px 0; min-height: 30px; border: 0; background: transparent; font-size: 12px; color: var(--muted); }
+.import-sources-trigger:hover { color: var(--ink); }
+.import-sources-chevron { display: flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform 280ms cubic-bezier(.215,.61,.355,1); }
+.import-sources-trigger[aria-expanded=true] .import-sources-chevron { transform: rotate(0); }
+.import-sources-details { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 280ms cubic-bezier(.215,.61,.355,1), opacity 280ms cubic-bezier(.215,.61,.355,1); }
+.import-sources-details.is-expanded { grid-template-rows: 1fr; opacity: 1; }
+.import-sources-details > div { min-height: 0; overflow: hidden; }
+.import-sources label { margin-top: 12px; }
+.import-toolbar, .import-submit { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0; font-size: 12px; }
+.import-submit { justify-content: flex-end; }
+.import-found { margin-right: auto; }
+.import-selection { display: flex; flex-direction: column; gap: 3px; font-variant-numeric: tabular-nums; }
+.import-selection small { font-size: 11px; }
+.import-bulk { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+.import-bulk .import-checkbox { margin: 0; }
+.import-bulk button { font-size: 12px; min-height: 28px; }
+.import-clear { width: 28px; height: 28px; padding: 0; flex-shrink: 0; }
+.import-pagination, .import-pagination > div { display: flex; align-items: center; gap: 8px; }
+.import-pagination { justify-content: space-between; flex-wrap: wrap; margin: 10px 0 16px; font-size: 11px; }
+.import-pagination button { width: 28px; height: 28px; padding: 0; }
+.import-page-number { min-width: 56px; text-align: center; font-variant-numeric: tabular-nums; }
+.import-filter { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; margin: 12px 0; }
+.import-filter > button { flex-shrink: 0; }
+.import-filter .import-search { display: flex; align-items: center; flex: 1; min-width: 0; position: relative; margin: 0; }
+.import-search svg { position: absolute; left: 10px; color: var(--muted); }
+.import-search input { padding-left: 32px; }
+.import-source-select { min-width: 116px; max-width: 160px; min-height: 36px; flex-shrink: 0; }
+.import-source-select span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-source-select > svg { flex-shrink: 0; color: var(--muted); transition: transform 280ms cubic-bezier(.215,.61,.355,1); }
+.import-source-select[aria-expanded=true] > svg { transform: rotate(180deg); }
+.import-candidates, .import-job-results { max-height: 280px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.import-candidates { border-block: 1px solid var(--border); }
+.import-candidates::-webkit-scrollbar, .import-job-results::-webkit-scrollbar { width: 4px; height: 4px; }
+.import-candidates::-webkit-scrollbar-track, .import-candidates::-webkit-scrollbar-corner, .import-job-results::-webkit-scrollbar-track, .import-job-results::-webkit-scrollbar-corner { background: transparent; }
+.import-candidates::-webkit-scrollbar-thumb, .import-job-results::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 3px; }
+.import-candidates::-webkit-scrollbar-button, .import-job-results::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.import-candidate { display: flex; gap: 9px; align-items: center; padding: 10px 6px; border-bottom: 1px solid var(--border); transition: background 180ms cubic-bezier(.22, 1, .36, 1); }
+.import-candidate:last-child { border-bottom: 0; }
+.import-candidate.is-selected { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.import-candidate .import-candidate-title { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; background: none; border: 0; padding: 0; text-align: left; color: var(--ink); }
+.import-candidate-title strong { font-size: 12px; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.import-candidate-title span, .import-candidate-title small { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.import-candidate-title small { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.import-candidate .import-candidate-preview { min-width: 62px; height: 30px; padding: 0 8px; flex-shrink: 0; font-size: 12px; }
+.import-preview { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
+.import-preview-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.import-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 230px; overflow: auto; padding: 12px; font-size: 12px; line-height: 1.7; background: var(--side); border-radius: 6px; }
+.import-warnings { color: var(--muted); font-size: 12px; padding-left: 18px; line-height: 1.7; }
+.import-destination { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.import-destination button { width: 34px; height: 34px; flex-shrink: 0; }
+.import-error { color: var(--danger, #bd3347); font-size: 12px; display: flex; align-items: flex-start; gap: 6px; overflow-wrap: anywhere; }
+.import-error svg { flex-shrink: 0; margin-top: 2px; }
+.import-jobs { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 20px; }
+.import-job { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.import-job header { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.import-job header strong { font-weight: 500; }
+.import-job header span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.import-job header > button:not(.import-job-trigger) { margin-left: auto; }
+.session-import-settings .import-job-trigger { justify-content: flex-start; flex-wrap: wrap; padding: 0; min-height: 28px; border: 0; background: transparent; color: var(--ink); font-size: 12px; }
+.import-job-trigger[aria-expanded=true] .import-sources-chevron { transform: rotate(0); }
+.import-job-summary { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.import-job-summary .import-error { font-size: inherit; }
+.import-job ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.import-job li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 0; font-size: 12px; }
+.import-job li small { width: 100%; color: var(--muted); }
+.import-result-title { flex: 1; min-width: 80px; overflow-wrap: anywhere; }
+.import-job li button { width: 30px; height: 28px; }
+.import-confirmation { max-height: calc(100dvh - 32px); overflow: auto; }
+.import-confirmation p { font-size: 12px; line-height: 1.7; }
+.import-confirmation-directories { list-style: none; margin: 16px 0; padding: 0; max-height: 240px; overflow: auto; overscroll-behavior: contain; }
+.import-confirmation-directories li { display: flex; align-items: flex-start; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.import-confirmation-directories svg { flex-shrink: 0; margin-top: 2px; color: var(--muted); }
+.import-confirmation-directories span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.import-confirmation-directories small { flex-shrink: 0; color: var(--muted); }
+.import-confirmation footer { flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .import-filter { flex-wrap: wrap; }
+  .import-filter .import-search { flex-basis: 100%; order: 1; }
+  .import-toolbar, .import-submit { gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .import-candidate, .import-sources-details, .import-sources-chevron, .import-source-select > svg { transition: none; }
+}

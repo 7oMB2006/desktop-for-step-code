@@ -14,11 +14,16 @@ const app = await electron.launch({ args: [resolve('test-results/native-update-d
 try {
   await app.firstWindow();
   for (const [mode, expected] of [['complete', 'verified'], ['metadata', 'metadata'], ['corrupt', 'integrity'], ['cancel', 'cancelled'], ['retry', 'verified']]) {
-    const result = await app.evaluate(async (_electron, mode) => globalThis.updateDownloadFixture.run(mode), mode);
+    const result = await app.evaluate(async (_electron, mode) =>
+      globalThis.updateDownloadFixture.run(mode, mode === 'cancel' ? 250 : 0), mode);
     console.log(`${mode}: ${JSON.stringify(result)}`);
     assert.equal(result.outcome, expected, `${mode}: ${JSON.stringify(result)}`);
     assert.ok(result.requests >= 1, `${mode}: ${JSON.stringify(result)}`);
     if (mode === 'metadata') assert.equal(result.requests, 1, 'invalid metadata cannot download the executable');
+    if (mode === 'cancel') {
+      assert.ok(result.requests >= 2, 'cancellation must exercise the installer transfer after metadata');
+      assert.ok(result.progress >= 1, 'cancel after observed transfer progress, not a machine-dependent delay');
+    }
     const probes = await app.evaluate(async () => globalThis.updateDownloadFixture.probe());
     assert.deepEqual(probes, ['probe-ok', 'probe-ok'], `${mode}: download hooks must not remain on either session`);
   }

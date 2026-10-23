@@ -4,14 +4,24 @@ import { randomUUID } from 'node:crypto';
 
 export class JsonLines {
   private decoder = new StringDecoder('utf8');
-  private buffer = '';
-  constructor(private receive: (value: any) => void) {}
+  private fragments: string[] = [];
+  private recordChars = 0;
+  constructor(private receive: (value: any) => void, private maxRecordChars = 32 * 1024 * 1024) {}
   push(chunk: Buffer) {
-    this.buffer += this.decoder.write(chunk);
-    if (this.buffer.length > 32 * 1024 * 1024) throw new Error('Runtime record exceeds 32 MiB');
-    let end: number;
-    while ((end = this.buffer.indexOf('\n')) >= 0) {
-      const line = this.buffer.slice(0, end).trim(); this.buffer = this.buffer.slice(end + 1);
+    const decoded = this.decoder.write(chunk);
+    let start = 0;
+    // Scan each stdout fragment once; rescanning an accumulated history is quadratic.
+    while (start < decoded.length) {
+      const end = decoded.indexOf('\n', start);
+      const fragment = decoded.slice(start, end < 0 ? undefined : end);
+      this.recordChars += fragment.length;
+      if (this.recordChars > this.maxRecordChars) throw new Error(`Runtime record exceeds ${this.maxRecordChars / 1024 / 1024} MiB`);
+      this.fragments.push(fragment);
+      if (end < 0) break;
+      const line = this.fragments.join('').trim();
+      this.fragments = [];
+      this.recordChars = 0;
+      start = end + 1;
       if (!line) continue;
       let value: unknown;
       try { value = JSON.parse(line); } catch { throw new Error('Invalid runtime JSONL'); }
@@ -49,7 +59,7 @@ export class RpcProcess {
   private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   get hasPendingRequests() { return this.pending.size > 0; }
-  constructor(private event: (value: any) => void) {}
+  constructor(private event: (value: any) => void, private maxRecordChars?: number) {}
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) {
     if (this.child || this.stopping) throw new Error('Runtime already started or still stopping');
     this.disconnected = false;
@@ -62,7 +72,7 @@ export class RpcProcess {
         const request = this.pending.get(value.id)!; this.pending.delete(value.id); clearTimeout(request.timer);
         value.success ? request.resolve(value.data) : request.reject(new RpcCommandError(value.error || 'Runtime command failed'));
       } else this.event(value);
-    });
+    }, this.maxRecordChars);
     child.stdin.on('error', error => {
       if (this.child !== child || this.disconnected) return;
       this.fail(error);

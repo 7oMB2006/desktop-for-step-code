@@ -116,7 +116,17 @@ async function dispatch(message) {
         }),
       };
     }
-    case 'sessions': return (await upstream.SessionManager.listAll(sessions)).map(({ allMessagesText, ...s }) => s);
+    case 'sessions': {
+      if (!sessions) throw new Error('Desktop sessions require an isolated profile');
+      // A custom native root lists only its direct files. Imported copies live
+      // in a separate child directory, not in the personal CLI session tree.
+      const lists = await Promise.all([
+        upstream.SessionManager.listAll(sessions),
+        ...(process.platform === 'win32' ? [upstream.SessionManager.listAll(join(sessions, 'imported'))] : []),
+      ]);
+      return lists.flat().sort((a, b) => new Date(b.modified) - new Date(a.modified))
+        .map(({ allMessagesText, ...s }) => s);
+    }
     case 'copy_session': {
       // Copy before starting an agent: restoring a cold original can append runtime metadata.
       const copy = upstream.SessionManager.forkFrom(message.sessionPath, message.cwd, sessions);

@@ -7,7 +7,8 @@ export type GroupedResponseItem = ResponseItem | { type: 'tool-group'; key: stri
 const separateTools = new Set(['subagent', 'workflow', 'enter_plan_mode', 'exit_plan_mode', 'desktop_send_message', 'clarify_user']);
 
 export function groupableTool(item: ResponseItem, active: boolean, awaiting: readonly string[]): item is ToolItem {
-  return item.type === 'tool' && !separateTools.has(item.call?.name ?? '') && !separateTools.has(item.result?.toolName ?? '')
+  return item.type === 'tool' && !item.call?.historical && !item.result?.desktopImported
+    && !separateTools.has(item.call?.name ?? '') && !separateTools.has(item.result?.toolName ?? '')
     && !item.result?.isError && toolPresentation(item.call?.name ?? item.result?.toolName ?? '', item.result, active, 'en').state !== 'failed'
     && Boolean((item.result && !item.result.desktopToolPending) || active)
     && !(item.call?.id && awaiting.includes(item.call.id));

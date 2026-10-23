@@ -6,7 +6,8 @@
     "step-code-desktop-clarification.patch": "61a49cb2e8c2923c34ab9b787a2d484e7e1698f0",
     "../step-code-desktop-cron.patch": "647de75f3a7ef7d4e5b5bdc4ffe8b73955609fff",
     "../step-code-desktop-cron-management.patch": "1f228c5b065b2376170e3bca6ea9c8943e5f5dbc",
-    "step-code-desktop-cron-recovery.patch": "1e1cfa22c2d8f1646b26111a41072987b2745d35"
+    "step-code-desktop-cron-recovery.patch": "1e1cfa22c2d8f1646b26111a41072987b2745d35",
+    "step-code-session-import.patch": "b2f1bff2ac3a4eba50f1f1ebdd94c757ced89524"
   },
   "sources": {
     "packages/coding-agent/src/features/step-cron.ts": "6f881338a5d4ac34a416706a1e72b1f6e181cff3",
@@ -29,7 +30,9 @@
     "packages/coding-agent/src/features/plan-mode-tools.ts": "d8e46fad6d28138c9677432dc5c4fc53b39004f4",
     "packages/coding-agent/src/features/step-plan.ts": "ebf178ec7ab57ac1f3ae26f69e41002e3bb5138a",
     "packages/coding-agent/test/step-plan-extension.test.ts": "73ef5ee3237286b9eea1b394083c74c8da089061",
-    "packages/coding-agent/src/features/step-questionnaire.ts": "7301fc9a497581e9e4a88f880c4da12cdc74f8e0"
+    "packages/coding-agent/src/features/step-questionnaire.ts": "7301fc9a497581e9e4a88f880c4da12cdc74f8e0",
+    "packages/coding-agent/src/core/session-manager.ts": "a1f05598f1bb55e14b44f469eee1104e0a3e16f7",
+    "packages/coding-agent/src/core/usage-totals.ts": "35c533e167a824d8605630c641a3d3dafcf5ce80"
   },
   "patchedSources": {
     "packages/coding-agent/src/features/step-cron.ts": "ba42caa552e5f00ea6f97b4fbbbdd494234715dc",
@@ -37,7 +40,7 @@
     "packages/coding-agent/src/core/tools/bash.ts": "85c9673b7986948b34b1b9f42ef5e81518d54cff",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "d8067140df6852f5b85aba573e22c255d7da20be",
-    "packages/coding-agent/src/index.ts": "96e9d4e3a6af35e2cd87df823f8dec45429b97f8",
+    "packages/coding-agent/src/index.ts": "8cfc7fc1bca87da8e302ef03c4ed081f9c0a8958",
     "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "8bdc9a01c4285cb1fcc25a633523e7dac934e7cb",
     "packages/coding-agent/src/modes/rpc/rpc-types.ts": "5b07ed229979b4ecbc8a4b2f341269527efbdc3a",
     "packages/coding-agent/src/step/mcp.ts": "569b7203dfa2ce28955ac1c2c93b0a9fd317d484",
@@ -52,6 +55,12 @@
     "packages/coding-agent/src/features/plan-mode-tools.ts": "6fd00895b1b7e1ed19470e9b0877f3706cdaf5f5",
     "packages/coding-agent/src/features/step-plan.ts": "aaac9870579e24dc564b4662dcd4da555d21c153",
     "packages/coding-agent/test/step-plan-extension.test.ts": "175a3dfe720714cf036cc9b8483e93854b2c918e",
-    "packages/coding-agent/src/features/step-questionnaire.ts": "4b32f0d80c75101e85c35d4b3ea5e98e24daca3f"
+    "packages/coding-agent/src/features/step-questionnaire.ts": "4b32f0d80c75101e85c35d4b3ea5e98e24daca3f",
+    "packages/coding-agent/src/core/session-manager.ts": "f6f248686505219c519f706ef15b59486e172bec",
+    "packages/coding-agent/src/core/usage-totals.ts": "4385d8ad5913e7935ee01ec0034660d8a2696cd9",
+    "packages/coding-agent/src/core/session-import/parsers.ts": "806835c29d1fe9583170019bf0d4d432bec83235",
+    "packages/coding-agent/src/core/session-import/service.ts": "b99e61811058f533993ff357eb8abc0b66416769",
+    "packages/coding-agent/src/core/session-import/types.ts": "7b8c7f68a9c3e02fcc2aa73aac4e847486c79ffa",
+    "packages/coding-agent/test/session-import.test.ts": "4ab261b29664b45addde1fde7a2747d6168c39b7"
   }
 }

@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 assert.equal(process.platform, 'win32', 'This acceptance exercises Windows Bash and the pinned runtime');
 await mkdir('test-results', { recursive: true });
@@ -230,6 +231,7 @@ try {
   assert.deepEqual(errors, []);
   console.log('then_run RPC/UI passed: fused approval, denial prevents both operations, safe automatic execution, risky-command gate/acknowledged Full Access, no-op verification, edit failure skips check, nonzero receipt, cancellation and history reload. Local HTTP fixture only.');
 } catch (error) {
+  console.error('then_run acceptance failed:', error);
   if (page) await page.screenshot({ path: 'test-results/then-run-failure.png' }).catch(() => {});
   if (page) console.error('then_run fixture state:', await page.evaluate(async () => {
     const state = await window.desktop.snapshot();
@@ -245,8 +247,9 @@ try {
     if (state.state?.isStreaming) await window.desktop.command('abort', {}, state.runtimeId);
   }).catch(() => {});
   if (app) {
-    await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
-    await app.close();
+    console.log('then_run fixture: orderly shutdown');
+    await closeDesktopFixture(app);
+    console.log('then_run fixture: closed');
   }
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));

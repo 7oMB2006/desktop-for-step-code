@@ -69,6 +69,26 @@ index. Source Electron movement, Cron management (8 cases) and real Cron RPC
 (12 cases) acceptance pass with a separately rebuilt/staged Node 24.16.0 runtime.
 This follow-up has not replaced the icon-corrected local installer.
 
+The subsequent unsigned D: Windows preview includes the Cron-scope follow-up.
+Packaged Electron movement, general app and Cron management acceptance pass,
+alongside all 12 real Cron RPC cases pointed at the packaged runtime. Packaged
+account routing passes CN/Global API and Plan switching, login cancellation,
+busy-session protection and no fallback from denied Plan to API. The same source
+routing acceptance also passed eight consecutive isolated runs. The executable
+retains the matrix icon; all 105 built Desktop files and 1257 staged runtime files
+match their packaged hashes. The desktop shortcut is backed up and updated;
+the running old preview is left untouched. These are local fixture results,
+not user, paid-provider, first-install or Release acceptance.
+
+Cloud run `39951495926` passes the interface, sessions and macOS jobs. Its runtime
+job completed every `then_run` functional assertion before hanging during teardown
+and hitting the five-minute outer limit; the old log does not identify the
+specific cleanup await. The fixture replaces forced `app.exit()` with the
+existing orderly-shutdown helper and logs shutdown boundaries. Assertions and
+deadlines remain unchanged. Three consecutive packaged `then_run` runs pass and
+complete orderly shutdown, and all 15 CI runner/policy tests pass. The replacement
+head still requires cloud verification.
+
 ## Migration CI Paths And Unavailable Projects (2026-10-23)
 
 Windows sessions run `39900979276` reached the new grouping assertion with a

@@ -82,6 +82,45 @@ try {
   await page.locator('.artifact-main').first().waitFor();
   await page.waitForFunction(() => !document.querySelector('.artifact-main').disabled);
   assert.equal(await page.locator('.artifact-row').count(), 2);
+  mark('theme-aware output colors');
+  const outputArrow = page.locator('.artifact-main > svg:last-child').first();
+  const tokenColor = name => page.evaluate(name => {
+    const probe = document.createElement('span');
+    probe.style.color = `var(${name})`;
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  }, name);
+  await page.mouse.move(0, 0);
+  assert.equal(await outputArrow.evaluate(element => getComputedStyle(element).color), await tokenColor('--muted'));
+  const idleBackground = await page.locator('.artifact-row').first().evaluate(element => getComputedStyle(element).backgroundColor);
+  const themeBackground = await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.background = 'var(--side)';
+    document.body.append(probe);
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  });
+  assert.equal(idleBackground, themeBackground, 'idle output uses the current theme surface');
+  const originalPrimary = await page.evaluate(() => document.documentElement.style.getPropertyValue('--theme-light-primary'));
+  await page.evaluate(() => document.documentElement.style.setProperty('--theme-light-primary', '#16734b'));
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator('.artifact-row').first().evaluate(element => getComputedStyle(element).backgroundColor), idleBackground, 'idle output background is independent of accent color');
+  await page.locator('.artifact-main').first().hover();
+  await page.waitForTimeout(220);
+  assert.equal(await outputArrow.evaluate(element => getComputedStyle(element).color), await tokenColor('--primary'));
+  await page.mouse.move(0, 0);
+  await page.locator('.artifact-main').first().focus();
+  await page.waitForTimeout(220);
+  assert.equal(await outputArrow.evaluate(element => getComputedStyle(element).color), await tokenColor('--primary'), 'keyboard focus uses the same accent as hover');
+  await page.locator('.artifact-main').first().evaluate(element => element.blur());
+  await page.evaluate(value => {
+    if (value) document.documentElement.style.setProperty('--theme-light-primary', value);
+    else document.documentElement.style.removeProperty('--theme-light-primary');
+  }, originalPrimary);
+  await page.waitForTimeout(400);
   const artifacts = await page.locator('.turn-artifacts').boundingBox();
   const diff = await page.locator('.turn-changes').boundingBox();
   assert.ok(artifacts.y + artifacts.height <= diff.y);

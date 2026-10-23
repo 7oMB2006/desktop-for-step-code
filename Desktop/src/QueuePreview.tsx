@@ -130,7 +130,9 @@ export function QueuePreview({ messages, language, disabled, connected, onAction
       <div className="queue-view" ref={body}>{selected ? <div className="queue-full">
         {editing ? <textarea aria-label={t('编辑待发送消息', 'Edit queued message')} autoFocus value={editing.text} onChange={event => setEditing({ ...editing, text: event.target.value })} maxLength={100000}/>
           : <div className="queue-full-text" tabIndex={0}>{parsed?.draft || (parsed ? parsed.quotes.map(quote => quote.text).join('\n\n') : selected.message)}</div>}
-        {parsed && <div className="queue-full-quotes">{parsed.quotes.map((quote, index) => <blockquote key={index}>{quote.text}</blockquote>)}</div>}
+        {parsed && <div className="queue-full-quotes">{parsed.quotes.map((quote, index) => <blockquote key={index}>{quote.text}
+          {quote.annotation && <div className="sent-quote-annotation"><span>{t('批注', 'Annotation')}</span><div>{quote.annotation}</div></div>}
+        </blockquote>)}</div>}
       </div> : <div className="queue-list">{displayed.map((item, index) => {
         const presentation = quotePresentation(item.message);
         return <div key={item.id} className="queue-row">

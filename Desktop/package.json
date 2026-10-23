@@ -29,6 +29,7 @@
     "katex": "0.16.47",
     "linkedom": "0.18.12",
     "lucide-react": "1.48.0",
+    "micromark-util-decode-string": "2.0.1",
     "prosemirror-commands": "1.7.2",
     "prosemirror-history": "1.5.1",
     "prosemirror-keymap": "1.2.3",

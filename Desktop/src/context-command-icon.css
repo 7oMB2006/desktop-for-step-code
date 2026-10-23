@@ -1,0 +1,7 @@
+.context-command-icon { display:inline-block; position:relative; flex-shrink:0; vertical-align:middle; user-select:none; }
+.context-command-icon .context-ring { position:absolute; top:0; left:0; width:calc(100% - 7px); height:calc(100% - 6px); margin:0; border-radius:50%; background:conic-gradient(currentColor var(--context-percent),var(--border) var(--context-percent)); mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 3px)); }
+.context-command-icon .context-ring-hole { display:none; }
+.context-command-icon .context-ring.is-unknown { background:var(--border); }
+.context-command-badge { position:absolute; bottom:0; right:0; font:600 10px/1 "Cascadia Code",Consolas,monospace; letter-spacing:0; padding:0 1px; white-space:nowrap; user-select:none; }
+.command-reference-icon:has(.context-command-icon) { width:1.55em; height:.95em; position:relative; }
+.command-reference-icon>.context-command-icon { position:absolute; top:-.2em; }

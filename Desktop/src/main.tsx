@@ -48,13 +48,15 @@ import { messageBlocks, messageText } from './conversation-presentation';
 import { ComposerActionIcon } from './ComposerActionIcon';
 import { ComposerMenu } from './ComposerMenu';
 import { CommandCatalog } from './CommandReference';
+import { CommandContextUsage } from './ContextCommandIcon';
 import { ComposerInput } from './ComposerInput';
 import { clmNotice } from './clm-notice';
-import { desktopCommands, isStatusCommand } from './composer-commands';
+import { desktopCommand, desktopCommands } from './composer-commands';
 import { composerAction } from './composer-action';
 import { SelectionToolbar } from './SelectionToolbar';
 import { QuotePreview } from './QuotePreview';
-import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, quotePrompt, restoreQuotes, type ChatQuote } from './chat-quotes';
+import { QuoteAnnotations } from './QuoteAnnotations';
+import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, MAX_ANNOTATION_LENGTH, quotePrompt, restoreQuotes, sameQuoteSelection, type ChatQuote } from './chat-quotes';
 import { playCompletionSound, prepareCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
@@ -135,6 +137,7 @@ function App() {
   const [draft, setDraft] = useState('');
   const [referencesOpen, setReferencesOpen] = useState(false);
   const [quotes, setQuotes] = useState<ChatQuote[]>([]);
+  const [focusedQuoteId, setFocusedQuoteId] = useState<string | null>(null);
   const quoteScope = `${data.preferences.workspace ?? ''}:${data.state?.sessionId ?? ''}`;
   const quoteScopeRef = useRef(quoteScope);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -809,6 +812,11 @@ function App() {
     setUsageOpen(true);
     setCompactSidebarOpen(false);
   };
+  const openScheduled = () => {
+    if (!bridge) return;
+    setUsageOpen(false); setDetails(''); setExpandedRightPanel(null);
+    setScheduledOpen(true); setCompactSidebarOpen(false);
+  };
   useEffect(() => {
     if (!settingsClosing) return;
     // Keep dismissal reliable if an animation is cancelled or motion preferences change.
@@ -877,8 +885,30 @@ function App() {
     });
   };
   const send = async () => {
-    if (!navigationPending.current && !loading && isStatusCommand(draft, attachments.length, quotes.length)) {
-      setDraft(''); setDetails(''); setContextView('status'); setRightPanel('context');
+    const local = desktopCommand(draft, attachments.length, quotes.length);
+    if (!navigationPending.current && !loading && local) {
+      if (local.name === 'compact') {
+        if (!connected || !data.runtimeId || composerBusy || data.state?.isCompacting || firstSend.current) {
+          setError(t('请等待当前任务结束，并在已有会话中压缩上下文', 'Wait for the current task to finish and compact an existing conversation'));
+          return;
+        }
+        const message = draft;
+        const owner = viewId.current;
+        setLoading(true);
+        try {
+          await run(async () => {
+            await rawCommand('compact', { customInstructions: local.args || undefined });
+            if (viewId.current === owner) setDraft(value => value === message ? '' : value);
+          });
+        } finally { setLoading(false); }
+        return;
+      }
+      setDraft('');
+      if (local.name === 'usage') {
+        if (local.args === 'account') { setTab('account'); await openSettings(); }
+        else openUsage();
+      } else if (local.name === 'cron') openScheduled();
+      else { setDetails(''); setContextView('status'); setRightPanel('context'); }
       return;
     }
     if (navigationPending.current || (!draft.trim() && !attachments.length && !quotes.length) || !connected || loading || firstSend.current) return;
@@ -1233,7 +1263,7 @@ function App() {
       language={data.preferences.language} disabled={!connected || loading}
       onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
       onAction={(action, value) => rawCommand('goal_action', { action, value })}/> };
-  return <CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
+  return <CommandContextUsage.Provider value={{ usage: navigationTarget ? undefined : data.stats?.contextUsage, language: data.preferences.language }}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
     if (!image || !image.closest('.attachment-open, .attachment-preview-image, .messages')) return;
@@ -1322,7 +1352,7 @@ function App() {
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
           aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
       <SidebarTaskActions selected={scheduledOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
-        onScheduledTasks={() => { if (!bridge) return; setUsageOpen(false); setDetails(''); setExpandedRightPanel(null); setScheduledOpen(true); setCompactSidebarOpen(false); }}/>
+        onScheduledTasks={openScheduled}/>
       <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
           <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
@@ -1417,6 +1447,8 @@ function App() {
         <div className="composer-underlay" inert={Boolean(permissionApproval && approvalOpen)}>
         {!navigationTarget && <ComposerContextBar queued={queuedMessages.length > 0}>
         <QuotePreview quotes={quotes} language={data.preferences.language}
+          onHighlight={setFocusedQuoteId}
+          annotate={(id, annotation) => setQuotes(value => value.map(quote => quote.id === id ? { ...quote, annotation } : quote))}
           clear={() => setQuotes([])}
           remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}
           reveal={quote => {
@@ -1510,10 +1542,26 @@ function App() {
         sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
       </div>
     </main>
+    <QuoteAnnotations root={transcript} scope={quoteScope} language={data.preferences.language}
+      remove={id => setQuotes(value => value.filter(item => item.id !== id))}
+      focusedId={focusedQuoteId}
+      quotes={settingsOpen || preview || requests.length || scheduledOpen || usageOpen ? [] : quotes}
+      annotate={(id, annotation) => setQuotes(value => value.map(item => item.id === id ? { ...item, annotation } : item))}/>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
       enabled={!scheduledOpen && !usageOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
       onError={setError} onQuote={quote => {
-        if (quotes.some(item => item.messageIndex === quote.messageIndex && item.text === quote.text)) return true;
+        const existing = quotes.find(item => sameQuoteSelection(item, quote));
+        if (existing) {
+          if (quote.annotation) {
+            const annotation = [existing.annotation, quote.annotation].filter(Boolean).join('\n');
+            if (annotation.length > MAX_ANNOTATION_LENGTH) {
+              setError(t('这段引用的批注过长，请在引用预览中编辑', 'This annotation is too long; edit it in the quote preview'));
+              return false;
+            }
+            setQuotes(value => value.map(item => item.id === existing.id ? { ...item, annotation } : item));
+          }
+          return true;
+        }
         if (quotes.length >= MAX_QUOTES) { setError(t('最多添加 8 段引用', 'Maximum 8 quotes')); return false; }
         follow.current = false;
         setQuotes(value => [...value, quote]); return true;
@@ -1689,7 +1737,7 @@ function App() {
     </div></div></section></div>}
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
     {((requests[0] && approvalOpen && !permissionApproval && !reviewPlan && !planFeedback && !reviewQuestion) || renaming) && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label={accessRisk?.title ?? requests[0]?.title ?? 'Rename'}><h2>{accessRisk?.title ?? requests[0]?.title ?? (renameTarget?.type === 'workspace' ? t('重命名项目', 'Rename project') : t('重命名会话', 'Rename session'))}</h2>{accessRisk ? <p className="full-access-risk-message"><ShieldAlert size={20}/>{accessRisk.message}</p> : requests[0]?.message && <p className={requests[0].messageStyle === 'preformatted' || requests[0].message.includes('\n') ? 'request-message' : undefined}>{requests[0].messageStyle === 'preformatted' ? requests[0].message : requests[0].message.split('\n').filter(line => !/^Call: \S+$/.test(line)).join('\n')}</p>}{renaming ? <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run(saveRename); }}/> : requests[0].method === 'select' ? requests[0].options?.map((o, index) => <button className="option" key={o} onClick={() => void respond({ value: o })}>{accessRisk?.labels[index] ?? o}</button>) : requests[0].method !== 'confirm' ? <textarea autoFocus placeholder={requests[0].placeholder} value={answer} onChange={e => setAnswer(e.target.value)}/> : null}<div className="button-row">{!renaming && !accessRisk && <button onClick={() => setApprovalOpen(false)}>{t('稍后处理', 'Review later')}</button>}{!accessRisk && <button onClick={() => renaming ? (setRenaming(false), setRenameTarget(null)) : void respond({ cancelled: true })}>{t('取消', 'Cancel')}</button>}{(renaming || requests[0]?.method !== 'select') && <button className="primary" disabled={renaming && (!name.trim() || busy || loading)} onClick={() => { if (renaming) void run(saveRename); else void respond(requests[0].method === 'confirm' ? { confirmed: true } : { value: answer }); }}>{t('确认', 'Confirm')}</button>}</div></section></div>}
-  </div></FileOpeningContext.Provider></CommandCatalog.Provider>;
+  </div></FileOpeningContext.Provider></CommandCatalog.Provider></CommandContextUsage.Provider>;
 }
 class RenderBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
   state = { failed: false };

@@ -16,6 +16,7 @@ export const acceptanceGroups = {
     'verify-settings-dialog.mjs',
     'verify-desktop-tray.mjs',
     'verify-composer-menu.mjs',
+    'verify-command-dispatch.mjs',
     'verify-composer-editing.mjs',
     'verify-terminal-panel.mjs',
     'verify-terminal-scopes.mjs',
@@ -100,6 +101,8 @@ export const localOnly = [
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',
+  // Requires the manually started quote-annotations Vite preview on port 5195.
+  'verify-quote-annotations-fixture.mjs',
   'verify-composer-action.mjs',
   'verify-context-panel.mjs',
   'verify-inspector-expansion.mjs',

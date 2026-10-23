@@ -22,7 +22,7 @@ try {
   const snapshot = await prepareSessionFixture(page);
   await app.evaluate(({ ipcMain }, snapshot) => {
     const model = { provider: 'stepfun', id: 'step-3.5-flash', name: 'Step 3.5 Flash', contextWindow: 256000, thinkingLevels: ['low', 'medium', 'high'] };
-    globalThis.menuFixture = { ...snapshot, state: { ...snapshot.state, model, thinkingLevel: 'medium' }, models: [model], messages: [
+    globalThis.menuFixture = { ...snapshot, stats: { ...snapshot.stats, contextUsage: { percent: 33, tokens: 84480, contextWindow: 256000 } }, state: { ...snapshot.state, model, thinkingLevel: 'medium' }, models: [model], messages: [
       { role: 'user', content: '请整理 /clm **这个项目** 的结构，再看 /usage。\n`/clm` 和 [/clm](https://example.com) 保留原样。\n\n[label](https://example.com)/clm \\/clm &#47;clm **label**/clm' },
       { role: 'assistant', content: '项目包含桌面界面、运行时桥接和验收脚本。可以先从聊天栏交互开始。' },
     ] };
@@ -82,11 +82,40 @@ try {
   assert.equal(await menu.getByText('/exit', { exact: true }).count(), 0);
   assert.equal(await menu.locator('svg.lucide-goal').count(), 1);
   assert.equal(await menu.locator('svg.lucide-lightbulb').count(), 1);
-  assert.equal(await menu.locator('svg.lucide-network').count(), 2);
+  assert.equal(await menu.locator('svg.lucide-network').count(), 1);
   assert.equal(await menu.getByRole('option', { name: /用量统计/ }).locator('svg.lucide-chart-bar').count(), 1);
   assert.equal(await menu.getByRole('option', { name: /定时任务/ }).locator('svg.lucide-clock-3').count(), 1);
   assert.equal(await menu.getByRole('option', { name: /推进清单/ }).locator('svg.lucide-list-todo').count(), 1);
-  assert.equal(await menu.getByRole('option', { name: /工作流/ }).locator('svg.lucide-network').count(), 1);
+  assert.equal(await menu.getByRole('option', { name: /工作流/ }).locator('svg.lucide-workflow').count(), 1);
+  assert.equal(await menu.getByRole('option', { name: /项目信任/ }).locator('svg.lucide-folder-check').count(), 1);
+  for (const [command, badge] of [
+    ['/compact', 'o'], ['/clm', 'l'], ['/clm-compact', 'l'],
+  ]) {
+    const row = menu.getByRole('option').filter({ has: page.getByText(command, { exact: true }) });
+    assert.equal(await row.locator('.context-command-badge').innerText(), badge);
+    assert.match(await row.locator('.context-command-icon .context-ring').getAttribute('style'), /33%/);
+    assert.match(await row.getAttribute('title'), /当前上下文已用 33%/);
+    assert.equal(await row.locator('[role="meter"], [tabindex="0"]').count(), 0, 'Decorative rings add no focus stop');
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+    type: 'desktop_stats', runtimeId: 'other-runtime',
+    stats: { ...globalThis.menuFixture.stats, contextUsage: { percent: 85, tokens: 217600, contextWindow: 256000 } },
+  }));
+  assert.match(await menu.locator('.context-command-icon .context-ring').first().getAttribute('style'), /33%/,
+    'Another runtime must not change the current context icons');
+  for (const percent of [72, null, 33]) {
+    await app.evaluate(({ BrowserWindow }, percent) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+      type: 'desktop_stats', stats: { ...globalThis.menuFixture.stats,
+        contextUsage: { percent, tokens: percent === null ? null : 2560 * percent, contextWindow: 256000 } },
+    }), percent);
+    await page.waitForFunction(percent => {
+      const ring = document.querySelector('.composer-discovery .context-command-icon .context-ring');
+      return percent === null ? ring?.classList.contains('is-unknown') : ring?.style.getPropertyValue('--context-percent') === `${percent}%`;
+    }, percent);
+    const compact = menu.getByRole('option').filter({ has: page.getByText('/compact', { exact: true }) });
+    assert.match(await compact.getAttribute('title'), percent === null ? /用量未知/ : new RegExp(`已用 ${percent}%`));
+    assert.equal(await input.evaluate(element => element.value), '/', 'Live usage updates leave the draft unchanged');
+  }
   assert.equal(await menu.getByRole('option', { name: /压缩上下文/ }).count(), 1);
   const sent = page.locator('.message.user').first();
   assert.equal(await sent.locator('.command-reference').count(), 2, 'Sent prose recognizes inline commands without marking code or links');
@@ -146,7 +175,18 @@ try {
   await input.press('End');
   await page.locator('.composer-inline-command-icon .command-reference').waitFor({ state: 'visible' });
   assert.equal(await input.evaluate(element => element.spellcheck), false, 'Command decorations keep spellchecking disabled');
-  assert.equal(await page.locator('.composer-inline-command-icon svg.lucide-command').count(), 1);
+  assert.equal(await page.locator('.composer-inline-command-icon .context-ring').count(), 1);
+  assert.equal(await page.locator('.composer-inline-command-icon .context-command-badge').innerText(), 'l');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
+    type: 'desktop_stats', stats: { ...globalThis.menuFixture.stats,
+      contextUsage: { percent: 61, tokens: 156160, contextWindow: 256000 } },
+  }));
+  await page.waitForFunction(() => document.querySelector('.composer-inline-command-icon .context-ring')
+    ?.style.getPropertyValue('--context-percent') === '61%');
+  assert.match(await sent.locator('.context-command-icon .context-ring').getAttribute('style'), /61%/,
+    'Existing transcript decorations follow the current context rather than inventing historical usage');
+  assert.equal(await input.evaluate(element => element.value), '/clm-compact 保留项目名和关键要求',
+    'Updating a decorated draft never alters its source');
   const prefixGeometry = await input.evaluate(element => {
     const style = getComputedStyle(element);
     const marker = element.querySelector('.composer-inline-command-icon');
@@ -183,7 +223,8 @@ try {
   await page.screenshot({ path: 'test-results/composer-inline-slash-dark.png' });
   await input.press('Enter');
   assert.equal(await input.evaluate(element => element.value), '先检查项目 /clm ', 'Completion preserves preceding prose');
-  assert.equal(await input.locator('.composer-inline-command-icon svg.lucide-command').count(), 1, 'Inline completion becomes a command marker');
+  assert.equal(await input.locator('.composer-inline-command-icon .context-ring').count(), 1, 'Inline completion becomes a command marker');
+  assert.equal(await input.locator('.composer-inline-command-icon .context-command-badge').innerText(), 'l');
   assert.equal(await menu.count(), 0);
   assert.equal(await app.evaluate(() => globalThis.menuPrompts), 0, 'Inline completion never submits the draft');
   const middleDraft = '先检查 /cl 然后总结';

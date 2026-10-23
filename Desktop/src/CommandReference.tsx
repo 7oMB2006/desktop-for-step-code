@@ -3,6 +3,7 @@ import { commandPresentation } from './command-presentation';
 import { commandRanges } from './command-references';
 import type { ComposerCommand } from './composer-commands';
 import './command-reference.css';
+import './context-command-icon.css';
 
 export const CommandCatalog = createContext<ComposerCommand[]>([]);
 export function commandReference(text: string, commands: ComposerCommand[]) {
@@ -12,5 +13,5 @@ export function commandReference(text: string, commands: ComposerCommand[]) {
 }
 export function CommandReference({ name, source }: { name: string; source?: string }) {
   const { Icon } = commandPresentation({ name, source }, false);
-  return <span className="command-reference"><span className="command-reference-icon" contentEditable={false}><Icon aria-hidden="true"/></span><span><span className="command-reference-slash">/</span>{name}</span></span>;
+  return <span className="command-reference"><span className="command-reference-icon" contentEditable={false}><Icon size={14} aria-hidden="true"/></span><span><span className="command-reference-slash">/</span>{name}</span></span>;
 }

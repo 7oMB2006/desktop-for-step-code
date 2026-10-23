@@ -1,21 +1,23 @@
-import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent } from 'react';
-import { Paperclip, Terminal, Cpu, Shield, MessageSquare } from 'lucide-react';
-import type { Message } from './contracts';
+import { useContext, useEffect, useRef, useState, type ReactNode, type KeyboardEvent, type ComponentType } from 'react';
+import { Paperclip, Cpu, Shield, MessageSquare, type LucideProps } from 'lucide-react';
+import type { Message, SessionStats } from './contracts';
 import { messageText } from './conversation-presentation';
 import './composer-menu.css';
+import './context-command-icon.css';
 import { composerInput } from './composer-input';
 import { McpIcon } from './McpIcon';
 import { commandPresentation } from './command-presentation';
+import { CommandContextUsage } from './ContextCommandIcon';
 
 import type { ComposerCommand } from './composer-commands';
 export type { ComposerCommand } from './composer-commands';
 const terminalOnly = new Set(['exit', 'quit', 'theme', 'llama', 'clear', 'new']);
 
-export function commandRows(commands: ComposerCommand[], zh: boolean) {
+export function commandRows(commands: ComposerCommand[], zh: boolean, usage?: SessionStats['contextUsage']) {
   const groupOrder = (source?: string) => source === 'skill' ? 2 : source === 'prompt' ? 1 : 0;
   return commands.filter(c => !terminalOnly.has(c.name) && !c.name.startsWith('_') && !(c.name === 'ultraloop' && commands.some(other => other.name === 'ultracode')))
     .sort((a, b) => groupOrder(a.source) - groupOrder(b.source)).map(c => ({
-    id: `command:${c.name}`, ...commandPresentation(c, zh), keyword: `/${c.name}`,
+    id: `command:${c.name}`, ...commandPresentation(c, zh, usage), keyword: `/${c.name}`,
     group: c.source === 'skill' ? (zh ? '技能' : 'Skills') : c.source === 'prompt' ? (zh ? '提示模板' : 'Prompts') : (zh ? '指令' : 'Commands'),
     command: c.name,
   }));
@@ -35,6 +37,7 @@ export function ComposerMenu(props: Props) {
   const [dismissed, setDismissed] = useState(false);
   const [selected, setSelected] = useState(0);
   const zh = language === 'zh';
+  const { usage: contextUsage } = useContext(CommandContextUsage);
   const input = () => root.current ? composerInput(root.current) : null;
   const close = () => { setDismissed(true); setReferencesOpen(false); };
   const readToken = () => {
@@ -51,7 +54,7 @@ export function ComposerMenu(props: Props) {
   useEffect(() => { if (referencesOpen) { setDismissed(false); setSelected(0); } }, [referencesOpen]);
   const mode = referencesOpen ? '@' : token?.mode;
   const query = referencesOpen ? '' : token?.query.toLowerCase() ?? '';
-  type Row = { id: string; title: string; detail: string; keyword?: string; Icon: typeof Terminal; group: string; disabled?: boolean; activate: () => void };
+  type Row = { id: string; title: string; detail: string; keyword?: string; Icon: ComponentType<LucideProps>; group: string; disabled?: boolean; activate: () => void };
   const consumeToken = (text = '') => {
     const next = !referencesOpen && token ? draft.slice(0, token.start) + text + draft.slice(token.end) : draft + text;
     setDraft(next); close();
@@ -64,7 +67,7 @@ export function ComposerMenu(props: Props) {
   ];
   const rows: Row[] = mode === '/' ? [
     ...actions.filter(row => row.id !== 'permissions' || props.permissionsSupported),
-    ...commandRows(commands, zh).filter(c => !['mcp', 'model', 'permissions'].includes(c.command)).map(c => ({ ...c, activate: () => consumeToken(`/${c.command} `) })),
+    ...commandRows(commands, zh, contextUsage).filter(c => !['mcp', 'model', 'permissions'].includes(c.command)).map(c => ({ ...c, activate: () => consumeToken(`/${c.command} `) })),
   ] : [
     { id: 'files', title: zh ? '文件和图片' : 'Files and images', detail: props.canAddFiles ? (zh ? '添加本地附件' : 'Add local attachments') : (zh ? '附件已达上限' : 'Attachment limit reached'), disabled: !props.canAddFiles, Icon: Paperclip, group: zh ? '添加' : 'Add', activate: () => {
       if (!props.canAddFiles) return;
@@ -107,7 +110,7 @@ export function ComposerMenu(props: Props) {
     {open && <div className="composer-discovery" id="composer-discovery" role="listbox" aria-label={mode === '/' ? (zh ? '操作与指令' : 'Actions and commands') : (zh ? '附件与引用' : 'Attachments and references')}>
       <div className="composer-discovery-scroll">{filtered.length ? filtered.map((row, index) => <div key={row.id}>
         {(index === 0 || filtered[index - 1].group !== row.group) && <div className="composer-discovery-group">{row.group}</div>}
-        <button type="button" id={`composer-option-${index}`} role="option" disabled={row.disabled} aria-selected={index === active} onMouseMove={() => setSelected(index)} onMouseDown={e => e.preventDefault()} onClick={row.activate}>
+        <button type="button" id={`composer-option-${index}`} role="option" disabled={row.disabled} aria-selected={index === active} title={row.detail} onMouseMove={() => setSelected(index)} onMouseDown={e => e.preventDefault()} onClick={row.activate}>
           <row.Icon size={16}/><span className="composer-discovery-title">{row.title}</span>{row.keyword && <code>{row.keyword}</code>}<span className="composer-discovery-detail">{row.detail}</span>
         </button>
       </div>) : <div className="composer-discovery-empty">{zh ? '没有匹配的内容' : 'No matches'}</div>}</div>

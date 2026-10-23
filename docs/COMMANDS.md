@@ -12,7 +12,18 @@ core CLM commands absent from that reply.
 
 The discovery menu, editable command markers and sent user messages share
 `Desktop/src/command-presentation.ts`. Usage uses the bar-chart icon; Cron
-uses the sidebar clock. CLM keeps the command glyph. Skills use the book icon
+uses the sidebar clock. Workflow uses the flow-node icon, while Ultracode retains
+the network. Project trust uses a checked folder; permissions retain the shield.
+Context commands share a live context-usage ring with a 3px track: Compact uses
+an `o` badge and both CLM entries use `l`. Menu descriptions spell out Compact
+compression, CLM status/control and manual CLM organization, together with the
+current session's context percentage or an explicit unknown state.
+The rings all represent the same current-session usage, not separate Compact/CLM
+measurements or historical per-message usage. They reuse the footer ring's
+percentage semantics; decorative icons add no focus stops and their badges are
+excluded from selection. A pending session switch shows unknown until its
+snapshot is available.
+Skills use the book icon
 and prompt templates the sparkle, even when their names resemble built-ins.
 Unknown discovered commands use the command glyph without a repeated slash
 label. `todos` is the current upstream spelling; the old `todo` presentation
@@ -64,10 +75,13 @@ ordinary prose while a task is running.
 
 ### [Ⅰ] 图标与可用性
 
-- [ ] `/workflows` 与 `/ultracode` 区分图标。目前两者都使用 Network，
-  是视觉复用，不是重复命令。
-- [ ] `/clm`、`/clm-compact` 改用能表达上下文维护的图标。目前显式使用
-  Command，并非识别失败；需同时与 `/compact` 的手动压缩含义区分。
+- [x] `/workflows` 使用 Workflow，`/ultracode` 保留 Network，
+  区分工作流记录与多代理编排；同义别名仍复用相同图标。
+- [x] `/compact`、`/clm`、`/clm-compact` 统一为上下文图标家族，
+  共用当前会话占用圆环，3px 环宽；用 o／l 小角标区分 Compact 与 CLM，
+  通过完整备注区分压缩对话、查看状态和手动整理，不伪造两套占用统计。
+- [x] `/trust` 使用 FolderCheck，`/permissions` 保留 Shield，
+  区分项目信任与会话访问权限。
 - 暂缓 `/feedback`：目前没有 Desktop 反馈接收端，本轮不实现发送。
   当前打包体验
   返回 “Feedback endpoint is not configured.”，不能算反馈可用。

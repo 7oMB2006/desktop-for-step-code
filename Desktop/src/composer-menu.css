@@ -7,6 +7,7 @@
 .composer-discovery button { width: 100%; min-height: 34px; height: 34px; justify-content: flex-start; border: 0; background: transparent; padding: 5px 8px; gap: 9px; font-size: 12px; text-align: left; }
 .composer-discovery button[aria-selected="true"] { background: var(--surface); }
 .composer-discovery button > svg { color: var(--muted); }
+.composer-discovery button > .context-command-icon { color:var(--muted); }
 .composer-discovery-title { flex-shrink: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-discovery code { color: var(--muted); font-size: 11px; }
 .composer-discovery-detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: auto; min-width: 0; }

@@ -22,13 +22,14 @@ export interface CronRecoveryPlan {
   configurationRef: string;
   account: string;
   model: Model;
+  unconfirmed?: boolean;
 }
 const stamp = (plan: CronRecoveryPlan) => createHash('sha256').update(JSON.stringify(plan)).digest('hex');
 
 // Startup may advance nextFireAt or expire jobs, but must not add or change work.
 export function assertRecoveryJobs(approved: CronJobData[], loaded: CronJobData[]) {
   const identity = (job: CronJobData) => JSON.stringify([
-    job.id, job.createdAt, job.cron, job.prompt, job.recurring, job.durable, job.autoExpireAt ?? null,
+    job.id, job.createdAt, job.cron, job.prompt, job.recurring, job.durable, job.autoExpireAt ?? null, job.desktopPausedAt ?? null,
   ]);
   const expected = new Set(approved.map(identity));
   if (loaded.some(job => !job.durable || !expected.has(identity(job))))
@@ -41,7 +42,8 @@ export class CronRecovery {
   private recovering = false;
   constructor(private inspect: (key: string, sessionId: string) => Promise<CronRecoveryPlan>,
     private launch: (plan: CronRecoveryPlan) => Promise<{ sessionId: string; runtimeId: string }>,
-    private now = Date.now) {}
+    private now = Date.now,
+    private remember?: (key: string, plan: CronRecoveryPlan) => Promise<void>) {}
   async prepare(key: unknown, sessionId: unknown): Promise<CronRecoveryPreview> {
     if (typeof key !== 'string' || key.length > 8192 || typeof sessionId !== 'string' || !/^[\w-]{1,200}$/.test(sessionId))
       throw new Error('Invalid Cron recovery target');
@@ -55,9 +57,11 @@ export class CronRecovery {
     return { token, expires, workspace: plan.workspace, sessionId: plan.sessionId, sessionName: plan.sessionName,
       jobs: plan.jobs.map(job => ({ id: job.id, prompt: job.prompt, nextFireAt: job.nextFireAt })),
       model: { id: plan.model.id, provider: plan.model.provider, name: plan.model.name },
-      account: plan.account, permission: 'ask' };
+      account: plan.account, permission: 'ask', unconfirmed: plan.unconfirmed };
   }
-  async recover(token: unknown) {
+  async recover(token: unknown, automatic: unknown = false, acknowledgeUnconfirmed: unknown = false) {
+    if (typeof automatic !== 'boolean' || typeof acknowledgeUnconfirmed !== 'boolean') throw new Error('Invalid automatic recovery authorization');
+    if (automatic && !this.remember) throw new Error('Automatic recovery is unavailable');
     if (typeof token !== 'string') throw new Error('Invalid Cron recovery confirmation');
     const pending = this.pending.get(token);
     this.pending.delete(token);
@@ -68,7 +72,13 @@ export class CronRecovery {
       const latest = await this.inspect(pending.key, pending.plan.sessionId);
       if (this.now() >= pending.expires || stamp(latest) !== stamp(pending.plan))
         throw new Error('Cron tasks, session or account changed; review recovery again');
-      return await this.launch(latest);
+      if (automatic && latest.unconfirmed && !acknowledgeUnconfirmed)
+        throw new Error('Review unconfirmed Cron execution before authorizing automatic recovery');
+      const result = await this.launch(latest);
+      if (automatic) {
+        await this.remember!(pending.key, latest);
+      }
+      return result;
     } finally { this.recovering = false; }
   }
 }

@@ -42,7 +42,7 @@ test('Post-start gate allows native time advancement/expiry, never unreviewed wo
   assertRecoveryJobs([job], [{ ...job, nextFireAt: 300 }]);
   assertRecoveryJobs([job], []);
   for (const change of [{ prompt: 'Other' }, { id: 'new' }, { createdAt: 101 }, { durable: false },
-    { cron: '0 * * * *' }, { recurring: false }, { autoExpireAt: 500 }])
+    { cron: '0 * * * *' }, { recurring: false }, { autoExpireAt: 500 }, { desktopPausedAt: 150 }])
     assert.throws(() => assertRecoveryJobs([job], [{ ...job, ...change }]), /changed/);
 });
 function fixture() {
@@ -127,6 +127,29 @@ test('Recovery only accepts durable nonempty task snapshots', async () => {
     f.change({ jobs });
     await assert.rejects(f.service.prepare('task', 'session'), /durable/);
   }
+});
+test('Remembered recovery requires explicit review of unknown executions and never grants after a failed launch', async () => {
+  const f = fixture();
+  const plan = { workspace: 'D:/project', jobs: [job], sessionId: 'session', sessionName: 'Chat',
+    sessionPath: 'private/session.jsonl', sessionStamp: '1', configurationRef: 'private-auth-hash',
+    account: 'Plan', model: { id: 'model', provider: 'step', name: 'Model' }, unconfirmed: true } as CronRecoveryPlan;
+  let grants = 0, launches = 0, fail = false;
+  const service = new CronRecovery(async () => plan, async () => {
+    launches++; if (fail) throw new Error('Uncertain launch'); return { sessionId: 'session', runtimeId: 'host' };
+  }, () => 1000, async () => { grants++; });
+  const preview = await service.prepare('key', 'session');
+  assert.equal(preview.unconfirmed, true);
+  await assert.rejects(service.recover(preview.token, true), /unconfirmed/);
+  assert.equal(launches, 0);
+  const next = await service.prepare('key', 'session');
+  await service.recover(next.token, true, true);
+  assert.equal(grants, 1);
+  fail = true;
+  const uncertain = await service.prepare('key', 'session');
+  await assert.rejects(service.recover(uncertain.token, true, true), /Uncertain/);
+  assert.equal(grants, 1);
+  await assert.rejects(f.service.recover('token', 'true'), /Invalid/);
+  await assert.rejects(f.service.recover('token', true), /unavailable/);
 });
 test('Desktop associations persist separately and distinguish projects and task generations', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cron-bindings-'));

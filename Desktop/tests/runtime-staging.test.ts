@@ -19,10 +19,10 @@ test('Windows v0.1.5 patch manifest pins every reviewed pre-image, result and pa
   ]);
   assert.deepEqual(Object.keys(manifest.patches).sort(),
     ['../step-code-desktop-cron-management.patch', '../step-code-desktop-cron.patch',
-      'step-code-desktop-clarification.patch', 'step-code-desktop-cron-recovery.patch',
+      'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch', 'step-code-desktop-cron-recovery.patch',
       'step-code-desktop-plan.patch', 'step-code-desktop.patch', 'step-code-session-import.patch']);
   assert.equal(manifest.sources['packages/coding-agent/src/features/step-cron.ts'], '6f881338a5d4ac34a416706a1e72b1f6e181cff3');
-  assert.equal(manifest.patchedSources['packages/coding-agent/src/features/step-cron.ts'], 'ba42caa552e5f00ea6f97b4fbbbdd494234715dc');
+  assert.equal(manifest.patchedSources['packages/coding-agent/src/features/step-cron.ts'], '47fee2172b64fb1c3de220ee7fb0aee9b61a96f8');
   for (const [name, hash] of Object.entries(manifest.patches)) {
     const bytes = Buffer.from((await readFile(join(root, name), 'utf8')).replace(/\r\n/g, '\n'));
     const actual = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');

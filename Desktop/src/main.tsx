@@ -478,11 +478,11 @@ function App() {
     // Include events that arrived between the navigation snapshot and its paint.
     if (succeeded) void run(refresh);
   };
-  const navigateSession = async (session: Session) => {
+  const navigateSession = async (session: Session, cronRuntimeId?: string) => {
     setUsageOpen(false);
-    setScheduledOpen(false);
-    if (!bridge || switching.current && !navigationPending.current) return;
-    if (!navigationPending.current && session.id === view.current.sessionId) return;
+    if (!cronRuntimeId) setScheduledOpen(false);
+    if (!bridge || switching.current && !navigationPending.current) return false;
+    if (!cronRuntimeId && !navigationPending.current && session.id === view.current.sessionId) return true;
     if (!navigationPending.current) rememberView();
     const sequence = ++navigationSequence.current;
     const reading = readingCache.current.get(session);
@@ -495,23 +495,24 @@ function App() {
     setQueuePreviewOpen(false); setLiveChangesOpen(false);
     let failed = false;
     try {
-      const result = await bridge.navigateSession(session.id);
-      if (navigationPending.current?.sequence !== sequence) return;
+      const result = cronRuntimeId ? await bridge.cronOpenHost(cronRuntimeId) : await bridge.navigateSession(session.id);
+      if (navigationPending.current?.sequence !== sequence) return false;
       if (!result) throw new Error(t('会话切换已取消', 'Session navigation was cancelled'));
       const saved = composerBySession.current.get(session.id);
       if (saved && reading && previewPosition.current) composerBySession.current.set(session.id, { ...saved, ...previewPosition.current });
       if (result.state?.sessionId !== session.id || !installSnapshot(result)) {
         const latest = await bridge.snapshot();
-        if (navigationPending.current?.sequence !== sequence) return;
+        if (navigationPending.current?.sequence !== sequence) return false;
         if (latest.state?.sessionId !== session.id || !installSnapshot(latest)) throw new Error(t('会话状态已变化，请重试', 'Conversation state changed; try again'));
       }
+      if (cronRuntimeId) setScheduledOpen(false);
     } catch (error) {
-      if (navigationPending.current?.sequence !== sequence) return;
+      if (navigationPending.current?.sequence !== sequence) return false;
       failed = true;
       // Reconcile with the main-process identity, including a commit preceding this click.
       try {
         const value = await bridge.snapshot();
-        if (navigationPending.current?.sequence !== sequence) return;
+        if (navigationPending.current?.sequence !== sequence) return false;
         installSnapshot(value);
         const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
         readingRestore.current = saved ? { runtimeId: value.runtimeId, position: saved } : undefined;
@@ -524,6 +525,7 @@ function App() {
         if (!failed) void run(refresh);
       }
     }
+    return !failed;
   };
   const rawCommand = async (type: string, args?: Record<string, unknown>) => {
     if (navigationPending.current) throw new Error(t('请等待会话打开', 'Wait for the conversation to open'));
@@ -1342,7 +1344,9 @@ function App() {
     {scheduledOpen && bridge && <main inert={settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setScheduledOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
-      <CronManager bridge={bridge}/></main>}
+      <CronManager bridge={bridge} onOpenHost={async (session, runtimeId) => {
+        if (!await navigateSession(session, runtimeId)) throw new Error('Cron host changed; refresh before opening');
+      }}/></main>}
     <main hidden={scheduledOpen} inert={scheduledOpen || settingsOpen || Boolean(removeProject)}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CronManagement, cronCreation, cronJobs } from '../electron/cron-management';
 import type { SessionRuntime, SessionRuntimes } from '../electron/session-runtimes';
+import { cronRevision } from '../src/cron-revision';
 
 const job = { schemaVersion: 1, id: 'job-1', cron: '0 9 * * *', prompt: 'Check tasks', recurring: true, durable: true, createdAt: 100, nextFireAt: 200, autoExpireAt: 300 };
 function fixture() {
@@ -41,6 +42,7 @@ test('Cron list deduplicates project-shared durable jobs, not temporary jobs', a
   let result = await f.service.list(['D:/project']);
   assert.equal(result.tasks.length, 1);
   assert.equal(result.tasks[0].runtimeId, 'one');
+  assert.equal(result.hosts[0].sessionId, 'session');
   assert.equal(result.hosts.length, 2);
   second.rpc.request = async () => ({ jobs: [{ ...job, durable: false }], trusted: true });
   result = await f.service.list(['D:/project']);
@@ -55,6 +57,26 @@ test('Offline durable tasks are read-only, with no invented runtime ownership', 
   assert.equal(result.tasks.length, 1);
   assert.equal(result.tasks[0].runtimeId, undefined);
   assert.deepEqual(result.hosts, []);
+  assert.equal(f.calls.length, 0);
+});
+test('Host navigation resolves only the current online runtime, without RPC, mutation or history fallback', () => {
+  const f = fixture();
+  f.worker.mutating = true;
+  assert.equal(f.service.host('one'), f.worker, 'Navigation does not require stopping busy work');
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.changes(), 0);
+  for (const value of [undefined, '', 1, {}, 'x'.repeat(81), 'missing'])
+    assert.throws(() => f.service.host(value));
+  f.worker.stopping = true;
+  assert.throws(() => f.service.host('one'), /offline/);
+  f.worker.stopping = false;
+  f.worker.state = { isStreaming: false };
+  assert.throws(() => f.service.host('one'), /offline/);
+  f.worker.state = { sessionId: 'session', isStreaming: false };
+  f.worker.status = 'disconnected';
+  assert.throws(() => f.service.host('one'), /Disconnected/);
+  f.pool.workers.clear();
+  assert.throws(() => f.service.host('one'), /Disconnected/);
   assert.equal(f.calls.length, 0);
 });
 test('Untrusted or unreadable projects remain explicit issues', async () => {
@@ -99,4 +121,23 @@ test('A failed mutation releases its lock without retrying a possibly committed 
   await assert.rejects(f.service.delete('one', job.id), /timeout/);
   assert.equal(calls, 1);
   assert.equal(f.worker.mutating, false);
+});
+test('Task editing validates strict payloads, preserves revisions and uses the per-host lock', async () => {
+  const f = fixture();
+  const input = { runtimeId: 'one', jobId: job.id, expected: cronRevision(job), paused: true };
+  for (const invalid of [{ ...input, paused: 'yes' }, { ...input, jobId: '../x' },
+    { ...input, expected: undefined }, { ...input, prompt: '' }, { ...input, cron: 'x'.repeat(101) }])
+    assert.throws(() => f.service.update(invalid), /Invalid/);
+  f.worker.rpc.request = async (type, args) => {
+    assert.equal(f.worker.mutating, true);
+    f.calls.push({ type, args });
+    return { jobs: [], result: { ...job, desktopPausedAt: 123 } };
+  };
+  await f.service.update(input);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].args?.action, 'update');
+  assert.equal(f.calls[0].args?.expected, input.expected);
+  assert.equal(f.worker.mutating, false);
+  assert.equal(cronRevision({ ...job, nextFireAt: 999 }), cronRevision(job));
+  assert.notEqual(cronRevision({ ...job, desktopPausedAt: 123 }), cronRevision(job));
 });

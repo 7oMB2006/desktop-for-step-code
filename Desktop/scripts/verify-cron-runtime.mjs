@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, readFile, writeFile, unlink, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, unlink, realpath, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 // CI's TEMP may use an 8.3 alias; upstream's synchronous trust lookup preserves it.
 const directory = await realpath(await mkdtemp(join(tmpdir(), 'desktop-cron-runtime-')));
 await build({
-  entryPoints: ['electron/session-runtimes.ts', 'electron/session-collaboration.ts', 'electron/runtime.ts', 'electron/project-trust.ts', 'electron/cron-management.ts', 'electron/cron-bindings.ts'],
+  entryPoints: ['electron/session-runtimes.ts', 'electron/session-collaboration.ts', 'electron/runtime.ts', 'electron/project-trust.ts', 'electron/cron-management.ts', 'electron/cron-bindings.ts', 'electron/cron-history.ts'],
   outdir: directory, outExtension: { '.js': '.mjs' }, bundle: true, platform: 'node', format: 'esm',
 });
 const { SessionRuntimes } = await import(pathToFileURL(join(directory, 'session-runtimes.mjs')));
@@ -19,6 +19,7 @@ const { RpcProcess, isolatedEnvironment } = await import(pathToFileURL(join(dire
 const { trustProject } = await import(pathToFileURL(join(directory, 'project-trust.mjs')));
 const { CronManagement } = await import(pathToFileURL(join(directory, 'cron-management.mjs')));
 const { CronBindings } = await import(pathToFileURL(join(directory, 'cron-bindings.mjs')));
+const { CronHistory } = await import(pathToFileURL(join(directory, 'cron-history.mjs')));
 const runtime = resolve(process.env.DESKTOP_CRON_VERIFY_RUNTIME ?? 'runtime');
 const node = join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const entry = join(runtime, 'step/dist/bundle/step.js');
@@ -96,15 +97,17 @@ async function fixture(name, trusted = true) {
   const raw = [];
   const events = [];
   const bindings = new CronBindings(join(profile, 'cron-bindings'));
+  const history = new CronHistory(join(profile, 'cron-history'));
   const pool = new SessionRuntimes(event => events.push(event), receive => new RpcProcess(event => { raw.push(event); receive(event); }),
     { launch: worker => broker.attach(worker), dispose: worker => broker.detach(worker),
       event: (worker, event) => {
+        history.event(worker, event);
         void bindings.created(worker.cwd, worker.state?.sessionId, event).catch(error => errors.push(error.message));
         return event;
       } });
   const broker = new SessionCollaboration(pool, join(runtime, 'desktop-sessions.mjs'), () => 'en', () => {});
   await broker.start();
-  const f = { pool, broker, bindings, cwd, env, profile, clock, raw, events, store: join(cwd, '.stepcode/cron/tasks.json'),
+  const f = { pool, broker, bindings, history, cwd, env, profile, clock, raw, events, store: join(cwd, '.stepcode/cron/tasks.json'),
     close: async () => { await pool.stopAll(); await broker.stop(); } };
   fixtures.push(f);
   f.worker = await pool.open(node, entry, cwd, env);
@@ -127,6 +130,83 @@ async function check(name, run) {
   console.log(`PASS ${name}`);
 }
 try {
+  if (process.platform === 'win32') await check('Beta task pause/edit/resume preserves identity, skips paused triggers and never resets expiry', async () => {
+    const f = await fixture('pause-edit');
+    try {
+      const before = requests;
+      const revision = job => JSON.stringify([job.id, job.createdAt, job.cron, job.prompt, job.recurring, job.durable,
+        job.autoExpireAt ?? null, job.desktopPausedAt ?? null]);
+      const list = async () => (await f.worker.rpc.request('desktop_cron', { action: 'list' })).jobs;
+      await f.worker.rpc.request('desktop_cron', { action: 'create', cron: '* * * * *', prompt: 'original', recurring: true, durable: true });
+      const [original] = await list();
+      const update = (job, changes) => f.worker.rpc.request('desktop_cron', { action: 'update', jobId: job.id, expected: revision(job), ...changes });
+      await update(original, { paused: true });
+      const [paused] = await list();
+      assert.equal(paused.schemaVersion, 2);
+      assert.ok(Number.isFinite(paused.desktopPausedAt));
+      const { CronFileStore } = await import(pathToFileURL(join(runtime, 'step/dist/bundle/index.js')));
+      const warnings = [];
+      const preserved = await readFile(f.store, 'utf8');
+      const oldReader = new CronFileStore(f.store, { warn: warning => warnings.push(warning) });
+      assert.equal(oldReader.load().length, 0, 'Without Desktop opt-in the upstream schema-1 reader cannot schedule paused rows');
+      oldReader.save([]);
+      assert.equal(await readFile(f.store, 'utf8'), preserved, 'Unsupported paused records remain intact');
+      assert.ok(warnings.length > 0);
+      await writeFile(f.clock, String(original.nextFireAt + 120000));
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      assert.equal(requests, before, 'Paused tasks never call a model');
+      await update(paused, { prompt: 'edited instruction', cron: '*/5 * * * *' });
+      const [edited] = await list();
+      assert.equal(edited.id, original.id);
+      assert.equal(edited.createdAt, original.createdAt);
+      assert.equal(edited.autoExpireAt, original.autoExpireAt);
+      assert.equal(edited.desktopPausedAt, paused.desktopPausedAt);
+      await assert.rejects(update(original, { prompt: 'stale overwrite' }), /changed/);
+      // Storage failure rolls memory back, and must not masquerade as a successful resume.
+      await writeFile(`${f.store}.lock`, 'busy');
+      const lockTime = new Date(original.nextFireAt + 120000);
+      await utimes(`${f.store}.lock`, lockTime, lockTime);
+      await assert.rejects(update(edited, { paused: false }), /lock/);
+      await unlink(`${f.store}.lock`);
+      assert.ok((await list())[0].desktopPausedAt !== undefined);
+      await update(edited, { paused: false });
+      const [resumed] = await list();
+      assert.equal(resumed.schemaVersion, 1);
+      assert.equal(resumed.desktopPausedAt, undefined);
+      assert.ok(resumed.nextFireAt > original.nextFireAt + 120000);
+      assert.equal(resumed.autoExpireAt, original.autoExpireAt);
+      assert.equal(requests, before);
+      await update(resumed, { paused: true });
+      await writeFile(f.clock, String(original.autoExpireAt + 1));
+      await until(async () => !(await list()).length, 'paused task expires without a final delivery');
+      assert.equal(requests, before);
+    } finally { await f.close(); }
+  });
+  if (process.platform === 'win32') await check('Project-shared pause suppresses a missed one-shot already buffered by another host', async () => {
+    const f = await fixture('pause-shared-missed');
+    try {
+      const { value: job } = await tool(f, 'cron_create', { cron: '* * * * *', prompt: 'shared-pause', recurring: false, durable: true });
+      const state = await f.worker.rpc.request('get_state');
+      await f.pool.remove(f.worker);
+      await writeFile(f.clock, String(job.nextFireAt + 120000));
+      const env = { ...f.env, DESKTOP_CRON_RECOVERY: '1' };
+      f.worker = await f.pool.prepare(node, entry, f.cwd, env, state.sessionFile);
+      const other = await f.pool.prepare(node, entry, f.cwd, env, state.sessionFile);
+      const before = requests;
+      const [current] = (await other.rpc.request('desktop_cron', { action: 'list' })).jobs;
+      const expected = JSON.stringify([current.id, current.createdAt, current.cron, current.prompt, current.recurring,
+        current.durable, current.autoExpireAt ?? null, current.desktopPausedAt ?? null]);
+      await other.rpc.request('desktop_cron', { action: 'update', jobId: current.id, expected, paused: true });
+      await f.worker.rpc.request('desktop_cron_resume');
+      await other.rpc.request('desktop_cron_resume');
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      assert.equal(requests, before, 'Neither host can deliver a paused task or its buffered missed notice');
+      const saved = JSON.parse((await readFile(f.store, 'utf8')).trim());
+      assert.equal(saved.id, job.id);
+      assert.equal(saved.schemaVersion, 2);
+      assert.equal(f.worker.messages.some(message => message.customType === 'step-cron'), false);
+    } finally { await f.close(); }
+  });
   await check('Desktop management creates, lists and deletes native jobs with zero model calls', async () => {
     const f = await fixture('management');
     try {
@@ -187,6 +267,8 @@ try {
         await until(() => f.worker.messages.some(message => message.customType === 'step-cron')
           && !f.pool.isBusy(f.worker) && f.worker.cron?.jobs.length === 0, 'native fire and release');
         assert.equal(f.worker.messages.filter(message => message.customType === 'step-cron').length, 1);
+        assert.equal(f.history.list(f.cwd).at(-1)?.state, 'completed', 'Only the authoritative agent end completes the journal');
+        assert.equal(f.history.list(f.cwd).at(-1)?.jobId, value.id);
         await until(() => f.worker.operations === 0, 'post-run statistics reads complete');
         f.worker.touched = 0;
         await f.pool.recycle();

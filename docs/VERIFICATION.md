@@ -4238,3 +4238,58 @@ both discovery cases (50 cases total). Real Electron model-switch acceptance
 passed, including persistent selection, missing-model protection and explicit
 recovery. This follow-up does not rebuild or retarget the existing preview
 package. Replacement cloud CI must validate both native platforms.
+
+## Cron Recovery And Management Beta (2026-10-24)
+
+Windows retains the fixed runtime pin
+`b5dbed938d9ae589397cf522dcf2ff89ecf4c494`. The additional hashed Desktop
+patch enables per-task pause/resume and editing without replacing native
+locking, jitter or original expiry. Paused durable rows use opt-in Beta schema
+2; schema-1 readers preserve but do not schedule them. Explicit resume restores
+schema 1. See `CRON.md` for shared-project and downgrade boundaries.
+
+Local source verification passed: typecheck, production build, the complete
+serial Desktop unit suite (699 tests: 686 passed, 13 platform skips), 15 CI
+policy/runner tests, 14 native JSONL RPC Cron cases and 11 real Electron Cron
+management cases. The final patch was also applied to a clean checkout of the pinned
+upstream commit through the actual patch applier, including preimage and
+resulting-source hash validation and whitespace checks.
+
+Native cases cover pause/edit identity and deadline preservation, stale-update
+rejection, lock-failure rollback, expiry without delivery, schema-1 reader
+preservation and suppression of another host's buffered missed notice after a
+shared pause. Execution journal completion requires current assistant output
+and successful authoritative round completion, not merely a trigger or an older
+assistant result.
+
+Electron cases use isolated profiles, projects, trust and a local fixture
+provider. They cover pause/edit/relaunch/resume, manual recovery review,
+explicit automatic authorization, actual application relaunch and termination
+of only the isolated idle scheduling child. Recovery retains the reviewed
+conversation in Ask, retires the disconnected entry and reuses the same single
+runtime when the original chat is opened. Revocation survives relaunch.
+Management and recovery before the next due time made zero model calls.
+The host shortcut opens only the current live runtime, including an archived
+host without unarchiving it. Offline/stale requests are rejected without a
+history-loading or runtime-start fallback, and the recovered-host shortcut
+still leaves exactly one runtime. Ordinary latest-target session navigation,
+reading positions, draft retention and failure recovery also pass their
+dedicated real Electron acceptance.
+Dark/light, narrow, edit, history and recovery screenshots were checked;
+reduced-motion checks retain the shared controls' interaction semantics.
+The updated browser preview passed with the existing installed Edge: online
+host navigation, offline disablement, keyboard tooltip/activation, light/dark,
+four widths down to 390px, reduced motion and no page errors. This preview uses
+sample data, not the real Desktop profile.
+The eight Cron transcript checks and the dedicated quit-confirmation acceptance
+also passed, including persistence, reload/cancel/replay and crashed-renderer
+fallback.
+
+Automatic recovery remains default off, bounded to the reviewed task/account/
+model snapshot and at most seven days. Due work, changed configuration,
+unconfirmed execution, missing sessions and uncertain release block it without
+automatic retries, catch-up, a new conversation or account/model fallback.
+Journals are bounded and never turn acknowledged unknown results into success.
+These are Desktop Beta extensions, not upstream-native ownership or exactly-once
+execution. No installer, real-account/billing, OS sleep/reboot, external-CLI
+coordination, macOS Beta or replacement cloud-CI acceptance is claimed.

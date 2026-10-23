@@ -6,14 +6,14 @@ test('Desktop discovers the pinned core CLM commands absent from upstream get_co
   const original = [{ name: 'goal', source: 'extension' }, { name: 'daily', source: 'prompt' },
     { name: 'skill:review', source: 'skill' }, { name: '_desktop_retry', source: 'extension' }];
   const result = desktopCommands(original);
-  assert.deepEqual(result.map(command => command.name), ['goal', 'daily', 'skill:review', 'status', 'plugin', 'skills', 'clm', 'clm-compact', 'trust', 'compact']);
+  assert.deepEqual(result.map(command => command.name), ['goal', 'daily', 'skill:review', 'status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact']);
   assert.ok(result.filter(command => command.name.startsWith('clm')).every(command => command.source === 'core'));
   assert.equal(original.length, 4, 'Catalog projection does not mutate the runtime reply');
 });
 
 test('Core CLM handlers take precedence over same-name catalog entries without duplicates', () => {
   const result = desktopCommands([{ name: 'clm', source: 'prompt' }, { name: 'clm-compact', source: 'extension' }]);
-  assert.deepEqual(result.map(command => command.name), ['status', 'plugin', 'skills', 'clm', 'clm-compact', 'trust', 'compact']);
+  assert.deepEqual(result.map(command => command.name), ['status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact']);
   assert.ok(result.filter(command => command.name.startsWith('clm')).every(command => command.source === 'core'));
   assert.deepEqual(desktopCommands(result), result, 'Repeated projection remains idempotent');
   result[0].description = 'changed';
@@ -58,5 +58,17 @@ test('Desktop compact is discoverable and overrides a same-name entry only once'
   assert.deepEqual(catalog.filter(command => command.name === 'compact'), [
     { name: 'compact', source: 'desktop', description: 'Compact the current conversation with optional retention instructions' },
   ]);
+  assert.deepEqual(desktopCommands(catalog), catalog);
+});
+
+test('capability management commands are discoverable without a runtime and replace upstream entries', () => {
+  const names = ['plugin', 'mcp', 'skills'];
+  const draft = desktopCommands([]).filter(command => command.source === 'desktop');
+  for (const name of names) assert.equal(draft.filter(command => command.name === name).length, 1, name);
+  const catalog = desktopCommands(names.map(name => ({ name, source: 'extension' })));
+  for (const name of names) {
+    assert.equal(catalog.filter(command => command.name === name).length, 1);
+    assert.equal(catalog.find(command => command.name === name)?.source, 'desktop');
+  }
   assert.deepEqual(desktopCommands(catalog), catalog);
 });

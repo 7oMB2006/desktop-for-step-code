@@ -76,6 +76,14 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
+  const draft = await page.evaluate(() => window.desktop.snapshot());
+  assert.ok(draft.draftId && !draft.runtimeId, 'Management navigation starts from a draft without a runtime');
+  await page.getByRole('textbox', { name: '消息', exact: true }).fill('/mcp');
+  await page.getByRole('option', { name: /MCP/ }).click();
+  await page.locator('.cap-heading').getByRole('heading', { name: 'MCP', exact: true }).waitFor();
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, undefined, 'Local MCP navigation does not start a runtime');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   const host = await page.evaluate(() => window.desktop.newIndependentSession());
   assert.ok(host.runtimeId);
   const commands = () => page.evaluate(async () => {
@@ -293,6 +301,75 @@ try {
   assert.equal(await resourceSearch.inputValue(), '', 'Plugin command filters cannot leak into MCP action navigation');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).messages.length, messagesBefore, 'Management commands are local navigation, not model prompts');
   assert.match(await readFile(join(market, 'example', 'step.plugin.json'), 'utf8'), /Example plugin/);
+  const savedSettings = await page.evaluate(() => window.desktop.settings());
+  await app.evaluate(({ ipcMain }, settings) => {
+    globalThis.refreshFixture = {
+      plugins: [], available: [{ name: 'refresh-plugin', description: '', marketplace: 'refresh-market', installed: false }],
+      marketplaces: [{ name: 'refresh-market', kind: 'git', origin: 'fixture' }],
+      mcp: [{ name: 'refresh-mcp', source: 'user', transport: 'stdio', enabled: true, configurable: true }],
+      skills: [{ id: 'refresh-skill', name: 'refresh-skill', description: '', source: 'user',
+        location: 'agent/skills/refresh-skill/SKILL.md', enabled: true, toggleable: true, deletable: true }],
+      warnings: [],
+    };
+    globalThis.holdCatalog = false;
+    globalThis.releaseCatalog = undefined;
+    globalThis.refreshMutations = 0;
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (_event, method, ...args) => {
+      if (method === 'settings') return settings;
+      if (method === 'summary') return { tasks: [], mcp: [], skillCount: 1 };
+      if (method === 'stepPageState') return { status: 'missing', installed: false };
+      if (method === 'capabilityCatalog') {
+        const result = structuredClone(globalThis.refreshFixture);
+        if (!globalThis.holdCatalog) return result;
+        return new Promise((resolve, reject) => {
+          globalThis.releaseCatalog = fail => {
+            globalThis.holdCatalog = false;
+            globalThis.releaseCatalog = undefined;
+            if (fail) reject(new Error('capability:marketplace-failed'));
+            else resolve(result);
+          };
+        });
+      }
+      if (method === 'capabilityMutate') {
+        globalThis.refreshMutations++;
+        const input = args[0];
+        if (input.action === 'mcp-toggle') globalThis.refreshFixture.mcp[0].enabled = input.enabled;
+        return { warnings: [] };
+      }
+      return {};
+    });
+  }, savedSettings);
+  const refreshButton = page.getByRole('button', { name: '刷新', exact: true });
+  await refreshButton.click();
+  await page.getByRole('switch', { name: '启用 refresh-mcp', exact: true }).waitFor();
+  for (const [category, tab] of [['MCP'], ['插件', '发现'], ['插件', '市场来源'], ['Skills']]) {
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: category, exact: true }).click();
+    if (tab) await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
+    await page.waitForFunction(() => !document.querySelector('.cap-heading [aria-label="刷新"]')?.disabled);
+    await app.evaluate(() => { globalThis.holdCatalog = true; });
+    await refreshButton.click();
+    await page.waitForFunction(() => document.querySelector('.cap-heading [aria-label="刷新"]')?.disabled);
+    const controls = page.locator('.cap-heading button, .cap-row button, .cap-footer button');
+    assert.ok(await controls.count() > 1, 'The loaded rows remain visible during refresh');
+    assert.equal(await controls.evaluateAll(buttons => buttons.every(button => button.disabled)), true,
+      `${category}/${tab ?? ''}: mutations and restart are disabled during refresh`);
+    assert.equal(await app.evaluate(() => globalThis.refreshMutations), 0);
+    await app.evaluate(() => globalThis.releaseCatalog(false));
+    await page.waitForFunction(() => !document.querySelector('.cap-heading [aria-label="刷新"]')?.disabled);
+  }
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: 'MCP', exact: true }).click();
+  const refreshToggle = page.getByRole('switch', { name: '启用 refresh-mcp', exact: true });
+  await refreshToggle.waitFor();
+  await page.waitForFunction(() => !document.querySelector('[aria-label="启用 refresh-mcp"]')?.disabled);
+  await app.evaluate(() => { globalThis.holdCatalog = true; });
+  await refreshButton.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="启用 refresh-mcp"]')?.disabled);
+  await app.evaluate(() => globalThis.releaseCatalog(true));
+  await page.getByRole('alert').waitFor();
+  await refreshToggle.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="启用 refresh-mcp"]')?.getAttribute('aria-checked') === 'false');
+  assert.equal(await app.evaluate(() => globalThis.refreshMutations), 1, 'A failed refresh unlocks mutations and the next catalog reflects the mutation');
   assert.deepEqual(errors, []);
   console.log('Capability Electron acceptance passed (isolated profile, real upstream management APIs).');
 } catch (error) {

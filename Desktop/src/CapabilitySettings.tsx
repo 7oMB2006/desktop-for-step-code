@@ -94,13 +94,15 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
   const alive = useRef(true);
   const operation = useRef(false);
   const id = useId();
-  const locked = busy || pending;
+  const locked = busy || pending || loading;
   const search = (value: string) => !query || value.toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const refresh = async () => {
+    if (operation.current) return;
+    operation.current = true;
     setLoading(true); setError('');
     try { const next = await bridge.capabilityCatalog(); if (alive.current) setCatalog(next); }
     catch (error) { if (alive.current) setError(errorText(error, zh)); }
-    finally { if (alive.current) setLoading(false); }
+    finally { operation.current = false; if (alive.current) setLoading(false); }
   };
   useEffect(() => {
     alive.current = true;

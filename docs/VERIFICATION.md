@@ -1,5 +1,32 @@
 # Verification
 
+## Command Presentation And Dispatch (2026-10-23)
+
+The command menu, composer and sent user messages now share semantic icons.
+Inline commands after prose and newlines are marked without rewriting the
+prompt; code, paths, links and unknown tokens stay ordinary text. Markdown
+formatting and skill/template source icons are preserved.
+
+Standalone Usage commands open the existing overview or Account settings, bare
+Cron opens its existing manager, and Compact uses the dedicated RPC rather than
+an ordinary prompt. Compact failure retains the draft; busy sessions do not
+queue it as prose. Parameterized Cron commands retain upstream handling.
+Prose mentions, attachments and quotes are not consumed as Desktop actions.
+
+Focused parser/catalog/Markdown/trust/status tests, typecheck and production
+build passed. Source Electron discovery and editing acceptance passed across
+light, dark and narrow layouts. Dedicated dispatch acceptance covers Usage,
+Cron, Compact success/failure and the running-session guard. It also protects
+against reusing the decoration array consumed by ProseMirror during loading-only
+renders.
+
+The real pinned bundle passed read-only task, workflow, CLM, Cron, Goal and
+Ultracode checks, Plan toggling, cancelled plugin/feedback dialogs and loopback
+Init dispatch. No real model, account balance query, feedback upload or plugin
+installation was used in those runtime checks. See [COMMANDS.md](COMMANDS.md)
+for the full inventory and deferred mappings. No new installer or packaged
+acceptance is claimed by this source verification.
+
 ## Summary Turn Alignment And CI Replay (2026-10-22)
 
 The Summary activity dot now follows live conversation execution immediately;

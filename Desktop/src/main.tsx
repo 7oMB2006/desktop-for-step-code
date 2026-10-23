@@ -50,7 +50,7 @@ import { ComposerMenu } from './ComposerMenu';
 import { CommandCatalog } from './CommandReference';
 import { ComposerInput } from './ComposerInput';
 import { clmNotice } from './clm-notice';
-import { desktopCommands, isStatusCommand } from './composer-commands';
+import { desktopCommand, desktopCommands } from './composer-commands';
 import { composerAction } from './composer-action';
 import { SelectionToolbar } from './SelectionToolbar';
 import { QuotePreview } from './QuotePreview';
@@ -802,6 +802,11 @@ function App() {
     setUsageOpen(true);
     setCompactSidebarOpen(false);
   };
+  const openScheduled = () => {
+    if (!bridge) return;
+    setUsageOpen(false); setDetails(''); setExpandedRightPanel(null);
+    setScheduledOpen(true); setCompactSidebarOpen(false);
+  };
   useEffect(() => {
     if (!settingsClosing) return;
     // Keep dismissal reliable if an animation is cancelled or motion preferences change.
@@ -870,8 +875,30 @@ function App() {
     });
   };
   const send = async () => {
-    if (!navigationPending.current && !loading && isStatusCommand(draft, attachments.length, quotes.length)) {
-      setDraft(''); setDetails(''); setContextView('status'); setRightPanel('context');
+    const local = desktopCommand(draft, attachments.length, quotes.length);
+    if (!navigationPending.current && !loading && local) {
+      if (local.name === 'compact') {
+        if (!connected || !data.runtimeId || composerBusy || data.state?.isCompacting || firstSend.current) {
+          setError(t('请等待当前任务结束，并在已有会话中压缩上下文', 'Wait for the current task to finish and compact an existing conversation'));
+          return;
+        }
+        const message = draft;
+        const owner = viewId.current;
+        setLoading(true);
+        try {
+          await run(async () => {
+            await rawCommand('compact', { customInstructions: local.args || undefined });
+            if (viewId.current === owner) setDraft(value => value === message ? '' : value);
+          });
+        } finally { setLoading(false); }
+        return;
+      }
+      setDraft('');
+      if (local.name === 'usage') {
+        if (local.args === 'account') { setTab('account'); await openSettings(); }
+        else openUsage();
+      } else if (local.name === 'cron') openScheduled();
+      else { setDetails(''); setContextView('status'); setRightPanel('context'); }
       return;
     }
     if (navigationPending.current || (!draft.trim() && !attachments.length && !quotes.length) || !connected || loading || firstSend.current) return;
@@ -1289,7 +1316,7 @@ function App() {
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
           aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
       <SidebarTaskActions selected={scheduledOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
-        onScheduledTasks={() => { if (!bridge) return; setUsageOpen(false); setDetails(''); setExpandedRightPanel(null); setScheduledOpen(true); setCompactSidebarOpen(false); }}/>
+        onScheduledTasks={openScheduled}/>
       <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
           <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>

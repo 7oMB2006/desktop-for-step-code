@@ -5,7 +5,8 @@ import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
 import { history, redo, undo } from 'prosemirror-history';
 import { keymap } from 'prosemirror-keymap';
 import { deleteSelection, selectAll } from 'prosemirror-commands';
-import { CommandCatalog, CommandReference, commandReference } from './CommandReference';
+import { CommandCatalog, CommandReference } from './CommandReference';
+import { commandRanges } from './command-references';
 import { MessageLink } from './MessageLink';
 import { composerLinkRanges } from './composer-links';
 import { composerDocument, composerSchema, composerSelection, composerValueSync, isComposerInputChange, selectComposer, type ComposerInputElement } from './composer-input';
@@ -35,16 +36,15 @@ export function ComposerInput(props: Props) {
       items.push(Decoration.widget(link.from + 1, element, { side: -1, ignoreSelection: true, stopEvent: () => true }),
         Decoration.inline(link.from + 1, link.to + 1, { class: 'composer-inline-link-text' }));
     }
-    const command = commandReference(props.value, commands);
-    if (command) {
+    for (const command of commandRanges(props.value, commands)) {
       const element = document.createElement('span');
       element.className = 'composer-inline-command-icon';
       element.contentEditable = 'false';
       element.setAttribute('aria-hidden', 'true');
-      portals.push({ element, content: <CommandReference {...command}/>, key: `command:${command.name}:${command.source}` });
-      items.push(Decoration.widget(1, element, { side: -1, ignoreSelection: true }),
-        Decoration.inline(1, 2, { class: 'composer-command-slash' }),
-        Decoration.inline(2, command.length + 1, { class: 'composer-command-name' }));
+      portals.push({ element, content: <CommandReference {...command}/>, key: `command:${command.from}:${command.name}:${command.source}` });
+      items.push(Decoration.widget(command.from + 1, element, { side: -1, ignoreSelection: true }),
+        Decoration.inline(command.from + 1, command.from + 2, { class: 'composer-command-slash' }),
+        Decoration.inline(command.from + 2, command.to + 1, { class: 'composer-command-name' }));
     }
     return { items, portals };
   }, [props.value, props.language, commands]);
@@ -96,7 +96,8 @@ export function ComposerInput(props: Props) {
         .setMeta(composerValueSync, true).setMeta('addToHistory', false));
     }
     const document = editor.state.doc;
-    const set = DecorationSet.create(document, decorations.items);
+    // ProseMirror consumes this array; loading-only renders reuse the memoized items.
+    const set = DecorationSet.create(document, [...decorations.items]);
     editor.setProps({ editable: () => !latest.current.disabled,
       decorations: state => state.doc === document ? set : DecorationSet.empty });
   }, [props.value, props.disabled, decorations]);

@@ -23,7 +23,7 @@ try {
   await app.evaluate(({ ipcMain }, snapshot) => {
     const model = { provider: 'stepfun', id: 'step-3.5-flash', name: 'Step 3.5 Flash', contextWindow: 256000, thinkingLevels: ['low', 'medium', 'high'] };
     globalThis.menuFixture = { ...snapshot, state: { ...snapshot.state, model, thinkingLevel: 'medium' }, models: [model], messages: [
-      { role: 'user', content: '请整理这个项目的结构。' },
+      { role: 'user', content: '请整理 /clm **这个项目** 的结构，再看 /usage。\n`/clm` 和 [/clm](https://example.com) 保留原样。' },
       { role: 'assistant', content: '项目包含桌面界面、运行时桥接和验收脚本。可以先从聊天栏交互开始。' },
     ] };
     globalThis.menuPrompts = 0;
@@ -57,7 +57,7 @@ try {
         if (args[0] === 'get_available_thinking_levels') return { levels: ['low', 'medium', 'high'] };
         if (args[0] === 'get_commands') return { commands: [
           ...(globalThis.menuPermissionsSupported ? [{ name: 'permissions', source: 'extension' }] : []),
-          ...['goal', 'plan', 'todo', 'ultracode', 'compact', 'cron', 'init', 'mcp', 'exit', 'theme', 'llama'].map(name => ({ name, source: 'extension', description: `${name} command` })),
+          ...['goal', 'plan', 'todos', 'workflows', 'usage', 'feedback', 'ultracode', 'cron', 'init', 'mcp', 'exit', 'theme', 'llama'].map(name => ({ name, source: 'extension', description: `${name} command` })),
           { name: 'review-code', source: 'skill', description: '审查代码变更' },
           { name: 'daily-note', source: 'prompt', description: '整理每日记录' },
         ] };
@@ -82,7 +82,16 @@ try {
   assert.equal(await menu.getByText('/exit', { exact: true }).count(), 0);
   assert.equal(await menu.locator('svg.lucide-goal').count(), 1);
   assert.equal(await menu.locator('svg.lucide-lightbulb').count(), 1);
-  assert.equal(await menu.locator('svg.lucide-network').count(), 1);
+  assert.equal(await menu.locator('svg.lucide-network').count(), 2);
+  assert.equal(await menu.getByRole('option', { name: /用量统计/ }).locator('svg.lucide-chart-bar').count(), 1);
+  assert.equal(await menu.getByRole('option', { name: /定时任务/ }).locator('svg.lucide-clock-3').count(), 1);
+  assert.equal(await menu.getByRole('option', { name: /推进清单/ }).locator('svg.lucide-list-todo').count(), 1);
+  assert.equal(await menu.getByRole('option', { name: /工作流/ }).locator('svg.lucide-network').count(), 1);
+  assert.equal(await menu.getByRole('option', { name: /压缩上下文/ }).count(), 1);
+  const sent = page.locator('.message.user').first();
+  assert.equal(await sent.locator('.command-reference').count(), 2, 'Sent prose recognizes inline commands without marking code or links');
+  assert.equal(await sent.locator('.command-reference svg.lucide-chart-bar').count(), 1);
+  assert.equal(await sent.locator('strong').innerText(), '这个项目', 'Command decoration retains Markdown');
   assert.equal(await menu.getByRole('option', { name: /MCP/ }).locator('svg.lucide-mcp').count(), 1);
   await page.waitForTimeout(220);
   const geometry = await page.evaluate(() => {
@@ -151,6 +160,7 @@ try {
   await page.screenshot({ path: 'test-results/composer-inline-slash-dark.png' });
   await input.press('Enter');
   assert.equal(await input.evaluate(element => element.value), '先检查项目 /clm ', 'Completion preserves preceding prose');
+  assert.equal(await input.locator('.composer-inline-command-icon svg.lucide-command').count(), 1, 'Inline completion becomes a command marker');
   assert.equal(await menu.count(), 0);
   assert.equal(await app.evaluate(() => globalThis.menuPrompts), 0, 'Inline completion never submits the draft');
   const middleDraft = '先检查 /cl 然后总结';
@@ -164,6 +174,18 @@ try {
   await menu.waitFor();
   await input.press('Enter');
   assert.equal(await input.evaluate(element => element.value), '第一行\n/clm-compact ', 'Commands complete after a newline');
+  assert.equal(await input.locator('.composer-inline-command-icon').count(), 1);
+  await input.fill('a /clm 再看 /usage 和 /cron\n/todos /workflows');
+  await page.waitForFunction(() => document.querySelectorAll('.composer-inline-command-icon').length === 5);
+  assert.equal(await input.locator('svg.lucide-chart-bar').count(), 1);
+  assert.equal(await input.locator('svg.lucide-clock-3').count(), 1);
+  assert.equal(await input.evaluate(element => element.value), 'a /clm 再看 /usage 和 /cron\n/todos /workflows');
+  await page.locator('.composer').screenshot({ path: 'test-results/composer-command-inline-dark.png' });
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await page.locator('.composer').screenshot({ path: 'test-results/composer-command-inline-light.png' });
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await input.fill('`/clm` [/usage](https://example.com) /cron/file /unknown');
+  assert.equal(await input.locator('.composer-inline-command-icon').count(), 0);
   await input.fill('先检查\t/pl');
   await menu.waitFor();
   await input.press('Escape');

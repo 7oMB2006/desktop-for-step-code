@@ -1,5 +1,20 @@
 # Verification
 
+## Migration CI Paths And Unavailable Projects (2026-10-23)
+
+Windows sessions run `39900979276` reached the new grouping assertion with a
+`RUNNER~1` temporary-path alias. The client correctly stores native real paths;
+the fixture now canonicalizes its isolated profile before constructing and
+comparing workspace paths, rather than weakening the grouping assertions.
+
+A separate regression reproduced a saved copy whose original project directory
+was deleted before duplicate-import grouping repair. The previous build returned
+ENOENT from import-history queries and failed to finish orderly fixture shutdown.
+Registration now skips unavailable saved directories without creating replacements
+or rewriting the copy. The extended source Electron migration acceptance passes,
+including subsequent journal reads and orderly shutdown. Cloud checks remain
+required for the replacement head.
+
 ## Import Confirmation And Project Grouping (2026-10-23)
 
 Import now confirms directory counts and an optional, default-on sidebar project

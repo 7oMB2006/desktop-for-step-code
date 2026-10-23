@@ -203,8 +203,8 @@ const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-i
     const independent = pathKey(await realpath(independentRoot).catch(() => independentRoot));
     for (const sessionId of sessionIds) {
       const directory = await importedProjectDirectory(dataRoot, sessionId);
-      const canonical = await realpath(directory);
-      if (!(await stat(canonical)).isDirectory()) continue;
+      const canonical = await realpath(directory).catch(() => undefined);
+      if (!canonical || !(await stat(canonical).catch(() => undefined))?.isDirectory()) continue;
       if (pathKey(canonical) === independent || pathKey(canonical).startsWith(`${independent}/`)) continue;
       const existing = await sessionWorkspacePath(canonical);
       if (!existing && !preferences.workspaces.some(path => pathKey(path) === pathKey(canonical)))

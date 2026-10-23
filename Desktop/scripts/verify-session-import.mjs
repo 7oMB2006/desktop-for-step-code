@@ -1,6 +1,6 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rmdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
@@ -10,7 +10,8 @@ if (process.platform !== 'win32') {
   console.log('Session import acceptance is Windows-only.');
   process.exit(0);
 }
-const profile = await mkdtemp(join(tmpdir(), 'desktop-session-import-'));
+// Windows runners may expose TEMP through an 8.3 alias; compare native canonical paths.
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-session-import-')));
 const fixture = await queueFixture(profile, { duration: 100 });
 const sourceRoot = join(profile, 'codex');
 const claudeRoot = join(profile, 'claude');
@@ -324,9 +325,28 @@ try {
   const regrouped = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(regrouped.preferences.workspaces.includes(standaloneWorkspace), 'repair uses the saved copy directory, not the new selection');
   assert.equal(regrouped.preferences.workspaces.filter(path => path === fixture.workspace).length, 1);
+  // A saved copy may outlive its original directory. Skipping unavailable grouping
+  // must not make the durable import journal unreadable.
+  await rmdir(standaloneWorkspace);
+  const unavailable = await page.evaluate(async destination => {
+    const scan = await window.desktop.importScan({});
+    const candidate = scan.candidates.find(item => item.sessionId === 'page-00');
+    const preview = await window.desktop.importPreview(candidate.id);
+    return window.desktop.importStart([{ candidateId: candidate.id, fingerprint: preview.fingerprint, cwd: destination }],
+      { addProjects: true });
+  }, fixture.workspace);
+  let unavailableResult;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    unavailableResult = (await page.evaluate(() => window.desktop.importJobs())).find(job => job.id === unavailable.id);
+    if (unavailableResult.status !== 'running') break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal(unavailableResult.results[0].status, 'skipped');
+  assert.ok((await page.evaluate(() => window.desktop.importJobs())).length >= 5, 'unavailable saved directory cannot poison later history queries');
   assert.deepEqual(errors, []);
   console.log('Session migration passed: isolated scan, optional preview, immutable import, duplicate protection, native history/model/usage, themes, narrow layout, durable relaunch, pagination and bulk import with automatic snapshots.');
 } catch (error) {
+  console.error(error);
   const page = (await app.windows())[0];
   if (page) {
     await page.screenshot({ path: 'test-results/session-import-failure.png' }).catch(() => {});

@@ -1,0 +1,7 @@
+body { min-width: 280px; background: var(--side); }
+.motion-demo { width: min(100%, 620px); padding: 32px 12px; margin: 0 auto; }
+.demo-controls { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+.demo-controls button { font-size: 12px; }
+.motion-demo .summary-board { position: relative; inset: auto; width: min(320px, 100%); max-height: none; margin: 0 auto; }
+.motion-demo .summary-content { max-height: none; overflow: visible; }
+@media (max-width: 420px) { .motion-demo { padding-top: 20px; } }

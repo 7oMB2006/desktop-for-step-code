@@ -4039,3 +4039,91 @@ The complete 31-script Windows interface acceptance group also passed locally,
 including the theme bootstrap startup race and final performance matrix check.
 This local run preceded synchronization with main's StepPage and fader changes;
 replacement cloud CI must validate the combined tree.
+
+## Task Progress Completion Motion
+
+The summary task progress now uses the existing yellow-to-purple palette while
+unfinished, including the interval between checklist completion and the final
+round completion event. Only a matching live `desktop_task_completed` event can
+start the impact, right-to-left green sweep and square dust. The existing sound
+and visual subscribers share that event delivery; task counts, reopening the
+panel and restored sessions do not play another sound. Original row completion
+and folding animations remain unchanged. Incomplete lists never fill falsely.
+
+Local source checks passed: typecheck/build, completion sound tests, browser
+motion acceptance, existing summary disclosure acceptance, real Electron motion
+acceptance with a local streaming provider, and summary runtime acceptance.
+Motion acceptance covers scope isolation, reduced motion, narrow layout, impact,
+dust cleanup, waiting for the round to end and reopening without replay.
+Media playback is intercepted in automated acceptance to count trigger timing;
+actual speaker latency is not measured. No real account or paid model is used.
+The full unit run encountered an unchanged Windows terminal-count teardown
+failure; this is not recorded as a fully green unit suite.
+Rerunning the other unit files completed with 609 passing and 13 skipped tests;
+all 15 CI policy/runner tests also passed.
+
+### Delayed Final Task Snapshot
+
+PR #147 review identified a race between live round completion and asynchronous
+summary refresh. A held-summary fixture reproduces the missing animation before
+the fix. The mounted progress component now retains its matching completion
+until the task snapshot confirms a full list. Only visuals are deferred; the
+original event still plays the sound once. A new round, scope change or unmount
+discards the buffer, and events received while hidden or with reduced motion
+cannot start a delayed impact.
+
+The regression verifies the delayed snapshot, no duplicate sound, cancellation
+on a new round and unmount, plus the existing scope and motion matrix.
+Typecheck, build, completion-sound tests and real Electron progress acceptance
+passed. This follow-up does not rebuild the existing local preview installer.
+
+### Task History Across Turns
+
+Completed tasks from earlier turns now leave current progress and appear in a
+collapsed entry above the current list. Incomplete/failed work carries over.
+The bounded main-process projection includes original task timestamps and
+explicit archived plans, without metadata or configuration. Renderer projection
+reconstructs history from persisted records rather than mounted state, with a
+conservative successful-tool-result fallback for legacy tasks lacking timestamps.
+
+Focused projection tests, typecheck/build, browser progress and disclosure
+acceptance, and real Electron progress/summary-runtime checks passed locally.
+Coverage includes independent current counts, partial-plan wording, history
+anchor stability, original archived statuses, narrow dark/reduced-motion and
+English layouts, panel reopen, and renderer reload against the real staged
+runtime with a local streaming fixture provider. The existing completion sound,
+impact/sweep/dust and delayed-final-snapshot regressions remain covered.
+The refreshed Electron acceptance uses the existing orderly quit-review helper
+after reload. Entrance-frame assertions compare with final measured row height
+rather than requiring a particular early-frame pixel threshold.
+After integrating main through model-preference fix #148, the remaining unit
+files passed with 632 passing and 13 skipped tests; all 15 CI policy/runner
+tests passed. The staged Desktop admin adapter was refreshed from the merged
+source; the upstream runtime pin is unchanged. The
+unchanged Windows terminal-session teardown file noted above remains excluded.
+The rebuilt unsigned Windows preview at
+`Desktop/release/task-history-20261022-preview` passed packaged task-progress
+acceptance (including next-turn retirement and renderer reload) and general
+Electron acceptance with isolated profiles and a local fixture provider.
+No real-account/model acceptance or fresh cloud-CI success is claimed.
+
+### Model Discovery Registration Refresh Race
+
+Runs `39787315956` (Windows sessions) and `39787315934` (macOS ARM64)
+failed the same discovered-model catalog test after credential replacement.
+Provider registration schedules an asynchronous offline refresh. If that pass
+reaches the runtime after explicit discovery starts, it can cancel the network
+pass and replace its catalog with an empty offline snapshot.
+
+Desktop's per-request management runtime now serializes those refreshes, without
+changing the upstream pin, authentication routing or credential-scoped cache
+rules. A test-only preload delays registration refresh while the loopback
+provider holds its response; the new regression fails before the fix and passes
+after it. Normal and delayed cases retain account/endpoint isolation, failed and
+cancelled login, cached capability and recovery assertions.
+
+Locally, 76 related tests and typecheck passed, followed by 25 repetitions of
+both discovery cases (50 cases total). Real Electron model-switch acceptance
+passed, including persistent selection, missing-model protection and explicit
+recovery. This follow-up does not rebuild or retarget the existing preview
+package. Replacement cloud CI must validate both native platforms.

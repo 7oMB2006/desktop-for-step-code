@@ -1,0 +1,17 @@
+.sb-task-progress { position: relative; height: 3px; margin: 10px 4px 0; }
+.task-progress-track { position: absolute; inset: 0; border-radius: 2px; overflow: hidden; background: color-mix(in oklch, var(--muted) 15%, var(--bg)); }
+.task-progress-fill { position: absolute; inset: 0 auto 0 0; overflow: hidden; background: linear-gradient(90deg, #FFDC62 0%, #FDB3A2 32%, #D58FEF 66%, #9E72FB 100%); transition: width .3s cubic-bezier(.215,.61,.355,1); }
+.task-progress-current { position: absolute; inset: 0; background: linear-gradient(90deg, transparent, oklch(1 0 0 / .42), transparent) -100px 0 / 100px 100% no-repeat; animation: task-progress-flow 3s linear infinite; }
+.task-progress-green { position: absolute; inset: 0; background: var(--green); mask-image: linear-gradient(transparent, transparent); }
+.task-progress-dust { position: absolute; inset: 0; pointer-events: none; }
+.task-progress-dust i { position: absolute; display: block; background: color-mix(in oklch, var(--green) 58%, #FFDC62); }
+.task-progress-dust i:nth-child(3n) { background: #D58FEF; }
+.task-progress-dust i:nth-child(4n) { background: var(--green); }
+.sb-task-progress[data-phase=complete] .task-progress-green { mask-image: none; }
+.sb-task-progress[data-phase=complete] .task-progress-current { animation: none; opacity: 0; }
+@keyframes task-progress-flow { to { background-position: 390px 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .task-progress-fill { transition: none; }
+  .task-progress-current { animation: none; }
+  .task-progress-dust { display: none; }
+}

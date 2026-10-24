@@ -4443,3 +4443,22 @@ both discovery cases (50 cases total). Real Electron model-switch acceptance
 passed, including persistent selection, missing-model protection and explicit
 recovery. This follow-up does not rebuild or retarget the existing preview
 package. Replacement cloud CI must validate both native platforms.
+
+### Update Installer Fixture Shutdown
+
+Windows interface run `39995014128` reached the update installer's successful
+UI assertions, then timed out while closing its Electron fixture. The shared
+orderly-close helper now installs the existing Windows pipe-release guard, and
+the update-installer acceptance uses that helper. Pipes are released only after
+the launcher exits with code zero and every application window closes; normal
+quit review and state flushing remain in use. Shutdown errors still propagate,
+and guard listeners are removed on both success and failure.
+
+The new helper integration regression failed before this change and passed
+after it. All eight shutdown tests and typecheck passed locally, as did three
+consecutive update-installer runs and update-settings Electron acceptance.
+Plugin-management, session-move and then-run Electron acceptance also passed,
+including their orderly shutdown and persisted-history checks.
+The full local interface group could not run because this machine lacks the
+matching Playwright Chromium headless binary. Cloud CI must validate the full
+group; no fresh package or cloud success is claimed by these local checks.

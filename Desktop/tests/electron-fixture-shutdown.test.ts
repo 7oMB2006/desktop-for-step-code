@@ -17,11 +17,14 @@ test('orderly fixture shutdown answers existing and changed quit reviews without
       if (id === 'initial') throw new Error('Quit confirmation changed');
     },
   };
-  const page = {
+  const page = Object.assign(new EventEmitter(), {
+    isClosed: () => false,
     evaluate: async (callback: () => void) => runInNewContext(`(${callback.toString()})()`, { window: { desktop } }),
-  };
+  });
   let closed = false;
+  const child = new EventEmitter();
   await closeDesktopFixture({
+    process: () => child,
     windows: () => [page],
     close: async () => {
       onEvent({ type: 'unrelated', state: { request: { id: 'ignored', phase: 'review' } } });
@@ -33,6 +36,39 @@ test('orderly fixture shutdown answers existing and changed quit reviews without
     },
   });
   assert.equal(closed, true);
+  assert.equal(child.listenerCount('exit'), 0);
+});
+
+test('orderly fixture shutdown releases inherited pipes only after successful exit and closed pages', async () => {
+  const { child, page, dispose } = fixture();
+  dispose();
+  await closeDesktopFixture({
+    process: () => child,
+    windows: () => [page],
+    close: async () => {
+      child.exitCode = 0;
+      child.emit('exit', 0);
+      assert.equal(child.stdout.destroyed, false);
+      page.closed = true;
+      page.emit('close');
+      assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
+    },
+  });
+  assert.equal(child.listenerCount('exit'), 0);
+  assert.equal(page.listenerCount('close'), 0);
+});
+
+test('failed fixture shutdown removes pipe guards without hiding the error', async () => {
+  const { child, page, dispose } = fixture();
+  dispose();
+  await assert.rejects(closeDesktopFixture({
+    process: () => child,
+    windows: () => [page],
+    close: async () => { throw new Error('Fixture failed to close'); },
+  }), /Fixture failed to close/);
+  assert.equal(child.listenerCount('exit'), 0);
+  assert.equal(page.listenerCount('close'), 0);
+  assert.equal(child.stdout.destroyed, false);
 });
 
 function fixture() {
@@ -40,7 +76,9 @@ function fixture() {
   const child = Object.assign(new EventEmitter(), {
     exitCode: null as number | null, stdout: pipes[0], stderr: pipes[1], stdio: [null, ...pipes],
   });
-  const page = Object.assign(new EventEmitter(), { closed: false, isClosed() { return this.closed; } });
+  const page = Object.assign(new EventEmitter(), {
+    closed: false, isClosed() { return this.closed; }, evaluate: async () => {},
+  });
   const app = { process: () => child, windows: () => [page] };
   const dispose = releaseExitedFixturePipes(app);
   return { child, page, dispose };

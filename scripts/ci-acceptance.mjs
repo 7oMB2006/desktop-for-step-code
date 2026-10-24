@@ -100,6 +100,9 @@ export const localOnly = [
   'verify-steppage-prepare.mjs',
   // Status RPC coverage runs in verify-summary-runtime; this is the visual fixture.
   'verify-session-status-view.mjs',
+  // CLM visual fixtures; protocol tests and verify-command-dispatch cover the integration in CI.
+  'verify-clm-panel.mjs',
+  'verify-clm-preview.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

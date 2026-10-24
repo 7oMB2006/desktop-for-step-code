@@ -25,6 +25,15 @@ read access, Plan/Goal preservation, invalid-edit fallback and cancellation with
 explicit recovery. Profiles and model responses are isolated local fixtures.
 This is not paid-provider, installer install/upgrade or cloud-CI acceptance.
 
+The first replacement cloud runs failed in the shared browser fixture on both
+Windows and macOS: it still asserted that Context had no width selector. This
+was reproduced locally before changing the fixture. It now checks Context's
+independent standard default, all three Context widths, hidden inactive native
+pages and preservation of the browser's wide mode without stale fullscreen state.
+Source and packaged browser acceptance, typecheck and all 15 CI policy/runner
+tests pass locally. No application code, runtime pin or workflow gate changes
+are included in this fixture repair; replacement cloud checks remain required.
+
 ## Sidebar Session Search (2026-10-24)
 
 The former placeholder now filters existing non-archived session metadata in

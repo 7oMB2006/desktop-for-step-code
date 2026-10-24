@@ -70,7 +70,7 @@ try {
   });
   await page.getByRole('button', { name: '摘要板运行时验收', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   await page.getByRole('button', { name: '摘要', exact: true }).click();
   const board = page.getByRole('complementary', { name: '摘要', exact: true });
   await board.locator('.sb-plan-title').filter({ hasText: '接入摘要板' }).waitFor();

@@ -26,17 +26,56 @@ class Transport implements WorkerTransport {
   respond(value: Record<string, unknown>) { this.answers.push(value); }
   async stop() { this.stopped = true; }
 }
-function fixture() {
+function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   const transports: Transport[] = [];
   const events: RuntimeEvent[] = [];
   const pool = new SessionRuntimes(event => events.push(event), receive => {
     const transport = new Transport(receive, `session-${transports.length}`);
     transports.push(transport);
     return transport;
-  });
+  }, hooks);
   const open = (cwd = `workspace-${transports.length}`) => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+
+test('startup diagnostics separate process, restoration, snapshot and model phases without session content', async () => {
+  const { pool, open } = fixture();
+  try {
+    const worker = await open();
+    const timing = worker.startupTiming!;
+    assert.deepEqual(Object.keys(timing).sort(),
+      ['modelRestoreMs', 'processReadyMs', 'sessionRestoreMs', 'snapshotMs', 'totalMs']);
+    assert.ok(Object.values(timing).every(value => Number.isFinite(value) && value >= 0));
+    assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs - timing.snapshotMs - timing.modelRestoreMs) < .001);
+    pool.activate(worker);
+    assert.equal(worker.startupTiming, timing, 'Resident activation does not claim a new cold startup');
+  } finally { await pool.stopAll(); }
+});
+
+test('idle retention grows within its cap, shrinks under pressure and still expires old sessions', async () => {
+  let limit = 4;
+  const { pool, open } = fixture({ idleLimit: () => limit });
+  try {
+    const workers = [];
+    for (let index = 0; index < 6; index++) {
+      const worker = await open();
+      worker.messages = [{ role: 'user', content: 'saved' }];
+      worker.touched = Date.now() - (6 - index) * 100;
+      workers.push(worker);
+    }
+    await pool.recycle();
+    assert.equal(pool.workers.size, 5, 'Four idle sessions plus the active session');
+    assert.equal(pool.workers.has(workers[0].id), false);
+    limit = 2;
+    await pool.recycle();
+    assert.equal(pool.workers.size, 3);
+    assert.equal(pool.active, workers[5]);
+    workers[3].touched = Date.now() - 6 * 60000;
+    limit = 100;
+    await pool.recycle();
+    assert.equal(pool.workers.has(workers[3].id), false, 'More headroom does not override expiry');
+  } finally { await pool.stopAll(); }
+});
 
 test('Moved-session Cron isolation survives provider-driven transport refresh', async () => {
   const transports: Transport[] = [];
@@ -577,6 +616,37 @@ test('recycling rechecks activation and pending operations after awaiting anothe
   assert.equal(pool.workers.has(workers[0].id), true, 'Recheck a Cron pin acquired while another host was stopping');
   workers[1].operations--;
   await pool.stopAll();
+});
+
+test('recycling retains navigation preparations and rechecks new reservations during disposal', async () => {
+  const { pool, transports, open } = fixture();
+  const workers = [];
+  for (let i = 0; i < 5; i++) {
+    const worker = await open();
+    worker.messages = [{ role: 'user', content: 'saved' }];
+    worker.touched = i;
+    workers.push(worker);
+  }
+  const reserved = new Set([workers[2]]);
+  let finish!: () => void, disposing!: () => void;
+  const began = new Promise<void>(resolve => { disposing = resolve; });
+  const stop = new Promise<void>(resolve => { finish = resolve; });
+  transports[3].stop = async () => { disposing(); await stop; };
+  const recycling = pool.recycle(worker => reserved.has(worker));
+  try {
+    await began;
+    reserved.add(workers[1]);
+    finish();
+    await recycling;
+    assert.equal(pool.workers.get(workers[2].id), workers[2], 'A preparation can be connected before initialization finishes');
+    assert.equal(pool.workers.get(workers[1].id), workers[1], 'A new navigation reservation is rechecked after awaiting disposal');
+    assert.equal(pool.workers.has(workers[0].id), false, 'Unreserved expired workers still recycle');
+    assert.equal(pool.active, workers[4]);
+  } finally {
+    finish();
+    await recycling;
+    await pool.stopAll();
+  }
 });
 
 test('repeated new-session requests reuse one empty worker without resetting it', async () => {

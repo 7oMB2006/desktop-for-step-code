@@ -56,6 +56,26 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1200, 850);
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
+  // Force history to paint before the authoritative runtime, as on slower runners.
+  await app.evaluate(() => {
+    const childProcess = process.getBuiltinModule('child_process');
+    const spawn = childProcess.spawn;
+    childProcess.spawn = function (...args) {
+      const child = spawn.apply(this, args);
+      if (!args[1]?.includes('--mode') || !args[1]?.includes('rpc')) return child;
+      childProcess.spawn = spawn;
+      const write = child.stdin.write;
+      child.stdin.write = function (...values) {
+        let command;
+        try { command = JSON.parse(String(values[0])); } catch {}
+        if (command?.type !== 'get_state') return write.apply(this, values);
+        child.stdin.write = write;
+        setTimeout(() => { if (!child.stdin.destroyed) write.apply(child.stdin, values); }, 1600);
+        return true;
+      };
+      return child;
+    };
+  });
   await page.getByText(user.content, { exact: true }).click();
   await page.locator('.elapsed-total').waitFor();
   await page.locator('.sidebar').hover();
@@ -69,6 +89,8 @@ try {
   await page.locator('.sidebar').hover();
   await page.waitForTimeout(180);
   await page.screenshot({ path: 'test-results/conversation-elapsed-dark.png' });
+  await page.waitForFunction(() => document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false'
+    && !document.querySelector('.session-reading-preview'), undefined, { timeout: 60000 });
   await page.reload();
   await page.locator('.elapsed-total').waitFor();
   assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m 23s');

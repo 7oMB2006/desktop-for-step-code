@@ -62,6 +62,179 @@ relaunch, scoped restart and cold background-work guards. Capability management
 and general Electron acceptance also passed against the restaged runtime.
 This does not update the previous preview installer.
 
+## Reading-First Session Navigation (2026-10-24)
+
+### Editable Recovery Follow-Up
+
+The follow-up supersedes the inert preview/composer behavior described below.
+Cold reading now permits copying and historical disclosures, while the selected
+session owns an immediately editable text draft. Enter, attachment imports and
+runtime controls remain gated. Authoritative handoff preserves the editor
+instance, focus and caret; overtaken and failed targets retain separate drafts.
+Readiness fixtures now wait for the composer navigation gate, not just an
+editable textbox.
+
+Windows retains up to four recyclable idle workers while free system memory is
+at least 3 GiB, otherwise two. Other platforms keep two. Five-minute expiry and
+all active task, Goal, Cron, pending-operation and navigation reservations remain
+unchanged. This does not prewarm unvisited agents and is not a hard cap on
+protected workers. Periodic and post-navigation recycling re-evaluate the budget.
+
+Runtime snapshots include numeric startup durations for process readiness,
+session restoration, snapshot loading and model confirmation. They carry no
+paths, prompts or credentials. Resident reuse retains the original startup
+sample, rather than reporting it as a new startup.
+
+The local offline benchmark in
+`Desktop/test-results/session-navigation-performance-current.json` measured:
+
+| Scenario | Readable | Editable | Execution Ready |
+| --- | ---: | ---: | ---: |
+| Cold 0 | 49ms | 9ms | 792ms |
+| Cold 1 | 20ms | 8ms | 754ms |
+| Cold 2 | 16ms | 7ms | 758ms |
+| Resident | 12ms | 12ms | 28ms |
+| Three rapid selections | 99ms | 89ms | 816ms |
+
+Process readiness still accounts for 627-663ms in the cold samples. These
+changes remove local interaction blocking and improve residency, not upstream
+initialization itself. They do not establish real-account/MCP latency.
+
+Typecheck, build, 77 targeted unit tests and real Electron navigation acceptance
+passed, including paused startup, copy/disclosure actions, unsent Enter, caret
+handoff, rapid target drafts, failure recovery, identity and billing guards.
+
+The serial TypeScript unit suite passed with `terminal-sessions.test.ts` excluded
+because of its previously observed Windows process-tree failure; terminal
+acceptance is not claimed here. The 15 CI policy/runner tests also passed.
+The complete local Windows `sessions` acceptance group passed all 18 scripts
+(`Desktop/test-results/ci-sessions.json`), covering launch consent, cancellation,
+concurrency, navigation, branching, ordering, queues, model selection, peer
+sessions, imports, movement and large-history continuation. The large-history
+fixture opened a 61,761,405-byte source in 2,134ms and continued in 976ms without
+paid model requests.
+
+The local Windows `runtime` group also passed all 24 scripts after the timing
+fixture was made to delay initial readiness by 1.6 seconds and await navigation
+handoff before reloading. This reproduced the cloud reload race before the wait
+was added. After synchronizing main, build, typecheck, timing and sidebar-search
+acceptance passed again. The search fixture likewise reproduced a premature
+session-ID assertion before awaiting the navigation gate; its cleanup now uses
+the shared orderly fixture shutdown instead of hanging on quit review.
+
+The unsigned Windows preview was built at
+`D:\Desktop For Step Code\Desktop\release\session-navigation-interactive-20261024-preview`.
+Its runtime reuses the preceding accepted preview, with all 1,224 staged files
+verified identical and runtime pin, patched-source hashes and Node executable
+checked. No upstream source was restaged or modified. Fresh renderer/main builds
+are included. Packaged navigation and general Electron acceptance passed using
+isolated profiles and offline fixtures. Installer metadata matches `latest.yml`;
+the 147,260,007-byte installer's SHA256 is
+`486c87cb45ae7ad6bd9acf8e584b23ffd414ac90bb4f1e92c15f7d6a7bb4238e`.
+The desktop shortcut points to this preview. The running older preview and
+other workstreams' packages were preserved.
+
+These checks do not establish personal-account behavior, installer upgrade
+lifecycle, macOS acceptance or replacement cloud CI results.
+
+An isolated Windows Electron profile with eight native sessions, three rounds
+each and an offline localhost model fixture measured the following milliseconds
+on the same machine. Baseline is main `3d38532`; reports are
+`Desktop/test-results/session-navigation-performance-{baseline,optimized-final}.json`.
+No paid model requests or personal profile data were used.
+
+| Scenario | Baseline Readable | New Readable | Baseline Ready | New Ready |
+| --- | ---: | ---: | ---: | ---: |
+| Cold 0 | 713 | 43 | 713 | 751 |
+| Cold 1 | 673 | 16 | 673 | 745 |
+| Cold 2 | 681 | 14 | 681 | 761 |
+| Resident | 11 | 11 | 26 | 26 |
+| Three rapid selections | 1384 | 93 | 1384 | 842 |
+
+The first RPC response took about 588-606ms after spawning; the subsequent
+`switch_session` took about 32ms. Removing that switch alone would not address
+the dominant startup cost. Direct `--session` startup was investigated but not
+enabled: upstream restores the header cwd, whereas moved sessions require
+Desktop's cwd override. No upstream sources, runtime pin or recovery/trust
+semantics were changed.
+
+Cold transcript reading now uses the already-running management process, bounded
+to 12 MiB of input and a 24 MiB serialized response. It uses upstream in-memory
+migration, active-branch and compaction projection, followed by the existing
+Desktop imported-history, entry-ID, timing and workflow projections. It never
+opens a SessionManager, repairs a newline or rewrites history. Larger,
+changing, unavailable or future-format files fall back to ordinary startup.
+Only a catalogued Desktop session ID crosses the typed preload boundary; no
+renderer-provided path or executable runtime state is accepted.
+
+Previews contain transcript data and a content version, not permissions, model
+activation or pending actions. They remain inert and cannot enable sending.
+Navigation sequence and session identity guard their delivery. Authoritative
+runtime snapshots replace, never append to, previews and retain the existing
+live revision checks. The first cold preview now saves its reading anchor even
+without a prior composer draft.
+
+Cold preparation has two slots and only one latest queued target. Connected
+resident snapshots bypass those slots without starting another runtime; slow
+resident reads neither consume cold slots nor override a later selection.
+A 60ms cancellable
+window coalesces cold selections before spawning, accounting for the small
+single-selection ready-time increase above. Already-started overtaken workers
+finish without activation or force termination. Idle recycling runs after each
+preparation settles and periodically even while obsolete startups remain.
+Queued and in-flight navigation targets are reserved, and reservations are
+rechecked after awaiting another disposal. Existing running-task, Goal and
+Cron protection and idle-retention limits remain. After the latest
+runtime commits, session commands can proceed while obsolete preparation
+finishes, but account and shared-settings mutations remain locked.
+
+Comparative timing is a registered local-only check, not a hardware-dependent
+cloud timing budget. The regular CI navigation acceptance checks cold read-only
+delivery, newer-history handoff, drafts and anchors, superseded startup, late
+preview rejection, optional-preview failure and disconnected recovery.
+Initial typecheck and production build passed. The initial serial protocol suite passed
+735 tests with 13 platform skips; all 11 Windows CI-policy tests passed. Real
+Electron navigation, session-move, account-routing and the 14-case Cron management
+acceptance passed. The first full protocol run failed and hung in the unchanged
+terminal-count fixture's process-tree cleanup; its five isolated tests and a
+subsequent complete serial run passed. No terminal product code was changed.
+The isolated staged runtime is 175.9 MiB on D:, shared dependencies are reused,
+and no preview installer was created or previous package deleted.
+These synthetic results do not reproduce or quantify the user's several-second
+delay with their actual model discovery, MCP services and personal history.
+No installer, first-install acceptance, paid-model acceptance or cloud CI is
+claimed by this source-only change.
+
+### Navigation Review Follow-Up
+
+Four added regressions failed against the pre-fix implementation. After the
+resident bypass and independent recycling fix, all 82 focused history,
+navigation and runtime tests and all 15 CI policy/runner tests passed.
+The expanded real Electron navigation acceptance passed two held cold startups
+followed by a resident switch, repeated navigation with an obsolete startup
+still held, bounded connected workers, late-startup isolation and the account
+mutation lock. The existing preview, authoritative handoff, draft, anchor,
+failure-recovery and dark/narrow/reduced-motion checks also passed.
+Session-move and account-routing Electron acceptance passed again, including
+domestic/global API and Plan identity, login cancellation, running-task guards
+and denied Plan requests never falling back to API. All 14 Cron management
+Electron cases also passed against the updated main process.
+
+A fresh fixture timing run is recorded in
+`Desktop/test-results/session-navigation-performance-review-fixed.json`.
+Cold history was readable in 14-43ms and executable in 775-829ms; the resident
+case measured 11ms/27ms, and the three-selection latest target measured
+94ms/794ms. As above, this is synthetic local timing, not actual-account/MCP
+acceptance or evidence that single cold startup became faster.
+
+The new complete serial run executed 752 tests: 738 passed, 13 platform skips,
+and one failure in the unchanged terminal-count fixture's process-tree cleanup.
+Its isolated rerun passed four tests and reproduced that same cleanup failure.
+Only fixture-host children verified under those test runners were stopped so
+the runners could finish; no user terminals or terminal product code changed.
+This follow-up therefore does not claim a fully green unit suite or release
+readiness.
+
 ## Plugin, MCP And Skills Management (2026-10-23)
 
 Management follows the upstream Web/Desktop MVP user-scope APIs, isolated under

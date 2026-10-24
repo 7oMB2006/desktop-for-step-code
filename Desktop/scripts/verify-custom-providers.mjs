@@ -99,7 +99,7 @@ const launch = async () => {
     const w = BrowserWindow.getAllWindows()[0];
     w.setOpacity(0); w.setIgnoreMouseEvents(true); w.showInactive(); w.setSize(1360, 900);
   });
-  await page.waitForFunction(() => document.querySelector('.composer .composer-input') && !document.querySelector('.composer .composer-input').disabled);
+  await page.waitForFunction(() => document.querySelector('.composer .composer-input') && !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer .composer-input').disabled);
 };
 const settings = async () => {
   await page.locator('.sidebar-bottom > button').click();

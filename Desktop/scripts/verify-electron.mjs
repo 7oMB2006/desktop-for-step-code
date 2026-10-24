@@ -534,7 +534,7 @@ try {
   await page.getByRole('button', { name: '独立验证会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '独立验证会话' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   assert.equal(await page.locator('.window-session-title').getAttribute('data-tooltip'), '独立验证会话');
   let independentState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(independentState.independent, true);
@@ -543,12 +543,12 @@ try {
   await page.getByRole('region', { name: '独立会话', exact: true }).getByRole('button', { name: '独立验证会话', exact: true }).waitFor();
   await page.getByRole('button', { name: process.platform === 'darwin' ? '应用菜单' : '视图', exact: true }).click();
   await page.getByRole('menuitem', { name: '重启运行时', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input').disabled);
   independentState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(independentState.independent, true);
   assert.equal(independentState.state.sessionId, 'fixture-2');
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input').disabled);
   independentState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(independentState.independent, true);
   assert.equal(independentState.messages.length, 0);
@@ -701,7 +701,7 @@ try {
     const snapshot = await window.desktop.snapshot();
     return snapshot.independent === false && snapshot.preferences.workspace === workspace && Boolean(snapshot.draftId);
   }, workspace);
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input').disabled);
   const projectState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(projectState.independent, false);
   assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
@@ -736,7 +736,7 @@ try {
   for (let i = 0; i < 5; i++) {
     await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).locator('..').hover();
     await page.getByRole('button', { name: '在 中文项目 with spaces 新建会话', exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
+    await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input').disabled);
     const reused = await page.evaluate(() => window.desktop.snapshot());
     assert.equal(reused.runtimeId, projectState.runtimeId);
     assert.equal(reused.state.sessionId, projectState.state.sessionId);
@@ -754,12 +754,12 @@ try {
   await firstGroup.getByRole('button', { name: '你好！', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '你好！' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   await page.locator('.conversation-scroll-track.hidden').waitFor();
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   await page.locator('.conversation-scroll-track:not(.hidden)').waitFor();
   await page.locator('.turn-marker').nth(2).waitFor();
   assert.equal(await page.locator('.turn-marker').count(), 3);
@@ -888,7 +888,7 @@ try {
   await page.getByRole('button', { name: '在 Second project 新建会话', exact: true }).click();
   await page.waitForFunction(() =>
     document.querySelector('.window-session-title')?.textContent === '新会话' &&
-    !document.querySelector('.composer > .composer-input')?.disabled
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled
   );
   const secondProjectState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(secondProjectState.independent, false);
@@ -969,11 +969,11 @@ try {
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'Second session' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   await page.evaluate(() => {
     window.__sessionSwitchEvents = [];
     window.__stopSessionSwitchEvents = window.desktop.onEvent(event => {
@@ -984,11 +984,11 @@ try {
   await firstGroup.getByRole('button', { name: '同项目另一会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '同项目另一会话' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   await firstGroup.getByRole('button', { name: '历史验证会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '历史验证会话' &&
     document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   assert.deepEqual(await page.evaluate(() => { window.__stopSessionSwitchEvents(); return window.__sessionSwitchEvents; }), []);
   console.log(`Same-workspace round trip: ${Date.now() - sameWorkspaceSwitchStarted} ms without a runtime restart.`);
   await page.screenshot({ path: 'test-results/workspace-tree.png' });
@@ -1527,7 +1527,7 @@ try {
   assert.equal(await performanceMetrics.nth(2).locator('strong').innerText(), '2K / 150');
   await page.getByRole('button', { name: '侧栏', exact: true }).click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input').disabled);
   assert.equal(await page.getByRole('region', { name: '性能信息' }).getByText('2K / 150', { exact: true }).count(), 0, 'new session cannot retain previous run usage');
   assert.deepEqual(errors, []);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()), false);
@@ -1562,7 +1562,7 @@ for (const userData of [profile, cleanProfile]) {
       await page.getByRole('button', { name: '独立验证会话', exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '独立验证会话' &&
         document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false' &&
-        !document.querySelector('.composer > .composer-input')?.disabled);
+        !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
       assert.equal((await page.evaluate(() => window.desktop.snapshot())).independent, true);
     }
     await page.screenshot({ path: `test-results/home-${userData === profile ? 'reopened' : 'first-run'}.png` });

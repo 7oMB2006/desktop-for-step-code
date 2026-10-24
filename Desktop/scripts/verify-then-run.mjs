@@ -83,7 +83,7 @@ try {
     dialog.showMessageBox = async () => ({ response: 1 });
   });
   await page.waitForFunction(() => typeof window.desktop?.snapshot === 'function'
-    && document.querySelector('.composer > .composer-input') && !document.querySelector('.composer > .composer-input').disabled);
+    && document.querySelector('.composer > .composer-input') && !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input').disabled);
   await page.evaluate(async workspace => {
     const draft = await window.desktop.beginSession(workspace);
     await window.desktop.createDraftSession(draft.draftId);
@@ -91,7 +91,7 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspace, workspace);
   await page.reload();
   await page.waitForFunction(() => document.querySelector('.composer > .composer-input')
-    && !document.querySelector('.composer > .composer-input').disabled);
+    && !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input').disabled);
   const submit = async (label, name, args) => {
     scenarios.set(label, { name, args });
     await page.evaluate(message => window.desktop.command('prompt', { message }), label);

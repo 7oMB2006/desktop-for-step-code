@@ -111,6 +111,7 @@ const bridge: DesktopBridge = {
   createDraftSession: draftId => invoke('createDraftSession', draftId),
   command: (type, args, runtimeId) => invoke('command', type, args, runtimeId), sessions: () => invoke('sessions'), switchSession: id => invoke('switchSession', id),
   navigateSession: id => invoke('navigateSession', id),
+  sessionReading: id => invoke('sessionReading', id),
   branchSession: (kind, entryId, runtimeId) => invoke('branchSession', kind, entryId, runtimeId),
   cloneSession: id => invoke('cloneSession', id),
   retryMessage: (entryId, message, runtimeId) => invoke('retryMessage', entryId, message, runtimeId),

@@ -331,6 +331,16 @@ function App() {
   const switching = useRef(false);
   const metricsBySession = useRef(new Map<string, RunMetrics | null>());
   const composerBySession = useRef(new Map<string, { draft: string; quotes: ChatQuote[]; attachments: ComposerAttachment[]; follow: boolean; top: number; anchor?: ReadingPosition['anchor'] }>());
+  const [navigationDraft, setNavigationDraft] = useState('');
+  const changeComposerDraft = (text: string) => {
+    const pending = navigationPending.current;
+    if (!pending) { setDraft(text); return; }
+    const saved = composerBySession.current.get(pending.session.id);
+    composerBySession.current.set(pending.session.id, {
+      quotes: [], attachments: [], follow: true, top: 0, ...saved, draft: text,
+    });
+    setNavigationDraft(text);
+  };
   const errorsBySession = useRef(new Map<string, string>());
   const view = useRef({ runtimeId: data.runtimeId, sessionId: data.state?.sessionId, draftId: data.draftId, draft, quotes, attachments });
   view.current = { runtimeId: data.runtimeId, sessionId: data.state?.sessionId, draftId: data.draftId, draft, quotes, attachments };
@@ -530,19 +540,28 @@ function App() {
     const sequence = ++navigationSequence.current;
     const reading = readingCache.current.get(session);
     navigationPending.current = { sequence, session, reading };
+    setNavigationDraft(composerBySession.current.get(session.id)?.draft ?? '');
     previewPosition.current = composerBySession.current.get(session.id) ?? { follow: true, top: 0 };
     readingRestore.current = undefined;
     switching.current = true; setLoading(true);
     setNavigationTarget({ session, reading }); setError(''); setRequests([]);
     setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); setRightPanel(null); setContextMenu(null);
     setQueuePreviewOpen(false); setLiveChangesOpen(false);
+    if (!reading && !cronRuntimeId && bridge.sessionReading) void bridge.sessionReading(session.id).then(value => {
+      const pending = navigationPending.current;
+      if (!value || value.sessionId !== session.id || pending?.sequence !== sequence) return;
+      pending.reading = value;
+      setNavigationTarget({ session, reading: value });
+    }).catch(() => { /* Preview is optional; only the authoritative navigation reports errors. */ });
     let failed = false;
     try {
       const result = cronRuntimeId ? await bridge.cronOpenHost(cronRuntimeId) : await bridge.navigateSession(session.id);
       if (navigationPending.current?.sequence !== sequence) return false;
       if (!result) throw new Error(t('会话切换已取消', 'Session navigation was cancelled'));
       const saved = composerBySession.current.get(session.id);
-      if (saved && reading && previewPosition.current) composerBySession.current.set(session.id, { ...saved, ...previewPosition.current });
+      if (navigationPending.current.reading && previewPosition.current) composerBySession.current.set(session.id, {
+        draft: saved?.draft ?? '', quotes: saved?.quotes ?? [], attachments: saved?.attachments ?? [], ...previewPosition.current,
+      });
       if (result.state?.sessionId !== session.id || !installSnapshot(result)) {
         const latest = await bridge.snapshot();
         if (navigationPending.current?.sequence !== sequence) return false;
@@ -1487,11 +1506,11 @@ function App() {
               Math.abs(scroll.current.scrollTop - readingRestore.current.expectedTop) > 2) readingRestore.current = undefined;
             if (!readingRestore.current) { follow.current = distance < 100; setAwayFromBottom(distance > 120); }
           }}>
-          {navigationTarget ? navigationTarget.reading ? <div className="messages session-reading-preview" ref={transcript} inert>
+          {navigationTarget ? navigationTarget.reading ? <div className="messages session-reading-preview" ref={transcript}>
             <ConversationMessages key={`session-${navigationTarget.session.id}`} messages={navigationTarget.reading.messages} modelChanges={navigationTarget.reading.modelChanges}
               language={data.preferences.language} busy={false} canEdit={false} interfaceSettings={interfaceSettings} interfaceRevision={interfaceRevision}
               openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError}
-              onLayoutChange={followLayout} arrivingUser={null} onOpenSubagent={openSubagent}/>
+              onLayoutChange={followLayout} arrivingUser={null} onOpenSubagent={() => setError(t('请等待会话打开', 'Wait for the conversation to open'))}/>
           </div> : <div className="session-reading-placeholder" aria-hidden="true"><span/><span/><span/></div>
           : !data.messages.length && !hasPendingReceipt ? <NewSession language={data.preferences.language}
             workspace={data.independent ? undefined : data.preferences.workspace} workspaces={data.preferences.workspaces}
@@ -1518,7 +1537,7 @@ function App() {
         </div>
         {!navigationTarget && <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>}
       </div>
-      <div className={`composer-wrap${navigationTarget ? ' session-navigation-pending' : ''}`} inert={Boolean(navigationTarget)}>
+      <div className={`composer-wrap${navigationTarget ? ' session-navigation-pending' : ''}`} aria-busy={Boolean(navigationTarget)}>
         <div className="composer-underlay" inert={Boolean(permissionApproval && approvalOpen)}>
         {!navigationTarget && <ComposerContextBar queued={queuedMessages.length > 0}>
         <QuotePreview quotes={quotes} language={data.preferences.language}
@@ -1541,7 +1560,7 @@ function App() {
           docked={queuedMessages.length > 0} onOpenChange={setLiveChangesOpen}/>
         {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { readingRestore.current = undefined; follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
         </ComposerContextBar>}
-        <ComposerMenu key={data.state?.sessionId ?? data.draftId ?? ''} draft={draft} setDraft={setDraft} commands={commands} language={data.preferences.language}
+        <ComposerMenu key={navigationTarget?.session.id ?? data.state?.sessionId ?? data.draftId ?? ''} draft={navigationTarget ? navigationDraft : draft} setDraft={changeComposerDraft} commands={commands} language={data.preferences.language}
           scope={data.state?.sessionId ?? data.draftId ?? ''} disabled={!connected || loading || Boolean(navigationTarget)}
           referencesOpen={referencesOpen} setReferencesOpen={setReferencesOpen} messages={data.messages}
           canAddFiles={attachments.length < 10}
@@ -1568,18 +1587,19 @@ function App() {
           onDragOver={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
           onDragLeave={e => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDraggingFiles(false); }}
           onDrop={e => { if (!e.dataTransfer.files.length) return; e.preventDefault(); dragDepth.current = 0; setDraggingFiles(false); if (connected && !loading) void importFiles(Array.from(e.dataTransfer.files)); }}>
-          {attachments.length > 0 && <div className="attachments" aria-label={t('待发送附件', 'Pending attachments')}>{attachments.map((item, i) => <div className={`attachment-card ${item.kind}`} key={item.kind === 'file' ? item.id : `${item.name}-${i}`}>
+          {!navigationTarget && attachments.length > 0 && <div className="attachments" aria-label={t('待发送附件', 'Pending attachments')}>{attachments.map((item, i) => <div className={`attachment-card ${item.kind}`} key={item.kind === 'file' ? item.id : `${item.name}-${i}`}>
             {item.kind === 'image' ? <button type="button" className="attachment-open" aria-label={t(`预览 ${item.name}`, `Preview ${item.name}`)} onClick={e => openImage(`data:${item.content.mimeType};base64,${item.content.data}`, item.name, e.currentTarget)}><img src={`data:${item.content.mimeType};base64,${item.content.data}`} alt={item.name}/></button> : <div className="attachment-file"><FileText size={27}/><span>{item.name}</span><small>{t('本地文件引用', 'Local file reference')}</small></div>}
             <IconButton title={t('移除附件', 'Remove attachment')} tooltip={false} className="attachment-remove" onClick={() => { const next = attachmentsRef.current.filter((_, n) => n !== i); attachmentsRef.current = next; setAttachments(next); }}><X size={13}/></IconButton>
           </div>)}</div>}
-          <ComposerInput key={data.runtimeId ?? data.draftId ?? 'empty'} label={t('消息', 'Message')} language={data.preferences.language} placeholder={connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={navigationTarget ? composerBySession.current.get(navigationTarget.session.id)?.draft ?? '' : draft} disabled={!connected || loading} onChange={setDraft} onPaste={e => { const files = Array.from(e.clipboardData.files); if (files.length) { e.preventDefault(); e.stopPropagation(); void importFiles(files); } }} onKeyDown={e => {
+          <ComposerInput key={navigationTarget?.session.id ?? data.state?.sessionId ?? data.draftId ?? 'empty'} label={t('消息', 'Message')} language={data.preferences.language} placeholder={navigationTarget || connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={navigationTarget ? navigationDraft : draft} disabled={!navigationTarget && (!connected || loading)} onChange={changeComposerDraft} onPaste={e => { const files = Array.from(e.clipboardData.files); if (files.length) { e.preventDefault(); e.stopPropagation(); if (!navigationPending.current) void importFiles(files); } }} onKeyDown={e => {
             if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || e.repeat) return;
             e.preventDefault();
+            if (navigationPending.current) return;
             if (!draft.trim() && !attachments.length && !quotes.length && !loading && connected && !stopping) {
               void shortcutSteer();
             } else void send();
           }}/>
-          <div className="composer-tools">
+          <div className="composer-tools" inert={Boolean(navigationTarget)}>
             <IconButton title={t('添加附件', 'Add attachments')} aria-expanded={referencesOpen} disabled={!connected || loading} onClick={() => setReferencesOpen(value => !value)}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}
               launch={data.launch} busy={busy} launchSupported={{
@@ -1621,7 +1641,7 @@ function App() {
     <QuoteAnnotations root={transcript} scope={quoteScope} language={data.preferences.language}
       remove={id => setQuotes(value => value.filter(item => item.id !== id))}
       focusedId={focusedQuoteId}
-      quotes={settingsOpen || preview || requests.length || scheduledOpen || usageOpen ? [] : quotes}
+      quotes={navigationTarget || settingsOpen || preview || requests.length || scheduledOpen || usageOpen ? [] : quotes}
       annotate={(id, annotation) => setQuotes(value => value.map(item => item.id === id ? { ...item, annotation } : item))}/>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
       enabled={!scheduledOpen && !usageOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}

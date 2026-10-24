@@ -34,7 +34,7 @@ const open = async () => {
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setOpacity(0); w.setIgnoreMouseEvents(true); w.showInactive(); });
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await page.waitForFunction(async () => (await window.desktop.snapshot()).status === 'connected', undefined, { timeout: 60000 });
   console.log(`[ultracode-restore] connected ${generation}`);
   return page;
@@ -104,7 +104,8 @@ try {
   await page.evaluate(() => window.desktop.command('prompt', { message: 'ultracode:\n\nOne task only' }));
   await page.waitForFunction(async () => {
     const state = await window.desktop.snapshot();
-    return !state.state.isStreaming && state.messages.some(message => message.role === 'assistant');
+    return !state.state.isStreaming && !state.launch.ultracodeTurn
+      && state.messages.some(message => message.role === 'assistant');
   });
   const oneTurn = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(oneTurn.launch.ultracode, false);

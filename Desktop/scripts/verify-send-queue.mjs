@@ -29,7 +29,10 @@ try {
   const pending = async count => {
     await page.waitForFunction(count => Number(document.querySelector('.queue-context:not(.is-leaving) .queue-trigger')?.textContent?.match(/\d+/)?.[0] ?? 0) === count, count);
   };
-  const send = async text => { await input.fill(text); await input.press('Enter'); };
+  const send = async text => {
+    await page.waitForFunction(() => document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false');
+    await input.fill(text); await input.press('Enter');
+  };
   await send('RUN-A 检查示例文件');
   await page.locator('.live-turn-chip').waitFor({ timeout: 60000 });
   await page.waitForFunction(() => document.querySelector('.response-active')?.textContent?.includes('正在处理'), undefined, { timeout: 30000 });

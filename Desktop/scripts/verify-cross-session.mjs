@@ -90,7 +90,7 @@ try {
   const target = await page.evaluate(() => window.desktop.snapshot());
   targetId = target.state.sessionId;
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input').disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input').disabled);
   await send('PROBE-LIST');
   await page.getByText('PROBE-LIST COMPLETE', { exact: true }).waitFor();
   const source = await page.evaluate(() => window.desktop.snapshot());

@@ -66,7 +66,7 @@ const errors = [];
 try {
   const page = await app.firstWindow(); page.setDefaultTimeout(30000); page.on('pageerror', e => errors.push(e.message));
   await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setOpacity(0); w.setIgnoreMouseEvents(true); w.showInactive(); w.setSize(1360, 900); });
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   if (process.env.DESKTOP_VERIFY_FULL_ACCESS) {
     await page.evaluate(() => window.desktop.command('set_permission_preset', { preset: 'full-access' }));
@@ -283,10 +283,10 @@ try {
   app = await electron.launch(launchOptions);
   const restored = await app.firstWindow();
   restored.setDefaultTimeout(30000);
-  await restored.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
+  await restored.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await restored.evaluate(id => window.desktop.switchSession(id), sessionId);
   await restored.reload();
-  await restored.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
+  await restored.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await restored.waitForFunction(async id => {
     const s = await window.desktop.snapshot(); return s.state?.sessionId === id && s.launch.plan === true;
   }, sessionId, { timeout: 60000 });

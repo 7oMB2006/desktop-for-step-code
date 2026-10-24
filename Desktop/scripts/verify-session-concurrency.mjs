@@ -276,24 +276,25 @@ try {
   await page.locator('.independent-group').screenshot({ path: 'test-results/session-status-gutter.png' });
   // More than two idle background workers are recycled; drafts follow sessions,
   // not process identities, and restored history still comes from upstream.
+  await app.evaluate(() => { process.getBuiltinModule('os').freemem = () => 1024 ** 3; });
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   await assert.rejects(page.evaluate(id => window.desktop.command('get_session_stats', {}, id), b.runtimeId), /not connected/);
   await page.locator('.session-row').filter({ hasText: 'RUN-B' }).locator('button').first().click();
   await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === 'Idle draft B' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   const restoredB = await page.evaluate(() => window.desktop.snapshot());
   assert.notEqual(restoredB.runtimeId, b.runtimeId);
   assert.equal(restoredB.state.sessionId, b.state.sessionId);
   assert.ok(JSON.stringify(restoredB.messages).includes('RUN-B output'));
   await page.locator('.session-row').filter({ hasText: 'RUN-A' }).locator('button').first().click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'RUN-A' &&
-    !document.querySelector('.composer > .composer-input')?.disabled);
+    !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   await page.waitForFunction(() => !document.querySelector('.session-activity.completed'));
   const readSnapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(!readSnapshot.unreadSessionIds.includes(a.state.sessionId));
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   assert.equal(await page.locator('.session-activity.completed').count(), 0, 'Leaving the read session does not restore its dot');
   for (const theme of ['dark', 'light']) {
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);

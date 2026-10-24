@@ -5,10 +5,19 @@ export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?:
 export interface Message { desktopImported?: boolean }
 export interface Content { historical?: boolean }
 export interface Snapshot { workspaceIssue?: string }
+export interface RuntimeStartupTiming {
+  processReadyMs: number;
+  sessionRestoreMs: number;
+  snapshotMs: number;
+  modelRestoreMs: number;
+  totalMs: number;
+}
+export interface Snapshot { runtimeStartupTiming?: RuntimeStartupTiming }
 export interface StatusAccount { mode: 'plan' | 'api' | 'none' | 'unknown'; region?: 'cn' | 'global'; userId?: string }
 export interface Snapshot { statusAccount?: StatusAccount }
 export interface Snapshot { estimate?: import('./usage-estimates').SessionEstimate; quitReview?: import('./quit-confirmation').QuitReviewState }
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
+export interface SessionReading { sessionId: string; version?: string; messages: Message[]; modelChanges?: ModelChange[] }
 export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
 export interface Preferences { preferredModel?: Pick<Model, 'provider' | 'id' | 'name'> }
 export interface Preferences extends Partial<import('./panel-preferences').PanelPreferences> {}
@@ -151,6 +160,7 @@ export interface DesktopBridge extends SessionImportBridge {
   sessions(): Promise<Session[]>;
   switchSession(id: string): Promise<Snapshot>;
   navigateSession(id: string): Promise<Snapshot | null>;
+  sessionReading(id: string): Promise<SessionReading | null>;
   branchSession(kind: 'clone' | 'fork', entryId: string, runtimeId: string): Promise<Snapshot>;
   cloneSession(id: string): Promise<Snapshot>;
   retryMessage(entryId: string, message: string, runtimeId: string): Promise<void>;

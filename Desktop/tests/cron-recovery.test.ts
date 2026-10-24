@@ -3,13 +3,20 @@ import { test } from 'node:test';
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CronRecovery, assertRecoveryJobs, resumeCronHost, type CronRecoveryPlan } from '../electron/cron-recovery';
+import { CronRecovery, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost, type CronRecoveryPlan } from '../electron/cron-recovery';
 import { RpcCommandError } from '../electron/runtime';
 import { CronBindings } from '../electron/cron-bindings';
 import type { CronJobData } from '../src/contracts';
 
 const job: CronJobData = { id: 'one', cron: '* * * * *', prompt: 'Check', durable: true,
   recurring: true, createdAt: 100, nextFireAt: 200 };
+test('Recovery never retires a conversation with unsent messages, including disconnected hosts', () => {
+  const queued = { state: { sessionId: 'chat', isStreaming: false }, queued: true };
+  assert.throws(() => assertRecoveryQueues([queued], 'chat'), /pending messages/);
+  assertRecoveryQueues([queued], 'other');
+  assertRecoveryQueues([{ ...queued, queued: false }], 'chat');
+  assertRecoveryQueues([], 'chat');
+});
 test('Resume retains a successful host and removes an explicitly rejected gated host without retry', async () => {
   for (const rejected of [false, true]) {
     let requests = 0, removed = 0;

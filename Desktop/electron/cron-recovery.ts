@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { CronJobData, CronRecoveryPreview, Model } from '../src/contracts';
 import { RpcCommandError, type RpcProcess } from './runtime';
+import type { SessionRuntime } from './session-runtimes';
+
+export function assertRecoveryQueues(workers: Iterable<Pick<SessionRuntime, 'queued' | 'state'>>, sessionId: string) {
+  if ([...workers].some(worker => worker.state?.sessionId === sessionId && worker.queued))
+    throw new Error('Withdraw or preserve the pending messages before recovering this conversation');
+}
 
 export async function resumeCronHost(rpc: Pick<RpcProcess, 'request'>, discard: () => Promise<void>, before?: number) {
   try {

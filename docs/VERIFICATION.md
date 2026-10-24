@@ -4525,6 +4525,41 @@ by these Cron changes.
 
 The existing preview installer predates these review fixes. No new installer,
 real-account/billing, OS sleep/reboot or fresh cloud-CI success is claimed.
+
+### Queue, View Replacement And Latest Main Follow-Up (2026-10-24)
+
+The next review found unsent queues lost during replacement of a disconnected
+Cron host, a viewed chat left on the retired runtime identity, and cancelled
+edit values retained on reopening. A focused cancel/reopen regression failed
+before the fix. Recovery now refuses both manual and automatic replacement
+while the same conversation retains pending messages. The disconnected queue
+remains editable and withdrawable, without migration or automatic sending.
+Successful viewed-host replacement emits an explicit identity event; the
+renderer validates the original and replacement identities before installing
+the authoritative snapshot, retaining the composer and reading state. Activation
+precedes asynchronous retirement, and late events cannot override navigation.
+Each edit opening remounts fields from the current saved task, preserving the
+shared disclosure animation.
+
+Main's shared sidebar is retained without a parallel implementation: equal-width
+New chat and Plugins buttons, then adjacent Schedules and Search icons. The
+preview uses the same component and tests equal primary widths, schedule
+navigation, the online-host shortcut and offline guard in both themes, four
+widths down to 390px and reduced motion, with no page errors.
+
+After main integration, Node 24.16.0 serial units passed 720 tests with 13
+platform skips (733 total), excluding the independently failing
+`terminal-sessions.test.ts` described above. Typecheck, production build,
+49 focused Cron/staging tests, 15 CI policy/runner tests, clean pinned patch
+replay with all source hashes, 14 native Cron RPC cases and the real Electron
+session-navigation, session-move and capability-management acceptance passed.
+The final 14-case Electron Cron-management acceptance also passed, including
+viewed-host reconnection with the same draft, background recovery without taking
+over a new draft, stale replacement events, queue preservation/edit/withdrawal
+with no automatic sends, and cancel/reopen of both editable fields.
+These use isolated profiles and deterministic local providers, not real
+accounts or billing. The existing preview package is not updated by this work.
+
 ### Update Installer Fixture Shutdown
 
 Windows interface run `39995014128` reached the update installer's successful

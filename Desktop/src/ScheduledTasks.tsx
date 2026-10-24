@@ -137,6 +137,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editing, setEditing] = useState<ScheduledTaskView>();
+  const [editAttempt, setEditAttempt] = useState(0);
   const [editOpen, setEditOpen] = useState(false);
   const editButton = useRef<HTMLButtonElement>(null);
   const [recovering, setRecovering] = useState(false);
@@ -302,7 +303,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
             void save(() => onUpdate(editing.id, editing.revision!, { cron: String(fields.get('cron') ?? ''), prompt: String(fields.get('prompt') ?? '') }),
               () => { setEditOpen(false); editButton.current?.focus(); });
           }}>
-            {editing && <React.Fragment key={editing.revision}>
+            {editing && <React.Fragment key={`${editing.revision}:${editAttempt}`}>
               <h2>编辑任务 <small>Beta</small></h2>
               <label>执行时间（本机时区）<input name="cron" required maxLength={100} defaultValue={editing.schedule}/></label>
               <label>任务指令<textarea aria-label="任务指令" name="prompt" required maxLength={4000} rows={5} defaultValue={editing.prompt}/></label>
@@ -355,7 +356,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
       <footer className="scheduled-detail-footer">
         {onUpdate && <>
           <button type="button" ref={editButton} disabled={!task.runtimeId || !task.revision} aria-expanded={editOpen} aria-controls="scheduled-edit"
-            onClick={() => { if (!editOpen) setEditing({ ...task }); setEditOpen(!editOpen); setConfirmDelete(false); }}><Pencil size={15}/>编辑 <small>Beta</small></button>
+            onClick={() => { if (!editOpen) { setEditing({ ...task }); setEditAttempt(value => value + 1); } setEditOpen(!editOpen); setConfirmDelete(false); }}><Pencil size={15}/>编辑 <small>Beta</small></button>
           <button type="button" disabled={!task.runtimeId || !task.revision || editOpen}
             onClick={() => void save(() => onUpdate(task.id, task.revision!, { paused: !task.paused }), () => {})}>
             {task.paused ? <Play size={15}/> : <Pause size={15}/>} {task.paused ? '恢复任务' : '暂停任务'} <small>Beta</small>

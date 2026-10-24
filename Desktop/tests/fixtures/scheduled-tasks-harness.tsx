@@ -35,7 +35,9 @@ function Harness() {
     </header>
     {sidebar && <aside className="sidebar">
       <div className="sidebar-identity"><img src="/StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="/wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="/wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
-      <SidebarTaskActions selected={view === 'tasks'} onNewSession={() => { setView('new'); setNotice(''); }} onScheduledTasks={() => { setView('tasks'); setNotice(''); }}/>
+      <SidebarTaskActions selected={view === 'tasks'} onNewSession={() => { setView('new'); setNotice(''); }}
+        onScheduledTasks={() => { setView(value => value === 'tasks' ? 'new' : 'tasks'); setNotice(''); }}
+        onPlugins={() => { setView('插件市场'); setNotice(''); }}/>
       <nav className="workspace-tree" aria-label="会话列表">
         <div className="workspace-heading"><span className="cron-preview-section"><MessageSquare size={15}/>独立会话<small>2</small></span></div>
         {['看看项目的最新进展', '整理发布说明'].map(name => <div className={`session-row${view === name ? ' selected' : ''}`} key={name}><button onClick={() => { setView(name); setNotice(''); }}><span>{name}</span></button></div>)}

@@ -556,6 +556,17 @@ function App() {
         playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId });
         return;
       }
+      if (event.type === 'desktop_runtime_replaced') {
+        const previousId = viewId.current;
+        if (switching.current || !event.sessionId || previousId !== event.previousRuntimeId
+          || view.current.sessionId !== event.sessionId) return;
+        void run(async () => {
+          const value = await bridge.snapshot();
+          if (!switching.current && viewId.current === previousId && view.current.sessionId === event.sessionId
+            && value.runtimeId === event.runtimeId && value.state?.sessionId === event.sessionId) installSnapshot(value);
+        });
+        return;
+      }
       if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
       if (event.sessionId && ['desktop_model_selection', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)) {
         readingCache.current.delete(event.sessionId);

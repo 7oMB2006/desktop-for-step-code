@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export async function queueFixture(profile, { duration = 40000 } = {}) {
+export async function queueFixture(profile, { duration = 40000, textOnly = false } = {}) {
   const workspace = join(profile, 'queue-demo-workspace');
   const root = join(profile, 'step-runtime');
   await mkdir(workspace, { recursive: true });
@@ -36,7 +36,7 @@ export async function queueFixture(profile, { duration = 40000 } = {}) {
       const text = typeof user.content === 'string' ? user.content : user.content.filter(block => block.type === 'text').map(block => block.text).join('\n');
       requests.push(text);
       response.writeHead(200, { 'content-type': 'text/event-stream' });
-      if (!payload.messages.slice(userIndex + 1).some(message => message.role === 'tool')) {
+      if (!textOnly && !payload.messages.slice(userIndex + 1).some(message => message.role === 'tool')) {
         const tool = payload.tools?.find(item => ['edit', 'edit_file'].includes(item.function.name));
         if (tool) {
           const oldText = (await readFile(join(workspace, 'demo.txt'), 'utf8')).trimEnd();

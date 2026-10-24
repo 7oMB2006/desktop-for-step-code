@@ -35,8 +35,9 @@ try {
   }
   assert.equal(await page.locator('.scheduled-row .scheduled-time-label').textContent(), '计划时间');
   assert.ok(await page.locator('.sidebar-task-actions').evaluate(element =>
-    Math.abs(element.querySelector('.new-chat').getBoundingClientRect().width - element.clientWidth) < 1),
-  'New chat is the full-width primary action');
+    Math.abs(element.querySelector('.new-chat').getBoundingClientRect().width
+      - element.querySelector('[aria-label="插件市场"]').getBoundingClientRect().width) < 1),
+  'New chat and plugins retain the latest main primary-action layout');
   await screenshot('scheduled-tasks-light');
   await page.getByRole('button', { name: '整理项目待办', exact: false }).click();
   await page.getByRole('heading', { name: '整理项目待办', exact: true }).waitFor();

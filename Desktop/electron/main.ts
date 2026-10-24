@@ -20,7 +20,7 @@ import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
 import { hasScheduledCron } from './cron-state';
 import { CronBindings } from './cron-bindings';
-import { CronRecovery, assertRecoveryJobs, resumeCronHost } from './cron-recovery';
+import { CronRecovery, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost } from './cron-recovery';
 import { CronAutoRecovery } from './cron-auto-recovery';
 import { CronHistory } from './cron-history';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
@@ -325,7 +325,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
       void crashLog.record('cron-history', error);
     }
     if (event.type === 'desktop_exit' && !worker.stopping) {
-      if (runtimes.isBusy(worker) || worker.launch?.goal?.status === 'active')
+      if (runtimes.isBusy(worker) || worker.queued || worker.launch?.goal?.status === 'active')
         void cronAutomatic.block(worker.cwd).then(() => emit({ type: 'desktop_cron_changed' }))
           .catch(error => crashLog.record('cron-auto-recovery', error));
       else setTimeout(() => void tryAutomaticCron(worker.cwd), 1000).unref();
@@ -374,6 +374,7 @@ const cronBindings = new CronBindings(join(app.getPath('userData'), 'cron-bindin
 const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
   () => emit({ type: 'desktop_cron_changed' }), cronBindings, workspace => cronAutomatic.block(workspace));
 const inspectCronRecovery = async (key: string, sessionId: string) => {
+  assertRecoveryQueues(runtimes.workers.values(), sessionId);
   if (process.platform !== 'win32') throw new Error('Cron recovery Beta is currently Windows-only');
   const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
   if (!manifest.patches?.includes('desktop-cron-recovery')) throw new Error('This runtime does not support gated Cron recovery');
@@ -408,6 +409,7 @@ const inspectCronRecovery = async (key: string, sessionId: string) => {
     unconfirmed: cronHistoryFailed || cronHistory.uncertain(workspace) };
 };
 const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPlan) => {
+  assertRecoveryQueues(runtimes.workers.values(), plan.sessionId);
   const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
   if (plan.automaticBefore !== undefined && !manifest.patches?.includes('desktop-cron-recovery-guard'))
     throw new Error('This runtime does not support safe automatic Cron recovery');
@@ -427,14 +429,19 @@ const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPl
     if (createHash('sha256').update(JSON.stringify(appliedAuthData)).digest('hex') !== plan.configurationRef)
       throw new Error('Recovery account changed while opening the host');
     await cronBindings.set(plan.workspace, plan.jobs, plan.sessionId, 'recovered');
+    assertRecoveryQueues(runtimes.workers.values(), plan.sessionId);
     // The resume helper removes explicit rejections; uncertain delivery must retain the host.
     activated = true;
     await resumeCronHost(worker.rpc, () => runtimes.remove(worker), plan.automaticBefore);
     const retired = [...runtimes.workers.values()].filter(previous => previous !== worker
       && previous.status === 'disconnected' && previous.state?.sessionId === plan.sessionId);
-    const restoreViewed = !sessionDraft && retired.some(previous => previous.id === runtimes.activeId);
+    const viewedRuntime = retired.find(previous => previous.id === runtimes.activeId);
+    const restoreViewed = !sessionDraft && Boolean(viewedRuntime);
+    if (restoreViewed) {
+      runtimes.activate(worker);
+      emit({ type: 'desktop_runtime_replaced', previousRuntimeId: viewedRuntime!.id, runtimeId: worker.id, sessionId: plan.sessionId });
+    }
     for (const previous of retired) await runtimes.remove(previous);
-    if (restoreViewed) runtimes.activate(worker);
     cronHistory.record(plan.workspace, plan.sessionId, 'recovered');
     emit({ type: 'desktop_cron_changed' });
     emit({ type: 'desktop_sessions_changed' });

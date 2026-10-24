@@ -42,6 +42,7 @@ import { AppTooltip } from './AppTooltip';
 import { ConversationMarkers, ConversationNavigationPanel, conversationTurns, scrollToTurn } from './ConversationNavigation';
 import { ArchivedSessions } from './ArchivedSessions';
 import { ConversationScrollThumb } from './ConversationScrollThumb';
+import { followAfterScroll, scrollKeyIntent, type ScrollIntent } from './conversation-scroll';
 import { updateRunMetrics, type RunMetrics } from './performance';
 import { ConversationMessages, PendingUserMessages } from './ConversationMessages';
 import { messageBlocks, messageText } from './conversation-presentation';
@@ -329,6 +330,28 @@ function App() {
   const transcript = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const scrollIntent = useRef<ScrollIntent | undefined>(undefined);
+  const touchY = useRef<number | undefined>(undefined);
+  const handleScrollIntent = useCallback((intent: ScrollIntent) => {
+    readingRestore.current = undefined;
+    scrollIntent.current = intent;
+    const viewport = scroll.current;
+    if (intent === 'backward') {
+      follow.current = false;
+      setAwayFromBottom(Boolean(viewport && viewport.scrollHeight > viewport.clientHeight));
+    } else if (viewport && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1) {
+      follow.current = true;
+      setAwayFromBottom(false);
+    }
+  }, []);
+  const returnToBottom = () => {
+    const viewport = scroll.current;
+    readingRestore.current = undefined;
+    scrollIntent.current = viewport && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 1 ? 'tail' : undefined;
+    follow.current = true;
+    setAwayFromBottom(false);
+    viewport?.scrollTo({ top: viewport.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+  };
   const viewId = useRef<string | undefined>(undefined);
   const switching = useRef(false);
   const metricsBySession = useRef(new Map<string, RunMetrics | null>());
@@ -361,7 +384,11 @@ function App() {
     }
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed && selection.anchorNode && transcript.current?.contains(selection.anchorNode)) return;
+    if (viewport && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1) {
+      follow.current = followAfterScroll(follow.current, 0, scrollIntent.current);
+    }
     if (follow.current && viewport) viewport.scrollTop = viewport.scrollHeight;
+    else if (viewport) setAwayFromBottom(viewport.scrollHeight > viewport.clientHeight);
   }, []);
   useEffect(() => {
     setNavigationSlow(false);
@@ -504,6 +531,8 @@ function App() {
       if (value.state?.sessionId) errorsBySession.current.delete(value.state.sessionId);
       stoppingRef.current = false; setStopping(false);
       follow.current = saved?.follow ?? true;
+      scrollIntent.current = follow.current ? undefined : 'backward';
+      touchY.current = undefined;
       setAwayFromBottom(!follow.current);
       readingRestore.current = saved && !saved.follow ? { runtimeId: value.runtimeId, position: saved } : undefined;
     }
@@ -1018,7 +1047,7 @@ function App() {
       setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
       return true;
     };
-    setDraft(''); setQuotes([]); setAttachments([]); attachmentsRef.current = []; follow.current = true; setAwayFromBottom(false);
+    setDraft(''); setQuotes([]); setAttachments([]); attachmentsRef.current = []; scrollIntent.current = undefined; follow.current = true; setAwayFromBottom(false);
     await run(async () => {
       try {
         if (data.draftId) {
@@ -1491,23 +1520,47 @@ function App() {
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
       {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && !reviewQuestion && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
-      <div className="conversation-shell">
+      <div className="conversation-shell"
+          onWheelCapture={event => {
+            readingRestore.current = undefined;
+            if (!event.ctrlKey && event.deltaY) handleScrollIntent(event.deltaY < 0 ? 'backward' : 'forward');
+          }}
+          onKeyDown={event => {
+            readingRestore.current = undefined;
+            if (event.defaultPrevented || (event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return;
+            if (event.key === ' ' && (event.target as HTMLElement).closest('button, summary, a')) return;
+            const intent = scrollKeyIntent(event);
+            if (intent) handleScrollIntent(intent);
+          }}
+          onTouchStart={event => { touchY.current = event.touches[0]?.clientY; }}
+          onTouchMove={event => {
+            const y = event.touches[0]?.clientY;
+            if (y !== undefined && touchY.current !== undefined && Math.abs(y - touchY.current) > 2) {
+              handleScrollIntent(y > touchY.current ? 'backward' : 'forward');
+              touchY.current = y;
+            }
+          }}
+          onTouchEnd={() => { touchY.current = undefined; }}
+          onTouchCancel={() => { touchY.current = undefined; }}>
         <div className="conversation" id="conversation-scroll" ref={scroll}
           aria-busy={Boolean(navigationTarget)}
-          onWheel={() => { readingRestore.current = undefined; }}
           onPointerDown={() => { readingRestore.current = undefined; }}
-          onKeyDown={() => { readingRestore.current = undefined; }}
           onScroll={() => {
             if (!scroll.current) return;
             const distance = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight;
             const pending = navigationPending.current;
             if (pending) {
-              if (pending.reading) previewPosition.current = captureReadingPosition(scroll.current, pending.reading.messages, distance < 100);
+              follow.current = followAfterScroll(follow.current, distance, scrollIntent.current);
+              if (pending.reading) previewPosition.current = captureReadingPosition(scroll.current, pending.reading.messages, follow.current);
               return;
             }
             if (readingRestore.current?.expectedTop !== undefined &&
               Math.abs(scroll.current.scrollTop - readingRestore.current.expectedTop) > 2) readingRestore.current = undefined;
-            if (!readingRestore.current) { follow.current = distance < 100; setAwayFromBottom(distance > 120); }
+            if (!readingRestore.current) {
+              follow.current = followAfterScroll(follow.current, distance, scrollIntent.current);
+              if (scrollIntent.current === 'tail' && distance <= 1) scrollIntent.current = undefined;
+              setAwayFromBottom(!follow.current && scroll.current.scrollHeight > scroll.current.clientHeight);
+            }
           }}>
           {navigationTarget ? navigationTarget.reading ? <div className="messages session-reading-preview" ref={transcript}>
             <ConversationMessages key={`session-${navigationTarget.session.id}`} messages={navigationTarget.reading.messages} modelChanges={navigationTarget.reading.modelChanges}
@@ -1538,7 +1591,8 @@ function App() {
               language={data.preferences.language} openImage={openImage} onError={setError} onLayoutChange={followLayout}/>
           </div>}
         </div>
-        {!navigationTarget && <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}/>}
+        {!navigationTarget && <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}
+          onNavigate={() => handleScrollIntent('backward')}/>}
       </div>
       <div className={`composer-wrap${navigationTarget ? ' session-navigation-pending' : ''}`} aria-busy={Boolean(navigationTarget)}>
         <div className="composer-underlay" inert={Boolean(permissionApproval && approvalOpen)}>
@@ -1552,7 +1606,7 @@ function App() {
             readingRestore.current = undefined;
             const source = transcript.current?.querySelector<HTMLElement>(`[data-message-index="${quote.messageIndex}"]`);
             if (source) {
-              follow.current = false; setAwayFromBottom(true);
+              handleScrollIntent('backward');
               source.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
             }
           }}/>
@@ -1561,7 +1615,7 @@ function App() {
           connected={connected} disabled={loading || stopping || settingsOpen || Boolean(preview) || requests.length > 0} onAction={queueAction}/>
         <LiveTurnChanges key={`changes-${data.runtimeId}`} messages={data.messages} busy={busy} language={data.preferences.language}
           docked={queuedMessages.length > 0} onOpenChange={setLiveChangesOpen}/>
-        {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={() => { readingRestore.current = undefined; follow.current = true; scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><ArrowDown size={17}/></IconButton>}
+        {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={returnToBottom}><ArrowDown size={17}/></IconButton>}
         </ComposerContextBar>}
         <ComposerMenu key={navigationTarget?.session.id ?? data.state?.sessionId ?? data.draftId ?? ''} draft={navigationTarget ? navigationDraft : draft} setDraft={changeComposerDraft} commands={commands} language={data.preferences.language}
           scope={data.state?.sessionId ?? data.draftId ?? ''} disabled={!connected || loading || Boolean(navigationTarget)}
@@ -1637,7 +1691,7 @@ function App() {
           drafts={questionDrafts.current} onLater={() => setApprovalOpen(false)} onRespond={respondQuestion}/>
       </div>
       <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
-        sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
+        sessionId={data.state?.sessionId} messageCount={data.messages.length} onScrollIntent={handleScrollIntent}/>
       <div ref={terminalBottomHost} className="terminal-bottom-slot"/>
       </div>
     </main>
@@ -1662,13 +1716,13 @@ function App() {
           return true;
         }
         if (quotes.length >= MAX_QUOTES) { setError(t('最多添加 8 段引用', 'Maximum 8 quotes')); return false; }
-        follow.current = false;
+        handleScrollIntent('backward');
         setQuotes(value => [...value, quote]); return true;
       }}/>
     {details && !usageOpen && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
     <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
-      onSelect={index => { scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
+      onSelect={index => { handleScrollIntent('backward'); scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
     <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       repositoryRequest={repositoryRequest?.runtimeId === data.runtimeId ? repositoryRequest?.sequence : undefined}
       onRepositoryRequestHandled={sequence => setRepositoryRequest(value =>

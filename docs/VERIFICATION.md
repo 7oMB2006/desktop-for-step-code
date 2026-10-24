@@ -69,6 +69,32 @@ Isolated-profile Electron acceptance with the current source renderer passed
 history/reload, light/dark/narrow, live ticking and completion freeze checks.
 No installer, paid-model run or full-suite acceptance is claimed.
 
+## Transcript Scroll Intent (2026-10-24)
+
+Reproduced upward wheel input being undone by disclosure reflows or subsequent
+message events. A single-turn transcript with only 62 pixels of scroll range
+could never leave the former 100-pixel near-bottom following threshold.
+
+Explicit upward gestures now pause following before layout correction.
+Keyboard scrolling, the separate scroll handle and turn navigation share that
+intent. Downward scrolling resumes only at the bottom; explicit return also
+follows a moving tail during smooth scrolling. Ordinary disclosure collapse
+back to a fitting transcript still permits automatic following unless the
+reader explicitly paused it. The return control remains available for short
+histories and while reading nested command output.
+
+Typecheck, production renderer compilation, 23 focused scroll/navigation/cache
+tests and 15 CI policy/runner tests passed. Isolated-profile source Electron
+acceptance covers single/multiple turns, animated failed-command expansion,
+small wheel gestures over the body/ruler/handle, keyboard/drag navigation,
+sub-100-pixel ranges, content growing from no overflow, explicit/automatic
+resumption, nested output and light/dark/narrow/reduced-motion views. The new
+check is registered in the Windows interface CI group. Existing stream-motion,
+session-navigation/reading handoff and context-panel acceptance also passed.
+The local main/preload bundles and management/history adapters were refreshed
+for navigation acceptance; this does not update the installed application.
+No installer, paid-model or complete-suite acceptance is claimed.
+
 ## Capability Form And Sidebar Follow-Up (2026-10-24)
 
 The Skill creation form reproduced horizontal clipping of its outer focus outline

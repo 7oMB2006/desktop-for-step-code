@@ -1,5 +1,34 @@
 # Verification
 
+## Authorized PR #164 frontend follow-up (2026-10-24)
+
+The owner explicitly authorized only shared frontend fix
+`1038461e7d4ffbb65bf7a39858c5bda1a066ece2` after the PR #163 feature freeze.
+Question status labels, icons, the Beta badge and pending-answer entry retain
+their intrinsic single-line width; only the long question preview can shrink
+and ellipsize. The exact CSS, component fixture, layout acceptance and inventory
+entry are ported. The Windows handoff document with an obsolete Mac pin is not
+imported. Later `9b69ead` TODO documentation and the Workflow top drawer are
+outside this update.
+
+Fresh typecheck/build passed, as did the complete serialized Desktop unit and
+protocol suite (790 passed, one Windows-only skip) and all 18 CI policy/runner
+checks (one Windows-only skip). The upstream layout acceptance passed all 12
+theme/language/width combinations. An expanded actual-component source fixture
+passed 16 combinations across seven question states, including 320px width,
+full status/Beta text bounds, ellipsis, disclosure/actions and reduced motion.
+The rebuilt package receives independent native layout and real-RPC question
+acceptance; those results and archive provenance are retained with its BUILD-INFO.
+
+The Mac runtime pin remains `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`, with
+the existing v0.1.5/Darwin patches and Node v24.15.0. The staged runtime is
+retained and checked by complete file hashes; this frontend change requires a
+new renderer build and clean candidate, not reuse of the prior ZIP. Prior
+candidate checks below describe their original commits. Fresh targeted visual,
+question-flow and package/resource evidence accompanies the rebuilt candidate.
+The added layout check uses the source Vite/component fixture even when invoked
+from the package-configured inventory; it is not a packaged-renderer test.
+
 ## macOS 0.6.0 local candidate acceptance (2026-10-24, user testing pending)
 
 The owner authorized the feature freeze at Windows PR #163 merge
@@ -84,8 +113,8 @@ scroll assertion. Two local packaged checks with maximum native height 684
 passed, measuring 58px/58px/49px in dark/wide, light/wide and light/narrow views.
 Replacement hosted CI remains required before release readiness is claimed.
 
-Only tests and evidence documentation change after `6f042ca`. Final packaging
-retains the staged application/runtime payload, records the clean packaging
+The earlier `41f8b26` handoff changed only tests and evidence after `6f042ca`.
+That packaging retained the staged application/runtime payload, recorded the clean packaging
 commit and compares it against the fully tested candidate. Archive hashes,
 payload comparison, ZIP round-trip and per-script evidence are stored with the
 local candidate's `BUILD-INFO-macos-arm64.md` and verification attachments.

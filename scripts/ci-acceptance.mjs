@@ -10,6 +10,7 @@ export const acceptanceGroups = {
     'verify-appearance.mjs',
     'verify-interface-settings.mjs',
     'verify-interface-preferences.mjs',
+    'verify-question-tool-layout.mjs',
     'verify-disclosure-summary.mjs',
     'verify-conversation-scroll.mjs',
     'verify-import-performance.mjs',

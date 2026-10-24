@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-session-search-')));
 const project = join(profile, 'project');
@@ -149,6 +150,7 @@ try {
   phase = 'opening a filtered result';
   await tree.locator('[data-reorder-id="search-alpha"] > button').first().click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === '修复登录' &&
+    document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false' &&
     !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   assert.equal((await snapshot()).state.sessionId, 'search-alpha');
   await page.evaluate(() => window.desktop.preferences({ language: 'en' }));
@@ -170,5 +172,5 @@ try {
   }
   throw error;
 } finally {
-  await app.close();
+  await closeDesktopFixture(app);
 }

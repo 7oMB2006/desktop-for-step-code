@@ -114,6 +114,14 @@ sessions, imports, movement and large-history continuation. The large-history
 fixture opened a 61,761,405-byte source in 2,134ms and continued in 976ms without
 paid model requests.
 
+The local Windows `runtime` group also passed all 24 scripts after the timing
+fixture was made to delay initial readiness by 1.6 seconds and await navigation
+handoff before reloading. This reproduced the cloud reload race before the wait
+was added. After synchronizing main, build, typecheck, timing and sidebar-search
+acceptance passed again. The search fixture likewise reproduced a premature
+session-ID assertion before awaiting the navigation gate; its cleanup now uses
+the shared orderly fixture shutdown instead of hanging on quit review.
+
 The unsigned Windows preview was built at
 `D:\Desktop For Step Code\Desktop\release\session-navigation-interactive-20261024-preview`.
 Its runtime reuses the preceding accepted preview, with all 1,224 staged files

@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
-import { FileCode2, GitBranch, RefreshCw, X } from 'lucide-react';
+import { Columns2, FileCode2, GitBranch, RefreshCw, Rows2, X } from 'lucide-react';
+import type { DiffLayout } from './panel-preferences';
 import type { Message, RepositoryDiff, RepositoryFile, RepositoryFileDiff } from './contracts';
 import { createTurnChangesReader, type TurnFile } from './turn-changes';
 import { lastCompletedResponse, redactDiffText, sensitiveDiffPath } from './review-source';
@@ -12,8 +13,9 @@ import './review-panel.css';
 
 type Source = 'turn' | 'branch';
 type ReviewFile = { file: TurnFile; repository?: RepositoryFile };
-function DiffFile({ file, repository, source, runtimeId, base, revision, language, onError }: ReviewFile & {
+function DiffFile({ file, repository, source, runtimeId, base, revision, language, onError, layout }: ReviewFile & {
   source: Source; runtimeId?: string; base?: string; revision: string; language: 'zh' | 'en'; onError: (error: string) => void;
+  layout: DiffLayout;
 }) {
   const [open, setOpen] = useState(false);
   const [present, setPresent] = useState(false);
@@ -69,18 +71,19 @@ function DiffFile({ file, repository, source, runtimeId, base, revision, languag
     </button>
     <div id={id} className={`review-file-body${open ? ' is-open' : ''}`} aria-hidden={!open} inert={!open}>
       <div className="review-file-inner">{present && (preview
-        ? <FilePreview file={preview} language={language} onError={onError}/>
+        ? <FilePreview file={preview} language={language} onError={onError} layout={layout}/>
         : <p className="review-preview-state" role={failed ? 'alert' : undefined}>{reason}</p>)}</div>
     </div>
   </div>;
 }
 
-function ReviewContent({ runtimeId, messages, busy, active, language, expanded, onToggleExpanded, onClose, onError, repositoryRequest, onRepositoryRequestHandled }: {
+function ReviewContent({ runtimeId, messages, busy, active, language, expanded, onToggleExpanded, onClose, onError, repositoryRequest, onRepositoryRequestHandled, layout = 'unified', onLayoutChange }: {
   runtimeId?: string; messages: Message[]; busy: boolean; active: boolean; language: 'zh' | 'en';
   onClose: () => void; onError: (error: string) => void;
   expanded: boolean; onToggleExpanded: () => void;
   repositoryRequest?: number;
   onRepositoryRequestHandled?: (request: number) => void;
+  layout?: DiffLayout; onLayoutChange?: (layout: DiffLayout) => void;
 }) {
   const [source, setSource] = useState<Source>(repositoryRequest ? 'branch' : 'turn');
   useEffect(() => {
@@ -137,6 +140,12 @@ function ReviewContent({ runtimeId, messages, busy, active, language, expanded, 
     : t('与基线一致', 'No changes from the base');
   return <>
     <header className="review-header right-panel-header"><h2>{t('变更', 'Changes')}</h2>
+      {onLayoutChange && <button type="button" className="icon-button" data-diff-layout={layout}
+        aria-label={layout === 'unified' ? t('切换为左右对比', 'Switch to side-by-side diff') : t('切换为行内对比', 'Switch to inline diff')}
+        data-tooltip={layout === 'unified' ? t('切换为左右对比', 'Switch to side-by-side diff') : t('切换为行内对比', 'Switch to inline diff')}
+        onClick={() => onLayoutChange(layout === 'unified' ? 'split' : 'unified')}>
+        {layout === 'unified' ? <Rows2 size={15}/> : <Columns2 size={15}/>}
+      </button>}
       <RightPanelExpandButton expanded={expanded} language={language} onToggle={onToggleExpanded}/>
       <button type="button" className={`icon-button${loading ? ' is-refreshing' : ''}`} disabled={loading || !runtimeId}
         aria-label={t('刷新变更', 'Refresh changes')} data-tooltip={t('刷新变更', 'Refresh changes')}
@@ -171,7 +180,7 @@ function ReviewContent({ runtimeId, messages, busy, active, language, expanded, 
     <div className="review-scroll" aria-busy={source === 'branch' && loading}>
       {files.map(item => <DiffFile key={`${source}:${source === 'branch' ? base || repository?.base : ''}:${item.file.path}`} {...item} source={source}
         base={base || repository?.base} runtimeId={runtimeId} revision={`${revision}:${toolResults}:${busy}`}
-        language={language} onError={onError}/>)}
+        language={language} onError={onError} layout={layout}/>)}
       {!files.length && <div className="review-empty"><FileCode2 size={22}/>
         <p>{empty}</p>
       </div>}
@@ -187,6 +196,7 @@ export function ReviewPanel({ open, replaced, overlay, ...props }: {
   expanded: boolean; onToggleExpanded: () => void;
   repositoryRequest?: number;
   onRepositoryRequestHandled?: (request: number) => void;
+  layout?: DiffLayout; onLayoutChange?: (layout: DiffLayout) => void;
 }) {
   const [present, setPresent] = useState(open);
   if (open && !present) setPresent(true);

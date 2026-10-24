@@ -1,11 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { ClipboardPaste, Copy, Eraser, Plus, X } from 'lucide-react';
+import { ClipboardPaste, Copy, Eraser, PanelBottom, PanelRight, Plus, X } from 'lucide-react';
 import { normalizedWorkspaceKey } from './workspace-key';
 import type { TerminalInfo, TerminalSnapshot } from './contracts';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
 import { RightPanelWidthControl } from './RightPanelWidthControl';
+import { TerminalHeightHandle } from './TerminalHeightHandle';
+import { terminalHeightBounds, type TerminalDock } from './panel-preferences';
 import '@xterm/xterm/css/xterm.css';
 import './terminal-panel.css';
 
@@ -13,11 +16,48 @@ type Chunk = { seq: number; data: string };
 type Controller = { terminal: Terminal; fit: FitAddon; element: HTMLDivElement; seq: number; info: TerminalInfo; hydrated: boolean; pending: Chunk[] };
 const directoryKey = (value: string) => normalizedWorkspaceKey(value, window.desktop?.platform ?? 'win32');
 
-export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cwd, language, onClose, onToggleExpanded, onError, width, onWidthChange }: {
+export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cwd, language, onClose, onToggleExpanded, onError, width, onWidthChange,
+  dock = 'right', onDockChange, height = 280, onHeightChange, bottomHost, rightHost, onResizeActive }: {
   open: boolean; replaced: boolean; overlay: boolean; expanded: boolean; runtimeId?: string; cwd?: string;
   language: 'zh' | 'en'; onClose: () => void; onToggleExpanded: () => void; onError: (error: string) => void;
   width: 'standard' | 'wide'; onWidthChange: (value: 'standard' | 'wide') => void;
+  dock?: TerminalDock; onDockChange?: (dock: TerminalDock) => void;
+  height?: number; onHeightChange?: (height: number) => void;
+  bottomHost?: RefObject<HTMLDivElement | null>; rightHost?: RefObject<HTMLDivElement | null>;
+  onResizeActive?: (active: boolean) => void;
 }) {
+  const [mount] = useState(() => {
+    const element = document.createElement('div');
+    element.className = 'terminal-mount';
+    return element;
+  });
+  const bottom = dock === 'bottom' && !expanded;
+  // A stable portal host moves between docks; neither React nor xterm is remounted.
+  useLayoutEffect(() => {
+    const target = bottom ? bottomHost?.current : rightHost?.current;
+    if (!target) return;
+    const focused = mount.contains(document.activeElement) ? document.activeElement as HTMLElement : undefined;
+    target.append(mount);
+    focused?.focus({ preventScroll: true });
+  }, [bottom, bottomHost, rightHost, mount]);
+  useLayoutEffect(() => () => mount.remove(), [mount]);
+  const [localHeight, setLocalHeight] = useState(height);
+  const [heightBounds, setHeightBounds] = useState({ min: 140, max: 600 });
+  const [resizing, setResizing] = useState(false);
+  useEffect(() => setLocalHeight(height), [height]);
+  useLayoutEffect(() => {
+    const parent = bottomHost?.current?.parentElement;
+    if (!parent || !bottom) return;
+    const composer = parent.querySelector<HTMLElement>('.composer-wrap');
+    const measure = () => setHeightBounds(terminalHeightBounds(parent.clientHeight, composer?.offsetHeight ?? 150));
+    const observer = new ResizeObserver(measure);
+    observer.observe(parent);
+    if (composer) observer.observe(composer);
+    measure();
+    return () => observer.disconnect();
+  }, [bottom, bottomHost]);
+  const displayHeight = Math.max(heightBounds.min, Math.min(heightBounds.max, localHeight));
+  const dragState = useCallback((active: boolean) => { setResizing(active); onResizeActive?.(active); }, [onResizeActive]);
   const controllers = useRef(new Map<string, Controller>());
   const loaded = useRef(new Set<string>());
   const loading = useRef(new Set<string>());
@@ -212,7 +252,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     observer.observe(element);
     fit();
     return () => observer.disconnect();
-  }, [open, selected?.id, infos.length, expanded]);
+  }, [open, selected?.id, infos.length, expanded, dock]);
   useEffect(() => {
     if (open && selected) controllers.current.get(selected.id)?.terminal.focus();
   }, [open, selected?.id]);
@@ -222,15 +262,24 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     return () => clearTimeout(timer);
   }, [open, present]);
   const controller = selected && controllers.current.get(selected.id);
-  return <div className={`terminal-track${open ? ' is-open' : ''}${width === 'wide' ? ' is-wide' : ''}${overlay ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}`}>
-    <aside id="terminal-panel" className={`terminal-panel right-inspector-surface${expanded ? ' is-expanded' : ''}${open ? '' : ' is-closing'}`}
+  const content = <div className={`terminal-track${bottom ? ' is-bottom' : ''}${open ? ' is-open' : ''}${width === 'wide' ? ' is-wide' : ''}${overlay && !bottom ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}${resizing ? ' is-resizing' : ''}`}
+    style={bottom ? { height: open && !replaced ? displayHeight : 0 } : undefined}>
+    {bottom && <TerminalHeightHandle height={displayHeight} {...heightBounds} language={language} onPreview={setLocalHeight}
+      onCommit={value => onHeightChange?.(Math.max(140, value))} onDragging={dragState}/>}
+    <aside id="terminal-panel" className={`terminal-panel${bottom ? ' is-bottom' : ' right-inspector-surface'}${expanded ? ' is-expanded' : ''}${open ? '' : ' is-closing'}`}
       style={{ visibility: present && !replaced ? undefined : 'hidden' }} aria-label={t('终端', 'Terminal')} aria-hidden={!open} inert={!open}>
       <header className="right-panel-header"><h2>{t('终端', 'Terminal')}</h2>
-        <RightPanelWidthControl panel="terminal" language={language} value={expanded ? 'fullscreen' : width}
+        {onDockChange && <button type="button" className="icon-button" data-terminal-dock={dock}
+          aria-label={dock === 'right' ? t('停靠到底部', 'Dock terminal to bottom') : t('停靠到右侧', 'Dock terminal to right')}
+          data-tooltip={dock === 'right' ? t('停靠到底部', 'Dock terminal to bottom') : t('停靠到右侧', 'Dock terminal to right')}
+          onClick={() => onDockChange(dock === 'right' ? 'bottom' : 'right')}>
+          {dock === 'right' ? <PanelRight size={15}/> : <PanelBottom size={15}/>}
+        </button>}
+        {!bottom && <RightPanelWidthControl panel="terminal" language={language} value={expanded ? 'fullscreen' : width}
           onChange={value => {
             if (value === 'standard' || value === 'wide') onWidthChange(value);
             if ((value === 'fullscreen') !== expanded) onToggleExpanded();
-          }} onError={onError}/>
+          }} onError={onError}/>}
         <RightPanelExpandButton expanded={expanded} language={language} onToggle={onToggleExpanded}/>
         <button className="icon-button" aria-label={t('关闭终端面板', 'Close terminal panel')} onClick={onClose}><X size={16}/></button>
       </header>
@@ -261,4 +310,5 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
         : selected?.status === 'exited' ? `${t('已退出', 'Exited')} · ${selected.exitCode ?? '--'}` : ''}</span></footer>
     </aside>
   </div>;
+  return rightHost && bottomHost ? createPortal(content, mount) : content;
 }

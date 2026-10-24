@@ -84,6 +84,7 @@ import { applyAppearance } from './appearance';
 import { applyTheme } from './theme';
 import { ThemeSettings } from './ThemeSettings';
 import { TerminalPanel } from './TerminalPanel';
+import { normalizePanelPreferences, type TerminalDock } from './panel-preferences';
 import { BrowserPanel } from './BrowserPanel';
 import { FilePreviewPanel } from './FilePreviewPanel';
 import { FileOpeningContext } from './FileOpening';
@@ -205,6 +206,11 @@ function App() {
   const [previewFile, setPreviewFile] = useState<FilePreviewData>();
   const [browserWidth, setBrowserWidth] = useState<'standard' | 'wide'>('standard');
   const [terminalWidth, setTerminalWidth] = useState<'standard' | 'wide'>('standard');
+  const [bottomTerminalOpen, setBottomTerminalOpen] = useState(false);
+  const terminalBottomHost = useRef<HTMLDivElement>(null);
+  const terminalRightHost = useRef<HTMLDivElement>(null);
+  const panelPreferences = normalizePanelPreferences(data.preferences);
+  const terminalDock = panelPreferences.terminalDock;
   const [handleBlocked, setHandleBlocked] = useState(false);
   const openingSequence = useRef(0);
   const openFile = useCallback(async (target?: FileTarget, destination?: string, toggle = true) => {
@@ -347,14 +353,20 @@ function App() {
   }, [navigationTarget?.session.id]);
   useLayoutEffect(followLayout, [navigationTarget, followLayout]);
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
-  const visibleRightPanel = usageOpen || scheduledOpen ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+  const bottomTerminalExpanded = terminalDock === 'bottom' && bottomTerminalOpen && expandedRightPanel === 'terminal'
+    && !usageOpen && !scheduledOpen && !details;
+  const visibleRightPanel = usageOpen || scheduledOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
-  const inspectorExpanded = expandedRightPanel === visibleRightPanel && !details &&
+  const inspectorExpanded = bottomTerminalExpanded || expandedRightPanel === visibleRightPanel && !details &&
     (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent');
+  const terminalOpen = !usageOpen && !scheduledOpen && (terminalDock === 'bottom'
+    ? bottomTerminalOpen && (!inspectorExpanded || bottomTerminalExpanded)
+    : visibleRightPanel === 'terminal' && !details);
   useEffect(() => {
+    if (bottomTerminalExpanded) return;
     if (!usageOpen && expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
-  }, [expandedRightPanel, visibleRightPanel, details, usageOpen]);
+  }, [expandedRightPanel, visibleRightPanel, details, usageOpen, bottomTerminalExpanded]);
   useLayoutEffect(() => {
     const app = appLayout.current;
     if (!app) return;
@@ -407,11 +419,26 @@ function App() {
     setRightPanel(null);
     rightRail.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
   }, []);
+  const closeTerminal = useCallback(() => {
+    if (terminalDock === 'right') { closeRightPanel(); return; }
+    setBottomTerminalOpen(false);
+    setExpandedRightPanel(value => value === 'terminal' ? null : value);
+    rightRail.current?.querySelector<HTMLButtonElement>('[aria-controls="terminal-panel"]')?.focus();
+  }, [terminalDock, closeRightPanel]);
   useEffect(() => {
-    if (!visibleRightPanel || details || settingsOpen || preview || requests.length || renaming) return;
+    if ((!visibleRightPanel && !terminalOpen) || details || settingsOpen || preview || requests.length || renaming) return;
     const escape = (event: KeyboardEvent) => {
       if (event.target instanceof Element && event.target.closest('.xterm')) return;
       if (event.key === 'Escape' && !event.defaultPrevented) {
+        const inTerminal = event.target instanceof Element && event.target.closest('#terminal-panel');
+        if (terminalDock === 'bottom' && terminalOpen && (inTerminal || !visibleRightPanel)) {
+          event.preventDefault();
+          if (bottomTerminalExpanded) {
+            setExpandedRightPanel(null);
+            document.querySelector<HTMLButtonElement>('#terminal-panel .right-panel-header button[aria-pressed]')?.focus();
+          } else closeTerminal();
+          return;
+        }
         if (inspectorExpanded) {
           event.preventDefault();
           setExpandedRightPanel(null);
@@ -422,7 +449,8 @@ function App() {
     };
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
-  }, [visibleRightPanel, details, settingsOpen, preview, requests.length, renaming, closeRightPanel, inspectorExpanded]);
+  }, [visibleRightPanel, details, settingsOpen, preview, requests.length, renaming, closeRightPanel, inspectorExpanded,
+    terminalDock, terminalOpen, bottomTerminalExpanded, closeTerminal]);
   const zh = data.preferences.language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const connected = data.status === 'connected' || data.status === 'ready';
@@ -1030,6 +1058,13 @@ function App() {
     setData(d => ({ ...d, preferences: p }));
     if (patch.interfaceSettings !== undefined) setInterfaceRevision(value => value + 1);
   });
+  const changeTerminalDock = (next: TerminalDock) => void run(async () => {
+    const preferences = await bridge!.preferences({ terminalDock: next });
+    setData(value => ({ ...value, preferences }));
+    setExpandedRightPanel(null);
+    setBottomTerminalOpen(next === 'bottom');
+    setRightPanel(value => next === 'right' ? 'terminal' : value === 'terminal' ? null : value);
+  });
   const saveMcp = async () => run(async () => {
     if (!mcpEdit) return;
     const parsed = JSON.parse(mcpEdit.args || '[]'); const secrets = JSON.parse(mcpEdit.secrets || '{}');
@@ -1271,7 +1306,7 @@ function App() {
       language={data.preferences.language} disabled={!connected || loading}
       onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
       onAction={(action, value) => rawCommand('goal_action', { action, value })}/> };
-  return <CommandContextUsage.Provider value={{ usage: navigationTarget ? undefined : data.stats?.contextUsage, language: data.preferences.language }}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''}`} onContextMenu={e => {
+  return <CommandContextUsage.Provider value={{ usage: navigationTarget ? undefined : data.stats?.contextUsage, language: data.preferences.language }}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''} ${terminalDock === 'bottom' && terminalOpen && !bottomTerminalExpanded ? 'has-bottom-terminal' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
     if (!image || !image.closest('.attachment-open, .attachment-preview-image, .messages')) return;
@@ -1552,6 +1587,7 @@ function App() {
       </div>
       <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
         sessionId={data.state?.sessionId} messageCount={data.messages.length}/>
+      <div ref={terminalBottomHost} className="terminal-bottom-slot"/>
       </div>
     </main>
     <QuoteAnnotations root={transcript} scope={quoteScope} language={data.preferences.language}
@@ -1587,14 +1623,20 @@ function App() {
       onRepositoryRequestHandled={sequence => setRepositoryRequest(value =>
         value && value.runtimeId === data.runtimeId && value.sequence === sequence ? undefined : value)}
       expanded={inspectorExpanded && visibleRightPanel === 'review'}
+      layout={panelPreferences.diffLayout} onLayoutChange={diffLayout => void setPreference({ diffLayout })}
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'review')}
       overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
-    <TerminalPanel open={visibleRightPanel === 'terminal' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
+    <div ref={terminalRightHost} className="terminal-right-slot"/>
+    <TerminalPanel open={terminalOpen} replaced={terminalDock === 'right' && (inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details))}
+      dock={terminalDock} onDockChange={changeTerminalDock} height={panelPreferences.terminalHeight}
+      onHeightChange={terminalHeight => void setPreference({ terminalHeight })}
+      bottomHost={terminalBottomHost} rightHost={terminalRightHost} onResizeActive={setHandleBlocked}
       width={terminalWidth} onWidthChange={setTerminalWidth}
-      expanded={inspectorExpanded && visibleRightPanel === 'terminal'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'terminal')}
+      expanded={bottomTerminalExpanded || inspectorExpanded && visibleRightPanel === 'terminal'}
+      onToggleExpanded={() => setExpandedRightPanel(expandedRightPanel === 'terminal' ? null : 'terminal')}
       overlay={!summarySpace} runtimeId={data.runtimeId} cwd={data.preferences.workspace} language={data.preferences.language}
-      onClose={closeRightPanel} onError={setError}/>
+      onClose={closeTerminal} onError={setError}/>
     <BrowserPanel open={visibleRightPanel === 'browser' && !details}
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
@@ -1645,14 +1687,22 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
-    <nav hidden={scheduledOpen || usageOpen} ref={rightRail} className="right-tool-rail" style={usageOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || Boolean(navigationTarget) || Boolean(removeProject)}>
+    <nav hidden={scheduledOpen || usageOpen} ref={rightRail} className="right-tool-rail" style={usageOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || Boolean(navigationTarget) || Boolean(removeProject)}
+      onClickCapture={() => { if (bottomTerminalExpanded) setExpandedRightPanel(null); }}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => {
         const close = !details && visibleRightPanel === 'context' && contextView === 'context';
         setDetails(''); setContextView('context'); setRightPanel(close ? null : 'context');
       }}><ScanLine size={18}/></IconButton>
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><FileDiff size={18} strokeWidth={1.5}/></IconButton>
-      <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={!details && visibleRightPanel === 'terminal'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal'); }}><Terminal size={18}/></IconButton>
+      <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={terminalOpen}
+        onClick={() => {
+          setDetails('');
+          if (terminalDock === 'bottom') {
+            setBottomTerminalOpen(value => !value);
+            setExpandedRightPanel(null);
+          } else setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal');
+        }}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>
       <IconButton title={t('文件预览', 'File preview')} data-tooltip-side="left" aria-controls="file-panel" aria-pressed={!details && visibleRightPanel === 'file'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'file' ? null : 'file'); }}><FileText size={18}/></IconButton>
         <IconButton title={t('子代理', 'Subagents')} data-workflow-running={Boolean(runningWorkflow) || undefined} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent && !latestWorkflow} onClick={() => {

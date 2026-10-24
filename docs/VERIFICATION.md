@@ -1,5 +1,19 @@
 # Verification
 
+## Shared Elapsed Duration Display (2026-10-24)
+
+The running matrix indicator, completed-turn label and performance strip now share
+whole-second duration formatting with minute/hour rollover and spaces between
+unit groups. Chinese live labels use `4小时 0分 21秒`; compact labels use
+`4h 0m 21s`. This changes presentation only, not timing sources or billing.
+Typecheck, the production renderer build and 15 focused timing/performance tests
+passed, including real isolated RPC timing. Browser acceptance covers the actual
+components in light/dark, Chinese/English and 390-pixel layouts, minute/hour
+boundaries and 24-hour runs, plus the existing motion and accessibility checks.
+Isolated-profile Electron acceptance with the current source renderer passed
+history/reload, light/dark/narrow, live ticking and completion freeze checks.
+No installer, paid-model run or full-suite acceptance is claimed.
+
 ## Capability Form And Sidebar Follow-Up (2026-10-24)
 
 The Skill creation form reproduced horizontal clipping of its outer focus outline

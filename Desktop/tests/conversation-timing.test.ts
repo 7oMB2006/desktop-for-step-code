@@ -22,9 +22,9 @@ function send(timing: ConversationTiming, target: SessionRuntime, event: Runtime
 test('duration formatting covers zero, hours, and clock rollback', () => {
   assert.equal(elapsedTime({ startedAt: 1000 }, 1000), '0s');
   assert.equal(elapsedTime({ startedAt: 1000 }, 18000), '17s');
-  assert.equal(elapsedTime({ startedAt: 1000 }, 84000), '1m23s');
-  assert.equal(elapsedTime({ startedAt: 1000 }, 3601000), '1h0m0s');
-  assert.equal(elapsedTime({ startedAt: 1000, endedAt: 3662000 }, 9000000), '1h1m1s');
+  assert.equal(elapsedTime({ startedAt: 1000 }, 84000), '1m 23s');
+  assert.equal(elapsedTime({ startedAt: 1000 }, 3601000), '1h 0m 0s');
+  assert.equal(elapsedTime({ startedAt: 1000, endedAt: 3662000 }, 9000000), '1h 1m 1s');
   assert.equal(elapsedTime({ startedAt: 2000 }, 1000), '0s');
 });
 

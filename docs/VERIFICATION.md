@@ -1,5 +1,37 @@
 # Verification
 
+## Mac project-picker CI follow-up and second review (2026-10-24)
+
+Mac run `40101170389` passed upstream tests, build/staging, types and protocol
+checks, then failed `verify-new-session.mjs:74`. Its actual renderer was only
+684px high despite the fixture requesting 960px. Local reproduction against the
+accepted `549bb39` app produced the same failure: six projects were present, but
+the bounded picker list was 74px high rather than five rows. The menu stayed
+above the composer and its remaining projects were scrollable.
+
+Only acceptance code changes. Measured space determines when the five-complete-
+row contract applies; a constrained window must still show a complete row,
+scroll all six projects fully into view, select the last project without a
+worker/history write, and retain the existing search, proposal, draft, keyboard,
+first-send and relaunch assertions. Native bounds can be capped explicitly for
+regression reproduction. Geometry and a failure screenshot are retained.
+
+Full local new-session acceptance passed against source at native 1440x960
+(190px list, five-row contract enforced) and against the unchanged accepted
+package capped to 1440x684 (74px list, all projects reachable). No application
+CSS, Electron code, runtime pin or candidate ZIP changed. Replacement Mac CI
+must complete both source and package-configured inventories before a green
+cloud result is claimed.
+
+The Windows review was checked against current draft asset IDs/digests, the
+merged checksum file and a fresh download of its build evidence. Windows RC
+source is `9b69eada5666934bdd15f7afbe02a3b31cb91f49`; Mac RC source remains
+`549bb39f118c992292afa43e9203b606ac983906`. The draft target is still `0fc0f1e`;
+changing that target cannot reattribute either existing binary to final main.
+See [Mac second review](releases/v0.6.0-macos-second-review.zh-CN.md) for hashes
+and the remaining merge/tag/build-source gates. Draft/Pre-release is retained;
+this follow-up neither merges nor publishes anything.
+
 ## Authorized PR #164 frontend follow-up (2026-10-24)
 
 The owner explicitly authorized only shared frontend fix

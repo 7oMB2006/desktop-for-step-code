@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
 
+const nativeHeightLimit = process.env.DESKTOP_NEW_SESSION_TEST_MAX_HEIGHT ? Number(process.env.DESKTOP_NEW_SESSION_TEST_MAX_HEIGHT) : undefined;
+if (nativeHeightLimit !== undefined) assert.ok(Number.isSafeInteger(nativeHeightLimit) && nativeHeightLimit >= 540, 'Invalid native test window height limit');
 const profile = await mkdtemp(join(tmpdir(), 'step-new-session-'));
 const fixture = await queueFixture(profile, { duration: 1600 });
 const other = join(profile, 'Second project');
@@ -21,8 +23,10 @@ delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
 await mkdir('test-results', { recursive: true });
 const errors = [];
+const pickerLayouts = [];
+let page;
 try {
-  const page = await app.firstWindow();
+  page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
     window.headingFrames = [];
@@ -33,10 +37,11 @@ try {
       window.headingFrames.push({ text: output.textContent, width: heading.getBoundingClientRect().width });
     }).observe(document, { childList: true, subtree: true, characterData: true });
   });
-  await app.evaluate(({ BrowserWindow }) => {
+  await app.evaluate(({ BrowserWindow }, nativeHeightLimit) => {
     const window = BrowserWindow.getAllWindows()[0];
+    if (nativeHeightLimit) window.setMaximumSize(5000, nativeHeightLimit);
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1440, 960);
-  });
+  }, nativeHeightLimit);
   const heading = page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ });
   await heading.waitFor();
   await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
@@ -70,12 +75,53 @@ try {
   await selector.click();
   const picker = page.getByRole('dialog', { name: '选择项目', exact: true });
   await picker.waitFor();
-  await page.waitForTimeout(220);
-  assert.ok(await picker.evaluate(element => {
+  await picker.evaluate(async element => {
+    await document.fonts.ready;
+    await Promise.allSettled(element.getAnimations().map(animation => animation.finished));
+  });
+  const pickerLayout = await picker.evaluate(element => {
     const list = element.querySelector('.new-session-project-list');
-    const row = list.querySelector('button');
-    return list.clientHeight >= row.getBoundingClientRect().height * 5;
-  }), 'normal project picker shows at least five project rows');
+    const rect = node => node.getBoundingClientRect().toJSON();
+    const style = getComputedStyle(list);
+    return { viewport: [innerWidth, innerHeight], picker: rect(element), list: rect(list),
+      clientHeight: list.clientHeight, scrollHeight: list.scrollHeight,
+      padding: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
+      rows: [...list.querySelectorAll('button')].map(rect),
+      trigger: rect(document.querySelector('.new-session-project-trigger')),
+      main: rect(document.querySelector('main')), composer: rect(document.querySelector('.composer')) };
+  });
+  const availableRoom = Math.max(pickerLayout.trigger.top - pickerLayout.main.top,
+    pickerLayout.composer.top - pickerLayout.trigger.bottom);
+  const fiveRowsHeight = pickerLayout.rows[0].height * 5 + pickerLayout.padding;
+  // Native macOS displays may clamp the requested 960px window. Keep the five-row
+  // contract when its measured controls and rows fit, reserving edge/anchor gaps;
+  // otherwise require a bounded scrollable menu with every project reachable.
+  const roomy = availableRoom >= pickerLayout.picker.height - pickerLayout.list.height + fiveRowsHeight + 40;
+  pickerLayouts.push({ label: 'initial', roomy, availableRoom, fiveRowsHeight, ...pickerLayout });
+  assert.equal(pickerLayout.rows.length, 6, 'all six fixture projects remain in the picker');
+  assert.ok(pickerLayout.picker.top >= pickerLayout.main.top && pickerLayout.picker.bottom < pickerLayout.composer.top,
+    'project picker stays between the main-view top and composer');
+  if (roomy) assert.ok(pickerLayout.clientHeight + 1 >= fiveRowsHeight, 'roomy project picker shows at least five complete project rows');
+  else {
+    assert.ok(pickerLayout.clientHeight >= pickerLayout.rows[0].height + pickerLayout.padding - 1,
+      'constrained picker still shows a complete project row');
+    assert.ok(pickerLayout.scrollHeight > pickerLayout.clientHeight, 'constrained picker scrolls instead of hiding projects');
+  }
+  for (const row of await picker.locator('.new-session-project-list button').all()) {
+    await row.scrollIntoViewIfNeeded();
+    assert.ok(await row.evaluate(element => {
+      const row = element.getBoundingClientRect(), list = element.parentElement.getBoundingClientRect();
+      return row.top >= list.top - 1 && row.bottom <= list.bottom + 1;
+    }), 'each project can be scrolled fully into view');
+  }
+  await picker.getByRole('button', { name: 'Project 6', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.new-session-project-trigger')?.textContent.includes('Project 6'));
+  const lastProject = await snapshot();
+  assert.equal(await realpath(lastProject.preferences.workspace), await realpath(extraProjects.at(-1)));
+  assert.equal(lastProject.runtimeId, undefined, 'selecting the last scrolled project must not create a worker');
+  assert.deepEqual(await readdir(join(profile, 'step-runtime', 'sessions')), historyBefore);
+  await selector.click();
+  await picker.waitFor();
   await page.screenshot({ path: 'test-results/new-session-project-picker-dark.png' });
   await picker.getByRole('textbox', { name: '搜索项目' }).fill('Second');
   assert.equal(await picker.locator('.new-session-project-list button').count(), 1);
@@ -204,7 +250,11 @@ try {
   await waitState(value => value.draftId);
   assert.equal((await snapshot()).independent, true);
   assert.equal((await snapshot()).preferences.workspace, undefined);
+} catch (error) {
+  await page?.screenshot({ path: 'test-results/new-session-failure.png' }).catch(() => {});
+  throw error;
 } finally {
+  await writeFile('test-results/new-session-layout.json', JSON.stringify({ nativeHeightLimit, pickerLayouts, errors }, null, 2));
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); }).catch(() => {});
   await app.close();
   await fixture.close();

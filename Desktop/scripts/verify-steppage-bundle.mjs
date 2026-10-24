@@ -8,10 +8,13 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { tsImport } from 'tsx/esm/api';
 
-if (process.platform !== 'win32') throw new Error('This check qualifies Windows StepPage only');
+if (!['win32', 'darwin'].includes(process.platform)) throw new Error('StepPage qualification requires Windows or macOS');
+const mac = process.platform === 'darwin';
 if (!process.argv[2]) throw new Error('Usage: node scripts/verify-steppage-bundle.mjs <official-bundle.mjs>');
 const bundle = resolve(process.argv[2]);
 const bytes = await readFile(bundle);
+const { STEPPAGE_ARTIFACT } = await tsImport('../electron/steppage-prepare.ts', import.meta.url);
+assert.equal(createHash('sha256').update(bytes).digest('hex'), STEPPAGE_ARTIFACT.sha256, 'Qualify only the reviewed pinned official bundle');
 const { RpcProcess, isolatedEnvironment } = await tsImport('../electron/runtime.ts', import.meta.url);
 const output = resolve('test-results');
 await mkdir(output, { recursive: true });
@@ -21,8 +24,8 @@ const home = join(root, 'isolated-home');
 await mkdir(workspace);
 await mkdir(home);
 const runtime = process.env.DESKTOP_VERIFY_EXE
-  ? join(dirname(resolve(process.env.DESKTOP_VERIFY_EXE)), 'resources', 'runtime') : resolve('runtime');
-const node = join(runtime, 'node', 'node.exe');
+  ? join(dirname(resolve(process.env.DESKTOP_VERIFY_EXE)), mac ? '../Resources/runtime' : 'resources/runtime') : resolve('runtime');
+const node = join(runtime, 'node', mac ? 'node' : 'node.exe');
 const env = isolatedEnvironment(root, { ...process.env, HOME: home, USERPROFILE: home });
 const name = 'steppage__steppage';
 const admin = new RpcProcess(() => {});
@@ -47,7 +50,7 @@ try {
   await writeFile(join(root, 'config.toml'), [
     'defaultProvider = "fixture"', 'defaultModel = "fixture"', '[telemetry]', 'enabled = false',
     '[mcp_servers.steppage]', 'enabled = true',
-    `command = ${JSON.stringify('C:\\Previous Desktop\\runtime\\node\\node.exe')}`,
+    `command = ${JSON.stringify(mac ? '/Previous Desktop/runtime/node/node' : 'C:\\Previous Desktop\\runtime\\node\\node.exe')}`,
     `args = [${JSON.stringify(bundle)}]`, '[mcp_servers.steppage.env]',
     `HOME = ${JSON.stringify(home)}`, `USERPROFILE = ${JSON.stringify(home)}`,
   ].join('\n') + '\n');
@@ -63,7 +66,7 @@ try {
   const connected = await summary();
   assert.equal(connected.status, 'connected');
   assert.ok(connected.toolCount > 0, 'The actual bundle must publish a tool catalog');
-  await admin.request('mcp', { name, config: { command: 'C:\\Moved Desktop\\runtime\\node\\node.exe', enabled: false } });
+  await admin.request('mcp', { name, config: { command: mac ? '/Moved Desktop/runtime/node/node' : 'C:\\Moved Desktop\\runtime\\node\\node.exe', enabled: false } });
   await admin.request('reconcile_steppage', { bundlePath: bundle });
   const disabled = await summary();
   assert.deepEqual(disabled, { name, status: 'disabled', toolCount: 0 });

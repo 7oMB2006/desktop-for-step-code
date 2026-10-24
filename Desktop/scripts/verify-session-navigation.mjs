@@ -1,3 +1,4 @@
+import { fixtureRuntimeChildren } from './fixture-runtime-children.mjs';
 import { _electron as electron } from 'playwright';
 import { mkdir, mkdtemp, realpath, writeFile, readFile, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -416,13 +417,11 @@ try {
     });
   });
   const mainPid = await app.evaluate(() => process.pid);
-  const crashedPids = (() => {
-    const script = `Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq ${mainPid} -and $_.Name -eq "node.exe" -and $_.CommandLine -like "*step.js*" -and $_.CommandLine -like "*--mode*rpc*" } | Select-Object -ExpandProperty ProcessId | ConvertTo-Json -Compress`;
-    const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', script], { encoding: 'utf8', windowsHide: true }) || '[]');
-    const pids = Array.isArray(result) ? result : [result];
-    for (const pid of pids) execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
-    return pids;
-  })();
+  const crashedPids = fixtureRuntimeChildren(mainPid);
+  for (const pid of crashedPids) {
+    if (process.platform === 'win32') execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+    else process.kill(pid);
+  }
   assert.ok(crashedPids.length > 0, 'Only fixture-owned RPC children are terminated');
   await page.waitForFunction(runtimeId => window.navigationExits.includes(runtimeId), crashed.runtimeId);
   await page.evaluate(() => window.stopNavigationExits());

@@ -37,14 +37,11 @@ try {
   const navigation = page.getByRole('navigation', { name: '设置分类' });
   const archivedTab = navigation.getByRole('button', { name: '已归档', exact: true });
   const migrationTab = navigation.getByRole('button', { name: '会话迁移', exact: true });
-  if (process.platform === 'win32') {
+  {
     assert.deepEqual((await navigation.getByRole('button').allTextContents()).slice(-3), ['版本更新', '会话迁移', '已归档']);
     assert.equal(await migrationTab.locator('svg.lucide-arrow-right-left').count(), 1);
     assert.equal(await migrationTab.evaluate(element => getComputedStyle(element).marginTop), '22px');
     assert.equal(await archivedTab.evaluate(element => getComputedStyle(element).marginTop), '0px');
-  } else {
-    assert.equal(await migrationTab.count(), 0);
-    assert.equal(await archivedTab.evaluate(element => getComputedStyle(element).marginTop), '22px');
   }
   assert.equal(await navigation.getByRole('button', { name: '版本更新', exact: true }).locator('svg.lucide-download').count(), 1);
   await page.waitForTimeout(250);
@@ -52,7 +49,7 @@ try {
   const lightTint = await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).backgroundColor);
   assert.equal(await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).top), '0px');
   assert.equal(await page.evaluate(() => document.elementFromPoint(85, 22)?.classList.contains('settings-backdrop')), true, 'Application menus are behind the settings backdrop');
-  assert.equal(await page.getByRole('button', { name: '最小化', exact: true }).evaluate(element => {
+  if (process.platform !== 'darwin') assert.equal(await page.getByRole('button', { name: '最小化', exact: true }).evaluate(element => {
     const bounds = element.getBoundingClientRect();
     return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)?.classList.contains('settings-backdrop');
   }), true, 'The entire titlebar is behind the settings backdrop');
@@ -68,7 +65,7 @@ try {
   await capture('settings-fixed-appearance-light');
   await page.getByRole('button', { name: '账户', exact: true }).click();
   await capture('settings-fixed-account-light');
-  if (process.platform === 'win32') {
+  {
     await migrationTab.click();
     await capture('settings-fixed-import-light');
     assert.deepEqual(await dialog.boundingBox(), baseline, 'Session migration retains the settings shell bounds');

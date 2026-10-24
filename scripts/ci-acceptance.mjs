@@ -165,3 +165,33 @@ export function validateInventory(files, groups = acceptanceGroups, excluded = l
     if (!registered.has(file)) throw new Error(`Unassigned acceptance script: ${file}`);
   }
 }
+
+// macOS uses the same feature inventory. Keep the native Windows shell probe
+// explicitly excluded; native macOS terminal behavior is tested separately.
+export const macosExclusions = {
+  'verify-windows-commands.mjs': 'Requires Windows executable discovery, Git Bash and PowerShell.',
+};
+export const macosAcceptanceGroups = Object.fromEntries(Object.entries(acceptanceGroups)
+  .map(([group, scripts]) => [group, scripts.filter(script => !(script in macosExclusions))]));
+macosAcceptanceGroups.interface.push('verify-macos-updater.mjs');
+macosAcceptanceGroups.sessions.push('verify-turn-undo.mjs');
+
+export function macosGroupScripts(group) {
+  if (group === 'all') return windowsGroups.flatMap(name => macosAcceptanceGroups[name]);
+  if (!windowsGroups.includes(group)) throw new Error(`Unknown macOS acceptance group: ${group}`);
+  return macosAcceptanceGroups[group];
+}
+
+export function validateMacosInventory(files) {
+  validateInventory(files);
+  for (const [script, reason] of Object.entries(macosExclusions)) {
+    if (!Object.values(acceptanceGroups).flat().includes(script) || !reason.trim()) {
+      throw new Error(`Invalid macOS exclusion: ${script}`);
+    }
+  }
+  const included = macosGroupScripts('all');
+  if (new Set(included).size !== included.length) throw new Error('Duplicate macOS acceptance script');
+  for (const script of Object.values(acceptanceGroups).flat()) {
+    if (!included.includes(script) && !(script in macosExclusions)) throw new Error(`Unassigned macOS acceptance script: ${script}`);
+  }
+}

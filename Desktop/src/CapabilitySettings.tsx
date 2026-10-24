@@ -225,7 +225,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
           </div>)}
           {!catalog.plugins.length && <div className="cap-empty"><span>{t('没有已安装的插件', 'No installed plugins')}</span><button type="button" onClick={() => { setTab('discover'); setQuery(''); }}>{t('浏览插件', 'Browse plugins')}</button></div>}
           {catalog.plugins.length > 0 && !catalog.plugins.some(plugin => search(`${plugin.name} ${plugin.id} ${plugin.description}`)) && <div className="cap-empty">{t('没有匹配的插件', 'No matching plugins')}</div>}
-          {bridge.platform === 'win32' && <CapabilityDisclosure className="cap-preparation" label={<>StepPage · {t('内置准备', 'Built-in setup')}</>}>{stepPage}</CapabilityDisclosure>}
+          {<CapabilityDisclosure className="cap-preparation" label={<>StepPage · {t('内置准备', 'Built-in setup')}</>}>{stepPage}</CapabilityDisclosure>}
         </>}
         {page === 'plugins' && tab === 'discover' && <>
           {catalog.available.filter(plugin => search(`${plugin.name} ${plugin.description} ${plugin.marketplace}`)).map(plugin => <div className="cap-row" key={`${plugin.marketplace}/${plugin.name}`}>

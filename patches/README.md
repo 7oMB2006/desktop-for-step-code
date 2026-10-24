@@ -2,7 +2,7 @@
 
 Repository: https://github.com/stepfun-ai/Step-Code
 
-Windows pinned commit: `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`
+Windows and macOS pinned commit: `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`
 (v0.1.5 announcement baseline). Its patches and reviewed pre/post-image hashes
 live in `patches/v015/`. Apply with:
 
@@ -10,8 +10,11 @@ live in `patches/v015/`. Apply with:
 node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v015/step-code-desktop.patch
 ```
 
-macOS remains frozen at `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`
-with the original patches below. Do not apply the Windows patch set to this source.
+The macOS 0.6.0 port uses the same v0.1.5 source and complete shared patch set.
+`manifest.json` additionally pins the Darwin process-tree patch and its resulting
+sources under `platforms.darwin`; the applier selects this addition on macOS.
+The older macOS 0.5.1 source `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`
+and original root-level patches are retained for historical reproducibility.
 
 The v0.1.5 Plan bridge preserves `planHash`, `planModeExited` and
 `approvalSource` in reviewed results. RPC child external-approval handoffs
@@ -27,20 +30,20 @@ context projection and usage exclusion, so source tools are evidence rather than
 live execution protocol and source model selection is not resumed. The v0.1.5
 port uses a local callback type because that baseline predates the source's
 session-index notification interface; Desktop refreshes its catalog instead.
-Source/preimage and resulting hashes are part of the existing Windows manifest.
-The frozen macOS patch set does not include this addition. See
+Source/preimage and resulting hashes are part of the shared manifest.
+Windows and macOS both include this addition. See
 `docs/SESSION_IMPORT.md` for boundaries and verification.
 
-The Windows manifest also applies the shared Cron observer and management patches,
+The shared manifest also applies the shared Cron observer and management patches,
 then `step-code-desktop-cron-recovery.patch`. This **Beta** addition gates native
 Cron delivery only when both `DESKTOP_CRON_STATE=1` and
 `DESKTOP_CRON_RECOVERY=1` are explicitly supplied. The one-use
 `desktop_cron_resume` RPC requires an idle trusted session. Desktop verifies
 the selected session, account, model, Ask policy and loaded tasks before release.
 The patch does not replace the scheduler, alter its shared task schema or bypass
-expiry. macOS does not include or advertise this recovery patch. See `docs/CRON.md`.
+expiry. Both platforms include and advertise this recovery capability. See `docs/CRON.md`.
 
-The additional Windows-only `step-code-desktop-cron-enhancements.patch` supplies
+The shared `step-code-desktop-cron-enhancements.patch` supplies
 the guarded Desktop `update` action for per-task pause/resume and editing. It
 retains native locking, identities, time offsets and original deadlines.
 Paused durable tasks use Beta schema 2 with `desktopPausedAt`, opt-in only under
@@ -52,14 +55,13 @@ Automatic recovery authorization and bounded execution/recovery journals remain
 Desktop-owned, default off and separate from upstream storage. See `docs/CRON.md`
 for consent, expiry, account checks, uncertainty and downgrade boundaries.
 
-Windows also applies `step-code-desktop-cron-recovery-guard.patch` after the
+Both platforms also apply `step-code-desktop-cron-recovery-guard.patch` after the
 enhancements patch. Automatic `desktop_cron_resume` carries a finite `before`
 deadline checked synchronously inside the native scheduler before releasing
 the gate. Crossing the reviewed trigger/expiry during initialization or loading
 buffered missed work rejects automatic release. Manual reviewed release retains
 its existing explicit path. Desktop requires the staged
-`desktop-cron-recovery-guard` capability before automatic recovery; macOS keeps
-its frozen patch set unchanged.
+`desktop-cron-recovery-guard` capability before automatic recovery on either platform.
 `step-code-desktop-cron-scope.patch` adds an optional Desktop conversation view
 over the existing shared Cron file. Only moved/restored Desktop transports supply
 `DESKTOP_CRON_SCOPE_DIR`, pointing to Desktop-owned task associations. Such a
@@ -67,10 +69,9 @@ transport loads its own jobs, not foreign or unbound project tasks. Shared-file
 transactions retain foreign and unknown records; newly created jobs remain
 usable while their association is being persisted. The project-wide job limit
 and identity-conflict checks still apply. The runtime manifest advertises
-`desktop-session-cron-scope`; ordinary CLI scheduling and the frozen macOS
-patches remain unchanged.
+`desktop-session-cron-scope`; ordinary CLI scheduling remains unchanged.
 
-Windows-specific compatibility also keeps branch preparation read-only:
+The shared compatibility patch also keeps branch preparation read-only:
 `STEPCODE_DESKTOP_BRANCH_SOURCE` suppresses startup usage discovery only for
 that exact original file, while the newly forked session records normally.
 The ordinary strict leaf check is unchanged. Whole-session copies compare
@@ -79,24 +80,32 @@ Subagent temporary-directory cleanup is single-flight, retried and nonfatal;
 a Windows `EPERM` during cleanup must not terminate the parent runtime.
 The Windows patch also carries Workflow test-fixture portability and mixed
 Workflow/parallel-subagent admission regressions; these do not change the
-production scheduler or the frozen macOS test sources.
+production scheduler.
 Foreground shell cancellation also waits for Windows cleanup and snapshots the
 selected Git Bash invocation's MSYS descendants, whose Windows parent chains
 can be broken by fork/exec. Only that invocation's exact PIDs are targeted;
 unavailable MSYS discovery retains the ordinary Windows-tree fallback.
 The focused process-tree tests and gated real-command cancellation/isolation
 acceptance cover this Windows-only addition. It does not change command
-approval policy, timeout defaults or the frozen macOS patch.
+approval policy or timeout defaults.
 
-Permissions, risk acknowledgment, legacy migration, bounded model-error continuation and default CLM remain upstream behavior. The original integration patches below remain unchanged for the frozen macOS baseline. These are reproducible source commits, not GitHub release tags.
+The macOS-only `step-code-desktop-darwin-process-tree.patch` fills the matching
+POSIX cancellation gap: `/bin/ps` snapshots the selected command's descendants
+before terminating the process group, then verifies birth timestamps before
+signalling detached descendants. It never selects processes by command name.
+An unavailable process table retains ordinary process-group cleanup. Dedicated
+ownership/PID-reuse tests and a real detached-child isolation test cover Darwin;
+the shared Windows patch and resulting Windows source hashes are unchanged.
 
-The Windows-only `step-code-desktop-auto-resume.patch` adds structured provenance
+Permissions, risk acknowledgment, legacy migration, bounded model-error continuation and default CLM remain upstream behavior. The original root-level integration patches remain unchanged for the historical macOS baseline. These are reproducible source commits, not GitHub release tags.
+
+The shared `step-code-desktop-auto-resume.patch` adds structured provenance
 to the existing automatic-continuation input. It keeps the normal input and
 `before_agent_start` hooks, model validation and original provider instruction.
 The idle extension input is persisted as a visible `step-auto-resume` custom
 message, allowing Desktop to show a noninteractive timeline event instead of
 claiming a human sent it. Retry policy and permission handling are unchanged;
-unmarked existing history is not rewritten. The frozen macOS patch set is unchanged.
+unmarked existing history is not rewritten. Both platforms receive this fix.
 
 The applier also installs `step-code-desktop-plan.patch`. Its explicit
 `--desktop-plan-review` flag is supplied only to Desktop main workers. It adds
@@ -109,7 +118,11 @@ a read-only sandbox: command permissions remain unchanged.
 
 `step-code-desktop.patch` contains the Windows build fix, desktop integration exports, and an opt-in in-memory auth backend. The build fix invokes npm through `process.execPath` and `npm_execpath`. The desktop backend activates only when the desktop client supplies an isolated auth path and credential payload; ordinary Step Code file storage is unchanged. The payload is removed from the child process environment during module initialization.
 
-On a clean checkout of the frozen macOS commit:
+For current Windows/macOS builds, use the v015 command above on a clean checkout
+of `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`.
+
+For reproducing the historical macOS 0.5.1 build only, use a clean checkout of
+`3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` and the original patch entry:
 
 ```powershell
 node ../scripts/apply-step-code-desktop-patch.mjs . ../patches/step-code-desktop.patch
@@ -134,4 +147,4 @@ the existing cancellable input request. CLI/TUI and child RPC behavior remain
 unchanged. No unattended timeout, automatic answer or durable pending-question
 semantics are introduced. See `docs/UPSTREAM_QUESTIONNAIRE_BETA.md` for boundaries,
 Plan integration and the follow-up upstream proposal.
-Electron encrypts the desktop auth snapshot with Windows `safeStorage` before writing it under userData. The runtime and management children receive the decrypted snapshot at launch and do not write `auth.json`. Any future upstream auth write path must be checked against this boundary before updating the pinned patch.
+Electron encrypts the desktop auth snapshot with platform `safeStorage` before writing it under userData. The runtime and management children receive the decrypted snapshot at launch and do not write `auth.json`. Any future upstream auth write path must be checked against this boundary before updating the pinned patch.

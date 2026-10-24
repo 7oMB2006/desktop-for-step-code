@@ -2,9 +2,9 @@
 
 ## Project Boundary
 
-- This repository contains the desktop client in `Desktop/`. The macOS Apple Silicon track now follows the frozen Windows v0.5.1 Release, preserving the published v0.5.0-macos.1 port. See `docs/MACOS.md` and `docs/PLATFORM_HANDOFF.md`.
+- This repository contains the desktop client in `Desktop/`. The macOS Apple Silicon 0.6.0 preparation follows the frozen Windows PR #163 merge, preserving the existing macOS port. See `docs/MACOS.md` and `docs/PLATFORM_HANDOFF.md`.
 - `Step-Code/` is a separate upstream checkout and is intentionally excluded from this repository.
-- Keep the macOS baseline fixed at Release v0.5.1 (`15f0fa77ee1562d3297e226071d49c00c762d891`), as requested by the owner; do not merge later Windows main/PR work or the separately maintained Linux branch without an explicit request. Preserve Windows behavior and renderer isolation. WSL is not a dependency.
+- The owner explicitly authorized the 0.6.0 migration on 2026-10-24. Freeze shared Windows features at PR #163 merge `324e71d1800de020c035cdce598374a6037ba4ca`; do not import later Windows main/PR work or the separately maintained Linux branch without an explicit request. Mac parity fixes and release preparation build on this commit. Preserve Windows behavior and renderer isolation. WSL is not a dependency.
 - Preserve changes already present in the Step Code checkout. Do not edit it unless an integration need requires a narrowly scoped change.
 
 ## Runtime Boundary

@@ -2,12 +2,15 @@ name: macOS Apple Silicon preview
 
 on:
   push:
-    branches: [dot/macos-arm64, codex/macos-0.5.1, codex/macos-0.5.1-parity]
+    branches: [dot/macos-arm64, codex/macos-0.5.1, codex/macos-0.5.1-parity, codex/macos-0.6.0-release]
   pull_request:
     paths:
       - 'Desktop/**'
       - 'patches/**'
       - 'scripts/apply-step-code-desktop-patch.mjs'
+      - 'scripts/ci-macos*'
+      - 'scripts/ci-acceptance.mjs'
+      - 'scripts/ci-windows*'
       - '.github/workflows/macos-integration.yml'
   workflow_dispatch:
 
@@ -22,7 +25,9 @@ jobs:
   macos:
     name: ARM64 build, tests and packaged acceptance
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 90
+    env:
+      DESKTOP_MACOS_RELEASE_VERSION: 0.6.0
     defaults:
       run:
         shell: bash
@@ -43,15 +48,19 @@ jobs:
         run: |
           git init Step-Code
           git -C Step-Code remote add origin https://github.com/stepfun-ai/Step-Code.git
-          git -C Step-Code fetch --depth 1 --no-tags origin 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
+          git -C Step-Code fetch --depth 1 --no-tags origin b5dbed938d9ae589397cf522dcf2ff89ecf4c494
           git -C Step-Code checkout --detach FETCH_HEAD
-          test "$(git -C Step-Code rev-parse HEAD)" = 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
-          node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/step-code-desktop.patch
+          test "$(git -C Step-Code rev-parse HEAD)" = b5dbed938d9ae589397cf522dcf2ff89ecf4c494
+          node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v015/step-code-desktop.patch
       - name: Build pinned Step Code
         working-directory: Step-Code
         run: |
           corepack pnpm install --frozen-lockfile
           corepack pnpm build:offline
+      - name: Upstream shared runtime integration tests
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts test/step-then-run-command-parity.test.ts test/step-permissions.test.ts test/step-extension.test.ts test/suite/agent-session-prompt.test.ts test/shell-process-tree.test.ts test/shell-process-tree-darwin.test.ts test/step-subagent-events.test.ts test/subagent-exit-drain.test.ts test/step-usage-lifecycle.test.ts test/step-cron.test.ts test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts test/session-import.test.ts test/session-manager/build-context.test.ts test/compaction-serialization.test.ts test/workflow-runtime.test.ts test/workflow-extension.test.ts test/workflow-agent-runner.test.ts test/workflow-vm.test.ts test/workflow-registration.test.ts
       - name: Install Desktop and test browser
         working-directory: Desktop
         run: |
@@ -72,24 +81,8 @@ jobs:
       - name: Source Electron acceptance
         working-directory: Desktop
         run: |
-          node scripts/verify-startup.mjs
-          node scripts/verify-app-updates.mjs
-          node scripts/verify-update-installer.mjs
-          node scripts/verify-macos-updater.mjs
-          node scripts/verify-electron.mjs
-          node scripts/verify-auth-vault.mjs
-          node scripts/verify-account-settings.mjs
-          node scripts/verify-usage-account.mjs
-          node scripts/verify-account-allowance.mjs
-          node scripts/verify-account-balance.mjs
-          node scripts/verify-account-routing.mjs
-          node scripts/verify-steppage-registration.mjs
-          node scripts/verify-browser-panel.mjs
-          node scripts/verify-file-preview.mjs
-          node scripts/verify-turn-artifacts.mjs
-          node scripts/verify-terminal-scopes.mjs
-          node scripts/verify-turn-undo.mjs
-          node scripts/verify-archived-sessions.mjs
+          node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs
+          node ../scripts/ci-macos.mjs
       - name: Package unsigned preview and verify resources
         working-directory: Desktop
         run: |
@@ -101,23 +94,7 @@ jobs:
           DESKTOP_VERIFY_EXE: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/MacOS/Desktop for Step Code
           DESKTOP_MACOS_RESOURCES: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/Resources
         run: |
-          node scripts/verify-startup.mjs
-          node scripts/verify-app-updates.mjs
-          node scripts/verify-update-installer.mjs
-          node scripts/verify-macos-updater.mjs
-          node scripts/verify-electron.mjs
-          node scripts/verify-auth-vault.mjs
-          node scripts/verify-account-settings.mjs
-          node scripts/verify-account-allowance.mjs
-          node scripts/verify-account-balance.mjs
-          node scripts/verify-account-routing.mjs
-          node scripts/verify-steppage-registration.mjs
-          node scripts/verify-browser-panel.mjs
-          node scripts/verify-file-preview.mjs
-          node scripts/verify-turn-artifacts.mjs
-          node scripts/verify-terminal-scopes.mjs
-          node scripts/verify-turn-undo.mjs
-          node scripts/verify-archived-sessions.mjs
+          node ../scripts/ci-macos.mjs
           corepack pnpm exec tsx --test tests/macos-terminal.test.ts
       - name: Archive tested preview with executable permissions
         working-directory: Desktop
@@ -138,9 +115,9 @@ jobs:
             Desktop/release/runtime-manifest.json
             Desktop/release/v*/mac-update.json
             Desktop/release/v*/*.zip
-            Desktop/release/v*/SHA256SUMS.txt
-            Desktop/release/v*/COMMIT.txt
-            Desktop/release/v*/runtime-manifest.json
+            Desktop/release/v*/SHA256SUMS-macos-arm64.txt
+            Desktop/release/v*/COMMIT-macos-arm64.txt
+            Desktop/release/v*/runtime-manifest-macos-arm64.json
           retention-days: 7
           if-no-files-found: error
       - name: Upload fixture diagnostics

@@ -305,7 +305,7 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
       assert.ok(journal.some(entry => entry.message && text(entry.message.content) === oldText), 'Canonical history stays intact');
       const revision = journal.find(entry => entry.customType === 'step-auto-clm');
       assert.ok(revision, 'Accepted maintenance must persist');
-      if (process.platform === 'win32') {
+      {
         const callsBeforeRead = requests.length;
         const inspector = await worker.rpc.request('get_desktop_clm');
         assert.equal(inspector.sessionId, sessionId);

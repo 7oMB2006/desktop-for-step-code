@@ -40,10 +40,8 @@ test('pinned slash handlers support read-only commands, cancellable dialogs and 
       { ...isolatedEnvironment(profile), STEPCODE_FEEDBACK_ENDPOINT: `${origin}/feedback` });
     const { commands } = await rpc.request('get_commands');
     const manifest = JSON.parse(await readFile(resolve('runtime/manifest.json'), 'utf8'));
-    // macOS remains on the older baseline; it has no native Usage extension yet.
-    assert.equal(manifest.commit, process.platform === 'win32'
-      ? 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494' : '3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8');
-    assert.equal(commands.some((command: { name: string }) => command.name === 'usage'), process.platform === 'win32',
+    assert.equal(manifest.commit, 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494');
+    assert.equal(commands.some((command: { name: string }) => command.name === 'usage'), true,
       'Native Usage registration matches the staged baseline; Desktop provides its own Usage mapping');
     for (const name of ['todos', 'workflows', 'cron', 'feedback', 'plugin', 'plan', 'goal', 'ultracode', 'init']) {
       assert.ok(commands.some((command: { name: string }) => command.name === name), `${name} is registered`);

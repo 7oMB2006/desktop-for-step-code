@@ -69,7 +69,7 @@ https://github.com/7oMB2006/desktop-for-step-code/actions/runs/37619401736/job/1
 
 当前 main 的 `pnpm package` 会 build、stage runtime，再调用 electron-builder。不能假设旧工作区的 `scripts/package.mjs` 已合并，也不能跳过固定 runtime 校验复用未知来源的 dist。
 
-Windows 开发构建运行时预期：Step Code `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`（v0.1.5 公告对应源码基线），Node `v24.16.0`（包含 Windows TCP 连接崩溃修复，nodejs/node#63620），使用 `patches/v015/` 的 Desktop 集成补丁及源文件校验。macOS 按既有要求保留 `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` 与原补丁，不随 Windows 升级。已发布 v0.5.1 的运行时不变；开发钉点更新不代表新功能、真实模型或安装包验收已经完成。独立 `Step-Code/` checkout 与 staged runtime 分开管理，不修改用户已有 checkout。
+Windows 开发构建运行时预期：Step Code `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`（v0.1.5 公告对应源码基线），Node `v24.16.0`（包含 Windows TCP 连接崩溃修复，nodejs/node#63620），使用 `patches/v015/` 的 Desktop 集成补丁及源文件校验。macOS 0.6.0 经维护者于 2026-10-24 授权，也使用该 v0.1.5 固定源码与完整补丁集，另加受校验的 Darwin 进程树清理补丁；Mac Node 为 `v24.15.0`。双平台草稿交接与 Mac 人工验收见 [0.6.0 Mac 准备](releases/v0.6.0-macos-preparation.zh-CN.md)。已发布 v0.5.1 的运行时不变；开发钉点更新不代表新功能、真实模型或安装包验收已经完成。独立 `Step-Code/` checkout 与 staged runtime 分开管理，不修改用户已有 checkout。
 
 候选证据记录应包含：
 

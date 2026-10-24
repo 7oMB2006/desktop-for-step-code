@@ -166,7 +166,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
   const recoveryButton = useRef<HTMLButtonElement>(null);
   const task = jobs.find(job => job.id === selected);
   const recoveryTargets = task ? sessions.filter(session => session.path
-    && normalizedWorkspaceKey(session.cwd, 'win32') === normalizedWorkspaceKey(task.workspace, 'win32')) : [];
+    && normalizedWorkspaceKey(session.cwd, window.desktop?.platform ?? 'win32') === normalizedWorkspaceKey(task.workspace, window.desktop?.platform ?? 'win32')) : [];
   const associated = task?.association && sessions.find(session => session.id === task.association?.sessionId);
   const projects = [...new Set([...jobs.map(job => job.workspace), ...hosts.map(host => host.workspace)])];
   const selectedHost = hosts.find(host => host.runtimeId === hostId) ?? hosts[0];

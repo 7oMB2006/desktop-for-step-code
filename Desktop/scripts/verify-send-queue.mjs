@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { fixtureRuntimeChildren } from './fixture-runtime-children.mjs';
 import { queueFixture } from './queue-demo-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-send-queue-'));
@@ -234,18 +234,13 @@ try {
   await page.screenshot({ path: 'test-results/queue-narrow-light.png' });
   await page.evaluate(() => { window.queueKeyTests = []; const input = document.querySelector('.composer > .composer-input'); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })); });
   assert.equal((await snapshot()).pendingMessages.length, 2, 'repeated/IME Enter cannot steer');
-  if (process.platform === 'win32') {
+  {
     await input.press('Enter');
     await page.locator('.pending-user').waitFor();
     const owner = await app.evaluate(({ app }) => ({ pid: process.pid, profile: app.getPath('userData') }));
     assert.equal(owner.profile, profile, 'termination must be scoped to this isolated fixture');
     const runtimeCount = (await snapshot()).runtimes.length;
-    const command = `@(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${owner.pid}' | Where-Object {
-      $_.Name -eq 'node.exe' -and $_.CommandLine -match 'step[.]js' -and $_.CommandLine -match '--mode'
-    } | Select-Object -ExpandProperty ProcessId) | ConvertTo-Json -Compress`;
-    const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', command],
-      { encoding: 'utf8', windowsHide: true }).trim());
-    const children = Array.isArray(result) ? result : [result];
+    const children = fixtureRuntimeChildren(owner.pid);
     assert.ok(children.length > 0 && children.length <= runtimeCount
       && children.every(pid => Number.isInteger(pid) && pid !== owner.pid));
     for (const pid of children) process.kill(pid);

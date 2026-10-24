@@ -169,6 +169,7 @@ try {
   assert.equal(await menu.count(), 0);
   assert.equal(await app.evaluate(() => globalThis.menuPrompts), 0, 'Selecting CLM does not execute it');
   await input.fill('/clm-compact');
+  await menu.getByRole('option', { selected: true }).filter({ hasText: '/clm-compact' }).waitFor();
   await input.press('Enter');
   assert.equal(await input.evaluate(element => element.value), '/clm-compact ');
   await input.fill('/clm-compact 保留项目名和关键要求');
@@ -320,8 +321,8 @@ try {
   await input.press('Shift+Enter');
   await input.pressSequentially('下一行');
   assert.equal(await input.evaluate(element => element.value), '文本 https://example.com/guide 尾部\n下一行');
-  await input.press('Control+z');
-  await input.press('Control+Shift+z');
+  await input.press('ControlOrMeta+z');
+  await input.press('ControlOrMeta+Shift+z');
   assert.equal(await input.evaluate(element => element.value), '文本 https://example.com/guide 尾部\n下一行', 'Undo/redo does not serialize icons');
   await input.evaluate(element => element.setSelectionRange(3, 31));
   await input.pressSequentially('替换');
@@ -420,7 +421,7 @@ try {
   await page.keyboard.press('Escape');
   const openFreshSlashMenu = async () => {
     // Escape dismisses the existing token; each layout case starts a new draft.
-    await input.press('Control+a');
+    await input.press('ControlOrMeta+a');
     await input.press('Backspace');
     await page.waitForFunction(() => document.querySelector('.composer-input')?.dataset.empty === 'true');
     await input.pressSequentially('/');

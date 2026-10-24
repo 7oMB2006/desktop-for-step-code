@@ -20,7 +20,7 @@ const { trustProject } = await import(pathToFileURL(join(directory, 'project-tru
 const { CronManagement } = await import(pathToFileURL(join(directory, 'cron-management.mjs')));
 const { CronBindings } = await import(pathToFileURL(join(directory, 'cron-bindings.mjs')));
 const { CronHistory } = await import(pathToFileURL(join(directory, 'cron-history.mjs')));
-const runtime = resolve(process.env.DESKTOP_CRON_VERIFY_RUNTIME ?? 'runtime');
+const runtime = resolve(process.env.DESKTOP_CRON_VERIFY_RUNTIME ?? (process.env.DESKTOP_MACOS_RESOURCES ? join(process.env.DESKTOP_MACOS_RESOURCES, 'runtime') : 'runtime'));
 const node = join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const entry = join(runtime, 'step/dist/bundle/step.js');
 const manifest = JSON.parse(await readFile(join(runtime, 'manifest.json'), 'utf8'));
@@ -130,7 +130,7 @@ async function check(name, run) {
   console.log(`PASS ${name}`);
 }
 try {
-  if (process.platform === 'win32') await check('Beta task pause/edit/resume preserves identity, skips paused triggers and never resets expiry', async () => {
+  await check('Beta task pause/edit/resume preserves identity, skips paused triggers and never resets expiry', async () => {
     const f = await fixture('pause-edit');
     try {
       const before = requests;
@@ -182,7 +182,7 @@ try {
       assert.equal(requests, before);
     } finally { await f.close(); }
   });
-  if (process.platform === 'win32') await check('Project-shared pause suppresses a missed one-shot already buffered by another host', async () => {
+  await check('Project-shared pause suppresses a missed one-shot already buffered by another host', async () => {
     const f = await fixture('pause-shared-missed');
     try {
       const { value: job } = await tool(f, 'cron_create', { cron: '* * * * *', prompt: 'shared-pause', recurring: false, durable: true });
@@ -307,7 +307,7 @@ try {
         && !f.pool.isBusy(f.worker) && f.worker.cron?.jobs.length === 0, 'reopened native fire');
     } finally { await f.close(); }
   });
-  if (process.platform === 'win32') for (const missed of [false, true]) {
+  for (const missed of [false, true]) {
     await check(`Beta gated recovery blocks ${missed ? 'missed notices' : 'due delivery'} until explicit release`, async () => {
       assert.ok(manifest.patches.includes('desktop-cron-recovery'));
       const f = await fixture(missed ? 'recovery-missed' : 'recovery-due');

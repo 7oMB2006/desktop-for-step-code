@@ -17,7 +17,7 @@ export function desktopManaged(server, bundlePath, platform) {
 }
 
 /** Runs inside the upstream settings lock, with the full config (never its UI projection). */
-export function reconcileStepPageServers(servers, { nodePath, bundlePath, bundleExists, homePath, rejectedBundlePath, platform = process.platform }) {
+export function reconcileStepPageServers(servers, { nodePath, bundlePath, bundleExists, homePath, rejectedBundlePath, desktopOnly = false, platform = process.platform }) {
   const next = { ...servers };
   // A failed Desktop fingerprint must not leave its executable declaration enabled.
   if (rejectedBundlePath) for (const name of [LEGACY_STEPPAGE_SERVER, STEPPAGE_SERVER]) {
@@ -40,12 +40,18 @@ export function reconcileStepPageServers(servers, { nodePath, bundlePath, bundle
     delete next[LEGACY_STEPPAGE_SERVER];
   }
   const server = next[STEPPAGE_SERVER];
-  if (!Object.hasOwn(next, STEPPAGE_SERVER) && bundleExists) {
+  // On Desktop macOS, bypass upstream PATH/HOME discovery and auto-installation
+  // even before explicit preparation. A missing pinned bundle stays a local failure.
+  const managedTransport = bundleExists || desktopOnly;
+  if (!Object.hasOwn(next, STEPPAGE_SERVER) && managedTransport) {
     next[STEPPAGE_SERVER] = { command: nodePath, args: [bundlePath], enabled: true };
-  } else if (bundleExists && desktopManaged(server, bundlePath, platform)) {
+  } else if (desktopOnly && record(server) && Object.keys(server).every(key => key === 'enabled')) {
+    // Enabling a built-in override must not restore the upstream implicit installer.
+    next[STEPPAGE_SERVER] = { ...server, command: nodePath, args: [bundlePath] };
+  } else if (managedTransport && desktopManaged(server, bundlePath, platform)) {
     next[STEPPAGE_SERVER] = { ...server, command: nodePath, args: [bundlePath] };
   }
-  if (homePath && bundleExists && desktopManaged(next[STEPPAGE_SERVER], bundlePath, platform)) {
+  if (homePath && managedTransport && desktopManaged(next[STEPPAGE_SERVER], bundlePath, platform)) {
     const path = platform === 'win32' ? win32 : posix;
     const oldBundle = server?.args?.[0];
     const oldHome = typeof oldBundle === 'string' && /[\\/]step-runtime[\\/]steppage[\\/]bin[\\/]steppage-mcp\.mjs$/i.test(oldBundle)

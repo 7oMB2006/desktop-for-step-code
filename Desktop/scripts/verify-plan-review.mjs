@@ -151,7 +151,7 @@ try {
   await dialog.getByRole('button', { name: '批准并执行', exact: true }).click();
   const runningPlan = page.getByRole('button', { name: '执行计划中', exact: true });
   await runningPlan.waitFor();
-  if (process.platform === 'win32') {
+  {
     const approved = await page.evaluate(async () => (await window.desktop.snapshot()).messages
       .findLast(message => message.toolName === 'exit_plan_mode' && message.details?.outcome === 'approved'));
     assert.equal(approved.details.planContents, initialProposal);

@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-assert.equal(process.platform, 'win32', 'This check covers the Windows v0.1.5 runtime');
-const runtime = resolve('runtime');
+assert.ok(['win32', 'darwin'].includes(process.platform), 'This check covers the frozen v0.1.5 runtime');
+const runtime = process.env.DESKTOP_MACOS_RESOURCES ? join(process.env.DESKTOP_MACOS_RESOURCES, 'runtime') : resolve('runtime');
 const manifest = JSON.parse(await readFile(join(runtime, 'manifest.json'), 'utf8'));
 assert.equal(manifest.commit, 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494');
 await readFile(join(runtime, 'step/dist/bundle/chunks/activity-worker.js'));
@@ -45,7 +45,7 @@ try {
   `;
   const probePath = join(root, 'probe.mjs');
   await writeFile(probePath, probe);
-  const result = spawnSync(join(runtime, 'node/node.exe'), [probePath], {
+  const result = spawnSync(join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'), [probePath], {
     cwd: root, encoding: 'utf8', timeout: 30000, windowsHide: true,
   });
   assert.equal(result.error, undefined);

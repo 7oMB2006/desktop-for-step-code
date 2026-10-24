@@ -6,10 +6,6 @@ import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
-if (process.platform !== 'win32') {
-  console.log('Session import acceptance is Windows-only.');
-  process.exit(0);
-}
 // Windows runners may expose TEMP through an 8.3 alias; compare native canonical paths.
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-session-import-')));
 const fixture = await queueFixture(profile, { duration: 100 });

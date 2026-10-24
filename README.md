@@ -95,8 +95,8 @@ corepack pnpm dev
 ```
 
 The Windows development baseline above is newer than the published v0.5.1 runtime.
-macOS remains frozen at `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` with the original
-`patches/step-code-desktop.patch`; see [MACOS.md](docs/MACOS.md).
+macOS 0.6.0 now shares the v0.1.5 pin and `patches/v015/` integration, plus a
+Darwin process-tree cleanup patch; see [MACOS.md](docs/MACOS.md).
 
 To produce a Windows x64 installer:
 
@@ -119,6 +119,4 @@ Desktop for Step Code is licensed under MIT. Step Code and its Pi upstream compo
 
 ### macOS Apple Silicon preview branch
 
-This branch follows the published Windows **v0.5.1** Release on macOS Apple Silicon, including account usage/balance, confirmed in-app updates and native file application selection. The existing macOS v0.5.0-macos.1 needs one manual upgrade; the 0.5.1 successor is being prepared. See
-[macOS build and local preview](docs/MACOS.md) and [platform coordination](docs/PLATFORM_HANDOFF.md).
-Windows remains the published target; later Windows PRs and the Linux branch are outside this port.
+This branch prepares **0.6.0** from the frozen Windows PR #163 merge, preserving native Mac behavior and auditing the complete v0.1.5 runtime integration. It produces a local unsigned ARM64 candidate for user testing. See [macOS build](docs/MACOS.md), [platform coordination](docs/PLATFORM_HANDOFF.md) and [candidate/release handoff](docs/releases/v0.6.0-macos-preparation.zh-CN.md). Later Windows main and the Linux branch are outside this preparation. No new public download is claimed here.

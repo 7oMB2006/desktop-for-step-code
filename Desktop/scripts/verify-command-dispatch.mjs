@@ -102,7 +102,11 @@ try {
   await send('请解释 /clm 和 /usage');
   await send('/cron list');
   assert.deepEqual((await calls('prompt')).map(call => call.payload.message), ['请解释 /clm 和 /usage', '/cron list']);
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'agent_start' }));
+  await app.evaluate(({ BrowserWindow }) => {
+    globalThis.dispatchFixture.state.isStreaming = true;
+    BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'agent_start', runtimeId: globalThis.dispatchFixture.runtimeId });
+  });
+  await page.locator('.composer-action-button[data-action="stop"]').waitFor();
   await input.fill('/compact');
   await input.press('Escape');
   await input.press('Enter');

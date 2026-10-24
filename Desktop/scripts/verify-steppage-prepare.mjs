@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-if (process.platform !== 'win32') throw new Error('Windows acceptance only');
+if (!['win32', 'darwin'].includes(process.platform)) throw new Error('StepPage acceptance requires Windows or macOS');
 const output = resolve('test-results');
 await mkdir(output, { recursive: true });
 const profile = await mkdtemp(join(output, 'steppage-prepare-profile-'));
@@ -25,8 +25,9 @@ const executablePath = process.env.DESKTOP_VERIFY_EXE;
 let app;
 const launch = async () => {
   app = await electron.launch({
-    executablePath: executablePath ? resolve(executablePath) : resolve('node_modules/electron/dist/electron.exe'),
-    ...(executablePath ? {} : { args: [resolve('.')] }), env, timeout: 60000,
+    ...(executablePath ? { executablePath: resolve(executablePath) } : {}),
+    args: [...(executablePath ? [] : [resolve('.')]), '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding'], env, timeout: 60000,
   });
   const page = await app.firstWindow();
   await page.locator('.app').waitFor();

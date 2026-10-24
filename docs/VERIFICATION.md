@@ -1,5 +1,49 @@
 # Verification
 
+## macOS 0.6.0 preparation (2026-10-24, in progress)
+
+The owner authorized the feature freeze at Windows PR #163 merge
+`324e71d1800de020c035cdce598374a6037ba4ca`, superseding the 0.5.1-only scope.
+This is a local test-candidate preparation, not publication or real-account
+acceptance. The release/draft handoff and manual checklist are recorded in
+[0.6.0 Mac preparation](releases/v0.6.0-macos-preparation.zh-CN.md).
+
+Mac now stages Step Code `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`, the complete
+v0.1.5 Desktop integration with strict shared/platform hashes, and a Darwin-only
+process-tree patch. The original dirty `Step-Code/` checkout was preserved;
+builds use a separate source directory. Node is v24.15.0 on ARM64 macOS 26.4.
+Offline upstream build, clean patch reapplication and staged usage worker passed.
+Twelve focused upstream suites passed 354 tests with three Linux-only skips,
+including real detached-child cancellation with an unrelated process retained.
+
+Desktop frozen-lockfile install, typecheck and production build passed. Initial
+full serialized unit/protocol run passed 786 tests with one Windows-only skip;
+subsequent StepPage/scroll additions are checked separately and will receive a
+final run before freezing the candidate. CI policy/runner checks passed 18 tests
+with one Windows-only cancellation skip. No cloud CI result is claimed here.
+
+Product audit enabled Mac Cron recovery/editing/scope and offline session import,
+removed the obsolete Mac runtime export gaps, corrected platform workspace keys,
+and retained all trust/account/idle/review guards. Actual Mac CLM/status and
+capability management fixtures passed. StepPage now uses Desktop-owned bundle
+and home paths: missing bundle and enabled-only declarations do not fall back to
+personal PATH/HOME or implicit installer. A real runtime sentinel test verifies
+that personal executable discovery never runs, followed by successful explicit
+preparation against a disposable MCP fixture. Explicit custom configuration and
+disabled state remain intact. No real service login or publishing was performed.
+
+Mac acceptance now reuses the shared serial feature inventory (83 checks), excluding
+only the Windows native command suite and adding native updater/turn-undo checks.
+The full source sweep and final package sweep are still in progress. Initial
+failures exposed stale fixture assumptions as well as a real wheel-routing gap
+over sibling conversation markers/scroll handles; the latter has a product fix
+and bounded delta/zoom tests. Final package identity, checksums, resource report
+and per-script outcomes will be recorded after the candidate is built and tested.
+
+Unsigned/unnotarized installation, real account/model calls, production in-app
+upgrade, external services and execution on the minimum supported macOS remain
+separate user acceptance gates. Local fixture outcomes cannot satisfy them.
+
 ## Automatic Continuation Provenance (2026-10-24)
 
 Windows automatic continuation now retains structured system provenance through

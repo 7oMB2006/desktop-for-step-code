@@ -1,5 +1,6 @@
+import { assertFocusVisible } from './assert-focus-visible.mjs';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { fixtureRuntimeChildren } from './fixture-runtime-children.mjs';
 import { _electron as electron } from 'playwright';
 import { mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -50,11 +51,7 @@ const close = async () => {
 const terminateSchedulingChild = async () => {
   const owner = await app.evaluate(({ app }) => ({ pid: process.pid, profile: app.getPath('userData') }));
   assert.equal(owner.profile, profile, 'Only this isolated fixture may be interrupted');
-  const command = `@(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${owner.pid}' | Where-Object {
-    $_.Name -eq 'node.exe' -and $_.CommandLine -match 'step[.]js' -and $_.CommandLine -match '--mode'
-  } | Select-Object -ExpandProperty ProcessId) | ConvertTo-Json -Compress`;
-  const children = [].concat(JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', command],
-    { encoding: 'utf8', windowsHide: true }).trim()));
+  const children = fixtureRuntimeChildren(owner.pid);
   assert.equal(children.length, 1, 'Only the single reviewed scheduling host is terminated');
   assert.ok(Number.isInteger(children[0]) && children[0] !== owner.pid);
   process.kill(children[0]);
@@ -104,6 +101,8 @@ try {
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
     await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await assertFocusVisible(page, page.getByLabel('执行时间（本机时区）', { exact: true }), `cron ${theme} ${width} time`);
+    await assertFocusVisible(page, page.getByLabel('任务指令', { exact: true }), `cron ${theme} ${width} multiline`);
     await page.locator('.scheduled-storage').scrollIntoViewIfNeeded();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ path: `test-results/cron-storage-${theme}-${width}.png` });
@@ -155,7 +154,7 @@ try {
   await openManager();
   await row().click();
   await page.getByRole('heading', { name: '隔离 Cron 管理验收', exact: true }).waitFor();
-  if (process.platform === 'win32') {
+  {
     await page.getByRole('button', { name: '暂停任务 Beta', exact: true }).click();
     await page.getByRole('button', { name: '恢复任务 Beta', exact: true }).waitFor();
     await page.waitForFunction(() => !document.querySelector('.scheduled-page')?.inert);
@@ -242,7 +241,7 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
   assert.equal(fixture.requests.length, 0);
   results.push('relaunch discovers durable records read-only; offline shortcuts and stale host requests cannot start a runtime');
-  if (process.platform === 'win32') {
+  {
     const tasks = (await page.evaluate(() => window.desktop.cronList())).tasks;
     assert.equal(tasks[0].association.sessionId, 'queue-demo');
     await page.getByRole('button', { name: '恢复项目调度 Beta', exact: true }).click();
@@ -393,7 +392,7 @@ try {
   await page.locator('.scheduled-storage').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/cron-storage-temporary.png' });
   results.push('Creation defaults durable, blocks untrusted hosts without fallback, and discloses explicit temporary loss independently of recurrence');
-  if (process.platform === 'win32') {
+  {
     await close();
     await writeFile(join(agent, 'trust.json'), JSON.stringify({ [fixture.workspace]: true }));
     page = await launch();

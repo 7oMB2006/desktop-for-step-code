@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { followAfterScroll, scrollKeyIntent } from '../src/conversation-scroll';
+import { followAfterScroll, scrollKeyIntent, scrollOverlayWheel } from '../src/conversation-scroll';
 
 test('an upward gesture stays paused even at the bottom of a short transcript', () => {
   for (const distance of [0, .5, 1, 40, 62, 99, 100, 240]) {
@@ -43,4 +43,29 @@ test('scroll keys distinguish backward reading from returning to the tail', () =
   for (const modifier of ['ctrlKey', 'metaKey', 'altKey']) {
     assert.equal(scrollKeyIntent({ ...event, key: 'Home', [modifier]: true }), undefined);
   }
+});
+
+
+test('overlay wheel gestures reach the sibling viewport in pixel, line and page units', () => {
+  for (const [deltaY, deltaMode, expected] of [[-40, 0, 260], [-2, 1, 260], [-1, 2, 0], [1, 2, 700], [9999, 0, 700]]) {
+    const scroll = { scrollTop: 300, scrollHeight: 1100, clientHeight: 400 };
+    let prevented = false;
+    assert.equal(scrollOverlayWheel(scroll, { deltaY, deltaMode, ctrlKey: false, defaultPrevented: false,
+      preventDefault() { prevented = true; } }), true);
+    assert.equal(scroll.scrollTop, expected);
+    assert.equal(prevented, true);
+  }
+});
+
+test('overlay forwarding preserves zoom, consumed events and nonvertical gestures', () => {
+  for (const override of [{ ctrlKey: true }, { defaultPrevented: true }, { deltaY: 0 }]) {
+    const scroll = { scrollTop: 300, scrollHeight: 1100, clientHeight: 400 };
+    assert.equal(scrollOverlayWheel(scroll, { deltaY: -40, deltaMode: 0, ctrlKey: false, defaultPrevented: false,
+      preventDefault() { assert.fail('Must not consume this gesture'); }, ...override }), false);
+    assert.equal(scroll.scrollTop, 300);
+  }
+  assert.equal(scrollOverlayWheel({ scrollTop: 0, scrollHeight: 400, clientHeight: 400 }, {
+    deltaY: -40, deltaMode: 0, ctrlKey: false, defaultPrevented: false,
+    preventDefault() { assert.fail('No overflowing transcript'); },
+  }), false);
 });

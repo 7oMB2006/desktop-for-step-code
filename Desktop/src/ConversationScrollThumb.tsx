@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
-import type { ScrollIntent } from './conversation-scroll';
+import { scrollOverlayWheel, type ScrollIntent } from './conversation-scroll';
 
 type ScrollMetrics = { top: number; height: number; maxScroll: number };
 
@@ -34,9 +34,7 @@ export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scro
     scroll.addEventListener('scroll', update, { passive: true });
     const wheel = (event: WheelEvent) => {
       if (!event.ctrlKey && event.deltaY) onScrollIntent?.(event.deltaY < 0 ? 'backward' : 'forward');
-      if (!compact || scroll.scrollHeight <= scroll.clientHeight) return;
-      event.preventDefault();
-      scroll.scrollTop += event.deltaY * (event.deltaMode === 1 ? 20 : event.deltaMode === 2 ? scroll.clientHeight : 1);
+      scrollOverlayWheel(scroll, event);
     };
     track.addEventListener('wheel', wheel, { passive: false });
     update();

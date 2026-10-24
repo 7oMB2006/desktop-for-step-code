@@ -20,7 +20,9 @@ const sha512 = createHash('sha512'); const sha256 = createHash('sha256');
 for await (const chunk of createReadStream(join(folder, name))) { sha512.update(chunk); sha256.update(chunk); }
 const metadata = { version, arch: 'arm64', bundleIdentifier: 'community.stepcode.desktop', files: [{ url: name, size: (await stat(join(folder, name))).size, sha512: sha512.digest('base64') }] };
 await writeFile(join(folder, 'mac-update.json'), `${JSON.stringify(metadata, null, 2)}\n`);
-await writeFile(join(folder, 'SHA256SUMS.txt'), `${sha256.digest('hex')}  ${name}\n`);
-await writeFile(join(folder, 'COMMIT.txt'), `${commit}\n`);
-await writeFile(join(folder, 'runtime-manifest.json'), await readFile(join(app, 'Contents/Resources/runtime/manifest.json')));
+// Windows and macOS share one Release: provenance assets must not overwrite
+// another platform's checksums, commit or runtime manifest.
+await writeFile(join(folder, 'SHA256SUMS-macos-arm64.txt'), `${sha256.digest('hex')}  ${name}\n`);
+await writeFile(join(folder, 'COMMIT-macos-arm64.txt'), `${commit}\n`);
+await writeFile(join(folder, 'runtime-manifest-macos-arm64.json'), await readFile(join(app, 'Contents/Resources/runtime/manifest.json')));
 console.log(`Prepared ${folder}. Review verification evidence and release notes before uploading; mac-update.json is required for in-app updates.`);

@@ -179,8 +179,8 @@ try {
   assert.ok((await page.evaluate(id => window.desktop.terminalList(id), before.runtimeId)).some(item => item.id === terminal.id));
   // Exercise the independent in-app Quit entry as well as tray Quit.
   await page.reload();
-  await page.getByRole('button', { name: 'File', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'File', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? 'Application menu' : 'File', exact: true }).waitFor();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? 'Application menu' : 'File', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Quit application', exact: true }).click();
   await page.locator('.quit-confirmation').waitFor();
   await page.getByRole('button', { name: 'Cancel quit', exact: true }).last().click();

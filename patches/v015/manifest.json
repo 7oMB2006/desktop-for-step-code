@@ -79,5 +79,19 @@
     "packages/coding-agent/src/core/extensions/types.ts": "bac1a4ab8741b9dca89ba4f9b28ddc24352c4182",
     "packages/coding-agent/test/step-extension.test.ts": "1b12e8113bdb177ad14c10712aef39f8143e903f",
     "packages/coding-agent/test/suite/agent-session-prompt.test.ts": "9dd5ec2137a2d69d847000af1a4a3a111e7ab646"
+  },
+  "platforms": {
+    "darwin": {
+      "patches": {
+        "step-code-desktop-darwin-process-tree.patch": "385f53be11e8b25663d82d888c962ab47bcc4b15"
+      },
+      "patchedSources": {
+        "packages/coding-agent/src/utils/shell.ts": "187c7c34f9f63d9c1865dd1cd057c079e10ed720",
+        "packages/coding-agent/test/shell-process-tree-darwin.test.ts": "7334334f9287035142d0711945d371a6f11811c2"
+      },
+      "patchIds": [
+        "desktop-darwin-process-tree"
+      ]
+    }
   }
 }

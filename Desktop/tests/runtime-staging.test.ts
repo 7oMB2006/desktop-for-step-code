@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-test('Windows v0.1.5 patch manifest pins every reviewed pre-image, result and patch', async () => {
+test('Shared v0.1.5 patch manifest pins every reviewed pre-image, result and patch', async () => {
   const root = resolve('../patches/v015');
   const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
   assert.equal(manifest.commit, 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494');
@@ -36,6 +36,23 @@ test('Windows v0.1.5 patch manifest pins every reviewed pre-image, result and pa
       assert.match(String(hash), /^[0-9a-f]{40}$/);
     }
   }
+});
+
+test('Darwin additions retain the complete shared integration and pin their own sources', async () => {
+  const root = resolve('../patches/v015');
+  const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
+  const darwin = manifest.platforms.darwin;
+  assert.deepEqual(darwin.patchIds, ['desktop-darwin-process-tree']);
+  assert.deepEqual(Object.keys(darwin.patchedSources).sort(), [
+    'packages/coding-agent/src/utils/shell.ts', 'packages/coding-agent/test/shell-process-tree-darwin.test.ts',
+  ]);
+  for (const [name, expected] of Object.entries(darwin.patches)) {
+    const bytes = Buffer.from((await readFile(join(root, name), 'utf8')).replace(/\r\n/g, '\n'));
+    assert.equal(createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'), expected);
+  }
+  const stage = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
+  assert.match(stage, /integrationManifest\.patchedSources, \.\.\.platformManifest\?\.patchedSources/);
+  assert.ok(!stage.includes('3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8'));
 });
 
 test('staging rejects the wrong upstream before touching runtime through every source selector', { skip: !['win32', 'darwin'].includes(process.platform) }, async () => {
@@ -72,8 +89,8 @@ test('staging rejects the wrong upstream before touching runtime through every s
 test('every documented pin matches the staging guard', { skip: !['win32', 'darwin'].includes(process.platform) }, async () => {
   const guard = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
   const manifest = JSON.parse(await readFile(resolve('../patches/v015/manifest.json'), 'utf8'));
-  const pin = process.platform === 'win32' ? manifest.commit
-    : guard.match(/: '([0-9a-f]{40})'/)?.[1];
+  const pin = manifest.commit;
+  assert.match(guard, /const PINNED_COMMIT = integrationManifest.commit/);
   assert.match(pin ?? '', /^[0-9a-f]{40}$/, 'staging guard declares a pin');
   // Dated verification records legitimately keep the pin they were built with, so only the
   // locations that tell someone what to check out are listed here.

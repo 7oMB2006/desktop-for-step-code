@@ -34,6 +34,7 @@ try {
       if (method === 'systemTheme') return { systemDark: true };
       if (method === 'sessions') return snapshot.sessions;
       if (method === 'summary') return { tasks: [], mcp: [], skillCount: 0 };
+      if (method === 'clm') return { sessionId: snapshot.state.sessionId, leafId: null, enabled: true, total: 0, revisions: [] };
       if (method === 'cronList') return { tasks: [], hosts: [], issues: [] };
       if (method === 'usageOverview') throw new Error('Isolated usage query unavailable');
       if (method === 'settings') return { account: {}, profiles: [], mcp: {}, skills: [] };
@@ -58,6 +59,12 @@ try {
     await page.locator('.composer-action-button').click();
   };
   const calls = type => app.evaluate((_electron, type) => globalThis.dispatchCalls.filter(call => call.type === type), type);
+  await send('/clm');
+  await page.getByText('CLM 已启用', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('tab', { name: 'CLM', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal((await calls('prompt')).length, 0, 'Bare CLM opens the inspector without a model request');
+  await page.getByRole('button', { name: '关闭上下文', exact: true }).click();
+  await page.locator('.context-panel').waitFor({ state: 'detached' });
   await send('/usage');
   await page.getByRole('region', { name: '用量统计', exact: true }).waitFor();
   assert.equal((await calls('prompt')).length, 0, 'Usage opens the Desktop page without sending terminal heatmap text');

@@ -35,7 +35,7 @@ if (params.get('state') === 'offline') snapshot.status = 'disconnected';
 if (params.get('state') === 'custom') snapshot.state!.model = { ...model, provider: 'custom-provider', providerName: 'Local provider' };
 if (params.get('state') === 'api') snapshot.statusAccount = { mode: 'api', region: 'global' };
 function Demo() {
-  const [view, setView] = useState<'status' | 'context'>('context');
+  const [view, setView] = useState<'status' | 'context' | 'clm'>('context');
   return <main style={{ width: 'min(100%, 480px)', height: '100dvh', margin: '0 auto', background: 'var(--bg)' }}>
     <ContextPanel snapshot={snapshot} view={view} onView={setView} title={language === 'zh' ? '状态面板验收' : 'Session status'}
       language={language} messages={[]} state={snapshot.state} connected={snapshot.status === 'connected'}

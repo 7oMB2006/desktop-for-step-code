@@ -40,6 +40,7 @@ import { isFullAccessRisk } from '../src/full-access-risk';
 import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
+import { clmSnapshot } from './clm';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { TerminalSessions } from './terminal-sessions';
 import { BrowserTabs } from './browser-tabs';
@@ -952,6 +953,35 @@ async function handle(method: string, args: any[]) {
         menu.popup({ window, x: Math.max(0, Math.min(width - 1, Math.round(position.x))),
           y: Math.max(0, Math.min(height - 1, Math.round(position.y))), callback: () => resolve(choice) });
       });
+    }
+    case 'clm': {
+      const worker = runtimes.require(text(args[0], 80));
+      const sessionId = worker.state?.sessionId;
+      if (!sessionId || transition || worker.mutating) throw new Error('Session is not ready');
+      const result = await worker.rpc.request('get_desktop_clm', { entryId: args[1] === undefined ? undefined : text(args[1], 200) });
+      if (runtimes.workers.get(worker.id) !== worker || worker.state?.sessionId !== sessionId) throw new Error('Session changed');
+      return clmSnapshot(result, sessionId);
+    }
+    case 'clmAction': {
+      if (transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending)
+        throw new Error('Wait for account and workspace changes to finish');
+      const worker = runtimes.require(text(args[0], 80));
+      const sessionId = text(args[1], 200), action = text(args[2], 20);
+      if (!['on', 'off', 'compact'].includes(action) || worker.state?.sessionId !== sessionId) throw new Error('Invalid CLM action or session changed');
+      if (runtimes.isBusy(worker) || worker.mutating || worker.queued || worker.launch?.goal?.status === 'active')
+        throw new Error('Wait for this session to become idle');
+      if (action === 'compact' && worker.pendingModel) throw new Error('Apply the pending model change before organizing context');
+      const guidance = args[3] === undefined ? '' : text(args[3], 4000).trim();
+      worker.mutating = true;
+      worker.operations++;
+      try {
+        const state = await worker.rpc.request('get_state');
+        if (state.sessionId !== sessionId || state.isStreaming || state.isCompacting || state.pendingMessageCount)
+          throw new Error('Session changed or is running');
+        await worker.rpc.request('prompt', { message: action === 'compact' ? `/clm-compact${guidance ? ` ${guidance}` : ''}` : `/clm ${action}` }, 600000);
+        await runtimes.read(worker);
+      } finally { worker.mutating = false; worker.operations--; runtimes.publish(); }
+      return;
     }
     case 'summary': {
       const worker = runtimes.require(text(args[0], 80));

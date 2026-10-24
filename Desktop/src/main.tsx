@@ -193,7 +193,7 @@ function App() {
   const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
   const [liveChangesOpen, setLiveChangesOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>('auto');
-  const [contextView, setContextView] = useState<'status' | 'context'>('context');
+  const [contextView, setContextView] = useState<'status' | 'context' | 'clm'>('context');
   const [statusRevision, setStatusRevision] = useState(0);
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>(null);
   const [previewFile, setPreviewFile] = useState<FilePreviewData>();
@@ -593,6 +593,7 @@ function App() {
         setRequests(previous => previous.filter(request => request.id !== event.id));
       }
       if (event.type === 'agent_start') setBusy(true);
+      if (['live_context', 'auto_clm_end', 'agent_end', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
       if (event.type === 'agent_end') { setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh); }
@@ -900,7 +901,7 @@ function App() {
         if (local.args === 'account') { setTab('account'); await openSettings(); }
         else openUsage();
       } else if (local.name === 'cron') openScheduled();
-      else { setDetails(''); setContextView('status'); setRightPanel('context'); }
+      else { setDetails(''); setContextView(local.name === 'clm' ? 'clm' : 'status'); setRightPanel('context'); }
       return;
     }
     if (navigationPending.current || (!draft.trim() && !attachments.length && !quotes.length) || !connected || loading || firstSend.current) return;

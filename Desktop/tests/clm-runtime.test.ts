@@ -305,6 +305,17 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
       assert.ok(journal.some(entry => entry.message && text(entry.message.content) === oldText), 'Canonical history stays intact');
       const revision = journal.find(entry => entry.customType === 'step-auto-clm');
       assert.ok(revision, 'Accepted maintenance must persist');
+      if (process.platform === 'win32') {
+        const callsBeforeRead = requests.length;
+        const inspector = await worker.rpc.request('get_desktop_clm');
+        assert.equal(inspector.sessionId, sessionId);
+        assert.ok(inspector.revisions.some((item: any) => item.kind === 'edit'));
+        assert.ok(inspector.selected.blocks.some((block: any) => block.text.includes('magic=d371')));
+        const saved = journal.find(entry => entry.id === inspector.selected.entryId);
+        assert.equal(inspector.selected.diff, saved.data.diff.slice(0, 128000));
+        assert.equal(inspector.selected.diffTruncated, saved.data.diff.length > 128000);
+        assert.equal(requests.length, callsBeforeRead, 'Inspecting accepted CLM history must not call the model');
+      }
       if (mode === 'goal') {
         const history = await worker.rpc.request('get_entries');
         const user = entries.find(entry => entry.message?.role === 'user');

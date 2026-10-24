@@ -6,10 +6,6 @@ import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
-if (process.platform !== 'win32') {
-  console.log('Session import acceptance is Windows-only.');
-  process.exit(0);
-}
 // Windows runners may expose TEMP through an 8.3 alias; compare native canonical paths.
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-session-import-')));
 const fixture = await queueFixture(profile, { duration: 100 });
@@ -111,6 +107,7 @@ try {
   await sourceFilter.click();
   await page.getByRole('menuitemradio', { name: '全部来源', exact: true }).press('ArrowDown');
   await page.getByRole('menuitemradio', { name: 'Codex', exact: true }).press('Enter');
+  await page.waitForFunction(() => document.querySelectorAll('.import-candidate').length === 1);
   assert.equal(await page.locator('.import-candidate').count(), 1);
   assert.equal(await sourceFilter.evaluate(element => element === document.activeElement), true);
   await sourceFilter.click();

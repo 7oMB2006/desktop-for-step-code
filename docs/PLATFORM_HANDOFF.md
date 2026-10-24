@@ -8,7 +8,7 @@ working on Linux. It lives on the macOS branch; it does not change Linux policy.
 - Windows: `7oMB2006/desktop-for-step-code`, maintained by the owner.
 - Linux: `Daodaodot/desktop-for-step-code`, branch `dot/linux-x64-integration`,
   maintained separately by ChatGPT Dot.
-- macOS: the same fork, branch `codex/macos-0.5.1`, developed on the Mac mini.
+- macOS: the same fork, branch `codex/macos-0.6.0-release`, developed on the Mac mini.
   The original `dot/macos-arm64` remains the published v0.5.0-macos.1 source.
 
 Do not reset or force-push the other platform's branch, the fork's `main`, or
@@ -16,16 +16,23 @@ Windows upstream. The macOS work does not depend on Linux changes.
 
 ## Frozen macOS baseline
 
-After publishing v0.5.0-macos.1, the owner explicitly requested the Windows
-**v0.5.1** Release, commit `15f0fa77ee1562d3297e226071d49c00c762d891`.
-This iteration starts at `5b521cdd630c353e32542a16b1fb3ac990458912`, the PR #128
-squash merge containing that Release and the macOS fixes. Later Windows PRs/main
-and Linux work remain outside scope. The original macOS Release tag points to
-`477ba3b24dbc2ae1443b665937a12345a3791ba4` and is not changed.
+On 2026-10-24 the owner authorized 0.6.0 preparation from PR #163 merge
+`324e71d1800de020c035cdce598374a6037ba4ca`. This supersedes the prior 0.5.1-only
+freeze. Later Windows main and Linux work remain outside scope. Existing published
+tags and assets are not changed. Native macOS fixes build on the feature freeze;
+coordinate the final tag source with Windows before publishing.
 
-Step Code remains pinned to `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8` with
-this release's existing Desktop integration patches and hash guards. The
-untracked `Step-Code/` checkout and staged runtime must not be committed.
+Step Code uses the shared v0.1.5 commit `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`,
+the complete `patches/v015` integration and a strictly hashed Darwin process-tree
+addition. Preserve the existing dirty `Step-Code/` checkout; use a separate source
+and `DESKTOP_STEP_CODE_SOURCE` for local staging. Neither runtime source nor staged
+resources are committed into this repository.
+
+The shared draft handoff, asset naming, coverage inventory and manual checklist
+are in [0.6.0 Mac preparation](releases/v0.6.0-macos-preparation.zh-CN.md).
+Windows saves the draft; Mac adds its tested assets; Windows reviews and Mac performs
+a second review before the maintainer publishes. Preparing a test package does not
+satisfy the final source/tag, human acceptance or publication gates.
 
 ## Shared interfaces touched by macOS
 

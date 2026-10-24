@@ -44,6 +44,12 @@ try {
     await page.getByRole('button', { name, exact: true }).click();
     await page.waitForFunction(expected => document.documentElement.dataset.palette === expected, id);
   };
+  await page.getByRole('dialog').evaluate(async dialog => {
+    const animations = dialog.getAnimations({ subtree: true }).filter(animation =>
+      Number.isFinite(animation.effect?.getComputedTiming().endTime));
+    await Promise.all(animations.map(animation => animation.finished.catch(() => {})));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   const shellBounds = await page.getByRole('dialog').boundingBox();
   await page.waitForFunction(() => document.documentElement.dataset.themeMotion === 'ready');
   const beforeMotion = (await colors())['--bg'];

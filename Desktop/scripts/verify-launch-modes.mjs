@@ -1,3 +1,4 @@
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
@@ -10,11 +11,13 @@ const requests = [];
 const streams = new Set();
 let finishNext = false;
 let plainNext = false;
+let awaitingGoalResult = false;
 const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
   id: 'goal-fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture',
   choices: [{ index: 0, delta, finish_reason }],
 })}\n\n`;
 const complete = res => {
+  awaitingGoalResult = true;
   res.end(chunk({ tool_calls: [{ index: 0, id: 'finish-goal', type: 'function',
     function: { name: 'update_goal', arguments: '{"status":"complete"}' } }] }, 'tool_calls') + 'data: [DONE]\n\n');
 };
@@ -22,7 +25,15 @@ const server = createServer(async (req, res) => {
   let body = ''; for await (const part of req) body += part;
   const payload = JSON.parse(body); requests.push(payload);
   res.writeHead(200, { 'content-type': 'text/event-stream' });
-  if (payload.messages.at(-1)?.role === 'tool') {
+  if (awaitingGoalResult) {
+    // Runtime context hooks may append reminders after a valid tool result.
+    assert.ok(payload.messages.some(message => message.role === 'tool' && message.tool_call_id === 'finish-goal'),
+      'The Goal completion result reaches the provider despite trailing runtime context');
+    await writeFile('test-results/launch-goal-provider-shape.json', JSON.stringify({
+      messages: payload.messages.map(message => ({ role: message.role, toolCallId: message.tool_call_id })),
+      trailingContext: JSON.stringify(payload.messages.at(-1)?.content).slice(0, 1500),
+    }, null, 2));
+    awaitingGoalResult = false;
     res.end(chunk({ role: 'assistant', content: '目标已完成，验证结果保留在当前会话。' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
     return;
   }
@@ -378,6 +389,6 @@ try {
 } finally {
   for (const stream of streams) stream.destroy();
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); }).catch(() => {});
-  await app.close().catch(() => {});
+  await closeDesktopFixture(app).catch(() => {});
   await new Promise(resolve => server.close(resolve));
 }

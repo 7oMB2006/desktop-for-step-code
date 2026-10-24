@@ -51,9 +51,8 @@ export function executeScript(script, { cwd, timeout = defaultAcceptanceTimeout,
 }
 
 export async function runGroup(group, {
-  execute = executeScript, record = () => {}, log = console.log, signal,
+  execute = executeScript, record = () => {}, log = console.log, signal, scripts = groupScripts(group),
 } = {}) {
-  const scripts = groupScripts(group);
   const rows = [];
   for (const script of scripts) {
     signal?.throwIfAborted();

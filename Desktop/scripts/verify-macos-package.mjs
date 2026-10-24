@@ -17,6 +17,14 @@ const packaged = JSON.parse(extractFile(archive, 'package.json').toString('utf8'
 assert.equal(packaged.version, source.version);
 const marker = JSON.parse(await readFile(join(resources, 'macos-update.json'), 'utf8'));
 assert.equal(marker.version.replace(/-macos\.\d+$/, ''), source.version);
+assert.equal(marker.sourceCommit, execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
+assert.equal(marker.sourceDirty, Boolean(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()));
+const packagedRuntime = JSON.parse(await readFile(join(resources, 'runtime/manifest.json'), 'utf8'));
+const runtimeBaseline = JSON.parse(await readFile('../patches/v015/manifest.json', 'utf8'));
+assert.equal(packagedRuntime.commit, runtimeBaseline.commit);
+assert.ok(packagedRuntime.patches.includes('desktop-auto-resume-origin'));
+assert.ok(packagedRuntime.patches.includes('desktop-session-import'));
+assert.ok(packagedRuntime.patches.includes('desktop-cron-recovery'));
 for (const name of ['file-applications-macos', 'macos-update-helper.cjs']) assert.equal(hash(await readFile(join(resources, 'file-opening', name))), hash(await readFile(join('dist/file-opening', name))));
 assert.equal(execFileSync('/usr/bin/plutil', ['-extract', 'LSMinimumSystemVersion', 'raw', '-o', '-', join(app, 'Contents/Info.plist')], { encoding: 'utf8' }).trim(), '13.5');
 assert.match(execFileSync('/usr/bin/otool', ['-l', join(resources, 'file-opening/file-applications-macos')], { encoding: 'utf8' }), /minos 13\.5/);
@@ -47,6 +55,7 @@ assert.equal(hash(await readFile(join(resources, 'runtime/node/node'))), manifes
 await mkdir('test-results', { recursive: true });
 await writeFile('test-results/macos-package-resources.json', JSON.stringify({
   baseline: `v${source.version}`, desktop: packaged.version, platform: manifest.platform,
+  sourceCommit: marker.sourceCommit, sourceDirty: marker.sourceDirty, updateVersion: marker.version,
   arch: manifest.arch, runtime: manifest.commit, node: manifest.node,
   nodeSha256: manifest.nodeSha256, verifiedFiles: checked.length, checked,
 }, null, 2));

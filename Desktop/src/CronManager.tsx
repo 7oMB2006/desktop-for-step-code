@@ -72,13 +72,13 @@ export function CronManager({ bridge, onOpenHost }: {
       if (!session) throw new Error('Cron host changed; refresh before opening');
       await onOpenHost(session, runtimeId);
     } : undefined}
-    onUpdate={bridge.platform === 'win32' ? async (key, expected, changes) => {
+    onUpdate={async (key, expected, changes) => {
       const task = data.tasks.find(job => job.key === key);
       if (!task?.runtimeId) throw new Error('Open the project host before updating this job');
       await bridge.cronUpdate({ runtimeId: task.runtimeId, jobId: task.id, expected, ...changes });
       await reload();
-    } : undefined}
-    onPrepareRecovery={bridge.platform === 'win32' ? (key, sessionId) => bridge.cronRecoveryPreview(key, sessionId) : undefined}
+    }}
+    onPrepareRecovery={(key, sessionId) => bridge.cronRecoveryPreview(key, sessionId)}
     onRecover={async (token, automatic, acknowledged) => { await bridge.cronRecover(token, automatic, acknowledged); await reload(); }}
     onDisableAutomatic={async key => { await bridge.cronDisableAutomatic(key); await reload(); }}
     live refreshing={loading} onRefresh={() => void reload()} onCreate={create} onDelete={remove}

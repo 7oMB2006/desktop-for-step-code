@@ -82,20 +82,20 @@ try {
     }
   }
   const longDraft = 'Multiline \u4e2d\u6587 draft 123\n'.repeat(100) + 'end';
-  for (const key of ['Backspace', 'Delete', 'Shift+Backspace', 'Control+Backspace', 'Control+Delete']) {
+  for (const key of ['Backspace', 'Delete', 'Shift+Backspace', 'ControlOrMeta+Backspace', 'ControlOrMeta+Delete']) {
     console.log(`Composer select-all deletion: ${key}`);
     await input.fill(longDraft);
     await value(longDraft);
     // Keep fixture insertion outside the editor's 500ms undo grouping window.
     await page.waitForTimeout(600);
-    await input.press('Control+a');
+    await input.press('ControlOrMeta+a');
     await input.press(key);
     await value('');
     assert.equal(await input.getAttribute('data-empty'), 'true', `${key} updates the controlled draft`);
     assert.equal(await page.locator('.composer-action-button').isDisabled(), true);
-    await input.press('Control+z');
+    await input.press('ControlOrMeta+z');
     await value(longDraft);
-    await input.press('Control+y');
+    await input.press(process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+y');
     await value('');
     await input.pressSequentially('next');
     await value('next');
@@ -120,7 +120,7 @@ try {
   await value('\nb');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'agent_start' }));
   await input.fill(longDraft);
-  await input.press('Control+a');
+  await input.press('ControlOrMeta+a');
   await input.press('Backspace');
   await value('');
   assert.equal(await page.locator('.composer-action-button').getAttribute('data-action'), 'stop');

@@ -26,7 +26,6 @@ async function dispatch(message) {
   switch (message.type) {
     case 'prepare_steppage':
     case 'reconcile_steppage': {
-      if (process.platform !== 'win32') throw new Error('StepPage preparation is Windows-only');
       if (!agentDir || !process.env.STEPCODE_STORAGE_ROOT_DIR || typeof message.bundlePath !== 'string')
         throw new Error('StepPage reconciliation requires an isolated profile');
       const reconcile = message.type === 'prepare_steppage' ? prepareStepPageServers : reconcileStepPageServers;
@@ -35,6 +34,7 @@ async function dispatch(message) {
         nodePath: process.execPath, bundlePath: message.bundlePath,
         bundleExists: existsSync(message.bundlePath) && message.bundlePath !== message.rejectedBundlePath,
         rejectedBundlePath: message.rejectedBundlePath, homePath: message.homePath,
+        desktopOnly: process.platform === 'darwin' && Boolean(message.homePath),
       }));
       return null;
     }
@@ -123,7 +123,7 @@ async function dispatch(message) {
       // in a separate child directory, not in the personal CLI session tree.
       const lists = await Promise.all([
         upstream.SessionManager.listAll(sessions),
-        ...(process.platform === 'win32' ? [upstream.SessionManager.listAll(join(sessions, 'imported'))] : []),
+        upstream.SessionManager.listAll(join(sessions, 'imported')),
       ]);
       return lists.flat().sort((a, b) => new Date(b.modified) - new Date(a.modified))
         .map(({ allMessagesText, ...s }) => s);

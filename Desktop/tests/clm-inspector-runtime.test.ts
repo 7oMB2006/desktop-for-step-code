@@ -7,7 +7,7 @@ import { RpcProcess, isolatedEnvironment } from '../electron/runtime';
 import { clmSnapshot } from '../electron/clm';
 
 test('CLM inspector reads only the active branch and never mutates history', {
-  timeout: 60000, skip: process.platform !== 'win32' && 'CLM inspector requires the Windows v0.1.5 integration',
+  timeout: 60000,
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'clm-inspector-'));
   const profile = join(directory, 'profile');
@@ -27,7 +27,7 @@ test('CLM inspector reads only the active branch and never mutates history', {
   ].map(row => JSON.stringify(row)).join('\n') + '\n');
   const rpc = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'), directory, isolatedEnvironment(profile));
+    rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'), directory, isolatedEnvironment(profile));
     await rpc.request('get_state', {}, 60000);
     await rpc.request('switch_session', { sessionPath: file });
     const before = await readFile(file, 'utf8');

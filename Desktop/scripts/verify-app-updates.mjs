@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import semver from 'semver';
 
 const { version: baseVersion } = JSON.parse(await readFile(resolve('package.json'), 'utf8'));
-const currentVersion = process.platform === 'darwin' && process.env.DESKTOP_VERIFY_EXE ? `${baseVersion}-macos.1` : baseVersion;
+const currentVersion = process.env.DESKTOP_MACOS_RELEASE_VERSION ?? baseVersion;
 const nextVersion = semver.inc(currentVersion, 'minor');
 const feedVersion = semver.inc(nextVersion, 'minor');
 assert.ok(nextVersion && feedVersion);

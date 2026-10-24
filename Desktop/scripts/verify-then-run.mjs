@@ -1,3 +1,4 @@
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -8,19 +9,20 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { closeDesktopFixture, releaseExitedFixturePipes } from './close-desktop-fixture.mjs';
 
-assert.equal(process.platform, 'win32', 'This acceptance exercises Windows Bash and the pinned runtime');
+assert.ok(['win32', 'darwin'].includes(process.platform), 'This acceptance exercises native Bash and the pinned runtime');
 await mkdir('test-results', { recursive: true });
 const profile = await mkdtemp(resolve('test-results/then-run-'));
 const workspace = join(profile, 'Workspace with spaces');
 const root = join(profile, 'step-runtime');
 await mkdir(workspace, { recursive: true });
 await mkdir(root);
-let shellPath;
+let shellPath = process.platform === 'darwin' ? '/bin/bash' : undefined;
 for (const base of [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], join(process.env.LOCALAPPDATA ?? '', 'Programs')].filter(Boolean)) {
+  if (shellPath) break;
   const candidate = join(base, 'Git/bin/bash.exe');
   try { await access(candidate); shellPath = candidate; break; } catch {}
 }
-assert.ok(shellPath, 'Git for Windows is required');
+assert.ok(shellPath, 'A native Bash executable is required');
 const scenarios = new Map();
 const received = new Map();
 const errors = [];
@@ -55,7 +57,7 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-then-run',
   models: [{ id: 'fixture', name: 'Then run fixture', contextWindow: 32768, maxTokens: 2048 }],
 } } }));
-const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', TEMP: profile, TMP: profile };
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', TEMP: profile, TMP: profile, TMPDIR: profile };
 delete env.ELECTRON_RUN_AS_NODE;
 let app, page, runtime;
 const wait = async predicate => {
@@ -105,6 +107,7 @@ try {
   await approval.waitFor();
   await approval.locator('.permission-approval-verification').getByText(/approved-check.txt/).waitFor();
   assert.match(await approval.locator('h2').innerText(), /写入文件并执行验证命令/);
+  await settleLayout(approval);
   assert.ok(await approval.locator('.permission-approval-verification pre').evaluate(element => {
     const visible = element.closest('.permission-approval-content').getBoundingClientRect();
     const command = element.getBoundingClientRect();
@@ -112,14 +115,14 @@ try {
   }), 'the embedded command is visible before approving the compact drawer');
   assert.equal(await exists('nested/approved.txt'), false, 'the entire fused call waits for approval');
   assert.equal(await exists('approved-check.txt'), false);
-  await page.waitForTimeout(250);
+  await settleLayout(approval);
   await page.screenshot({ path: 'test-results/then-run-approval.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 760));
   await page.evaluate(() => window.desktop.preferences({ language: 'en', theme: 'light' }));
   await page.reload();
   await approval.waitFor();
   await approval.locator('.approval-drawer-grip').press('End');
-  await page.waitForTimeout(250);
+  await settleLayout(approval);
   assert.match(await approval.locator('h2').innerText(), /Write a file and run a verification command/);
   assert.ok(await approval.evaluate(element => {
     const box = element.getBoundingClientRect();
@@ -222,7 +225,7 @@ try {
   await page.reload();
   await page.getByText('修改了文件 · 验证失败', { exact: true }).first().waitFor();
   await page.getByText('文件修改或验证未完成', { exact: true }).first().waitFor();
-  await page.waitForTimeout(250);
+  await settleLayout(page.locator('.messages'));
   await page.screenshot({ path: 'test-results/then-run-results.png' });
 
   assert.deepEqual(errors, []);
@@ -270,7 +273,7 @@ try {
 // Native cancellation probes run only after the browser controller has shut down.
 const native = join(profile, 'Native checks with spaces');
 await mkdir(native);
-const nativeOutput = await promisify(execFile)(join(runtime, 'node/node.exe'),
+const nativeOutput = await promisify(execFile)(join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'),
   [resolve('scripts/then-run-native-probe.mjs'), runtime, native, shellPath], {
     cwd: native, env: { ...env, STEP_AGENT_DIR: join(native, 'agent') }, encoding: 'utf8', windowsHide: true, timeout: 60000,
   });

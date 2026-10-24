@@ -6,9 +6,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const text = value => typeof value === 'string' ? value : value?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
 const requests = [];
+const anchorChecks = [];
 const initialProposal = process.env.DESKTOP_VERIFY_PLAN_FILE
   ? await readFile(process.env.DESKTOP_VERIFY_PLAN_FILE, 'utf8')
   : '# Proposal\n\nCreate approved.txt after approval.\n\nValidation: inspect the file.\nEND OF PROPOSAL';
@@ -48,7 +50,7 @@ const server = createServer(async (req, res) => {
     assert.doesNotMatch(context, /\[Desktop Plan mode active\]/); stage = 3; tool('write_file', { path: 'approved.txt', content: 'Approved execution' });
   } else {
     const finish = () => res.end(chunk({ role: 'assistant', content: 'Completed approved plan.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
-    if (holdExecution) { holdExecution = false; finishExecution = finish; }
+    if (holdExecution) { holdExecution = false; finishExecution = () => { if (!res.writableEnded && !res.destroyed) finish(); }; }
     else finish();
   }
 });
@@ -60,7 +62,9 @@ await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'z
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-test', models: [{ id: 'fixture', name: 'Plan fixture', contextWindow: 32768, maxTokens: 2048 }] } } }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' }; delete env.ELECTRON_RUN_AS_NODE;
-const launchOptions = { ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 };
+const launchOptions = { ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : {}),
+  args: [...(process.env.DESKTOP_VERIFY_EXE ? [] : [resolve('.')]), '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding'], env, timeout: 60000 };
 let app = await electron.launch(launchOptions);
 const errors = [];
 try {
@@ -151,7 +155,7 @@ try {
   await dialog.getByRole('button', { name: '批准并执行', exact: true }).click();
   const runningPlan = page.getByRole('button', { name: '执行计划中', exact: true });
   await runningPlan.waitFor();
-  if (process.platform === 'win32') {
+  {
     const approved = await page.evaluate(async () => (await window.desktop.snapshot()).messages
       .findLast(message => message.toolName === 'exit_plan_mode' && message.details?.outcome === 'approved'));
     assert.equal(approved.details.planContents, initialProposal);
@@ -170,15 +174,48 @@ try {
   await page.waitForTimeout(220);
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
   await page.screenshot({ path: 'test-results/plan-execution-running-dark.png' });
-  const anchorPosition = locator => locator.evaluate(el => {
-    const button = el.getBoundingClientRect(), row = el.closest('.working').getBoundingClientRect();
-    return { x: button.left - row.left, y: button.top - row.top };
+  const anchorPosition = async locator => {
+    const measured = await locator.evaluate(el => {
+      const button = el.getBoundingClientRect(), row = el.closest('.working');
+      const bounds = row.getBoundingClientRect();
+      const sibling = row.querySelector(':scope > .working-indicator');
+      const indicator = sibling?.getBoundingClientRect();
+      // The running timer may legitimately change width between samples. The
+      // disclosure must retain its exact gap after that indicator and its row;
+      // a settled footer has no timer and remains relative to the row itself.
+      return { anchor: { x: button.left - (indicator?.right ?? bounds.left), y: button.top - bounds.top },
+        adjacent: !sibling || sibling.nextElementSibling === el.closest('.plan-execution'),
+        sameLine: !indicator || Math.min(button.bottom, indicator.bottom) > Math.max(button.top, indicator.top) };
+    });
+    assert.ok(measured.adjacent, 'The running fixture measures the Plan immediately after its working indicator');
+    assert.ok(measured.sameLine, 'The running Plan trigger shares the working indicator line');
+    return measured.anchor;
+  };
+  const settleDisclosure = locator => locator.evaluate(async element => {
+    // Hidden native fixtures can finish wall-clock sleeps before rendering the
+    // disclosure. Observe actual finite animations and the resulting layout.
+    const root = element.closest('.plan-execution');
+    await Promise.allSettled(root.getAnimations({ subtree: true })
+      .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+      .map(animation => animation.finished));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
+  const assertAnchor = async (locator, before, label) => {
+    const after = await anchorPosition(locator);
+    const layout = await locator.evaluate(el => {
+      const row = el.closest('.working'), indicator = row.querySelector(':scope > .working-indicator');
+      const rect = element => { const r = element?.getBoundingClientRect(); return r && { left: r.left, top: r.top, width: r.width }; };
+      return { button: rect(el), row: rect(row), indicator: rect(indicator), elapsed: indicator?.querySelector('.working-elapsed')?.textContent };
+    });
+    anchorChecks.push({ label, before, after, layout });
+    assert.deepEqual(after, before, label);
+  };
+  await settleDisclosure(runningPlan);
   const runningAnchor = await anchorPosition(runningPlan);
   await runningPlan.click();
   await page.getByRole('region', { name: '已批准的计划快照', exact: true }).last().waitFor();
-  await page.waitForTimeout(220);
-  assert.deepEqual(await anchorPosition(runningPlan), runningAnchor, 'Running disclosure does not move the status trigger onto a new line');
+  await settleDisclosure(runningPlan);
+  await assertAnchor(runningPlan, runningAnchor, 'Running disclosure does not move the status trigger onto a new line');
   await page.screenshot({ path: 'test-results/plan-execution-running-anchored.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));
   await page.waitForTimeout(220);
@@ -208,14 +245,15 @@ try {
   await page.waitForTimeout(200);
   assert.equal(await executedPlan.evaluate(el => getComputedStyle(el).opacity), '1');
   await page.screenshot({ path: 'test-results/plan-execution-completed-dark.png' });
+  await settleDisclosure(executedPlan);
   const settledAnchor = await anchorPosition(executedPlan);
   await executedPlan.click();
-  await page.waitForTimeout(220);
-  assert.deepEqual(await anchorPosition(executedPlan), settledAnchor, 'Settled disclosure stays beside the response actions');
+  await settleDisclosure(executedPlan);
+  await assertAnchor(executedPlan, settledAnchor, 'Settled disclosure stays beside the response actions');
   await page.screenshot({ path: 'test-results/plan-execution-completed-anchored.png' });
   await executedPlan.click();
-  await page.waitForTimeout(220);
-  assert.deepEqual(await anchorPosition(executedPlan), settledAnchor, 'Closing restores the same settled anchor');
+  await settleDisclosure(executedPlan);
+  await assertAnchor(executedPlan, settledAnchor, 'Closing restores the same settled anchor');
   // The next submission stays in Plan when the user cancels its review.
   stage = 0;
   await page.getByRole('button', { name: '访问权限', exact: true }).click();
@@ -319,18 +357,23 @@ try {
   await restored.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   console.log('Plan context, approval, stale-snapshot protection, expiry and durable fresh-review reentry passed');
 } catch (error) {
+  console.error('Plan acceptance error:', error.stack ?? String(error));
   const page = await app.firstWindow().catch(() => undefined);
   if (page) {
     await page.screenshot({ path: 'test-results/plan-review-failure.png' }).catch(() => {});
     const snapshot = await page.evaluate(() => window.desktop.snapshot()).catch(() => undefined);
     console.error('Plan acceptance diagnostic', JSON.stringify({
-      stage, providerCalls: requests.length, launch: snapshot?.launch, state: snapshot?.state,
+      error: String(error), anchorChecks, stage, providerCalls: requests.length, launch: snapshot?.launch, state: snapshot?.state,
       pendingRequests: snapshot?.requests?.map(r => ({ id: r.id, method: r.method })),
       lastResult: text(snapshot?.messages?.at(-1)?.content),
     }));
   }
   throw error;
 } finally {
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); }).catch(() => {});
-  await app.close(); await new Promise(resolve => server.close(resolve));
+  finishExecution?.();
+  try { await closeDesktopFixture(app); }
+  finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
 }

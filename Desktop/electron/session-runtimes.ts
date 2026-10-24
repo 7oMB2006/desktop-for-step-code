@@ -88,9 +88,9 @@ export class SessionRuntimes {
   constructor(
     private emit: (event: RuntimeEvent) => void,
     // Reviewed imports can contain 128 MiB of source history plus embedded
-    // images. Keep Windows history RPC bounded without disconnecting at 32 MiB.
+    // images. Keep history RPC bounded without disconnecting at 32 MiB.
     private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive =>
-      new RpcProcess(receive, process.platform === 'win32' ? 256 * 1024 * 1024 : undefined),
+      new RpcProcess(receive, 256 * 1024 * 1024),
     private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void;
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;

@@ -1,11 +1,16 @@
 # macOS Apple Silicon preview
 
-This track follows **Desktop for Step Code v0.5.1** (Windows release commit
-`15f0fa77ee1562d3297e226071d49c00c762d891`) at the owner's request, preserving
-the macOS changes merged in PR #128 (`5b521cdd630c353e32542a16b1fb3ac990458912`).
-Later Windows main/PR work is outside this iteration. The first macOS preview
-remains available as `v0.5.0-macos.1`; this branch prepares its 0.5.1 successor.
-Linux is maintained separately; see [PLATFORM_HANDOFF.md](PLATFORM_HANDOFF.md).
+This branch prepares **Desktop for Step Code 0.6.0** on Apple Silicon. The
+owner authorized the Windows feature freeze at PR #163 merge
+`324e71d1800de020c035cdce598374a6037ba4ca` on 2026-10-24. Existing macOS native
+behavior is retained; later Windows main and Linux changes are outside scope.
+Step Code now shares the v0.1.5 pin `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`
+and complete reviewed integration patches with Windows, plus a Darwin process-tree
+cleanup patch. Old preview tags and packages are unchanged.
+
+See [0.6.0 candidate, audit and handoff](releases/v0.6.0-macos-preparation.zh-CN.md)
+for feature coverage, the shared Release draft sequence and user acceptance.
+This is local candidate preparation, not a published or real-account-accepted release.
 
 ## v0.5.1 account features
 
@@ -15,7 +20,7 @@ requests follow that same applied identity. Selecting a sign-in method does not
 switch the account until login completes; cancellation retains the prior account,
 and a denied Plan request never falls back to pay-as-you-go API requests.
 
-The Step Code runtime pin and patch guards are unchanged. macOS CI checks account
+The v0.1.5 runtime and patch hashes are strictly checked during staging. macOS CI checks account
 settings, Plan allowance, API balance and billing routes against both source and
 packaged apps with isolated fixture credentials and local transports. Browser
 presentation checks cover both themes, narrow English layouts and reduced motion.
@@ -24,14 +29,14 @@ These checks do not establish real-account balances or official billing outcomes
 ## Build natively
 
 Use an Apple Silicon Mac running macOS 13.5 or newer, Git, Xcode Command Line Tools, Node.js 24.15.0 and
-Corepack. The fixed upstream pin and patch guards are retained.
+Corepack. Use a dedicated checkout when the existing Step-Code directory has local changes.
 
 From the repository root:
 
 ```sh
 git clone https://github.com/stepfun-ai/Step-Code.git Step-Code
-git -C Step-Code checkout 3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8
-node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/step-code-desktop.patch
+git -C Step-Code checkout b5dbed938d9ae589397cf522dcf2ff89ecf4c494
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v015/step-code-desktop.patch
 (cd Step-Code && corepack pnpm install --frozen-lockfile && corepack pnpm build:offline)
 cd Desktop
 corepack pnpm install --frozen-lockfile
@@ -39,17 +44,12 @@ node node_modules/electron/install.js
 corepack pnpm exec playwright install chromium ffmpeg
 corepack pnpm stage:runtime
 corepack pnpm typecheck
-corepack pnpm test
+corepack pnpm exec tsx --test --test-concurrency=1 tests/*.test.ts
 corepack pnpm build
-node scripts/verify-electron.mjs
-node scripts/verify-auth-vault.mjs
-node scripts/verify-account-settings.mjs
-node scripts/verify-usage-account.mjs
-node scripts/verify-account-allowance.mjs
-node scripts/verify-account-balance.mjs
-node scripts/verify-account-routing.mjs
-corepack pnpm package:mac
+node ../scripts/ci-macos.mjs
+DESKTOP_MACOS_RELEASE_VERSION=0.6.0 corepack pnpm package:mac
 node scripts/verify-macos-package.mjs
+DESKTOP_VERIFY_EXE="$PWD/release/mac-arm64/Desktop for Step Code.app/Contents/MacOS/Desktop for Step Code" DESKTOP_MACOS_RESOURCES="$PWD/release/mac-arm64/Desktop for Step Code.app/Contents/Resources" node ../scripts/ci-macos.mjs
 ```
 
 If downloads require a local proxy, supply `HTTP_PROXY`, `HTTPS_PROXY`,
@@ -112,8 +112,8 @@ acceptance tasks; local fixtures do not establish those outcomes.
 
 ## Prepare a macOS Release
 
-Package with `DESKTOP_MACOS_RELEASE_VERSION=0.5.1-macos.1` (the default is the
-Desktop version plus `-macos.1`). Subsequent previews of the same base version
+Package with `DESKTOP_MACOS_RELEASE_VERSION=0.6.0` for the shared Release (the default is the
+Desktop version). Mac-only previews can explicitly use `0.6.0-macos.1`. Subsequent previews of the same base version
 must increment that suffix, otherwise installed clients cannot detect an update.
 A shared stable release can use `DESKTOP_MACOS_RELEASE_VERSION=0.6.0` when its
 Desktop base version is 0.6.0. Packaging embeds the exact source commit and dirty
@@ -122,14 +122,14 @@ state; release preparation refuses an uncommitted or mismatched package.
 After all required verification passes on the clean release commit, run
 `node scripts/prepare-macos-release.mjs`. It writes an immutable candidate folder
 under `Desktop/release/v<VERSION>/` with the ARM64 ZIP, `mac-update.json`,
-`SHA256SUMS.txt`, `COMMIT.txt` and `runtime-manifest.json`. Review build evidence
+`SHA256SUMS-macos-arm64.txt`, `COMMIT-macos-arm64.txt` and `runtime-manifest-macos-arm64.json`. Review build evidence
 and add release notes/BUILD-INFO before uploading. Publish `mac-update.json`
 **as a Release asset**, along with the ZIP; its SHA-512 and exact size bind the
 update to that archive. The update-feed publishing workflow retains schema 1's
 Windows channels and adds `platforms.darwin` for macOS. Mac-only preview tags are
 excluded from Windows discovery. A newer Windows-only release is not a Mac update.
 
-Within the frozen Windows 0.5.1 scope, the remaining intentional differences are
+Within the frozen Windows 0.6.0 scope, the remaining intentional differences are
 native shell (zsh), shortcuts/menu/window behavior, bundle/ZIP packaging, ARM64
 architecture and unsigned installation confirmation. Account/allowance/balance,
 providers, sessions, approvals, collaboration, browser, artifacts, files, changes,

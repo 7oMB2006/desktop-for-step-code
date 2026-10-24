@@ -9,7 +9,7 @@ await mkdir(evidence, { recursive: true });
 const root = await mkdtemp(join(evidence, 'scan-'));
 const sessions = join(root, 'sessions');
 await mkdir(sessions);
-const runtime = resolve('runtime');
+const runtime = process.env.DESKTOP_MACOS_RESOURCES ? join(process.env.DESKTOP_MACOS_RESOURCES, 'runtime') : resolve('runtime');
 const upstream = await import(pathToFileURL(join(runtime, 'step/dist/bundle/index.js')));
 const now = new Date(), timestamp = now.toISOString();
 const header = id => ({ type: 'session', version: 3, id, cwd: root, timestamp });

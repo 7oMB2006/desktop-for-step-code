@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { X } from 'lucide-react';
 import type { Message } from './contracts';
 import { isUserMessage } from './user-message';
+import { scrollOverlayWheel } from './conversation-scroll';
 
 export type ConversationTurn = { index: number; preview: string; timestamp?: number };
 
@@ -89,6 +90,15 @@ export function ConversationMarkers({ scrollRef, turns, language, onNavigate }: 
 }) {
   const [ruler, setRuler] = useState({ cursor: 0, height: 0 });
   const [hovered, setHovered] = useState<number | null>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current, layer = layerRef.current;
+    if (!scroll || !layer) return;
+    const wheel = (event: WheelEvent) => { scrollOverlayWheel(scroll, event); };
+    layer.addEventListener('wheel', wheel, { passive: false });
+    return () => layer.removeEventListener('wheel', wheel);
+  }, [scrollRef]);
 
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
@@ -126,7 +136,7 @@ export function ConversationMarkers({ scrollRef, turns, language, onNavigate }: 
   const top = markerTop(selectedNumber);
   const visible = turns.map((turn, number) => ({ turn, number, top: markerTop(number) }))
     .filter(marker => marker.top > -16 && marker.top < ruler.height + 16 && Math.abs(marker.number - ruler.cursor) < 14);
-  return <div className="turn-marker-layer">
+  return <div ref={layerRef} className="turn-marker-layer">
     <div className="turn-marker-ruler">
       {visible.map(({ turn, number, top }) => <button key={turn.index} type="button"
         className={`turn-marker${number === Math.floor(ruler.cursor) ? ' active' : ''}`}

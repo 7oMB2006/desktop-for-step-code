@@ -95,8 +95,7 @@ corepack pnpm dev
 ```
 
 上述 Windows 开发基线已更新，已发布 v0.5.1 的运行时不变。
-macOS 仍固定在 `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`，
-使用原 `patches/step-code-desktop.patch`，见 [macOS 说明](docs/MACOS.md)。
+macOS 0.6.0 已获授权使用相同 v0.1.5 钉点与 `patches/v015/` 完整集成，另加 Darwin 进程树清理补丁，见 [macOS 说明](docs/MACOS.md)。
 
 生成 Windows x64 安装程序：
 
@@ -119,6 +118,4 @@ Desktop for Step Code 源码采用 MIT 许可证。Step Code 及其 Pi 上游组
 
 ### macOS Apple Silicon 本地预览分支
 
-本分支固定基于已发布的 **v0.5.0** 进行 macOS Apple Silicon 移植，不跟随后续 Windows PR 或 Linux 分支。
-构建与试用见 [macOS 说明](docs/MACOS.md)，与 Linux 维护方的分工见 [平台协作说明](docs/PLATFORM_HANDOFF.md)。
-Windows 仍是正式发布目标；本分支目前提供本机预览。
+本分支基于 Windows PR #163 合并后的冻结线准备 **0.6.0**，保留原生 Mac 行为并逐项审计 v0.1.5 runtime。当前目标是供用户测试的本地未签名 ARM64 候选包。构建见 [macOS 说明](docs/MACOS.md)，分工见 [平台协作](docs/PLATFORM_HANDOFF.md)，验收与双平台 Release 草稿接力见 [0.6.0 Mac 准备](docs/releases/v0.6.0-macos-preparation.zh-CN.md)。后续 Windows main 与 Linux 分支不自动纳入，本页不宣称已有新的公开下载。

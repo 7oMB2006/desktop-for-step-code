@@ -182,7 +182,7 @@ try {
   await page.waitForTimeout(500);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.screenshot({ path: 'test-results/summary-runtime-narrow.png' });
-  if (process.platform === 'win32') {
+  {
     const beforeStatus = calls;
     const status = await page.evaluate(async () => {
       const snapshot = await window.desktop.snapshot();

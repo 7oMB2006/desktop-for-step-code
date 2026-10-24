@@ -1,9 +1,11 @@
 # Offline Session Migration
 
-Windows Settings > Session migration imports local Codex and Claude Code history.
+Windows and macOS 0.6.0 Settings > Session migration import local Codex and Claude Code history.
 This adapts Step-Code PR #291 at source commit
-`6a0984573275d2398faa812bbf661a9dc5557e06`, without changing the Desktop Windows
-runtime pin. The separately frozen macOS runtime and setup UI are unchanged.
+`6a0984573275d2398faa812bbf661a9dc5557e06`, using the shared pinned v0.1.5
+runtime. macOS 0.6.0 includes the same reviewed import service and setup UI.
+Earlier Windows-only verification records below remain historical evidence; see
+[Mac candidate verification](releases/v0.6.0-macos-preparation.zh-CN.md).
 
 ## Workflow
 

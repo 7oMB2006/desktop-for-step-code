@@ -30,19 +30,19 @@ test('preparation and capability edits retain idle checks without stopping Cron 
   assert.match(view, /setState\(value\); setReadError\(''\)/);
   assert.doesNotMatch(view, /setState\(value\); setError\(''\)/);
 });
-test('StepPage setup is Windows-only and startup carries failed Desktop verification to the config lock', async () => {
+test('StepPage setup supports both platforms and startup carries failed Desktop verification to the config lock', async () => {
   const main = await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8');
-  assert.match(main, /const stepPage = process\.platform === 'win32'\s*\? new StepPagePreparer/);
-  for (const method of ['stepPageState', 'prepareStepPage']) {
-    const start = main.indexOf(`case '${method}':`);
-    assert.match(main.slice(start, start + 180), /if \(!stepPage\) throw new Error\('StepPage preparation is Windows-only'\)/);
-  }
+  assert.match(main, /const stepPage = new StepPagePreparer/);
+  assert.match(main, /desktopBundle \|\| rejectedBundlePath \|\| process\.platform !== 'win32' \? stepPage\.bundlePath/);
+  assert.match(main, /steppageBundle === stepPage\.bundlePath \? \{ homePath: stepPage\.homePath \}/);
+  assert.doesNotMatch(main, /StepPage preparation is Windows-only/);
   assert.match(main, /const rejectedBundlePath = !desktopBundle && existsSync\(stepPage\.bundlePath\) \? stepPage\.bundlePath : undefined/);
   assert.match(main, /admin\.request\('reconcile_steppage', \{ bundlePath: steppageBundle, rejectedBundlePath/);
   const admin = await readFile(new URL('../electron/admin.mjs', import.meta.url), 'utf8');
-  assert.match(admin, /case 'reconcile_steppage': \{\s*if \(process\.platform !== 'win32'\)/);
+  assert.doesNotMatch(admin, /StepPage preparation is Windows-only/);
   assert.match(admin, /bundleExists: existsSync\(message\.bundlePath\) && message\.bundlePath !== message\.rejectedBundlePath/);
   const view = await readFile(new URL('../src/CapabilitySettings.tsx', import.meta.url), 'utf8');
-  assert.match(view, /bridge\.platform === 'win32' && <CapabilityDisclosure className="cap-preparation"/);
+  assert.match(view, /<CapabilityDisclosure className="cap-preparation"/);
+  assert.doesNotMatch(view, /bridge\.platform === 'win32'/);
   assert.match(view, /const stepPage = <StepPageSettings/);
 });

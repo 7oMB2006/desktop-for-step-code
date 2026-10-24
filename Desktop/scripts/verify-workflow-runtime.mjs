@@ -1,10 +1,10 @@
+import { terminateFixtureTree } from './fixture-runtime-children.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
-import { execFileSync } from 'node:child_process';
 
 // Exercise actual workflow RPC children, not injected renderer status records.
 const profile = await mkdtemp(join(tmpdir(), 'desktop-workflow-'));
@@ -73,7 +73,10 @@ const server = createServer(async (req, res) => {
         await new Promise(resolve => { releaseRecovery = resolve; res.on('close', resolve); });
         if (res.destroyed) return;
       }
-      if (task === 'WORKFLOW-CHILD-A') {
+      // A one-slot native pool must be able to finish A and persist its first
+      // assistant message before B is held. Holding A would prevent any child
+      // transcript from reaching the runtime's first-message flush boundary.
+      if (task === 'WORKFLOW-CHILD-B') {
         childHeld = true;
         await new Promise(resolve => { releaseChild = resolve; });
       }
@@ -165,6 +168,21 @@ try {
     await walk(join(profile, 'step-runtime/sessions'));
     if (!children.length) await page.waitForTimeout(100);
   }
+  // Only numeric native admission fields and fixture counts enter CI logs.
+  const progressRoot = join(workspace, '.stepcode/workflows/runs');
+  let concurrency = {};
+  for (const run of await readdir(progressRoot).catch(() => [])) {
+    const progress = await readFile(join(progressRoot, run, 'progress.json'), 'utf8')
+      .then(JSON.parse).catch(() => undefined);
+    if (progress?.status !== 'running') continue;
+    concurrency = Object.fromEntries(['requested', 'ceiling', 'limit', 'cap', 'sharedActive']
+      .filter(key => Number.isFinite(progress.concurrency?.[key])).map(key => [key, progress.concurrency[key]]));
+    break;
+  }
+  console.log('Workflow child persistence:', JSON.stringify({ concurrency,
+    childARequests: requests.filter(request => request.task === 'WORKFLOW-CHILD-A').length,
+    childBRequests: requests.filter(request => request.task === 'WORKFLOW-CHILD-B').length,
+    childrenCount: children.length }));
   assert.ok(children.length >= 1, 'child transcripts exist on disk');
   const visible = await page.evaluate(() => window.desktop.sessions());
   assert.equal(visible.some(session => /^(workflow|subagent)-/.test(session.id)), false);
@@ -275,7 +293,8 @@ try {
   const crashRuns = await Promise.all((await readdir(runRoot)).map(async id => JSON.parse(await readFile(join(runRoot, id, 'progress.json'), 'utf8'))));
   const crashedRun = crashRuns.find(flow => flow.status === 'running');
   assert.ok(crashedRun?.runId);
-  execFileSync('taskkill.exe', ['/PID', String(app.process().pid), '/T', '/F'], { windowsHide: true });
+  assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), profile);
+  terminateFixtureTree(app.process().pid);
   await crashing.catch(() => {});
   holdRecovery = false; releaseRecovery?.();
   app = await launch(); page = await app.firstWindow();

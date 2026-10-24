@@ -131,3 +131,21 @@ test('rejected Desktop bundles disable only their managed declarations and stay 
   assert.deepEqual(reconcile({ steppage: source, [name]: custom }, { bundleExists: false, rejectedBundlePath }),
     { [name]: custom }, 'Quarantining a managed alias must not disable a different user-owned transport');
 });
+
+
+test('Desktop-only StepPage seeds a missing pinned transport without discovery or changing custom/disabled entries', () => {
+  const homePath = '/Desktop/step-runtime/steppage/home';
+  const mac = { platform: 'darwin', nodePath: '/App/runtime/node/node',
+    bundlePath: '/Desktop/step-runtime/steppage/bin/steppage-mcp.mjs', homePath, bundleExists: false, desktopOnly: true };
+  const seeded = reconcile({}, mac);
+  assert.deepEqual(seeded[name], { command: mac.nodePath, args: [mac.bundlePath], enabled: true,
+    env: { HOME: homePath, USERPROFILE: homePath } });
+  assert.deepEqual(reconcile(seeded, mac), seeded);
+  for (const enabled of [false, true])
+    assert.deepEqual(reconcile({ [name]: { enabled } }, mac)[name], { ...seeded[name], enabled });
+  for (const custom of [{ command: 'custom-node', args: ['custom.mjs'], enabled: true },
+    { url: 'https://example.invalid/mcp', enabled: false }])
+    assert.deepEqual(reconcile({ [name]: custom }, mac), { [name]: custom });
+  const legacy = { command: '/Old/runtime/node/node', args: ['/Personal/.steppage-mcp/bin/steppage-mcp.mjs'], enabled: false };
+  assert.deepEqual(reconcile({ steppage: legacy }, mac)[name], { ...seeded[name], enabled: false });
+});

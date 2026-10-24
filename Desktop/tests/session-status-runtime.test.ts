@@ -9,7 +9,7 @@ import { isolatedEnvironment } from '../electron/runtime';
 import { sessionSummary } from '../electron/session-summary';
 
 test('real pinned runtime exposes status without prompts, model calls or instruction content', {
-  timeout: 60000, skip: process.platform !== 'win32' && 'The frozen macOS runtime does not expose status details',
+  timeout: 60000,
 }, async () => {
   let modelRequests = 0;
   const server = createServer(async (request, response) => {
@@ -31,7 +31,7 @@ test('real pinned runtime exposes status without prompts, model calls or instruc
   } } }));
   const pool = new SessionRuntimes(() => {});
   try {
-    const worker = await pool.open(resolve('runtime/node/node.exe'), resolve('runtime/step/dist/bundle/step.js'),
+    const worker = await pool.open(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'),
       workspace, isolatedEnvironment(profile));
     const before = await worker.rpc.request('get_state');
     const raw = await worker.rpc.request('get_desktop_summary');

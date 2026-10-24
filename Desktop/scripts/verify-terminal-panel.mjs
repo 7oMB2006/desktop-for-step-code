@@ -4,6 +4,9 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
+const mac = process.platform === 'darwin';
+const shellName = mac ? 'zsh' : 'PowerShell';
+const command = (windows, posix) => (mac ? posix : windows) + '\r';
 const profile = await mkdtemp(join(tmpdir(), 'step-terminal-panel-'));
 const workspace = join(profile, '中文项目');
 await mkdir(workspace);
@@ -27,13 +30,13 @@ let independentPid;
 try {
   const page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
-  await app.evaluate(({ BrowserWindow, clipboard }) => {
+  await app.evaluate(({ BrowserWindow, clipboard }, mac) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1706, 1066);
     globalThis.terminalCopies = [];
     clipboard.writeText = async text => { globalThis.terminalCopies.push(text); };
-    clipboard.readText = async () => "Write-Output 'PASTE_OK'\r";
-  });
+    clipboard.readText = async () => mac ? "printf 'PASTE_%s\\n' OK\r" : "Write-Output 'PASTE_OK'\r";
+  }, mac);
   await app.evaluate(({ Menu }) => {
     globalThis.rightPanelWidthMenuFixture = { choice: undefined, menus: [] };
     Menu.prototype.popup = function (options) {
@@ -44,7 +47,7 @@ try {
     };
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
-  const workspaceAlias = `${workspace.toUpperCase().replace(/\\/g, '/')}/.`;
+  const workspaceAlias = `${mac ? workspace : workspace.toUpperCase().replace(/\\/g, '/')}/.`;
   await page.evaluate(cwd => window.desktop.workspace(cwd), workspaceAlias);
   await page.reload();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
@@ -86,14 +89,17 @@ try {
       await page.waitForTimeout(100);
     }
   }
-  await waitOutput('PS ');
-  await write("Write-Output ('SHELL_' + 'PID=' + $PID)\r");
+  if (mac) {
+    await write("PROMPT='DFSC_PROMPT> '; printf 'READY_%s\\n' OK\r");
+    await waitOutput('READY_OK');
+  } else await waitOutput('PS ');
+  await write(command("Write-Output ('SHELL_' + 'PID=' + $PID)", "printf 'SHELL_%s=%s\\n' PID $$"));
   await waitOutput('SHELL_PID=');
   const shellPid = Number((await output()).match(/SHELL_PID=(\d+)/)[1]);
-  await write("Write-Output ('REAL_' + 'PTY_OK'); Write-Output ('中文' + '正常'); Get-ChildItem\r");
+  await write(command("Write-Output ('REAL_' + 'PTY_OK'); Write-Output ('中文' + '正常'); Get-ChildItem", "printf '%s\\n' 'REAL_'PTY_OK '中文'正常; ls"));
   await waitOutput('REAL_PTY_OK');
   await waitOutput('中文正常');
-  await write("if (@('DESKTOP_TERMINAL_SECRET','SSH_PRIVATE_KEY','GITHUB_PAT','DOCKER_AUTH_CONFIG','CUSTOM_UNCLASSIFIED_VALUE').Where({ Test-Path ('Env:' + $_) }).Count) { Write-Output 'LEAK' } else { Write-Output ('ENV_' + 'CLEAN') }\r");
+  await write(command("if (@('DESKTOP_TERMINAL_SECRET','SSH_PRIVATE_KEY','GITHUB_PAT','DOCKER_AUTH_CONFIG','CUSTOM_UNCLASSIFIED_VALUE').Where({ Test-Path ('Env:' + $_) }).Count) { Write-Output 'LEAK' } else { Write-Output ('ENV_' + 'CLEAN') }", "if env | /usr/bin/grep -Eq '^(DESKTOP_TERMINAL_SECRET|SSH_PRIVATE_KEY|GITHUB_PAT|DOCKER_AUTH_CONFIG|CUSTOM_UNCLASSIFIED_VALUE)='; then printf LEAK; else printf 'ENV_%s\\n' CLEAN; fi"));
   await waitOutput('ENV_CLEAN');
   const environmentOutput = await output();
   assert.ok(!['isolated-private-key', 'isolated-pat', 'isolated-docker-auth', 'isolated-unclassified'].some(value => environmentOutput.includes(value)));
@@ -102,23 +108,28 @@ try {
   await assert.rejects(page.evaluate(id => window.desktop.terminalResize(id, 10000, 0), id), /dimensions/);
   await assert.rejects(page.evaluate(id => window.desktop.terminalWrite(id, 'x'.repeat(65537)), id), /input/);
   await page.locator('.terminal-view:not([hidden]) .xterm-helper-textarea').focus();
-  await page.keyboard.type("Write-Output ('KEYBOARD_' + 'OK')");
+  await page.keyboard.type(mac ? "printf 'KEYBOARD_%s\\n' OK" : "Write-Output ('KEYBOARD_' + 'OK')");
   await page.keyboard.press('Enter');
   await waitOutput('KEYBOARD_OK');
   await panel.getByRole('button', { name: '粘贴到终端', exact: true }).click();
+  // zsh bracketed paste intentionally inserts text without executing its newline.
+  if (mac) {
+    await page.locator('.terminal-view:not([hidden]) .xterm-helper-textarea').focus();
+    await page.keyboard.press('Enter');
+  }
   await waitOutput('PASTE_OK');
-  await write("Write-Output ('SLEEP_' + 'STARTED'); Start-Sleep -Seconds 60\r");
+  await write(command("Write-Output ('SLEEP_' + 'STARTED'); Start-Sleep -Seconds 60", "printf 'SLEEP_%s\\n' STARTED; sleep 60"));
   await waitOutput('SLEEP_STARTED');
   const sleepOutputEnd = (await output()).lastIndexOf('SLEEP_STARTED') + 'SLEEP_STARTED'.length;
   await page.locator('.terminal-view:not([hidden]) .xterm-helper-textarea').focus();
   await page.keyboard.press('Control+c');
   // ConPTY can flush queued input while handling Ctrl+C; wait for the new shell prompt.
-  await waitOutput('PS ', sleepOutputEnd);
-  await write("Write-Output ('INTERRUPT_' + 'OK')\r");
+  await waitOutput(mac ? 'DFSC_PROMPT> ' : 'PS ', sleepOutputEnd);
+  await write(command("Write-Output ('INTERRUPT_' + 'OK')", "printf 'INTERRUPT_%s\\n' OK"));
   await waitOutput('INTERRUPT_OK');
   const composerBeforeDock = await page.locator('.composer-wrap').boundingBox();
   await panel.evaluate(element => { window.terminalDockElement = element.querySelector('.terminal-view'); });
-  await write("Write-Output ('DOCK_' + 'START'); Start-Sleep -Milliseconds 700; Write-Output ('DOCK_' + 'END')\r");
+  await write(command("Write-Output ('DOCK_' + 'START'); Start-Sleep -Milliseconds 700; Write-Output ('DOCK_' + 'END')", "printf 'DOCK_%s\\n' START; sleep 0.7; printf 'DOCK_%s\\n' END"));
   await waitOutput('DOCK_START');
   await panel.getByRole('button', { name: '停靠到底部', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#terminal-panel')?.classList.contains('is-bottom'));
@@ -172,7 +183,7 @@ try {
   assert.equal((await list())[0].id, id);
   await assert.rejects(page.evaluate(() => window.desktop.preferences({ terminalDock: 'left' })), /Invalid terminal dock/);
   await assert.rejects(page.evaluate(() => window.desktop.preferences({ terminalHeight: -1 })), /Invalid terminal height/);
-  await write("Clear-Host; Get-ChildItem; Write-Output ('终端' + '已就绪')\r");
+  await write(command("Clear-Host; Get-ChildItem; Write-Output ('终端' + '已就绪')", "clear; ls; printf '%s\\n' '终端'已就绪"));
   await waitOutput('终端已就绪');
   await page.waitForTimeout(150);
   const normalCols = (await list())[0].cols;
@@ -236,7 +247,7 @@ try {
   assert.ok(Math.abs(rect.x - sidebar) < 1);
   assert.ok(expansion.some(width => width > beforeWidth + 1 && width < rect.width - 1));
   assert.ok((await list())[0].cols > normalCols, 'fullscreen resizes the real PTY columns');
-  await write("Clear-Host; Get-ChildItem; Write-Output ('全屏' + '已就绪')\r");
+  await write(command("Clear-Host; Get-ChildItem; Write-Output ('全屏' + '已就绪')", "clear; ls; printf '%s\\n' '全屏'已就绪"));
   await waitOutput('全屏已就绪');
   await page.mouse.move(800, 25);
   await page.waitForTimeout(150);
@@ -258,7 +269,7 @@ try {
   await page.waitForTimeout(350);
   await panel.getByRole('button', { name: '新建终端', exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.terminal-tab').length === 2);
-  for (let attempt = 0; !(await list()).some(terminal => terminal.title === 'PowerShell 2' && terminal.status === 'running'); attempt++) {
+  for (let attempt = 0; !(await list()).some(terminal => terminal.title === `${shellName} 2` && terminal.status === 'running'); attempt++) {
     if (attempt > 100) throw new Error('Second terminal did not start');
     await page.waitForTimeout(100);
   }
@@ -266,25 +277,25 @@ try {
   assert.equal(terminals.length, 2);
   const secondId = terminals.find(terminal => terminal.id !== id).id;
   const secondOutput = async () => (await list()).find(terminal => terminal.id === secondId)?.chunks.map(chunk => chunk.data).join('') ?? '';
-  const escape = text => text.replaceAll("'", "''");
-  const node = executablePath ? join(dirname(executablePath), 'resources/runtime/node/node.exe') : resolve('runtime/node/node.exe');
-  const childCommand = `$child = Start-Process -FilePath '${escape(node)}' -ArgumentList '${escape(join(profile, 'waiting-child.cjs'))}' -PassThru -WindowStyle Hidden; Write-Output ('CHILD_' + 'PID=' + $child.Id)\r`;
+  const escape = text => mac ? text.replaceAll("'", "'\\''") : text.replaceAll("'", "''");
+  const node = executablePath ? join(dirname(executablePath), mac ? '../Resources/runtime/node/node' : 'resources/runtime/node/node.exe') : resolve('runtime/node', mac ? 'node' : 'node.exe');
+  const childCommand = command(`$child = Start-Process -FilePath '${escape(node)}' -ArgumentList '${escape(join(profile, 'waiting-child.cjs'))}' -PassThru -WindowStyle Hidden; Write-Output ('CHILD_' + 'PID=' + $child.Id)`, `'${escape(node)}' '${escape(join(profile, 'waiting-child.cjs'))}' & printf 'CHILD_%s=%s\\n' PID $!`);
   await page.evaluate(({ id, data }) => window.desktop.terminalWrite(id, data), { id: secondId, data: childCommand });
   for (let attempt = 0; !(await secondOutput()).match(/CHILD_PID=(\d+)/); attempt++) {
     if (attempt > 100) throw new Error('Child process did not start');
     await page.waitForTimeout(100);
   }
   const childPid = Number((await secondOutput()).match(/CHILD_PID=(\d+)/)[1]);
-  await panel.getByRole('tab', { name: 'PowerShell 1', exact: true }).click();
+  await panel.getByRole('tab', { name: `${shellName} 1`, exact: true }).click();
   await rail.click();
-  await write("Start-Sleep -Milliseconds 200; Write-Output ('HIDDEN_' + 'OK')\r");
+  await write(command("Start-Sleep -Milliseconds 200; Write-Output ('HIDDEN_' + 'OK')", "sleep 0.2; printf 'HIDDEN_%s\\n' OK"));
   await waitOutput('HIDDEN_OK');
-  await write("1..3500 | ForEach-Object { 'abcdefghijklmnopqrstuvwxyz0123456789' * 3 }; Write-Output ('BACKPRESSURE_' + 'OK')\r");
+  await write(command("1..3500 | ForEach-Object { 'abcdefghijklmnopqrstuvwxyz0123456789' * 3 }; Write-Output ('BACKPRESSURE_' + 'OK')", "for i in {1..3500}; do printf '%s%s%s\\n' abcdefghijklmnopqrstuvwxyz0123456789 abcdefghijklmnopqrstuvwxyz0123456789 abcdefghijklmnopqrstuvwxyz0123456789; done; printf 'BACKPRESSURE_%s\\n' OK"));
   await waitOutput('BACKPRESSURE_OK');
   await rail.click();
   assert.equal(await page.locator('.terminal-tab').count(), 2);
   await panel.getByRole('button', { name: '清空终端', exact: true }).click();
-  await write("Clear-Host; Get-ChildItem; Write-Output ('终端' + '已就绪')\r");
+  await write(command("Clear-Host; Get-ChildItem; Write-Output ('终端' + '已就绪')", "clear; ls; printf '%s\\n' '终端'已就绪"));
   await page.waitForTimeout(250);
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await page.waitForFunction(() => {
@@ -321,7 +332,7 @@ try {
   const independentTerminals = await page.evaluate(id => window.desktop.terminalList(id), independent.runtimeId);
   assert.equal(independentTerminals.length, 1);
   assert.notEqual(independentTerminals[0].cwd, terminals[0].cwd);
-  await page.evaluate(id => window.desktop.terminalWrite(id, "Write-Output ('INDEPENDENT_' + 'PID=' + $PID)\r"), independentTerminals[0].id);
+  await page.evaluate(({ id, data }) => window.desktop.terminalWrite(id, data), { id: independentTerminals[0].id, data: command("Write-Output ('INDEPENDENT_' + 'PID=' + $PID)", "printf 'INDEPENDENT_%s=%s\\n' PID $$") });
   for (let attempt = 0; attempt < 100; attempt++) {
     const snapshots = await page.evaluate(id => window.desktop.terminalList(id), independent.runtimeId);
     const match = snapshots[0].chunks.map(chunk => chunk.data).join('').match(/INDEPENDENT_PID=(\d+)/);
@@ -333,7 +344,7 @@ try {
   await page.evaluate(cwd => window.desktop.workspace(cwd), workspaceAlias);
   await page.reload(); await rail.click();
   await page.waitForFunction(() => document.querySelectorAll('.terminal-tab').length === 2);
-  await panel.getByRole('button', { name: '结束 PowerShell 2', exact: true }).click();
+  await panel.getByRole('button', { name: `结束 ${shellName} 2`, exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.terminal-tab').length === 1);
   for (let attempt = 0; attempt < 30; attempt++) {
     const alive = await app.evaluate(pid => { try { process.kill(pid, 0); return true; } catch { return false; } }, childPid);
@@ -346,7 +357,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.terminal-footer')?.textContent.includes('已退出'));
   assert.equal((await list())[0].exitCode, 3);
   assert.equal(await app.evaluate(pid => { try { process.kill(pid, 0); return true; } catch { return false; } }, shellPid), false);
-  await panel.getByRole('button', { name: '结束 PowerShell 1', exact: true }).click();
+  await panel.getByRole('button', { name: `结束 ${shellName} 1`, exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.terminal-tab').length === 0);
   await rail.click();
   const closing = await panel.evaluate(async element => {
@@ -383,5 +394,5 @@ try {
   const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
   for (let attempt = 0; alive(independentPid) && attempt < 30; attempt++) await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(alive(independentPid), false, 'application exit must end the background independent terminal');
-  console.log(JSON.stringify({ result: 'PASS', realPowerShell: true, profile, screenshots: 'test-results/terminal-panel-*.png' }));
+  console.log(JSON.stringify({ result: 'PASS', shell: shellName, profile, screenshots: 'test-results/terminal-panel-*.png' }));
 } finally { if (!appClosed) await app.close(); }

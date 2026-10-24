@@ -1,3 +1,4 @@
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -72,7 +73,7 @@ try {
   await panel.getByRole('textbox', { name: '网页地址', exact: true }).fill(`127.0.0.1:${port}`);
   await page.keyboard.press('Enter');
   await page.waitForFunction(async () => (await window.desktop.browserList()).tabs[0].title === '项目预览');
-  await page.waitForTimeout(300);
+  await settleLayout(page.locator('.app'));
   await page.waitForFunction(() => {
     const composer = document.querySelector('.composer')?.getBoundingClientRect();
     const browser = document.querySelector('#browser-panel .browser-page')?.getBoundingClientRect();
@@ -176,7 +177,7 @@ try {
   assert.ok(ease.includes('cubic-bezier(0.22, 1, 0.36, 1)'));
   async function screenshot(name) {
     await page.mouse.move(800, 25);
-    await page.waitForTimeout(300);
+    await settleLayout(page.locator('.app'));
     await panel.locator('.right-panel-header').screenshot({ path: `test-results/browser-header-${name}.png` });
     const shellImage = await page.screenshot({ path: `test-results/browser-shell-${name}.png` });
     // capturePage is the actual native web page, independent of the React shell.
@@ -304,25 +305,25 @@ try {
   const host = await panel.locator('.browser-page').boundingBox();
   assert.ok(Math.abs(native.bounds.x - host.x) < 2 && Math.abs(native.bounds.width - host.width) < 2);
   await panel.getByRole('button', { name: '还原侧栏', exact: true }).click();
-  await page.waitForTimeout(300);
+  await settleLayout(page.locator('.app'));
   assert.equal(await widthControl.getAttribute('data-width'), 'wide');
   assert.ok(Math.abs((await panel.boundingBox()).width - wideWidth) < 2, 'fullscreen restores the previous width');
   await chooseWidth('standard');
-  await page.waitForTimeout(300);
+  await settleLayout(page.locator('.app'));
   const handle = page.getByRole('button', { name: '调整右栏宽度', exact: true });
   const grip = await handle.boundingBox();
   await page.mouse.move(grip.x + 4, grip.y + grip.height / 2);
   await page.mouse.down();
   await page.mouse.move(grip.x - 650, grip.y + grip.height / 2, { steps: 20 });
   await page.mouse.up();
-  await page.waitForTimeout(350);
+  await settleLayout(page.locator('.app'));
   assert.equal(await widthControl.getAttribute('data-width'), 'fullscreen', 'browser drag crosses multiple sizes');
   await handle.click();
   const gripMenu = page.getByRole('menu', { name: '右栏宽度', exact: true });
   await gripMenu.waitFor();
   assert.equal((await viewState()).filter(view => view.visible).length, 0, 'native page yields to the grip menu');
   await gripMenu.getByRole('menuitemradio', { name: '标准', exact: true }).click();
-  await page.waitForTimeout(350);
+  await settleLayout(page.locator('.app'));
   assert.equal(await widthControl.getAttribute('data-width'), 'standard');
   assert.ok((await viewState()).some(view => view.visible), 'native page returns after grip selection');
   assert.ok(Math.abs((await panel.boundingBox()).width - initialWidth) < 2);
@@ -362,7 +363,7 @@ try {
   assert.ok((await viewState()).some(view => view.visible && view.url === url));
   for (const mode of ['wide', 'standard']) {
     await chooseWidth(mode);
-    await page.waitForTimeout(300);
+    await settleLayout(page.locator('.app'));
     const before = await page.evaluate(() => ({
       basis: parseFloat(getComputedStyle(document.querySelector('.browser-track')).flexBasis),
       main: document.querySelector('main').getBoundingClientRect().width,
@@ -427,7 +428,7 @@ try {
   assert.equal((await list()).tabs.length, 2, 'renderer reload does not leak or destroy tabs');
   await screenshot('dark');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 720));
-  await page.waitForTimeout(400);
+  await settleLayout(page.locator('.app'));
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   native = (await viewState()).find(view => view.visible && view.url === url);
   const size = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
@@ -436,13 +437,13 @@ try {
   await screenshot('narrow');
   const narrowWidth = (await panel.boundingBox()).width;
   await chooseWidth('wide');
-  await page.waitForTimeout(300);
+  await settleLayout(page.locator('.app'));
   assert.ok(Math.abs((await panel.boundingBox()).width - narrowWidth) < 2, 'narrow windows converge standard and wide');
   await screenshot('narrow-wide');
   await chooseWidth('fullscreen');
   await page.waitForTimeout(300);
   await panel.getByRole('button', { name: '还原侧栏', exact: true }).click();
-  await page.waitForTimeout(300);
+  await settleLayout(page.locator('.app'));
   assert.equal(await widthControl.getAttribute('data-width'), 'wide');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.evaluate(({ first, url }) => window.desktop.browserAction(first, 'navigate', `${url}fail`), { first, url });

@@ -30,7 +30,11 @@ for (const [index, cwd] of [workspace, secondWorkspace, independentCwd, workspac
 await mkdir('test-results', { recursive: true });
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' }; delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
-const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+// These fixtures sample transition midpoints in transparent native windows.
+const launchOptions = { ...(executablePath ? { executablePath } : {}),
+  args: [...(executablePath ? [] : [resolve('.')]), '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding'], env, timeout: 60000 };
+const app = await electron.launch(launchOptions);
 const errors = [];
 try {
   const page = await app.firstWindow();
@@ -1541,7 +1545,7 @@ try {
 // Both repeat launch and a brand-new profile open a proposal, not a worker.
 const cleanProfile = await mkdtemp(join(tmpdir(), 'step-desktop-first-run-'));
 for (const userData of [profile, cleanProfile]) {
-  const relaunched = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env: { ...env, DESKTOP_TEST_USER_DATA: userData }, timeout: 60000 });
+  const relaunched = await electron.launch({ ...launchOptions, env: { ...env, DESKTOP_TEST_USER_DATA: userData } });
   try {
     const page = await relaunched.firstWindow();
     await relaunched.evaluate(({ BrowserWindow }) => {

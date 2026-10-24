@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('Build this preview on an Apple Silicon Mac');
 const source = resolve('.');
 const manifest = JSON.parse(await readFile('package.json', 'utf8'));
-const updateVersion = process.env.DESKTOP_MACOS_RELEASE_VERSION ?? `${manifest.version}-macos.1`;
+const updateVersion = process.env.DESKTOP_MACOS_RELEASE_VERSION ?? manifest.version;
 if (!valid(updateVersion) || updateVersion.replace(/-macos\.\d+$/, '') !== manifest.version) throw new Error('Invalid macOS release version');
 const runtime = JSON.parse(await readFile('runtime/manifest.json', 'utf8'));
 if (runtime.platform !== process.platform || runtime.arch !== process.arch) throw new Error('Restage the runtime on this Mac before packaging');

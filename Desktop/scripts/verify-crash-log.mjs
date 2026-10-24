@@ -1,8 +1,8 @@
+import { terminateFixtureTree } from './fixture-runtime-children.mjs';
 // Crash log acceptance: a real startup failure must leave a readable file.
 // Uses fixture credentials in an isolated profile; no real account is involved.
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -86,7 +86,7 @@ while (Date.now() < deadline) {
 if (app) {
   try {
     const pid = app.process().pid;
-    execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    terminateFixtureTree(pid);
   } catch {
     // app already exited on its own; nothing to kill
   }

@@ -1,3 +1,4 @@
+import { assertFocusVisible } from './assert-focus-visible.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -190,27 +191,7 @@ try {
   await page.locator('.provider-editor fieldset').evaluate(e => { e.scrollTop = 0; });
   const verifyFocusGutter = async (label, file) => {
     const input = page.getByLabel(label, { exact: true });
-    await input.focus();
-    const visible = await input.evaluate(element => {
-      const box = element.getBoundingClientRect();
-      const scroll = element.closest('fieldset');
-      const bounds = scroll.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      const extent = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
-      // clientHeight/clientWidth round CSS pixels at fractional Windows scaling.
-      const right = bounds.right - (scroll.offsetWidth - scroll.clientWidth);
-      const bottom = bounds.bottom - (scroll.offsetHeight - scroll.clientHeight);
-      return box.left - extent >= bounds.left - .1 && box.right + extent <= right + .1
-        && box.top - extent >= bounds.top - .1 && box.bottom + extent <= bottom + .1;
-    });
-    if (!visible) console.log('Focus geometry:', await input.evaluate(element => {
-      const scroll = element.closest('fieldset');
-      const box = element.getBoundingClientRect(), bounds = scroll.getBoundingClientRect();
-      return { label: element.getAttribute('aria-label'), box: box.toJSON(), bounds: bounds.toJSON(),
-        clientHeight: scroll.clientHeight, clientWidth: scroll.clientWidth, scrollTop: scroll.scrollTop,
-        outline: getComputedStyle(element).outline, offset: getComputedStyle(element).outlineOffset };
-    }));
-    assert.equal(visible, true, `${label}: focus outline fits inside the scroll viewport`);
+    await assertFocusVisible(page, input, label);
     await page.screenshot({ path: `test-results/${file}.png` });
   };
   await verifyFocusGutter('Base URL', 'provider-focus-url');
@@ -227,6 +208,20 @@ try {
   await page.screenshot({ path: 'test-results/custom-providers-protocol-menu.png' });
   await page.keyboard.press('Escape');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 760));
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
+    await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await page.waitForTimeout(300); // Capture settled palette transitions, not the dark-to-light intermediate frame.
+    for (const label of ['名称', 'Base URL', 'API Key', '模型 ID 1']) {
+      await verifyFocusGutter(label, `provider-focus-${theme}-${label === '名称' ? 'name' : label === 'Base URL' ? 'url' : label === 'API Key' ? 'key' : 'model'}-narrow`);
+    }
+    await page.locator('.provider-model-advanced summary').first().click();
+    await page.waitForTimeout(280);
+    await verifyFocusGutter('上下文容量 1', `provider-focus-${theme}-capacity-narrow`);
+    await verifyFocusGutter('最大输出 1', `provider-focus-${theme}-output-narrow`);
+    await page.locator('.provider-model-advanced summary').first().click();
+  }
   await page.screenshot({ path: 'test-results/custom-providers-narrow.png' });
   assert.equal(await page.locator('.settings-content').evaluate(e => e.scrollWidth > e.clientWidth), false);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));

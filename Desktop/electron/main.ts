@@ -228,8 +228,7 @@ const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-i
     }
     await savePreferences();
   });
-const stepPage = process.platform === 'win32'
-  ? new StepPagePreparer(dataRoot, nodePath, (url, options) => net.fetch(url, options)) : undefined;
+const stepPage = new StepPagePreparer(dataRoot, nodePath, (url, options) => net.fetch(url, options));
 const terminals = new TerminalSessions(nodePath,
   app.isPackaged ? join(process.resourcesPath, 'terminal-runtime/host.cjs') : resolve('terminal-runtime/host.cjs'),
   event => { if (window && !window.isDestroyed()) window.webContents.send('terminal-event', event); });
@@ -271,7 +270,7 @@ const authEnvironment = () => ({
 });
 const movedSessionEnvironment = () => ({
   STEP_PERMISSION_PRESET: 'ask',
-  ...(process.platform === 'win32' ? { DESKTOP_CRON_SCOPE_DIR: join(app.getPath('userData'), 'cron-bindings') } : {}),
+  DESKTOP_CRON_SCOPE_DIR: join(app.getPath('userData'), 'cron-bindings'),
 });
 async function persistAuth(next: Record<string, unknown>) {
   try { await vault.save(next); }
@@ -385,7 +384,6 @@ const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_s
   () => emit({ type: 'desktop_cron_changed' }), cronBindings, workspace => cronAutomatic.block(workspace));
 const inspectCronRecovery = async (key: string, sessionId: string) => {
   assertRecoveryQueues(runtimes.workers.values(), sessionId);
-  if (process.platform !== 'win32') throw new Error('Cron recovery Beta is currently Windows-only');
   const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
   if (!manifest.patches?.includes('desktop-cron-recovery')) throw new Error('This runtime does not support gated Cron recovery');
   const task = (await cronManagement.list(preferences.workspaces)).tasks.find(task => task.key === key);
@@ -473,7 +471,7 @@ const cronRecovery = new CronRecovery(inspectCronRecovery, launchCronRecovery, D
   await cronAutomatic.enable(key, plan);
 });
 async function tryAutomaticCron(workspace?: string) {
-  if (process.platform !== 'win32' || transition || settingsMutation || providerSettingsPending || undoBusy || deletingArchived || quitting || quitPending) return;
+  if (transition || settingsMutation || providerSettingsPending || undoBusy || deletingArchived || quitting || quitPending) return;
   transition = true;
   try { await cronAutomatic.run(workspace); }
   catch (error) { void crashLog.record('cron-auto-recovery', error); }
@@ -800,7 +798,6 @@ async function handle(method: string, args: any[]) {
     case 'importJobs':
     case 'importCancel':
     case 'importChooseDirectory': {
-      if (process.platform !== 'win32') throw new Error('Session migration is currently Windows-only');
       if (quitting || quitPending) throw new Error('Application is closing');
       if (method === 'importScan') return sessionImports.scan(args[0]);
       if (method === 'importPreview') return sessionImports.preview(text(args[0], 80));
@@ -1359,7 +1356,7 @@ async function handle(method: string, args: any[]) {
         }
         if (associated.length) throw new Error(`MOVE_CRON_ASSOCIATED: ${associated.join(', ')}`);
         const runtimeManifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
-        if (process.platform !== 'win32' || !runtimeManifest.patches?.includes('desktop-session-cron-scope'))
+        if (!runtimeManifest.patches?.includes('desktop-session-cron-scope'))
           throw new Error('MOVE_CRON_UNAVAILABLE: runtime');
         const path = await managedSessionFile(join(dataRoot, 'sessions'), target.path);
         const source = sources[0];
@@ -1818,11 +1815,9 @@ async function handle(method: string, args: any[]) {
     }
     case 'cancelAccountAllowance': accountAllowance.cancel(); return null;
     case 'stepPageState': {
-      if (!stepPage) throw new Error('StepPage preparation is Windows-only');
       return stepPage.snapshot();
     }
     case 'prepareStepPage': {
-      if (!stepPage) throw new Error('StepPage preparation is Windows-only');
       // Preparation only writes files/config; existing workers and Cron hosts stay alive.
       await guardIdle({ stopHost: false });
       return stepPage.prepare((bundlePath, homePath) => admin.request('prepare_steppage', { bundlePath, homePath }));
@@ -2090,28 +2085,12 @@ else app.whenReady().then(async () => {
   // Reconcile full TOML declarations inside the admin settings lock. The qualified
   // plugin identity prevents duplicate discovery; relocation must retain explicit disable.
   try {
-    if (stepPage) {
-      const desktopBundle = (await stepPage.snapshot()).installed;
-      const rejectedBundlePath = !desktopBundle && existsSync(stepPage.bundlePath) ? stepPage.bundlePath : undefined;
-      const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim()
-        || (desktopBundle || rejectedBundlePath ? stepPage.bundlePath : join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs'));
-      await admin.request('reconcile_steppage', { bundlePath: steppageBundle, rejectedBundlePath,
-        ...(steppageBundle === stepPage.bundlePath ? { homePath: stepPage.homePath } : {}) });
-    } else {
-      // Preserve the frozen non-Windows registration path; do not migrate declarations.
-      const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim() || join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs');
-      if (existsSync(steppageBundle)) {
-        const settings = await admin.request('settings', { cwd: preferences.workspace ?? app.getPath('documents') });
-        const existing = settings?.mcp?.steppage;
-        const looksDesktopWritten = /runtime[/\\]node[/\\]node(?:\.exe)?$/i.test(String(existing?.command ?? ''));
-        const staleManaged = Boolean(existing) && looksDesktopWritten
-          && typeof existing.command === 'string' && !(await samePath(existing.command, nodePath));
-        if (!existing || staleManaged) {
-          await admin.request('mcp', { name: 'steppage', config: { command: nodePath, args: [steppageBundle], enabled: true }, secrets: {} });
-          crashLog.setPhase('steppage registered');
-        }
-      }
-    }
+    const desktopBundle = (await stepPage.snapshot()).installed;
+    const rejectedBundlePath = !desktopBundle && existsSync(stepPage.bundlePath) ? stepPage.bundlePath : undefined;
+    const steppageBundle = process.env.DESKTOP_STEPPAGE_BUNDLE?.trim()
+      || (desktopBundle || rejectedBundlePath || process.platform !== 'win32' ? stepPage.bundlePath : join(homedir(), '.steppage-mcp', 'bin', 'steppage-mcp.mjs'));
+    await admin.request('reconcile_steppage', { bundlePath: steppageBundle, rejectedBundlePath,
+      ...(steppageBundle === stepPage.bundlePath ? { homePath: stepPage.homePath } : {}) });
   } catch {
     // Registration failure must not prevent launching the rest of Desktop.
   }

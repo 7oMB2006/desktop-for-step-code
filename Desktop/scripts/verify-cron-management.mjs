@@ -1,5 +1,6 @@
+import { assertFocusVisible } from './assert-focus-visible.mjs';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { fixtureRuntimeChildren } from './fixture-runtime-children.mjs';
 import { _electron as electron } from 'playwright';
 import { mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,6 +19,11 @@ await mkdir('test-results', { recursive: true });
 let app;
 const errors = [];
 const results = [];
+const focusChecks = [];
+const nativeHeightLimit = process.env.DESKTOP_CRON_TEST_MAX_HEIGHT ? Number(process.env.DESKTOP_CRON_TEST_MAX_HEIGHT) : undefined;
+if (nativeHeightLimit !== undefined) assert.ok(Number.isSafeInteger(nativeHeightLimit) && nativeHeightLimit >= 540, 'Invalid native test window height limit');
+const resize = (width, height) => app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size),
+  [width, Math.min(height, nativeHeightLimit ?? height)]);
 // Poll async IPC in Node; waitForFunction's predicate must remain synchronous.
 const until = async (check, label) => {
   const deadline = Date.now() + 30000;
@@ -38,8 +44,9 @@ const launch = async () => {
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
-    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1360, 900);
+    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
+  await resize(1360, 900);
   await page.getByRole('textbox', { name: '消息', exact: true }).waitFor();
   await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled, undefined, { timeout: 60000 });
   return page;
@@ -50,11 +57,7 @@ const close = async () => {
 const terminateSchedulingChild = async () => {
   const owner = await app.evaluate(({ app }) => ({ pid: process.pid, profile: app.getPath('userData') }));
   assert.equal(owner.profile, profile, 'Only this isolated fixture may be interrupted');
-  const command = `@(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${owner.pid}' | Where-Object {
-    $_.Name -eq 'node.exe' -and $_.CommandLine -match 'step[.]js' -and $_.CommandLine -match '--mode'
-  } | Select-Object -ExpandProperty ProcessId) | ConvertTo-Json -Compress`;
-  const children = [].concat(JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', command],
-    { encoding: 'utf8', windowsHide: true }).trim()));
+  const children = fixtureRuntimeChildren(owner.pid);
   assert.equal(children.length, 1, 'Only the single reviewed scheduling host is terminated');
   assert.ok(Number.isInteger(children[0]) && children[0] !== owner.pid);
   process.kill(children[0]);
@@ -99,16 +102,40 @@ try {
   await page.getByRole('radio', { name: '临时任务', exact: true }).check();
   await page.getByText('仅保留在当前宿主内存中。', { exact: false }).waitFor();
   await durable.check();
-  for (const [theme, width] of [['dark', 1360], ['light', 560]]) {
-    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 950), width);
+  for (const [theme, width, height] of [['dark', 1360, 950], ['light', 560, 950], ['dark', 1360, 684], ['light', 560, 684]]) {
+    await resize(width, height);
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
     await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await assertFocusVisible(page, page.getByLabel('执行时间（本机时区）', { exact: true }), `cron ${theme} ${width} time`);
+    await assertFocusVisible(page, page.getByLabel('任务指令', { exact: true }), `cron ${theme} ${width} multiline`);
+    if (height === 684) {
+      // A click/focus may expose only the textarea caret while its lower edge
+      // remains clipped. Test the resulting focus without refocusing it.
+      await page.getByLabel('执行时间（本机时区）', { exact: true }).focus();
+      const prompt = page.getByLabel('任务指令', { exact: true });
+      await prompt.evaluate(element => {
+        const scroller = element.closest('.scheduled-tasks');
+        scroller.scrollTop += element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom - 20;
+      });
+      await prompt.focus();
+      await assertFocusVisible(page, prompt, `cron ${theme} ${width} partially scrolled multiline`, { focus: false });
+      await page.getByLabel('执行时间（本机时区）', { exact: true }).focus();
+      await prompt.evaluate(element => {
+        const scroller = element.closest('.scheduled-tasks');
+        scroller.scrollTop += element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom - 20;
+      });
+      const box = await prompt.boundingBox();
+      await page.mouse.click(box.x + 12, box.y + 12);
+      await assertFocusVisible(page, prompt, `cron ${theme} ${width} mouse-focused multiline`, { focus: false });
+    }
+    focusChecks.push({ theme, requested: { width, height }, viewport: await page.evaluate(() => ({ width: innerWidth, height: innerHeight })) });
+    await page.screenshot({ path: `test-results/cron-focus-${theme}-${width}-${height}.png` });
     await page.locator('.scheduled-storage').scrollIntoViewIfNeeded();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    await page.screenshot({ path: `test-results/cron-storage-${theme}-${width}.png` });
+    await page.screenshot({ path: `test-results/cron-storage-${theme}-${width}-${height}.png` });
   }
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
+  await resize(1360, 900);
   // Choose tomorrow's local calendar minute, avoiding a trigger during this test.
   const tomorrow = new Date(Date.now() + 86400000);
   const cron = `0 9 ${tomorrow.getDate()} ${tomorrow.getMonth() + 1} *`;
@@ -155,7 +182,7 @@ try {
   await openManager();
   await row().click();
   await page.getByRole('heading', { name: '隔离 Cron 管理验收', exact: true }).waitFor();
-  if (process.platform === 'win32') {
+  {
     await page.getByRole('button', { name: '暂停任务 Beta', exact: true }).click();
     await page.getByRole('button', { name: '恢复任务 Beta', exact: true }).waitFor();
     await page.waitForFunction(() => !document.querySelector('.scheduled-page')?.inert);
@@ -203,7 +230,7 @@ try {
   await page.getByRole('button', { name: '保留', exact: true }).click();
   assert.equal((await records()).length, 1);
   const screenshot = async (name, width, height, theme) => {
-    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), [width, height]);
+    await resize(width, height);
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
     await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
@@ -242,7 +269,7 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
   assert.equal(fixture.requests.length, 0);
   results.push('relaunch discovers durable records read-only; offline shortcuts and stale host requests cannot start a runtime');
-  if (process.platform === 'win32') {
+  {
     const tasks = (await page.evaluate(() => window.desktop.cronList())).tasks;
     assert.equal(tasks[0].association.sessionId, 'queue-demo');
     await page.getByRole('button', { name: '恢复项目调度 Beta', exact: true }).click();
@@ -393,7 +420,7 @@ try {
   await page.locator('.scheduled-storage').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/cron-storage-temporary.png' });
   results.push('Creation defaults durable, blocks untrusted hosts without fallback, and discloses explicit temporary loss independently of recurrence');
-  if (process.platform === 'win32') {
+  {
     await close();
     await writeFile(join(agent, 'trust.json'), JSON.stringify({ [fixture.workspace]: true }));
     page = await launch();
@@ -438,8 +465,13 @@ try {
     results.push('Unsent queued text survives an idle host crash, blocks automatic and manual replacement, remains editable and withdrawable, and never auto-sends');
   }
   assert.deepEqual(errors, []);
-  await writeFile('test-results/cron-management.json', JSON.stringify({ profile, results, modelCalls: fixture.requests.length }, null, 2));
+  await writeFile('test-results/cron-management.json', JSON.stringify({ profile, results, focusChecks, modelCalls: fixture.requests.length }, null, 2));
   console.log(`Cron management Electron acceptance passed (${results.length} cases).`);
+} catch (error) {
+  console.error('Cron management acceptance error:', error.stack ?? String(error));
+  const page = await app?.firstWindow().catch(() => undefined);
+  await page?.screenshot({ path: 'test-results/cron-management-failure.png' }).catch(() => {});
+  throw error;
 } finally {
   if (app) await close();
   await fixture.close();

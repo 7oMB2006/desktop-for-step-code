@@ -48,6 +48,27 @@ test('platform catalogs separate macOS previews, Windows releases and repeated p
   assert.throws(() => parseUpdateManifest(malformed, 'preview', 'darwin'));
 });
 
+test('one shared release serves each platform its own archive and update metadata', async () => {
+  const windows = catalog('0.6.0', false), mac = catalog('0.6.0');
+  const shared = { ...windows, assets: [...windows.assets, ...mac.assets] };
+  // A newer Windows-only release must not hide the last available Mac build.
+  const manifest = createUpdateManifest([catalog('0.6.1', false), shared]);
+  const win = parseUpdateManifest(manifest, 'stable');
+  const darwin = parseUpdateManifest(manifest, 'stable', 'darwin');
+  assert.equal(win?.version, '0.6.1');
+  assert.equal(darwin?.version, '0.6.0');
+  assert.equal(darwin?.installer?.name, 'Desktop.for.Step.Code.0.6.0.arm64.zip');
+  assert.equal(darwin?.installer?.inApp, true);
+  assert.ok(win?.installer?.name.endsWith('.exe'));
+  const updates = new AppUpdates('0.5.1-macos.1', async () => new Response(JSON.stringify(manifest)), () => {}, Date.now, 1000, 'darwin');
+  assert.equal((await updates.check()).updateAvailable, true);
+  assert.equal(updates.snapshot().release?.version, '0.6.0');
+  // Missing Mac metadata preserves manual download, rather than borrowing latest.yml.
+  const manual = selectRelease([{ ...shared, assets: shared.assets.filter(a => a.name !== 'mac-update.json') }], 'stable', 'darwin');
+  assert.equal(manual?.installer?.inApp, undefined);
+  assert.equal(manual?.installer?.name, darwin?.installer?.name);
+});
+
 test('macOS download transport validates origins, metadata, lengths, hashes and cancellation', async () => {
   const root = await temporary();
   try {

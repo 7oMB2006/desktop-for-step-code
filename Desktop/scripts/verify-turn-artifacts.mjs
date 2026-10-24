@@ -1,3 +1,4 @@
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
@@ -106,21 +107,21 @@ try {
   assert.equal(idleBackground, themeBackground, 'idle output uses the current theme surface');
   const originalPrimary = await page.evaluate(() => document.documentElement.style.getPropertyValue('--theme-light-primary'));
   await page.evaluate(() => document.documentElement.style.setProperty('--theme-light-primary', '#16734b'));
-  await page.waitForTimeout(400);
+  await settleLayout(page.locator('.turn-artifacts'));
   assert.equal(await page.locator('.artifact-row').first().evaluate(element => getComputedStyle(element).backgroundColor), idleBackground, 'idle output background is independent of accent color');
   await page.locator('.artifact-main').first().hover();
-  await page.waitForTimeout(220);
+  await settleLayout(page.locator('.turn-artifacts'));
   assert.equal(await outputArrow.evaluate(element => getComputedStyle(element).color), await tokenColor('--primary'));
   await page.mouse.move(0, 0);
   await page.locator('.artifact-main').first().focus();
-  await page.waitForTimeout(220);
+  await settleLayout(page.locator('.turn-artifacts'));
   assert.equal(await outputArrow.evaluate(element => getComputedStyle(element).color), await tokenColor('--primary'), 'keyboard focus uses the same accent as hover');
   await page.locator('.artifact-main').first().evaluate(element => element.blur());
   await page.evaluate(value => {
     if (value) document.documentElement.style.setProperty('--theme-light-primary', value);
     else document.documentElement.style.removeProperty('--theme-light-primary');
   }, originalPrimary);
-  await page.waitForTimeout(400);
+  await settleLayout(page.locator('.turn-artifacts'));
   const artifacts = await page.locator('.turn-artifacts').boundingBox();
   const diff = await page.locator('.turn-changes').boundingBox();
   assert.ok(artifacts.y + artifacts.height <= diff.y);
@@ -129,7 +130,7 @@ try {
   assert.equal((await app.evaluate(() => globalThis.lastArtifactAction))[2], 'open');
   await page.screenshot({ path: 'test-results/turn-artifacts-light.png' });
   await page.locator('.artifact-details-trigger').first().click();
-  await page.waitForTimeout(220);
+  await settleLayout(page.locator('.turn-artifacts'));
   await page.screenshot({ path: 'test-results/turn-artifacts-options-light.png' });
   await page.getByRole('button', { name: '复制路径', exact: true }).click();
   assert.equal((await app.evaluate(() => globalThis.lastArtifactAction))[2], 'copy');
@@ -140,7 +141,7 @@ try {
   await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
   await page.screenshot({ path: 'test-results/turn-artifacts-dark.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 800));
-  await page.waitForTimeout(400);
+  await settleLayout(page.locator('.turn-artifacts'));
   const box = await page.locator('.artifact-row').first().boundingBox();
   assert.ok(box.x >= 0 && box.x + box.width <= 640);
   await page.screenshot({ path: 'test-results/turn-artifacts-narrow.png' });

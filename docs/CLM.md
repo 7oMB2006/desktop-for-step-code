@@ -6,7 +6,7 @@ A bare `/clm` opens CLM without submitting a prompt; parameterized commands and
 
 ## Data Boundary
 
-Windows' pinned v0.1.5 runtime adds the read-only `get_desktop_clm` RPC. It uses
+The shared Windows/macOS 0.6.0 pinned v0.1.5 runtime adds the read-only `get_desktop_clm` RPC. It uses
 `SessionManager.getBranch()`, not an archive-directory scan. Revisions are keyed
 by entry ID, not the display revision number. Reset and regular-compaction
 checkpoints are labeled separately. The panel shows five nodes at a time and
@@ -47,8 +47,9 @@ refresh their result from the runtime. Frontend request cleanup rejects obsolete
 responses after selection/session changes. Tab switching preserves CLM browsing
 state; closing the whole inspector currently remounts it on the latest revision.
 
-The older macOS runtime is not changed by this patch. An unsupported runtime
-shows an unavailable inspector rather than synthetic revisions.
+The old Mac-only runtime did not include this inspector. macOS 0.6.0 now uses
+the shared v0.1.5 implementation and native runtime tests. An unsupported runtime
+still shows an unavailable inspector rather than synthetic revisions.
 
 ## Verification
 

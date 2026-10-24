@@ -1,5 +1,341 @@
 # Verification
 
+## Single-slot workflow persistence fixture (2026-10-25)
+
+`2bb6c27` Windows run `40118772782` passed all 83 acceptance checks and the
+final gate. Mac `40118772757` passed its first 75 source checks, then failed
+the Workflow runtime child-transcript assertion. The existing 10-second file
+poll was working; extending it would not resolve the fixture's waiting cycle.
+
+The frozen runtime's default workflow concurrency is CPU-bounded and can be
+one slot. Its session manager first creates a JSONL file after a complete
+assistant message. The fixture held CHILD-A's first response while requiring
+a child transcript to exist; in a single slot CHILD-B cannot start and neither
+child can create that first record. The fixture now completes A before holding
+B. It still inspects a real persisted child while the workflow is active,
+rejects opening/switching to child history and checks every original parallel,
+chain, restart, crash, cache, partial-failure and HTTP429 contract.
+
+A supported explicit maxConcurrency=1 control reproduces the old failure with
+only A requested and no child files. The corrected source and actual `d6fa5da`
+package both pass single-slot and default-slot controls (four passes). The
+single-slot result confirms native limit=1/cap=1. No runtime, pin, environment
+isolation, timeout or assertion is changed. Static review of the remaining
+runtime fixtures found no second held-first-child/await-second-child cycle.
+The fixture logs only allowlisted numeric native concurrency fields and fixture
+request/file counts before the disk assertion, including on a failed scan.
+Mac's complete serial order now starts with runtime, then interface and sessions,
+so resource-dependent checks report earlier. All 84 scripts and deadlines remain
+identical in both source and package modes; Windows order is unchanged. Existing
+CI policy/runner checks pass (18 passed, one Windows-only skip).
+The accepted application remains the clean `d6fa5da` build; replacement full
+Mac cloud source and package results are still required before merging.
+
+## Complete constrained-display reproduction (2026-10-25)
+
+The ignored local launch wrapper caps native fixture windows to 684px without
+changing product code or disabling animations. The full 84-item source
+inventory completed successfully after correcting two display-dependent test
+premises; both original failed attempts remain in its JSON/log.
+
+Permission Approval's fixed upward gesture was 46px including the grip offset.
+At the real 684px viewport its observed drawer range is only 240px →316px,
+so that gesture correctly crosses the expansion midpoint. The small-drag
+compact-snap test now chooses a displacement from the observed compact/expanded
+range. Normal 900px windows retain the same 46px gesture (240→424); short
+windows use 19px (240→316). The existing compact-state, large expansion,
+keyboard resizing, bounds, defer and response assertions remain unchanged.
+
+Workflow's fifth agent is below the short overview viewport. Playwright must
+scroll it into view to click it; the old test compared the restored scroll
+against a position captured before that necessary scroll. It now explicitly
+reveals the same target, records that actual position and retains the exact
+return-to-overview scroll assertion. No product behavior or control is changed.
+
+Each corrected script passes normal source, the actual `d6fa5da` package and
+the package capped to 684px (six targeted passes). The full capped source
+report has 84 successes, complete=true, and preserves its two pre-fix failures.
+Windows `9ae63c0` run `40116856737` also passed all three groups and the final
+gate; final Mac cloud source/package results must still come from a head
+containing these last two fixture corrections. The accepted application source
+and runtime remain unchanged from `d6fa5da`.
+
+## Hidden-window layout synchronization (2026-10-25)
+
+Head `97cb4c1` passed Windows interface 40/40, sessions 18/18, runtime 25/25
+and its final gate (`40115080022`). Mac `40115080007` failed earlier at the
+composer-menu geometry check: gap `1.8370361328125` instead of the existing
+6px ±1 contract, with both horizontal edges aligned. The fixture's 220ms
+wall-clock sleep did not establish completion of the 160ms CSS entrance in
+the unfocused native window.
+
+`settleLayout` waits for fonts, rendered frames and real finite animations on
+the measured element/subtree and its ancestors. Infinite activity indicators
+are excluded; replaced animations handle only their AbortError cancellation.
+No animation is disabled, no timeout is enlarged and no geometry assertion or
+tolerance is changed. The composer, settings, question/permission drawers,
+workflow, artifacts, browser and file-preview checks use it where their
+contract requires a completed layout. Deliberate intermediate-frame, exit,
+cancellation and elapsed-time guards remain. The basic Electron and Subagent
+animation fixtures receive the existing Plan/browser Chromium flags to keep
+their hidden renderer sampling active. The shared session fixture also requires
+its composer element to exist before calling it enabled.
+
+Composer source and the actual `d6fa5da` package pass. Extending the real CSS
+entrance to 1000ms produces an initial 1px gap; the helper waits 1056.64ms and
+the unchanged final measurement is exactly 6px with both edges aligned.
+A final static 3px translation still fails the original geometry assertion
+in 1.49 seconds. The five drawer/settings/workflow/artifact scripts and four
+background-sampling/browser/file scripts each pass source and actual-package
+checks (18 targeted runs), preserving all original assertions. A separate
+ignored launch wrapper caps native windows at 684px for a full local inventory
+reproduction; its result must be recorded separately from normal-size passes.
+
+This follow-up changes fixture scripts and documentation only. The user-tested
+application remains the clean `d6fa5da` build; its runtime pin and binary are
+unchanged. Complete replacement Mac source/package cloud checks remain required.
+
+## Plan anchor reference follow-up (2026-10-25)
+
+The `d6fa5da` Windows workflow `40113230323` completed successfully across
+interface, sessions, runtime and the final gate; Cron management and transcript
+replay both passed. Mac run `40113230356` stopped earlier in Plan with a now
+visible exact difference: running trigger x `144.640625 → 144.6875`, y `0 → 0`.
+It did not wrap. The old x reference included the preceding working indicator,
+whose live elapsed text can legitimately change width independently of expansion.
+Running anchors now measure the exact gap from that adjacent indicator's right
+edge, while y stays relative to the row top. The fixture also requires adjacency
+and vertical overlap. Settled anchors still use the footer row. All comparisons
+remain exact; no coordinate tolerance or clock freeze is introduced.
+
+Normal source and the actual `d6fa5da` package pass the updated Plan check.
+A controlled 1px increase in the preceding indicator moves the raw button x by
+1px while the measured gap stays exactly `{x:8,y:0}` and passes. A 1px translation
+of the button itself still fails with `{x:9,y:0}` and exits in 4.90 seconds.
+This follow-up changes only acceptance code and documentation, not the renderer
+or runtime. Full replacement cloud results are still required.
+
+The independent local `d6fa5da` package completed the 84-item package-configured
+inventory and the native zsh/PTY test. The inventory includes source component
+fixtures, so it is not described as 84 direct binary checks. ZIP contents,
+1,521 files and 14 links, and executable bits match the tested app; its update
+metadata matches the 179,215,438-byte ZIP with SHA-256
+`a522717b961ac181c6223c92585d616c2f4b36e0e1472d362785c2d7494f0984`.
+The Desktop shortcut points at that independent test candidate. Existing Release
+Draft assets still identify the earlier accepted `549bb39` RC.
+
+## Cron focus and replay CI follow-up (2026-10-25)
+
+Run `40110441887` passed the repaired project picker and Plan checks, then
+failed Cron management focus geometry at a 684px viewport. A partially visible
+textarea can receive native focus with its caret visible while its bottom and
+outline remain outside the scroller. This was reproduced locally with the
+unchanged renderer: its focused outline extended to about 708px in a 684px
+viewport. Cron editor controls now scroll their complete box into view on focus;
+the scroller and controls reserve 4px for the existing shared outline. No focus
+indicator is removed or weakened. Acceptance covers normal and 684px heights,
+dark/wide and light/narrow layouts, and both programmatic/keyboard and mouse
+focus from a partially scrolled multiline field. The shared geometry helper can
+observe an already focused field without refocusing it, retaining every outline,
+clipping-ancestor and viewport assertion. Local Cron management's 14 cases pass,
+including an additional 540px height reproduction. Typecheck/build and the full
+unit/protocol suite pass (790 passed, one Windows-only skip).
+
+Windows run `40110441868` passed interface and sessions but repeated the Cron
+transcript timeout after reload. A controlled 12-second navigation IPC delay
+reproduces it: the readable cold preview contains both Cron records while main
+still has no selected runtime/session; reloading discards that pending navigation.
+The fixture now waits for authoritative handoff and strictly checks connected
+status, runtime ID and the expected session ID before reload. All original eight
+Cron checks and the 60-second limit remain. Normal source, accepted `549bb39`
+package and the controlled delay pass. This is a test precondition correction,
+not a runtime or Cron message change.
+
+The focus correction changes the renderer, so final Mac packaging and renewed
+acceptance are required. Existing Draft assets remain the earlier accepted RC;
+neither local fixture results nor the earlier partial cloud runs establish full
+cloud success or final source/tag alignment.
+
+## Replacement CI diagnostics follow-up (2026-10-25)
+
+Commit `5ee398d` passed the original project-picker failure in hosted Mac CI
+`40107639737`. Source acceptance then failed during the running Plan disclosure
+anchor check. The fixture's held provider response and obsolete native-dialog
+teardown hid the original assertion behind a 300-second runner timeout.
+Plan now prints its original error and before/after coordinates, waits for
+actual finite disclosure animations and resulting layout rather than a fixed
+sleep, and uses the standard orderly fixture quit review. Its exact coordinate
+assertions and all Plan approval/cancellation/reentry contracts remain intact.
+A deliberate one-pixel anchor error still fails and reports the original
+assertion, then exits in about five seconds instead of hanging. Six local
+pre-change 684px repetitions did not reproduce the hosted position failure;
+its precise coordinate difference is therefore not claimed as established.
+Updated source and 684px packaged Plan acceptance both pass locally.
+
+Windows run `40107639738` passed interface and sessions, but runtime timed out
+waiting for the first Cron transcript element in the unchanged saved-history
+fixture. Its cause remains unconfirmed. That fixture now preserves the original
+error, a bounded state projection and a failure screenshot and uses the same
+orderly close helper; its assertions and timeout are unchanged. All eight checks
+pass locally against the accepted package. These are test-only follow-ups;
+neither the approved RC nor application/runtime sources have been rebuilt.
+Fresh complete cloud checks are required; neither failed run is recorded green.
+
+## Mac project-picker CI follow-up and second review (2026-10-24)
+
+Mac run `40101170389` passed upstream tests, build/staging, types and protocol
+checks, then failed `verify-new-session.mjs:74`. Its actual renderer was only
+684px high despite the fixture requesting 960px. Local reproduction against the
+accepted `549bb39` app produced the same failure: six projects were present, but
+the bounded picker list was 74px high rather than five rows. The menu stayed
+above the composer and its remaining projects were scrollable.
+
+Only acceptance code changes. Measured space determines when the five-complete-
+row contract applies; a constrained window must still show a complete row,
+scroll all six projects fully into view, select the last project without a
+worker/history write, and retain the existing search, proposal, draft, keyboard,
+first-send and relaunch assertions. Native bounds can be capped explicitly for
+regression reproduction. Geometry and a failure screenshot are retained.
+
+Full local new-session acceptance passed against source at native 1440x960
+(190px list, five-row contract enforced) and against the unchanged accepted
+package capped to 1440x684 (74px list, all projects reachable). No application
+CSS, Electron code, runtime pin or candidate ZIP changed. Replacement Mac CI
+must complete both source and package-configured inventories before a green
+cloud result is claimed.
+
+The Windows review was checked against current draft asset IDs/digests, the
+merged checksum file and a fresh download of its build evidence. Windows RC
+source is `9b69eada5666934bdd15f7afbe02a3b31cb91f49`; Mac RC source remains
+`549bb39f118c992292afa43e9203b606ac983906`. The draft target is still `0fc0f1e`;
+changing that target cannot reattribute either existing binary to final main.
+See [Mac second review](releases/v0.6.0-macos-second-review.zh-CN.md) for hashes
+and the remaining merge/tag/build-source gates. Draft/Pre-release is retained;
+this follow-up neither merges nor publishes anything.
+
+## Authorized PR #164 frontend follow-up (2026-10-24)
+
+The owner explicitly authorized only shared frontend fix
+`1038461e7d4ffbb65bf7a39858c5bda1a066ece2` after the PR #163 feature freeze.
+Question status labels, icons, the Beta badge and pending-answer entry retain
+their intrinsic single-line width; only the long question preview can shrink
+and ellipsize. The exact CSS, component fixture, layout acceptance and inventory
+entry are ported. The Windows handoff document with an obsolete Mac pin is not
+imported. Later `9b69ead` TODO documentation and the Workflow top drawer are
+outside this update.
+
+Fresh typecheck/build passed, as did the complete serialized Desktop unit and
+protocol suite (790 passed, one Windows-only skip) and all 18 CI policy/runner
+checks (one Windows-only skip). The upstream layout acceptance passed all 12
+theme/language/width combinations. An expanded actual-component source fixture
+passed 16 combinations across seven question states, including 320px width,
+full status/Beta text bounds, ellipsis, disclosure/actions and reduced motion.
+The rebuilt package receives independent native layout and real-RPC question
+acceptance; those results and archive provenance are retained with its BUILD-INFO.
+
+The Mac runtime pin remains `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`, with
+the existing v0.1.5/Darwin patches and Node v24.15.0. The staged runtime is
+retained and checked by complete file hashes; this frontend change requires a
+new renderer build and clean candidate, not reuse of the prior ZIP. Prior
+candidate checks below describe their original commits. Fresh targeted visual,
+question-flow and package/resource evidence accompanies the rebuilt candidate.
+The added layout check uses the source Vite/component fixture even when invoked
+from the package-configured inventory; it is not a packaged-renderer test.
+
+## macOS 0.6.0 local candidate acceptance (2026-10-24, user testing pending)
+
+The owner authorized the feature freeze at Windows PR #163 merge
+`324e71d1800de020c035cdce598374a6037ba4ca`, superseding the 0.5.1-only scope.
+This is a local test-candidate preparation, not publication or real-account
+acceptance. The release/draft handoff and manual checklist are recorded in
+[0.6.0 Mac preparation](releases/v0.6.0-macos-preparation.zh-CN.md).
+
+Mac now stages Step Code `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`, the complete
+v0.1.5 Desktop integration with strict shared/platform hashes, and a Darwin-only
+process-tree patch. The original dirty `Step-Code/` checkout was preserved;
+builds use a separate source directory. Node is v24.15.0 on ARM64 macOS 26.4.
+Offline upstream build, clean patch reapplication and staged usage worker passed.
+The complete 27-suite upstream run passed 619 tests with three Linux-only skips,
+including real detached-child cancellation with an unrelated process retained.
+A hosted three-CPU Mac exposed a unit fixture assuming two runnable slots. A
+separate hash-pinned Darwin test patch fixes the test topology and cleanup, while
+asserting the production three-core cap remains one. Forced-three-core full-suite
+replay passes; shared Windows patches and source hashes are unchanged.
+
+Desktop frozen-lockfile install, typecheck and production build passed. The
+full serialized unit/protocol run after product fixes passed 790 tests with one
+Windows-only skip, including the final clean `6f042ca` candidate run. The Darwin
+CI-test manifest update also passed all four staging guards. CI policy/runner
+checks passed 18 tests with one Windows-only cancellation skip.
+
+Product audit enabled Mac Cron recovery/editing/scope and offline session import,
+removed the obsolete Mac runtime export gaps, corrected platform workspace keys,
+and retained all trust/account/idle/review guards. Actual Mac CLM/status and
+capability management fixtures passed. StepPage now uses Desktop-owned bundle
+and home paths: missing bundle and enabled-only declarations do not fall back to
+personal PATH/HOME or implicit installer. A real runtime sentinel test verifies
+that personal executable discovery never runs, followed by successful explicit
+preparation against a disposable MCP fixture. Explicit custom configuration and
+disabled state remain intact. No real service login or publishing was performed.
+
+Mac acceptance now reuses the shared serial feature inventory (83 checks), excluding
+only the Windows native command suite and adding native updater/turn-undo checks.
+All 83 source checks passed after the initial sweep and targeted repairs; the
+initial failures and rerun results are retained in test-results, with the exact
+final inventory in macos-source-final.json. Initial failures exposed stale fixture
+assumptions as well as a real wheel-routing gap over sibling conversation markers
+and scroll handles; the latter has a product fix and bounded delta/zoom tests.
+Native test sizing uses actual window bounds and retains all sub-100px scroll
+assertions. Zsh paste requires explicit Enter, preserving bracketed-paste safety.
+The official StepPage 1.0.0 bundle matched its pinned SHA-256 and passed a real
+13-tool handshake, disable/reconnect, settings-button preparation, isolated HOME,
+corrupt-file rejection/repair and Cron-host coexistence checks without login, tool
+calls or publishing in the source application.
+
+The first 8669326 packaged candidate exposed a real tray-label clipping defect
+that source checks had missed. Tray sizing now measures intrinsic DOM layout
+with actual typography/letter spacing, waits for fonts and includes root chrome
+without measuring entrance transforms. Native source regression passed both
+languages and increased spacing, including strict no-clipping/compactness checks.
+The candidate was rebuilt from clean commit `6f042ca`; the rejected package and its
+failed report are retained locally. A cloud appearance check also exposed a
+fixture measuring its baseline during entrance animation; it now awaits actual
+animation completion while retaining exact geometry comparisons.
+
+The `6f042ca` application passed all 83 packaged checks in one serial run, with
+no failures. Its 1,335 packaged application/runtime/native files matched staged
+inputs, including executable permissions, ARM64 architecture and deployment
+targets. The official StepPage bundle also passed packaged fixed-hash validation
+and the real 13 -> 0 -> 13 tool registration/disable/restore handshake. The extra
+packaged StepPage settings/download preparation check initially timed out before
+UI setup. Native sampling traced this to a Security.framework Keychain prompt:
+the fixture had replaced macOS's outer HOME with a synthetic directory. The
+macOS fixture now retains the OS HOME, while Desktop userData, runtime and
+StepPage homes remain isolated; Windows fixture behavior is unchanged. The
+complete packaged preparation check then passed official download/UI entry,
+13-tool handshake, Cron-host preservation/protected restart, light/narrow views,
+disable/relaunch, corrupt-bundle rejection and repair without re-enabling it.
+The initial failures, native sample and successful retest are retained.
+
+Windows CI `40094837661` passed for `6f042ca`. Mac CI `40094837652` passed its
+upstream tests, build/staging, types and protocol checks, then failed the source
+scroll fixture because the clamped native display left a 254px scroll range.
+Cloud package checks were consequently skipped. The fixture now tries bounded
+shorter content while preserving the failed-command disclosure and every strict
+scroll assertion. Two local packaged checks with maximum native height 684
+passed, measuring 58px/58px/49px in dark/wide, light/wide and light/narrow views.
+Replacement hosted CI remains required before release readiness is claimed.
+
+The earlier `41f8b26` handoff changed only tests and evidence after `6f042ca`.
+That packaging retained the staged application/runtime payload, recorded the clean packaging
+commit and compares it against the fully tested candidate. Archive hashes,
+payload comparison, ZIP round-trip and per-script evidence are stored with the
+local candidate's `BUILD-INFO-macos-arm64.md` and verification attachments.
+
+Unsigned/unnotarized installation, real account/model calls, production in-app
+upgrade, external services and execution on the minimum supported macOS remain
+separate user acceptance gates. Local fixture outcomes cannot satisfy them.
+
 ## Automatic Continuation Provenance (2026-10-24)
 
 Windows automatic continuation now retains structured system provenance through

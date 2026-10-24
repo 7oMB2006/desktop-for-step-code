@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const [runtime, workspace, shellPath] = process.argv.slice(2);
-assert.equal(process.platform, 'win32');
+assert.ok(['win32', 'darwin'].includes(process.platform));
 const { createStepToolProfile } = await import(pathToFileURL(join(runtime, 'step/dist/bundle/index.js')));
 const tools = createStepToolProfile(workspace, { agentDir: join(workspace, 'agent'), bash: { shellPath } });
 const write = tools.find(tool => tool.name === 'write_file');
@@ -12,7 +12,7 @@ const run = tools.find(tool => tool.name === 'run_command');
 const execute = (tool, args, signal, context = {}) => tool.execute('native-check', args, signal, undefined, { cwd: workspace, ...context });
 await mkdir(join(workspace, 'nested'), { recursive: true });
 const checked = await execute(write, { path: 'nested/output.txt', content: 'applied\n',
-  then_run: "printf '%s\\n' \"$BASH\"; cygpath -m /usr/bin/bash.exe; pwd; printf STDERR_CHECK >&2; exit 7" });
+  then_run: `printf '%s\\n' \"$BASH\"; ${process.platform === 'win32' ? 'cygpath -m /usr/bin/bash.exe;' : ''} pwd; printf STDERR_CHECK >&2; exit 7` });
 assert.equal(checked.details.thenRun.exitCode, 7);
 assert.equal(checked.details.thenRun.timedOut, false);
 assert.equal(await readFile(join(workspace, 'nested/output.txt'), 'utf8'), 'applied\n');

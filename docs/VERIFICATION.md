@@ -1,6 +1,6 @@
 # Verification
 
-## macOS 0.6.0 candidate preparation (2026-10-24, package checks pending)
+## macOS 0.6.0 local candidate acceptance (2026-10-24, user testing pending)
 
 The owner authorized the feature freeze at Windows PR #163 merge
 `324e71d1800de020c035cdce598374a6037ba4ca`, superseding the 0.5.1-only scope.
@@ -22,9 +22,9 @@ replay passes; shared Windows patches and source hashes are unchanged.
 
 Desktop frozen-lockfile install, typecheck and production build passed. The
 full serialized unit/protocol run after product fixes passed 790 tests with one
-Windows-only skip. The later Darwin CI-test manifest update also passed all four
-staging guards; the final candidate build receives another full protocol run. CI policy/runner checks passed 18 tests
-with one Windows-only cancellation skip. No cloud CI result is claimed here.
+Windows-only skip, including the final clean `6f042ca` candidate run. The Darwin
+CI-test manifest update also passed all four staging guards. CI policy/runner
+checks passed 18 tests with one Windows-only cancellation skip.
 
 Product audit enabled Mac Cron recovery/editing/scope and offline session import,
 removed the obsolete Mac runtime export gaps, corrected platform workspace keys,
@@ -48,18 +48,47 @@ assertions. Zsh paste requires explicit Enter, preserving bracketed-paste safety
 The official StepPage 1.0.0 bundle matched its pinned SHA-256 and passed a real
 13-tool handshake, disable/reconnect, settings-button preparation, isolated HOME,
 corrupt-file rejection/repair and Cron-host coexistence checks without login, tool
-calls or publishing. Final package identity, checksums, resource report and
-per-script outcomes will be recorded after the clean candidate is built and tested.
+calls or publishing in the source application.
 
 The first 8669326 packaged candidate exposed a real tray-label clipping defect
 that source checks had missed. Tray sizing now measures intrinsic DOM layout
 with actual typography/letter spacing, waits for fonts and includes root chrome
 without measuring entrance transforms. Native source regression passed both
 languages and increased spacing, including strict no-clipping/compactness checks.
-The candidate is rebuilt from a new clean commit; the rejected package and its
+The candidate was rebuilt from clean commit `6f042ca`; the rejected package and its
 failed report are retained locally. A cloud appearance check also exposed a
 fixture measuring its baseline during entrance animation; it now awaits actual
 animation completion while retaining exact geometry comparisons.
+
+The `6f042ca` application passed all 83 packaged checks in one serial run, with
+no failures. Its 1,335 packaged application/runtime/native files matched staged
+inputs, including executable permissions, ARM64 architecture and deployment
+targets. The official StepPage bundle also passed packaged fixed-hash validation
+and the real 13 -> 0 -> 13 tool registration/disable/restore handshake. The extra
+packaged StepPage settings/download preparation check initially timed out before
+UI setup. Native sampling traced this to a Security.framework Keychain prompt:
+the fixture had replaced macOS's outer HOME with a synthetic directory. The
+macOS fixture now retains the OS HOME, while Desktop userData, runtime and
+StepPage homes remain isolated; Windows fixture behavior is unchanged. The
+complete packaged preparation check then passed official download/UI entry,
+13-tool handshake, Cron-host preservation/protected restart, light/narrow views,
+disable/relaunch, corrupt-bundle rejection and repair without re-enabling it.
+The initial failures, native sample and successful retest are retained.
+
+Windows CI `40094837661` passed for `6f042ca`. Mac CI `40094837652` passed its
+upstream tests, build/staging, types and protocol checks, then failed the source
+scroll fixture because the clamped native display left a 254px scroll range.
+Cloud package checks were consequently skipped. The fixture now tries bounded
+shorter content while preserving the failed-command disclosure and every strict
+scroll assertion. Two local packaged checks with maximum native height 684
+passed, measuring 58px/58px/49px in dark/wide, light/wide and light/narrow views.
+Replacement hosted CI remains required before release readiness is claimed.
+
+Only tests and evidence documentation change after `6f042ca`. Final packaging
+retains the staged application/runtime payload, records the clean packaging
+commit and compares it against the fully tested candidate. Archive hashes,
+payload comparison, ZIP round-trip and per-script evidence are stored with the
+local candidate's `BUILD-INFO-macos-arm64.md` and verification attachments.
 
 Unsigned/unnotarized installation, real account/model calls, production in-app
 upgrade, external services and execution on the minimum supported macOS remain

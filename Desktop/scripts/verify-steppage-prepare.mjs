@@ -19,7 +19,13 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
   api: 'openai-completions', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'fixture-only',
   models: [{ id: 'fixture', name: 'Acceptance only', contextWindow: 32768, maxTokens: 1024 }],
 } } }));
-const env = { ...process.env, HOME: home, USERPROFILE: home, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
+// macOS safeStorage uses the operating system login Keychain. Replacing the
+// outer process HOME makes the packaged app ask Security.framework to create a
+// new login keychain, blocking startup on an authorization UI before any window.
+// Desktop still isolates runtime and StepPage HOME under this test's userData;
+// keep the native login environment so the normal safeStorage path can start.
+const env = { ...process.env, ...(process.platform === 'darwin' ? {} : { HOME: home }),
+  USERPROFILE: home, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE; delete env.DESKTOP_STEPPAGE_BUNDLE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 let app;

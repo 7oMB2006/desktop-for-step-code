@@ -1,3 +1,4 @@
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, writeFile, realpath } from 'node:fs/promises';
@@ -164,7 +165,7 @@ try {
   const selectedRadio = dialog.getByRole('radio', { name: /Small change/ });
   await selectedRadio.press('Tab');
   await selectedRadio.press('Shift+Tab');
-  await page.waitForTimeout(250);
+  await settleLayout(dialog);
   assert.deepEqual(await selectedRadio.evaluate(el => ({
     letter: el.nextElementSibling.textContent,
     transform: getComputedStyle(el.nextElementSibling).transform,
@@ -175,7 +176,7 @@ try {
   await page.waitForTimeout(300);
   await page.screenshot({ path: 'test-results/questions-selected-light.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 740));
-  await page.waitForTimeout(220);
+  await settleLayout(dialog);
   await page.screenshot({ path: 'test-results/questions-selected-narrow.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
@@ -187,7 +188,7 @@ try {
   assert.equal(await dialog.getByRole('textbox', { name: '你的回答', exact: true }).inputValue(), 'HTML preview');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 740));
   await dialog.getByRole('button', { name: '调整提问高度', exact: true }).press('Enter');
-  await page.waitForTimeout(220);
+  await settleLayout(dialog);
   await page.screenshot({ path: 'test-results/questions-freeform-narrow.png' });
   const bounds = await dialog.boundingBox(); assert.ok(bounds.x >= 0 && bounds.width <= 900 && bounds.y >= 0);
   const covered = await page.locator('.composer-underlay').evaluate(el => getComputedStyle(el).visibility);
@@ -230,7 +231,7 @@ try {
   await page.screenshot({ path: 'test-results/questions-plan-status-dark.png' });
   await questionStatus.click();
   await dialog.waitFor();
-  await page.waitForTimeout(220);
+  await settleLayout(dialog);
   await page.screenshot({ path: 'test-results/questions-plan-drawer-dark.png' });
   await answer();
   await dialog.getByRole('button', { name: '提交回答', exact: true }).click();

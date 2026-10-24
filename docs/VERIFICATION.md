@@ -1,5 +1,40 @@
 # Verification
 
+## Hidden-window layout synchronization (2026-10-25)
+
+Head `97cb4c1` passed Windows interface 40/40, sessions 18/18, runtime 25/25
+and its final gate (`40115080022`). Mac `40115080007` failed earlier at the
+composer-menu geometry check: gap `1.8370361328125` instead of the existing
+6px ±1 contract, with both horizontal edges aligned. The fixture's 220ms
+wall-clock sleep did not establish completion of the 160ms CSS entrance in
+the unfocused native window.
+
+`settleLayout` waits for fonts, rendered frames and real finite animations on
+the measured element/subtree and its ancestors. Infinite activity indicators
+are excluded; replaced animations handle only their AbortError cancellation.
+No animation is disabled, no timeout is enlarged and no geometry assertion or
+tolerance is changed. The composer, settings, question/permission drawers,
+workflow, artifacts, browser and file-preview checks use it where their
+contract requires a completed layout. Deliberate intermediate-frame, exit,
+cancellation and elapsed-time guards remain. The basic Electron and Subagent
+animation fixtures receive the existing Plan/browser Chromium flags to keep
+their hidden renderer sampling active. The shared session fixture also requires
+its composer element to exist before calling it enabled.
+
+Composer source and the actual `d6fa5da` package pass. Extending the real CSS
+entrance to 1000ms produces an initial 1px gap; the helper waits 1056.64ms and
+the unchanged final measurement is exactly 6px with both edges aligned.
+A final static 3px translation still fails the original geometry assertion
+in 1.49 seconds. The five drawer/settings/workflow/artifact scripts and four
+background-sampling/browser/file scripts each pass source and actual-package
+checks (18 targeted runs), preserving all original assertions. A separate
+ignored launch wrapper caps native windows at 684px for a full local inventory
+reproduction; its result must be recorded separately from normal-size passes.
+
+This follow-up changes fixture scripts and documentation only. The user-tested
+application remains the clean `d6fa5da` build; its runtime pin and binary are
+unchanged. Complete replacement Mac source/package cloud checks remain required.
+
 ## Plan anchor reference follow-up (2026-10-25)
 
 The `d6fa5da` Windows workflow `40113230323` completed successfully across

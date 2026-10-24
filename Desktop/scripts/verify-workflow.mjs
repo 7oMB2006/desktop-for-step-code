@@ -1,3 +1,4 @@
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
@@ -76,7 +77,7 @@ try {
   assert.ok(entrance.some(height => height > 1 && height < entrance.at(-1) - 2), 'Details unfold through intermediate heights');
   await page.getByRole('dialog', { name: '任务状态', exact: true }).waitFor();
   assert.equal(await page.getByLabel('Token 预算', { exact: true }).inputValue(), '200000');
-  await page.waitForTimeout(250);
+  await settleLayout(page.locator('.working'));
   const anchorBounds = await page.locator('.working .launch-status-pulse').boundingBox();
   const detailBounds = await page.getByRole('dialog', { name: '任务状态', exact: true }).boundingBox();
   assert.ok(detailBounds.y >= anchorBounds.y + anchorBounds.height && Math.abs(detailBounds.x - anchorBounds.x) <= 1,
@@ -163,7 +164,7 @@ try {
     return Math.abs(row.right - element.getBoundingClientRect().right) <= 1;
   }), 'Standalone workflow summary anchors at the transcript right edge');
   await page.mouse.move(20, 50);
-  await page.waitForTimeout(350);
+  await settleLayout(page.locator('.assistant-footer-row'));
   const footerLayout = await settledTrigger.evaluate(element => {
     const row = element.closest('.assistant-footer-row');
     const actions = row?.querySelector('.assistant-actions');
@@ -202,7 +203,7 @@ try {
     await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
     await page.mouse.move(0, 0);
     await page.locator('.composer > .composer-input').focus();
-    await page.waitForTimeout(220);
+    await settleLayout(page.locator('.messages'));
     for (const trigger of await tailStatuses.all()) await assertPersistentTurnStatus(trigger);
     assert.ok(await tailStatuses.evaluateAll(elements => {
       const boxes = elements.map(element => element.getBoundingClientRect());
@@ -220,7 +221,7 @@ try {
   await page.reload();
   await settledTrigger.waitFor();
   await page.locator('.assistant-footer-row .assistant-actions').hover();
-  await page.waitForTimeout(200);
+  await settleLayout(page.locator('.assistant-footer-row'));
   assert.equal(await page.locator('.assistant-footer-row .assistant-actions').evaluate(element => getComputedStyle(element).opacity), '1');
   await page.screenshot({ path: 'test-results/workflow-settled-footer-hover.png' });
   await page.mouse.move(20, 50);
@@ -232,10 +233,10 @@ try {
   await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
   await page.reload();
   await settledTrigger.waitFor();
-  await page.waitForTimeout(350);
+  await settleLayout(settledTrigger);
   await page.screenshot({ path: 'test-results/workflow-settled-light.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(420, 700));
-  await page.waitForTimeout(350);
+  await settleLayout(settledTrigger);
   assert.ok(await settledTrigger.evaluate(element => {
     const row = element.closest('.working').getBoundingClientRect();
     const trigger = element.getBoundingClientRect();
@@ -302,7 +303,7 @@ try {
   await menu.waitFor();
   await page.waitForFunction(() => document.activeElement?.closest('[role="menu"][aria-label="编排记录"]'));
   assert.equal(await menu.getByRole('menuitemradio').count(), 16);
-  await page.waitForTimeout(250);
+  await settleLayout(menu);
   const menuGeometry = await menu.evaluate(element => {
     const rows = [...element.querySelectorAll('button')];
     const style = getComputedStyle(element);
@@ -325,7 +326,7 @@ try {
     return bar.width === '4px' && track.backgroundColor === 'rgba(0, 0, 0, 0)'
       && thumb.borderRadius === '3px' && arrows.display === 'none';
   }), 'workflow history uses the quote-style slim thumb without track or arrows');
-  await page.waitForTimeout(250);
+  await settleLayout(menu);
   await page.screenshot({ path: 'test-results/workflow-history-menu.png' });
   await page.keyboard.press('Home');
   await page.keyboard.press('Enter');
@@ -337,7 +338,8 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '选择编排记录');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 790));
-  await page.waitForTimeout(300);
+  await settleLayout(panel);
+  await settleLayout(page.locator('.working'));
   await page.screenshot({ path: 'test-results/workflow-orchestration-narrow.png' });
   const pulseBounds = await page.locator('.working').boundingBox();
   for (const child of await page.locator('.working > button').all()) {

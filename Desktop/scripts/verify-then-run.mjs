@@ -1,3 +1,4 @@
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -106,6 +107,7 @@ try {
   await approval.waitFor();
   await approval.locator('.permission-approval-verification').getByText(/approved-check.txt/).waitFor();
   assert.match(await approval.locator('h2').innerText(), /写入文件并执行验证命令/);
+  await settleLayout(approval);
   assert.ok(await approval.locator('.permission-approval-verification pre').evaluate(element => {
     const visible = element.closest('.permission-approval-content').getBoundingClientRect();
     const command = element.getBoundingClientRect();
@@ -113,14 +115,14 @@ try {
   }), 'the embedded command is visible before approving the compact drawer');
   assert.equal(await exists('nested/approved.txt'), false, 'the entire fused call waits for approval');
   assert.equal(await exists('approved-check.txt'), false);
-  await page.waitForTimeout(250);
+  await settleLayout(approval);
   await page.screenshot({ path: 'test-results/then-run-approval.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 760));
   await page.evaluate(() => window.desktop.preferences({ language: 'en', theme: 'light' }));
   await page.reload();
   await approval.waitFor();
   await approval.locator('.approval-drawer-grip').press('End');
-  await page.waitForTimeout(250);
+  await settleLayout(approval);
   assert.match(await approval.locator('h2').innerText(), /Write a file and run a verification command/);
   assert.ok(await approval.evaluate(element => {
     const box = element.getBoundingClientRect();
@@ -223,7 +225,7 @@ try {
   await page.reload();
   await page.getByText('修改了文件 · 验证失败', { exact: true }).first().waitFor();
   await page.getByText('文件修改或验证未完成', { exact: true }).first().waitFor();
-  await page.waitForTimeout(250);
+  await settleLayout(page.locator('.messages'));
   await page.screenshot({ path: 'test-results/then-run-results.png' });
 
   assert.deepEqual(errors, []);

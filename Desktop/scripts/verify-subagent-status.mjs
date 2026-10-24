@@ -11,7 +11,10 @@ await mkdir('test-results', { recursive: true });
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
-const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+// Keep the deliberately sampled transition/spinner frames rendering offscreen.
+const app = await electron.launch({ ...(executablePath ? { executablePath } : {}),
+  args: [...(executablePath ? [] : [resolve('.')]), '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding'], env, timeout: 60000 });
 try {
   const page = await app.firstWindow();
   const errors = [];

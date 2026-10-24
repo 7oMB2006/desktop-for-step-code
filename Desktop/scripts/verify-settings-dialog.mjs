@@ -1,3 +1,4 @@
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -21,7 +22,7 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   const capture = async name => {
     await page.mouse.move(8, 8);
-    await page.waitForTimeout(250);
+    await settleLayout(page.locator('.settings-backdrop'));
     await page.screenshot({ path: `test-results/${name}.png` });
   };
   await app.evaluate(({ BrowserWindow }) => {
@@ -44,7 +45,7 @@ try {
     assert.equal(await archivedTab.evaluate(element => getComputedStyle(element).marginTop), '0px');
   }
   assert.equal(await navigation.getByRole('button', { name: '版本更新', exact: true }).locator('svg.lucide-download').count(), 1);
-  await page.waitForTimeout(250);
+  await settleLayout(page.locator('.settings-backdrop'));
   const baseline = await dialog.boundingBox();
   const lightTint = await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).backgroundColor);
   assert.equal(await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).top), '0px');
@@ -99,12 +100,13 @@ try {
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Unsent settings fixture');
   await page.locator('.sidebar-bottom > button').click();
   await dialog.waitFor();
-  await page.waitForTimeout(250);
+  await settleLayout(page.locator('.settings-backdrop'));
   assert.equal(await page.locator('.settings-backdrop.is-closing').count(), 0, 'Reopening resets exit state');
   for (const [width, height] of [[800, 650], [640, 720], [480, 600]]) {
     await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), [width, height]);
     for (const title of ['账户', '供应商', '外观', '已归档']) {
       await page.getByRole('button', { name: title, exact: true }).click();
+      await settleLayout(dialog);
       const bounds = await dialog.boundingBox();
       const viewport = page.viewportSize() ?? await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
       assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= viewport.width && bounds.y + bounds.height <= viewport.height);

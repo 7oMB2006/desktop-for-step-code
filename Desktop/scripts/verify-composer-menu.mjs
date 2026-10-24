@@ -1,5 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -145,7 +146,7 @@ try {
   }), '请整理 /clm 这个项目 的结构，再看 /usage。 /clm 和 /clm 保留原样。',
   'Selecting the paragraph preserves slashes without adding icon whitespace');
   assert.equal(await menu.getByRole('option', { name: /MCP/ }).locator('svg.lucide-mcp').count(), 1);
-  await page.waitForTimeout(220);
+  await settleLayout(menu);
   const geometry = await page.evaluate(() => {
     const menu = document.querySelector('.composer-discovery').getBoundingClientRect();
     const composer = document.querySelector('.composer').getBoundingClientRect();
@@ -220,7 +221,7 @@ try {
   await input.fill('先检查项目 /cl');
   await menu.waitFor();
   assert.equal(await menu.getByRole('option').count(), 2, 'Commands complete after whitespace within prose');
-  await page.waitForTimeout(220);
+  await settleLayout(menu);
   await page.screenshot({ path: 'test-results/composer-inline-slash-dark.png' });
   await input.press('Enter');
   assert.equal(await input.evaluate(element => element.value), '先检查项目 /clm ', 'Completion preserves preceding prose');
@@ -302,6 +303,7 @@ try {
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 760));
   await page.screenshot({ path: 'test-results/composer-links-light-narrow.png' });
+  await settleLayout(page.locator('.composer'));
   assert.equal(await input.evaluate(element => element.scrollWidth <= element.clientWidth), true, 'Long links wrap with the surrounding input text');
   await input.evaluate(element => { element.setSelectionRange(3, 8); });
   assert.equal(await input.evaluate(element => element.value.slice(element.selectionStart, element.selectionEnd)), linkDraft.slice(3, 8));
@@ -442,7 +444,7 @@ try {
     await page.locator('.model-effort-trigger').click();
     const popover = page.locator('.model-effort-popover');
     await popover.waitFor();
-    await page.waitForTimeout(240);
+    await settleLayout(page.locator('.composer-wrap'));
     const hits = await popover.evaluate(element => {
       const panel = element.getBoundingClientRect();
       const menu = document.querySelector('.composer-discovery').getBoundingClientRect();
@@ -472,11 +474,11 @@ try {
   await verifyModelLayer('dark', [840, 760]);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(840, 760));
   await openFreshSlashMenu();
-  await page.waitForTimeout(220);
+  await settleLayout(menu);
   await page.screenshot({ path: 'test-results/composer-slash-narrow.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1300, 900));
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
-  await page.waitForTimeout(220);
+  await settleLayout(menu);
   await page.screenshot({ path: 'test-results/composer-slash-light.png' });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   assert.equal(overflow, false);

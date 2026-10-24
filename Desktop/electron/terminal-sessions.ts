@@ -8,6 +8,8 @@ import { terminalEnvironment, terminalInput, terminalSize } from './terminal-pol
 
 type Entry = { info: TerminalInfo; chunks: { seq: number; data: string }[]; bytes: number; seq: number; child?: ChildProcess; cancel?: () => void; closing?: Promise<void> };
 const key = (path: string) => normalizedWorkspaceKey(path, process.platform);
+// Concurrent Windows tree enumeration can exceed three seconds on a busy host.
+const terminationTimeout = process.platform === 'win32' ? 10000 : 3000;
 
 function taskkill(pid: number): Promise<boolean> {
   if (process.platform !== 'win32') {
@@ -18,13 +20,13 @@ function taskkill(pid: number): Promise<boolean> {
     const executable = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
     const killer = spawn(executable, ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
     const finish = (success: boolean) => { clearTimeout(timer); resolve(success); };
-    const timer = setTimeout(() => { killer.kill(); finish(false); }, 3000);
+    const timer = setTimeout(() => { killer.kill(); finish(false); }, terminationTimeout);
     killer.once('error', () => finish(false));
     killer.once('exit', code => finish(code === 0));
   });
 }
 
-export async function terminateTerminalHost(child: ChildProcess, killTree = taskkill, timeout = 3000) {
+export async function terminateTerminalHost(child: ChildProcess, killTree = taskkill, timeout = terminationTimeout) {
   const exited = () => child.exitCode !== null || child.signalCode !== null;
   if (!child.pid || exited()) return;
   // A successful taskkill invocation is not itself confirmation that the host exited.

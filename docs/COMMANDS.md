@@ -121,6 +121,9 @@ ordinary prose while a task is running.
 
 ### 工作流面板预览
 
+正式接入已列入 [TODO P0](../TODO.md)，安排在 v0.6.0 之后的下一版；
+本次发布保留现有上游通知，不将预览列为已交付功能。
+
 `Desktop/tests/fixtures/workflow-panel.html` 提供独立模拟预览，尚未替换
 真实 `/workflows` 通知或接入真实运行数据。顶部三次方缓动滑入和收回，
 5 秒后自动收起；悬停、聚焦、展开说明或拖动时暂停计时。

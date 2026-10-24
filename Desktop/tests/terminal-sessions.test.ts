@@ -102,3 +102,20 @@ test('a reported taskkill success still requires host exit confirmation', async 
     assert.equal(sessions.list(cwd).length, 0);
   } finally { fakeSuccess = false; await sessions.stopAll(); await rm(cwd, { recursive: true, force: true }); }
 });
+test('Windows default termination allows a slow OS cleanup but still confirms host exit', { skip: process.platform !== 'win32' }, async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'terminal-slow-cleanup-'));
+  let slow = true;
+  let confirmed = false;
+  const sessions = new TerminalSessions(process.execPath, resolve('tests/fixtures/terminal-host.cjs'), () => {},
+    child => slow ? terminateTerminalHost(child, async () => {
+      await new Promise(resolve => setTimeout(resolve, 3200));
+      child.disconnect();
+      return true;
+    }).then(() => { confirmed = child.exitCode !== null || child.signalCode !== null; }) : terminateTerminalHost(child));
+  try {
+    const terminal = await sessions.create(cwd);
+    await sessions.close(terminal.id);
+    assert.equal(confirmed, true);
+    assert.equal(sessions.list(cwd).length, 0);
+  } finally { slow = false; await sessions.stopAll(); await rm(cwd, { recursive: true, force: true }); }
+});

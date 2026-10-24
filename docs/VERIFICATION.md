@@ -1,5 +1,245 @@
 # Verification
 
+## Sidebar Session Search (2026-10-24)
+
+The former placeholder now filters existing non-archived session metadata in
+the renderer. Title, first prompt, project aliases and paths are searchable;
+full transcript contents are not scanned. Empty queries preserve the original
+catalog. Matching collapsed groups open temporarily without preference writes,
+and filtered views cannot rewrite manual ordering.
+
+Typecheck, production build and 15 focused search/order tests passed, including
+empty-title localization and a 10,000-session metadata catalog. Isolated-profile
+source Electron search acceptance passed real catalog filtering, pinned ordering,
+archived exclusion, independent sessions, IME Escape, empty results, restored
+collapse state, unchanged draft/runtime identity and explicit result navigation.
+Light/dark, narrow layouts and complete composite-field focus bounds are covered.
+The existing source Electron session-navigation, sidebar-order/disclosure and full
+capability-management regressions passed separately. The initially stale local runtime was restaged
+from a separate pinned checkout with the current Desktop patches; all patched
+source hashes and management adapters were checked against this branch before
+rerunning acceptance. No installed user profile was used. No installer,
+paid-model run or complete-suite acceptance is claimed.
+
+## Shared Elapsed Duration Display (2026-10-24)
+
+The running matrix indicator, completed-turn label and performance strip now share
+whole-second duration formatting with minute/hour rollover and spaces between
+unit groups. Chinese live labels use `4小时 0分 21秒`; compact labels use
+`4h 0m 21s`. This changes presentation only, not timing sources or billing.
+Typecheck, the production renderer build and 15 focused timing/performance tests
+passed, including real isolated RPC timing. Browser acceptance covers the actual
+components in light/dark, Chinese/English and 390-pixel layouts, minute/hour
+boundaries and 24-hour runs, plus the existing motion and accessibility checks.
+Isolated-profile Electron acceptance with the current source renderer passed
+history/reload, light/dark/narrow, live ticking and completion freeze checks.
+No installer, paid-model run or full-suite acceptance is claimed.
+
+## Capability Form And Sidebar Follow-Up (2026-10-24)
+
+The Skill creation form reproduced horizontal clipping of its outer focus outline
+at the capability scroll container. That container now reserves focus gutters and
+scroll padding/margins without replacing the shared focus treatment. AGENTS.md
+and DESIGN.md require complete four-sided focus indicators for future forms.
+Source Electron acceptance checks Name, Description and Instructions against
+clipping ancestors in light/dark and wide/narrow layouts, with focused screenshots.
+It also verifies that the Schedules icon toggles back to the original draft without
+creating a runtime, and that the sidebar's top fade applies only after scrolling,
+clears at scroll origin and does not obscure keyboard-visible focus.
+Typecheck, production build and the complete capability Electron acceptance passed.
+This follow-up has not been repackaged; no installer or paid-model acceptance is
+claimed.
+
+Main `c6d0121` integration retains both capability mutation locking and
+session-move guards, plus both plugin exports and the session-scoped Cron patch.
+Clean Windows patch replay and all patched-source hashes passed; typecheck,
+production build and 99 focused integration tests passed. The prepared local
+CLI dependency link initially resolved a different checkout's compiled agent.
+An isolated CLI dependency overlay now resolves this checkout's agent without
+changing shared dependencies; runtime staging was repeated before acceptance.
+Source Electron session-move acceptance passed, including unrelated Cron hosts,
+relaunch, scoped restart and cold background-work guards. Capability management
+and general Electron acceptance also passed against the restaged runtime.
+This does not update the previous preview installer.
+
+## Plugin, MCP And Skills Management (2026-10-23)
+
+Management follows the upstream Web/Desktop MVP user-scope APIs, isolated under
+Desktop-owned storage. The renderer receives bounded, redacted data through typed
+IPC. Configuration changes do not silently reload sessions or stop Cron hosts.
+
+The final serial Node 24.16.0 suite passed 686 tests with 13 platform skips and no
+failures. Typecheck, production build, CI policy tests and upstream barrel lint
+passed. Clean Windows patch replay and the macOS index patch/hash check passed;
+the latter is not native macOS acceptance.
+
+After final runtime staging, real isolated-profile Electron acceptance passed
+local marketplace/plugin operations, Skill lifecycle and runtime command reload,
+MCP configuration versus live connection state, explicit restart, command routing,
+theme and narrow-window rendering. Uninstalling a plugin used by a resident MCP
+is blocked before deleting files; disabling and restarting permits removal.
+Standalone usage-worker acceptance also passed against the final bundle.
+
+Plugin details, StepPage preparation and session commands now share
+DisclosureChevron and useAnimatedDisclosure rather than default markers or a
+separate CSS disclosure. Electron acceptance verifies both 240ms cubic directions,
+inert collapsed bodies, keyboard activation and reduced-motion settling.
+Typecheck and production build passed again after this alignment.
+
+The DFSC Beta icon extension reads only bounded plugin-local PNG files from the
+optional `step.plugin.json` icon field. All 12 management tests passed, including
+install preservation, invalid/link/oversized paths and built-in placeholder
+selection. Real Electron acceptance passed discovery/installed PNG decoding,
+corrupt-image fallback and the existing management/disclosure regressions.
+Typecheck and production build passed; this is not an upstream schema extension.
+
+The shared SidebarTaskActions now presents equal-width New chat and Plugins
+buttons above right-aligned, adjacent Schedules and Search icons. The plugin entry
+opens Discover without sending a model prompt. Search expands leftward from its
+fixed right-hand trigger using cubic easing; it remains a labeled, read-only
+placeholder, not a working session filter. Electron acceptance checks navigation,
+equal primary widths, paired icons, containment, the six-pixel inter-row gap, fixed trigger/list geometry, focus return
+on Escape, inert hidden controls and reduced-motion behavior. Typecheck and
+production build passed; screenshots include the real sidebar and expanded search.
+
+These checks use deterministic local resources, not paid model requests or real
+third-party login/publishing. No installer, first-install acceptance or cloud CI
+result is established by this run. See `docs/CAPABILITIES.md` for scope.
+
+Mainline integration retains session migration, quote annotations and shared
+command presentation. Fresh Windows patch replay and runtime staging passed with
+the combined import/plugin exports and source hashes. Migration, command dispatch
+and composer-menu Electron regressions also passed against the combined source.
+## API Balance Fixture Shutdown (2026-10-24)
+
+After integrating main `985f372`, cloud run `39985959681` passes Windows
+sessions/runtime but times out in `verify-account-balance.mjs`. Local repetition
+with Node 24.16.0 reproduces a successful balance scenario followed by an
+unanswered native quit review: `transitioning` is true while task, Goal and
+Cron counts are zero. The direct Playwright close waits for that review.
+
+The balance fixture now uses the existing orderly-shutdown helper, answers
+updated review requests, logs each phase and applies a 30-second shutdown
+deadline. It retains every balance assertion and checks successful launcher
+exit and closed windows; it does not force application exit. A regression
+checks existing and changed review requests. Five consecutive packaged balance
+runs (both regions), the six shutdown regressions and real quit/Cron acceptance
+pass locally. These are fixture-only changes; the replacement head still
+requires cloud verification.
+
+## Single-Conversation Project Movement (2026-10-23)
+
+Saved top-level conversations can move from independent history into a registered
+project, or between registered projects. A sidebar long-press drop opens a
+destination-preselected confirmation; the session context menu opens the same
+dialog with a project picker. Updated sorting still permits cross-project drops
+without enabling manual same-group ordering. Cancel does not change association
+or history. Project removal, whole-project relocation and same-group reordering
+remain separate actions.
+
+Movement preserves the session ID and native history file, storing the future
+cwd in Desktop's existing per-session redirect metadata. The host prepares a
+new cwd-bound transport and verifies its identity and `ask` permission tier
+before saving the association. A failed preparation retains the original
+association and source worker. Active movement retains the viewed conversation;
+background movement preserves the viewed chat or draft. Existing project files,
+changes and terminals are not transferred, and historical path references are
+not rewritten. Full Access and project trust are not carried from the source.
+Reopening or explicitly restarting redirected history starts gated.
+
+Running, compacting, approval-waiting, queued-message, active-Goal and
+structured running/queued background-agent workers cannot move. Live Cron hosts
+are retained; only saved jobs actually associated with the moved session block
+movement. Unrelated or unbound jobs in either project remain there and do not
+block a cold conversation. Unreadable schedule/association state fails closed
+with distinct host, associated-job and verification messages. This first version
+does not offer an independent destination or filesystem movement.
+
+Moved Windows transports use an optional session-scoped view of the original
+shared Cron store, including after restart or provider refresh. Foreign/unbound
+jobs are not adopted, dispatched, advanced or deleted by that transport. It can
+still create and execute its own jobs; shared mutations preserve other records
+and enforce the project-wide limit. This requires the additional reviewed
+`desktop-session-cron-scope` runtime patch; the upstream commit is unchanged.
+The frozen macOS runtime does not gain this patch.
+
+The prepared runtime's loaded messages are also checked before saving the
+redirect, so cold histories cannot bypass the background-agent guard. Regression
+cases for both `running` and `queued` records reproduced the missing rejection
+before the fix and pass afterward, preserving redirects, the viewed draft and
+resident runtime count on rejection.
+
+Source Electron acceptance uses an isolated Desktop profile and localhost
+provider, never personal CLI credentials or a paid model. It covers cancellation,
+dragging with updated sorting, menu confirmation, light/dark/narrow layouts,
+Full Access reset, identical session/history identity, a real relative-path tool
+write in the new cwd, busy/approval/queued-message/missing-directory rejection,
+background movement, app relaunch, explicit runtime restart, unrelated live
+destination hosts, unrelated cold-source tasks, new scoped-task creation/deletion
+and related Cron guards. The unrelated original host remains registered and its
+saved task bytes stay unchanged. Existing sidebar-order acceptance also
+passes. The browser fixture uses the real dialog and drag hook but mocked
+association updates; it is not runtime or installer evidence. No new installer,
+cloud CI result or official-provider continuation is claimed here.
+
+Typecheck and production build pass. The serial unit/protocol run passed 660
+tests with 13 platform/dependency skips; the 15 CI policy/inventory tests also
+passed. An initial concurrent full-suite run hit the existing terminal-count
+fixture's process-tree cleanup timeout; that fixture passed independently and
+in the subsequent serial full run. Terminal cleanup code was not changed.
+
+The Cron-scope follow-up reproduced the former destination-wide rejection before
+the fix. Its 49 upstream Cron tests, 98 focused Desktop tests and 15 CI policy
+tests pass. The final serial Desktop suite passes 663 tests with 13 skips and no
+failures. All patch pre/post-images match a replay from the pristine pinned Git
+index. Source Electron movement, Cron management (8 cases) and real Cron RPC
+(12 cases) acceptance pass with a separately rebuilt/staged Node 24.16.0 runtime.
+This follow-up has not replaced the icon-corrected local installer.
+
+The subsequent unsigned D: Windows preview includes the Cron-scope follow-up.
+Packaged Electron movement, general app and Cron management acceptance pass,
+alongside all 12 real Cron RPC cases pointed at the packaged runtime. Packaged
+account routing passes CN/Global API and Plan switching, login cancellation,
+busy-session protection and no fallback from denied Plan to API. The same source
+routing acceptance also passed eight consecutive isolated runs. The executable
+retains the matrix icon; all 105 built Desktop files and 1257 staged runtime files
+match their packaged hashes. The desktop shortcut is backed up and updated;
+the running old preview is left untouched. These are local fixture results,
+not user, paid-provider, first-install or Release acceptance.
+
+Cloud run `39951495926` passes the interface, sessions and macOS jobs. Its runtime
+job completed every `then_run` functional assertion before hanging during teardown
+and hitting the five-minute outer limit; the old log does not identify the
+specific cleanup await. The fixture replaces forced `app.exit()` with the
+existing orderly-shutdown helper and logs shutdown boundaries. Assertions and
+deadlines remain unchanged. Three consecutive packaged `then_run` runs pass and
+complete orderly shutdown, and all 15 CI runner/policy tests pass. The replacement
+head still requires cloud verification.
+
+Run `39953993378` again passes interface, sessions and macOS, but exposes the
+same runtime teardown hang. Using CI's Node 24.16.0 locally reproduces a successful
+launcher `exit` without ChildProcess `close`: Playwright waits for every inherited
+pipe, including its additional stdio handles, before completing application
+closure. The exact process retaining those handles is not identified.
+
+The `then_run` fixture still requests orderly application shutdown. A narrowly
+installed guard releases its controller-owned pipes only after successful
+launcher exit and every application page has closed. It cannot turn a live or
+failed process into success. The fixture also observes both application and
+browser-context closure instead of depending solely on the controller's final
+close-RPC reply; it explicitly checks successful exit, a closed context and no
+remaining windows. Five regression tests cover both event orders,
+nonzero exit, multiple windows and listener disposal. Native shell probes now run
+asynchronously after Electron has closed, rather than blocking the browser
+controller. Functional assertions and the outer five-minute deadline remain
+unchanged; a separate 30-second shutdown deadline localizes future failures.
+The complete serial unit/protocol suite passes 668 tests with 13 skips and no
+failures, and typecheck passes. With CI's Node version and `CI=true`, five
+consecutive source runs and five packaged runs complete every RPC/UI assertion,
+orderly shutdown and native command probe. All 15 CI policy/runner tests pass.
+These test-only changes do not alter the preview's bundled Desktop/runtime files;
+the replacement head still requires cloud verification.
+
 ## Command Presentation And Dispatch (2026-10-23)
 
 The command menu, composer and sent user messages now share semantic icons.
@@ -4238,3 +4478,138 @@ both discovery cases (50 cases total). Real Electron model-switch acceptance
 passed, including persistent selection, missing-model protection and explicit
 recovery. This follow-up does not rebuild or retarget the existing preview
 package. Replacement cloud CI must validate both native platforms.
+
+## Cron Recovery And Management Beta (2026-10-24)
+
+Windows retains the fixed runtime pin
+`b5dbed938d9ae589397cf522dcf2ff89ecf4c494`. The additional hashed Desktop
+patch enables per-task pause/resume and editing without replacing native
+locking, jitter or original expiry. Paused durable rows use opt-in Beta schema
+2; schema-1 readers preserve but do not schedule them. Explicit resume restores
+schema 1. See `CRON.md` for shared-project and downgrade boundaries.
+
+Local source verification passed: typecheck, production build, the complete
+serial Desktop unit suite (699 tests: 686 passed, 13 platform skips), 15 CI
+policy/runner tests, 14 native JSONL RPC Cron cases and 11 real Electron Cron
+management cases. The final patch was also applied to a clean checkout of the pinned
+upstream commit through the actual patch applier, including preimage and
+resulting-source hash validation and whitespace checks.
+
+Native cases cover pause/edit identity and deadline preservation, stale-update
+rejection, lock-failure rollback, expiry without delivery, schema-1 reader
+preservation and suppression of another host's buffered missed notice after a
+shared pause. Execution journal completion requires current assistant output
+and successful authoritative round completion, not merely a trigger or an older
+assistant result.
+
+Electron cases use isolated profiles, projects, trust and a local fixture
+provider. They cover pause/edit/relaunch/resume, manual recovery review,
+explicit automatic authorization, actual application relaunch and termination
+of only the isolated idle scheduling child. Recovery retains the reviewed
+conversation in Ask, retires the disconnected entry and reuses the same single
+runtime when the original chat is opened. Revocation survives relaunch.
+Management and recovery before the next due time made zero model calls.
+The host shortcut opens only the current live runtime, including an archived
+host without unarchiving it. Offline/stale requests are rejected without a
+history-loading or runtime-start fallback, and the recovered-host shortcut
+still leaves exactly one runtime. Ordinary latest-target session navigation,
+reading positions, draft retention and failure recovery also pass their
+dedicated real Electron acceptance.
+Dark/light, narrow, edit, history and recovery screenshots were checked;
+reduced-motion checks retain the shared controls' interaction semantics.
+The updated browser preview passed with the existing installed Edge: online
+host navigation, offline disablement, keyboard tooltip/activation, light/dark,
+four widths down to 390px, reduced motion and no page errors. This preview uses
+sample data, not the real Desktop profile.
+The eight Cron transcript checks and the dedicated quit-confirmation acceptance
+also passed, including persistence, reload/cancel/replay and crashed-renderer
+fallback.
+
+Automatic recovery remains default off, bounded to the reviewed task/account/
+model snapshot and at most seven days. Due work, changed configuration,
+unconfirmed execution, missing sessions and uncertain release block it without
+automatic retries, catch-up, a new conversation or account/model fallback.
+Journals are bounded and never turn acknowledged unknown results into success.
+These are Desktop Beta extensions, not upstream-native ownership or exactly-once
+execution. No installer, real-account/billing, OS sleep/reboot, external-CLI
+coordination, macOS Beta or replacement cloud-CI acceptance is claimed.
+
+### Local Review Follow-Up (2026-10-24)
+
+The local review reproduced four regressions before fixes: automatic gate
+release after initialization crossed a trigger, revival of an old grant after
+pause/resume or edit/revert, unresolved execution falling out of bounded
+history, and one corrupt authorization preventing later projects from recovery.
+Automatic release now carries a runtime-enforced deadline; Desktop requires its
+new Windows-only capability. Management persists grant invalidation before
+updating tasks, history atomically retains an unresolved-rotation latch, and
+authorization failures are isolated and reported per project.
+
+The 45 focused recovery/history/management tests passed, including legacy
+journal migration, malformed-latch rejection and failed-invalidation/changed-host
+guards. Typecheck, production build, 15 CI policy/runner tests, clean pinned
+patch replay with source hashes, 14 real native RPC cases, 12 Electron management
+cases and session-navigation acceptance passed. The real pause/resume buttons
+keep the previous automatic grant blocked without a model call.
+The serial suite excluding `terminal-sessions.test.ts`
+passed 687 tests with 13 platform skips (700 total), using Node 24.16.0.
+The unchanged terminal test was run separately: four cases passed and
+`terminal count is bounded per directory and failures do not cross directories`
+failed at process-tree termination. It is not claimed as passing or repaired
+by these Cron changes.
+
+The existing preview installer predates these review fixes. No new installer,
+real-account/billing, OS sleep/reboot or fresh cloud-CI success is claimed.
+
+### Queue, View Replacement And Latest Main Follow-Up (2026-10-24)
+
+The next review found unsent queues lost during replacement of a disconnected
+Cron host, a viewed chat left on the retired runtime identity, and cancelled
+edit values retained on reopening. A focused cancel/reopen regression failed
+before the fix. Recovery now refuses both manual and automatic replacement
+while the same conversation retains pending messages. The disconnected queue
+remains editable and withdrawable, without migration or automatic sending.
+Successful viewed-host replacement emits an explicit identity event; the
+renderer validates the original and replacement identities before installing
+the authoritative snapshot, retaining the composer and reading state. Activation
+precedes asynchronous retirement, and late events cannot override navigation.
+Each edit opening remounts fields from the current saved task, preserving the
+shared disclosure animation.
+
+Main's shared sidebar is retained without a parallel implementation: equal-width
+New chat and Plugins buttons, then adjacent Schedules and Search icons. The
+preview uses the same component and tests equal primary widths, schedule
+navigation, the online-host shortcut and offline guard in both themes, four
+widths down to 390px and reduced motion, with no page errors.
+
+After main integration, Node 24.16.0 serial units passed 720 tests with 13
+platform skips (733 total), excluding the independently failing
+`terminal-sessions.test.ts` described above. Typecheck, production build,
+49 focused Cron/staging tests, 15 CI policy/runner tests, clean pinned patch
+replay with all source hashes, 14 native Cron RPC cases and the real Electron
+session-navigation, session-move and capability-management acceptance passed.
+The final 14-case Electron Cron-management acceptance also passed, including
+viewed-host reconnection with the same draft, background recovery without taking
+over a new draft, stale replacement events, queue preservation/edit/withdrawal
+with no automatic sends, and cancel/reopen of both editable fields.
+These use isolated profiles and deterministic local providers, not real
+accounts or billing. The existing preview package is not updated by this work.
+
+### Update Installer Fixture Shutdown
+
+Windows interface run `39995014128` reached the update installer's successful
+UI assertions, then timed out while closing its Electron fixture. The shared
+orderly-close helper now installs the existing Windows pipe-release guard, and
+the update-installer acceptance uses that helper. Pipes are released only after
+the launcher exits with code zero and every application window closes; normal
+quit review and state flushing remain in use. Shutdown errors still propagate,
+and guard listeners are removed on both success and failure.
+
+The new helper integration regression failed before this change and passed
+after it. All eight shutdown tests and typecheck passed locally, as did three
+consecutive update-installer runs and update-settings Electron acceptance.
+Plugin-management, session-move and then-run Electron acceptance also passed,
+including their orderly shutdown and persisted-history checks.
+The full local interface group could not run because this machine lacks the
+matching Playwright Chromium headless binary. Cloud CI must validate the full
+group; no fresh package or cloud success is claimed by these local checks.

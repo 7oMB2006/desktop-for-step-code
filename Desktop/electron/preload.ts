@@ -33,6 +33,9 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  capabilityCatalog: () => invoke('capabilityCatalog'),
+  capabilityMutate: input => invoke('capabilityMutate', input),
+  capabilityImportSkill: () => invoke('capabilityImportSkill'),
   importScan: options => invoke('importScan', options),
   importPreview: id => invoke('importPreview', id),
   importStart: (selections, options) => invoke('importStart', selections, options),
@@ -44,8 +47,11 @@ const bridge: DesktopBridge = {
   cronList: () => invoke('cronList'),
   cronCreate: input => invoke('cronCreate', input),
   cronDelete: (runtimeId, jobId) => invoke('cronDelete', runtimeId, jobId),
+  cronUpdate: input => invoke('cronUpdate', input),
+  cronOpenHost: runtimeId => invoke('cronOpenHost', runtimeId),
   cronRecoveryPreview: (key, sessionId) => invoke('cronRecoveryPreview', key, sessionId),
-  cronRecover: token => invoke('cronRecover', token),
+  cronRecover: (token, automatic, acknowledgeUnconfirmed) => invoke('cronRecover', token, automatic, acknowledgeUnconfirmed),
+  cronDisableAutomatic: key => invoke('cronDisableAutomatic', key),
   platform: process.platform,
   updateState: () => invoke('updateState'),
   checkUpdates: () => invoke('checkUpdates'),
@@ -101,6 +107,7 @@ const bridge: DesktopBridge = {
   newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'), openWorkspaceFolder: path => invoke('openWorkspaceFolder', path),
   snapshot: () => invoke('snapshot'), chooseWorkspace: () => invoke('chooseWorkspace'), workspace: path => invoke('workspace', path),
   removeWorkspace: path => invoke('removeWorkspace', path), relocateWorkspace: path => invoke('relocateWorkspace', path),
+  moveSessionToProject: (id, destination) => invoke('moveSessionToProject', id, destination),
   beginSession: workspace => invoke('beginSession', workspace),
   chooseSessionProject: () => invoke('chooseSessionProject'),
   createDraftSession: draftId => invoke('createDraftSession', draftId),

@@ -141,6 +141,16 @@ try {
   }), address);
   const settings = () => page.evaluate(() => window.desktop.settings());
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
+  await page.evaluate(() => {
+    window.routingEvents = [];
+    window.desktop.onEvent(event => {
+      const { type, method, runtimeId, message, command, success } = event;
+      if (['message_update', 'desktop_stats', 'desktop_runtimes'].includes(type)) return;
+      window.routingEvents.push({ type, method, runtimeId, command, success,
+        ...(typeof message === 'string' ? { message: message.slice(0, 300) } : {}) });
+      window.routingEvents = window.routingEvents.slice(-30);
+    });
+  });
   async function prompt() {
     let state = await snapshot();
     assert.deepEqual(failures, []);
@@ -156,8 +166,9 @@ try {
     const replies = state.messages.filter(m => m.role === 'assistant').length;
     console.log('Account routing: sending fixture prompt');
     let timer;
+    let receipt;
     try {
-      await Promise.race([
+      receipt = await Promise.race([
         page.evaluate(id => window.desktop.command('prompt', { message: 'Reply briefly without tools.' }, id), state.runtimeId),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`Fixture prompt timed out: ${JSON.stringify(seen)} ${JSON.stringify(failures)}`)), 15000); }),
       ]);
@@ -170,7 +181,12 @@ try {
         if (!rejectPlan) assert.equal(answers.at(-1).stopReason, 'stop', answers.at(-1).errorMessage);
         break;
       }
-      if (Date.now() > until) throw new Error(`Completion timed out: ${JSON.stringify(seen)} ${JSON.stringify(failures)}`);
+      if (Date.now() > until) throw new Error(`Completion timed out: ${JSON.stringify({
+        seen, failures, receipt, expectedRuntime: state.runtimeId, runtimeId: completed.runtimeId,
+        state: completed.state, pending: completed.pendingMessages, requests: completed.requests,
+        messages: completed.messages.map(({ role, stopReason, errorMessage }) => ({ role, stopReason, errorMessage })),
+        events: await page.evaluate(() => window.routingEvents),
+      })}`);
       await page.waitForTimeout(50);
     }
   }

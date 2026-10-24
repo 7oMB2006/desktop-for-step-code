@@ -1,5 +1,38 @@
 # Design System
 
+## Form Focus Visibility
+
+Inputs, textareas and composite fields reuse the shared theme focus treatment.
+Their focused/active indicator must remain fully visible on all four sides,
+including rounded corners. Scroll, overflow and animated-disclosure containers
+must reserve enough internal space for the complete outline, offset and shadow;
+the current form treatment requires at least a 4px gutter. Keep focused controls
+clear of scroll edges with scroll padding and scroll margins. Do not remove or
+weaken focus indicators to conceal clipping, or change layout when focus moves.
+Verify mouse and keyboard focus, the first/last field, multiline fields and
+scrolled/resized forms in light/dark and narrow layouts. Acceptance must check
+the focus extent against clipping ancestors, not just the input's border box.
+
+## Existing Components
+
+The sidebar Schedules icon toggles its view without replacing the active
+conversation or its draft. Its pressed state and return tooltip reflect the
+current view; explicit `/cron` navigation remains an open action, not a toggle.
+Only a scrolled conversation list fades over its top 18px. At scroll origin or
+while a list control has keyboard-visible focus, the list stays fully opaque.
+The fade belongs to list content, never the fixed sidebar action buttons.
+
+Sidebar search expands from its existing icon anchor and filters non-archived
+session metadata locally: title, first prompt, project name and directory.
+Whitespace-separated terms can match different fields; no full-history scan is
+performed. Results retain pinned/project grouping and saved ordering. Matching
+groups expand temporarily without writing disclosure preferences; clearing or
+closing search restores the original groups. Filtered results cannot be reordered.
+Search never selects a conversation, discards a draft or launches a runtime until
+the user explicitly opens a result. Escape dismisses search and restores trigger
+focus, except during IME composition. The composite field retains the shared
+four-sided focus outline outside its animated inner clip.
+
 Compact process singletons show the original thinking/tool disclosure directly,
 without a second heading or indentation. Stable keyed members retain manual
 expansion, output controls and focus as siblings arrive or leave. Multi-member
@@ -56,6 +89,23 @@ shared AppMenu and DisclosureChevron for existing same-project conversations.
 The review shows the current account, model, Ask policy and full project-wide task
 prompts before activation. Association and recovery are marked Beta; an association
 is not exclusive upstream ownership, and offline records never appear as running.
+
+Scheduled-task pause/resume and editing are Windows Desktop Beta actions in the
+existing detail footer. Editing unfolds inline with the shared cubic transition
+and returns focus to its trigger; it retains task identity and the original
+deadline. Paused records are labeled separately from offline hosts and excluded
+from the scheduling count. Recovery review can explicitly authorize bounded
+automatic restoration, default off, with an additional acknowledgment for
+unknown execution history. Revocation remains available in the task detail.
+Execution/recovery records use the shared native disclosure and chevron, inert
+when closed, with reduced motion; the project history remains available after
+one-shot tasks disappear. Delivery, unknown outcomes and recovery are never
+rendered as successful execution.
+
+The current scheduling host's name has a compact adjacent icon shortcut with a
+keyboard-accessible tooltip. It opens only that live runtime through the shared
+conversation navigation flow, without creating or restarting a session. Offline
+hosts retain a disabled shortcut; association remains a separate Beta record.
 
 Session Status shares the existing Context inspector as a two-tab surface,
 without adding another right-rail button. Context is the first and default tab;

@@ -7,9 +7,14 @@
     "../step-code-desktop-cron.patch": "647de75f3a7ef7d4e5b5bdc4ffe8b73955609fff",
     "../step-code-desktop-cron-management.patch": "1f228c5b065b2376170e3bca6ea9c8943e5f5dbc",
     "step-code-desktop-cron-recovery.patch": "1e1cfa22c2d8f1646b26111a41072987b2745d35",
-    "step-code-session-import.patch": "b2f1bff2ac3a4eba50f1f1ebdd94c757ced89524"
+    "../step-code-desktop-plugins.patch": "b0642b17db291a9d1d3f110d4b16c55350c18ca3",
+    "step-code-session-import.patch": "b2f1bff2ac3a4eba50f1f1ebdd94c757ced89524",
+    "step-code-desktop-cron-scope.patch": "a26f3d5f8c99a443fe35b7177b11e91905ef90c7",
+    "step-code-desktop-cron-enhancements.patch": "ca1ea975ba8c82b9fab1e3caa2e3a5621651ab78",
+    "step-code-desktop-cron-recovery-guard.patch": "d9210dd59d0b93d0eb53e12c1ec257025c67417f"
   },
   "sources": {
+    "packages/coding-agent/test/step-cron.test.ts": "0b0cc15a31f53ee9fe682ca5cdb2747749a5b2ad",
     "packages/coding-agent/src/features/step-cron.ts": "6f881338a5d4ac34a416706a1e72b1f6e181cff3",
     "packages/coding-agent/src/core/auth-storage.ts": "b7d72e885b80c53e17920a405ec7ce9612a3e2e7",
     "packages/coding-agent/src/core/tools/bash.ts": "46bceab79addce18e5edc7abe17d354f24be7c7e",
@@ -35,14 +40,15 @@
     "packages/coding-agent/src/core/usage-totals.ts": "35c533e167a824d8605630c641a3d3dafcf5ce80"
   },
   "patchedSources": {
-    "packages/coding-agent/src/features/step-cron.ts": "ba42caa552e5f00ea6f97b4fbbbdd494234715dc",
+    "packages/coding-agent/src/features/step-cron.ts": "eccb429170ca3b8a52fd9ef986af2678faabe61e",
+    "packages/coding-agent/test/step-cron.test.ts": "4d3d79b237d1f3adaaa8f186bd9394d6cc7f5687",
     "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",
     "packages/coding-agent/src/core/tools/bash.ts": "85c9673b7986948b34b1b9f42ef5e81518d54cff",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "d8067140df6852f5b85aba573e22c255d7da20be",
-    "packages/coding-agent/src/index.ts": "8cfc7fc1bca87da8e302ef03c4ed081f9c0a8958",
-    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "8debcab4d37ebc3cad874019f696f835d3f6d190",
-    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "b4c1343921d9d5060c6c7346ef2578f243da89ee",
+    "packages/coding-agent/src/index.ts": "e9504bdba2212edd8dbb014294e94e9d097f40ec",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "7ba2bc71d9882f76e53bb9519045d4d6bf4d145d",
+    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "85b661aa8438565857cc18aa6bde23588ce8c61b",
     "packages/coding-agent/src/step/mcp.ts": "569b7203dfa2ce28955ac1c2c93b0a9fd317d484",
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
     "scripts/build-coding-agent-bundle.mjs": "d8c98c84e61705fd814349412aa72ce951d9a5a3",

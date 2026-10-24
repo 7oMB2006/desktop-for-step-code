@@ -1,10 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fencedSelection, quotePresentation, quotePrompt, restoreQuotes, type ChatQuote } from '../src/chat-quotes';
+import { fencedSelection, quotePresentation, quotePrompt, restoreQuotes, sameQuoteSelection, type ChatQuote } from '../src/chat-quotes';
 import { composerAction } from '../src/composer-action';
 
 const quote: ChatQuote = { id: 'q1', messageIndex: 1, role: 'assistant', text: 'One\nTwo',
   markdown: 'One\nTwo', startOffset: 0, endOffset: 7 };
+
+test('annotations merge only when their source coordinates match', () => {
+  const note = { ...quote, annotation: 'first', blockIndex: 0 };
+  assert.equal(sameQuoteSelection(note, { ...note, id: 'new', annotation: 'second' }), true);
+  assert.equal(sameQuoteSelection(note, { ...note, startOffset: 10, endOffset: 17 }), false);
+  assert.equal(sameQuoteSelection(note, { ...note, blockIndex: 1 }), false);
+  assert.equal(sameQuoteSelection(note, { ...note, endOffset: 8 }), false);
+  assert.equal(sameQuoteSelection(note, quote), false);
+  assert.equal(sameQuoteSelection(quote, { ...quote, startOffset: 10, endOffset: 17 }), true);
+});
 
 test('plain drafts remain unchanged, including slash commands', () => {
   assert.equal(quotePrompt('/compact', [], 'zh'), '/compact');
@@ -57,4 +67,27 @@ test('ordinary and malformed quote text remains ordinary Markdown', () => {
     prompt.replace('\n\nCurrent user message:', '\nCurrent user message:')]) {
     assert.equal(quotePresentation(text), null);
   }
+});
+
+test('annotations round-trip independently for each quote, including delimiter-like text', () => {
+  for (const language of ['zh', 'en'] as const) {
+    const annotation = '请改成按原目录归组。\n\n| prefix\n用户本轮消息：\n> quote\nUser annotation on this quote:';
+    const prompt = quotePrompt('一起调整', [quote, { ...quote, annotation }], language);
+    const parsed = quotePresentation(prompt);
+    assert.ok(parsed);
+    assert.equal(parsed.quotes[0].annotation, undefined);
+    assert.equal(parsed.quotes[1].annotation, annotation);
+    assert.equal(parsed.quotes[1].markdown, quote.markdown);
+    assert.equal(parsed.draft, '一起调整');
+    assert.equal(quotePrompt(parsed.draft, parsed.quotes, language), prompt);
+    assert.equal(quotePresentation(quotePrompt('', [{ ...quote, annotation }], language))?.draft, '');
+    assert.equal(quotePresentation(prompt.replace('| 请改成按原目录归组。', 'broken')), null);
+  }
+});
+
+test('annotations survive delivery failure and whitespace edits without changing legacy quotes', () => {
+  const annotated = { ...quote, annotation: '  note\n ' };
+  assert.equal(restoreQuotes([annotated], [])[0].annotation, annotated.annotation);
+  assert.equal(quotePresentation(quotePrompt('', [annotated], 'en'))?.quotes[0].annotation, annotated.annotation);
+  assert.equal(quotePrompt('', [{ ...quote, annotation: '' }], 'en'), quotePrompt('', [quote], 'en'));
 });

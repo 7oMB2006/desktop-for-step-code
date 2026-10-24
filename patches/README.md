@@ -40,6 +40,36 @@ the selected session, account, model, Ask policy and loaded tasks before release
 The patch does not replace the scheduler, alter its shared task schema or bypass
 expiry. macOS does not include or advertise this recovery patch. See `docs/CRON.md`.
 
+The additional Windows-only `step-code-desktop-cron-enhancements.patch` supplies
+the guarded Desktop `update` action for per-task pause/resume and editing. It
+retains native locking, identities, time offsets and original deadlines.
+Paused durable tasks use Beta schema 2 with `desktopPausedAt`, opt-in only under
+`DESKTOP_CRON_STATE=1`; schema-1 readers preserve but cannot schedule these rows.
+Explicit resume returns them to schema 1 without replaying paused occurrences.
+This changes compatibility of paused shared task records and must not be
+described as part of the original observation-only patch or native upstream RPC.
+Automatic recovery authorization and bounded execution/recovery journals remain
+Desktop-owned, default off and separate from upstream storage. See `docs/CRON.md`
+for consent, expiry, account checks, uncertainty and downgrade boundaries.
+
+Windows also applies `step-code-desktop-cron-recovery-guard.patch` after the
+enhancements patch. Automatic `desktop_cron_resume` carries a finite `before`
+deadline checked synchronously inside the native scheduler before releasing
+the gate. Crossing the reviewed trigger/expiry during initialization or loading
+buffered missed work rejects automatic release. Manual reviewed release retains
+its existing explicit path. Desktop requires the staged
+`desktop-cron-recovery-guard` capability before automatic recovery; macOS keeps
+its frozen patch set unchanged.
+`step-code-desktop-cron-scope.patch` adds an optional Desktop conversation view
+over the existing shared Cron file. Only moved/restored Desktop transports supply
+`DESKTOP_CRON_SCOPE_DIR`, pointing to Desktop-owned task associations. Such a
+transport loads its own jobs, not foreign or unbound project tasks. Shared-file
+transactions retain foreign and unknown records; newly created jobs remain
+usable while their association is being persisted. The project-wide job limit
+and identity-conflict checks still apply. The runtime manifest advertises
+`desktop-session-cron-scope`; ordinary CLI scheduling and the frozen macOS
+patches remain unchanged.
+
 Windows-specific compatibility also keeps branch preparation read-only:
 `STEPCODE_DESKTOP_BRANCH_SOURCE` suppresses startup usage discovery only for
 that exact original file, while the newly forked session records normally.

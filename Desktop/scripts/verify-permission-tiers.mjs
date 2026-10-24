@@ -111,8 +111,13 @@ try {
     await risk().waitFor();
     if (cancel === 'option') await risk().getByRole('button', { name: '取消，保持当前权限', exact: true }).click();
     else await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.querySelector('.permission-trigger')?.disabled
-      && !document.querySelector('[role="dialog"]'));
+    await risk().waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => {
+      const trigger = document.querySelector('.permission-trigger');
+      return trigger && !trigger.disabled;
+    });
+    // Closed native popovers remain mounted with role="dialog".
+    assert.equal(await page.getByRole('dialog').count(), 0, 'Cancellation leaves no visible dialog');
     assert.equal((await snapshot()).permissionPreset, 'ask');
     assert.equal(modelCalls, 0, 'Cancelling a live permission change never calls the model');
     assert.equal(await input().evaluate(element => element.value), 'VERIFY-WRITE-CANCELLED');

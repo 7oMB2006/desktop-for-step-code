@@ -1,0 +1,17 @@
+.surface-theme-preview { max-width: 1180px; margin: 0 auto; padding: 28px; }
+.surface-theme-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding-bottom: 22px; margin-bottom: 32px; border-bottom: 1px solid var(--border); }
+.surface-theme-controls label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: var(--muted); }
+.surface-theme-controls select { width: 164px; min-height: 34px; padding: 6px 10px; color: var(--ink); }
+.surface-theme-controls input[type=color] { width: 34px; height: 34px; padding: 3px; cursor: pointer; }
+.surface-theme-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 44px; align-items: start; }
+.surface-theme-conversation { min-width: 0; }
+.surface-theme-user { width: fit-content; max-width: 100%; margin: 8px 0 42px auto; padding: 13px 17px; border-radius: 6px; background: var(--surface); font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
+.surface-theme-preview .message { margin: 0; }
+.surface-theme-preview .summary-board { width: 320px; max-width: 100%; animation: none; }
+.surface-theme-status { margin-top: 20px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .surface-theme-preview { padding: 18px; }
+  .surface-theme-layout { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .surface-theme-controls { margin-bottom: 22px; }
+  .surface-theme-user { margin-bottom: 28px; }
+}

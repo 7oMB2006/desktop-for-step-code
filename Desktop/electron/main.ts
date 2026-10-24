@@ -9,7 +9,7 @@ import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/prom
 import { homedir } from 'node:os';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
-import { SessionRuntimes, firstUserText } from './session-runtimes';
+import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
@@ -18,10 +18,14 @@ import { SessionNavigation } from './session-navigation';
 import { SessionCollaboration } from './session-collaboration';
 import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
+import { hasScheduledCron } from './cron-state';
 import { CronBindings } from './cron-bindings';
-import { CronRecovery, assertRecoveryJobs, resumeCronHost } from './cron-recovery';
+import { CronRecovery, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost } from './cron-recovery';
+import { CronAutoRecovery } from './cron-auto-recovery';
+import { CronHistory } from './cron-history';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
+import { normalizePanelPreferences, panelPreferencePatch } from '../src/panel-preferences';
 import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
 import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } from '../src/theme';
 import { ConversationTiming } from './conversation-timing';
@@ -30,6 +34,7 @@ import { modelPreference, preferredModel, restoreSelectedModel, savedSessionMode
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
+import { CapabilityService, assertPluginUnused } from './capability-service';
 import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
@@ -60,11 +65,11 @@ import { quitConfirmation } from '../src/quit-confirmation';
 import { StartupWindow } from './startup-window';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
-import { conversationEntries } from '../src/conversation-presentation';
+import { backgroundSubagentStates, conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Model, PermissionPreset, Preferences, Session, Snapshot } from '../src/contracts';
 import { validateSidebarPreferences } from '../src/sidebar-order';
-import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace } from './workspace-management';
+import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace, moveSessionToWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
@@ -80,6 +85,8 @@ if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
 const workflowBindings = new WorkflowBindings(join(app.getPath('userData'), 'workflow-bindings'));
+const cronHistory = new CronHistory(join(app.getPath('userData'), 'cron-history'));
+let cronHistoryFailed = false;
 const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 'conversation-timing'),
   error => { void crashLog.record('conversation-timing', error); });
 const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model-changes'),
@@ -199,6 +206,8 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
+const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
+  environment: () => isolatedEnvironment(dataRoot) });
 const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-import.mjs'), dataRoot,
   () => emit({ type: 'desktop_sessions_changed' }), async sessionIds => {
     const independent = pathKey(await realpath(independentRoot).catch(() => independentRoot));
@@ -248,9 +257,15 @@ let providerApplyFailed = false;
 let providerApplication: Promise<void> | undefined;
 const authEnvironment = () => ({
   ...env,
+  DESKTOP_CRON_STATE: '1',
+  DESKTOP_CRON_SCOPE_DIR: undefined,
   STEPCODE_DESKTOP_AUTH_PATH: env.STEPCODE_AUTH_PATH,
   STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(runtimeAuth(appliedAuthData)),
   ...keylessEnvironment(appliedAuthData, app.isPackaged ? join(process.resourcesPath, 'runtime-adapters/keyless-fetch.cjs') : join(__dirname, 'keyless-fetch.cjs')),
+});
+const movedSessionEnvironment = () => ({
+  STEP_PERMISSION_PRESET: 'ask',
+  ...(process.platform === 'win32' ? { DESKTOP_CRON_SCOPE_DIR: join(app.getPath('userData'), 'cron-bindings') } : {}),
 });
 async function persistAuth(next: Record<string, unknown>) {
   try { await vault.save(next); }
@@ -304,6 +319,19 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
   event: (worker, event) => {
+    try {
+      cronHistory.event(worker, event);
+      if (['agent_end', 'desktop_exit'].includes(event.type)) emit({ type: 'desktop_cron_changed' });
+    } catch (error) {
+      cronHistoryFailed = true;
+      void crashLog.record('cron-history', error);
+    }
+    if (event.type === 'desktop_exit' && !worker.stopping) {
+      if (runtimes.isBusy(worker) || worker.queued || worker.launch?.goal?.status === 'active')
+        void cronAutomatic.block(worker.cwd).then(() => emit({ type: 'desktop_cron_changed' }))
+          .catch(error => crashLog.record('cron-auto-recovery', error));
+      else setTimeout(() => void tryAutomaticCron(worker.cwd), 1000).unref();
+    }
     if (event.type === 'tool_execution_end' && event.toolName === 'cron_create') {
       void cronBindings.created(worker.cwd, worker.state?.sessionId, event).then(changed => {
         if (changed) emit({ type: 'desktop_cron_changed' });
@@ -346,8 +374,9 @@ const pendingMessages = new PendingMessages(worker => {
 const launchControls = new LaunchControls(runtimes);
 const cronBindings = new CronBindings(join(app.getPath('userData'), 'cron-bindings'));
 const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
-  () => emit({ type: 'desktop_cron_changed' }), cronBindings);
-const cronRecovery = new CronRecovery(async (key, sessionId) => {
+  () => emit({ type: 'desktop_cron_changed' }), cronBindings, workspace => cronAutomatic.block(workspace));
+const inspectCronRecovery = async (key: string, sessionId: string) => {
+  assertRecoveryQueues(runtimes.workers.values(), sessionId);
   if (process.platform !== 'win32') throw new Error('Cron recovery Beta is currently Windows-only');
   const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
   if (!manifest.patches?.includes('desktop-cron-recovery')) throw new Error('This runtime does not support gated Cron recovery');
@@ -378,8 +407,14 @@ const cronRecovery = new CronRecovery(async (key, sessionId) => {
     : `${providerModelNames([model], appliedAuthData)[0]?.providerName ?? model.provider} · 当前供应商配置`;
   return { workspace, jobs, sessionId, sessionName: target.name || target.firstMessage.slice(0, 80) || sessionId.slice(0, 8),
     sessionPath, sessionStamp: JSON.stringify([sessionInfo.size, sessionInfo.mtimeMs, sessionInfo.ino]),
-    configurationRef: createHash('sha256').update(JSON.stringify(appliedAuthData)).digest('hex'), account, model };
-}, async plan => {
+    configurationRef: createHash('sha256').update(JSON.stringify(appliedAuthData)).digest('hex'), account, model,
+    unconfirmed: cronHistoryFailed || cronHistory.uncertain(workspace) };
+};
+const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPlan) => {
+  assertRecoveryQueues(runtimes.workers.values(), plan.sessionId);
+  const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
+  if (plan.automaticBefore !== undefined && !manifest.patches?.includes('desktop-cron-recovery-guard'))
+    throw new Error('This runtime does not support safe automatic Cron recovery');
   // Recovery is explicitly confirmed and starts gated, without changing the viewed chat.
   const worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), plan.workspace,
     { ...authEnvironment(), DESKTOP_CRON_RECOVERY: '1', STEP_PERMISSION_PRESET: 'ask' }, plan.sessionPath);
@@ -396,18 +431,46 @@ const cronRecovery = new CronRecovery(async (key, sessionId) => {
     if (createHash('sha256').update(JSON.stringify(appliedAuthData)).digest('hex') !== plan.configurationRef)
       throw new Error('Recovery account changed while opening the host');
     await cronBindings.set(plan.workspace, plan.jobs, plan.sessionId, 'recovered');
+    assertRecoveryQueues(runtimes.workers.values(), plan.sessionId);
     // The resume helper removes explicit rejections; uncertain delivery must retain the host.
     activated = true;
-    await resumeCronHost(worker.rpc, () => runtimes.remove(worker));
+    await resumeCronHost(worker.rpc, () => runtimes.remove(worker), plan.automaticBefore);
+    const retired = [...runtimes.workers.values()].filter(previous => previous !== worker
+      && previous.status === 'disconnected' && previous.state?.sessionId === plan.sessionId);
+    const viewedRuntime = retired.find(previous => previous.id === runtimes.activeId);
+    const restoreViewed = !sessionDraft && Boolean(viewedRuntime);
+    if (restoreViewed) {
+      runtimes.activate(worker);
+      emit({ type: 'desktop_runtime_replaced', previousRuntimeId: viewedRuntime!.id, runtimeId: worker.id, sessionId: plan.sessionId });
+    }
+    for (const previous of retired) await runtimes.remove(previous);
+    cronHistory.record(plan.workspace, plan.sessionId, 'recovered');
     emit({ type: 'desktop_cron_changed' });
     emit({ type: 'desktop_sessions_changed' });
     return { sessionId: plan.sessionId, runtimeId: worker.id };
   } catch (error) {
     if (!activated) await runtimes.remove(worker);
     else emit({ type: 'desktop_cron_changed' });
+    cronHistory.record(plan.workspace, plan.sessionId, activated ? 'recovery_blocked' : 'recovery_failed');
     throw error;
   }
+};
+const cronAutomatic = new CronAutoRecovery(join(app.getPath('userData'), 'cron-recovery-authorizations'),
+  inspectCronRecovery, launchCronRecovery, workspace => !cronHistoryFailed && !cronHistory.uncertain(workspace), Date.now,
+  (workspace, sessionId) => cronHistory.record(workspace, sessionId, 'recovery_blocked'),
+  error => { void crashLog.record('cron-auto-recovery', error); });
+const cronRecovery = new CronRecovery(inspectCronRecovery, launchCronRecovery, Date.now, async (key, plan) => {
+  if (cronHistoryFailed) throw new Error('Cron history is unavailable; automatic recovery remains off');
+  cronHistory.acknowledge(plan.workspace);
+  await cronAutomatic.enable(key, plan);
 });
+async function tryAutomaticCron(workspace?: string) {
+  if (process.platform !== 'win32' || transition || settingsMutation || providerSettingsPending || undoBusy || deletingArchived || quitting || quitPending) return;
+  transition = true;
+  try { await cronAutomatic.run(workspace); }
+  catch (error) { void crashLog.record('cron-auto-recovery', error); }
+  finally { transition = false; emit({ type: 'desktop_cron_changed' }); }
+}
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
   (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
 setInterval(() => { if (!transition) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error)); }, 60000).unref();
@@ -577,6 +640,15 @@ setInterval(() => {
       : '供应商配置已保存，但应用失败，请重启软件后重试。' });
   });
 }, 1000).unref();
+function commitSessionNavigation(worker: SessionRuntime, value: Snapshot): Snapshot {
+  if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected' || worker.stopping)
+    throw new Error('Session runtime disconnected while opening');
+  sessionDraft = undefined;
+  runtimes.activate(worker);
+  preferences.workspace = worker.cwd;
+  void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
+  return { ...value, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds] };
+}
 const sessionNavigation = new SessionNavigation(async (id: string) => {
   let worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === id);
   if (worker?.status === 'disconnected') {
@@ -588,7 +660,8 @@ const sessionNavigation = new SessionNavigation(async (id: string) => {
     if (!target?.path) throw new Error('This session history is unavailable');
     const canonical = await workspaceDirectory(target.cwd);
     if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
-    worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment(), target.path);
+    worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
+      { ...authEnvironment(), ...(preferences.workspaceSessionRedirects?.[id] ? movedSessionEnvironment() : {}) }, target.path);
     if (worker.state?.sessionId !== id) {
       await runtimes.remove(worker);
       throw new Error('Session history identity changed');
@@ -597,24 +670,18 @@ const sessionNavigation = new SessionNavigation(async (id: string) => {
   worker.operations++;
   try { return { worker, value: await snapshot(worker, false, true) }; }
   finally { worker.operations--; }
-}, ({ worker, value }) => {
-  if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected') throw new Error('Session runtime disconnected while opening');
-  sessionDraft = undefined;
-  runtimes.activate(worker);
-  preferences.workspace = worker.cwd;
-  void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
-  return { ...value, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds] };
-}, busy => {
+}, ({ worker, value }) => commitSessionNavigation(worker, value), busy => {
   transition = busy;
   if (!busy) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error));
 });
-async function connect(cwd: string, sessionPath?: string, rememberProject = true) {
+async function connect(cwd: string, sessionPath?: string, rememberProject = true, resetPermission = false) {
   if (transition) throw new Error('Workspace operation in progress');
   transition = true;
   try {
     const canonical = await workspaceDirectory(cwd);
     status = 'connecting';
-    const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical, authEnvironment(), sessionPath);
+    const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
+      { ...authEnvironment(), ...(resetPermission ? movedSessionEnvironment() : {}) }, sessionPath);
     sessionDraft = undefined;
     preferences.workspace = canonical;
     if (rememberProject && !pathKey(canonical).startsWith(`${pathKey(independentRoot)}/`)) {
@@ -696,13 +763,57 @@ async function handle(method: string, args: any[]) {
       const selected = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
       return selected.canceled ? null : selected.filePaths[0] ?? null;
     }
+    case 'cronOpenHost': {
+      if (transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || deletingArchived || quitting || quitPending)
+        throw new Error('Wait for account and workspace changes to finish');
+      const worker = cronManagement.host(args[0]), rpc = worker.rpc, sessionId = worker.state!.sessionId;
+      transition = true;
+      worker.operations++;
+      try {
+        const value = await snapshot(worker, false, true);
+        // This shortcut must never fall back to loading history or starting another runtime.
+        if (cronManagement.host(args[0]) !== worker || worker.rpc !== rpc || worker.state?.sessionId !== sessionId)
+          throw new Error('Cron host changed; refresh before opening');
+        return commitSessionNavigation(worker, value);
+      } finally { worker.operations--; transition = false; }
+    }
     case 'cronList': {
       if (transition || settingsMutation || providerSettingsPending) throw new Error('Wait for account and workspace changes to finish');
-      return cronManagement.list(preferences.workspaces);
+      const overview = await cronManagement.list(preferences.workspaces);
+      overview.history = [];
+      for (const workspace of new Set([...preferences.workspaces, ...overview.tasks.map(task => task.workspace)])) {
+        try {
+          const entries = cronHistory.list(workspace).slice(-30).reverse();
+          if (entries.length) overview.history.push({ workspace, entries });
+        } catch { overview.issues.push({ workspace, reason: 'unavailable' }); }
+      }
+      for (const task of overview.tasks) {
+        try {
+          task.automatic = await cronAutomatic.status(task.workspace);
+          task.history = overview.history.find(project => project.workspace === task.workspace)?.entries.filter(row => !row.jobId
+            || row.jobId === task.id && (row.createdAt === undefined || row.createdAt === task.createdAt));
+        } catch { overview.issues.push({ workspace: task.workspace, reason: 'unavailable' }); }
+      }
+      if (transition || settingsMutation || providerSettingsPending) throw new Error('Wait for account and workspace changes to finish');
+      return overview;
+    }
+    case 'cronDisableAutomatic': {
+      if (transition || settingsMutation || quitting || quitPending) throw new Error('Wait for changes to finish');
+      const task = (await cronManagement.list(preferences.workspaces)).tasks.find(task => task.key === args[0]);
+      if (!task) throw new Error('Cron task changed; refresh');
+      await cronAutomatic.disable(task.workspace);
+      emit({ type: 'desktop_cron_changed' });
+      return;
     }
     case 'cronCreate':
+    case 'cronUpdate':
     case 'cronDelete': {
       if (transition || settingsMutation || providerSettingsPending || undoBusy) throw new Error('Wait for account and workspace changes to finish');
+      if (method === 'cronUpdate') {
+        const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
+        if (!manifest.patches?.includes('desktop-cron-management-beta')) throw new Error('This runtime does not support task editing');
+        return cronManagement.update(args[0]);
+      }
       return method === 'cronCreate' ? cronManagement.create(args[0]) : cronManagement.delete(args[0], args[1]);
     }
     case 'cronRecoveryPreview':
@@ -711,7 +822,7 @@ async function handle(method: string, args: any[]) {
         throw new Error('Wait for account and workspace changes to finish');
       transition = true;
       try {
-        return method === 'cronRecoveryPreview' ? await cronRecovery.prepare(args[0], args[1]) : await cronRecovery.recover(args[0]);
+        return method === 'cronRecoveryPreview' ? await cronRecovery.prepare(args[0], args[1]) : await cronRecovery.recover(args[0], args[1], args[2]);
       } finally { transition = false; }
     }
     case 'updateState': return { ...updates.snapshot(), transfer: installer.snapshot() };
@@ -748,7 +859,7 @@ async function handle(method: string, args: any[]) {
           await usageEstimates.flush();
           await terminals.stopAll();
           await sessionImports.close();
-          await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
+          await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
         });
         success = true;
       } finally { if (!success) updateInstalling = false; }
@@ -1151,7 +1262,100 @@ async function handle(method: string, args: any[]) {
       transition = true;
       try { await runtimes.assertIdle(worker, { stopHost: true }); await runtimes.remove(worker); }
       finally { transition = false; }
-      return connect(cwd, state?.sessionFile && existsSync(state.sessionFile) ? state.sessionFile : undefined, false);
+      return connect(cwd, state?.sessionFile && existsSync(state.sessionFile) ? state.sessionFile : undefined, false,
+        Boolean(state?.sessionId && preferences.workspaceSessionRedirects?.[state.sessionId]));
+    }
+    case 'moveSessionToProject': {
+      if (transition || deletingArchived || sessionNavigation.busy || quitting || quitPending)
+        throw new Error('Wait for the current workspace operation to finish');
+      const id = text(args[0], 200), destination = text(args[1], 4096);
+      if (isChildSession(id)) throw new Error('Child sessions belong to their parent task');
+      if (!preferences.workspaces.some(path => pathKey(path) === pathKey(destination)))
+        throw new Error('Unknown destination project');
+      transition = true;
+      const sources = [...runtimes.workers.values()].filter(worker => worker.state?.sessionId === id);
+      let prepared: typeof runtimes.active;
+      let committed = false;
+      let locked = false;
+      try {
+        if (preferences.archivedSessionIds?.includes(id)) throw new Error('Restore this conversation before moving it');
+        for (const worker of sources) {
+          if (worker.operations || worker.mutating || worker.submissions || worker.stopping || worker.pendingModel)
+            throw new Error('Session operation in progress');
+        }
+        for (const worker of sources) worker.mutating = true;
+        locked = true;
+        for (const worker of sources) {
+          if (worker.cron?.status === 'unavailable') throw new Error('MOVE_CRON_UNAVAILABLE');
+          if (hasScheduledCron(worker.cron))
+            throw new Error(`MOVE_CRON_HOST: ${worker.cron?.jobs.map(job => job.id).join(', ') || 'unavailable'}`);
+          await runtimes.assertIdle(worker, { stopHost: true });
+          if (worker.status === 'connected' && [...backgroundSubagentStates(worker.messages).values()]
+            .some(status => status === 'running' || status === 'queued'))
+            throw new Error('Wait for background agents to finish before moving this conversation');
+        }
+        const target = (await listSessions()).find(session => session.id === id);
+        if (!target?.path) throw new Error('Save this conversation before moving it');
+        const canonical = await workspaceDirectory(destination);
+        if (await samePath(target.cwd, canonical)) throw new Error('Conversation is already in this project');
+        const associated: string[] = [];
+        try {
+          for (const cwd of [target.cwd, canonical]) {
+            const saved = await admin.request('cron_saved', { cwd });
+            for (const job of cronJobs(saved.jobs)) {
+              const binding = await cronBindings.get(cwd, job);
+              if (binding?.sessionId === id) associated.push(job.id);
+            }
+          }
+        } catch {
+          throw new Error('MOVE_CRON_UNAVAILABLE');
+        }
+        if (associated.length) throw new Error(`MOVE_CRON_ASSOCIATED: ${associated.join(', ')}`);
+        const runtimeManifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
+        if (process.platform !== 'win32' || !runtimeManifest.patches?.includes('desktop-session-cron-scope'))
+          throw new Error('MOVE_CRON_UNAVAILABLE: runtime');
+        const path = await managedSessionFile(join(dataRoot, 'sessions'), target.path);
+        const source = sources[0];
+        const wasActive = sources.some(worker => worker.id === runtimes.activeId) && !sessionDraft;
+        // Validate a new cwd-bound transport before changing the durable association.
+        // Permissions and project trust from the source are not carried into it.
+        prepared = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
+          { ...authEnvironment(), ...movedSessionEnvironment() }, path);
+        prepared.mutating = true;
+        if (prepared.state?.sessionId !== id || prepared.permissionPreset !== 'ask')
+          throw new Error('Could not verify the destination conversation and approval policy');
+        await runtimes.assertIdle(prepared, { stopHost: true });
+        await restoreSelectedModel(prepared, source?.state?.model, preferences.language);
+        if (source?.state?.thinkingLevel) {
+          const { levels } = await prepared.rpc.request('get_available_thinking_levels');
+          if (levels?.includes(source.state.thinkingLevel))
+            await prepared.rpc.request('set_thinking_level', { level: source.state.thinkingLevel });
+        }
+        await runtimes.read(prepared);
+        if ([...backgroundSubagentStates(prepared.messages).values()]
+          .some(status => status === 'running' || status === 'queued'))
+          throw new Error('Wait for background agents to finish before moving this conversation');
+        const previous = preferences;
+        preferences = moveSessionToWorkspace(preferences, target, destination);
+        if (wasActive) preferences.workspace = canonical;
+        try { await savePreferences(); } catch (error) { preferences = previous; throw error; }
+        committed = true;
+        if (wasActive) runtimes.activate(prepared);
+        for (const worker of sources) await runtimes.remove(worker);
+        startupError = undefined;
+        emit({ type: 'desktop_sessions_changed' });
+        return await snapshot();
+      } finally {
+        try {
+          if (prepared) {
+            prepared.mutating = false;
+            if (!committed) await runtimes.remove(prepared);
+          }
+        } finally {
+          if (locked) for (const worker of sources) worker.mutating = false;
+          transition = false;
+        }
+      }
     }
     case 'navigateSession': {
       if (deletingArchived || transition && !sessionNavigation.busy) throw new Error('Workspace operation in progress');
@@ -1173,7 +1377,7 @@ async function handle(method: string, args: any[]) {
       const target = (await listSessions()).find(s => s.id === text(args[0]));
       if (!target) throw new Error('Unknown session');
       if (!target.path) throw new Error('This empty session runtime is unavailable');
-      return connect(target.cwd, target.path, false);
+      return connect(target.cwd, target.path, false, Boolean(preferences.workspaceSessionRedirects?.[target.id]));
     }
     case 'cloneSession': {
       if (transition || deletingArchived) throw new Error('Workspace operation in progress');
@@ -1627,6 +1831,24 @@ async function handle(method: string, args: any[]) {
       else if (current) await connect(current.cwd, undefined, false);
       return null;
     }
+    case 'capabilityCatalog': {
+      if (settingsMutation) throw new Error('Shared settings operation in progress');
+      return capabilityService.catalog();
+    }
+    case 'capabilityMutate': {
+      await guardIdle({ stopHost: false });
+      if (args[0]?.action === 'plugin-remove')
+        await assertPluginUnused(text(args[0].id, 128), runtimes.workers.values());
+      return capabilityService.mutate(args[0]);
+    }
+    case 'capabilityImportSkill': {
+      await guardIdle({ stopHost: false });
+      const selected = await dialog.showOpenDialog(window, { properties: ['openDirectory'],
+        title: preferences.language === 'zh' ? '导入 Skill 文件夹' : 'Import Skill folder' });
+      if (selected.canceled || !selected.filePaths[0]) return null;
+      await guardIdle({ stopHost: false });
+      return capabilityService.importSkill(selected.filePaths[0]);
+    }
     case 'saveMcp': {
       await guardIdle(); const name = text(args[0], 80);
       if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('Use letters, numbers, underscores or hyphens for the server name');
@@ -1643,6 +1865,7 @@ async function handle(method: string, args: any[]) {
     }
     case 'preferences': {
       const patch = args[0] ?? {};
+      const panelPatch = panelPreferencePatch(patch);
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
       const colorPatch = themePreferencePatch(patch);
       if (patch.appearance !== undefined) {
@@ -1671,7 +1894,7 @@ async function handle(method: string, args: any[]) {
         const known = new Set((await listSessions()).map(s => s.id));
         preferences.archivedSessionIds = patch.archivedSessionIds.map((id: unknown) => text(id, 200)).filter((id: string) => known.has(id));
       }
-      Object.assign(preferences, sidebarPatch, updatePatch);
+      Object.assign(preferences, sidebarPatch, updatePatch, panelPatch);
       if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
       await savePreferences();
       window.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
@@ -1767,7 +1990,7 @@ app.on('before-quit', event => {
       }
       await terminals.stopAll();
       await sessionImports.close();
-      await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
+      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
       await usageEstimates.flush();
@@ -1803,6 +2026,7 @@ else app.whenReady().then(async () => {
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
   preferences = migrateWorkspaceIdentity(preferences);
+  Object.assign(preferences, normalizePanelPreferences(preferences));
   preferences.preferredModel = modelPreference(preferences.preferredModel);
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.theme = normalizeTheme(preferences.theme);
@@ -1926,11 +2150,14 @@ else app.whenReady().then(async () => {
     if (method === 'quitRespond' || method === 'windowControl') return handle(method, args);
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
-    const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage'].includes(method);
-    if (undoBusy && ['prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
+    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill'].includes(method);
+    const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage'].includes(method);
+    if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
+      throw new Error('Shared settings operation in progress');
+    if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
       'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
-    if (settingsMutation && ['prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
     if (!updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
       await applyProviderSettings();
     }
@@ -1953,6 +2180,7 @@ else app.whenReady().then(async () => {
       }
     })();
   }
+  void startup.then(() => tryAutomaticCron());
   if (process.env.DESKTOP_DEV_URL && !app.isPackaged) await window.loadURL(process.env.DESKTOP_DEV_URL);
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
   if (restoreRequested) { restoreRequested = false; showMainWindow(); }
@@ -1975,5 +2203,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([sessionImports.close(), runtimes.stopAll(), admin.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
+  quitting = true; void Promise.all([sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
 });

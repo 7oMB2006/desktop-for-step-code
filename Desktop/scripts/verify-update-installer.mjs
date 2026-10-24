@@ -4,6 +4,7 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 await mkdir('test-results', { recursive: true });
 const output = await build({ entryPoints: ['tests/fixtures/update-installer-harness.tsx'], bundle: true, write: false,
@@ -62,4 +63,4 @@ try {
   await page.screenshot({ path: 'test-results/updater-download-narrow.png' });
   assert.deepEqual(errors, []);
   console.log('Update UI acceptance passed: progress, cancel/retry, ready, blocked install, failure, narrow layout.');
-} finally { await app.close(); }
+} finally { await closeDesktopFixture(app); }

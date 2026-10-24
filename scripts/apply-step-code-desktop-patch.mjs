@@ -95,7 +95,9 @@ if (gitBlobHash(await readFile(path.join(upstreamDir, "packages/coding-agent/src
 	throw new Error("Unexpected pinned Cron source");
 const cronManagementPatch = Buffer.from((await readFile(path.join(path.dirname(resolvedPatchPath), "step-code-desktop-cron-management.patch"), "utf8")).replace(/\r\n/g, "\n"));
 if (gitBlobHash(cronManagementPatch) !== "1f228c5b065b2376170e3bca6ea9c8943e5f5dbc") throw new Error("Unexpected Desktop Cron management patch");
-const allPatches = Buffer.concat([combined, cronPatch, cronManagementPatch]);
+const pluginsPatch = Buffer.from((await readFile(path.join(path.dirname(resolvedPatchPath), "step-code-desktop-plugins.patch"), "utf8")).replace(/\r\n/g, "\n"));
+if (gitBlobHash(pluginsPatch) !== "b0642b17db291a9d1d3f110d4b16c55350c18ca3") throw new Error("Unexpected Desktop plugin management exports patch");
+const allPatches = Buffer.concat([combined, cronPatch, cronManagementPatch, pluginsPatch]);
 execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], { ...applyOptions, input: allPatches });
 execFileSync("git", ["-C", upstreamDir, "apply", "-"], { ...applyOptions, input: allPatches });
 }

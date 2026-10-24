@@ -61,6 +61,14 @@
 .diff-line-remove .diff-line-sign { color: var(--diff-remove); }
 .diff-line-hunk, .diff-line-note { color: var(--muted); font-size: 10px; }
 .diff-line-hunk { background: var(--surface); }
+.turn-diff-table.diff-split-table { table-layout: fixed; min-width: 440px; }
+.diff-split-table .diff-number-column { width: 34px; }
+.diff-split-table .diff-sign-column { width: 18px; }
+.diff-split-table th { padding: 5px 10px; text-align: left; font-size: 10px; font-weight: 500; color: var(--muted); background: var(--side); border-bottom: 1px solid var(--border); }
+.diff-split-table th + th, .diff-split-table td:nth-child(4) { border-left: 1px solid var(--border); }
+.diff-split-table .diff-line-text code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.diff-split-table .diff-line-empty { background: var(--side); }
+.diff-split-table :is(.diff-line-hunk, .diff-line-note) > td { padding: 3px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 @keyframes turn-diff-enter { from { opacity: .4; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 @media (max-width: 650px) { .turn-change-row { gap: 6px; padding-inline: 8px; grid-template-columns: 18px minmax(0, 1fr) auto; } .turn-diff { margin-inline: 8px; } }
 @media (prefers-reduced-motion: reduce) { .turn-diff, .turn-undo-dialog { animation: none; } }

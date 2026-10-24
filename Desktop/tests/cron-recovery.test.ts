@@ -3,13 +3,20 @@ import { test } from 'node:test';
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CronRecovery, assertRecoveryJobs, resumeCronHost, type CronRecoveryPlan } from '../electron/cron-recovery';
+import { CronRecovery, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost, type CronRecoveryPlan } from '../electron/cron-recovery';
 import { RpcCommandError } from '../electron/runtime';
 import { CronBindings } from '../electron/cron-bindings';
 import type { CronJobData } from '../src/contracts';
 
 const job: CronJobData = { id: 'one', cron: '* * * * *', prompt: 'Check', durable: true,
   recurring: true, createdAt: 100, nextFireAt: 200 };
+test('Recovery never retires a conversation with unsent messages, including disconnected hosts', () => {
+  const queued = { state: { sessionId: 'chat', isStreaming: false }, queued: true };
+  assert.throws(() => assertRecoveryQueues([queued], 'chat'), /pending messages/);
+  assertRecoveryQueues([queued], 'other');
+  assertRecoveryQueues([{ ...queued, queued: false }], 'chat');
+  assertRecoveryQueues([], 'chat');
+});
 test('Resume retains a successful host and removes an explicitly rejected gated host without retry', async () => {
   for (const rejected of [false, true]) {
     let requests = 0, removed = 0;
@@ -38,11 +45,20 @@ test('Resume timeout and transport failures retain the potentially activated hos
     assert.equal(removed, 0);
   }
 });
+test('Automatic release passes its deadline and discards only an authoritatively rejected host', async () => {
+  let removed = 0;
+  await assert.rejects(resumeCronHost({ request: async (type, args) => {
+    assert.equal(type, 'desktop_cron_resume');
+    assert.deepEqual(args, { before: 5000 });
+    throw new RpcCommandError('Automatic Cron recovery deadline expired');
+  } }, async () => { removed++; }, 5000), /deadline expired/);
+  assert.equal(removed, 1);
+});
 test('Post-start gate allows native time advancement/expiry, never unreviewed work', () => {
   assertRecoveryJobs([job], [{ ...job, nextFireAt: 300 }]);
   assertRecoveryJobs([job], []);
   for (const change of [{ prompt: 'Other' }, { id: 'new' }, { createdAt: 101 }, { durable: false },
-    { cron: '0 * * * *' }, { recurring: false }, { autoExpireAt: 500 }])
+    { cron: '0 * * * *' }, { recurring: false }, { autoExpireAt: 500 }, { desktopPausedAt: 150 }])
     assert.throws(() => assertRecoveryJobs([job], [{ ...job, ...change }]), /changed/);
 });
 function fixture() {
@@ -127,6 +143,29 @@ test('Recovery only accepts durable nonempty task snapshots', async () => {
     f.change({ jobs });
     await assert.rejects(f.service.prepare('task', 'session'), /durable/);
   }
+});
+test('Remembered recovery requires explicit review of unknown executions and never grants after a failed launch', async () => {
+  const f = fixture();
+  const plan = { workspace: 'D:/project', jobs: [job], sessionId: 'session', sessionName: 'Chat',
+    sessionPath: 'private/session.jsonl', sessionStamp: '1', configurationRef: 'private-auth-hash',
+    account: 'Plan', model: { id: 'model', provider: 'step', name: 'Model' }, unconfirmed: true } as CronRecoveryPlan;
+  let grants = 0, launches = 0, fail = false;
+  const service = new CronRecovery(async () => plan, async () => {
+    launches++; if (fail) throw new Error('Uncertain launch'); return { sessionId: 'session', runtimeId: 'host' };
+  }, () => 1000, async () => { grants++; });
+  const preview = await service.prepare('key', 'session');
+  assert.equal(preview.unconfirmed, true);
+  await assert.rejects(service.recover(preview.token, true), /unconfirmed/);
+  assert.equal(launches, 0);
+  const next = await service.prepare('key', 'session');
+  await service.recover(next.token, true, true);
+  assert.equal(grants, 1);
+  fail = true;
+  const uncertain = await service.prepare('key', 'session');
+  await assert.rejects(service.recover(uncertain.token, true, true), /Uncertain/);
+  assert.equal(grants, 1);
+  await assert.rejects(f.service.recover('token', 'true'), /Invalid/);
+  await assert.rejects(f.service.recover('token', true), /unavailable/);
 });
 test('Desktop associations persist separately and distinguish projects and task generations', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cron-bindings-'));

@@ -56,7 +56,8 @@ retains a selectable slash, so selecting transcript text does not remove it.
 | `/plan` | Existing upstream plan-mode handler and Desktop approval flow | On/off state verified against the real bundle; no change to approvals |
 | `/goal` | Existing upstream goal handler | Read-only empty status verified; starting/resuming goals is not part of this audit |
 | `/ultracode`, `/ultraloop` | Existing upstream multi-agent handlers | Read-only status verified; the redundant alias is hidden when Ultracode is advertised |
-| `/plugin` | Existing upstream plugin dialogs through the Desktop request UI | Real selection and cancellation tested; no plugin installed |
+| `/plugin`, `/plugin browse`, `/plugin marketplace` | Open installed plugins, Discover or marketplace sources in Desktop settings | Isolated real-runtime management and Electron acceptance cover install/uninstall; mutating commands only prepare a page for explicit confirmation |
+| `/skills`, `/mcp` | Open the dedicated Skills or MCP settings | Configuration is distinct from live-session availability; changes require a new session or explicit restart |
 | `/feedback` | Existing upstream feedback flow, requiring a configured endpoint | Real category dialog cancelled against a loopback endpoint; no logs, conversation or feedback uploaded |
 | `/init` | Upstream submits an initialization task through the normal agent path | Loopback model verifies the AGENTS.md instruction arrives and the turn ends; no real AGENTS.md generation claimed |
 | `/trust` | Existing Desktop project-trust confirmation | Existing focused trust tests retained |
@@ -95,7 +96,9 @@ ordinary prose while a task is running.
 | `/todos` | 返回上游清单通知 | 映射到已有右栏清单；保留空状态与历史边界 |
 | `/workflows` | 通知列出已保存工作流与近期运行记录，仍有英文原始输出 | 中文列表与运行详情；不直接等同于当前代理面板 |
 | `/clm`、`/clm-compact` | CLM 独立页已接真实分支修订查询；面板启停和手动整理复用上游命令 | Windows v0.1.5 增加只读 RPC；旧运行时明确显示接口不可用，尚未声明安装包验收 |
-| `/plugin` | 通用请求界面承接上游选择对话框 | 接续 TODO 中已有插件市场管理项；尚未验收完整安装、卸载流程 |
+
+`/plugin` 已映射至专用插件管理页，隔离运行时和 Electron 验收覆盖本地市场安装、
+卸载及配置生效；真实第三方登录、首次安装和打包验收仍需分别完成。
 
 `/workflows` 本身只查询列表，不负责启动工作流。工作流执行是上游
 `workflow` 工具的能力；保存的工作流定义、历史运行与当前轮代理状态是不同对象，

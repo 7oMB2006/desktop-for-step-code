@@ -59,7 +59,7 @@ const launchCase = async (profile, bundlePath) => {
       await assert.rejects(page.evaluate(() => window.desktop.stepPageState()), /Windows-only/);
       await assert.rejects(page.evaluate(() => window.desktop.prepareStepPage()), /Windows-only/);
       await page.locator('.sidebar-bottom button').filter({ hasText: /设置|Settings/ }).click();
-      await page.getByRole('button', { name: /^(资源|Resources)$/ }).click();
+      await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click();
       assert.equal(await page.locator('.steppage-settings').count(), 0);
       await page.getByRole('button', { name: /^MCP$/ }).click();
       assert.equal(await page.getByRole('button', { name: /准备内置插件|Set up built-in plugins/ }).count(), 0);

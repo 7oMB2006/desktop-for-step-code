@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CronOverview, DesktopBridge, Session } from './contracts';
 import { ScheduledTasks, type ScheduledTaskCreation, type ScheduledTaskView } from './ScheduledTasks';
+import { cronRevision } from './cron-revision';
 
 const empty: CronOverview = { tasks: [], hosts: [], issues: [] };
-export function CronManager({ bridge }: { bridge: DesktopBridge }) {
+export function CronManager({ bridge, onOpenHost }: {
+  bridge: DesktopBridge; onOpenHost?: (session: Session, runtimeId: string) => Promise<void>;
+}) {
   const [data, setData] = useState(empty);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -46,7 +49,8 @@ export function CronManager({ bridge }: { bridge: DesktopBridge }) {
   const format = (time: number) => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(time);
   const jobs: ScheduledTaskView[] = data.tasks.map(job => ({
     id: job.key, jobId: job.id, runtimeId: job.runtimeId, hostName: job.hostName,
-    association: job.association,
+    association: job.association, paused: job.desktopPausedAt !== undefined, revision: cronRevision(job),
+    automatic: job.automatic, history: job.history,
     title: job.prompt.trim().split('\n')[0].slice(0, 64), prompt: job.prompt, workspace: job.workspace,
     schedule: job.cron, next: format(job.nextFireAt), expires: job.autoExpireAt === undefined ? undefined : format(job.autoExpireAt),
     recurring: job.recurring, durable: job.durable, host: job.runtimeId ? 'online' : 'offline',
@@ -61,9 +65,22 @@ export function CronManager({ bridge }: { bridge: DesktopBridge }) {
     await bridge.cronDelete(task.runtimeId, task.id);
     await reload();
   };
-  return <ScheduledTasks jobs={jobs} hosts={data.hosts} sessions={sessions}
+  return <ScheduledTasks jobs={jobs} hosts={data.hosts} sessions={sessions} history={data.history}
+    onOpenHost={onOpenHost ? async runtimeId => {
+      const host = data.hosts.find(host => host.runtimeId === runtimeId);
+      const session = (await bridge.sessions()).find(session => session.id === host?.sessionId);
+      if (!session) throw new Error('Cron host changed; refresh before opening');
+      await onOpenHost(session, runtimeId);
+    } : undefined}
+    onUpdate={bridge.platform === 'win32' ? async (key, expected, changes) => {
+      const task = data.tasks.find(job => job.key === key);
+      if (!task?.runtimeId) throw new Error('Open the project host before updating this job');
+      await bridge.cronUpdate({ runtimeId: task.runtimeId, jobId: task.id, expected, ...changes });
+      await reload();
+    } : undefined}
     onPrepareRecovery={bridge.platform === 'win32' ? (key, sessionId) => bridge.cronRecoveryPreview(key, sessionId) : undefined}
-    onRecover={async token => { await bridge.cronRecover(token); await reload(); }}
+    onRecover={async (token, automatic, acknowledged) => { await bridge.cronRecover(token, automatic, acknowledged); await reload(); }}
+    onDisableAutomatic={async key => { await bridge.cronDisableAutomatic(key); await reload(); }}
     live refreshing={loading} onRefresh={() => void reload()} onCreate={create} onDelete={remove}
     issue={failed ? '读取失败，正在保留上次结果。请刷新重试，当前列表可能已过期。'
       : data.issues.some(issue => issue.reason === 'unavailable') ? '部分项目或宿主暂时无法读取，列表可能不完整。'

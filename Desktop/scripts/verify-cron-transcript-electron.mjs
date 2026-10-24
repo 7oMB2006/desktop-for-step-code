@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-cron-transcript-'));
 const workspace = join(profile, 'Cron transcript project');
@@ -37,10 +38,11 @@ await writeFile(join(sessions, 'cron-source-fixture.jsonl'), records.map(record 
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
+let page;
 try {
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE }
     : { args: [resolve('.')] }), env, timeout: 60000 });
-  const page = await app.firstWindow();
+  page = await app.firstWindow();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -85,6 +87,21 @@ try {
       'separate original/fire/missed/user responses', 'all settled footers retained'],
   }, null, 2));
   console.log('Cron transcript Electron acceptance passed (8 checks; isolated saved history, no model requests).');
+} catch (error) {
+  console.error('Cron transcript acceptance error:', error.stack ?? String(error));
+  if (page) {
+    const diagnostic = await page.evaluate(async () => {
+      const snapshot = await window.desktop.snapshot();
+      return { sessionId: snapshot.state?.sessionId, runtimeId: snapshot.runtimeId,
+        status: snapshot.status, messageCount: snapshot.messages?.length,
+        customTypes: snapshot.messages?.filter(message => message.role === 'custom').map(message => message.customType),
+        renderedCron: document.querySelectorAll('.cron-message').length,
+        conversationBusy: document.querySelector('.conversation')?.getAttribute('aria-busy') };
+    }).catch(error => ({ diagnosticError: String(error) }));
+    await writeFile('test-results/cron-transcript-failure.json', JSON.stringify(diagnostic, null, 2));
+    await page.screenshot({ path: 'test-results/cron-transcript-failure.png' }).catch(() => {});
+  }
+  throw error;
 } finally {
-  await app?.close();
+  if (app) await closeDesktopFixture(app);
 }

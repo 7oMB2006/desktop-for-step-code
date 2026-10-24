@@ -1,5 +1,30 @@
 # Verification
 
+## Replacement CI diagnostics follow-up (2026-10-25)
+
+Commit `5ee398d` passed the original project-picker failure in hosted Mac CI
+`40107639737`. Source acceptance then failed during the running Plan disclosure
+anchor check. The fixture's held provider response and obsolete native-dialog
+teardown hid the original assertion behind a 300-second runner timeout.
+Plan now prints its original error and before/after coordinates, waits for
+actual finite disclosure animations and resulting layout rather than a fixed
+sleep, and uses the standard orderly fixture quit review. Its exact coordinate
+assertions and all Plan approval/cancellation/reentry contracts remain intact.
+A deliberate one-pixel anchor error still fails and reports the original
+assertion, then exits in about five seconds instead of hanging. Six local
+pre-change 684px repetitions did not reproduce the hosted position failure;
+its precise coordinate difference is therefore not claimed as established.
+Updated source and 684px packaged Plan acceptance both pass locally.
+
+Windows run `40107639738` passed interface and sessions, but runtime timed out
+waiting for the first Cron transcript element in the unchanged saved-history
+fixture. Its cause remains unconfirmed. That fixture now preserves the original
+error, a bounded state projection and a failure screenshot and uses the same
+orderly close helper; its assertions and timeout are unchanged. All eight checks
+pass locally against the accepted package. These are test-only follow-ups;
+neither the approved RC nor application/runtime sources have been rebuilt.
+Fresh complete cloud checks are required; neither failed run is recorded green.
+
 ## Mac project-picker CI follow-up and second review (2026-10-24)
 
 Mac run `40101170389` passed upstream tests, build/staging, types and protocol

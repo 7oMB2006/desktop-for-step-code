@@ -19,7 +19,8 @@
 .sb-agent-text small { margin-left: auto; flex-shrink: 0; color: var(--muted); font-size: 10px; }
 .sb-agent-text > span:last-child { display: block; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-agent-chevron { display: flex; transform: rotate(-90deg); }
-.sb-repository { padding: 3px 12px 14px; border-bottom: 1px solid var(--border); }
+.sb-repository { --diff-add: oklch(.43 .11 155); --diff-remove: oklch(.48 .14 25); padding: 3px 12px 14px; border-bottom: 1px solid var(--border); }
+:root[data-theme=dark] .sb-repository { --diff-add: oklch(.78 .13 155); --diff-remove: oklch(.78 .13 25); }
 .sb-repository h3 { font-size: 13px; margin: 0 4px 4px; overflow-wrap: anywhere; }
 .sb-repo-branch { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11px; padding: 0 4px 12px; }
 .sb-repo-branch span { min-width: 0; overflow-wrap: anywhere; }

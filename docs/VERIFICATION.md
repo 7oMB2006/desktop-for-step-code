@@ -29,6 +29,71 @@ This does not update the previous preview installer.
 
 ## Reading-First Session Navigation (2026-10-24)
 
+### Editable Recovery Follow-Up
+
+The follow-up supersedes the inert preview/composer behavior described below.
+Cold reading now permits copying and historical disclosures, while the selected
+session owns an immediately editable text draft. Enter, attachment imports and
+runtime controls remain gated. Authoritative handoff preserves the editor
+instance, focus and caret; overtaken and failed targets retain separate drafts.
+Readiness fixtures now wait for the composer navigation gate, not just an
+editable textbox.
+
+Windows retains up to four recyclable idle workers while free system memory is
+at least 3 GiB, otherwise two. Other platforms keep two. Five-minute expiry and
+all active task, Goal, Cron, pending-operation and navigation reservations remain
+unchanged. This does not prewarm unvisited agents and is not a hard cap on
+protected workers. Periodic and post-navigation recycling re-evaluate the budget.
+
+Runtime snapshots include numeric startup durations for process readiness,
+session restoration, snapshot loading and model confirmation. They carry no
+paths, prompts or credentials. Resident reuse retains the original startup
+sample, rather than reporting it as a new startup.
+
+The local offline benchmark in
+`Desktop/test-results/session-navigation-performance-current.json` measured:
+
+| Scenario | Readable | Editable | Execution Ready |
+| --- | ---: | ---: | ---: |
+| Cold 0 | 49ms | 9ms | 792ms |
+| Cold 1 | 20ms | 8ms | 754ms |
+| Cold 2 | 16ms | 7ms | 758ms |
+| Resident | 12ms | 12ms | 28ms |
+| Three rapid selections | 99ms | 89ms | 816ms |
+
+Process readiness still accounts for 627-663ms in the cold samples. These
+changes remove local interaction blocking and improve residency, not upstream
+initialization itself. They do not establish real-account/MCP latency.
+
+Typecheck, build, 77 targeted unit tests and real Electron navigation acceptance
+passed, including paused startup, copy/disclosure actions, unsent Enter, caret
+handoff, rapid target drafts, failure recovery, identity and billing guards.
+
+The serial TypeScript unit suite passed with `terminal-sessions.test.ts` excluded
+because of its previously observed Windows process-tree failure; terminal
+acceptance is not claimed here. The 15 CI policy/runner tests also passed.
+The complete local Windows `sessions` acceptance group passed all 18 scripts
+(`Desktop/test-results/ci-sessions.json`), covering launch consent, cancellation,
+concurrency, navigation, branching, ordering, queues, model selection, peer
+sessions, imports, movement and large-history continuation. The large-history
+fixture opened a 61,761,405-byte source in 2,134ms and continued in 976ms without
+paid model requests.
+
+The unsigned Windows preview was built at
+`D:\Desktop For Step Code\Desktop\release\session-navigation-interactive-20261024-preview`.
+Its runtime reuses the preceding accepted preview, with all 1,224 staged files
+verified identical and runtime pin, patched-source hashes and Node executable
+checked. No upstream source was restaged or modified. Fresh renderer/main builds
+are included. Packaged navigation and general Electron acceptance passed using
+isolated profiles and offline fixtures. Installer metadata matches `latest.yml`;
+the 147,260,007-byte installer's SHA256 is
+`486c87cb45ae7ad6bd9acf8e584b23ffd414ac90bb4f1e92c15f7d6a7bb4238e`.
+The desktop shortcut points to this preview. The running older preview and
+other workstreams' packages were preserved.
+
+These checks do not establish personal-account behavior, installer upgrade
+lifecycle, macOS acceptance or replacement cloud CI results.
+
 An isolated Windows Electron profile with eight native sessions, three rounds
 each and an offline localhost model fixture measured the following milliseconds
 on the same machine. Baseline is main `3d38532`; reports are

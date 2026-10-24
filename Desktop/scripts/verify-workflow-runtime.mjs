@@ -116,7 +116,7 @@ try {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
-  await page.waitForFunction(() => document.querySelector('.composer .composer-input') && !document.querySelector('.composer .composer-input').disabled);
+  await page.waitForFunction(() => document.querySelector('.composer .composer-input') && !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer .composer-input').disabled);
   await page.evaluate(async ({ workspace, baseUrl }) => {
     await window.desktop.saveProvider({ id: '', name: 'Workflow fixture', baseUrl, api: 'openai-completions',
       enabled: true, keyless: false, models: [{ id: 'fixture-workflow', name: 'Workflow', reasoning: false, vision: false,

@@ -26,17 +26,56 @@ class Transport implements WorkerTransport {
   respond(value: Record<string, unknown>) { this.answers.push(value); }
   async stop() { this.stopped = true; }
 }
-function fixture() {
+function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   const transports: Transport[] = [];
   const events: RuntimeEvent[] = [];
   const pool = new SessionRuntimes(event => events.push(event), receive => {
     const transport = new Transport(receive, `session-${transports.length}`);
     transports.push(transport);
     return transport;
-  });
+  }, hooks);
   const open = (cwd = `workspace-${transports.length}`) => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+
+test('startup diagnostics separate process, restoration, snapshot and model phases without session content', async () => {
+  const { pool, open } = fixture();
+  try {
+    const worker = await open();
+    const timing = worker.startupTiming!;
+    assert.deepEqual(Object.keys(timing).sort(),
+      ['modelRestoreMs', 'processReadyMs', 'sessionRestoreMs', 'snapshotMs', 'totalMs']);
+    assert.ok(Object.values(timing).every(value => Number.isFinite(value) && value >= 0));
+    assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs - timing.snapshotMs - timing.modelRestoreMs) < .001);
+    pool.activate(worker);
+    assert.equal(worker.startupTiming, timing, 'Resident activation does not claim a new cold startup');
+  } finally { await pool.stopAll(); }
+});
+
+test('idle retention grows within its cap, shrinks under pressure and still expires old sessions', async () => {
+  let limit = 4;
+  const { pool, open } = fixture({ idleLimit: () => limit });
+  try {
+    const workers = [];
+    for (let index = 0; index < 6; index++) {
+      const worker = await open();
+      worker.messages = [{ role: 'user', content: 'saved' }];
+      worker.touched = Date.now() - (6 - index) * 100;
+      workers.push(worker);
+    }
+    await pool.recycle();
+    assert.equal(pool.workers.size, 5, 'Four idle sessions plus the active session');
+    assert.equal(pool.workers.has(workers[0].id), false);
+    limit = 2;
+    await pool.recycle();
+    assert.equal(pool.workers.size, 3);
+    assert.equal(pool.active, workers[5]);
+    workers[3].touched = Date.now() - 6 * 60000;
+    limit = 100;
+    await pool.recycle();
+    assert.equal(pool.workers.has(workers[3].id), false, 'More headroom does not override expiry');
+  } finally { await pool.stopAll(); }
+});
 
 test('Moved-session Cron isolation survives provider-driven transport refresh', async () => {
   const transports: Transport[] = [];

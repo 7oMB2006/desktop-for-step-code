@@ -58,7 +58,7 @@ try {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1440, 960);
   });
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   const initial = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(initial.draftId);
   const permissions = page.getByRole('button', { name: '访问权限', exact: true });
@@ -86,7 +86,7 @@ try {
   assert.equal(snapshot.launch.ultracode, false);
   assert.equal(snapshot.sessions.length, initial.sessions.length);
   await page.reload();
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ZQAAAABJRU5ErkJggg==';
   await page.evaluate(data => {
     const bytes = Uint8Array.from(atob(data), char => char.charCodeAt(0));

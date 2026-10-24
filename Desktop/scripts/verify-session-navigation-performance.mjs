@@ -99,7 +99,7 @@ try {
     const sample = await page.evaluate(async indices => {
       const target = indices.at(-1);
       const started = performance.now();
-      let readableMs, readyMs;
+      let readableMs, editableMs, readyMs;
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => { observer.disconnect(); reject(new Error('Navigation performance sample timed out')); }, 60000);
         const inspect = () => {
@@ -107,11 +107,13 @@ try {
           if (messages?.textContent.includes(`PERF HISTORY ${target}/2`)) readableMs ??= performance.now() - started;
           const input = document.querySelector('.composer > .composer-input');
           if (document.querySelector('.window-session-title')?.textContent === `Performance ${target}` && input && !input.disabled)
+            editableMs ??= performance.now() - started;
+          if (editableMs !== undefined && document.querySelector('.composer-wrap')?.getAttribute('aria-busy') !== 'true')
             readyMs ??= performance.now() - started;
           if (readableMs === undefined || readyMs === undefined) return;
           observer.disconnect(); clearTimeout(timer);
           requestAnimationFrame(() => requestAnimationFrame(() => resolve({
-            target, readableMs, readyMs, paintedMs: performance.now() - started,
+            target, readableMs, editableMs, readyMs, paintedMs: performance.now() - started,
           })));
         };
         const observer = new MutationObserver(inspect);
@@ -127,8 +129,8 @@ try {
     }, indices);
     const snapshot = await page.evaluate(() => window.desktop.snapshot());
     assert.equal(snapshot.state.sessionId, `perf-${indices.at(-1)}`);
-    samples.push({ phase, ...sample });
-    console.log(`${phase}: readable ${Math.round(sample.readableMs)}ms, ready ${Math.round(sample.readyMs)}ms`);
+    samples.push({ phase, ...sample, startupTiming: snapshot.runtimeStartupTiming });
+    console.log(`${phase}: readable ${Math.round(sample.readableMs)}ms, editable ${Math.round(sample.editableMs)}ms, ready ${Math.round(sample.readyMs)}ms`);
   };
   for (const index of [0, 1, 2]) await measure([index], `cold-${index}`);
   await measure([1], 'resident');

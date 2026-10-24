@@ -74,7 +74,7 @@ try {
   });
   await page.getByRole('button', { name: '进度条声画验收', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false'
-    && !document.querySelector('.composer > .composer-input')?.disabled);
+    && !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
   const board = page.getByRole('complementary', { name: '摘要', exact: true });
   const progress = board.getByRole('progressbar');

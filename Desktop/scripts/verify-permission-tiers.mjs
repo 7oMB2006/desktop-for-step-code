@@ -54,7 +54,7 @@ const open = async () => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1360, 900);
   });
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await page.evaluate(() => window.desktop.snapshot());
   return page;
 };
@@ -168,7 +168,7 @@ try {
   page = await open();
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload();
-  await page.waitForFunction(() => !document.querySelector('.composer > .composer-input')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
   assert.notEqual((await snapshot()).permissionPreset, 'full-access', 'Session-only grant cannot survive process replacement');
   await choose('完全访问');
   await risk().waitFor();

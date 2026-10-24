@@ -5,6 +5,14 @@ export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?:
 export interface Message { desktopImported?: boolean }
 export interface Content { historical?: boolean }
 export interface Snapshot { workspaceIssue?: string }
+export interface RuntimeStartupTiming {
+  processReadyMs: number;
+  sessionRestoreMs: number;
+  snapshotMs: number;
+  modelRestoreMs: number;
+  totalMs: number;
+}
+export interface Snapshot { runtimeStartupTiming?: RuntimeStartupTiming }
 export interface StatusAccount { mode: 'plan' | 'api' | 'none' | 'unknown'; region?: 'cn' | 'global'; userId?: string }
 export interface Snapshot { statusAccount?: StatusAccount }
 export interface Snapshot { estimate?: import('./usage-estimates').SessionEstimate; quitReview?: import('./quit-confirmation').QuitReviewState }

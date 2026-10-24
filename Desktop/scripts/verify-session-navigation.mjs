@@ -33,7 +33,7 @@ for (let index = 0; index < 6; index++) {
       message: { role: 'user', content: [{ type: 'text', text: `Conversation ${index}, question ${turn}` }], timestamp: Date.parse(timestamp) } });
     const assistantId = `assistant-${turn}`;
     entries.push({ type: 'message', id: assistantId, parentId: userId, timestamp,
-      message: { role: 'assistant', content: [{ type: 'text', text: `Answer ${index}/${turn}. ` + 'A readable history paragraph with stable message identity.\n\n'.repeat(3) }],
+      message: { role: 'assistant', content: [...(turn === 21 ? [{ type: 'thinking', thinking: 'Saved reasoning stays readable during recovery.' }] : []), { type: 'text', text: `Answer ${index}/${turn}. ` + 'A readable history paragraph with stable message identity.\n\n'.repeat(3) }],
         api: 'openai-completions', provider: 'fixture', model: 'fixture', stopReason: 'stop',
         usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
         timestamp: Date.parse(timestamp) } });
@@ -61,6 +61,8 @@ try {
   const page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow, dialog }) => {
+    // Exercise the conservative low-memory retention budget deterministically.
+    process.getBuiltinModule('os').freemem = () => 1024 ** 3;
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
     dialog.showMessageBox = async () => ({ response: 1 });
@@ -69,6 +71,7 @@ try {
   const row = index => page.locator(`[data-reorder-id="navigation-${index}"] > button`).first();
   const opened = async index => {
     await page.waitForFunction(index => document.querySelector('.window-session-title')?.textContent === `Navigation ${index}` &&
+      document.querySelector('.composer-wrap')?.getAttribute('aria-busy') !== 'true' &&
       !document.querySelector('.composer > .composer-input')?.disabled, index, { timeout: 60000 });
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.sessionId, `navigation-${index}`);
   };
@@ -86,8 +89,20 @@ try {
     const before = await readFile(join(sessions, 'navigation-4.jsonl'));
     await row(4).click();
     await page.waitForFunction(() => document.querySelector('.session-reading-preview')?.textContent.includes('Answer 4/21'));
-    assert.ok(await page.locator('.session-reading-preview').evaluate(element => element.inert));
-    assert.ok(await page.locator('.composer > .composer-input').isDisabled());
+    assert.equal(await page.locator('.session-reading-preview').evaluate(element => element.inert), false);
+    assert.equal(await page.locator('.composer > .composer-input').isDisabled(), false);
+    const composer = page.getByRole('textbox', { name: '消息', exact: true });
+    await composer.fill('Draft entered during cold recovery');
+    await composer.press('Enter');
+    assert.equal(await composer.evaluate(element => element.value), 'Draft entered during cold recovery');
+    assert.ok(await page.locator('.composer-action-button').isDisabled(), 'Execution remains gated');
+    const previewUser = page.locator('.session-reading-preview .message.user').last();
+    await previewUser.hover();
+    await previewUser.locator('.icon-button[aria-label="复制"]').click();
+    assert.ok((await app.evaluate(({ clipboard }) => clipboard.readText())).includes('Conversation 4'));
+    const thinking = page.locator('.session-reading-preview details.thinking').last();
+    await thinking.locator('summary').click();
+    await page.waitForFunction(() => document.querySelector('.session-reading-preview details.thinking')?.getAttribute('data-expanded') === 'true');
     const history = await page.evaluate(() => window.desktop.sessionReading('navigation-4'));
     assert.deepEqual(Object.keys(history).sort(), ['messages', 'modelChanges', 'sessionId', 'version']);
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
@@ -114,8 +129,16 @@ try {
       Buffer.concat([before, Buffer.from(extra.map(entry => JSON.stringify(entry)).join('\n') + '\n')]));
     const newer = await page.evaluate(() => window.desktop.sessionReading('navigation-4'));
     assert.notEqual(newer.version, history.version);
+    await composer.focus();
+    await composer.evaluate(element => {
+      element.setSelectionRange(5, 5);
+      window.navigationEditorBeforeReady = element;
+    });
     await app.evaluate(() => globalThis.navigationRelease());
     await opened(4);
+    assert.equal(await composer.evaluate(element => element.value), 'Draft entered during cold recovery');
+    assert.ok(await composer.evaluate(element => element === window.navigationEditorBeforeReady &&
+      document.activeElement === element && element.selectionStart === 5), 'Handoff preserves editor focus and caret');
     assert.equal(await page.locator('.messages').evaluate(element =>
       element.textContent.split('AUTHORITATIVE_HANDOFF_MESSAGE').length - 1), 1,
     'Runtime handoff replaces the historical snapshot with newer messages without duplicates');
@@ -186,8 +209,10 @@ try {
       if (globalThis.navigationStalled < count) throw new Error('Fixture startups were not intercepted');
     }, count);
     await waitForStartups(1);
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill('Draft for overtaken one');
     await row(0).click();
     await waitForStartups(2);
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill('Draft for overtaken zero');
     await row(2).click();
     await opened(2);
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, residentRuntimeId,
@@ -213,6 +238,8 @@ try {
     for (const index of [4, 1, 2, 3]) {
       await row(index).click();
       await opened(index);
+      if (index === 1) assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value),
+        'Draft for overtaken one', 'Overtaken startup retains only its own draft');
       await page.waitForFunction(async () => (await window.desktop.snapshot()).runtimes.length <= 3);
     }
     await assert.rejects(page.evaluate(() => window.desktop.logout()), /operation in progress/i,
@@ -270,6 +297,8 @@ try {
   phase = 'draft and reading anchor';
   await row(0).click();
   await opened(0);
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value),
+    'Draft for overtaken zero', 'Rapid switching keeps the other target draft separate');
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained draft zero');
   const reading = await page.evaluate(() => {
     const viewport = document.querySelector('#conversation-scroll');
@@ -297,7 +326,7 @@ try {
   });
   await opened(0);
   const preview = await page.evaluate(() => { window.navigationPreviewObserver.disconnect(); return window.previewEvidence; });
-  assert.ok(preview.some(value => value.inert && value.disabled && value.text), 'Recycled history appears as an inert cached transcript before reconnection');
+  assert.ok(preview.some(value => !value.inert && !value.disabled && value.text), 'Recycled history and target draft are usable before execution reconnects');
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Retained draft zero');
   const restored = await page.evaluate(() => {
     const viewport = document.querySelector('#conversation-scroll');
@@ -332,8 +361,10 @@ try {
     await row(1).click();
     await page.waitForFunction(() => {
       const input = document.querySelector('.composer > .composer-input');
-      return input?.disabled && input.value === 'Retained draft one';
+      return !input?.disabled && input.value === 'Retained draft one' &&
+        document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'true';
     });
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill('Edited while failed target was opening');
     await app.evaluate(() => globalThis.navigationReleaseFailure());
     await page.getByRole('alert').filter({ hasText: 'NAVIGATION_DOUBLE_FAILURE' }).waitFor();
     await page.waitForFunction(() => {
@@ -349,6 +380,12 @@ try {
       delete globalThis.navigationReleaseFailure;
     });
   }
+  await opened(0);
+  await row(1).click();
+  await opened(1);
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value),
+    'Edited while failed target was opening', 'Failed navigation preserves the target draft independently');
+  await row(0).click();
   await opened(0);
   await row(2).click();
   await opened(2);
@@ -463,7 +500,7 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 700));
   await page.screenshot({ path: 'test-results/session-navigation-dark-narrow.png' });
   assert.deepEqual(errors, []);
-  console.log('Session navigation passed: latest-target commits, two-startup resident bypass, bounded background recycling, locked billing changes, inert reading cache, drafts, anchors, failure recovery and narrow/reduced-motion layout.');
+  console.log('Session navigation passed: latest-target commits, two-startup resident bypass, bounded background recycling, locked billing changes, interactive read-only history, isolated editable drafts, caret handoff, anchors, failure recovery and narrow/reduced-motion layout.');
 } catch (error) {
   console.error('Navigation acceptance failed during:', phase);
   const page = await app.firstWindow().catch(() => null);

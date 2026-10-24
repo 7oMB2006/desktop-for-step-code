@@ -11,7 +11,7 @@ import { desktopSystemPolicy } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
 import { importedHistoryMessages } from './imported-history';
-import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, SessionStats, UIRequest } from '../src/contracts';
+import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, RuntimeStartupTiming, SessionStats, UIRequest } from '../src/contracts';
 import { isFullAccessRisk } from '../src/full-access-risk';
 import { questionnaire } from '../src/questionnaire';
 import { cronState, hasScheduledCron, type CronState } from './cron-state';
@@ -53,6 +53,7 @@ export interface SessionRuntime {
   stopping?: boolean;
   cron?: CronState;
   cronScopeDirectory?: string;
+  startupTiming?: RuntimeStartupTiming;
 }
 export function firstUserText(messages: Message[]) {
   const message = messages.find(isUserMessage);
@@ -94,6 +95,7 @@ export class SessionRuntimes {
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
+      idleLimit?: () => number;
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
@@ -276,11 +278,13 @@ export class SessionRuntimes {
     this.workers.set(worker.id, worker);
     try {
       const launch = this.hooks.launch?.(worker);
+      const startedAt = performance.now();
       worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env, DESKTOP_CRON_SCOPE_DIR: worker.cronScopeDirectory,
         STEPCODE_DESKTOP_BRANCH_SOURCE: branch && branch.kind !== 'open-copy' && sessionPath ? resolve(sessionPath) : undefined,
       }, ['--append-system-prompt', desktopSystemPolicy(cwd),
         ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);
       await worker.rpc.request('get_state', {}, 60000);
+      const processReadyAt = performance.now();
       const result = existing && !sessionPath ? { cancelled: false }
         : await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath, cwdOverride: cwd } : {}, 60000);
       if (result.cancelled) throw new Error('Session operation cancelled');
@@ -306,13 +310,23 @@ export class SessionRuntimes {
         }
         if (branch.name) await worker.rpc.request('set_session_name', { name: branch.name });
       }
+      const sessionRestoredAt = performance.now();
       worker.status = 'connected';
       worker.state = await worker.rpc.request('get_state');
       await this.read(worker);
+      const snapshotAt = performance.now();
       // Recovery is already explicitly confirmed with its own model, and refresh
       // below restores the captured live selection rather than a global default.
       if (!existing && env.DESKTOP_CRON_RECOVERY !== '1')
         await this.hooks.initializeModel?.(worker, Boolean(sessionPath || branch));
+      const modelRestoredAt = performance.now();
+      worker.startupTiming = {
+        processReadyMs: processReadyAt - startedAt,
+        sessionRestoreMs: sessionRestoredAt - processReadyAt,
+        snapshotMs: snapshotAt - sessionRestoredAt,
+        modelRestoreMs: modelRestoredAt - snapshotAt,
+        totalMs: modelRestoredAt - startedAt,
+      };
       if (activate) this.activate(worker);
       else this.publish();
       return worker;
@@ -606,9 +620,11 @@ export class SessionRuntimes {
       !hasScheduledCron(worker.cron) &&
       !worker.operations && !worker.mutating && !worker.pendingModel && !worker.queued && worker.messages.length > 0;
     const idle = [...this.workers.values()].filter(recyclable);
+    const requestedLimit = this.hooks.idleLimit?.() ?? 2;
+    const idleLimit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(4, Math.floor(requestedLimit))) : 2;
     idle.sort((a, b) => b.touched - a.touched);
     for (const worker of idle) if (recyclable(worker) &&
-      (idle.indexOf(worker) >= 2 || Date.now() - worker.touched > 5 * 60000)) await this.remove(worker);
+      (idle.indexOf(worker) >= idleLimit || Date.now() - worker.touched > 5 * 60000)) await this.remove(worker);
   }
   async stopAll() {
     const workers = [...this.workers.values()];

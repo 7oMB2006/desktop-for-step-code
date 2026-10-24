@@ -15,6 +15,15 @@ the focus extent against clipping ancestors, not just the input's border box.
 
 ## Existing Components
 
+Session navigation separates readable history, editable local drafts and
+execution readiness. A cold preview supports text selection, copying and
+historical disclosures; it never authorizes runtime mutations. Text edits are
+stored against the selected session, including overtaken or failed navigation.
+The editor keeps its identity, focus and caret through authoritative handoff.
+Sending, attachments, permissions and runtime-dependent controls remain gated
+until the target runtime is confirmed. Do not dim or disable the whole composer
+to express execution startup; only unavailable tools are subdued.
+
 The sidebar Schedules icon toggles its view without replacing the active
 conversation or its draft. Its pressed state and return tooltip reflect the
 current view; explicit `/cron` navigation remains an open action, not a toggle.

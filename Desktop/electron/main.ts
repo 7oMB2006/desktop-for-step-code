@@ -6,7 +6,7 @@ import { join, resolve, extname, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { freemem, homedir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
@@ -353,6 +353,9 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     return decorateSessionMessages(worker.state.sessionId, worker.cwd, messages);
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
+  // Keep at most two extra idle children when Windows has ample free memory.
+  // This is a retention budget, never permission to speculatively start agents.
+  idleLimit: () => process.platform === 'win32' && freemem() >= 3 * 1024 ** 3 ? 4 : 2,
   initializeModel: async (worker, restoring) => {
     const history = restoring ? await worker.rpc.request('get_entries') : undefined;
     const expected = history ? savedSessionModel(history.entries ?? [], history.leafId ?? null) : preferences.preferredModel;
@@ -562,7 +565,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     statusAccount: statusAccount(appliedAuthData),
     workspaceIssue: unavailableWorkspace,
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, providerSettingsPending,
-    status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
+    status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
       : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
     modelSelection: worker ? modelSelections.selection(worker) : undefined,

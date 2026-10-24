@@ -9,6 +9,8 @@ import json from 'highlight.js/lib/languages/json';
 import python from 'highlight.js/lib/languages/python';
 import xml from 'highlight.js/lib/languages/xml';
 import type { TurnChanges as Changes, TurnFile } from './turn-changes';
+import type { DiffLayout } from './panel-preferences';
+import { splitDiffRows } from './split-diff';
 import './turn-changes.css';
 import type { TurnUndoState } from './contracts';
 
@@ -16,7 +18,9 @@ for (const [name, grammar] of Object.entries({ javascript, typescript, css, json
 const languages: Record<string, string> = { js: 'javascript', jsx: 'javascript', mjs: 'javascript', ts: 'typescript', tsx: 'typescript',
   css: 'css', json: 'json', py: 'python', html: 'xml', svg: 'xml', xml: 'xml' };
 
-export function FilePreview({ file, language, onError }: { file: TurnFile; language: 'zh' | 'en'; onError: (error: string) => void }) {
+export function FilePreview({ file, language, onError, layout = 'unified' }: {
+  file: TurnFile; language: 'zh' | 'en'; onError: (error: string) => void; layout?: DiffLayout;
+}) {
   const [operation, setOperation] = useState(file.edits.length - 1);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -30,8 +34,15 @@ export function FilePreview({ file, language, onError }: { file: TurnFile; langu
     if (!grammar || row.kind === 'hunk' || row.kind === 'note') return { ...row, html: undefined };
     return { ...row, html: hljs.highlight(row.text, { language: grammar, ignoreIllegals: true }).value };
   }), [edit, grammar]);
+  const split = useMemo(() => splitDiffRows(rows), [rows]);
   const zh = language === 'zh';
-  return <div className="turn-diff">
+  const text = (row: typeof rows[number]) => <code>{row.html === undefined ? row.text : <span dangerouslySetInnerHTML={{ __html: row.html }}/>}</code>;
+  const side = (row: typeof rows[number] | undefined, before: boolean) => <>
+    <td className={`diff-line-number diff-line-${row?.kind ?? 'empty'}`} aria-label={zh ? before ? '旧行号' : '新行号' : before ? 'Old line' : 'New line'}>{before ? row?.oldLine : row?.newLine}</td>
+    <td className={`diff-line-sign diff-line-${row?.kind ?? 'empty'}`}>{row?.kind === 'add' ? '+' : row?.kind === 'remove' ? '-' : ''}</td>
+    <td className={`diff-line-text diff-line-${row?.kind ?? 'empty'}`}>{row && text(row)}</td>
+  </>;
+  return <div className="turn-diff" data-layout={layout}>
     <div className="turn-diff-toolbar">
       {file.edits.length > 1 ? <select aria-label={zh ? '编辑记录' : 'Edit record'} value={operation}
         onChange={event => { setOperation(Number(event.target.value)); setCopied(false); }}>
@@ -46,12 +57,18 @@ export function FilePreview({ file, language, onError }: { file: TurnFile; langu
         }}>{copied ? <Check size={13}/> : <Copy size={13}/>}</button>
     </div>
     <div className="turn-diff-scroll" tabIndex={0} role="region" aria-label={`${file.path} ${zh ? '变更预览' : 'diff preview'}`}>
-      <table className="turn-diff-table"><tbody>{rows.map((row, index) => <tr key={index} className={`diff-line-${row.kind}`}>
+      {layout === 'split' ? <table className="turn-diff-table diff-split-table">
+        <colgroup><col className="diff-number-column"/><col className="diff-sign-column"/><col/><col className="diff-number-column"/><col className="diff-sign-column"/><col/></colgroup>
+        <thead><tr><th colSpan={3} scope="colgroup">{zh ? '修改前' : 'Before'}</th><th colSpan={3} scope="colgroup">{zh ? '修改后' : 'After'}</th></tr></thead>
+        <tbody>{split.map((row, index) => row.kind === 'separator'
+          ? <tr key={index} className={`diff-line-${row.row.kind}`}><td colSpan={6}>{text(row.row)}</td></tr>
+          : <tr key={index}>{side(row.left, true)}{side(row.right, false)}</tr>)}</tbody>
+      </table> : <table className="turn-diff-table"><tbody>{rows.map((row, index) => <tr key={index} className={`diff-line-${row.kind}`}>
         <td className="diff-line-number" aria-label={zh ? '旧行号' : 'Old line'}>{row.oldLine ?? ''}</td>
         <td className="diff-line-number" aria-label={zh ? '新行号' : 'New line'}>{row.newLine ?? ''}</td>
         <td className="diff-line-sign">{row.kind === 'add' ? '+' : row.kind === 'remove' ? '-' : ''}</td>
-        <td className="diff-line-text"><code>{row.html === undefined ? row.text : <span dangerouslySetInnerHTML={{ __html: row.html }}/>}</code></td>
-      </tr>)}</tbody></table>
+        <td className="diff-line-text">{text(row)}</td>
+      </tr>)}</tbody></table>}
     </div>
   </div>;
 }

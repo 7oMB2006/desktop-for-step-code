@@ -31,6 +31,17 @@ Only a scrolled conversation list fades over its top 18px. At scroll origin or
 while a list control has keyboard-visible focus, the list stays fully opaque.
 The fade belongs to list content, never the fixed sidebar action buttons.
 
+Sidebar search expands from its existing icon anchor and filters non-archived
+session metadata locally: title, first prompt, project name and directory.
+Whitespace-separated terms can match different fields; no full-history scan is
+performed. Results retain pinned/project grouping and saved ordering. Matching
+groups expand temporarily without writing disclosure preferences; clearing or
+closing search restores the original groups. Filtered results cannot be reordered.
+Search never selects a conversation, discards a draft or launches a runtime until
+the user explicitly opens a result. Escape dismisses search and restores trigger
+focus, except during IME composition. The composite field retains the shared
+four-sided focus outline outside its animated inner clip.
+
 Compact process singletons show the original thinking/tool disclosure directly,
 without a second heading or indentation. Stable keyed members retain manual
 expansion, output controls and focus as siblings arrive or leave. Multi-member

@@ -152,9 +152,9 @@ try {
   const anchorBefore = await page.locator('.sidebar-search-toggle').boundingBox();
   const treeBefore = await page.locator('.workspace-tree').boundingBox();
   await searchButton.press('Enter');
-  const searchInput = page.getByRole('textbox', { name: '会话搜索（待接入）', exact: true });
+  const searchInput = page.getByRole('textbox', { name: '搜索会话', exact: true });
   await searchInput.waitFor();
-  assert.equal(await searchInput.evaluate(input => input.readOnly && document.activeElement === input), true);
+  assert.equal(await searchInput.evaluate(input => !input.readOnly && document.activeElement === input), true);
   assert.equal(await page.locator('.sidebar-utility-links').evaluate(element => element.inert), true);
   await page.locator('.sidebar-search-field').evaluate(async element => {
     await Promise.all(element.getAnimations().map(animation => animation.finished));
@@ -180,7 +180,7 @@ try {
     elements.length === 2 && elements.every(element => element.scrollWidth <= element.clientWidth)), true, 'English primary labels fit');
   await page.screenshot({ path: 'test-results/capabilities-sidebar-dark-en.png' });
   await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Session search (coming soon)', exact: true }).press('Escape');
+  await page.getByRole('textbox', { name: 'Search sessions', exact: true }).press('Escape');
   await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'zh' }));
   await page.reload();
   await page.getByRole('button', { name: '定时任务', exact: true }).waitFor();

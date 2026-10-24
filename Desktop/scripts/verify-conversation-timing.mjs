@@ -81,7 +81,7 @@ try {
   await page.locator('.sidebar').hover();
   await page.waitForTimeout(180);
   assert.deepEqual(await page.locator('.thinking .elapsed-label').allTextContents(), ['已耗时 17s', '已耗时 15s']);
-  assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m23s');
+  assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m 23s');
   assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '0');
   await page.locator('.assistant-actions').hover();
   await page.waitForTimeout(180);
@@ -93,7 +93,7 @@ try {
     && !document.querySelector('.session-reading-preview'), undefined, { timeout: 60000 });
   await page.reload();
   await page.locator('.elapsed-total').waitFor();
-  assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m23s');
+  assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m 23s');
   await page.evaluate(async () => { await window.desktop.preferences({ theme: 'light' }); });
   await page.reload();
   await page.locator('.elapsed-total').waitFor();

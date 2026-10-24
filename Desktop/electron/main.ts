@@ -28,6 +28,7 @@ import { CronAutoRecovery } from './cron-auto-recovery';
 import { CronHistory } from './cron-history';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
+import { normalizePanelPreferences, panelPreferencePatch } from '../src/panel-preferences';
 import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
 import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } from '../src/theme';
 import { ConversationTiming } from './conversation-timing';
@@ -1884,6 +1885,7 @@ async function handle(method: string, args: any[]) {
     }
     case 'preferences': {
       const patch = args[0] ?? {};
+      const panelPatch = panelPreferencePatch(patch);
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
       const colorPatch = themePreferencePatch(patch);
       if (patch.appearance !== undefined) {
@@ -1912,7 +1914,7 @@ async function handle(method: string, args: any[]) {
         const known = new Set((await listSessions()).map(s => s.id));
         preferences.archivedSessionIds = patch.archivedSessionIds.map((id: unknown) => text(id, 200)).filter((id: string) => known.has(id));
       }
-      Object.assign(preferences, sidebarPatch, updatePatch);
+      Object.assign(preferences, sidebarPatch, updatePatch, panelPatch);
       if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
       await savePreferences();
       window.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
@@ -2044,6 +2046,7 @@ else app.whenReady().then(async () => {
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
   preferences = migrateWorkspaceIdentity(preferences);
+  Object.assign(preferences, normalizePanelPreferences(preferences));
   preferences.preferredModel = modelPreference(preferences.preferredModel);
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.theme = normalizeTheme(preferences.theme);

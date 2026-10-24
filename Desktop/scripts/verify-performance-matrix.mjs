@@ -184,6 +184,39 @@ try {
   });
   assert.notEqual(forcedStyle.fill, 'rgba(0, 0, 0, 0)');
   assert.equal(forcedStyle.image, 'none');
+  await page.emulateMedia({ forcedColors: 'none', reducedMotion: 'reduce' });
+  for (const language of ['zh', 'en']) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 390, height: 844 });
+      for (const [ms, compact, chinese] of [
+        [59999, '59s', '59秒'],
+        [60000, '1m 0s', '1分 0秒'],
+        [3599999, '59m 59s', '59分 59秒'],
+        [3600000, '1h 0m 0s', '1小时 0分 0秒'],
+        [14421000, '4h 0m 21s', '4小时 0分 21秒'],
+        [86400000, '24h 0m 0s', '24小时 0分 0秒'],
+      ]) {
+        await page.goto(`${url}?theme=${theme}&lang=${language}&elapsedMs=${ms}&frozen=1`);
+        assert.equal(await page.locator('.working-elapsed').innerText(), language === 'zh' ? `总耗时 ${chinese}` : `Total ${compact}`);
+        assert.equal(await page.locator('.performance-metric strong').first().innerText(), compact);
+        assert.ok(await page.locator('.working-elapsed').evaluate(el => {
+          const rect = el.getBoundingClientRect();
+          return rect.left >= 0 && rect.right <= innerWidth;
+        }), `running duration must stay visible: ${theme}/${language}/${compact}`);
+        await page.getByRole('button', { name: language === 'zh' ? '完成' : 'Finish', exact: true }).click();
+        assert.equal(await page.locator('.elapsed-total').innerText(), `${language === 'zh' ? '共耗时' : 'Total'} ${compact}`);
+        assert.equal(await page.locator('.performance-metric strong').first().innerText(), compact);
+        assert.ok(await page.locator('main').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
+        for (const selector of ['.elapsed-total', '.performance-metric:first-child']) {
+          assert.ok(await page.locator(selector).evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            return rect.left >= 0 && rect.right <= innerWidth;
+          }), `${selector} must stay visible: ${theme}/${language}/${compact}`);
+        }
+      }
+      await page.screenshot({ path: `test-results/elapsed-duration-${theme}-${language}-narrow.png` });
+    }
+  }
   assert.deepEqual(errors, []);
   console.log('Performance/matrix: centered metrics, execution flow, slow thinking orbit, cubic mode crossfade, gradient pause, elapsed clock, completion, tooltips, narrow layout and reduced motion passed.');
 } finally {

@@ -1,5 +1,40 @@
 # Verification
 
+## Sidebar Session Search (2026-10-24)
+
+The former placeholder now filters existing non-archived session metadata in
+the renderer. Title, first prompt, project aliases and paths are searchable;
+full transcript contents are not scanned. Empty queries preserve the original
+catalog. Matching collapsed groups open temporarily without preference writes,
+and filtered views cannot rewrite manual ordering.
+
+Typecheck, production build and 15 focused search/order tests passed, including
+empty-title localization and a 10,000-session metadata catalog. Isolated-profile
+source Electron search acceptance passed real catalog filtering, pinned ordering,
+archived exclusion, independent sessions, IME Escape, empty results, restored
+collapse state, unchanged draft/runtime identity and explicit result navigation.
+Light/dark, narrow layouts and complete composite-field focus bounds are covered.
+The existing source Electron session-navigation, sidebar-order/disclosure and full
+capability-management regressions passed separately. The initially stale local runtime was restaged
+from a separate pinned checkout with the current Desktop patches; all patched
+source hashes and management adapters were checked against this branch before
+rerunning acceptance. No installed user profile was used. No installer,
+paid-model run or complete-suite acceptance is claimed.
+
+## Shared Elapsed Duration Display (2026-10-24)
+
+The running matrix indicator, completed-turn label and performance strip now share
+whole-second duration formatting with minute/hour rollover and spaces between
+unit groups. Chinese live labels use `4小时 0分 21秒`; compact labels use
+`4h 0m 21s`. This changes presentation only, not timing sources or billing.
+Typecheck, the production renderer build and 15 focused timing/performance tests
+passed, including real isolated RPC timing. Browser acceptance covers the actual
+components in light/dark, Chinese/English and 390-pixel layouts, minute/hour
+boundaries and 24-hour runs, plus the existing motion and accessibility checks.
+Isolated-profile Electron acceptance with the current source renderer passed
+history/reload, light/dark/narrow, live ticking and completion freeze checks.
+No installer, paid-model run or full-suite acceptance is claimed.
+
 ## Capability Form And Sidebar Follow-Up (2026-10-24)
 
 The Skill creation form reproduced horizontal clipping of its outer focus outline

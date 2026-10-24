@@ -1,4 +1,5 @@
 import { useId, type CSSProperties, type ReactNode } from 'react';
+import { formatElapsedDuration } from './elapsed-time';
 import './working-indicator.css';
 
 const ring = [0, 1, 2, 5, 8, 7, 6, 3];
@@ -51,10 +52,7 @@ export function MatrixPulse({ mode = 'executing' }: { mode?: WorkingMode }) {
 export function WorkingIndicator({ children, elapsedMs, mode = 'executing', language }: {
   children: ReactNode; elapsedMs?: number; mode?: WorkingMode; language: 'zh' | 'en';
 }) {
-  const seconds = elapsedMs === undefined ? undefined : Math.floor(Math.max(0, elapsedMs) / 1000);
-  const time = seconds === undefined ? undefined : seconds >= 60
-    ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-    : language === 'zh' ? `${seconds}秒` : `${seconds}s`;
+  const time = elapsedMs === undefined ? undefined : formatElapsedDuration(elapsedMs, language);
   return <span className="working-indicator"><MatrixPulse mode={mode}/><span className="working-text">{children}
     {time !== undefined && <span className="working-elapsed" data-tooltip={language === 'zh' ? '本轮总耗时，包含工具执行与等待' : 'Total run duration, including tools and waits'}>
       {language === 'zh' ? '总耗时 ' : 'Total '}{time}

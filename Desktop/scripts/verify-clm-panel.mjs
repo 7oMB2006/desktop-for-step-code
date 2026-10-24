@@ -18,7 +18,15 @@ try {
   await page.getByText('r18 · 历史只读', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '整理上下文', exact: true }).isEnabled(), false);
   await page.getByRole('button', { name: '修改对比', exact: true }).click();
-  await page.getByText('@@ r18 @@', { exact: false }).waitFor();
+  await page.getByRole('region', { name: '修改前', exact: true }).getByText('切换身份与响应做过一致性检查，需要按生效账户校验返回值。', { exact: false }).waitFor();
+  await page.getByRole('region', { name: '修改后', exact: true }).getByText('过期身份的响应必须丢弃，避免覆盖切换后的账户。', { exact: false }).waitFor();
+  assert.equal(await page.locator('.clm-comparison').innerText().then(text => text.includes('CTX_TURN')), false);
+  await page.locator('.clm-diff .clm-disclosure summary').click();
+  await page.getByText('Index: LIVE_CONTEXT.md', { exact: false }).waitFor();
+  await page.getByRole('button', { name: '上下文宽度', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: '宽幅', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '上下文宽度', exact: true }).getAttribute('data-width'), 'wide');
+  await page.getByRole('region', { name: '修改后', exact: true }).waitFor();
   await page.getByRole('button', { name: '工作内容', exact: true }).click();
   await page.getByRole('combobox', { name: '选择内容', exact: true }).selectOption('ctx-assistant');
   await page.getByText('修订 r18：已核对账户隔离。剩余测试包含超时与认证失效。', { exact: true }).last().waitFor();
@@ -45,8 +53,12 @@ try {
         await Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => {})));
       });
       await page.screenshot({ path: `${output}/clm-integrated-${theme}-${width}.png` });
+      await page.getByRole('button', { name: '修改对比', exact: true }).click();
+      await page.getByRole('region', { name: '修改后', exact: true }).waitFor();
+      await page.screenshot({ path: `${output}/clm-readable-${theme}-${width}.png` });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false,
         JSON.stringify(await page.evaluate(() => [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > innerWidth + 1).map(el => el.className).slice(0, 20))));
+      await page.getByRole('button', { name: '概览', exact: true }).click();
     }
   }
   assert.deepEqual(errors, []);

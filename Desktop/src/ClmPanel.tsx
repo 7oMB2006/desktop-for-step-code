@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, FileText, History, LockKeyhole, RefreshCw, ShieldCheck } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ArrowLeft, ArrowRight, Code2, FileText, History, LockKeyhole, Minus, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
+import Markdown from 'react-markdown';
 import type { Snapshot } from './contracts';
 import type { ClmAction, ClmSnapshot } from './clm';
+import { clmChanges, clmTextTitle } from './clm-diff';
 import { WorkingContextIcon } from './ContextCommandIcon';
 import { DisclosureChevron } from './DisclosureChevron';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
@@ -13,14 +15,51 @@ function RevisionLabel({ value }: { value: number }) {
   return <span className={`clm-revision-label${String(value).length > 3 ? ' is-long' : ''}`}><span className="clm-revision-prefix">r</span><span className="clm-revision-number">{value}</span></span>;
 }
 
-function Disclosure({ label, children }: { label: string; children: ReactNode }) {
+function fitPicker(select: HTMLSelectElement) {
+  select.style.setProperty('--clm-picker-height', `${Math.max(40, innerHeight - select.getBoundingClientRect().bottom - 12)}px`);
+}
+
+function Disclosure({ label, children, icon = <ShieldCheck size={14}/> }: { label: string; children: ReactNode; icon?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const { details, body } = useAnimatedDisclosure(open);
   return <details ref={details} className="clm-disclosure" data-expanded={open}>
     <summary aria-expanded={open} onClick={event => { event.preventDefault(); setOpen(value => !value); }}>
-      <ShieldCheck size={14}/><span>{label}</span><DisclosureChevron/>
+      {icon}<span>{label}</span><DisclosureChevron/>
     </summary><div ref={body} inert={!open} aria-hidden={!open}>{children}</div>
   </details>;
+}
+
+function ReadableText({ text, omitTitle }: { text: string; omitTitle?: string }) {
+  const body = text.replace(/^\s*#{1,6}\s+([^\n]+)\n*/, (match, heading: string) => heading.trim() === omitTitle ? '' : match);
+  return <div className="clm-readable"><Markdown skipHtml components={{
+    a: ({ children }) => <span>{children}</span>, img: ({ alt }) => <span>{alt}</span>,
+  }}>{body}</Markdown></div>;
+}
+
+function ClmDiff({ diff, language }: { diff: string; language: 'zh' | 'en' }) {
+  const t = (cn: string, en: string) => language === 'zh' ? cn : en;
+  const changes = useMemo(() => clmChanges(diff), [diff]);
+  const [selection, setSelection] = useState('');
+  const active = changes.find(item => item.id === selection) ?? changes[0];
+  return <div className="clm-diff">
+    {active ? <>
+      <label>{t('选择修改', 'Select change')}<span className="clm-select"><select value={active.id} onChange={event => setSelection(event.target.value)}
+        onPointerDown={event => fitPicker(event.currentTarget)} onFocus={event => fitPicker(event.currentTarget)}>
+        {changes.map((item, index) => <option key={item.id} value={item.id}>{item.title || t(`修改片段 ${index + 1}`, `Change fragment ${index + 1}`)}</option>)}
+      </select><DisclosureChevron/></span></label>
+      <div className="clm-document-heading"><span>{t('保存的修改片段', 'Saved change fragment')}</span><small>{t('节选', 'Excerpt')}</small></div>
+      <h3>{active.title || t('上下文修改', 'Context change')}</h3>
+      <div className="clm-comparison">
+        <section className="clm-diff-before" aria-label={t('修改前', 'Before')}><header><Minus size={12}/><span>{t('修改前', 'Before')}</span></header>
+          {active.before ? <ReadableText text={active.before} omitTitle={active.title}/> : <p className="clm-note">{t('此片段为新增内容。', 'This fragment was added.')}</p>}</section>
+        <section className="clm-diff-after" aria-label={t('修改后', 'After')}><header><Plus size={12}/><span>{t('修改后', 'After')}</span></header>
+          {active.after ? <ReadableText text={active.after} omitTitle={active.title}/> : <p className="clm-note">{t('此片段已删除。', 'This fragment was removed.')}</p>}</section>
+      </div>
+    </> : <p className="clm-note">{diff ? t('当前记录未提供可读的修改片段，可查看原始对比。', 'No readable fragments are available; the saved diff is below.') : t('此记录没有保存修改对比。', 'No diff was saved for this record.')}</p>}
+    {diff && <Disclosure label={t('原始修改对比', 'Raw saved diff')} icon={<Code2 size={14}/>}>
+      <pre>{diff.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'is-addition' : line.startsWith('-') ? 'is-removal' : ''}>{line}{'\n'}</span>)}</pre>
+    </Disclosure>}
+  </div>;
 }
 
 export function ClmPanel({ snapshot, busy, revision, visible = true }: { snapshot: Snapshot; busy: boolean; revision: number; visible?: boolean }) {
@@ -72,7 +111,9 @@ export function ClmPanel({ snapshot, busy, revision, visible = true }: { snapsho
   const disabled = !data || pending || busy || snapshot.state?.isCompacting || Boolean(action) || Boolean(snapshot.requests?.length) ||
     snapshot.launch?.goal?.status === 'active';
   const number = (value?: number) => value === undefined ? '--' : value.toLocaleString(zh ? 'zh-CN' : 'en-US');
-  const title = (text: string, role: string) => text.split('\n').find(line => line.trim() && !line.startsWith('[['))?.slice(0, 64) || role;
+  const roleLabel = (role: string) => ({ user: t('用户要求', 'User request'), assistant: t('助手记录', 'Assistant record'),
+    notes: t('工作笔记', 'Working notes'), toolResult: t('工具结果', 'Tool result') })[role] ?? role;
+  const title = (text: string, role: string) => clmTextTitle(text, roleLabel(role));
   const back = () => { setSelected(undefined); setPage(null); setIntent(false); };
   const perform = async (next: ClmAction) => {
     if (disabled || lock.current || !window.desktop || !runtimeId || !sessionId) return;
@@ -133,17 +174,16 @@ export function ClmPanel({ snapshot, busy, revision, visible = true }: { snapsho
           {outcome?.beforeTokens && outcome.afterTokens !== undefined ? <div className="clm-reduction"><i style={{ width: `${Math.min(100, outcome.afterTokens / outcome.beforeTokens * 100)}%` }}/></div> : <p className="clm-note">{t('此修订未提供前后用量，不进行反推。', 'Before/after token counts are unavailable for this revision.')}</p>}
           <div className="clm-section-title"><h3>{t('修订时的工作内容', 'Contents at this revision')}</h3><small>{blocks.length}</small></div>
           {blocks.slice(0, 8).map(block => <button className="clm-block-link" key={block.id} onClick={() => { setBlockId(block.id); setView('content'); }}>
-            {block.protected ? <LockKeyhole size={14}/> : <FileText size={14}/>}<span>{title(block.text, block.role)}</span><ArrowRight size={12}/></button>)}
+            {block.protected ? <LockKeyhole size={14}/> : <FileText size={14}/>}<span><strong>{title(block.text, block.role)}</strong><small>{roleLabel(block.role)}{block.protected ? ` · ${t('受保护', 'Protected')}` : ''}</small><span>{block.text.split('\n').filter(line => line.trim() && !line.startsWith('[[')).slice(1).join(' ').slice(0, 140)}</span></span><ArrowRight size={12}/></button>)}
           {blocks.length > 8 && <button onClick={() => setView('content')}>{t('查看全部内容', 'View all contents')}</button>}
         </div> : view === 'content' ? <div className="clm-document">
           {active ? <><label>{t('选择内容', 'Select content')}<span className="clm-select"><select value={active.id} onChange={event => setBlockId(event.target.value)}
-            onPointerDown={event => event.currentTarget.style.setProperty('--clm-picker-height', `${Math.max(40, innerHeight - event.currentTarget.getBoundingClientRect().bottom - 12)}px`)}
-            onFocus={event => event.currentTarget.style.setProperty('--clm-picker-height', `${Math.max(40, innerHeight - event.currentTarget.getBoundingClientRect().bottom - 12)}px`)}>
+            onPointerDown={event => fitPicker(event.currentTarget)}
+            onFocus={event => fitPicker(event.currentTarget)}>
             {blocks.map(block => <option key={block.id} value={block.id}>{title(block.text, block.role)}</option>)}</select><DisclosureChevron/></span></label>
-            <p className="clm-note">{active.role}{active.protected ? ` · ${t('受保护', 'Protected')}` : ''}</p><pre>{active.text}</pre></> : <p>{t('此记录没有保存内容。', 'No contents were saved in this record.')}</p>}
-        </div> : <div className="clm-diff"><p className="clm-note">{t('上游保存的修改对比', 'Changes saved by the runtime')}</p>
-          {detail?.diff ? <pre>{detail.diff.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'is-addition' : line.startsWith('-') ? 'is-removal' : ''}>{line}{'\n'}</span>)}</pre>
-            : <p>{t('此记录没有保存修改对比。', 'No diff was saved for this record.')}</p>}</div>}
+            <div className="clm-document-heading"><span>{roleLabel(active.role)}</span>{active.protected && <small><LockKeyhole size={11}/>{t('受保护', 'Protected')}</small>}</div>
+            <ReadableText text={active.text}/></> : <p>{t('此记录没有保存内容。', 'No contents were saved in this record.')}</p>}
+        </div> : <ClmDiff key={detail?.entryId} diff={detail?.diff ?? ''} language={snapshot.preferences.language}/>}
         {(detail?.truncated || detail?.diffTruncated) && <p className="clm-note">{t('内容较大，当前显示为截取片段；原始记录未修改。', 'Large content is shown as an excerpt; original records are unchanged.')}</p>}
       </>}
       <Disclosure label={t('原始会话独立保留', 'Original conversation is preserved')}><p>{t('这里只读取当前分支的 CLM 记录。查看修订不会回滚对话、文件或工具操作。', 'This panel reads CLM records on the current branch. Browsing revisions does not roll back conversations, files, or tools.')}</p></Disclosure>

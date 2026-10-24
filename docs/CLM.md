@@ -18,6 +18,14 @@ diff, not reconstructed prior message bodies. Token counts are shown only when
 the runtime provides them; historical counts and automatic/manual provenance
 are not inferred. Reset records need not contain contents or a diff.
 
+Contents use a read-only Markdown presentation. Changes default to selectable
+before/after excerpts parsed from the saved unified diff, with structural headers
+omitted from the readable text. These are explicitly fragments, not full previous
+checkpoints; no prior revision number is inferred. The complete returned diff
+remains available in a collapsed raw view, including when readable parsing fails.
+Context (including CLM and Status) and Changes share the standard, wide and
+fullscreen width selector. Width changes preserve the mounted inspector.
+
 Only the selected checkpoint's contents are returned. Limits are 200 blocks,
 16,000 characters per block, 500,000 total body characters, and 128,000 diff
 characters. Truncation is disclosed. The main process whitelists and redacts
@@ -45,9 +53,11 @@ shows an unavailable inspector rather than synthetic revisions.
 ## Verification
 
 - `pnpm typecheck`, `pnpm build`
-- `pnpm exec tsx --test tests/clm-inspector.test.ts tests/clm-inspector-runtime.test.ts tests/clm-runtime.test.ts tests/session-status.test.ts tests/session-status-runtime.test.ts tests/summary-runtime.test.ts tests/composer-commands.test.ts`
+- `pnpm exec tsx --test tests/clm-diff.test.ts tests/clm-inspector.test.ts tests/clm-inspector-runtime.test.ts tests/clm-runtime.test.ts tests/session-status.test.ts tests/session-status-runtime.test.ts tests/summary-runtime.test.ts tests/composer-commands.test.ts`
 - `node scripts/verify-clm-panel.mjs` (real React component, simulated bridge)
 - `node scripts/verify-command-dispatch.mjs` (source Electron/preload, isolated IPC fixture)
+- `node scripts/verify-context-panel.mjs`, `node scripts/verify-review-panel.mjs`
+  (isolated Electron, including width changes; `DESKTOP_VERIFY_EXE` targets a package)
 
 Runtime tests exercise the staged native bundle with isolated profiles and
 loopback model fixtures. They do not establish paid-model or packaged-installer

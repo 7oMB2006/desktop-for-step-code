@@ -9,7 +9,7 @@ export type RightPanelWidth = 'standard' | 'wide' | 'fullscreen';
 export function RightPanelWidthControl({ value, language, panel, onChange, onError }: {
   value: RightPanelWidth;
   language: 'zh' | 'en';
-  panel: 'browser' | 'terminal' | 'file';
+  panel: 'browser' | 'terminal' | 'file' | 'context' | 'review';
   onChange: (value: RightPanelWidth) => void;
   onError?: (message: string) => void;
 }) {
@@ -17,11 +17,13 @@ export function RightPanelWidthControl({ value, language, panel, onChange, onErr
   const trigger = useRef<HTMLButtonElement>(null);
   const zh = language === 'zh';
   const closeMenu = useCallback(() => setMenuOpen(false), []);
-  const title = panel === 'browser' ? (zh ? '浏览器宽度' : 'Browser width') : panel === 'terminal' ? (zh ? '终端宽度' : 'Terminal width') : (zh ? '文件预览宽度' : 'File preview width');
+  const title = panel === 'browser' ? (zh ? '浏览器宽度' : 'Browser width') : panel === 'terminal' ? (zh ? '终端宽度' : 'Terminal width')
+    : panel === 'context' ? (zh ? '上下文宽度' : 'Context width') : panel === 'review' ? (zh ? '变更宽度' : 'Changes width') : (zh ? '文件预览宽度' : 'File preview width');
+  const localMenu = panel === 'file' || panel === 'context' || panel === 'review';
   const label = value === 'fullscreen' ? (zh ? '全屏' : 'Fullscreen')
     : value === 'wide' ? (zh ? '宽幅' : 'Wide') : (zh ? '标准' : 'Standard');
   const choose = async () => {
-    if (panel === 'file') { setMenuOpen(current => !current); return; }
+    if (localMenu) { setMenuOpen(current => !current); return; }
     const button = trigger.current;
     if (!button || !window.desktop || menuOpen) return;
     const rect = button.getBoundingClientRect();
@@ -41,7 +43,7 @@ export function RightPanelWidthControl({ value, language, panel, onChange, onErr
     <Columns2 className="right-panel-width-icon" size={14} aria-hidden="true"/>
     <span>{label}</span>
     <span className="right-panel-width-chevron"><DisclosureChevron/></span>
-  </button>{panel === 'file' && <AppMenu anchor={trigger} open={menuOpen} label={title} selected={value} onClose={closeMenu}
+  </button>{localMenu && <AppMenu anchor={trigger} open={menuOpen} label={title} selected={value} onClose={closeMenu}
     items={[{ id: 'standard', label: zh ? '标准' : 'Standard', icon: <PanelRight/> },
       { id: 'wide', label: zh ? '宽幅' : 'Wide', icon: <Columns2/> },
       { id: 'fullscreen', label: zh ? '全屏' : 'Fullscreen', icon: <Maximize2/> }]}

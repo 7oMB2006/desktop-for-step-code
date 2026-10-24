@@ -1,4 +1,10 @@
 .context-region { padding: 0; height: 100%; }
+.summary-track.is-context-wide { --inspector-width:max(620px,min(calc((100vw - var(--sidebar-track) - 44px) * .6),calc(100vw - var(--sidebar-track) - 44px - 480px))); }
+.summary-track.is-context-wide.is-docked:not(.is-replaced) { flex-basis:var(--inspector-width); }
+.app .summary-track.is-context-wide .context-region:not(.is-expanded) { width:min(var(--inspector-width),calc(100vw - 60px)); }
+@container (max-width:380px) {
+  .context-panel-header:has(.right-panel-width-control) .context-status { display:none; }
+}
 .context-panel {
   container-type: inline-size;
   --context-input: oklch(.48 .09 190);

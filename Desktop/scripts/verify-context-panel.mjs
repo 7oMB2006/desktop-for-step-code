@@ -117,17 +117,17 @@ try {
   for (const percent of [2, 18]) {
     await sendContextEvent({ type: 'desktop_stats', stats: { ...fixture.stats,
       contextUsage: { tokens: percent * 10000, contextWindow: 1000000, percent } } });
-    await page.waitForFunction(percent => document.querySelector('.context-ring')?.getAttribute('aria-valuenow') === String(percent)
+    await page.waitForFunction(percent => document.querySelector('.context-ring[role="meter"]')?.getAttribute('aria-valuenow') === String(percent)
       && document.querySelector('.context-capacity-strip')?.getAttribute('aria-valuenow') === String(percent), percent);
-    assert.equal(await page.locator('.context-ring').getAttribute('data-tooltip'), `已用 ${percent}%`);
+    assert.equal(await page.getByRole('meter', { name: '上下文用量', exact: true }).getAttribute('data-tooltip'), `已用 ${percent}%`);
   }
   await sendContextEvent({ type: 'desktop_stats', runtimeId: 'background-context-worker',
     stats: { ...fixture.stats, contextUsage: { tokens: 990000, contextWindow: 1000000, percent: 99 } } });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  assert.equal(await page.locator('.context-ring').getAttribute('aria-valuenow'), '18',
+  assert.equal(await page.getByRole('meter', { name: '上下文用量', exact: true }).getAttribute('aria-valuenow'), '18',
     'A background worker must not replace current context occupancy');
   await sendContextEvent({ type: 'agent_end' });
-  await page.waitForFunction(() => document.querySelector('.context-ring')?.getAttribute('aria-valuenow') === '7.1');
+  await page.waitForFunction(() => document.querySelector('.context-ring[role="meter"]')?.getAttribute('aria-valuenow') === '7.1');
   assert.ok((await panel.innerText()).includes('3.4700M'));
   await app.evaluate(() => {
     const fixture = globalThis.contextFixture;
@@ -504,8 +504,8 @@ try {
     || method === 'command' && type === 'prompt'), 'Status must not send a prompt or query account services');
   await panel.getByRole('tab', { name: '上下文', exact: true }).click();
   await panel.locator('.context-content').waitFor();
-  await panel.getByRole('tab', { name: '状态', exact: true }).focus();
-  await page.keyboard.press('End');
+  await panel.getByRole('tab', { name: '上下文', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
   await panel.locator('.session-status-content').waitFor();
   await panel.screenshot({ path: 'test-results/session-status-light.png' });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });

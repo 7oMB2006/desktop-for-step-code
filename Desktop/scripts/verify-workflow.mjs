@@ -108,8 +108,12 @@ try {
   await page.screenshot({ path: 'test-results/workflow-orchestration-running-dark.png' });
   const overviewScroll = panel.locator('.workflow-pane').first();
   await overviewScroll.evaluate(element => element.scrollTop = 100);
+  const selectedAgent = panel.locator('.workflow-agent').nth(5);
+  // On a short native display the fifth row needs a real scroll before it can
+  // be clicked. Preserve that last visible overview position across tabs.
+  await selectedAgent.scrollIntoViewIfNeeded();
   const scrollBefore = await overviewScroll.evaluate(element => element.scrollTop);
-  await panel.locator('.workflow-agent').nth(5).click();
+  await selectedAgent.click();
   await panel.getByRole('button', { name: '代理', exact: true }).waitFor();
   await panel.locator('.subagent-task').waitFor();
   assert.match(await panel.locator('.subagent-task').innerText(), /主体与合作关系/);

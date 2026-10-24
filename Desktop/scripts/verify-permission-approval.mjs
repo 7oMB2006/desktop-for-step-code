@@ -288,6 +288,7 @@ try {
   await question.getByRole('button', { name: '调整审批抽屉高度' }).press('End');
   await question.getByText('Agent 说明', { exact: true }).waitFor();
   await checkBounds();
+  const expandedQuestionHeight = (await question.boundingBox()).height;
   await page.screenshot({ path: 'test-results/permission-approval-question.png' });
   await question.screenshot({ path: 'test-results/permission-approval-question-expanded-detail.png' });
   await question.getByRole('button', { name: '调整审批抽屉高度' }).press('Home');
@@ -300,10 +301,19 @@ try {
   await questionGrip.press('ArrowDown');
   await checkBounds();
   assert.equal(await question.getAttribute('data-size'), 'compact');
+  const compactQuestionHeight = (await question.boundingBox()).height;
   const compactGrip = await questionGrip.boundingBox();
-  await page.mouse.move(compactGrip.x + compactGrip.width / 2, compactGrip.y + compactGrip.height / 2);
+  const startGripY = compactGrip.y + compactGrip.height / 2;
+  // A fixed 46px gesture crosses the snap midpoint on a 684px display.
+  // Stay within the observed compact side of the range, rather than assuming
+  // the requested 900px window was granted by the native display.
+  const availableExpansion = expandedQuestionHeight - compactQuestionHeight;
+  const smallDrag = availableExpansion >= 24 ? Math.min(46, availableExpansion / 4) : -12;
+  console.log('Permission small-drag snap geometry:', JSON.stringify({ compactQuestionHeight, expandedQuestionHeight, smallDrag,
+    viewportHeight: await page.evaluate(() => innerHeight) }));
+  await page.mouse.move(compactGrip.x + compactGrip.width / 2, startGripY);
   await page.mouse.down();
-  await page.mouse.move(compactGrip.x + compactGrip.width / 2, compactGrip.y - 35, { steps: 4 });
+  await page.mouse.move(compactGrip.x + compactGrip.width / 2, startGripY - smallDrag, { steps: 4 });
   await page.mouse.up();
   await checkBounds();
   assert.equal(await question.getAttribute('data-size'), 'compact');

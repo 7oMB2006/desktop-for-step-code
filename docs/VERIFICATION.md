@@ -1,5 +1,34 @@
 # Verification
 
+## Complete constrained-display reproduction (2026-10-25)
+
+The ignored local launch wrapper caps native fixture windows to 684px without
+changing product code or disabling animations. The full 84-item source
+inventory completed successfully after correcting two display-dependent test
+premises; both original failed attempts remain in its JSON/log.
+
+Permission Approval's fixed upward gesture was 46px including the grip offset.
+At the real 684px viewport its observed drawer range is only 240px →316px,
+so that gesture correctly crosses the expansion midpoint. The small-drag
+compact-snap test now chooses a displacement from the observed compact/expanded
+range. Normal 900px windows retain the same 46px gesture (240→424); short
+windows use 19px (240→316). The existing compact-state, large expansion,
+keyboard resizing, bounds, defer and response assertions remain unchanged.
+
+Workflow's fifth agent is below the short overview viewport. Playwright must
+scroll it into view to click it; the old test compared the restored scroll
+against a position captured before that necessary scroll. It now explicitly
+reveals the same target, records that actual position and retains the exact
+return-to-overview scroll assertion. No product behavior or control is changed.
+
+Each corrected script passes normal source, the actual `d6fa5da` package and
+the package capped to 684px (six targeted passes). The full capped source
+report has 84 successes, complete=true, and preserves its two pre-fix failures.
+Windows `9ae63c0` run `40116856737` also passed all three groups and the final
+gate; final Mac cloud source/package results must still come from a head
+containing these last two fixture corrections. The accepted application source
+and runtime remain unchanged from `d6fa5da`.
+
 ## Hidden-window layout synchronization (2026-10-25)
 
 Head `97cb4c1` passed Windows interface 40/40, sessions 18/18, runtime 25/25

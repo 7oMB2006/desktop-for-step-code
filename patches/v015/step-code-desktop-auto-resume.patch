@@ -1,0 +1,206 @@
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index c6dde28..99b15da 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -265,6 +265,8 @@ export interface PromptOptions {
+ 	streamingBehavior?: "steer" | "followUp";
+ 	/** Source of input for extension input event handlers. Defaults to "interactive". */
+ 	source?: InputSource;
++	/** Idle extension prompts may retain system provenance in persisted history. */
++	customMessage?: Pick<CustomMessage, "customType" | "display" | "details">;
+ 	/** Internal hook used by RPC mode to observe prompt preflight acceptance or rejection. */
+ 	preflightResult?: (success: boolean) => void;
+ }
+@@ -1795,6 +1797,10 @@ export class AgentSession {
+ 				);
+ 			}
+ 
++			if (options?.customMessage && (this.isStreaming || options.source !== "extension")) {
++				throw new Error("System-origin prompts require an idle extension source.");
++			}
++
+ 			// Emit input event for extension interception (before skill/template expansion)
+ 			let currentText = text;
+ 			let currentImages = options?.images;
+@@ -1883,11 +1889,11 @@ export class AgentSession {
+ 			if (currentImages) {
+ 				userContent.push(...currentImages);
+ 			}
+-			messages.push({
+-				role: "user",
+-				content: userContent,
+-				timestamp: Date.now(),
+-			});
++			messages.push(
++				options?.customMessage
++					? { ...options.customMessage, role: "custom", content: userContent, timestamp: Date.now() }
++					: { role: "user", content: userContent, timestamp: Date.now() },
++			);
+ 
+ 			// Inject any pending "nextTurn" messages as context alongside the user message
+ 			for (const msg of this._pendingNextTurnMessages) {
+@@ -2178,6 +2184,7 @@ export class AgentSession {
+ 			expandPromptTemplates?: boolean;
+ 			/** Origin used by input extension hooks; extension callers keep the default. */
+ 			source?: InputSource;
++			customMessage?: PromptOptions["customMessage"];
+ 		},
+ 	): Promise<void> {
+ 		// Normalize content to text string + optional images
+@@ -2205,6 +2212,7 @@ export class AgentSession {
+ 			streamingBehavior: options?.deliverAs,
+ 			images,
+ 			source: options?.source ?? "extension",
++			customMessage: options?.customMessage,
+ 		});
+ 	}
+ 
+diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
+index 0833315..bac1a4a 100644
+--- a/packages/coding-agent/src/core/extensions/types.ts
++++ b/packages/coding-agent/src/core/extensions/types.ts
+@@ -1455,7 +1455,7 @@ export interface ExtensionAPI {
+ 	 */
+ 	sendUserMessage(
+ 		content: string | (TextContent | ImageContent)[],
+-		options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean },
++		options?: SendUserMessageOptions,
+ 	): void;
+ 
+ 	/** Append a custom entry to the session for state persistence (not sent to LLM). */
+@@ -1714,9 +1714,16 @@ export type SendMessageHandler = <T = unknown>(
+ 	options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+ ) => void;
+ 
++export interface SendUserMessageOptions {
++	deliverAs?: "steer" | "followUp";
++	expandPromptTemplates?: boolean;
++	/** Persist an idle extension prompt as system-origin traffic without bypassing input/start hooks. */
++	customMessage?: Pick<CustomMessage, "customType" | "display" | "details">;
++}
++
+ export type SendUserMessageHandler = (
+ 	content: string | (TextContent | ImageContent)[],
+-	options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean },
++	options?: SendUserMessageOptions,
+ ) => void;
+ 
+ export type AppendEntryHandler = <T = unknown>(customType: string, data?: T) => void;
+diff --git a/packages/coding-agent/src/features/step.ts b/packages/coding-agent/src/features/step.ts
+index a7536d1..b61757f 100644
+--- a/packages/coding-agent/src/features/step.ts
++++ b/packages/coding-agent/src/features/step.ts
+@@ -256,7 +256,13 @@ export function createStepExtension(options: StepExtensionOptions = {}): Extensi
+ 			resume: async (prompt) => {
+ 				autoResumeAllowed = false;
+ 				try {
+-					await pi.sendUserMessage(prompt);
++					await pi.sendUserMessage(prompt, {
++						customMessage: {
++							customType: "step-auto-resume",
++							display: true,
++							details: { version: 1, kind: "resume", source: "autopilot" },
++						},
++					});
+ 				} catch (error: unknown) {
+ 					try {
+ 						notify?.(
+diff --git a/packages/coding-agent/test/step-extension.test.ts b/packages/coding-agent/test/step-extension.test.ts
+index b2d9833..1b12e81 100644
+--- a/packages/coding-agent/test/step-extension.test.ts
++++ b/packages/coding-agent/test/step-extension.test.ts
+@@ -7,6 +7,7 @@ import type {
+ } from "../src/core/extensions/types.ts";
+ import { createStepExtension, stepExtension } from "../src/features/step.ts";
+ import { STEP_INIT_PROMPT } from "../src/step/init-prompt.ts";
++import { AUTO_RESUME_PROMPT } from "../src/step/permissions.ts";
+ 
+ function commandContext(
+ 	isIdle: boolean,
+@@ -49,6 +50,15 @@ describe("Step extension", () => {
+ 				handler("agent_settled")({}, ctx);
+ 				await vi.advanceTimersByTimeAsync(5000);
+ 				expect(sendUserMessage).toHaveBeenCalledTimes(initialPreset === "ask" ? 0 : 1);
++				if (initialPreset !== "ask") {
++					expect(sendUserMessage).toHaveBeenCalledWith(AUTO_RESUME_PROMPT, {
++						customMessage: {
++							customType: "step-auto-resume",
++							display: true,
++							details: { version: 1, kind: "resume", source: "autopilot" },
++						},
++					});
++				}
+ 				if (initialPreset !== "ask") expect(ctx.setAutoRetryEnabled).toHaveBeenCalledWith(true);
+ 				handler("session_shutdown")({}, ctx);
+ 			} finally {
+diff --git a/packages/coding-agent/test/suite/agent-session-prompt.test.ts b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
+index f992ec8..9dd5ec2 100644
+--- a/packages/coding-agent/test/suite/agent-session-prompt.test.ts
++++ b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
+@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from "vitest";
+ import type { ExtensionAPI, InputEvent } from "../../src/core/extensions/index.ts";
+ import type { PromptTemplate } from "../../src/core/prompt-templates.ts";
+ import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";
++import { SessionManager } from "../../src/core/session-manager.ts";
++import { AUTO_RESUME_PROMPT } from "../../src/step/permissions.ts";
+ import { createTestResourceLoader } from "../utilities.ts";
+ import { createHarness, getMessageText, type Harness } from "./harness.ts";
+ 
+@@ -322,6 +324,57 @@ describe("AgentSession prompt characterization", () => {
+ 		expect(getMessageText(harness.session.messages[0]!)).toBe("from extension");
+ 	});
+ 
++	it("retains automatic continuation provenance, prompt hooks and provider input on replay", async () => {
++		const inputEvents: InputEvent[] = [];
++		const starts: string[] = [];
++		const harness = await createHarness({
++			extensionFactories: [
++				(pi) => {
++					pi.on("input", (event) => { inputEvents.push(event); });
++					pi.on("before_agent_start", (event) => {
++						starts.push(event.prompt);
++						return { systemPrompt: "Preserved extension instructions." };
++					});
++				},
++			],
++		});
++		harnesses.push(harness);
++		harness.setResponses([(context) => {
++			expect(getMessageText(context.messages.at(-1))).toBe(AUTO_RESUME_PROMPT);
++			expect(context.messages.at(-1)?.role).toBe("user");
++			expect(context.systemPrompt).toBe("Preserved extension instructions.");
++			return fauxAssistantMessage("continued");
++		}]);
++		const customMessage = {
++			customType: "step-auto-resume", display: true,
++			details: { version: 1, kind: "resume", source: "autopilot" },
++		};
++		await harness.session.sendUserMessage(AUTO_RESUME_PROMPT, { customMessage });
++		expect(inputEvents.map((event) => [event.source, event.text])).toEqual([["extension", AUTO_RESUME_PROMPT]]);
++		expect(starts).toEqual([AUTO_RESUME_PROMPT]);
++		expect(harness.eventsOfType("message_end")[0]?.message).toMatchObject({ role: "custom", ...customMessage });
++		const entry = harness.sessionManager.getBranch().find((entry) => entry.type === "custom_message");
++		expect(entry).toMatchObject({ type: "custom_message", ...customMessage });
++		const file = join(harness.tempDir, "recovery.jsonl");
++		writeFileSync(file, [harness.sessionManager.getHeader(), ...harness.sessionManager.getEntries()]
++			.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
++		const restored = SessionManager.open(file).buildSessionContext().messages;
++		expect(restored[0]).toMatchObject({ role: "custom", ...customMessage });
++		expect(getMessageText(restored[0])).toBe(AUTO_RESUME_PROMPT);
++		harness.setResponses([fauxAssistantMessage("ordinary user")]);
++		await harness.session.prompt(AUTO_RESUME_PROMPT);
++		expect(harness.session.messages.at(-2)?.role).toBe("user");
++	});
++
++	it("does not let interactive prompts claim extension provenance", async () => {
++		const harness = await createHarness();
++		harnesses.push(harness);
++		await expect(harness.session.prompt("hello", {
++			customMessage: { customType: "step-auto-resume", display: true, details: {} },
++		})).rejects.toThrow("idle extension source");
++		expect(harness.session.messages).toEqual([]);
++	});
++
+ 	it("does not report streamingBehavior to input handlers while idle", async () => {
+ 		const inputEvents: InputEvent[] = [];
+ 		const harness = await createHarness({

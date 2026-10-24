@@ -4,6 +4,7 @@ import type { Message } from './contracts';
 import type { SubagentTask } from './conversation-presentation';
 import { responsePresentation } from './conversation-presentation';
 import { CronMessage } from './CronMessage';
+import { AutoResumeMessage } from './AutoResumeMessage';
 import { Tool, Text } from './ConversationMessages';
 import { redactSubagentMessages } from './subagent-redact';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
@@ -30,6 +31,7 @@ function SubagentTranscript({ task, ...props }: { task: SubagentTask } & Pick<Pa
     {nested.content.map(item => item.type === 'tool'
       ? <Tool key={item.key} item={item} active={false} {...props}/>
       : item.type === 'cron' ? <CronMessage key={item.key} notice={item.notice} index={item.index} language={props.language}/>
+      : item.type === 'auto-resume' ? <AutoResumeMessage key={item.key} index={item.index} language={props.language}/>
       : item.type === 'image' ? null
         : <div className="lane-text" key={item.key}><Text text={item.block.text ?? ''} {...props}/></div>)}
   </>;

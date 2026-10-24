@@ -19,7 +19,7 @@ test('Windows v0.1.5 patch manifest pins every reviewed pre-image, result and pa
   ]);
   assert.deepEqual(Object.keys(manifest.patches).sort(),
     ['../step-code-desktop-cron-management.patch', '../step-code-desktop-cron.patch', '../step-code-desktop-plugins.patch',
-      'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch',
+      'step-code-desktop-auto-resume.patch', 'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch',
       'step-code-desktop-cron-recovery-guard.patch', 'step-code-desktop-cron-recovery.patch',
       'step-code-desktop-cron-scope.patch',
       'step-code-desktop-plan.patch', 'step-code-desktop.patch', 'step-code-session-import.patch']);

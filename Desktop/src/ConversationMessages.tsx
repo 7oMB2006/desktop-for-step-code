@@ -36,6 +36,8 @@ import { QuestionTool } from './QuestionTool';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
 import { CronMessage } from './CronMessage';
 import { cronMessage } from './cron-message';
+import { AutoResumeMessage } from './AutoResumeMessage';
+import './auto-resume-message.css';
 
 type Props = {
   interfaceSettings?: InterfacePreferences;
@@ -354,7 +356,7 @@ function SubagentLane({ item, active, onOpen, background, ...props }: {
 }
 
 export function ModelChangeNote({ change, language }: { change: ModelChange; language: 'zh' | 'en' }) {
-  return <div className="client-model-change" role="note" data-model-change-id={change.id}>
+  return <div className="client-event-note client-model-change" role="note" data-model-change-id={change.id}>
     <ArrowRightLeft size={14} aria-hidden="true"/>
     <span><strong>{language === 'zh' ? '模型已切换' : 'Model switched'}</strong>{language === 'zh' ? '：' : ':'}</span>
     <span className="change-models">
@@ -422,7 +424,9 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
         total language={props.language}/>
       <Timestamp value={stamp} language={props.language}/>
     </footer>;
-    const renderItem = (item: ResponseItem, onExpandedChange?: (expanded: boolean) => void): ReactNode => item.type === 'cron'
+    const renderItem = (item: ResponseItem, onExpandedChange?: (expanded: boolean) => void): ReactNode => item.type === 'auto-resume'
+      ? <AutoResumeMessage key={item.key} index={item.index} language={props.language}/>
+      : item.type === 'cron'
       ? <CronMessage key={item.key} notice={item.notice} index={item.index} language={props.language} onLayoutChange={props.onLayoutChange}/>
       : item.type === 'tool'
             ? item.call?.historical || item.result?.desktopImported

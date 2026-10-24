@@ -79,6 +79,23 @@ The review shows the current account, model, Ask policy and full project-wide ta
 prompts before activation. Association and recovery are marked Beta; an association
 is not exclusive upstream ownership, and offline records never appear as running.
 
+Scheduled-task pause/resume and editing are Windows Desktop Beta actions in the
+existing detail footer. Editing unfolds inline with the shared cubic transition
+and returns focus to its trigger; it retains task identity and the original
+deadline. Paused records are labeled separately from offline hosts and excluded
+from the scheduling count. Recovery review can explicitly authorize bounded
+automatic restoration, default off, with an additional acknowledgment for
+unknown execution history. Revocation remains available in the task detail.
+Execution/recovery records use the shared native disclosure and chevron, inert
+when closed, with reduced motion; the project history remains available after
+one-shot tasks disappear. Delivery, unknown outcomes and recovery are never
+rendered as successful execution.
+
+The current scheduling host's name has a compact adjacent icon shortcut with a
+keyboard-accessible tooltip. It opens only that live runtime through the shared
+conversation navigation flow, without creating or restarting a session. Offline
+hosts retain a disabled shortcut; association remains a separate Beta record.
+
 Session Status shares the existing Context inspector as a two-tab surface,
 without adding another right-rail button. Context is the first and default tab;
 the Context rail button always returns to Context. Status follows it and opens

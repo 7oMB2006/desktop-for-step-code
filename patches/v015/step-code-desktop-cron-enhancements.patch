@@ -1,0 +1,230 @@
+diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
+index ba42caa..47fee21 100644
+--- a/packages/coding-agent/src/features/step-cron.ts
++++ b/packages/coding-agent/src/features/step-cron.ts
+@@ -45,7 +45,7 @@ const MAX_LOCK_AGE_MS = 60_000;
+ type TimerHandle = ReturnType<typeof setInterval>;
+ 
+ export interface CronJob {
+-	schemaVersion: 1;
++	schemaVersion: 1 | 2;
+ 	id: string;
+ 	cron: string;
+ 	prompt: string;
+@@ -55,6 +55,14 @@ export interface CronJob {
+ 	nextFireAt: number;
+ 	lastFiredAt?: number;
+ 	autoExpireAt?: number;
++	/** Desktop Beta v2 rows are preserved but never scheduled by older upstreams. */
++	desktopPausedAt?: number;
++}
++
++let desktopCronRuntime: StepCronRuntime | undefined;
++export function updateDesktopCronJob(id: string, expected: string, changes: { cron?: string; prompt?: string; paused?: boolean }): CronJob {
++	if (process.env.DESKTOP_CRON_STATE !== "1" || !desktopCronRuntime) throw new Error("Desktop Cron management is unavailable");
++	return desktopCronRuntime.updateDesktop(id, expected, changes);
+ }
+ 
+ export interface CronCreateResult {
+@@ -300,7 +308,10 @@ function isStaleLock(lockPath: string, maxAgeMs: number): boolean {
+ function parsePersistedJob(value: unknown): CronJob | undefined {
+ 	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+ 	const candidate = value as Record<string, unknown>;
+-	if (candidate.schemaVersion !== 1 || candidate.durable !== true) return undefined;
++	const paused = candidate.schemaVersion === 2 && process.env.DESKTOP_CRON_STATE === "1"
++		&& typeof candidate.desktopPausedAt === "number" && Number.isFinite(candidate.desktopPausedAt);
++	if ((candidate.schemaVersion !== 1 && !paused) || candidate.durable !== true) return undefined;
++	if (candidate.schemaVersion === 1 && candidate.desktopPausedAt !== undefined) return undefined;
+ 	if (
+ 		typeof candidate.id !== "string" ||
+ 		!candidate.id.trim() ||
+@@ -330,7 +341,7 @@ function parsePersistedJob(value: unknown): CronJob | undefined {
+ 	}
+ 	return {
+ 		...candidate,
+-		schemaVersion: 1,
++		schemaVersion: paused ? 2 : 1,
+ 		id: candidate.id,
+ 		cron: candidate.cron,
+ 		prompt: candidate.prompt,
+@@ -499,6 +510,43 @@ export class StepCronRuntime {
+ 		return found;
+ 	}
+ 
++	updateDesktop(id: string, expected: string, changes: { cron?: string; prompt?: string; paused?: boolean }): CronJob {
++		if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is unavailable");
++		this.refreshDurableNow();
++		const now = this.readNow();
++		const updated = this.withLatestJobs(() => {
++			const job = this.jobs.get(id);
++			if (!job) throw new Error("Cron task no longer exists; refresh");
++			const revision = JSON.stringify([job.id, job.createdAt, job.cron, job.prompt, job.recurring, job.durable,
++				job.autoExpireAt ?? null, job.desktopPausedAt ?? null]);
++			if (expected !== revision) throw new Error("Cron task changed; refresh before editing");
++			if (job.autoExpireAt !== undefined && job.autoExpireAt <= now) throw new Error("Cron task expired");
++			const cron = changes.cron?.trim() ?? job.cron;
++			const prompt = changes.prompt?.trim() ?? job.prompt;
++			const expression = SimpleCronExpression.parse(cron);
++			if (!prompt || prompt.length > MAX_PROMPT_LENGTH) throw new Error("Invalid Cron prompt");
++			const resuming = changes.paused === false && job.desktopPausedAt !== undefined;
++			const next = { ...job, cron, prompt };
++			if (changes.paused === true && next.desktopPausedAt === undefined) {
++				next.desktopPausedAt = now;
++				next.schemaVersion = 2;
++			} else if (resuming) {
++				delete next.desktopPausedAt;
++				next.schemaVersion = 1;
++			}
++			if (resuming || cron !== job.cron) {
++				// Resume skips paused occurrences, retaining the original seven-day deadline.
++				next.nextFireAt = this.jitter(expression.next(now), now, job.id, job.recurring, expression);
++			}
++			this.jobs.set(id, next);
++			this.deferred.delete(id);
++			this.pendingMissed.delete(id);
++			return { ...next };
++		});
++		this.publishState();
++		return updated;
++	}
++
+ 	tick(): void {
+ 		try {
+ 			if (this.recoveryPending) {
+@@ -560,6 +608,10 @@ export class StepCronRuntime {
+ 					// Import the complete file before any delivery can change persisted state.
+ 					for (const job of [...this.jobs.values()]) {
+ 						if (!job.durable) continue;
++						if (job.desktopPausedAt !== undefined) {
++							if (job.autoExpireAt !== undefined && job.autoExpireAt <= now) this.removeJob(job.id);
++							continue;
++						}
+ 						if (job.autoExpireAt !== undefined && job.autoExpireAt <= now) {
+ 							if (job.nextFireAt <= now) {
+ 								if (this.isIdle()) this.fire(job, now);
+@@ -618,12 +670,13 @@ export class StepCronRuntime {
+ 
+ 	/** Due, and not already held back for the batched missed-job notice. */
+ 	private isDue(job: CronJob, now: number): boolean {
+-		return job.nextFireAt <= now && !this.pendingMissed.has(job.id);
++		return job.desktopPausedAt === undefined && job.nextFireAt <= now && !this.pendingMissed.has(job.id);
+ 	}
+ 
+ 	/** Reached its expiry before the next occurrence, so it leaves without a final delivery. */
+ 	private isExpiredBeforeDelivery(job: CronJob, now: number): boolean {
+-		return job.autoExpireAt !== undefined && now >= job.autoExpireAt && job.nextFireAt > now;
++		return job.autoExpireAt !== undefined && now >= job.autoExpireAt
++			&& (job.desktopPausedAt !== undefined || job.nextFireAt > now);
+ 	}
+ 
+ 	/**
+@@ -750,7 +803,9 @@ export class StepCronRuntime {
+ 		for (const [id, job] of this.jobs) if (job.durable) this.jobs.delete(id);
+ 		for (const job of stored) this.jobs.set(job.id, job);
+ 		for (const id of this.deferred) if (!this.jobs.has(id)) this.deferred.delete(id);
+-		for (const id of this.pendingMissed) if (!this.jobs.has(id)) this.pendingMissed.delete(id);
++		for (const id of this.pendingMissed) {
++			if (!this.jobs.has(id) || this.jobs.get(id)?.desktopPausedAt !== undefined) this.pendingMissed.delete(id);
++		}
+ 	}
+ 
+ 	private withLatestJobs<T>(mutate: () => T): T {
+@@ -887,8 +942,8 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 					const state = JSON.stringify({
+ 						version: 1,
+ 						status: healthy ? "ready" : "unavailable",
+-						jobs: jobs.map(({ id, recurring, durable, nextFireAt, autoExpireAt }) => ({
+-							id, recurring, durable, nextFireAt, autoExpireAt,
++						jobs: jobs.map(({ id, recurring, durable, nextFireAt, autoExpireAt, desktopPausedAt }) => ({
++							id, recurring, durable, nextFireAt, autoExpireAt, desktopPausedAt,
+ 						})),
+ 					});
+ 					if (state === desktopState) return;
+@@ -924,7 +979,7 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 							customType: "step-cron",
+ 							content: `[cron] ${job.prompt}`,
+ 							display: true,
+-							details: { id: job.id, cron: job.cron, recurring: job.recurring, durable: job.durable },
++							details: { id: job.id, createdAt: job.createdAt, cron: job.cron, recurring: job.recurring, durable: job.durable },
+ 						},
+ 						{ deliverAs: "steer", triggerTurn: true },
+ 					);
+@@ -932,6 +987,7 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 			});
+ 
+ 		const setContext = (_event: unknown, ctx: ExtensionContext): void => {
++			if (process.env.DESKTOP_CRON_STATE === "1") desktopCronRuntime = runtime;
+ 			currentContext = ctx;
+ 			runtime.setContext(ctx.cwd);
+ 		};
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index 8bdc9a0..8af5b6f 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -25,7 +25,7 @@ import {
+ 	waitForRawStdoutBackpressure,
+ 	writeRawStdout,
+ } from "../../core/output-guard.ts";
+-import { resumeDesktopCronRecovery } from "../../features/step-cron.ts";
++import { resumeDesktopCronRecovery, updateDesktopCronJob } from "../../features/step-cron.ts";
+ import { getStepPlanMode } from "../../features/step-plan.ts";
+ import { getStepMcpStatuses } from "../../step/mcp.ts";
+ import { STEPCODE_VERSION } from "../../step/version.ts";
+@@ -492,14 +492,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+ 			}
+ 			case "desktop_cron": {
+ 				if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is disabled");
+-				if (!["list", "create", "delete"].includes(command.action)) throw new Error("Invalid Cron action");
++				if (!["list", "create", "delete", "update"].includes(command.action)) throw new Error("Invalid Cron action");
+ 				if (command.action !== "list" && (session.isStreaming || session.isCompacting || session.pendingMessageCount)) {
+ 					throw new Error("Wait for this session to become idle");
+ 				}
+ 				const runner = session.extensionRunner;
+ 				const ctx = runner.createContext();
+ 				const list = runner.getToolDefinition("cron_list");
+-				const tool = runner.getToolDefinition(`cron_${command.action}`);
++				const tool = runner.getToolDefinition(`cron_${command.action === "update" ? "list" : command.action}`);
+ 				if (!list || !tool) throw new Error("Cron tools are unavailable");
+ 				let result: unknown;
+ 				if (command.action !== "list") {
+@@ -508,13 +508,22 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+ 						|| typeof command.recurring !== "boolean" || typeof command.durable !== "boolean")) {
+ 						throw new Error("Invalid Cron creation parameters");
+ 					}
+-					if (command.action === "delete" && (typeof command.jobId !== "string" || !/^[\w-]{1,24}$/.test(command.jobId))) {
++					if (["delete", "update"].includes(command.action) && (typeof command.jobId !== "string" || !/^[\w-]{1,24}$/.test(command.jobId))) {
+ 						throw new Error("Invalid Cron job id");
+ 					}
+-					const params = command.action === "create"
+-						? { cron: command.cron, prompt: command.prompt, recurring: command.recurring, durable: command.durable }
+-						: { id: command.jobId };
+-					result = (await tool.execute(crypto.randomUUID(), params, new AbortController().signal, undefined, ctx)).details;
++					if (command.action === "update") {
++						if (typeof command.expected !== "string" || command.expected.length > 20000
++							|| command.cron !== undefined && (typeof command.cron !== "string" || !command.cron.trim() || command.cron.length > 100)
++							|| command.prompt !== undefined && (typeof command.prompt !== "string" || !command.prompt.trim() || command.prompt.length > 4000)
++							|| command.paused !== undefined && typeof command.paused !== "boolean"
++							|| command.cron === undefined && command.prompt === undefined && command.paused === undefined) throw new Error("Invalid Cron update");
++						result = updateDesktopCronJob(command.jobId!, command.expected, { cron: command.cron, prompt: command.prompt, paused: command.paused });
++					} else {
++						const params = command.action === "create"
++							? { cron: command.cron, prompt: command.prompt, recurring: command.recurring, durable: command.durable }
++							: { id: command.jobId };
++						result = (await tool.execute(crypto.randomUUID(), params, new AbortController().signal, undefined, ctx)).details;
++					}
+ 				}
+ 				// Do not turn a committed mutation into a failure because a later list read failed.
+ 				const jobs = command.action === "list"
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 5b07ed2..bc5266e 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -30,7 +30,7 @@ export type RpcCommand =
+ 	| { id?: string; type: "get_state" }
+ 	| { id?: string; type: "get_desktop_summary" }
+ 	| { id?: string; type: "desktop_cron_resume" }
+-	| { id?: string; type: "desktop_cron"; action: "list" | "create" | "delete"; cron?: string; prompt?: string; recurring?: boolean; durable?: boolean; jobId?: string }
++	| { id?: string; type: "desktop_cron"; action: "list" | "create" | "delete" | "update"; cron?: string; prompt?: string; recurring?: boolean; durable?: boolean; jobId?: string; expected?: string; paused?: boolean }
+ 
+ 	// Model
+ 	| { id?: string; type: "set_model"; provider: string; modelId: string }

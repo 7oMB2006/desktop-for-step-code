@@ -49,21 +49,39 @@ export interface ProviderDiagnostic {
 export interface Settings { account: Account; profiles: Profile[]; mcp: Record<string, McpServer>; skills: { name: string; description: string; source: string }[]; providers?: ProviderInfo[] }
 export interface CronJobData {
   id: string; cron: string; prompt: string; recurring: boolean; durable: boolean;
-  createdAt: number; nextFireAt: number; autoExpireAt?: number;
+  createdAt: number; nextFireAt: number; autoExpireAt?: number; desktopPausedAt?: number;
 }
 export interface CronHost {
   runtimeId: string; workspace: string; name: string; trusted: boolean; busy: boolean;
-  model?: string; permission?: PermissionPreset;
+  sessionId?: string; model?: string; permission?: PermissionPreset;
 }
 export interface CronAssociation { sessionId: string; source: 'created' | 'recovered'; at: number }
-export interface CronTask extends CronJobData { key: string; workspace: string; runtimeId?: string; hostName?: string; association?: CronAssociation }
+export interface CronAutomaticRecovery { state: 'enabled' | 'blocked' | 'disabled'; expires: number }
+export interface CronHistoryEntry {
+  id: string; sessionId: string; jobId?: string; createdAt?: number; at: number; updatedAt: number;
+  state: 'triggered' | 'running' | 'waiting' | 'completed' | 'failed' | 'interrupted' | 'unknown'
+    | 'recovered' | 'recovery_failed' | 'recovery_blocked';
+  reason?: 'startup' | 'host-exit';
+  reviewedAt?: number;
+}
+export interface CronTask extends CronJobData {
+  key: string; workspace: string; runtimeId?: string; hostName?: string; association?: CronAssociation;
+  automatic?: CronAutomaticRecovery; history?: CronHistoryEntry[];
+}
 export interface CronRecoveryPreview {
   token: string; expires: number; workspace: string; sessionId: string; sessionName: string;
   jobs: { id: string; prompt: string; nextFireAt: number }[];
   model: Pick<Model, 'id' | 'provider' | 'name'>; account: string; permission: 'ask';
+  unconfirmed?: boolean;
 }
-export interface CronOverview { tasks: CronTask[]; hosts: CronHost[]; issues: { workspace: string; reason: 'unavailable' | 'untrusted' }[] }
+export interface CronOverview {
+  tasks: CronTask[]; hosts: CronHost[]; issues: { workspace: string; reason: 'unavailable' | 'untrusted' }[];
+  history?: { workspace: string; entries: CronHistoryEntry[] }[];
+}
 export interface CronCreateInput { runtimeId: string; cron: string; prompt: string; recurring: boolean; durable: boolean }
+export interface CronUpdateInput {
+  runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
+}
 export interface DesktopBridge extends SessionImportBridge {
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
@@ -73,8 +91,11 @@ export interface DesktopBridge extends SessionImportBridge {
   cronList(): Promise<CronOverview>;
   cronCreate(input: CronCreateInput): Promise<void>;
   cronDelete(runtimeId: string, jobId: string): Promise<void>;
+  cronUpdate(input: CronUpdateInput): Promise<void>;
+  cronOpenHost(runtimeId: string): Promise<Snapshot>;
   cronRecoveryPreview(key: string, sessionId: string): Promise<CronRecoveryPreview>;
-  cronRecover(token: string): Promise<{ sessionId: string; runtimeId: string }>;
+  cronRecover(token: string, automatic?: boolean, acknowledgeUnconfirmed?: boolean): Promise<{ sessionId: string; runtimeId: string }>;
+  cronDisableAutomatic(key: string): Promise<void>;
   readonly platform?: string;
   removeWorkspace(path: string): Promise<Snapshot>;
   relocateWorkspace(path: string): Promise<Snapshot | null>;

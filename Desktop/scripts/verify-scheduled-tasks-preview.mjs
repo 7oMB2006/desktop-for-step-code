@@ -4,7 +4,8 @@ import { chromium } from 'playwright';
 
 const url = process.env.CRON_PREVIEW_URL ?? 'http://127.0.0.1:5186/tests/fixtures/scheduled-tasks.html';
 await mkdir('test-results', { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true,
+  ...(process.env.DESKTOP_TEST_BROWSER_CHANNEL ? { channel: process.env.DESKTOP_TEST_BROWSER_CHANNEL } : {}) });
 const errors = [];
 try {
   const page = await browser.newPage({ viewport: { width: 1360, height: 860 }, deviceScaleFactor: 1 });
@@ -34,8 +35,9 @@ try {
   }
   assert.equal(await page.locator('.scheduled-row .scheduled-time-label').textContent(), '计划时间');
   assert.ok(await page.locator('.sidebar-task-actions').evaluate(element =>
-    Math.abs(element.querySelector('.new-chat').getBoundingClientRect().width - element.clientWidth) < 1),
-  'New chat is the full-width primary action');
+    Math.abs(element.querySelector('.new-chat').getBoundingClientRect().width
+      - element.querySelector('[aria-label="插件市场"]').getBoundingClientRect().width) < 1),
+  'New chat and plugins retain the latest main primary-action layout');
   await screenshot('scheduled-tasks-light');
   await page.getByRole('button', { name: '整理项目待办', exact: false }).click();
   await page.getByRole('heading', { name: '整理项目待办', exact: true }).waitFor();
@@ -56,6 +58,17 @@ try {
   await page.getByRole('button', { name: '保留', exact: true }).click();
   assert.equal(await page.getByRole('button', { name: '确认删除', exact: true }).count(), 0);
   await screenshot('scheduled-tasks-detail');
+  const hostLink = page.getByRole('button', { name: '前往宿主会话', exact: true });
+  assert.equal(await hostLink.isEnabled(), true);
+  await hostLink.focus();
+  await page.getByRole('tooltip').filter({ hasText: '前往宿主会话' }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.getByRole('heading', { name: 'Cron 桌面适配', exact: true }).waitFor();
+  assert.equal(await page.locator('.scheduled-tasks').count(), 0, 'Shortcut navigates to the matching host, not another chat');
+  await page.getByRole('button', { name: '定时任务', exact: true }).click();
+  await tasks.waitFor();
+  await page.getByRole('button', { name: '整理项目待办', exact: false }).click();
+  await page.getByRole('heading', { name: '整理项目待办', exact: true }).waitFor();
   await page.getByRole('button', { name: '返回任务列表' }).click();
   await page.locator('.scheduled-toolbar').waitFor();
   assert.equal(await page.locator('.scheduled-page').evaluate(node => getComputedStyle(node).animationName), 'scheduled-enter');
@@ -96,6 +109,8 @@ try {
   await page.getByRole('button', { name: '每周项目回顾', exact: false }).click();
   await page.getByRole('heading', { name: '每周项目回顾', exact: true }).waitFor();
   assert.equal(await page.locator('.scheduled-properties .scheduled-next-time').evaluate(node => node.previousElementSibling.textContent), '计划时间');
+  assert.equal(await page.getByRole('button', { name: '前往宿主会话', exact: true }).isDisabled(), true);
+  await screenshot('scheduled-tasks-offline-host');
   await page.getByRole('button', { name: '删除任务', exact: true }).click();
   await page.getByRole('button', { name: '确认删除', exact: true }).click();
   await page.locator('.scheduled-row').first().waitFor();
@@ -115,6 +130,16 @@ try {
     }).map(node => node.className));
     assert.deepEqual(clipped, [], `No control overflow at ${width}px`);
   }
+  await page.getByRole('button', { name: '整理项目待办', exact: false }).click();
+  await page.getByRole('heading', { name: '整理项目待办', exact: true }).waitFor();
+  await screenshot('scheduled-tasks-host-narrow');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.getByRole('button', { name: '前往宿主会话', exact: true }).click();
+  await page.getByRole('heading', { name: 'Cron 桌面适配', exact: true }).waitFor();
+  await page.getByRole('button', { name: '切换侧栏', exact: true }).click();
+  await page.getByRole('button', { name: '定时任务', exact: true }).click();
+  await tasks.waitFor();
+  await page.getByRole('button', { name: '切换侧栏', exact: true }).click();
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.getByRole('button', { name: '创建任务', exact: true }).click();
   await page.getByRole('heading', { name: '创建定时任务', exact: true }).waitFor();
@@ -122,7 +147,7 @@ try {
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await page.locator('.scheduled-toolbar').waitFor();
   assert.deepEqual(errors, []);
-  console.log('PASS: equal sidebar actions, list/detail navigation, search/project filter, create preview, delete confirmation, empty state, light/dark, four widths, reduced motion, zero page errors.');
+  console.log('PASS: equal sidebar actions, list/detail and online-host navigation, offline-host guard, keyboard tooltip, search/project filter, create preview, delete confirmation, empty state, light/dark, four widths, reduced motion, zero page errors.');
 } finally {
   await browser.close();
 }

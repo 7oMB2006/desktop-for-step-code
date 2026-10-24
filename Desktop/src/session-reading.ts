@@ -1,16 +1,11 @@
-import type { Message, ModelChange, Session } from './contracts';
+import type { Message, ModelChange, Session, SessionReading } from './contracts';
+export type { SessionReading } from './contracts';
 
 export interface ReadingPosition {
   follow: boolean;
   top: number;
   anchor?: { entryId?: string; index: number; role: string; timestamp?: number; offset: number };
 }
-export interface SessionReading {
-  sessionId: string;
-  messages: Message[];
-  modelChanges?: ModelChange[];
-}
-
 /** A bounded, disposable reading cache. No runtime, credentials, approvals or actions. */
 export class SessionReadingCache {
   private entries = new Map<string, { reading: SessionReading; modified: string; count: number; bytes: number }>();

@@ -6,6 +6,7 @@ import { scanDesktopUsage } from './usage-overview.mjs';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { reconcileStepPageServers, prepareStepPageServers } from './steppage-config.mjs';
+import { readSessionHistory } from './session-history.mjs';
 
 // Management lives in a separate process so Step globals never enter Electron.
 const root = dirname(fileURLToPath(import.meta.url));
@@ -127,6 +128,7 @@ async function dispatch(message) {
       return lists.flat().sort((a, b) => new Date(b.modified) - new Date(a.modified))
         .map(({ allMessagesText, ...s }) => s);
     }
+    case 'session_history': return readSessionHistory(upstream, sessions, message.sessionPath, message.sessionId);
     case 'copy_session': {
       // Copy before starting an agent: restoring a cold original can append runtime metadata.
       const copy = upstream.SessionManager.forkFrom(message.sessionPath, message.cwd, sessions);

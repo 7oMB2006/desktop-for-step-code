@@ -7,6 +7,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
@@ -15,6 +16,8 @@ import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
 import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
+import { importedHistoryMessages } from './imported-history';
+import { messagesWithEntryIds } from './session-branching';
 import { SessionCollaboration } from './session-collaboration';
 import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
@@ -65,7 +68,7 @@ import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } 
 import type { BrowserAction } from '../src/contracts';
 import { backgroundSubagentStates, conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
-import type { Model, PermissionPreset, Preferences, Session, Snapshot } from '../src/contracts';
+import type { Message, Model, PermissionPreset, Preferences, Session, SessionReading, Snapshot } from '../src/contracts';
 import { validateSidebarPreferences } from '../src/sidebar-order';
 import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace, moveSessionToWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
@@ -180,13 +183,16 @@ async function samePath(a: string, b: string) {
   catch { return false; }
 }
 let unavailableWorkspace: string | undefined;
-async function workspaceDirectory(path: string) {
+async function workspaceDirectory(path: string, signal?: AbortSignal) {
   try {
+    signal?.throwIfAborted();
     const canonical = await realpath(path);
     if (!(await stat(canonical)).isDirectory()) throw new Error('Not a directory');
+    signal?.throwIfAborted();
     if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
     return canonical;
   } catch {
+    signal?.throwIfAborted();
     unavailableWorkspace = path;
     emit({ type: 'desktop_workspace_unavailable', path });
     throw new Error(preferences.language === 'zh' ? `项目目录不可用：${path}` : `Project directory unavailable: ${path}`);
@@ -344,8 +350,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     if (!worker.state?.sessionId) return messages;
     await modelSelections.load(worker.state.sessionId);
     await usageEstimates.load(worker.state.sessionId);
-    return hydrateWorkflowHistory(worker.cwd, await conversationTiming.decorate(worker.state.sessionId, messages),
-      await workflowBindings.load(worker.state.sessionId));
+    return decorateSessionMessages(worker.state.sessionId, worker.cwd, messages);
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
   initializeModel: async (worker, restoring) => {
@@ -471,7 +476,12 @@ async function tryAutomaticCron(workspace?: string) {
 }
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
   (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
-setInterval(() => { if (!transition) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error)); }, 60000).unref();
+function recycleSessionRuntimes() {
+  if (transition && !sessionNavigation.busy) return;
+  void runtimes.recycle(worker => sessionNavigation.pending(worker.state?.sessionId))
+    .catch(error => crashLog.record('runtime-recycle', error));
+}
+setInterval(recycleSessionRuntimes, 60000).unref();
 const admin = new RpcProcess(event => {
   if (event.type === 'auth_url') {
     try {
@@ -647,7 +657,35 @@ function commitSessionNavigation(worker: SessionRuntime, value: Snapshot): Snaps
   void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
   return { ...value, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds] };
 }
-const sessionNavigation = new SessionNavigation(async (id: string) => {
+async function decorateSessionMessages(id: string, cwd: string, messages: Message[]) {
+  return hydrateWorkflowHistory(cwd, await conversationTiming.decorate(id, messages), await workflowBindings.load(id));
+}
+async function sessionReading(id: string): Promise<SessionReading | null> {
+  if (isChildSession(id)) throw new Error('Child sessions belong to their parent task');
+  const target = cachedSessions().find(session => session.id === id);
+  if (!target) return null;
+  const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === id && worker.status === 'connected');
+  if (worker) return {
+    sessionId: id, version: `${worker.id}:${worker.revision}`,
+    messages: worker.messages, modelChanges: modelSelections.changes(worker),
+  };
+  if (!target.path) return null;
+  const history = await admin.request('session_history', { sessionId: id, sessionPath: target.path });
+  if (!history || history.sessionId !== id) return null;
+  const projected = importedHistoryMessages(history.messages, history.entries, history.leafId);
+  const messages = projected === history.messages
+    ? messagesWithEntryIds(projected, history.entries, history.leafId) : projected;
+  const [decorated, record] = await Promise.all([
+    decorateSessionMessages(id, target.cwd, messages), modelSelections.load(id),
+  ]);
+  return { sessionId: id, version: history.version, messages: decorated, modelChanges: record.changes };
+}
+async function navigationSnapshot(worker: SessionRuntime) {
+  worker.operations++;
+  try { return { worker, value: await snapshot(worker, false, true) }; }
+  finally { worker.operations--; }
+}
+const sessionNavigation = new SessionNavigation(async (id: string, signal) => {
   let worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === id);
   if (worker?.status === 'disconnected') {
     await runtimes.remove(worker);
@@ -656,8 +694,11 @@ const sessionNavigation = new SessionNavigation(async (id: string) => {
   if (!worker) {
     const target = cachedSessions().find(session => session.id === id) ?? (await listSessions()).find(session => session.id === id);
     if (!target?.path) throw new Error('This session history is unavailable');
-    const canonical = await workspaceDirectory(target.cwd);
-    if (!(await stat(canonical)).isDirectory()) throw new Error('Workspace is not a directory');
+    // Coalesce rapid clicks before spawning. Once started, let the worker finish:
+    // session_start can restore background work which must not be force-stopped.
+    await delay(60, undefined, { signal });
+    const canonical = await workspaceDirectory(target.cwd, signal);
+    signal.throwIfAborted();
     worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
       { ...authEnvironment(), ...(preferences.workspaceSessionRedirects?.[id] ? movedSessionEnvironment() : {}) }, target.path);
     if (worker.state?.sessionId !== id) {
@@ -665,12 +706,15 @@ const sessionNavigation = new SessionNavigation(async (id: string) => {
       throw new Error('Session history identity changed');
     }
   }
-  worker.operations++;
-  try { return { worker, value: await snapshot(worker, false, true) }; }
-  finally { worker.operations--; }
+  return navigationSnapshot(worker);
 }, ({ worker, value }) => commitSessionNavigation(worker, value), busy => {
   transition = busy;
-  if (!busy) void runtimes.recycle().catch(error => crashLog.record('runtime-recycle', error));
+}, {
+  reuse: id => {
+    const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === id && worker.status === 'connected');
+    return worker ? navigationSnapshot(worker) : undefined;
+  },
+  settled: recycleSessionRuntimes,
 });
 async function connect(cwd: string, sessionPath?: string, rememberProject = true, resetPermission = false) {
   if (transition) throw new Error('Workspace operation in progress');
@@ -1326,6 +1370,7 @@ async function handle(method: string, args: any[]) {
         }
       }
     }
+    case 'sessionReading': return sessionReading(text(args[0], 300));
     case 'navigateSession': {
       if (deletingArchived || transition && !sessionNavigation.busy) throw new Error('Workspace operation in progress');
       const id = text(args[0], 300);
@@ -1501,7 +1546,9 @@ async function handle(method: string, args: any[]) {
     }
     case 'command': {
       const type = text(args[0], 80); const data = args[1] ?? {};
-      if (transition) throw new Error('Workspace is changing');
+      // Obsolete navigation preparation still locks shared account/settings
+      // changes, but cannot block commands on the latest confirmed runtime.
+      if (transition && !(sessionNavigation.busy && !sessionNavigation.selecting)) throw new Error('Workspace is changing');
       if (sessionDraft && args[2] === undefined) {
         if (type === 'set_model') {
           const model = sessionDraft.models?.find(model => model.id === data.modelId && model.provider === data.provider);

@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionNavigation } from '../electron/session-navigation';
+import { SessionRuntimes, type WorkerTransport } from '../electron/session-runtimes';
 import { SessionReadingCache, captureReadingPosition, restoreReadingPosition } from '../src/session-reading';
 import { parseHTML } from 'linkedom';
 import type { Session } from '../src/contracts';
+import { setTimeout as delay } from 'node:timers/promises';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -11,23 +13,194 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-test('navigation prepares serially, skips intermediate targets, and commits only the latest', async () => {
-  const gate = deferred<string>();
+const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+
+test('connected sessions bypass two cold startups without releasing shared mutation protection', async () => {
+  const gates = new Map([['A', deferred<string>()], ['B', deferred<string>()]]);
+  const cold: string[] = [], committed: string[] = [];
+  const navigation = new SessionNavigation(async id => {
+    cold.push(id);
+    return gates.get(id)?.promise ?? id;
+  }, id => { committed.push(id); return id; }, () => {}, {
+    reuse: id => id === 'resident' ? Promise.resolve(id) : undefined,
+  });
+  const first = navigation.select('A');
+  const second = navigation.select('B');
+  let result: string | null | undefined;
+  const resident = navigation.select('resident').then(value => { result = value; });
+  try {
+    await tick();
+    assert.equal(result, 'resident', 'A connected session must not queue behind cold startups');
+    assert.deepEqual(cold, ['A', 'B'], 'Resident switching cannot start another runtime');
+    assert.equal(navigation.selecting, false);
+    assert.equal(navigation.busy, true, 'Account/settings mutations remain locked');
+  } finally {
+    for (const [id, gate] of gates) gate.resolve(id);
+    await Promise.all([first, second, resident]);
+    await tick();
+  }
+  assert.deepEqual(committed, ['resident']);
+  assert.equal(navigation.busy, false);
+});
+
+test('slow resident snapshots neither consume cold slots nor override a newer selection', async () => {
+  const residentGate = deferred<string>(), aGate = deferred<string>(), bGate = deferred<string>();
+  const cold: string[] = [], committed: string[] = [];
+  const navigation = new SessionNavigation(async id => {
+    cold.push(id);
+    return id === 'A' ? aGate.promise : bGate.promise;
+  }, id => { committed.push(id); return id; }, () => {}, {
+    reuse: id => id === 'resident' ? residentGate.promise : undefined,
+  });
+  const resident = navigation.select('resident');
+  const first = navigation.select('A');
+  const second = navigation.select('B');
+  try {
+    assert.deepEqual(cold, ['A', 'B'], 'Only cold preparations count against the two-startup limit');
+    bGate.resolve('B');
+    assert.equal(await second, 'B');
+    residentGate.resolve('resident');
+    await tick();
+    assert.deepEqual(committed, ['B'], 'Late resident snapshots cannot steal the active session');
+  } finally {
+    residentGate.resolve('resident'); aGate.resolve('A'); bGate.resolve('B');
+    await Promise.all([resident, first, second]);
+    await tick();
+  }
+});
+
+test('obsolete startup does not suspend bounded idle recycling or remove protected runtimes', async () => {
+  const gate = deferred<void>();
+  const pool = new SessionRuntimes(() => {}, () => {
+    let id = '';
+    const transport: WorkerTransport = {
+      start(_node, _entry, cwd) { id = cwd; },
+      async request(type) {
+        if (type === 'get_state') {
+          if (id === 'slow') await gate.promise;
+          return { sessionId: id, isStreaming: false };
+        }
+        if (type === 'get_messages') return { messages: [{ role: 'user', content: id }] };
+        if (type === 'get_available_models') return { models: [] };
+        return {};
+      },
+      respond() {}, async stop() {},
+    };
+    return transport;
+  });
+  const recycle = () => pool.recycle(worker => navigation.pending(worker.state?.sessionId));
+  const recycling: Promise<void>[] = [];
+  const navigation = new SessionNavigation(
+    id => pool.prepare('node', 'step', id, {}, `${id}.jsonl`),
+    worker => { pool.activate(worker); return worker.state!.sessionId; }, () => {},
+    { settled: () => { recycling.push(recycle()); } });
+  try {
+    const running = await pool.prepare('node', 'step', 'running', {}, 'running.jsonl');
+    running.busy = true;
+    const goal = await pool.prepare('node', 'step', 'goal', {}, 'goal.jsonl');
+    goal.launch!.goal = { status: 'active', objective: 'fixture', id: 'goal', sessionId: 'goal',
+      tokensUsed: 0, timeUsedSeconds: 0, iteration: 1, createdAt: '', updatedAt: '' };
+    const cron = await pool.prepare('node', 'step', 'cron', {}, 'cron.jsonl');
+    cron.cron = { version: 1, status: 'ready', jobs: [
+      { id: 'job', recurring: true, durable: false, nextFireAt: Date.now() + 60000 },
+    ] };
+    const slow = navigation.select('slow');
+    await tick();
+    for (let index = 0; index < 8; index++) {
+      assert.equal(await navigation.select(`fast-${index}`), `fast-${index}`);
+      await Promise.all(recycling);
+    }
+    assert.equal(await slow, null);
+    assert.equal(navigation.busy, true);
+    assert.equal(navigation.selecting, false);
+    assert.equal(recycling.length, 8, 'Each completed navigation can reclaim idle workers');
+    assert.equal(pool.workers.size, 7, 'Three protected workers, one startup, active and two idle');
+    for (const worker of [running, goal, cron]) assert.equal(pool.workers.get(worker.id), worker);
+    assert.equal(pool.active?.state?.sessionId, 'fast-7');
+    gate.resolve();
+    await tick();
+    await Promise.all(recycling);
+    assert.equal(navigation.busy, false);
+    assert.equal(pool.workers.size, 6);
+    assert.equal(pool.active?.state?.sessionId, 'fast-7');
+  } finally {
+    gate.resolve();
+    await tick();
+    await Promise.all(recycling);
+    await pool.stopAll();
+  }
+});
+
+test('navigation bounds preparation, skips queued targets, and commits only the latest', async () => {
+  const aGate = deferred<string>(), bGate = deferred<string>();
   const prepared: string[] = [], committed: string[] = [], busy: boolean[] = [];
   const navigation = new SessionNavigation(async id => {
-    prepared.push(id); return id === 'A' ? gate.promise : id;
+    prepared.push(id); return id === 'A' ? aGate.promise : id === 'B' ? bGate.promise : id;
   }, id => { committed.push(id); return id; }, value => busy.push(value));
   const a = navigation.select('A');
   const b = navigation.select('B');
   const c = navigation.select('C');
-  assert.equal(await b, null);
-  assert.deepEqual(prepared, ['A']);
-  gate.resolve('A');
+  const d = navigation.select('D');
   assert.equal(await a, null);
-  assert.equal(await c, 'C');
-  assert.deepEqual(prepared, ['A', 'C']);
-  assert.deepEqual(committed, ['C']);
+  assert.equal(await b, null);
+  assert.equal(await c, null);
+  assert.deepEqual(prepared, ['A', 'B']);
+  aGate.resolve('A');
+  assert.equal(await d, 'D');
+  assert.deepEqual(prepared, ['A', 'B', 'D']);
+  assert.deepEqual(committed, ['D']);
+  assert.equal(navigation.selecting, false, 'Latest runtime is usable before obsolete startup finishes');
+  assert.equal(navigation.busy, true, 'Shared mutations remain locked during background preparation');
+  bGate.resolve('B');
+  await bGate.promise;
+  await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(busy, [true, false]);
+});
+test('latest selection does not wait for a slow overtaken startup', async () => {
+  const gate = deferred<string>();
+  const committed: string[] = [];
+  const navigation = new SessionNavigation(id => id === 'slow' ? gate.promise : Promise.resolve(id),
+    id => { committed.push(id); return id; });
+  const slow = navigation.select('slow');
+  assert.equal(await navigation.select('fast'), 'fast');
+  assert.equal(await slow, null);
+  gate.resolve('slow');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(committed, ['fast']);
+  assert.equal(navigation.busy, false);
+});
+test('cooperative pre-start cancellation skips obsolete launches and can retry the same target', async () => {
+  const launched: string[] = [];
+  const navigation = new SessionNavigation(async (id, signal) => {
+    await delay(10, undefined, { signal });
+    launched.push(id);
+    return id;
+  }, id => id);
+  const a = navigation.select('A');
+  const b = navigation.select('B');
+  const latest = navigation.select('A');
+  assert.equal(await a, null);
+  assert.equal(await b, null);
+  assert.equal(await latest, 'A');
+  assert.deepEqual(launched, ['A']);
+  assert.equal(navigation.busy, false);
+});
+test('returning to an in-progress target reuses preparation and latest failure releases the selection', async () => {
+  const gate = deferred<string>();
+  const prepared: string[] = [];
+  const navigation = new SessionNavigation(async id => {
+    prepared.push(id);
+    return id === 'A' ? gate.promise : id;
+  }, id => id);
+  const first = navigation.select('A');
+  const second = navigation.select('B');
+  const latest = navigation.select('A');
+  gate.resolve('A');
+  assert.equal(await first, null);
+  assert.equal(await second, null);
+  assert.equal(await latest, 'A');
+  assert.deepEqual(prepared, ['A', 'B']);
+  assert.equal(navigation.busy, false);
 });
 test('superseded startup failure does not cancel the latest target', async () => {
   const gate = deferred<string>();

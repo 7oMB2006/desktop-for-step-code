@@ -502,13 +502,21 @@ function App() {
     setNavigationTarget({ session, reading }); setError(''); setRequests([]);
     setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); setRightPanel(null); setContextMenu(null);
     setQueuePreviewOpen(false); setLiveChangesOpen(false);
+    if (!reading && !cronRuntimeId && bridge.sessionReading) void bridge.sessionReading(session.id).then(value => {
+      const pending = navigationPending.current;
+      if (!value || value.sessionId !== session.id || pending?.sequence !== sequence) return;
+      pending.reading = value;
+      setNavigationTarget({ session, reading: value });
+    }).catch(() => { /* Preview is optional; only the authoritative navigation reports errors. */ });
     let failed = false;
     try {
       const result = cronRuntimeId ? await bridge.cronOpenHost(cronRuntimeId) : await bridge.navigateSession(session.id);
       if (navigationPending.current?.sequence !== sequence) return false;
       if (!result) throw new Error(t('会话切换已取消', 'Session navigation was cancelled'));
       const saved = composerBySession.current.get(session.id);
-      if (saved && reading && previewPosition.current) composerBySession.current.set(session.id, { ...saved, ...previewPosition.current });
+      if (navigationPending.current.reading && previewPosition.current) composerBySession.current.set(session.id, {
+        draft: saved?.draft ?? '', quotes: saved?.quotes ?? [], attachments: saved?.attachments ?? [], ...previewPosition.current,
+      });
       if (result.state?.sessionId !== session.id || !installSnapshot(result)) {
         const latest = await bridge.snapshot();
         if (navigationPending.current?.sequence !== sequence) return false;

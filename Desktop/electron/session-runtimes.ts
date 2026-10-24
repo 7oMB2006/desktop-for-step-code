@@ -599,9 +599,9 @@ export class SessionRuntimes {
     await worker.rpc.stop();
     this.publish();
   }
-  async recycle() {
+  async recycle(retain: (worker: SessionRuntime) => boolean = () => false) {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
-      worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
+      !retain(worker) && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
       worker.launch?.goal?.status !== 'active' &&
       !hasScheduledCron(worker.cron) &&
       !worker.operations && !worker.mutating && !worker.pendingModel && !worker.queued && worker.messages.length > 0;

@@ -579,6 +579,37 @@ test('recycling rechecks activation and pending operations after awaiting anothe
   await pool.stopAll();
 });
 
+test('recycling retains navigation preparations and rechecks new reservations during disposal', async () => {
+  const { pool, transports, open } = fixture();
+  const workers = [];
+  for (let i = 0; i < 5; i++) {
+    const worker = await open();
+    worker.messages = [{ role: 'user', content: 'saved' }];
+    worker.touched = i;
+    workers.push(worker);
+  }
+  const reserved = new Set([workers[2]]);
+  let finish!: () => void, disposing!: () => void;
+  const began = new Promise<void>(resolve => { disposing = resolve; });
+  const stop = new Promise<void>(resolve => { finish = resolve; });
+  transports[3].stop = async () => { disposing(); await stop; };
+  const recycling = pool.recycle(worker => reserved.has(worker));
+  try {
+    await began;
+    reserved.add(workers[1]);
+    finish();
+    await recycling;
+    assert.equal(pool.workers.get(workers[2].id), workers[2], 'A preparation can be connected before initialization finishes');
+    assert.equal(pool.workers.get(workers[1].id), workers[1], 'A new navigation reservation is rechecked after awaiting disposal');
+    assert.equal(pool.workers.has(workers[0].id), false, 'Unreserved expired workers still recycle');
+    assert.equal(pool.active, workers[4]);
+  } finally {
+    finish();
+    await recycling;
+    await pool.stopAll();
+  }
+});
+
 test('repeated new-session requests reuse one empty worker without resetting it', async () => {
   const { pool, transports, open } = fixture();
   const empty = await open('workspace');

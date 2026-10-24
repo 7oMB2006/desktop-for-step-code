@@ -27,6 +27,7 @@ export const acceptanceGroups = {
     'verify-file-preview.mjs',
     'verify-sidebar-scrollbar.mjs',
     'verify-sidebar-order.mjs',
+    'verify-session-search.mjs',
     'verify-archived-sessions.mjs',
     'verify-auth-vault.mjs',
     'verify-account-settings.mjs',

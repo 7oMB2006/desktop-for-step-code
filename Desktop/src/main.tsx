@@ -60,6 +60,8 @@ import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, MAX_ANNOTATION_LENGTH,
 import { playCompletionSound, prepareCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
+import { filterSessions } from './session-search';
+import './session-search.css';
 import { useSidebarReorder } from './use-sidebar-reorder';
 import { useSidebarMotion } from './use-sidebar-motion';
 import { ProjectRemoval } from './ProjectRemoval';
@@ -178,6 +180,10 @@ function App() {
   const collapsedWorkspaces = new Set(data.preferences.collapsedWorkspaces ?? []);
   const workspaceDisclosureSave = useRef<Promise<void>>(Promise.resolve());
   const [sidebar, setSidebar] = useState(true);
+  const [sessionQuery, setSessionQuery] = useState('');
+  const searchingSessions = Boolean(sessionQuery.trim());
+  const filteredSessions = useMemo(() => filterSessions(data.sessions, data.preferences, sessionQuery, bridge?.platform),
+    [data.sessions, data.preferences, sessionQuery]);
   const [compactSidebar, setCompactSidebar] = useState(() => window.innerWidth <= 760);
   const [compactSidebarOpen, setCompactSidebarOpen] = useState(false);
   const compactSidebarRef = useRef(compactSidebar);
@@ -292,7 +298,7 @@ function App() {
   const [unavailableWorkspace, setUnavailableWorkspace] = useState<string | null>(null);
   const sidebarTree = useSidebarMotion(JSON.stringify([data.preferences.workspaces, data.preferences.pinnedWorkspaces,
     data.preferences.sessionOrder, data.preferences.sessionSort, data.preferences.archivedSessionIds,
-    data.sessions.map(session => [session.id, session.cwd, session.modified])]));
+    sessionQuery, data.sessions.map(session => [session.id, session.cwd, session.modified])]));
   const manualOrder = data.preferences.sessionSort !== 'updated';
   const reorderSession = (id: string, target: string, after: boolean) => {
     const order = reconcileSessionOrder(data.preferences.sessionOrder ?? [], data.sessions);
@@ -307,7 +313,7 @@ function App() {
       void setPreference({ workspaces: keys.map(key => paths.find(path => workspaceKey(path) === key)!) });
     }
   };
-  const sessionDrag = useSidebarReorder(!loading && !sessionMove && (compactSidebar ? compactSidebarOpen : sidebar), manualOrder,
+  const sessionDrag = useSidebarReorder(!searchingSessions && !loading && !sessionMove && (compactSidebar ? compactSidebarOpen : sidebar), manualOrder,
     (id, target, after, kind) => kind === 'session' ? reorderSession(id, target, after) : reorderWorkspace(id, target, after),
     (id, destination) => {
       const session = data.sessions.find(session => session.id === id);
@@ -1091,7 +1097,7 @@ function App() {
   }
   const sessionWorkspaceKey = (session: typeof data.sessions[number]) => workspaceKey(session.workspacePath ?? session.cwd);
   const archived = new Set(data.preferences.archivedSessionIds ?? []);
-  const visibleSessions = orderSessions(data.sessions.filter(session => !archived.has(session.id)), data.preferences);
+  const visibleSessions = orderSessions(filteredSessions, data.preferences);
   const archivedSessions = data.sessions.filter(session => archived.has(session.id));
   const independentSessions = visibleSessions.filter(session => session.independent ?? !workspaceGroups.has(sessionWorkspaceKey(session)));
   for (const session of visibleSessions) if (!independentSessions.includes(session)) workspaceGroups.get(sessionWorkspaceKey(session))?.sessions.push(session);
@@ -1165,9 +1171,9 @@ function App() {
       onContextMenu={e => showContext(e, 'session', s.id)}>
       <button aria-current={!scheduledOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
         disabled={!bridge || loading && !navigationTarget} onClick={() => void navigateSession(s)}
-        aria-keyshortcuts={manualOrder && group !== '__archived__' ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
+        aria-keyshortcuts={!searchingSessions && manualOrder && group !== '__archived__' ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
         onKeyDown={e => {
-          if (!manualOrder || !e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key) || group === '__archived__') return;
+          if (searchingSessions || !manualOrder || !e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key) || group === '__archived__') return;
           e.preventDefault();
           const siblings = group === '__independent__' ? independentSessions : workspaceGroups.get(group)?.sessions ?? [];
           const index = siblings.findIndex(session => session.id === s.id);
@@ -1175,7 +1181,10 @@ function App() {
           if (target) reorderSession(s.id, target.id, e.key === 'ArrowDown');
         }}>
         <i className={`session-activity ${activity}`} role={activity === 'idle' ? undefined : 'img'} aria-hidden={activity === 'idle' ? true : undefined} aria-label={activity === 'idle' ? undefined : label}/>
-        <span>{sessionTitle(s, t('新会话', 'New session'))}</span>
+        <span title={searchingSessions ? `${sessionTitle(s, t('新会话', 'New session'))}\n${s.firstMessage}\n${s.cwd}` : undefined}>
+          {sessionTitle(s, t('新会话', 'New session'))}
+          {searchingSessions && s.name && s.firstMessage && <small className="session-search-preview">{s.firstMessage}</small>}
+        </span>
         {navigationSlow && navigationTarget?.session.id === s.id && <span className="session-navigation-spinner" role="status" aria-label={t('正在打开会话', 'Opening conversation')}/>}
       </button>
       <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" disabled={loading} onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'session', id: s.id, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
@@ -1195,7 +1204,7 @@ function App() {
     return pending;
   };
   const toggleWorkspace = (key: string) => { void run(() => setWorkspaceExpanded(key)); };
-  const independentExpanded = !collapsedWorkspaces.has('__independent__');
+  const independentExpanded = searchingSessions || !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, _sessions: typeof data.sessions) => {
     setUsageOpen(false);
     setScheduledOpen(false);
@@ -1218,14 +1227,15 @@ function App() {
   const confirmRemoveProject = (path: string) => { setError(''); setRemoveProject(path); };
   const toggleSidebar = () => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open);
   const renderWorkspace = ([key, group]: [string, { path: string; sessions: Session[] }]) => {
-    const expanded = !collapsedWorkspaces.has(key);
+    if (searchingSessions && !group.sessions.length) return null;
+    const expanded = searchingSessions || !collapsedWorkspaces.has(key);
     return <section className={`workspace-group ${sessionDrag?.id === key ? 'session-dragging' : ''} ${sessionDrag?.target === key ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''} ${sessionDrag?.workspaceTarget === group.path ? 'session-drop-target' : ''}`} key={key} aria-label={group.path}
       data-session-workspace={group.path}
       data-reorder-id={key} data-reorder-kind="workspace" data-reorder-group={pinnedWorkspaces.has(key) ? '__pinned__' : '__projects__'} data-reorder-title={workspaceTitle(group.path)}>
       <div className={`workspace-heading ${key === workspaceKey(data.preferences.workspace ?? '') ? 'current' : ''}`} onContextMenu={e => showContext(e, 'workspace', group.path)}>
-        <button className="workspace-toggle" aria-label={workspaceTitle(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}
-          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" onKeyDown={e => {
-            if (!e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
+        <button className="workspace-toggle" aria-label={workspaceTitle(group.path)} aria-expanded={expanded} aria-disabled={searchingSessions || undefined} onClick={() => { if (!searchingSessions) toggleWorkspace(key); }}
+          aria-keyshortcuts={searchingSessions ? undefined : 'Alt+ArrowUp Alt+ArrowDown'} onKeyDown={e => {
+            if (searchingSessions || !e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
             e.preventDefault();
             const siblings = pinnedWorkspaces.has(key) ? [...pinnedWorkspaces] : [...workspaceGroups.keys()].filter(key => !pinnedWorkspaces.has(key));
             const target = siblings[siblings.indexOf(key) + (e.key === 'ArrowUp' ? -1 : 1)];
@@ -1408,25 +1418,28 @@ function App() {
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
           aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
       <SidebarTaskActions selected={scheduledOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
+        onSearchChange={setSessionQuery}
         onScheduledTasks={() => { if (scheduledOpen) setScheduledOpen(false); else openScheduled(); }}
         onPlugins={() => {
           setCapabilityTarget({ page: 'plugins', tab: 'discover' }); setTab('plugins'); setCompactSidebarOpen(false); void openSettings();
         }}/>
       <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}
         onScroll={event => { event.currentTarget.dataset.scrolled = String(event.currentTarget.scrollTop > 0); }}>
-        <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
-          <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
+        {searchingSessions && <div className="session-search-status" role="status">{t(`找到 ${visibleSessions.length} 个会话`, `${visibleSessions.length} sessions found`)}</div>}
+        {searchingSessions && !visibleSessions.length && <p className="list-empty">{t('没有匹配的会话', 'No matching sessions')}</p>}
+        {(!searchingSessions || independentSessions.length > 0) && <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
+          <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} aria-disabled={searchingSessions || undefined} onClick={() => { if (!searchingSessions) toggleWorkspace('__independent__'); }}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
           <div className="workspace-disclosure" aria-hidden={!independentExpanded} inert={!independentExpanded}>
             <div className="workspace-sessions">{independentSessions.map(s => renderSession(s, '__independent__'))}</div>
           </div>
-        </section>
-        {pinnedWorkspaces.size > 0 && <div className="pinned-projects">
+        </section>}
+        {[...pinnedWorkspaces].some(key => workspaceGroups.has(key) && (!searchingSessions || workspaceGroups.get(key)!.sessions.length > 0)) && <div className="pinned-projects">
           <div className="section-label">{t('置顶', 'Pinned')}</div>
           {[...pinnedWorkspaces].flatMap(key => workspaceGroups.has(key) ? [[key, workspaceGroups.get(key)!] as [string, { path: string; sessions: Session[] }]] : []).map(renderWorkspace)}
         </div>}
-        <div className="section-label">{t('项目', 'Projects')}<IconButton title={t('添加工作区', 'Add workspace')} disabled={!bridge || loading} onClick={() => void openProject()}><Plus size={15}/></IconButton></div>
+        {(!searchingSessions || [...workspaceGroups].some(([key, group]) => !pinnedWorkspaces.has(key) && group.sessions.length > 0)) && <div className="section-label">{t('项目', 'Projects')}<IconButton title={t('添加工作区', 'Add workspace')} disabled={!bridge || loading} onClick={() => void openProject()}><Plus size={15}/></IconButton></div>}
         {[...workspaceGroups].filter(([key]) => !pinnedWorkspaces.has(key)).map(renderWorkspace)}
-        {!workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void openProject()}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
+        {!searchingSessions && !workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void openProject()}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
       </nav>
       <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
     </aside>

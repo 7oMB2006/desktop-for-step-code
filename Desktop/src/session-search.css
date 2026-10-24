@@ -1,0 +1,3 @@
+.session-search-status { padding: 8px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.session-search-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.sidebar-utility-row:has(.sidebar-search-field input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }

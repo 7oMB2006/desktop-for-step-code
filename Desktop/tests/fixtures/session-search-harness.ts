@@ -1,9 +1,22 @@
-import type { DesktopBridge, Preferences, Session, Snapshot } from '../../src/contracts';
+import type { DesktopBridge, Preferences, RepositoryDiff, Session, Snapshot } from '../../src/contracts';
 import { themes } from '../../src/theme';
 
 const params = new URLSearchParams(location.search);
 const theme = themes.find(item => item.id === params.get('theme'))?.id ?? 'light';
 const language = params.get('lang') === 'en' ? 'en' : 'zh';
+const gitPreview = params.get('git') === '1';
+let repositoryReads = 0;
+const repository: RepositoryDiff = {
+  state: 'ready', root: 'D:\\Projects\\StepCode', branch: 'feat/session-search',
+  bases: ['main', 'HEAD'], base: 'main', revision: 'preview', truncated: false,
+  added: 148, removed: 23,
+  files: [
+    { path: 'Desktop/src/session-search.ts', status: 'A', added: 86, removed: 0, binary: false },
+    { path: 'Desktop/src/main.tsx', status: 'M', added: 42, removed: 18, binary: false },
+    { path: 'Desktop/src/session-search.css', status: 'A', added: 20, removed: 0, binary: false },
+    { path: 'Desktop/src/legacy-search.ts', status: 'D', added: 0, removed: 5, binary: false },
+  ],
+};
 const project = 'D:\\Projects\\StepCode';
 const other = 'D:\\Projects\\Website';
 const model = { provider: 'step', id: 'preview', name: 'Step Code' };
@@ -56,6 +69,32 @@ window.desktop = {
   onBrowserEvent: () => () => {},
   terminalList: async () => [],
   onTerminalEvent: () => () => {},
-  summary: async () => ({ sessionId: snapshot.state?.sessionId, tasks: [], mcp: [], skillCount: 0 }),
+  repositoryDiff: async () => {
+    if (!gitPreview) return { state: 'not-git', bases: [], files: [], added: 0, removed: 0, truncated: false };
+    const value = structuredClone(repository);
+    const step = repositoryReads++ % 6;
+    value.added += step * 8;
+    value.removed += step * 2;
+    value.files[1].added += step * 8;
+    value.files[1].removed += step * 2;
+    return value;
+  },
+  repositoryFileDiff: async (_runtimeId: string, _base: string, path: string) => {
+    const file = repository.files.find(item => item.path === path);
+    return { path, added: file?.added ?? 0, removed: file?.removed ?? 0, rows: [], reason: 'no-text-change' };
+  },
+  summary: async () => ({ sessionId: snapshot.state?.sessionId,
+    tasks: gitPreview ? [
+      { id: '1', subject: '核对会话搜索与项目分组', description: '保留原有分组、置顶和排序。', status: 'completed' },
+      { id: '2', subject: '补齐键盘与空结果交互', description: '检查 Escape、输入法和焦点恢复。', status: 'in_progress' },
+      { id: '3', subject: '回归验证明暗主题', description: '核对窄窗口与展开状态。', status: 'pending' },
+    ] : [],
+    mcp: gitPreview ? [
+      { name: 'steppage__steppage', status: 'connected', toolCount: 13 },
+      { name: 'filesystem', status: 'disabled', toolCount: 0 },
+    ] : [], skillCount: gitPreview ? 6 : 0 }),
 } as unknown as DesktopBridge;
+if (gitPreview) {
+  await open('search');
+}
 await import('../../src/main');

@@ -1,5 +1,32 @@
 # Verification
 
+## Capability Form And Sidebar Follow-Up (2026-10-24)
+
+The Skill creation form reproduced horizontal clipping of its outer focus outline
+at the capability scroll container. That container now reserves focus gutters and
+scroll padding/margins without replacing the shared focus treatment. AGENTS.md
+and DESIGN.md require complete four-sided focus indicators for future forms.
+Source Electron acceptance checks Name, Description and Instructions against
+clipping ancestors in light/dark and wide/narrow layouts, with focused screenshots.
+It also verifies that the Schedules icon toggles back to the original draft without
+creating a runtime, and that the sidebar's top fade applies only after scrolling,
+clears at scroll origin and does not obscure keyboard-visible focus.
+Typecheck, production build and the complete capability Electron acceptance passed.
+This follow-up has not been repackaged; no installer or paid-model acceptance is
+claimed.
+
+Main `c6d0121` integration retains both capability mutation locking and
+session-move guards, plus both plugin exports and the session-scoped Cron patch.
+Clean Windows patch replay and all patched-source hashes passed; typecheck,
+production build and 99 focused integration tests passed. The prepared local
+CLI dependency link initially resolved a different checkout's compiled agent.
+An isolated CLI dependency overlay now resolves this checkout's agent without
+changing shared dependencies; runtime staging was repeated before acceptance.
+Source Electron session-move acceptance passed, including unrelated Cron hosts,
+relaunch, scoped restart and cold background-work guards. Capability management
+and general Electron acceptance also passed against the restaged runtime.
+This does not update the previous preview installer.
+
 ## Reading-First Session Navigation (2026-10-24)
 
 An isolated Windows Electron profile with eight native sessions, three rounds
@@ -99,33 +126,6 @@ Only fixture-host children verified under those test runners were stopped so
 the runners could finish; no user terminals or terminal product code changed.
 This follow-up therefore does not claim a fully green unit suite or release
 readiness.
-
-## Capability Form And Sidebar Follow-Up (2026-10-24)
-
-The Skill creation form reproduced horizontal clipping of its outer focus outline
-at the capability scroll container. That container now reserves focus gutters and
-scroll padding/margins without replacing the shared focus treatment. AGENTS.md
-and DESIGN.md require complete four-sided focus indicators for future forms.
-Source Electron acceptance checks Name, Description and Instructions against
-clipping ancestors in light/dark and wide/narrow layouts, with focused screenshots.
-It also verifies that the Schedules icon toggles back to the original draft without
-creating a runtime, and that the sidebar's top fade applies only after scrolling,
-clears at scroll origin and does not obscure keyboard-visible focus.
-Typecheck, production build and the complete capability Electron acceptance passed.
-This follow-up has not been repackaged; no installer or paid-model acceptance is
-claimed.
-
-Main `c6d0121` integration retains both capability mutation locking and
-session-move guards, plus both plugin exports and the session-scoped Cron patch.
-Clean Windows patch replay and all patched-source hashes passed; typecheck,
-production build and 99 focused integration tests passed. The prepared local
-CLI dependency link initially resolved a different checkout's compiled agent.
-An isolated CLI dependency overlay now resolves this checkout's agent without
-changing shared dependencies; runtime staging was repeated before acceptance.
-Source Electron session-move acceptance passed, including unrelated Cron hosts,
-relaunch, scoped restart and cold background-work guards. Capability management
-and general Electron acceptance also passed against the restaged runtime.
-This does not update the previous preview installer.
 
 ## Plugin, MCP And Skills Management (2026-10-23)
 

@@ -20,3 +20,4 @@
 - Run type checks, protocol tests, and Electron acceptance tests before considering runtime integration complete.
 - Read `docs/VERIFICATION.md` before claiming release readiness; local fixture tests do not establish real model acceptance.
 - Do not add AI-client co-author attribution to commits.
+- Follow `DESIGN.md` for shared UI components, including animated disclosures and form focus states. Input, textarea and composite-field focus indicators must remain fully visible on all four sides and rounded corners; reserve space inside clipping/scroll containers and verify focused controls in light/dark and narrow layouts. Never hide the focus indicator to mask clipping.

@@ -14,6 +14,7 @@ export const acceptanceGroups = {
     'verify-import-performance.mjs',
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',
+    'verify-capabilities.mjs',
     'verify-desktop-tray.mjs',
     'verify-composer-menu.mjs',
     'verify-command-dispatch.mjs',

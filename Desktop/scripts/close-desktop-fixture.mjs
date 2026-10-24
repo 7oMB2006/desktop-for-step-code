@@ -32,5 +32,7 @@ export async function closeDesktopFixture(app) {
       void window.desktop.snapshot().then(value => answer(value.quitReview)).catch(() => {});
     }).catch(() => {});
   }
-  await app.close();
+  const dispose = releaseExitedFixturePipes(app);
+  try { await app.close(); }
+  finally { dispose(); }
 }

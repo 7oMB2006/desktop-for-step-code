@@ -31,6 +31,7 @@ import { modelPreference, preferredModel, restoreSelectedModel, savedSessionMode
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
+import { CapabilityService, assertPluginUnused } from './capability-service';
 import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
@@ -199,6 +200,8 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
+const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
+  environment: () => isolatedEnvironment(dataRoot) });
 const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-import.mjs'), dataRoot,
   () => emit({ type: 'desktop_sessions_changed' }), async sessionIds => {
     const independent = pathKey(await realpath(independentRoot).catch(() => independentRoot));
@@ -755,7 +758,7 @@ async function handle(method: string, args: any[]) {
           await usageEstimates.flush();
           await terminals.stopAll();
           await sessionImports.close();
-          await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
+          await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
         });
         success = true;
       } finally { if (!success) updateInstalling = false; }
@@ -1698,6 +1701,24 @@ async function handle(method: string, args: any[]) {
       else if (current) await connect(current.cwd, undefined, false);
       return null;
     }
+    case 'capabilityCatalog': {
+      if (settingsMutation) throw new Error('Shared settings operation in progress');
+      return capabilityService.catalog();
+    }
+    case 'capabilityMutate': {
+      await guardIdle({ stopHost: false });
+      if (args[0]?.action === 'plugin-remove')
+        await assertPluginUnused(text(args[0].id, 128), runtimes.workers.values());
+      return capabilityService.mutate(args[0]);
+    }
+    case 'capabilityImportSkill': {
+      await guardIdle({ stopHost: false });
+      const selected = await dialog.showOpenDialog(window, { properties: ['openDirectory'],
+        title: preferences.language === 'zh' ? '导入 Skill 文件夹' : 'Import Skill folder' });
+      if (selected.canceled || !selected.filePaths[0]) return null;
+      await guardIdle({ stopHost: false });
+      return capabilityService.importSkill(selected.filePaths[0]);
+    }
     case 'saveMcp': {
       await guardIdle(); const name = text(args[0], 80);
       if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('Use letters, numbers, underscores or hyphens for the server name');
@@ -1838,7 +1859,7 @@ app.on('before-quit', event => {
       }
       await terminals.stopAll();
       await sessionImports.close();
-      await Promise.all([runtimes.stopAll(), admin.stop(), collaboration.stop()]);
+      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
       await usageEstimates.flush();
@@ -1997,7 +2018,10 @@ else app.whenReady().then(async () => {
     if (method === 'quitRespond' || method === 'windowControl') return handle(method, args);
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
-    const shared = ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage'].includes(method);
+    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill'].includes(method);
+    const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage'].includes(method);
+    if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
+      throw new Error('Shared settings operation in progress');
     if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
       'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
@@ -2046,5 +2070,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([sessionImports.close(), runtimes.stopAll(), admin.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
+  quitting = true; void Promise.all([sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
 });

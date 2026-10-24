@@ -65,6 +65,9 @@ export interface CronRecoveryPreview {
 export interface CronOverview { tasks: CronTask[]; hosts: CronHost[]; issues: { workspace: string; reason: 'unavailable' | 'untrusted' }[] }
 export interface CronCreateInput { runtimeId: string; cron: string; prompt: string; recurring: boolean; durable: boolean }
 export interface DesktopBridge extends SessionImportBridge {
+  capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
+  capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
+  capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;
   stepPageState(): Promise<StepPagePreparation>;
   prepareStepPage(): Promise<StepPagePreparation>;
   cronList(): Promise<CronOverview>;

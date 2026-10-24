@@ -24,6 +24,7 @@ const builtins = {
   init: { labels: ['项目指引', 'Project instructions'], description: '创建或更新项目 AGENTS.md', Icon: FileText },
   cron: { labels: ['定时任务', 'Scheduled tasks'], description: '打开定时任务；带参数时使用运行时指令', Icon: Clock3 },
   plugin: { labels: ['插件', 'Plugins'], description: '查看与管理 Step Code 插件', Icon: Plug },
+  skills: { labels: ['技能', 'Skills'], description: '查看与管理已安装技能', Icon: BookOpen },
   mcp: { labels: ['MCP', 'MCP'], description: '查看与管理服务器', Icon: McpIcon },
   model: { labels: ['模型', 'Model'], description: '选择模型与思考档位', Icon: Cpu },
   permissions: { labels: ['访问权限', 'Permissions'], description: '调整此会话的权限', Icon: Shield },

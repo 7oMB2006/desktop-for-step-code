@@ -1,5 +1,80 @@
 # Verification
 
+## Capability Form And Sidebar Follow-Up (2026-10-24)
+
+The Skill creation form reproduced horizontal clipping of its outer focus outline
+at the capability scroll container. That container now reserves focus gutters and
+scroll padding/margins without replacing the shared focus treatment. AGENTS.md
+and DESIGN.md require complete four-sided focus indicators for future forms.
+Source Electron acceptance checks Name, Description and Instructions against
+clipping ancestors in light/dark and wide/narrow layouts, with focused screenshots.
+It also verifies that the Schedules icon toggles back to the original draft without
+creating a runtime, and that the sidebar's top fade applies only after scrolling,
+clears at scroll origin and does not obscure keyboard-visible focus.
+Typecheck, production build and the complete capability Electron acceptance passed.
+This follow-up has not been repackaged; no installer or paid-model acceptance is
+claimed.
+
+Main `c6d0121` integration retains both capability mutation locking and
+session-move guards, plus both plugin exports and the session-scoped Cron patch.
+Clean Windows patch replay and all patched-source hashes passed; typecheck,
+production build and 99 focused integration tests passed. The prepared local
+CLI dependency link initially resolved a different checkout's compiled agent.
+An isolated CLI dependency overlay now resolves this checkout's agent without
+changing shared dependencies; runtime staging was repeated before acceptance.
+Source Electron session-move acceptance passed, including unrelated Cron hosts,
+relaunch, scoped restart and cold background-work guards. Capability management
+and general Electron acceptance also passed against the restaged runtime.
+This does not update the previous preview installer.
+
+## Plugin, MCP And Skills Management (2026-10-23)
+
+Management follows the upstream Web/Desktop MVP user-scope APIs, isolated under
+Desktop-owned storage. The renderer receives bounded, redacted data through typed
+IPC. Configuration changes do not silently reload sessions or stop Cron hosts.
+
+The final serial Node 24.16.0 suite passed 686 tests with 13 platform skips and no
+failures. Typecheck, production build, CI policy tests and upstream barrel lint
+passed. Clean Windows patch replay and the macOS index patch/hash check passed;
+the latter is not native macOS acceptance.
+
+After final runtime staging, real isolated-profile Electron acceptance passed
+local marketplace/plugin operations, Skill lifecycle and runtime command reload,
+MCP configuration versus live connection state, explicit restart, command routing,
+theme and narrow-window rendering. Uninstalling a plugin used by a resident MCP
+is blocked before deleting files; disabling and restarting permits removal.
+Standalone usage-worker acceptance also passed against the final bundle.
+
+Plugin details, StepPage preparation and session commands now share
+DisclosureChevron and useAnimatedDisclosure rather than default markers or a
+separate CSS disclosure. Electron acceptance verifies both 240ms cubic directions,
+inert collapsed bodies, keyboard activation and reduced-motion settling.
+Typecheck and production build passed again after this alignment.
+
+The DFSC Beta icon extension reads only bounded plugin-local PNG files from the
+optional `step.plugin.json` icon field. All 12 management tests passed, including
+install preservation, invalid/link/oversized paths and built-in placeholder
+selection. Real Electron acceptance passed discovery/installed PNG decoding,
+corrupt-image fallback and the existing management/disclosure regressions.
+Typecheck and production build passed; this is not an upstream schema extension.
+
+The shared SidebarTaskActions now presents equal-width New chat and Plugins
+buttons above right-aligned, adjacent Schedules and Search icons. The plugin entry
+opens Discover without sending a model prompt. Search expands leftward from its
+fixed right-hand trigger using cubic easing; it remains a labeled, read-only
+placeholder, not a working session filter. Electron acceptance checks navigation,
+equal primary widths, paired icons, containment, the six-pixel inter-row gap, fixed trigger/list geometry, focus return
+on Escape, inert hidden controls and reduced-motion behavior. Typecheck and
+production build passed; screenshots include the real sidebar and expanded search.
+
+These checks use deterministic local resources, not paid model requests or real
+third-party login/publishing. No installer, first-install acceptance or cloud CI
+result is established by this run. See `docs/CAPABILITIES.md` for scope.
+
+Mainline integration retains session migration, quote annotations and shared
+command presentation. Fresh Windows patch replay and runtime staging passed with
+the combined import/plugin exports and source hashes. Migration, command dispatch
+and composer-menu Electron regressions also passed against the combined source.
 ## API Balance Fixture Shutdown (2026-10-24)
 
 After integrating main `985f372`, cloud run `39985959681` passes Windows
@@ -4368,3 +4443,22 @@ both discovery cases (50 cases total). Real Electron model-switch acceptance
 passed, including persistent selection, missing-model protection and explicit
 recovery. This follow-up does not rebuild or retarget the existing preview
 package. Replacement cloud CI must validate both native platforms.
+
+### Update Installer Fixture Shutdown
+
+Windows interface run `39995014128` reached the update installer's successful
+UI assertions, then timed out while closing its Electron fixture. The shared
+orderly-close helper now installs the existing Windows pipe-release guard, and
+the update-installer acceptance uses that helper. Pipes are released only after
+the launcher exits with code zero and every application window closes; normal
+quit review and state flushing remain in use. Shutdown errors still propagate,
+and guard listeners are removed on both success and failure.
+
+The new helper integration regression failed before this change and passed
+after it. All eight shutdown tests and typecheck passed locally, as did three
+consecutive update-installer runs and update-settings Electron acceptance.
+Plugin-management, session-move and then-run Electron acceptance also passed,
+including their orderly shutdown and persisted-history checks.
+The full local interface group could not run because this machine lacks the
+matching Playwright Chromium headless binary. Cloud CI must validate the full
+group; no fresh package or cloud success is claimed by these local checks.

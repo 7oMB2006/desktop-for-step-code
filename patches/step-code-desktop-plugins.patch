@@ -1,0 +1,23 @@
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -647,6 +647,19 @@
+ 	stepPermissionStateForPreset,
+ } from "./step/permissions.ts";
++export {
++	addMarketplaceSource,
++	discoverStepPluginResourcePaths,
++	ensureBuiltinMarketplace,
++	installMarketplacePlugin,
++	listInstalledStepPlugins,
++	listMarketplacePlugins,
++	listMarketplaceSources,
++	readStepPluginManifest,
++	removeMarketplaceSource,
++	uninstallPlugin,
++	updateMarketplaceSource,
++} from "./step/plugins.ts";
+ export {
+ 	type CreateStepAgentSessionOptions,
+ 	type CreateStepAgentSessionServicesOptions,
+ 	createStepAgentSession,

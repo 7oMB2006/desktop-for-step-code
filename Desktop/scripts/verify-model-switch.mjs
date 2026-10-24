@@ -114,6 +114,8 @@ try {
   assert.ok(proposal.draftId); assert.equal(proposal.modelSelection, undefined);
   await page.locator('.session-row > button:first-child').filter({ hasText: 'FIRST:' }).click();
   await page.waitForFunction(() => document.querySelector('.model-effort-name')?.textContent === 'Step-3.5-Pro');
+  await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
+  assert.equal((await snapshot()).state.sessionId, fixture.state.sessionId);
   assert.equal((await snapshot()).modelSelection.model.id, 'model-b');
   finish(); await waitRequest(2);
   assert.equal(requests[1].model, 'model-a', 'steering retains active model'); assert.equal(requests[1].reasoning_effort, 'low');
@@ -166,8 +168,11 @@ try {
   assert.equal(restarted.preferences.preferredModel.id, 'model-b');
   await reopened.locator('.session-row > button:first-child').filter({ hasText: 'FIRST:' }).click();
   await reopened.locator('.client-model-change').waitFor();
+  // Restored history can paint before its runtime is ready to clone.
+  await reopened.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   assert.equal(await reopened.locator('.client-model-change').count(), 1, 'sidecar survives a full application restart');
   const history = await reopened.evaluate(() => window.desktop.snapshot());
+  assert.equal(history.state.sessionId, fixture.state.sessionId);
   const cloned = await reopened.evaluate(id => window.desktop.cloneSession(id), history.state.sessionId);
   assert.notEqual(cloned.state.sessionId, history.state.sessionId);
   assert.equal(cloned.modelChanges.length, 1, 'whole-session copy inherits switch history');

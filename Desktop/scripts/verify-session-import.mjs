@@ -209,8 +209,12 @@ try {
   await page.waitForSelector('.settings-dialog', { state: 'detached' });
   await page.waitForFunction(id => window.desktop.snapshot().then(snapshot => snapshot.state?.sessionId === id), result.sessionId);
   await page.locator('.messages').getByText('Historical answer', { exact: true }).waitFor();
+  // Preview text can precede the imported runtime's complete history.
+  await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
-  assert.ok(snapshot.messages.some(message => message.desktopImported && message.role === 'toolResult'));
+  assert.equal(snapshot.state.sessionId, result.sessionId);
+  assert.ok(snapshot.messages.some(message => message.desktopImported && message.role === 'toolResult'),
+    `Imported tool result is missing: ${JSON.stringify(snapshot.messages.map(({ role, desktopImported, entryId }) => ({ role, desktopImported, entryId })))}`);
   assert.ok(snapshot.messages.some(message => message.role === 'assistant' && Array.isArray(message.content)
     && message.content.some(block => block.historical && block.name === 'run_command')));
   assert.equal(snapshot.stats.tokens.total, 0);
@@ -233,6 +237,8 @@ try {
   assert.equal(await readFile(sourcePath, 'utf8'), sourceBytes + jsonl([user('Later source turn'), assistant('Must not enter old preview')]));
   await page.locator(`.session-row[data-reorder-id="${claudeResult.sessionId}"] > button`).first().click();
   await page.locator('.messages').getByText('Claude historical answer', { exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.sessionId, claudeResult.sessionId);
   // A relaunch retains both the native imported copy and the job journal.
   await closeDesktopFixture(app);
   app = await launch();

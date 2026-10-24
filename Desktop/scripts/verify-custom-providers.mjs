@@ -210,7 +210,9 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 760));
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
     await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await page.waitForTimeout(300); // Capture settled palette transitions, not the dark-to-light intermediate frame.
     for (const label of ['名称', 'Base URL', 'API Key', '模型 ID 1']) {
       await verifyFocusGutter(label, `provider-focus-${theme}-${label === '名称' ? 'name' : label === 'Base URL' ? 'url' : label === 'API Key' ? 'key' : 'model'}-narrow`);
     }

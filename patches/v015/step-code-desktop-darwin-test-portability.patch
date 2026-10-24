@@ -1,0 +1,79 @@
+diff --git a/packages/coding-agent/test/workflow-extension.test.ts b/packages/coding-agent/test/workflow-extension.test.ts
+--- a/packages/coding-agent/test/workflow-extension.test.ts
++++ b/packages/coding-agent/test/workflow-extension.test.ts
+@@ -1,8 +1,8 @@
+ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+-import { tmpdir } from "node:os";
++import os, { tmpdir } from "node:os";
+ import path from "node:path";
+ import type { AgentToolResult } from "@step-harness/agent-core";
+-import { afterEach, expect, test, vi } from "vitest";
++import { afterEach, beforeEach, expect, test, vi } from "vitest";
+ import type { ExtensionAPI, ExtensionCommandContext, ToolDefinition } from "../src/core/extensions/types.ts";
+ import { registerWorkflowChildAcl, WORKFLOW_ACL_ENV } from "../src/features/workflow/acl-extension.ts";
+ import { workflowProgressResult } from "../src/features/workflow/rendering.ts";
+@@ -15,6 +15,15 @@
+ import type { StepTelemetryReporter } from "../src/step/telemetry.ts";
+ 
+ const cleanups: string[] = [];
++
++beforeEach(() => {
++	// Live-progress assertions exercise an explicit two-slot fixture. A hosted
++	// three-core Mac correctly clamps production concurrency to one; its CPU
++	// count must not silently change the topology this test is exercising.
++	const cpu = os.cpus()[0]!;
++	vi.spyOn(os, "cpus").mockReturnValue(Array(10).fill(cpu));
++	vi.stubEnv("STEP_WORKFLOW_CONCURRENCY_LIMIT", "");
++});
+ 
+ test("concurrency clamping is a notice, independent of workflow failure state", () => {
+ 	const progress: WorkflowProgress = {
+@@ -69,6 +78,7 @@
+ });
+ 
+ afterEach(async () => {
++	vi.restoreAllMocks();
+ 	vi.unstubAllEnvs();
+ 	await Promise.all(cleanups.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+ });
+@@ -409,10 +419,14 @@
+ 	const testHarness = harness();
+ 	const updates: AgentToolResult<WorkflowProgress>[] = [];
+ 	const pending = new Map<string, (result: WorkflowAgentRunResult) => void>();
++	let draining = false;
+ 	createStepWorkflowExtension({
+ 		enabled: true,
+ 		maxConcurrency: 2,
+-		runner: ({ prompt }) => new Promise((resolve) => pending.set(prompt, resolve)),
++		runner: ({ prompt }) => new Promise((resolve) => {
++			pending.set(prompt, resolve);
++			if (draining) resolve({ value: "done" });
++		}),
+ 		vmExecutor: async (_script, _args, host) => {
+ 			host.phase("Review");
+ 			host.log("Checking three subsystems");
+@@ -462,10 +476,10 @@
+ 		expect(firstSnapshot?.completedAgents).toBe(0);
+ 		expect(firstSnapshot?.agents[0]?.status).toBe("running");
+ 	} finally {
+-		// Always drain the injected runners, even when the live assertions fail.
++		// Drain existing and subsequently admitted runners even if an assertion
++		// fails, so an unresolved fixture cannot retain process-wide admission.
++		draining = true;
+ 		for (const resolve of pending.values()) resolve({ value: "done" });
+-		await vi.waitFor(() => expect(pending.size).toBe(3));
+-		pending.get("Check scheduler")!({ value: "done" });
+ 		await execution;
+ 	}
+ 	expect(updates.at(-1)?.details).toMatchObject({ status: "completed", completedAgents: 3, totalAgents: 3 });
+diff --git a/packages/coding-agent/test/workflow-runtime.test.ts b/packages/coding-agent/test/workflow-runtime.test.ts
+--- a/packages/coding-agent/test/workflow-runtime.test.ts
++++ b/packages/coding-agent/test/workflow-runtime.test.ts
+@@ -125,6 +125,7 @@
+ 	expect(clampWorkflowConcurrency(22, 10)).toBe(8);
+ 	expect(clampWorkflowConcurrency(22, 32)).toBe(16);
+ 	expect(clampWorkflowConcurrency(2, 10)).toBe(2);
++	expect(clampWorkflowConcurrency(2, 3)).toBe(1); // Real three-core hosts retain their production cap.
+ });
+ 
+ test("optional provider concurrency ignores blank and invalid environment values", () => {

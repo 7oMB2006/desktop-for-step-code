@@ -1,3 +1,4 @@
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -261,6 +262,7 @@ try {
   await writeFile('test-results/queue-verification.json', JSON.stringify({ profile, requestOrder: fixture.requests, animation: motion, before: before.x, moved: moved.x, restored: restored.x, chips }, null, 2));
   console.log('Send queue passed: real RPC steering/FIFO, long preview, edit with references, withdrawal, interruption, IME/repeat guards, layout animation and narrow theme.');
 } catch (error) {
+  console.error(error);
   const page = await app.firstWindow();
   console.log(JSON.stringify(await page.evaluate(() => window.desktop.snapshot()), (key, value) => ['messages', 'models', 'sessions'].includes(key) ? undefined : value, 2));
   console.log(await page.locator('body').innerText());
@@ -268,5 +270,5 @@ try {
   throw error;
 } finally {
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); }).catch(() => {});
-  await app.close(); await fixture.close();
+  await closeDesktopFixture(app); await fixture.close();
 }

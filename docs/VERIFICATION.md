@@ -1,6 +1,6 @@
 # Verification
 
-## macOS 0.6.0 preparation (2026-10-24, in progress)
+## macOS 0.6.0 candidate preparation (2026-10-24, package checks pending)
 
 The owner authorized the feature freeze at Windows PR #163 merge
 `324e71d1800de020c035cdce598374a6037ba4ca`, superseding the 0.5.1-only scope.
@@ -13,13 +13,17 @@ v0.1.5 Desktop integration with strict shared/platform hashes, and a Darwin-only
 process-tree patch. The original dirty `Step-Code/` checkout was preserved;
 builds use a separate source directory. Node is v24.15.0 on ARM64 macOS 26.4.
 Offline upstream build, clean patch reapplication and staged usage worker passed.
-Twelve focused upstream suites passed 354 tests with three Linux-only skips,
+The complete 27-suite upstream run passed 619 tests with three Linux-only skips,
 including real detached-child cancellation with an unrelated process retained.
+A hosted three-CPU Mac exposed a unit fixture assuming two runnable slots. A
+separate hash-pinned Darwin test patch fixes the test topology and cleanup, while
+asserting the production three-core cap remains one. Forced-three-core full-suite
+replay passes; shared Windows patches and source hashes are unchanged.
 
-Desktop frozen-lockfile install, typecheck and production build passed. Initial
-full serialized unit/protocol run passed 786 tests with one Windows-only skip;
-subsequent StepPage/scroll additions are checked separately and will receive a
-final run before freezing the candidate. CI policy/runner checks passed 18 tests
+Desktop frozen-lockfile install, typecheck and production build passed. The
+full serialized unit/protocol run after product fixes passed 790 tests with one
+Windows-only skip. The later Darwin CI-test manifest update also passed all four
+staging guards; the final candidate build receives another full protocol run. CI policy/runner checks passed 18 tests
 with one Windows-only cancellation skip. No cloud CI result is claimed here.
 
 Product audit enabled Mac Cron recovery/editing/scope and offline session import,
@@ -34,11 +38,18 @@ disabled state remain intact. No real service login or publishing was performed.
 
 Mac acceptance now reuses the shared serial feature inventory (83 checks), excluding
 only the Windows native command suite and adding native updater/turn-undo checks.
-The full source sweep and final package sweep are still in progress. Initial
-failures exposed stale fixture assumptions as well as a real wheel-routing gap
-over sibling conversation markers/scroll handles; the latter has a product fix
-and bounded delta/zoom tests. Final package identity, checksums, resource report
-and per-script outcomes will be recorded after the candidate is built and tested.
+All 83 source checks passed after the initial sweep and targeted repairs; the
+initial failures and rerun results are retained in test-results, with the exact
+final inventory in macos-source-final.json. Initial failures exposed stale fixture
+assumptions as well as a real wheel-routing gap over sibling conversation markers
+and scroll handles; the latter has a product fix and bounded delta/zoom tests.
+Native test sizing uses actual window bounds and retains all sub-100px scroll
+assertions. Zsh paste requires explicit Enter, preserving bracketed-paste safety.
+The official StepPage 1.0.0 bundle matched its pinned SHA-256 and passed a real
+13-tool handshake, disable/reconnect, settings-button preparation, isolated HOME,
+corrupt-file rejection/repair and Cron-host coexistence checks without login, tool
+calls or publishing. Final package identity, checksums, resource report and
+per-script outcomes will be recorded after the clean candidate is built and tested.
 
 Unsigned/unnotarized installation, real account/model calls, production in-app
 upgrade, external services and execution on the minimum supported macOS remain

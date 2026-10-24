@@ -53,16 +53,19 @@ try {
   const track = page.locator('.main-content > .conversation-scroll-track');
   const measure = () => viewport.evaluate(v => ({ top: v.scrollTop, max: v.scrollHeight - v.clientHeight }));
   const settle = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
-  const reset = async ({ turns = 1, theme = 'dark', width = 1200, height = 850 } = {}) => {
-    await app.evaluate(({ BrowserWindow }, { messages, turns, theme, width, height }) => {
+  const reset = async ({ turns = 1, theme = 'dark', width = 1200, height = 850, outputLines = 70 } = {}) => {
+    await app.evaluate(({ BrowserWindow }, { messages, turns, theme, width, height, outputLines }) => {
       BrowserWindow.getAllWindows()[0].setSize(width, height);
       globalThis.scrollFixture.preferences.theme = theme;
-      globalThis.scrollFixture.messages = turns === 1 ? messages : [
+      const rendered = structuredClone(messages);
+      rendered.find(message => message.role === 'toolResult').content[0].text =
+        'Command failed with exit code 1.\n' + 'ERROR: example diagnostic output.\n'.repeat(outputLines);
+      globalThis.scrollFixture.messages = turns === 1 ? rendered : [
         { role: 'user', content: 'Earlier question.', timestamp: Date.now() - 1000 },
         { role: 'assistant', content: [{ type: 'text', text: 'Earlier answer.' }], timestamp: Date.now() - 1000 },
-        ...messages,
+        ...rendered,
       ];
-    }, { messages, turns, theme, width, height });
+    }, { messages, turns, theme, width, height, outputLines });
     await page.reload();
     await tool.waitFor();
   };
@@ -188,16 +191,30 @@ try {
 
   for (const [theme, width] of [['dark', 1200], ['light', 1200], ['light', 700]]) {
     phase = `${theme}/${width}: less than 100 pixels of total scroll range`;
-    await reset({ theme, width });
-    await openTool();
-    const initial = await measure();
-    await app.evaluate(({ BrowserWindow }, adjustment) => {
-      const window = BrowserWindow.getAllWindows()[0];
-      const [width, height] = window.getSize();
-      window.setSize(width, height + adjustment);
-    }, initial.max - 62);
-    await settle();
-    const range = await measure();
+    let range;
+    // Native macOS bounds may clamp a large window to the display. Measure the
+    // actual viewport after each request, and use a shorter diagnostic fixture
+    // if the full output cannot fit. Keep production layout and scrolling intact.
+    for (const outputLines of [70, 10, 5]) {
+      await reset({ theme, width, outputLines });
+      await openTool();
+      for (let attempt = 0; attempt < 5; attempt++) {
+        range = await measure();
+        if (range.max > 10 && range.max < 100) break;
+        const bounds = await app.evaluate(({ BrowserWindow }, adjustment) => {
+          const window = BrowserWindow.getAllWindows()[0];
+          const before = window.getContentSize();
+          window.setContentSize(before[0], before[1] + adjustment);
+          return { before, after: window.getContentSize() };
+        }, range.max > 0 ? range.max - 62 : -62);
+        await page.waitForTimeout(180);
+        await settle();
+        evidence.push({ label: `${phase}: fixture sizing`, outputLines, bounds, range: await measure() });
+        if (bounds.before[1] === bounds.after[1]) break;
+      }
+      range = await measure();
+      if (range.max > 10 && range.max < 100) break;
+    }
     assert.ok(range.max > 10 && range.max < 100, `Expected a short scroll range, got ${range.max}`);
     await wheel(-240);
     assert.equal((await measure()).top, 0);

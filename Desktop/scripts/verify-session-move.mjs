@@ -301,7 +301,8 @@ try {
   assert.equal(scopedRestart.permissionPreset, 'ask');
   const restartedCron = await page.evaluate(() => window.desktop.cronList());
   assert.equal(restartedCron.tasks.find(task => task.id === 'move-guard')?.runtimeId, cronOwner.runtimeId);
-  const bindingKey = JSON.stringify([projects[0].replaceAll('\\', '/').toLowerCase(), 'move-guard',
+  const bindingPath = process.platform === 'win32' ? projects[0].replaceAll('\\', '/').toLowerCase() : projects[0];
+  const bindingKey = JSON.stringify([bindingPath, 'move-guard',
     JSON.parse(savedCronBytes).createdAt]);
   await mkdir(join(profile, 'cron-bindings'), { recursive: true });
   await writeFile(join(profile, 'cron-bindings', `${createHash('sha256').update(bindingKey).digest('hex')}.json`),

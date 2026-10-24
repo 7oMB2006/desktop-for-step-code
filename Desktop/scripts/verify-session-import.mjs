@@ -107,6 +107,7 @@ try {
   await sourceFilter.click();
   await page.getByRole('menuitemradio', { name: '全部来源', exact: true }).press('ArrowDown');
   await page.getByRole('menuitemradio', { name: 'Codex', exact: true }).press('Enter');
+  await page.waitForFunction(() => document.querySelectorAll('.import-candidate').length === 1);
   assert.equal(await page.locator('.import-candidate').count(), 1);
   assert.equal(await sourceFilter.evaluate(element => element === document.activeElement), true);
   await sourceFilter.click();

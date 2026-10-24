@@ -1,10 +1,10 @@
+import { terminateFixtureTree } from './fixture-runtime-children.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
-import { execFileSync } from 'node:child_process';
 
 // Exercise actual workflow RPC children, not injected renderer status records.
 const profile = await mkdtemp(join(tmpdir(), 'desktop-workflow-'));
@@ -275,7 +275,8 @@ try {
   const crashRuns = await Promise.all((await readdir(runRoot)).map(async id => JSON.parse(await readFile(join(runRoot, id, 'progress.json'), 'utf8'))));
   const crashedRun = crashRuns.find(flow => flow.status === 'running');
   assert.ok(crashedRun?.runId);
-  execFileSync('taskkill.exe', ['/PID', String(app.process().pid), '/T', '/F'], { windowsHide: true });
+  assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), profile);
+  terminateFixtureTree(app.process().pid);
   await crashing.catch(() => {});
   holdRecovery = false; releaseRecovery?.();
   app = await launch(); page = await app.firstWindow();

@@ -45,6 +45,7 @@ test('Darwin additions retain the complete shared integration and pin their own 
   assert.deepEqual(darwin.patchIds, ['desktop-darwin-process-tree']);
   assert.deepEqual(Object.keys(darwin.patchedSources).sort(), [
     'packages/coding-agent/src/utils/shell.ts', 'packages/coding-agent/test/shell-process-tree-darwin.test.ts',
+    'packages/coding-agent/test/workflow-extension.test.ts', 'packages/coding-agent/test/workflow-runtime.test.ts',
   ]);
   for (const [name, expected] of Object.entries(darwin.patches)) {
     const bytes = Buffer.from((await readFile(join(root, name), 'utf8')).replace(/\r\n/g, '\n'));

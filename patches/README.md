@@ -97,6 +97,15 @@ An unavailable process table retains ordinary process-group cleanup. Dedicated
 ownership/PID-reuse tests and a real detached-child isolation test cover Darwin;
 the shared Windows patch and resulting Windows source hashes are unchanged.
 
+`step-code-desktop-darwin-test-portability.patch` pins the Workflow extension
+fixture CPU topology, matching the neighboring runtime fixture. Hosted
+three-core Macs correctly limit production Workflow concurrency to one; the
+extension's two-running/one-queued assertions need a controlled test topology.
+Cleanup drains runners admitted after a failed assertion so an unfinished test
+cannot hold shared admission slots and cascade into later tests. The existing
+scheduler test additionally checks that the real three-core cap remains one.
+This addition changes tests only and preserves every live production limit.
+
 Permissions, risk acknowledgment, legacy migration, bounded model-error continuation and default CLM remain upstream behavior. The original root-level integration patches remain unchanged for the historical macOS baseline. These are reproducible source commits, not GitHub release tags.
 
 The shared `step-code-desktop-auto-resume.patch` adds structured provenance

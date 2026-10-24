@@ -83,11 +83,14 @@
   "platforms": {
     "darwin": {
       "patches": {
-        "step-code-desktop-darwin-process-tree.patch": "385f53be11e8b25663d82d888c962ab47bcc4b15"
+        "step-code-desktop-darwin-process-tree.patch": "385f53be11e8b25663d82d888c962ab47bcc4b15",
+        "step-code-desktop-darwin-test-portability.patch": "cec1661c6f80c21fea8411ef1eb2f0fac3b572f9"
       },
       "patchedSources": {
         "packages/coding-agent/src/utils/shell.ts": "187c7c34f9f63d9c1865dd1cd057c079e10ed720",
-        "packages/coding-agent/test/shell-process-tree-darwin.test.ts": "7334334f9287035142d0711945d371a6f11811c2"
+        "packages/coding-agent/test/shell-process-tree-darwin.test.ts": "7334334f9287035142d0711945d371a6f11811c2",
+        "packages/coding-agent/test/workflow-extension.test.ts": "5b0eaa70f966e37d22f2bc88e6065b47559d2f14",
+        "packages/coding-agent/test/workflow-runtime.test.ts": "586ad415a51ea6ab52df34fffceaa11c156032c5"
       },
       "patchIds": [
         "desktop-darwin-process-tree"

@@ -90,7 +90,8 @@ try {
   assert.equal(await node.evaluate(el => el.isConnected), true);
   assert.equal(await draft.innerText(), 'Usage retains this draft');
   await page.locator('.sidebar-bottom > button').click();
-  await page.getByRole('button', { name: '用量统计', exact: true }).last().click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户', exact: true }).click();
+  await page.getByRole('dialog', { name: '设置', exact: true }).getByRole('button', { name: '用量统计', exact: true }).click();
   await page.locator('.usage-overview-preview h1').waitFor();
   assert.equal(await page.getByRole('dialog', { name: '设置', exact: true }).count(), 0);
   await page.getByRole('button', { name: '定时任务', exact: true }).click();

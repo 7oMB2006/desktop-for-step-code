@@ -51,7 +51,8 @@ retains a selectable slash, so selecting transcript text does not remove it.
 | `/compact [instructions]` | Call the `compact` RPC with `customInstructions` | Fixture covers success, failure retaining the draft, and busy rejection; actual model summarization is separate acceptance |
 | `/todos` | Upstream task-list notification | Empty list tested against the real bundle; a right-panel shortcut remains future work |
 | `/workflows` | Upstream saved-workflow and recent-run notification | Empty lists tested against the real bundle; not equated to the current agent inspector |
-| `/clm`, `/clm-compact [instructions]` | Existing core working-context handlers | Status tested against the real bundle; existing CLM maintenance tests remain authoritative |
+| `/clm` | Opens the CLM inspector after Context and Status | Read-only active-branch revisions, saved contents and runtime diff; no model request |
+| `/clm on\|off\|diff\|reset`, `/clm-compact [instructions]` | Existing core working-context handlers | Parameterized commands retain their native semantics; manual organization may use the model |
 | `/plan` | Existing upstream plan-mode handler and Desktop approval flow | On/off state verified against the real bundle; no change to approvals |
 | `/goal` | Existing upstream goal handler | Read-only empty status verified; starting/resuming goals is not part of this audit |
 | `/ultracode`, `/ultraloop` | Existing upstream multi-agent handlers | Read-only status verified; the redundant alias is hidden when Ultracode is advertised |
@@ -94,7 +95,7 @@ ordinary prose while a task is running.
 | --- | --- | --- |
 | `/todos` | 返回上游清单通知 | 映射到已有右栏清单；保留空状态与历史边界 |
 | `/workflows` | 通知列出已保存工作流与近期运行记录，仍有英文原始输出 | 中文列表与运行详情；不直接等同于当前代理面板 |
-| `/clm`、`/clm-compact` | 状态查看和手动整理已可用 | 接续 TODO 中已有 CLM 二级详情项，不重复立项 |
+| `/clm`、`/clm-compact` | CLM 独立页已接真实分支修订查询；面板启停和手动整理复用上游命令 | Windows v0.1.5 增加只读 RPC；旧运行时明确显示接口不可用，尚未声明安装包验收 |
 
 `/plugin` 已映射至专用插件管理页，隔离运行时和 Electron 验收覆盖本地市场安装、
 卸载及配置生效；真实第三方登录、首次安装和打包验收仍需分别完成。

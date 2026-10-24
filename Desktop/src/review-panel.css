@@ -8,6 +8,8 @@
   flex-basis: clamp(0px, calc(var(--conversation-width) + 28px + 1000px - 100vw + var(--sidebar-track) + 44px), var(--review-width));
 }
 .review-track.is-replaced { flex-basis: 0 !important; transition: none; }
+.review-track.is-wide { --inspector-width:max(620px,min(calc((100vw - var(--sidebar-track) - 44px) * .6),calc(100vw - var(--sidebar-track) - 44px - 480px))); }
+.review-track.is-wide.is-open:not(.is-overlay):not(.is-replaced) { flex-basis:var(--inspector-width); }
 .review-panel {
   position: fixed; z-index: 12; top: var(--window-bar-height); right: 44px; bottom: 0;
   display: flex; flex-direction: column; width: min(var(--review-width), calc(100vw - 60px));

@@ -8,6 +8,7 @@ import { FilePreview } from './TurnChanges';
 import { DiffCount } from './DiffCount';
 import { DisclosureChevron } from './DisclosureChevron';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
+import { RightPanelWidthControl, type RightPanelWidth } from './RightPanelWidthControl';
 import { turnTime } from './ConversationNavigation';
 import './review-panel.css';
 
@@ -77,10 +78,11 @@ function DiffFile({ file, repository, source, runtimeId, base, revision, languag
   </div>;
 }
 
-function ReviewContent({ runtimeId, messages, busy, active, language, expanded, onToggleExpanded, onClose, onError, repositoryRequest, onRepositoryRequestHandled, layout = 'unified', onLayoutChange }: {
+function ReviewContent({ runtimeId, messages, busy, active, language, expanded, onToggleExpanded, onClose, onError, repositoryRequest, onRepositoryRequestHandled, layout = 'unified', onLayoutChange, width = 'standard', onWidthChange }: {
   runtimeId?: string; messages: Message[]; busy: boolean; active: boolean; language: 'zh' | 'en';
   onClose: () => void; onError: (error: string) => void;
   expanded: boolean; onToggleExpanded: () => void;
+  width?: 'standard' | 'wide'; onWidthChange?: (value: RightPanelWidth) => void;
   repositoryRequest?: number;
   onRepositoryRequestHandled?: (request: number) => void;
   layout?: DiffLayout; onLayoutChange?: (layout: DiffLayout) => void;
@@ -141,6 +143,7 @@ function ReviewContent({ runtimeId, messages, busy, active, language, expanded, 
   const LayoutIcon = layout === 'unified' ? Rows2 : Columns2;
   return <>
     <header className="review-header right-panel-header"><h2>{t('变更', 'Changes')}</h2>
+      {onWidthChange && <RightPanelWidthControl value={expanded ? 'fullscreen' : width} language={language} panel="review" onChange={onWidthChange}/>}
       {onLayoutChange && <button type="button" className="icon-button" data-diff-layout={layout}
         aria-label={layout === 'unified' ? t('切换为左右对比', 'Switch to side-by-side diff') : t('切换为行内对比', 'Switch to inline diff')}
         data-tooltip={layout === 'unified' ? t('切换为左右对比', 'Switch to side-by-side diff') : t('切换为行内对比', 'Switch to inline diff')}
@@ -198,6 +201,7 @@ export function ReviewPanel({ open, replaced, overlay, ...props }: {
   open: boolean; replaced: boolean; overlay: boolean; runtimeId?: string; messages: Message[]; busy: boolean;
   language: 'zh' | 'en'; onClose: () => void; onError: (error: string) => void;
   expanded: boolean; onToggleExpanded: () => void;
+  width?: 'standard' | 'wide'; onWidthChange?: (value: RightPanelWidth) => void;
   repositoryRequest?: number;
   onRepositoryRequestHandled?: (request: number) => void;
   layout?: DiffLayout; onLayoutChange?: (layout: DiffLayout) => void;
@@ -213,7 +217,7 @@ export function ReviewPanel({ open, replaced, overlay, ...props }: {
     return () => clearTimeout(timer);
   }, [open, present]);
   if (!present) return null;
-  return <div className={`review-track${open ? ' is-open' : ''}${overlay ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}`}>
+  return <div className={`review-track${open ? ' is-open' : ''}${overlay ? ' is-overlay' : ''}${replaced ? ' is-replaced' : ''}${props.width === 'wide' ? ' is-wide' : ''}`}>
     <aside className={`review-panel right-inspector-surface${props.expanded ? ' is-expanded' : ''}${open ? '' : ' is-closing'}`} id="review-panel"
       aria-label={props.language === 'zh' ? '变更' : 'Changes'} aria-hidden={!open} inert={!open}>
       <ReviewContent key={props.runtimeId ?? 'empty'} {...props} active={open}/>

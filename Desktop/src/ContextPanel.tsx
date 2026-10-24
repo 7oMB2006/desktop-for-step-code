@@ -5,11 +5,13 @@ import type { Message, RuntimeState, SessionStats } from './contracts';
 import { contextCapacityColors, contextMessageCounts, contextMessageJson, contextMessagePreview, finiteAmount, type MessageFilter } from './context-inspector';
 import './context-panel.css';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
+import { RightPanelWidthControl, type RightPanelWidth } from './RightPanelWidthControl';
 import { isUserMessage } from './user-message';
 import { ContextEstimate } from './ContextEstimate';
 import type { SessionEstimate } from './usage-estimates';
 import type { Snapshot } from './contracts';
 import { SessionStatus } from './SessionStatus';
+import { ClmPanel } from './ClmPanel';
 import { UsageUnitButton } from './UsageUnitButton';
 import { UsageTokenValue } from './UsageTokenValue';
 import type { UsageUnit } from './usage-unit';
@@ -47,13 +49,14 @@ function MessageJson({ message, language, onError }: { message: Message; languag
   </div>;
 }
 
-export function ContextPanel({ messages, stats, state, estimate, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError, snapshot, view = 'context', onView, runtimeRevision = 0 }: {
-  snapshot?: Snapshot; view?: 'status' | 'context'; onView?: (view: 'status' | 'context') => void;
+export function ContextPanel({ messages, stats, state, estimate, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError, snapshot, view = 'context', onView, runtimeRevision = 0, width = 'standard', onWidthChange }: {
+  snapshot?: Snapshot; view?: 'status' | 'context' | 'clm'; onView?: (view: 'status' | 'context' | 'clm') => void;
   runtimeRevision?: number;
   messages: Message[]; stats?: SessionStats; state?: RuntimeState; title: string; language: 'zh' | 'en'; busy: boolean; connected: boolean;
   estimate?: SessionEstimate;
   onClose: () => void; onRefresh: () => Promise<void>; onError: (error: string) => void;
   expanded: boolean; onToggleExpanded: () => void;
+  width?: 'standard' | 'wide'; onWidthChange?: (value: RightPanelWidth) => void;
 }) {
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
   const [filter, setFilter] = useState<MessageFilter>('all');
@@ -88,25 +91,29 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
   return <aside className={`context-panel${fullView ? ' is-expanded' : ''}`} aria-label={t('上下文', 'Context')} id="context-panel">
     <header className="context-panel-header right-panel-header">
       {snapshot && onView ? <div className="context-view-tabs" role="tablist" aria-label={t('会话检查', 'Session inspector')}>
-        {(['context', 'status'] as const).map(tab => <button key={tab} type="button" role="tab" id={`inspector-tab-${tab}`}
+        {(['context', 'status', 'clm'] as const).map(tab => <button key={tab} type="button" role="tab" id={`inspector-tab-${tab}`}
           aria-selected={view === tab} aria-controls="inspector-content" tabIndex={view === tab ? 0 : -1}
           onClick={() => onView(tab)} onKeyDown={event => {
             if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
               event.preventDefault();
-              const next = event.key === 'Home' ? 'context' : event.key === 'End' ? 'status' : view === 'status' ? 'context' : 'status';
+              const tabs = ['context', 'status', 'clm'] as const;
+              const next = event.key === 'Home' ? 'context' : event.key === 'End' ? 'clm' : tabs[(tabs.indexOf(view) + (event.key === 'ArrowRight' ? 1 : 2)) % 3];
               onView(next); document.getElementById(`inspector-tab-${next}`)?.focus();
             }
-          }}>{tab === 'status' ? t('状态', 'Status') : t('上下文', 'Context')}</button>)}
+          }}>{tab === 'clm' ? 'CLM' : tab === 'status' ? t('状态', 'Status') : t('上下文', 'Context')}</button>)}
       </div> : <h2>{t('上下文', 'Context')}</h2>}
       <span className={`context-status${busy && connected ? ' is-running' : ''}`}>{!connected ? t('未连接', 'Offline') : busy ? t('运行中', 'Running') : t('就绪', 'Ready')}</span>
+      {onWidthChange && <RightPanelWidthControl value={fullView ? 'fullscreen' : width} language={language} panel="context" onChange={onWidthChange}/>}
       <RightPanelExpandButton expanded={fullView} language={language} onToggle={onToggleExpanded}/>
       <button type="button" className={`icon-button${refreshing ? ' is-refreshing' : ''}`} disabled={refreshing || !connected}
         aria-label={t('刷新上下文', 'Refresh context')} data-tooltip={t('刷新上下文', 'Refresh context')} onClick={() => void refresh()}><RefreshCw size={15}/></button>
       <button type="button" className="icon-button" aria-label={t('关闭上下文', 'Close context')} onClick={onClose}><X size={16}/></button>
     </header>
-    <div className="context-panel-scroll context-view-content" key={view} id="inspector-content"
+    <div className="context-panel-scroll context-view-content" id="inspector-content"
       role={snapshot && onView ? 'tabpanel' : undefined} aria-labelledby={snapshot && onView ? `inspector-tab-${view}` : undefined}>
-      {view === 'status' && snapshot ? <SessionStatus snapshot={snapshot} title={title} onError={onError} revision={statusRevision + runtimeRevision} busy={busy}/> : <>
+      {snapshot && <div hidden={view !== 'clm'}><ClmPanel key={snapshot.runtimeId + ':' + snapshot.state?.sessionId} snapshot={snapshot} busy={busy} visible={view === 'clm'} revision={statusRevision + runtimeRevision}/></div>}
+      {view === 'clm' ? null :
+        view === 'status' && snapshot ? <SessionStatus snapshot={snapshot} title={title} onError={onError} revision={statusRevision + runtimeRevision} busy={busy}/> : <>
       <div className="context-content">
       <div className="context-identity"><strong>{title}</strong><span>{state?.model?.name ?? last?.model ?? '--'}</span>
         <small>{state?.model?.provider ?? last?.provider ?? '--'}</small></div>

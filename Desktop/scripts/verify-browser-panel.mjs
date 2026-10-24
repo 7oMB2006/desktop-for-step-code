@@ -341,11 +341,24 @@ try {
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 1);
   await page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true }).click();
   await page.waitForTimeout(300);
-  assert.equal(await page.locator('.context-region .right-panel-width-control').count(), 0, 'browser width controls do not affect other panels');
+  const contextWidthControl = page.locator('.context-region').getByRole('button', { name: '上下文宽度', exact: true });
+  assert.equal(await contextWidthControl.getAttribute('data-width'), 'standard',
+    'context starts at its own standard width rather than inheriting the browser width');
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0);
+  for (const [label, value] of [['宽幅', 'wide'], ['全屏', 'fullscreen'], ['标准', 'standard']]) {
+    await contextWidthControl.click();
+    const menu = page.getByRole('menu', { name: '上下文宽度', exact: true });
+    await menu.getByRole('menuitemradio', { name: label, exact: true }).click();
+    await page.waitForFunction(value =>
+      document.querySelector('.context-region .right-panel-width-control')?.getAttribute('data-width') === value, value);
+    assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0,
+      'context width changes must not reveal the inactive native browser');
+  }
   await rail.click();
   await page.waitForTimeout(300);
-  assert.equal(await widthControl.getAttribute('data-width'), 'wide', 'browser width survives panel switching');
+  assert.equal(await widthControl.getAttribute('data-width'), 'wide', 'browser width survives independent context width changes');
+  assert.equal(await page.locator('.main-content').evaluate(element => element.inert), false,
+    'context fullscreen does not leave the browser wide view fullscreen');
   assert.ok((await viewState()).some(view => view.visible && view.url === url));
   for (const mode of ['wide', 'standard']) {
     await chooseWidth(mode);

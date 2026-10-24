@@ -5,6 +5,19 @@ export async function verifyInspectorExpansion(page, panel, screenshot) {
     width: element.closest('.right-inspector-surface').getBoundingClientRect().width,
     scroll: element.querySelector('.context-panel-scroll, .review-scroll').scrollTop,
   }));
+  const widthControl = panel.locator('.right-panel-width-control');
+  if (await widthControl.count()) {
+    for (const [label, value] of [['宽幅', 'wide'], ['全屏', 'fullscreen'], ['标准', 'standard']]) {
+      await widthControl.click();
+      await page.getByRole('menuitemradio', { name: label, exact: true }).click();
+      await page.waitForTimeout(350);
+      assert.equal(await widthControl.getAttribute('data-width'), value);
+      const width = await panel.evaluate(element => element.closest('.right-inspector-surface').getBoundingClientRect().width);
+      if (value !== 'standard') assert.ok(width > before.width, `${value} must expand the inspector`);
+      else assert.ok(Math.abs(width - before.width) < 1, 'Standard restores the original width');
+      assert.equal(await panel.evaluate(element => element.querySelector('.context-panel-scroll, .review-scroll').scrollTop), before.scroll);
+    }
+  }
   const sample = label => panel.evaluate(async (element, label) => {
     const surface = element.closest('.right-inspector-surface');
     surface.dataset.expansionProbe = 'preserved';

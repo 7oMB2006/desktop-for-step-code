@@ -1,5 +1,39 @@
 # Verification
 
+## CLM Readability And Inspector Widths (2026-10-24)
+
+CLM contents use read-only Markdown, and saved diffs offer selectable before/after
+excerpts with the raw diff collapsed underneath. Structural context headers stay
+out of readable excerpts; missing prior contents, identities and revision numbers
+are not reconstructed. Context (including Status and CLM) and Changes now share
+standard, wide and fullscreen controls, including the existing drag handle.
+
+Typecheck, production build and 15 focused CLM/context tests passed. The real
+component fixture passed history, readable/raw diff, content selection, busy
+guards, manual confirmation, light/dark themes and 1100/390/320-pixel layouts.
+The local unsigned D: preview passed packaged Context and Changes acceptance,
+including all three widths, scroll preservation and fullscreen restore, plus
+command dispatch and general isolated-profile Electron/relaunch acceptance.
+The subsequent serial Node 24.16.0 suite passed 748 tests with 13 platform skips
+and no failures.
+
+All 105 Desktop build files, 1,246 staged runtime files and 27 packaged terminal
+files match their source hashes. The runtime remains pinned to
+`b5dbed938d9ae589397cf522dcf2ff89ecf4c494`; all 28 patched-source hashes match
+the branch manifest. Six tests against that packaged runtime passed branch-only
+read access, Plan/Goal preservation, invalid-edit fallback and cancellation with
+explicit recovery. Profiles and model responses are isolated local fixtures.
+This is not paid-provider, installer install/upgrade or cloud-CI acceptance.
+
+The first replacement cloud runs failed in the shared browser fixture on both
+Windows and macOS: it still asserted that Context had no width selector. This
+was reproduced locally before changing the fixture. It now checks Context's
+independent standard default, all three Context widths, hidden inactive native
+pages and preservation of the browser's wide mode without stale fullscreen state.
+Source and packaged browser acceptance, typecheck and all 15 CI policy/runner
+tests pass locally. No application code, runtime pin or workflow gate changes
+are included in this fixture repair; replacement cloud checks remain required.
+
 ## Sidebar Session Search (2026-10-24)
 
 The former placeholder now filters existing non-archived session metadata in

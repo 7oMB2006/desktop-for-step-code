@@ -246,10 +246,41 @@ index fd9aabc..3f1bce1 100644
  import { type Theme, theme } from "../../theme/theme.ts";
  import { killTrackedDetachedChildren } from "../../utils/shell.ts";
  import { toJsonEvent } from "../json-event.ts";
-@@ -449,6 +452,35 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -449,6 +452,66 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
  			// State
  			// =================================================================
  
++			case "get_desktop_clm": {
++				const { renderLiveContext } = await import("../../core/compaction/live-context/document.js");
++				const branch = session.sessionManager.getBranch();
++				const records = branch.flatMap((entry) => {
++					const value = entry.type === "custom" && entry.customType === "step-live-context"
++						? entry.data : entry.type === "compaction" ? (entry.details as any)?.liveContext : undefined;
++					return value && Number.isSafeInteger((value as any).revision)
++						? [{ entryId: entry.id, timestamp: entry.timestamp, kind: (value as any).reset ? "reset" : entry.type === "compaction" ? "compaction" : "edit", value: value as any }] : [];
++				});
++				const status = session.getLiveContextStatus();
++				const selected = command.entryId ? records.find((item) => item.entryId === command.entryId) : records.at(-1);
++				if (command.entryId && !selected) return error(id, command.type, "Revision is not on the active branch");
++				const messages = selected?.value.messages;
++				const blocks = Array.isArray(messages) && messages.length <= 10000
++					? renderLiveContext(messages, selected!.value.revision, selected!.entryId).blocks : [];
++				let budget = 500000;
++				const shown = blocks.slice(0, 200).map((block) => {
++					const body = block.body.slice(0, Math.min(16000, Math.max(0, budget)));
++					budget -= body.length;
++					return { id: block.id, role: block.role, protected: block.protected, text: body, truncated: body.length < block.body.length };
++				});
++				return success(id, command.type, {
++					sessionId: session.sessionId, leafId: session.sessionManager.getLeafId(),
++					enabled: session.settingsManager.getContextProjectionMode() === "clm-v1",
++					revision: status?.revision, tokens: status?.tokens, lastOutcome: selected?.kind === "edit" && selected.value.archivePath && selected.value.archivePath === status?.lastOutcome?.archivePath ? status?.lastOutcome : undefined,
++					total: records.length, revisions: records.slice(-2000).map(({ value, ...item }) => ({ ...item, revision: value.revision })),
++					selected: selected ? { entryId: selected.entryId, blocks: shown, truncated: Array.isArray(messages) && messages.length > 10000 || shown.length < blocks.length || shown.some((block) => block.truncated),
++						diff: typeof selected.value.diff === "string" ? selected.value.diff.slice(0, 128000) : "", diffTruncated: typeof selected.value.diff === "string" && selected.value.diff.length > 128000 } : undefined,
++				});
++			}
++
 +			case "get_desktop_summary": {
 +				const entries = session.sessionManager.getBranch();
 +				const tasks = [...entries]
@@ -295,8 +326,9 @@ diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-
 index 1565bd4..4e897e0 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
-@@ -28,6 +28,7 @@ export type RpcCommand =
+@@ -28,6 +28,8 @@ export type RpcCommand =
  
++	| { id?: string; type: "get_desktop_clm"; entryId?: string }
  	// State
  	| { id?: string; type: "get_state" }
 +	| { id?: string; type: "get_desktop_summary" }

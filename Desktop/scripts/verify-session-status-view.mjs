@@ -34,7 +34,7 @@ try {
       assert.deepEqual(overflow, []);
       await page.getByRole('tab', { name: '上下文', exact: true }).click();
       await page.locator('.context-content').waitFor();
-      await page.keyboard.press('End');
+      await page.keyboard.press('ArrowRight');
       await page.locator('.session-status-content').waitFor();
     }
   }

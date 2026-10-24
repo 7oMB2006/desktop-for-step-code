@@ -206,12 +206,14 @@ function App() {
   const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
   const [liveChangesOpen, setLiveChangesOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>('auto');
-  const [contextView, setContextView] = useState<'status' | 'context'>('context');
+  const [contextView, setContextView] = useState<'status' | 'context' | 'clm'>('context');
   const [statusRevision, setStatusRevision] = useState(0);
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | null>(null);
   const [previewFile, setPreviewFile] = useState<FilePreviewData>();
   const [browserWidth, setBrowserWidth] = useState<'standard' | 'wide'>('standard');
   const [terminalWidth, setTerminalWidth] = useState<'standard' | 'wide'>('standard');
+  const [contextWidth, setContextWidth] = useState<'standard' | 'wide'>('standard');
+  const [reviewWidth, setReviewWidth] = useState<'standard' | 'wide'>('standard');
   const [bottomTerminalOpen, setBottomTerminalOpen] = useState(false);
   const terminalBottomHost = useRef<HTMLDivElement>(null);
   const terminalRightHost = useRef<HTMLDivElement>(null);
@@ -670,6 +672,7 @@ function App() {
         setRequests(previous => previous.filter(request => request.id !== event.id));
       }
       if (event.type === 'agent_start') setBusy(true);
+      if (['live_context', 'auto_clm_end', 'agent_end', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
       if (event.type === 'agent_end') { setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh); }
@@ -982,7 +985,7 @@ function App() {
         if (local.args === 'account') { setTab('account'); await openSettings(); }
         else openUsage();
       } else if (local.name === 'cron') openScheduled();
-      else { setDetails(''); setContextView('status'); setRightPanel('context'); }
+      else { setDetails(''); setContextView(local.name === 'clm' ? 'clm' : 'status'); setRightPanel('context'); }
       return;
     }
     if (navigationPending.current || (!draft.trim() && !attachments.length && !quotes.length) || !connected || loading || firstSend.current) return;
@@ -1672,6 +1675,10 @@ function App() {
         value && value.runtimeId === data.runtimeId && value.sequence === sequence ? undefined : value)}
       expanded={inspectorExpanded && visibleRightPanel === 'review'}
       layout={panelPreferences.diffLayout} onLayoutChange={diffLayout => void setPreference({ diffLayout })}
+      width={reviewWidth} onWidthChange={value => {
+        if (value !== 'fullscreen') setReviewWidth(value);
+        setExpandedRightPanel(value === 'fullscreen' ? 'review' : null);
+      }}
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'review')}
       overlay={!summarySpace} runtimeId={data.runtimeId} messages={data.messages} busy={busy} language={data.preferences.language}
       onClose={closeRightPanel} onError={setError}/>
@@ -1699,13 +1706,15 @@ function App() {
       onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'file')} onClose={closeRightPanel} onError={setError}/>
     {!details && visibleRightPanel && ['file', 'browser', 'terminal', 'context', 'review', 'subagent'].includes(visibleRightPanel) && <RightPanelHandle key={visibleRightPanel}
       panel={visibleRightPanel} language={data.preferences.language} onClose={closeRightPanel} onBlocked={setHandleBlocked}
-      standard={visibleRightPanel === 'browser' ? 620 : visibleRightPanel === 'file' ? 540 : visibleRightPanel === 'terminal' ? 500 : 344}
-      wide={['file', 'browser', 'terminal'].includes(visibleRightPanel)}
-      value={inspectorExpanded ? 'fullscreen' : visibleRightPanel === 'browser' ? browserWidth : visibleRightPanel === 'terminal' ? terminalWidth : visibleRightPanel === 'file' && data.preferences.filePreviewWidth === 'wide' ? 'wide' : 'standard'}
+      standard={visibleRightPanel === 'browser' ? 620 : visibleRightPanel === 'file' ? 540 : ['terminal', 'review'].includes(visibleRightPanel) ? 500 : 344}
+      wide={['file', 'browser', 'terminal', 'context', 'review'].includes(visibleRightPanel)}
+      value={inspectorExpanded ? 'fullscreen' : visibleRightPanel === 'browser' ? browserWidth : visibleRightPanel === 'terminal' ? terminalWidth : visibleRightPanel === 'context' ? contextWidth : visibleRightPanel === 'review' ? reviewWidth : visibleRightPanel === 'file' && data.preferences.filePreviewWidth === 'wide' ? 'wide' : 'standard'}
       onChange={(value: RightPanelWidth) => {
         if (value !== 'fullscreen') {
           if (visibleRightPanel === 'browser') setBrowserWidth(value);
           if (visibleRightPanel === 'terminal') setTerminalWidth(value);
+          if (visibleRightPanel === 'context') setContextWidth(value);
+          if (visibleRightPanel === 'review') setReviewWidth(value);
           if (visibleRightPanel === 'file') void setPreference({ filePreviewWidth: value });
         }
         setExpandedRightPanel(value === 'fullscreen' ? visibleRightPanel as 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' : null);
@@ -1719,7 +1728,7 @@ function App() {
       onWorkflow={id => { setSelectedWorkflow(id); setSelectedWorkflowAgent(null); }}
       onAgent={id => { setSelectedWorkflowAgent(id); setSubagentView('agent'); }}
       openImage={openImage} onClose={closeRightPanel} onError={setError}/>
-    <div className={`summary-track ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || details ? 'is-replaced' : ''}`}>
+    <div className={`summary-track ${visibleRightPanel === 'context' && contextWidth === 'wide' ? 'is-context-wide' : ''} ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <SummaryBoard key={`${data.runtimeId ?? 'empty'}:${data.state?.sessionId ?? ''}`} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
@@ -1732,6 +1741,10 @@ function App() {
           snapshot={{ ...data, requests }} runtimeRevision={statusRevision} view={contextView} onView={setContextView}
           title={activeTitle} language={data.preferences.language} busy={busy} connected={connected} onClose={closeRightPanel}
           expanded={inspectorExpanded} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'context')}
+          width={contextWidth} onWidthChange={value => {
+            if (value !== 'fullscreen') setContextWidth(value);
+            setExpandedRightPanel(value === 'fullscreen' ? 'context' : null);
+          }}
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>

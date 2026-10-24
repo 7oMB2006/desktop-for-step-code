@@ -174,10 +174,23 @@ try {
   await page.waitForTimeout(220);
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
   await page.screenshot({ path: 'test-results/plan-execution-running-dark.png' });
-  const anchorPosition = locator => locator.evaluate(el => {
-    const button = el.getBoundingClientRect(), row = el.closest('.working').getBoundingClientRect();
-    return { x: button.left - row.left, y: button.top - row.top };
-  });
+  const anchorPosition = async locator => {
+    const measured = await locator.evaluate(el => {
+      const button = el.getBoundingClientRect(), row = el.closest('.working');
+      const bounds = row.getBoundingClientRect();
+      const sibling = row.querySelector(':scope > .working-indicator');
+      const indicator = sibling?.getBoundingClientRect();
+      // The running timer may legitimately change width between samples. The
+      // disclosure must retain its exact gap after that indicator and its row;
+      // a settled footer has no timer and remains relative to the row itself.
+      return { anchor: { x: button.left - (indicator?.right ?? bounds.left), y: button.top - bounds.top },
+        adjacent: !sibling || sibling.nextElementSibling === el.closest('.plan-execution'),
+        sameLine: !indicator || Math.min(button.bottom, indicator.bottom) > Math.max(button.top, indicator.top) };
+    });
+    assert.ok(measured.adjacent, 'The running fixture measures the Plan immediately after its working indicator');
+    assert.ok(measured.sameLine, 'The running Plan trigger shares the working indicator line');
+    return measured.anchor;
+  };
   const settleDisclosure = locator => locator.evaluate(async element => {
     // Hidden native fixtures can finish wall-clock sleeps before rendering the
     // disclosure. Observe actual finite animations and the resulting layout.
@@ -189,7 +202,12 @@ try {
   });
   const assertAnchor = async (locator, before, label) => {
     const after = await anchorPosition(locator);
-    anchorChecks.push({ label, before, after });
+    const layout = await locator.evaluate(el => {
+      const row = el.closest('.working'), indicator = row.querySelector(':scope > .working-indicator');
+      const rect = element => { const r = element?.getBoundingClientRect(); return r && { left: r.left, top: r.top, width: r.width }; };
+      return { button: rect(el), row: rect(row), indicator: rect(indicator), elapsed: indicator?.querySelector('.working-elapsed')?.textContent };
+    });
+    anchorChecks.push({ label, before, after, layout });
     assert.deepEqual(after, before, label);
   };
   await settleDisclosure(runningPlan);

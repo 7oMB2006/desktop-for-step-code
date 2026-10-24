@@ -1,5 +1,34 @@
 # Verification
 
+## Plan anchor reference follow-up (2026-10-25)
+
+The `d6fa5da` Windows workflow `40113230323` completed successfully across
+interface, sessions, runtime and the final gate; Cron management and transcript
+replay both passed. Mac run `40113230356` stopped earlier in Plan with a now
+visible exact difference: running trigger x `144.640625 → 144.6875`, y `0 → 0`.
+It did not wrap. The old x reference included the preceding working indicator,
+whose live elapsed text can legitimately change width independently of expansion.
+Running anchors now measure the exact gap from that adjacent indicator's right
+edge, while y stays relative to the row top. The fixture also requires adjacency
+and vertical overlap. Settled anchors still use the footer row. All comparisons
+remain exact; no coordinate tolerance or clock freeze is introduced.
+
+Normal source and the actual `d6fa5da` package pass the updated Plan check.
+A controlled 1px increase in the preceding indicator moves the raw button x by
+1px while the measured gap stays exactly `{x:8,y:0}` and passes. A 1px translation
+of the button itself still fails with `{x:9,y:0}` and exits in 4.90 seconds.
+This follow-up changes only acceptance code and documentation, not the renderer
+or runtime. Full replacement cloud results are still required.
+
+The independent local `d6fa5da` package completed the 84-item package-configured
+inventory and the native zsh/PTY test. The inventory includes source component
+fixtures, so it is not described as 84 direct binary checks. ZIP contents,
+1,521 files and 14 links, and executable bits match the tested app; its update
+metadata matches the 179,215,438-byte ZIP with SHA-256
+`a522717b961ac181c6223c92585d616c2f4b36e0e1472d362785c2d7494f0984`.
+The Desktop shortcut points at that independent test candidate. Existing Release
+Draft assets still identify the earlier accepted `549bb39` RC.
+
 ## Cron focus and replay CI follow-up (2026-10-25)
 
 Run `40110441887` passed the repaired project picker and Plan checks, then

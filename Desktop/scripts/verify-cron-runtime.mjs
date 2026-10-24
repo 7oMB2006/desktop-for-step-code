@@ -330,6 +330,10 @@ try {
         await new Promise(resolve => setTimeout(resolve, 2200));
         assert.equal(requests, before, 'Unconfirmed recovery must never invoke the model');
         assert.equal(f.worker.messages.filter(message => message.customType === 'step-cron').length, 0);
+        await assert.rejects(f.worker.rpc.request('desktop_cron_resume', { before: job.nextFireAt }),
+          /deadline expired/, 'Automatic release must stay gated after crossing the reviewed due time');
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        assert.equal(requests, before, 'Rejected automatic release cannot deliver due or buffered missed work');
         await f.worker.rpc.request('desktop_cron_resume');
         await until(() => requests > before && !f.pool.isBusy(f.worker)
           && f.worker.messages.some(message => message.customType === 'step-cron'), 'explicitly released native delivery');

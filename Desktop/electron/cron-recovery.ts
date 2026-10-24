@@ -2,9 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { CronJobData, CronRecoveryPreview, Model } from '../src/contracts';
 import { RpcCommandError, type RpcProcess } from './runtime';
 
-export async function resumeCronHost(rpc: Pick<RpcProcess, 'request'>, discard: () => Promise<void>) {
+export async function resumeCronHost(rpc: Pick<RpcProcess, 'request'>, discard: () => Promise<void>, before?: number) {
   try {
-    await rpc.request('desktop_cron_resume', {}, 15000);
+    await rpc.request('desktop_cron_resume', before === undefined ? {} : { before }, 15000);
   } catch (error) {
     // Only a negative response proves the gate stayed closed; transport failures are uncertain.
     if (error instanceof RpcCommandError) await discard();
@@ -23,6 +23,7 @@ export interface CronRecoveryPlan {
   account: string;
   model: Model;
   unconfirmed?: boolean;
+  automaticBefore?: number;
 }
 const stamp = (plan: CronRecoveryPlan) => createHash('sha256').update(JSON.stringify(plan)).digest('hex');
 

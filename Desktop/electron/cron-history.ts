@@ -5,6 +5,9 @@ import type { CronHistoryEntry, RuntimeEvent } from '../src/contracts';
 import type { SessionRuntime } from './session-runtimes';
 import { normalizedWorkspaceKey } from '../src/workspace-key';
 
+const unresolved = (row: CronHistoryEntry) => row.reviewedAt === undefined
+  && ['triggered', 'running', 'waiting', 'unknown'].includes(row.state);
+
 // Small, bounded state transitions only. Never persist prompts, tool output or credentials.
 export class CronHistory {
   private active = new Map<string, CronHistoryEntry>();
@@ -13,11 +16,15 @@ export class CronHistory {
   private file(workspace: string) {
     return join(this.root, createHash('sha256').update(normalizedWorkspaceKey(workspace, process.platform)).digest('hex') + '.json');
   }
-  list(workspace: string): CronHistoryEntry[] {
+  private load(workspace: string): { entries: CronHistoryEntry[]; unconfirmed: boolean } {
     try {
       const bytes = readFileSync(this.file(workspace));
       if (bytes.length > 512000) throw new Error('Invalid Cron history');
-      const rows = JSON.parse(bytes.toString('utf8'));
+      const document = JSON.parse(bytes.toString('utf8'));
+      // Legacy arrays have no rotation latch; new writes preserve it atomically with the history.
+      if (!Array.isArray(document) && (!document || document.version !== 1 || typeof document.unconfirmed !== 'boolean'))
+        throw new Error('Invalid Cron history');
+      const rows = Array.isArray(document) ? document : document.entries;
       const time = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 8.64e15;
       if (!Array.isArray(rows) || rows.length > 200 || rows.some(row => !row || typeof row.id !== 'string'
         || !/^[\w-]{1,200}$/.test(row.id) || typeof row.sessionId !== 'string' || !/^[\w-]{1,200}$/.test(row.sessionId)
@@ -28,31 +35,42 @@ export class CronHistory {
         || !['triggered', 'running', 'waiting', 'completed', 'failed', 'interrupted', 'unknown',
           'recovered', 'recovery_failed', 'recovery_blocked'].includes(row.state))) throw new Error('Invalid Cron history');
       const live = new Set([...this.active.values()].map(entry => entry.id));
-      return rows.map(({ id, jobId, createdAt, sessionId, at, updatedAt, state, reason, reviewedAt }) =>
+      return { unconfirmed: Array.isArray(document) ? false : document.unconfirmed,
+        entries: rows.map(({ id, jobId, createdAt, sessionId, at, updatedAt, state, reason, reviewedAt }) =>
         ({ id, jobId, createdAt, sessionId, at, updatedAt, state:
-          !live.has(id) && ['triggered', 'running', 'waiting'].includes(state) ? 'unknown' : state, reason, reviewedAt }));
+          !live.has(id) && ['triggered', 'running', 'waiting'].includes(state) ? 'unknown' : state, reason, reviewedAt })) };
     } catch (error: any) {
-      if (error.code === 'ENOENT') return [];
+      if (error.code === 'ENOENT') return { entries: [], unconfirmed: false };
       throw error;
     }
   }
-  private write(workspace: string, entry: CronHistoryEntry) {
-    const rows = this.list(workspace).filter(row => row.id !== entry.id);
-    rows.push(entry);
+  list(workspace: string): CronHistoryEntry[] {
+    return this.load(workspace).entries;
+  }
+  private persist(workspace: string, entries: CronHistoryEntry[], unconfirmed: boolean) {
     mkdirSync(this.root, { recursive: true });
     const file = this.file(workspace), temporary = `${file}.${randomUUID()}.tmp`;
-    writeFileSync(temporary, JSON.stringify(rows.slice(-200)), { mode: 0o600 });
+    writeFileSync(temporary, JSON.stringify({ version: 1, entries, unconfirmed }), { mode: 0o600 });
     renameSync(temporary, file);
+  }
+  private write(workspace: string, entry: CronHistoryEntry) {
+    const previous = this.load(workspace);
+    const rows = previous.entries.filter(row => row.id !== entry.id);
+    rows.push(entry);
+    const evicted = rows.slice(0, Math.max(0, rows.length - 200));
+    this.persist(workspace, rows.slice(-200), previous.unconfirmed || evicted.some(unresolved));
   }
   record(workspace: string, sessionId: string, state: CronHistoryEntry['state'], reason?: CronHistoryEntry['reason']) {
     this.write(workspace, { id: randomUUID(), sessionId, state, reason, at: this.now(), updatedAt: this.now() });
   }
   uncertain(workspace: string) {
-    return this.list(workspace).some(row => row.reviewedAt === undefined && ['triggered', 'running', 'waiting', 'unknown'].includes(row.state));
+    const history = this.load(workspace);
+    return history.unconfirmed || history.entries.some(unresolved);
   }
   acknowledge(workspace: string) {
-    for (const row of this.list(workspace).filter(row => row.state === 'unknown' && row.reviewedAt === undefined))
-      this.write(workspace, { ...row, reviewedAt: this.now() });
+    const entries = this.list(workspace).map(row => row.state === 'unknown' && row.reviewedAt === undefined
+      ? { ...row, reviewedAt: this.now() } : row);
+    this.persist(workspace, entries, false);
   }
   event(worker: SessionRuntime, event: RuntimeEvent) {
     if (!worker.state?.sessionId) return;

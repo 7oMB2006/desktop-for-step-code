@@ -38,6 +38,15 @@ test('Resume timeout and transport failures retain the potentially activated hos
     assert.equal(removed, 0);
   }
 });
+test('Automatic release passes its deadline and discards only an authoritatively rejected host', async () => {
+  let removed = 0;
+  await assert.rejects(resumeCronHost({ request: async (type, args) => {
+    assert.equal(type, 'desktop_cron_resume');
+    assert.deepEqual(args, { before: 5000 });
+    throw new RpcCommandError('Automatic Cron recovery deadline expired');
+  } }, async () => { removed++; }, 5000), /deadline expired/);
+  assert.equal(removed, 1);
+});
 test('Post-start gate allows native time advancement/expiry, never unreviewed work', () => {
   assertRecoveryJobs([job], [{ ...job, nextFireAt: 300 }]);
   assertRecoveryJobs([job], []);

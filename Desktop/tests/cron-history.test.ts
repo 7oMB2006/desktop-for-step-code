@@ -41,6 +41,11 @@ test('Host loss and unrelated user turns are unknown, never successful; records 
   assert.ok(history.list(worker.cwd).every(row => row.state === 'unknown'));
   for (let i = 0; i < 210; i++) history.record(worker.cwd, 'chat', 'recovered');
   assert.equal(history.list(worker.cwd).length, 200);
+  assert.equal(history.uncertain(worker.cwd), true, 'Display rotation must not acknowledge unresolved execution');
+  const reopened = new CronHistory(root);
+  assert.equal(reopened.uncertain(worker.cwd), true, 'The safety latch survives restart');
+  reopened.acknowledge(worker.cwd);
+  assert.equal(new CronHistory(root).uncertain(worker.cwd), false);
 });
 test('Restarted unfinished runs require explicit acknowledgment without being relabeled successful', async t => {
   const root = await mkdtemp(join(tmpdir(), 'cron-history-review-'));
@@ -73,4 +78,23 @@ test('Delivery alone cannot reuse the preceding response as a successful Cron ex
   history.event(worker, { type: 'agent_end' });
   assert.equal(history.list(worker.cwd)[0].state, 'unknown');
   assert.equal(history.uncertain(worker.cwd), true);
+});
+test('Legacy journals migrate on write and malformed rotation latches fail closed', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'cron-history-migrate-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const history = new CronHistory(root, () => 100);
+  history.record('D:/project', 'chat', 'unknown');
+  const file = join(root, (await readdir(root))[0]);
+  await writeFile(file, JSON.stringify(history.list('D:/project')));
+  const reopened = new CronHistory(root);
+  assert.equal(reopened.uncertain('D:/project'), true);
+  reopened.record('D:/project', 'chat', 'recovered');
+  const document = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(document.version, 1);
+  assert.equal(document.entries.length, 2);
+  assert.equal(reopened.uncertain('D:/project'), true);
+  for (const change of [{ unconfirmed: undefined }, { unconfirmed: 'false' }, { version: 2 }, { entries: null }]) {
+    await writeFile(file, JSON.stringify({ ...document, ...change }));
+    assert.throws(() => reopened.uncertain('D:/project'), /Invalid/);
+  }
 });

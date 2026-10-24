@@ -4293,3 +4293,30 @@ Journals are bounded and never turn acknowledged unknown results into success.
 These are Desktop Beta extensions, not upstream-native ownership or exactly-once
 execution. No installer, real-account/billing, OS sleep/reboot, external-CLI
 coordination, macOS Beta or replacement cloud-CI acceptance is claimed.
+
+### Local Review Follow-Up (2026-10-24)
+
+The local review reproduced four regressions before fixes: automatic gate
+release after initialization crossed a trigger, revival of an old grant after
+pause/resume or edit/revert, unresolved execution falling out of bounded
+history, and one corrupt authorization preventing later projects from recovery.
+Automatic release now carries a runtime-enforced deadline; Desktop requires its
+new Windows-only capability. Management persists grant invalidation before
+updating tasks, history atomically retains an unresolved-rotation latch, and
+authorization failures are isolated and reported per project.
+
+The 45 focused recovery/history/management tests passed, including legacy
+journal migration, malformed-latch rejection and failed-invalidation/changed-host
+guards. Typecheck, production build, 15 CI policy/runner tests, clean pinned
+patch replay with source hashes, 14 real native RPC cases, 12 Electron management
+cases and session-navigation acceptance passed. The real pause/resume buttons
+keep the previous automatic grant blocked without a model call.
+The serial suite excluding `terminal-sessions.test.ts`
+passed 687 tests with 13 platform skips (700 total), using Node 24.16.0.
+The unchanged terminal test was run separately: four cases passed and
+`terminal count is bounded per directory and failures do not cross directories`
+failed at process-tree termination. It is not claimed as passing or repaired
+by these Cron changes.
+
+The existing preview installer predates these review fixes. No new installer,
+real-account/billing, OS sleep/reboot or fresh cloud-CI success is claimed.

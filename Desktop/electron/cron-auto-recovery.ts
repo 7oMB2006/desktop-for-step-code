@@ -19,7 +19,8 @@ export class CronAutoRecovery {
   constructor(private root: string, private inspect: (key: string, session: string) => Promise<CronRecoveryPlan>,
     private launch: (plan: CronRecoveryPlan) => Promise<unknown>,
     private safe: (workspace: string) => boolean, private now = Date.now,
-    private blocked?: (workspace: string, sessionId: string) => void) {}
+    private blocked?: (workspace: string, sessionId: string) => void,
+    private unavailable?: (error: unknown) => void) {}
   private file(workspace: string) {
     return join(this.root, createHash('sha256').update(normalizedWorkspaceKey(workspace, process.platform)).digest('hex') + '.json');
   }
@@ -67,6 +68,30 @@ export class CronAutoRecovery {
       this.blocked?.(workspace, grant.sessionId);
     }
   }
+  private async restore(file: string) {
+    const grant = await this.read(file);
+    if (!grant || grant.state !== 'enabled') return;
+    // Consume authorization before starting a potentially paid runtime.
+    await this.write({ ...grant, state: 'blocked' });
+    let restored = false;
+    try {
+      if (grant.expires <= this.now() || !this.safe(grant.workspace)) return;
+      const plan = await this.inspect(grant.key, grant.sessionId);
+      const before = Math.min(grant.expires, ...plan.jobs.map(job => job.autoExpireAt ?? Infinity),
+        ...plan.jobs.filter(job => job.desktopPausedAt === undefined).map(job => job.nextFireAt));
+      if (!this.safe(plan.workspace) || normalizedWorkspaceKey(plan.workspace, process.platform) !== normalizedWorkspaceKey(grant.workspace, process.platform)
+        || plan.configurationRef !== grant.configurationRef
+        || plan.model.id !== grant.model.id || plan.model.provider !== grant.model.provider
+        || JSON.stringify(fingerprint(plan)) !== JSON.stringify(grant.jobs) || before <= this.now()) return;
+      // The child rechecks this deadline synchronously with releasing its gate.
+      await this.launch({ ...plan, automaticBefore: before });
+      const current = await this.read(file);
+      if (JSON.stringify(current) === JSON.stringify({ ...grant, state: 'blocked' })) await this.write(grant);
+      restored = true;
+    } finally {
+      if (!restored) this.blocked?.(grant.workspace, grant.sessionId);
+    }
+  }
   async run(workspace?: string) {
     if (this.busy) return;
     this.busy = true;
@@ -78,29 +103,8 @@ export class CronAutoRecovery {
         catch (error: any) { if (error.code === 'ENOENT') return; throw error; }
       }
       for (const file of files) {
-        const grant = await this.read(file);
-        if (!grant || grant.state !== 'enabled') continue;
-        // Consume authorization for this attempt before starting a potentially paid runtime.
-        await this.write({ ...grant, state: 'blocked' });
-        let restored = false;
-        try {
-          if (grant.expires <= this.now() || !this.safe(grant.workspace)) continue;
-          const plan = await this.inspect(grant.key, grant.sessionId);
-          if (!this.safe(plan.workspace) || normalizedWorkspaceKey(plan.workspace, process.platform) !== normalizedWorkspaceKey(grant.workspace, process.platform)
-            || plan.configurationRef !== grant.configurationRef
-            || plan.model.id !== grant.model.id || plan.model.provider !== grant.model.provider
-            || JSON.stringify(fingerprint(plan)) !== JSON.stringify(grant.jobs)
-            || plan.jobs.some(job => job.autoExpireAt !== undefined && job.autoExpireAt <= this.now()
-              || job.desktopPausedAt === undefined && job.nextFireAt <= this.now())) continue;
-          await this.launch(plan);
-          const current = await this.read(file);
-          if (JSON.stringify(current) === JSON.stringify({ ...grant, state: 'blocked' })) await this.write(grant);
-          restored = true;
-        } catch {
-          // Missing/archived session, trust/config changes and uncertain release all require a new review.
-        } finally {
-          if (!restored) this.blocked?.(grant.workspace, grant.sessionId);
-        }
+        try { await this.restore(file); }
+        catch (error) { this.unavailable?.(error); }
       }
     } finally { this.busy = false; }
   }

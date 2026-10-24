@@ -8,7 +8,8 @@
     "../step-code-desktop-cron-management.patch": "1f228c5b065b2376170e3bca6ea9c8943e5f5dbc",
     "step-code-desktop-cron-recovery.patch": "1e1cfa22c2d8f1646b26111a41072987b2745d35",
     "step-code-session-import.patch": "b2f1bff2ac3a4eba50f1f1ebdd94c757ced89524",
-    "step-code-desktop-cron-enhancements.patch": "ca1ea975ba8c82b9fab1e3caa2e3a5621651ab78"
+    "step-code-desktop-cron-enhancements.patch": "ca1ea975ba8c82b9fab1e3caa2e3a5621651ab78",
+    "step-code-desktop-cron-recovery-guard.patch": "d9210dd59d0b93d0eb53e12c1ec257025c67417f"
   },
   "sources": {
     "packages/coding-agent/src/features/step-cron.ts": "6f881338a5d4ac34a416706a1e72b1f6e181cff3",
@@ -36,14 +37,14 @@
     "packages/coding-agent/src/core/usage-totals.ts": "35c533e167a824d8605630c641a3d3dafcf5ce80"
   },
   "patchedSources": {
-    "packages/coding-agent/src/features/step-cron.ts": "47fee2172b64fb1c3de220ee7fb0aee9b61a96f8",
+    "packages/coding-agent/src/features/step-cron.ts": "80ea54a2a3b87c8693db8551e81bd401f64836ba",
     "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",
     "packages/coding-agent/src/core/tools/bash.ts": "85c9673b7986948b34b1b9f42ef5e81518d54cff",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "d8067140df6852f5b85aba573e22c255d7da20be",
     "packages/coding-agent/src/index.ts": "8cfc7fc1bca87da8e302ef03c4ed081f9c0a8958",
-    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "8af5b6f75b5b1b5c6c5c0ac5f51a44b7dc0c1631",
-    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "bc5266e9c23ab5d7e84cbe1e831412a501f6140f",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "a9b1fc48b17930f342510784140a9c813c9459ea",
+    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "6c57358ab796d8dbb009a92f8ce8b79f6e9ffa37",
     "packages/coding-agent/src/step/mcp.ts": "569b7203dfa2ce28955ac1c2c93b0a9fd317d484",
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
     "scripts/build-coding-agent-bundle.mjs": "d8c98c84e61705fd814349412aa72ce951d9a5a3",

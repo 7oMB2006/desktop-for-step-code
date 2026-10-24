@@ -32,7 +32,8 @@ export function cronCreation(input: unknown): CronCreateInput {
 export class CronManagement {
   constructor(private pool: SessionRuntimes,
     private saved: (cwd: string) => Promise<{ jobs: unknown; trusted: boolean }>,
-    private changed: () => void, private bindings?: CronBindings) {}
+    private changed: () => void, private bindings?: CronBindings,
+    private beforeUpdate?: (workspace: string) => Promise<void>) {}
   host(runtimeId: unknown): SessionRuntime {
     if (typeof runtimeId !== 'string' || !runtimeId || runtimeId.length > 80) throw new Error('Invalid Cron host');
     const worker = this.pool.require(runtimeId);
@@ -98,6 +99,10 @@ export class CronManagement {
     try {
       await this.pool.assertIdle(worker);
       this.assertCurrent(worker, rpc);
+      if (args.action === 'update') {
+        await this.beforeUpdate?.(worker.cwd);
+        this.assertCurrent(worker, rpc);
+      }
       const result = await rpc.request('desktop_cron', args, 15000);
       this.assertCurrent(worker, rpc);
       cronJobs(result.jobs);

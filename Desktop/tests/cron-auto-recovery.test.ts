@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CronAutoRecovery } from '../electron/cron-auto-recovery';
 import type { CronRecoveryPlan } from '../electron/cron-recovery';
+import { CronManagement } from '../electron/cron-management';
 
 function plan(): CronRecoveryPlan {
   return { workspace: 'D:/project', sessionId: 'session', sessionPath: 'private/session.jsonl', sessionStamp: '1', sessionName: 'Chat',
@@ -104,4 +105,45 @@ test('Missing or archived target stays blocked, and revocation during launch is 
   h.launch(async () => { await h.service.block('D:/project'); });
   await h.service.run();
   assert.equal((await h.service.status('D:/project'))?.state, 'blocked', 'An interrupted host cannot restore its old grant');
+});
+test('Automatic launch carries the earliest reviewed deadline into the native release gate', async t => {
+  const f = await fixture(t);
+  let checked = false;
+  const service = new CronAutoRecovery(f.root, async () => f.current(), async approved => {
+    assert.equal(approved.automaticBefore, 5000);
+    checked = true;
+  }, () => true, () => 1000);
+  await service.enable('key', f.current());
+  await service.run();
+  assert.equal(checked, true);
+});
+test('Pause/resume and edits that return to the original content cannot revive an old grant', async t => {
+  const f = await fixture(t);
+  await f.service.enable('key', f.current());
+  const job = f.current().jobs[0];
+  const worker = { id: 'host', cwd: 'D:/project', status: 'connected', mutating: false, operations: 0,
+    rpc: { request: async () => ({ jobs: [job], result: job }) } };
+  const pool = { require: () => worker, assertIdle: async () => {}, publish: () => {} };
+  const management = new CronManagement(pool as any, async () => ({ jobs: [], trusted: true }), () => {},
+    undefined, workspace => f.service.block(workspace));
+  for (const changes of [{ paused: true }, { paused: false }, { prompt: 'changed' }, { prompt: job.prompt }])
+    await management.update({ runtimeId: 'host', jobId: job.id, expected: 'reviewed', ...changes });
+  await f.service.run();
+  assert.equal(f.launches(), 0);
+  assert.equal((await f.service.status(worker.cwd))?.state, 'blocked');
+});
+test('Corrupt authorization files are isolated without rewriting them or skipping healthy projects', async t => {
+  const f = await fixture(t);
+  const failures: unknown[] = [];
+  let launches = 0;
+  const service = new CronAutoRecovery(f.root, async () => f.current(), async () => { launches++; },
+    () => true, () => 1000, undefined, error => { failures.push(error); });
+  await f.service.enable('key', f.current());
+  const broken = join(f.root, '0'.repeat(64) + '.json');
+  await writeFile(broken, '{broken');
+  await service.run();
+  assert.equal(launches, 1);
+  assert.equal(failures.length, 1);
+  assert.equal(await readFile(broken, 'utf8'), '{broken');
+  assert.equal((await f.service.status('D:/project'))?.state, 'enabled');
 });

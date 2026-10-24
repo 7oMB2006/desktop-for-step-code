@@ -311,6 +311,17 @@ try {
     await page.locator('.scheduled-history summary').click();
     await page.getByText('已恢复调度宿主', { exact: true }).first().waitFor();
     await screenshot('automatic-history', 1100, 1000, 'light');
+    await page.getByRole('button', { name: '暂停任务 Beta', exact: true }).click();
+    await page.getByRole('button', { name: '恢复任务 Beta', exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.scheduled-page')?.inert);
+    assert.equal((await page.evaluate(() => window.desktop.cronList())).tasks[0].automatic.state, 'blocked');
+    await page.getByRole('button', { name: '恢复任务 Beta', exact: true }).click();
+    await page.getByRole('button', { name: '暂停任务 Beta', exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.scheduled-page')?.inert);
+    assert.equal((await page.evaluate(() => window.desktop.cronList())).tasks[0].automatic.state, 'blocked',
+      'Returning to the original task content cannot revive reviewed automatic authorization');
+    assert.equal(fixture.requests.length, 0);
+    results.push('Real pause/resume buttons invalidate automatic authorization before mutation and cannot revive it by restoring content');
     await page.evaluate(key => window.desktop.cronDisableAutomatic(key), resumed.tasks[0].key);
     await close();
     page = await launch();

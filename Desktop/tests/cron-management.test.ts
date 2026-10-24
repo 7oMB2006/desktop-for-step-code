@@ -141,3 +141,17 @@ test('Task editing validates strict payloads, preserves revisions and uses the p
   assert.equal(cronRevision({ ...job, nextFireAt: 999 }), cronRevision(job));
   assert.notEqual(cronRevision({ ...job, desktopPausedAt: 123 }), cronRevision(job));
 });
+test('Authorization invalidation must finish before editing and revalidate the host', async () => {
+  const f = fixture();
+  const input = { runtimeId: 'one', jobId: job.id, expected: cronRevision(job), paused: true };
+  const failed = new CronManagement(f.pool, async () => ({ jobs: [], trusted: true }), () => {}, undefined,
+    async () => { throw new Error('authorization storage failed'); });
+  await assert.rejects(failed.update(input), /authorization storage failed/);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.worker.mutating, false);
+  const replaced = new CronManagement(f.pool, async () => ({ jobs: [], trusted: true }), () => {}, undefined,
+    async () => { f.worker.rpc = { request: async () => { throw new Error('must not run'); } } as any; });
+  await assert.rejects(replaced.update(input), /host changed/);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.worker.mutating, false);
+});

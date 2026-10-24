@@ -363,7 +363,7 @@ const pendingMessages = new PendingMessages(worker => {
 const launchControls = new LaunchControls(runtimes);
 const cronBindings = new CronBindings(join(app.getPath('userData'), 'cron-bindings'));
 const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
-  () => emit({ type: 'desktop_cron_changed' }), cronBindings);
+  () => emit({ type: 'desktop_cron_changed' }), cronBindings, workspace => cronAutomatic.block(workspace));
 const inspectCronRecovery = async (key: string, sessionId: string) => {
   if (process.platform !== 'win32') throw new Error('Cron recovery Beta is currently Windows-only');
   const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
@@ -399,6 +399,9 @@ const inspectCronRecovery = async (key: string, sessionId: string) => {
     unconfirmed: cronHistoryFailed || cronHistory.uncertain(workspace) };
 };
 const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPlan) => {
+  const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
+  if (plan.automaticBefore !== undefined && !manifest.patches?.includes('desktop-cron-recovery-guard'))
+    throw new Error('This runtime does not support safe automatic Cron recovery');
   // Recovery is explicitly confirmed and starts gated, without changing the viewed chat.
   const worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), plan.workspace,
     { ...authEnvironment(), DESKTOP_CRON_RECOVERY: '1', STEP_PERMISSION_PRESET: 'ask' }, plan.sessionPath);
@@ -417,7 +420,7 @@ const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPl
     await cronBindings.set(plan.workspace, plan.jobs, plan.sessionId, 'recovered');
     // The resume helper removes explicit rejections; uncertain delivery must retain the host.
     activated = true;
-    await resumeCronHost(worker.rpc, () => runtimes.remove(worker));
+    await resumeCronHost(worker.rpc, () => runtimes.remove(worker), plan.automaticBefore);
     const retired = [...runtimes.workers.values()].filter(previous => previous !== worker
       && previous.status === 'disconnected' && previous.state?.sessionId === plan.sessionId);
     const restoreViewed = !sessionDraft && retired.some(previous => previous.id === runtimes.activeId);
@@ -436,7 +439,8 @@ const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPl
 };
 const cronAutomatic = new CronAutoRecovery(join(app.getPath('userData'), 'cron-recovery-authorizations'),
   inspectCronRecovery, launchCronRecovery, workspace => !cronHistoryFailed && !cronHistory.uncertain(workspace), Date.now,
-  (workspace, sessionId) => cronHistory.record(workspace, sessionId, 'recovery_blocked'));
+  (workspace, sessionId) => cronHistory.record(workspace, sessionId, 'recovery_blocked'),
+  error => { void crashLog.record('cron-auto-recovery', error); });
 const cronRecovery = new CronRecovery(inspectCronRecovery, launchCronRecovery, Date.now, async (key, plan) => {
   if (cronHistoryFailed) throw new Error('Cron history is unavailable; automatic recovery remains off');
   cronHistory.acknowledge(plan.workspace);

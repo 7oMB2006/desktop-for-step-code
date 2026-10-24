@@ -52,6 +52,15 @@ Automatic recovery authorization and bounded execution/recovery journals remain
 Desktop-owned, default off and separate from upstream storage. See `docs/CRON.md`
 for consent, expiry, account checks, uncertainty and downgrade boundaries.
 
+Windows also applies `step-code-desktop-cron-recovery-guard.patch` after the
+enhancements patch. Automatic `desktop_cron_resume` carries a finite `before`
+deadline checked synchronously inside the native scheduler before releasing
+the gate. Crossing the reviewed trigger/expiry during initialization or loading
+buffered missed work rejects automatic release. Manual reviewed release retains
+its existing explicit path. Desktop requires the staged
+`desktop-cron-recovery-guard` capability before automatic recovery; macOS keeps
+its frozen patch set unchanged.
+
 Windows-specific compatibility also keeps branch preparation read-only:
 `STEPCODE_DESKTOP_BRANCH_SOURCE` suppresses startup usage discovery only for
 that exact original file, while the newly forked session records normally.

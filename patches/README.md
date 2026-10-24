@@ -90,6 +90,14 @@ approval policy, timeout defaults or the frozen macOS patch.
 
 Permissions, risk acknowledgment, legacy migration, bounded model-error continuation and default CLM remain upstream behavior. The original integration patches below remain unchanged for the frozen macOS baseline. These are reproducible source commits, not GitHub release tags.
 
+The Windows-only `step-code-desktop-auto-resume.patch` adds structured provenance
+to the existing automatic-continuation input. It keeps the normal input and
+`before_agent_start` hooks, model validation and original provider instruction.
+The idle extension input is persisted as a visible `step-auto-resume` custom
+message, allowing Desktop to show a noninteractive timeline event instead of
+claiming a human sent it. Retry policy and permission handling are unchanged;
+unmarked existing history is not rewritten. The frozen macOS patch set is unchanged.
+
 The applier also installs `step-code-desktop-plan.patch`. Its explicit
 `--desktop-plan-review` flag is supplied only to Desktop main workers. It adds
 ephemeral Plan context before each model call and blocks proposal submission on

@@ -11,7 +11,8 @@
     "step-code-session-import.patch": "b2f1bff2ac3a4eba50f1f1ebdd94c757ced89524",
     "step-code-desktop-cron-scope.patch": "a26f3d5f8c99a443fe35b7177b11e91905ef90c7",
     "step-code-desktop-cron-enhancements.patch": "ca1ea975ba8c82b9fab1e3caa2e3a5621651ab78",
-    "step-code-desktop-cron-recovery-guard.patch": "d9210dd59d0b93d0eb53e12c1ec257025c67417f"
+    "step-code-desktop-cron-recovery-guard.patch": "d9210dd59d0b93d0eb53e12c1ec257025c67417f",
+    "step-code-desktop-auto-resume.patch": "388acec2251c91a9cae59532691810540ffeb19d"
   },
   "sources": {
     "packages/coding-agent/test/step-cron.test.ts": "0b0cc15a31f53ee9fe682ca5cdb2747749a5b2ad",
@@ -37,7 +38,12 @@
     "packages/coding-agent/test/step-plan-extension.test.ts": "73ef5ee3237286b9eea1b394083c74c8da089061",
     "packages/coding-agent/src/features/step-questionnaire.ts": "7301fc9a497581e9e4a88f880c4da12cdc74f8e0",
     "packages/coding-agent/src/core/session-manager.ts": "a1f05598f1bb55e14b44f469eee1104e0a3e16f7",
-    "packages/coding-agent/src/core/usage-totals.ts": "35c533e167a824d8605630c641a3d3dafcf5ce80"
+    "packages/coding-agent/src/core/usage-totals.ts": "35c533e167a824d8605630c641a3d3dafcf5ce80",
+    "packages/coding-agent/src/features/step.ts": "a7536d1a4c96d6e43de08d3860e59a682146cd6e",
+    "packages/coding-agent/src/core/agent-session.ts": "c6dde28f047da652b6359f0c775c88a3346df38b",
+    "packages/coding-agent/src/core/extensions/types.ts": "083331570266cd4215342d9d2d44ad553393e438",
+    "packages/coding-agent/test/step-extension.test.ts": "b2d98339279095124e0bf61990b02ad8ac743f7b",
+    "packages/coding-agent/test/suite/agent-session-prompt.test.ts": "f992ec82b78ffec0304e6cf7e06b7fcf1c32815d"
   },
   "patchedSources": {
     "packages/coding-agent/src/features/step-cron.ts": "eccb429170ca3b8a52fd9ef986af2678faabe61e",
@@ -67,6 +73,11 @@
     "packages/coding-agent/src/core/session-import/parsers.ts": "806835c29d1fe9583170019bf0d4d432bec83235",
     "packages/coding-agent/src/core/session-import/service.ts": "b99e61811058f533993ff357eb8abc0b66416769",
     "packages/coding-agent/src/core/session-import/types.ts": "7b8c7f68a9c3e02fcc2aa73aac4e847486c79ffa",
-    "packages/coding-agent/test/session-import.test.ts": "4ab261b29664b45addde1fde7a2747d6168c39b7"
+    "packages/coding-agent/test/session-import.test.ts": "4ab261b29664b45addde1fde7a2747d6168c39b7",
+    "packages/coding-agent/src/features/step.ts": "b61757f3db399d2cb0d2b05a862a4d900270dff6",
+    "packages/coding-agent/src/core/agent-session.ts": "99b15da8df9535782ac8126bd23f4c0523678d7c",
+    "packages/coding-agent/src/core/extensions/types.ts": "bac1a4ab8741b9dca89ba4f9b28ddc24352c4182",
+    "packages/coding-agent/test/step-extension.test.ts": "1b12e8113bdb177ad14c10712aef39f8143e903f",
+    "packages/coding-agent/test/suite/agent-session-prompt.test.ts": "9dd5ec2137a2d69d847000af1a4a3a111e7ab646"
   }
 }

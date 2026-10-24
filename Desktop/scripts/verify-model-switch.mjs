@@ -133,7 +133,7 @@ try {
       labelStyle: getComputedStyle(row.querySelector('strong')).fontStyle };
   });
   assert.notEqual(styles.old, styles.next); assert.equal(styles.oldWeight, '400');
-  assert.equal(styles.nextWeight, '600'); assert.equal(styles.labelStyle, 'italic');
+  assert.equal(styles.nextWeight, '600'); assert.equal(styles.labelStyle, 'normal');
   for (const body of requests) assert.equal(JSON.stringify(body.messages).includes('模型已切换'), false, 'client note never enters context');
   state = await snapshot();
   assert.equal(state.modelChanges[0].to.id, 'model-b');

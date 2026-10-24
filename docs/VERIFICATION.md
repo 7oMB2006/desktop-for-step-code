@@ -1,5 +1,26 @@
 # Verification
 
+## Automatic Continuation Provenance (2026-10-24)
+
+Windows automatic continuation now retains structured system provenance through
+the normal input and `before_agent_start` hooks, model validation, live events and
+saved JSONL. Provider input remains the original instruction. Desktop renders it
+as a noninteractive timeline event in the original response, not a human message
+or copied assistant prose. It records an attempted continuation, not successful
+recovery. Its accent semibold label and the model-switch label are both upright.
+Unmarked old history and manually authored identical text are not reclassified.
+
+Clean Windows patch replay and all pre/post-image hashes passed. The upstream
+build and 97 continuation/permission/prompt tests passed. Desktop typecheck,
+production build, 772 tests (13 platform skips), and 15 CI policy/runner tests
+passed. The real-component browser fixture passed 24 theme/language/preset/width
+cases plus stop, failure, reload, hidden-message and reduced-motion checks.
+Isolated-profile Electron acceptance passed persisted history, renderer reload,
+same-text user identity and original-response grouping after the authoritative
+navigation handoff. Existing model-switch Electron acceptance also passed,
+including its computed nonitalic label style and light/dark/narrow layouts.
+No installer, paid-provider call, macOS runtime or cloud-CI acceptance is claimed.
+
 ## CLM Readability And Inspector Widths (2026-10-24)
 
 CLM contents use read-only Markdown, and saved diffs offer selectable before/after

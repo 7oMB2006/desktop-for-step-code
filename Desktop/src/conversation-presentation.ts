@@ -2,6 +2,7 @@ import type { Content, Message } from './contracts';
 import { visibleInputBlocks } from './ultracode-input';
 import { isUserMessage } from './user-message';
 import { cronMessage, type CronNotice } from './cron-message';
+import { isAutoResumeMessage } from './auto-resume-message';
 
 export const messageBlocks = (message: Message): Content[] => visibleInputBlocks(message);
 export const messageText = (message: Message): string => messageBlocks(message)
@@ -28,6 +29,7 @@ export function conversationEntries(messages: Message[]): ConversationEntry[] {
 }
 
 export type ResponseItem =
+  | { type: 'auto-resume'; index: number; key: string }
   | { type: 'cron'; notice: CronNotice; index: number; key: string }
   | { type: 'thinking' | 'text' | 'image'; block: Content; index: number; key: string }
   | { type: 'tool'; call?: Content; result?: Message; index: number; key: string };
@@ -37,6 +39,10 @@ export function responsePresentation(items: IndexedMessage[]) {
   const pending = new Map<string, Extract<ResponseItem, { type: 'tool' }>>();
   for (const { message, index } of items) {
     if (message.display === false) continue;
+    if (isAutoResumeMessage(message)) {
+      content.push({ type: 'auto-resume', index, key: `${index}:auto-resume` });
+      continue;
+    }
     const notice = cronMessage(message);
     if (notice) {
       content.push({ type: 'cron', notice, index, key: `${index}:cron` });
@@ -65,7 +71,8 @@ export function responsePresentation(items: IndexedMessage[]) {
     content,
     lastTextIndex: content.reduce((last, item, position) =>
       item.type === 'text' && item.block.text?.trim() ? position : last, -1),
-    text: items.filter(item => item.message.display !== false && item.message.role !== 'toolResult')
+    text: items.filter(item => item.message.display !== false && item.message.role !== 'toolResult'
+      && !isAutoResumeMessage(item.message))
       .map(item => messageText(item.message)).filter(Boolean).join('\n\n'),
   };
 }

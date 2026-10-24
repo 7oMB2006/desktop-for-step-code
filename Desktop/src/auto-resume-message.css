@@ -1,0 +1,3 @@
+.client-event-note.auto-resume-message { margin: 12px 0; flex-wrap: nowrap; }
+.auto-resume-message > span { min-width: 0; }
+.auto-resume-reason { color: var(--muted); font-size: 12px; }

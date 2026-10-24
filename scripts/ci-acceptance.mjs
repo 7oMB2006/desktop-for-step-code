@@ -41,6 +41,7 @@ export const acceptanceGroups = {
     'verify-account-routing.mjs',
     'verify-theme-bootstrap.mjs',
     'verify-performance-matrix.mjs',
+    'verify-auto-resume.mjs',
   ],
   sessions: [
     'verify-new-session.mjs',
@@ -72,6 +73,7 @@ export const acceptanceGroups = {
     'verify-permission-approval.mjs',
     'verify-permission-tiers.mjs',
     'verify-conversation-timing.mjs',
+    'verify-auto-resume-electron.mjs',
     'verify-performance-runtime.mjs',
     'verify-subagent-status.mjs',
     'verify-workflow.mjs',

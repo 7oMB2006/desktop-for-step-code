@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUpRight, CalendarClock, Clock3, Folder, Info, Pause, Pencil, Play, Plus, RotateCw, Save, Search, ShieldCheck, Trash2, X } from 'lucide-react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { ArrowLeft, ArrowUpRight, CalendarClock, Clock3, Folder, Info, Pause, Pencil, Play, Plug, Plus, RotateCw, Save, Search, ShieldCheck, Trash2, X } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
 import { AppMenu, type AppMenuItem } from './AppMenu';
 import type { CronAssociation, CronAutomaticRecovery, CronHistoryEntry, CronHost, CronRecoveryPreview, Session } from './contracts';
@@ -44,16 +44,55 @@ export interface ScheduledTaskView {
 }
 export interface ScheduledTaskCreation { title: string; prompt: string; workspace: string; runtimeId: string; cron: string; recurring: boolean; durable: boolean }
 
-export function SidebarTaskActions({ selected, onNewSession, onScheduledTasks, disabled = false, language = 'zh' }: {
+export function SidebarTaskActions({ selected, onNewSession, onScheduledTasks, onPlugins, disabled = false, language = 'zh' }: {
   selected: boolean;
   onNewSession: () => void;
   onScheduledTasks: () => void;
+  onPlugins?: () => void;
   disabled?: boolean;
   language?: 'zh' | 'en';
 }) {
-  return <div className="sidebar-task-actions">
-    <button type="button" className="new-chat" disabled={disabled} onClick={onNewSession}><Plus size={16}/><span>{language === 'zh' ? '新建会话' : 'New chat'}</span></button>
-    <button type="button" disabled={disabled} aria-current={selected ? 'page' : undefined} onClick={onScheduledTasks}><Clock3 size={15}/><span>{language === 'zh' ? '定时任务' : 'Schedules'}</span></button>
+  const zh = language === 'zh';
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchId = useId();
+  const searchInput = useRef<HTMLInputElement>(null);
+  const searchTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (searchOpen) searchInput.current?.focus(); }, [searchOpen]);
+  const closeSearch = () => { setSearchOpen(false); searchTrigger.current?.focus(); };
+  return <div className="sidebar-task-actions" role="group" aria-label={zh ? '快捷入口' : 'Quick actions'}>
+    <div className="sidebar-primary-actions">
+      <button type="button" className="new-chat" disabled={disabled} onClick={onNewSession}>
+        <Plus size={16}/><span>{zh ? '新建会话' : 'New chat'}</span>
+      </button>
+      {onPlugins && <button type="button" disabled={disabled} aria-label={zh ? '插件市场' : 'Plugin marketplace'} onClick={onPlugins}>
+        <Plug size={16}/><span>{zh ? '插件' : 'Plugins'}</span>
+      </button>}
+    </div>
+    <div className="sidebar-utility-row" data-search-open={searchOpen}>
+      <div className="sidebar-utility-links" inert={searchOpen} aria-hidden={searchOpen}>
+        <button type="button" disabled={disabled} aria-current={selected ? 'page' : undefined} aria-pressed={selected}
+          aria-label={zh ? '定时任务' : 'Schedules'} data-tooltip={selected ? zh ? '返回会话' : 'Back to conversation' : zh ? '定时任务' : 'Schedules'} onClick={onScheduledTasks}>
+          <Clock3 size={15} aria-hidden="true"/>
+        </button>
+      </div>
+      {onPlugins && <>
+        <div id={searchId} className="sidebar-search-field" inert={!searchOpen} aria-hidden={!searchOpen}>
+          <Search size={14} aria-hidden="true"/>
+          <input ref={searchInput} readOnly disabled={disabled} tabIndex={searchOpen ? 0 : -1}
+            aria-label={zh ? '会话搜索（待接入）' : 'Session search (coming soon)'}
+            placeholder={zh ? '搜索会话（待接入）' : 'Search (coming soon)'}
+            onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeSearch(); } }}/>
+        </div>
+        <button ref={searchTrigger} type="button" className="sidebar-search-toggle" disabled={disabled}
+          aria-label={searchOpen ? zh ? '收起搜索' : 'Close search' : zh ? '搜索' : 'Search'}
+          aria-expanded={searchOpen} aria-controls={searchId}
+          data-tooltip={searchOpen ? zh ? '收起搜索' : 'Close search' : zh ? '搜索' : 'Search'}
+          onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}>
+          <Search size={15} className="sidebar-search-open-icon" aria-hidden="true"/>
+          <X size={15} className="sidebar-search-close-icon" aria-hidden="true"/>
+        </button>
+      </>}
+    </div>
   </div>;
 }
 

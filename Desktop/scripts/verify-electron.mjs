@@ -994,7 +994,7 @@ try {
   await page.screenshot({ path: 'test-results/workspace-tree.png' });
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: 'MCP', exact: true }).click();
-  await page.getByRole('button', { name: 'Add MCP', exact: true }).click();
+  await page.getByRole('button', { name: '添加 MCP', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'MCP', exact: true });
   await modal.getByLabel('名称', { exact: true }).fill('disabled-test');
   await modal.getByLabel('可执行文件', { exact: true }).fill('node');

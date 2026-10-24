@@ -7,6 +7,18 @@ export function relocatedWorkspace(path: string, preferences: Preferences, sessi
   return preferences.workspaceSessionRedirects?.[sessionId] ?? path;
 }
 
+export function moveSessionToWorkspace(preferences: Preferences, session: Pick<Session, 'id' | 'path' | 'cwd'>,
+  destination: string, platform: string = process.platform): Preferences {
+  const key = workspaceKey(destination, platform);
+  const registered = preferences.workspaces.find(path => workspaceKey(path, platform) === key);
+  if (!registered) throw new Error('Unknown destination project');
+  if (!session.id || !session.path) throw new Error('Save this conversation before moving it');
+  if (workspaceKey(session.cwd, platform) === key) throw new Error('Conversation is already in this project');
+  return { ...preferences,
+    workspaceSessionRedirects: { ...preferences.workspaceSessionRedirects, [session.id]: registered },
+    collapsedWorkspaces: preferences.collapsedWorkspaces?.filter(value => value !== key) };
+}
+
 export function removeWorkspace(preferences: Preferences, path: string, platform: string = process.platform): Preferences {
   const identity = (path: string) => workspaceKey(path, platform);
   const key = identity(path);

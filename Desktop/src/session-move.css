@@ -1,0 +1,22 @@
+.session-move-source { display: grid; gap: 5px; margin: 18px 0; min-width: 0; font-size: 12px; }
+.session-move-source > strong { margin-bottom: 7px; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.session-move-source > span { color: var(--muted); }
+.session-move-dialog code { font-size: 11px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.session-move-search { position: relative; display: flex; align-items: center; margin: 12px 0; }
+.session-move-search > svg { position: absolute; left: 10px; color: var(--muted); }
+.session-move-search > input { width: 100%; min-width: 0; padding-left: 32px; }
+.session-move-projects { max-height: 220px; overflow: auto; overscroll-behavior: contain; border-block: 1px solid var(--border); scrollbar-width: thin; }
+.session-move-projects > label { display: flex; align-items: center; gap: 9px; margin: 0; padding: 11px 8px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.session-move-projects > label:last-child { border-bottom: 0; }
+.session-move-projects > label:hover, .session-move-projects > label.is-selected { background: color-mix(in srgb, var(--primary) 9%, transparent); }
+.session-move-projects input { width: 15px; height: 15px; margin: 0; accent-color: var(--primary); flex-shrink: 0; }
+.session-move-projects svg { flex-shrink: 0; color: var(--muted); }
+.session-move-projects label > span { display: grid; gap: 5px; min-width: 0; }
+.session-move-projects strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.session-move-projects code { color: var(--muted); }
+.session-move-dialog .session-move-destination { margin-top: 15px; }
+.session-move-destination code { display: block; margin-top: 4px; color: var(--primary); }
+.session-move-dialog .session-move-permission { display: flex; gap: 7px; align-items: flex-start; margin-top: 12px; color: var(--muted); font-size: 12px; }
+.session-move-permission svg { margin-top: 2px; flex-shrink: 0; }
+.session-move-error { color: var(--danger); }
+.workspace-group.session-drop-target > .workspace-heading { background: color-mix(in srgb, var(--primary) 14%, transparent); outline: 1px solid var(--primary); outline-offset: -1px; border-radius: 5px; }

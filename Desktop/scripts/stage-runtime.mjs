@@ -31,7 +31,7 @@ const patchedFiles = process.platform === 'win32'
   ['step-plan.ts', 'packages/coding-agent/src/features/step-plan.ts', '31fcf9db425d54bdba864630488ca7b8aef838bd'],
   ['plan-mode-tools.ts', 'packages/coding-agent/src/features/plan-mode-tools.ts', '671e70c74ad4ca9614fd641db8597649d6121cb4'],
   ['auth-storage.ts', 'packages/coding-agent/src/core/auth-storage.ts', 'a25fff15510b1bd9f009483717727f2fe19dc442'],
-  ['index.ts', 'packages/coding-agent/src/index.ts', '8c4e177db7bf1c45b4ea4c9c9508e2be6c1f39a3'],
+  ['index.ts', 'packages/coding-agent/src/index.ts', '07195ff412c52287ce060ecf0cd434a31685047b'],
   ['build-coding-agent-bundle.mjs', 'scripts/build-coding-agent-bundle.mjs', '93aaca8db784bd66e45d0a1e4f177567a7c35272'],
   ['subagent-rpc-adapter.ts', 'packages/coding-agent/src/features/subagent/rpc-adapter.ts', '3ddc850f55fbd4947f0f980db5b4220ed55bb6d0'],
   ['rpc-mode.ts', 'packages/coding-agent/src/modes/rpc/rpc-mode.ts', 'e6a791e25edb478dc65dc4d9c64780e748a6af09'],
@@ -56,7 +56,14 @@ const source = join(upstream, 'packages/coding-agent');
 const npmEntry = resolve(dirname(process.execPath), process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : '../lib/node_modules/npm/bin/npm-cli.js');
 await readFile(npmEntry);
 execFileSync(process.execPath, [npmEntry, '--prefix', source, 'run', 'build'], { cwd: upstream, stdio: 'inherit' });
-if (process.platform === 'win32') await readFile(join(source, 'dist/bundle/chunks/activity-worker.js'));
+if (process.platform === 'win32') {
+  // Exported management APIs can move the shared usage code into the root entry.
+  // The upstream bundler deliberately emits its worker beside that code.
+  await readFile(join(source, 'dist/bundle/chunks/activity-worker.js')).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    return readFile(join(source, 'dist/bundle/activity-worker.js'));
+  });
+}
 const currentNode = await readFile(process.execPath);
 const nodeSha256 = createHash('sha256').update(currentNode).digest('hex');
 let matchingLicense = false;
@@ -76,6 +83,8 @@ await cp(join(source, 'dist'), join(runtime, 'step/dist'), { recursive: true });
 for (const name of ['package.json', 'README.md']) await cp(join(source, name), join(runtime, 'step', name));
 for (const name of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) await cp(join(upstream, name), join(runtime, name));
 await cp('electron/admin.mjs', join(runtime, 'admin.mjs'));
+await cp('electron/capability-admin.mjs', join(runtime, 'capability-admin.mjs'));
+await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.mjs'));
 await cp('electron/session-import.mjs', join(runtime, 'session-import.mjs'));
 await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
@@ -101,5 +110,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', ...(process.platform === 'win32' ? ['desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import'] : [])], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', ...(process.platform === 'win32' ? ['desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope'] : [])], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

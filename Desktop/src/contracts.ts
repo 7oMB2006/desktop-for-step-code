@@ -83,6 +83,9 @@ export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
 export interface DesktopBridge extends SessionImportBridge {
+  capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
+  capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
+  capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;
   stepPageState(): Promise<StepPagePreparation>;
   prepareStepPage(): Promise<StepPagePreparation>;
   cronList(): Promise<CronOverview>;
@@ -96,6 +99,7 @@ export interface DesktopBridge extends SessionImportBridge {
   readonly platform?: string;
   removeWorkspace(path: string): Promise<Snapshot>;
   relocateWorkspace(path: string): Promise<Snapshot | null>;
+  moveSessionToProject(sessionId: string, destination: string): Promise<Snapshot>;
   updateState(): Promise<AppUpdateState>;
   checkUpdates(): Promise<AppUpdateState>;
   openUpdate(action: 'release' | 'download'): Promise<void>;

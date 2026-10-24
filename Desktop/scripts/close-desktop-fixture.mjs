@@ -1,3 +1,20 @@
+// Windows launchers can exit before every inherited Playwright pipe reaches EOF.
+export function releaseExitedFixturePipes(app) {
+  const child = app.process();
+  const pages = app.windows();
+  const release = () => {
+    if (child.exitCode !== 0 || app.windows().some(page => !page.isClosed())) return;
+    for (const pipe of child.stdio ?? [child.stdout, child.stderr]) pipe?.destroy();
+  };
+  child.on('exit', release);
+  for (const page of pages) page.on('close', release);
+  release();
+  return () => {
+    child.off('exit', release);
+    for (const page of pages) page.off('close', release);
+  };
+}
+
 // Isolated fixtures must still exercise orderly shutdown and flush their saved state.
 export async function closeDesktopFixture(app) {
   const pages = app.windows();
@@ -15,5 +32,7 @@ export async function closeDesktopFixture(app) {
       void window.desktop.snapshot().then(value => answer(value.quitReview)).catch(() => {});
     }).catch(() => {});
   }
-  await app.close();
+  const dispose = releaseExitedFixturePipes(app);
+  try { await app.close(); }
+  finally { dispose(); }
 }

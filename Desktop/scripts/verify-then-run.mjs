@@ -1,9 +1,12 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { once } from 'node:events';
 import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
+import { closeDesktopFixture, releaseExitedFixturePipes } from './close-desktop-fixture.mjs';
 
 assert.equal(process.platform, 'win32', 'This acceptance exercises Windows Bash and the pinned runtime');
 await mkdir('test-results', { recursive: true });
@@ -54,7 +57,7 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
 } } }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', TEMP: profile, TMP: profile };
 delete env.ELECTRON_RUN_AS_NODE;
-let app, page;
+let app, page, runtime;
 const wait = async predicate => {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
@@ -69,6 +72,9 @@ const exists = file => access(join(workspace, file)).then(() => true, () => fals
 try {
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE }
     : { args: [resolve('.')] }), env, timeout: 60000 });
+  app.process().once('exit', (code, signal) => console.log(`then_run fixture process exited: code=${code} signal=${signal}`));
+  app.process().once('close', (code, signal) => console.log(`then_run fixture process closed: code=${code} signal=${signal}`));
+  runtime = await app.evaluate(({ app }) => app.isPackaged ? `${process.resourcesPath}/runtime` : undefined) ?? resolve('runtime');
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow, dialog }) => {
@@ -219,17 +225,10 @@ try {
   await page.waitForTimeout(250);
   await page.screenshot({ path: 'test-results/then-run-results.png' });
 
-  const runtime = await app.evaluate(({ app }) => app.isPackaged ? `${process.resourcesPath}/runtime` : undefined) ?? resolve('runtime');
-  const native = join(profile, 'Native checks with spaces');
-  await mkdir(native);
-  const nativeOutput = execFileSync(join(runtime, 'node/node.exe'),
-    [resolve('scripts/then-run-native-probe.mjs'), runtime, native, shellPath], {
-      cwd: native, env: { ...env, STEP_AGENT_DIR: join(native, 'agent') }, encoding: 'utf8', windowsHide: true, timeout: 60000,
-    });
-  console.log(nativeOutput.trim());
   assert.deepEqual(errors, []);
   console.log('then_run RPC/UI passed: fused approval, denial prevents both operations, safe automatic execution, risky-command gate/acknowledged Full Access, no-op verification, edit failure skips check, nonzero receipt, cancellation and history reload. Local HTTP fixture only.');
 } catch (error) {
+  console.error('then_run acceptance failed:', error);
   if (page) await page.screenshot({ path: 'test-results/then-run-failure.png' }).catch(() => {});
   if (page) console.error('then_run fixture state:', await page.evaluate(async () => {
     const state = await window.desktop.snapshot();
@@ -245,9 +244,34 @@ try {
     if (state.state?.isStreaming) await window.desktop.command('abort', {}, state.runtimeId);
   }).catch(() => {});
   if (app) {
-    await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
-    await app.close();
+    console.log('then_run fixture: orderly shutdown');
+    const child = app.process();
+    const context = app.context();
+    const stopped = Promise.all([once(app, 'close'), once(context, 'close')]);
+    const dispose = releaseExitedFixturePipes(app);
+    let timer;
+    try {
+      await Promise.race([
+        closeDesktopFixture(app),
+        // Closure events remain authoritative if the controller's final RPC reply stalls.
+        stopped,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('then_run orderly shutdown timed out after 30s')), 30000); }),
+      ]);
+      assert.equal(child.exitCode, 0, 'The application launcher must exit successfully after orderly shutdown');
+      assert.equal(context.isClosed(), true, 'The browser context must close');
+      assert.equal(app.windows().length, 0, 'Every application window must close');
+      console.log('then_run fixture: closed');
+    } finally { clearTimeout(timer); dispose(); }
   }
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
 }
+
+// Native cancellation probes run only after the browser controller has shut down.
+const native = join(profile, 'Native checks with spaces');
+await mkdir(native);
+const nativeOutput = await promisify(execFile)(join(runtime, 'node/node.exe'),
+  [resolve('scripts/then-run-native-probe.mjs'), runtime, native, shellPath], {
+    cwd: native, env: { ...env, STEP_AGENT_DIR: join(native, 'agent') }, encoding: 'utf8', windowsHide: true, timeout: 60000,
+  });
+console.log(nativeOutput.stdout.trim());

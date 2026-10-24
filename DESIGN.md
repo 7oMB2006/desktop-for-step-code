@@ -1,5 +1,27 @@
 # Design System
 
+## Form Focus Visibility
+
+Inputs, textareas and composite fields reuse the shared theme focus treatment.
+Their focused/active indicator must remain fully visible on all four sides,
+including rounded corners. Scroll, overflow and animated-disclosure containers
+must reserve enough internal space for the complete outline, offset and shadow;
+the current form treatment requires at least a 4px gutter. Keep focused controls
+clear of scroll edges with scroll padding and scroll margins. Do not remove or
+weaken focus indicators to conceal clipping, or change layout when focus moves.
+Verify mouse and keyboard focus, the first/last field, multiline fields and
+scrolled/resized forms in light/dark and narrow layouts. Acceptance must check
+the focus extent against clipping ancestors, not just the input's border box.
+
+## Existing Components
+
+The sidebar Schedules icon toggles its view without replacing the active
+conversation or its draft. Its pressed state and return tooltip reflect the
+current view; explicit `/cron` navigation remains an open action, not a toggle.
+Only a scrolled conversation list fades over its top 18px. At scroll origin or
+while a list control has keyboard-visible focus, the list stays fully opaque.
+The fade belongs to list content, never the fixed sidebar action buttons.
+
 Compact process singletons show the original thinking/tool disclosure directly,
 without a second heading or indentation. Stable keyed members retain manual
 expansion, output controls and focus as siblings arrive or leave. Multi-member

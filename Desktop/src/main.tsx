@@ -63,6 +63,7 @@ import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-ord
 import { useSidebarReorder } from './use-sidebar-reorder';
 import { useSidebarMotion } from './use-sidebar-motion';
 import { ProjectRemoval } from './ProjectRemoval';
+import { SessionMoveDialog } from './SessionMoveDialog';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
 import { QueuePreview } from './QueuePreview';
@@ -71,7 +72,8 @@ import { ReviewPanel } from './ReviewPanel';
 import { SummaryBoard } from './SummaryBoard';
 import { AccountSettings, ProviderIcon, StepPlatformIcon } from './AccountSettings';
 import { ProviderSettings } from './ProviderSettings';
-import { StepPageSettings } from './StepPageSettings';
+import { CapabilitySettings } from './CapabilitySettings';
+import { capabilityCommand, type CapabilityTarget } from './capability-command';
 import { SessionImportSettings } from './SessionImportSettings';
 import { NewSession } from './NewSession';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
@@ -188,6 +190,8 @@ function App() {
   const [settingsClosing, setSettingsClosing] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [tab, setTab] = useState('account');
+  const [capabilityTarget, setCapabilityTarget] = useState<CapabilityTarget>();
+  const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
@@ -278,6 +282,7 @@ function App() {
   const [renameTarget, setRenameTarget] = useState<{ type: 'session' | 'workspace'; id: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'workspace'; id: string; x: number; y: number } | null>(null);
   const [removeProject, setRemoveProject] = useState<string | null>(null);
+  const [sessionMove, setSessionMove] = useState<{ session: Session; destination?: string } | null>(null);
   const [unavailableWorkspace, setUnavailableWorkspace] = useState<string | null>(null);
   const sidebarTree = useSidebarMotion(JSON.stringify([data.preferences.workspaces, data.preferences.pinnedWorkspaces,
     data.preferences.sessionOrder, data.preferences.sessionSort, data.preferences.archivedSessionIds,
@@ -296,8 +301,12 @@ function App() {
       void setPreference({ workspaces: keys.map(key => paths.find(path => workspaceKey(path) === key)!) });
     }
   };
-  const sessionDrag = useSidebarReorder(!loading && (compactSidebar ? compactSidebarOpen : sidebar), manualOrder,
-    (id, target, after, kind) => kind === 'session' ? reorderSession(id, target, after) : reorderWorkspace(id, target, after));
+  const sessionDrag = useSidebarReorder(!loading && !sessionMove && (compactSidebar ? compactSidebarOpen : sidebar), manualOrder,
+    (id, target, after, kind) => kind === 'session' ? reorderSession(id, target, after) : reorderWorkspace(id, target, after),
+    (id, destination) => {
+      const session = data.sessions.find(session => session.id === id);
+      if (session?.path) { setContextMenu(null); setSessionMove({ session, destination }); }
+    });
   const [name, setName] = useState('');
   const [loginProfile, setLoginProfile] = useState('step_plan');
   const [key, setKey] = useState('');
@@ -881,6 +890,11 @@ function App() {
     });
   };
   const send = async () => {
+    const capability = capabilityCommand(draft, attachments.length, quotes.length);
+    if (!navigationPending.current && !loading && capability) {
+      setDraft(''); setCapabilityTarget(capability); setTab(capability.page); void openSettings();
+      return;
+    }
     const local = desktopCommand(draft, attachments.length, quotes.length);
     if (!navigationPending.current && !loading && local) {
       if (local.name === 'compact') {
@@ -1022,7 +1036,7 @@ function App() {
     if (!mcpEdit) return;
     const parsed = JSON.parse(mcpEdit.args || '[]'); const secrets = JSON.parse(mcpEdit.secrets || '{}');
     await bridge!.saveMcp(mcpEdit.name, { ...mcpEdit.config, args: parsed }, secrets);
-    setMcpEdit(null); setSettings(await bridge!.settings());
+    setMcpEdit(null); setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1);
   });
   const workspaceGroups = new Map<string, { path: string; sessions: typeof data.sessions }>();
   for (const path of data.preferences.workspaces) {
@@ -1037,7 +1051,8 @@ function App() {
   for (const session of visibleSessions) if (!independentSessions.includes(session)) workspaceGroups.get(sessionWorkspaceKey(session))?.sessions.push(session);
   const showContext = (event: React.MouseEvent, type: 'session' | 'workspace', id: string) => {
     event.preventDefault();
-    setContextMenu({ type, id, x: Math.min(event.clientX, window.innerWidth - 206), y: Math.min(event.clientY, window.innerHeight - 190) });
+    setContextMenu({ type, id, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 206)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 230)) });
   };
   const beginRename = (type: 'session' | 'workspace', id: string) => {
     const session = data.sessions.find(s => s.id === id);
@@ -1099,6 +1114,7 @@ function App() {
     const activity = status === 'idle' || status === 'completed' ? data.unreadSessionIds?.includes(s.id) ? 'completed' : 'idle' : status;
     const label = activity === 'waiting' ? t('等待确认', 'Awaiting approval') : activity === 'failed' || activity === 'interrupted' ? t('任务已终止', 'Task interrupted') : activity === 'completed' ? t('有未读回复', 'Unread reply') : t('正在运行', 'Running');
     return <div key={s.id} data-reorder-id={s.id} data-reorder-kind="session" data-reorder-group={group} data-reorder-title={sessionTitle(s, t('新会话', 'New session'))}
+      data-reorder-locked={!s.path || ['running', 'waiting'].includes(activity)}
       className={`session-row ${!scheduledOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'selected' : ''} ${sessionDrag?.id === s.id ? 'session-dragging' : ''} ${sessionDrag?.target === s.id ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`}
       onContextMenu={e => showContext(e, 'session', s.id)}>
       <button aria-current={!scheduledOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
@@ -1157,7 +1173,8 @@ function App() {
   const toggleSidebar = () => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open);
   const renderWorkspace = ([key, group]: [string, { path: string; sessions: Session[] }]) => {
     const expanded = !collapsedWorkspaces.has(key);
-    return <section className={`workspace-group ${sessionDrag?.id === key ? 'session-dragging' : ''} ${sessionDrag?.target === key ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`} key={key} aria-label={group.path}
+    return <section className={`workspace-group ${sessionDrag?.id === key ? 'session-dragging' : ''} ${sessionDrag?.target === key ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''} ${sessionDrag?.workspaceTarget === group.path ? 'session-drop-target' : ''}`} key={key} aria-label={group.path}
+      data-session-workspace={group.path}
       data-reorder-id={key} data-reorder-kind="workspace" data-reorder-group={pinnedWorkspaces.has(key) ? '__pinned__' : '__projects__'} data-reorder-title={workspaceTitle(group.path)}>
       <div className={`workspace-heading ${key === workspaceKey(data.preferences.workspace ?? '') ? 'current' : ''}`} onContextMenu={e => showContext(e, 'workspace', group.path)}>
         <button className="workspace-toggle" aria-label={workspaceTitle(group.path)} aria-expanded={expanded} onClick={() => toggleWorkspace(key)}
@@ -1276,6 +1293,22 @@ function App() {
       onCancel={() => bridge!.quitRespond(quitReview.request!.id, false)}
       onConfirm={() => bridge!.quitRespond(quitReview.request!.id, true)}/>}
     <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}/>
+    {sessionMove && <SessionMoveDialog session={sessionMove.session} preferences={data.preferences} platform={bridge?.platform}
+      initialDestination={sessionMove.destination} onCancel={() => setSessionMove(null)}
+      onConfirm={async destination => {
+        if (!bridge || switching.current) throw new Error(t('请等待会话切换完成', 'Wait for session navigation to finish'));
+        switching.current = true; setLoading(true);
+        try {
+          const activeMove = latestData.current.state?.sessionId === sessionMove.session.id && !latestData.current.draftId;
+          const value = await bridge.moveSessionToProject(sessionMove.session.id, destination);
+          readingCache.current.delete(sessionMove.session.id);
+          installSnapshot(value); setSessionMove(null);
+          if (activeMove) { setDetails(''); setRightPanel(null); setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); }
+          setNotice({ id: ++nextNoticeId.current, message: t('会话已移至目标项目', 'Conversation moved to the destination project'), type: 'info' });
+          const id = sessionMove.session.id;
+          requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`.session-row[data-reorder-id="${CSS.escape(id)}"] > button`)?.focus());
+        } finally { switching.current = false; setLoading(false); }
+      }}/>}
     {removeProject && <ProjectRemoval title={workspaceTitle(removeProject)} path={removeProject} language={data.preferences.language}
       onCancel={() => setRemoveProject(null)} onConfirm={async () => {
         const result = await run(() => bridge!.removeWorkspace(removeProject));
@@ -1299,6 +1332,13 @@ function App() {
         <div className="context-separator"/>
         <button role="menuitem" className="project-remove-menu" disabled={!bridge || loading} onClick={() => { confirmRemoveProject(contextMenu.id); setContextMenu(null); }}><Trash2 size={15}/>{t('移除项目…', 'Remove project...')}</button>
       </> : <>
+        <button role="menuitem" disabled={!bridge || loading || !data.sessions.some(session => session.id === contextMenu.id && session.path
+          && !archived.has(session.id) && data.preferences.workspaces.some(path => workspaceKey(path) !== workspaceKey(session.cwd))) ||
+          data.runtimes?.some(runtime => runtime.sessionId === contextMenu.id && ['running', 'waiting'].includes(runtime.status))}
+          onClick={() => {
+            const session = data.sessions.find(session => session.id === contextMenu.id);
+            setContextMenu(null); if (session) setSessionMove({ session });
+          }}><ArrowRightLeft size={15}/>{t('移至项目…', 'Move to project...')}</button>
         <button role="menuitem" onClick={() => void updateArchive(contextMenu.id, archived.has(contextMenu.id))}><Archive size={15}/>{archived.has(contextMenu.id) ? t('恢复会话', 'Restore session') : t('归档会话', 'Archive session')}</button>
         <div className="context-separator"/>
         <button role="menuitem" disabled={!bridge} onClick={() => {
@@ -1322,8 +1362,12 @@ function App() {
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
           aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
       <SidebarTaskActions selected={scheduledOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
-        onScheduledTasks={openScheduled}/>
-      <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}>
+        onScheduledTasks={() => { if (scheduledOpen) setScheduledOpen(false); else openScheduled(); }}
+        onPlugins={() => {
+          setCapabilityTarget({ page: 'plugins', tab: 'discover' }); setTab('plugins'); setCompactSidebarOpen(false); void openSettings();
+        }}/>
+      <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}
+        onScroll={event => { event.currentTarget.dataset.scrolled = String(event.currentTarget.scrollTop > 0); }}>
         <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
           <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} onClick={() => toggleWorkspace('__independent__')}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
           <div className="workspace-disclosure" aria-hidden={!independentExpanded} inert={!independentExpanded}>
@@ -1559,7 +1603,7 @@ function App() {
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}
@@ -1655,7 +1699,7 @@ function App() {
         </div>
       </div>
     </div>}
-    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, t('资源', 'Resources')], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ...(bridge?.platform === 'win32' ? [['import', ArrowRightLeft, t('会话迁移', 'Session migration')]] : []), ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === (bridge?.platform === 'win32' ? 'import' : 'archived') ? ' settings-group-start' : ''}`} onClick={() => setTab(id)}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
+    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['plugins', Plug, t('插件', 'Plugins')], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, 'Skills'], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ...(bridge?.platform === 'win32' ? [['import', ArrowRightLeft, t('会话迁移', 'Session migration')]] : []), ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === (bridge?.platform === 'win32' ? 'import' : 'archived') ? ' settings-group-start' : ''}`} onClick={() => { setCapabilityTarget(undefined); setTab(id); }}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
       {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <><ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} onChange={patch => void setPreference(patch)}/><AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/></> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
         onOpen={id => { closeSettings(); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
@@ -1690,21 +1734,20 @@ function App() {
           <EstimateRules key={`${settings.account.profile}:${settings.account.userId ?? ''}`} bridge={bridge!} account={settings.account}
             language={data.preferences.language} disabled={loggingIn || anyBusy} onChanged={async () => { await applySnapshot(() => bridge!.snapshot()); }}/></>}/>
           <button onClick={openUsage}><BarChart3 size={15}/>{t('用量统计', 'Usage overview')}</button></>
-      : tab === 'mcp' ? <>{bridge?.platform === 'win32' && <button onClick={() => setTab('skills')}><Plug size={15}/>{t('准备内置插件', 'Set up built-in plugins')}</button>}<div className="section-heading"><h3>MCP servers</h3><IconButton title="Add MCP" onClick={() => setMcpEdit({ name: '', config: { command: '', args: [], enabled: true }, args: '[]', secrets: '{}' })}><Plus size={18}/></IconButton></div>
-        {Object.entries(settings.mcp).map(([n, c]) => <div className="resource-row" key={n}><McpIcon size={18}/><div><strong>{n}</strong><small>{c.url || c.command}</small><small>{c.enabled ? t('已启用，重启后生效', 'Enabled; applies after restart') : t('已停用', 'Disabled')}</small></div><IconButton title="Edit" onClick={() => setMcpEdit({ name: n, original: n, config: c, args: JSON.stringify(c.args ?? []), secrets: '{}' })}><Pencil size={14}/></IconButton><IconButton title="Remove" onClick={() => { if (confirm(t(`移除 ${n}？`, `Remove ${n}?`))) void run(async () => { await bridge!.saveMcp(n, null); setSettings(await bridge!.settings()); }); }}><Trash2 size={14}/></IconButton></div>)}
-        {!Object.keys(settings.mcp).length && <p className="muted">{t('尚未配置服务器', 'No servers configured')}</p>}<button disabled={!connected || busy} onClick={() => void applySnapshot(() => bridge!.restart())}><RotateCcw size={15}/>{t('重启并应用', 'Restart to apply')}</button></>
-      : <>{bridge?.platform === 'win32' && <><h3>{t('内置插件', 'Built-in plugins')}</h3><StepPageSettings bridge={bridge!} language={data.preferences.language}
-        config={settings.mcp.steppage__steppage} busy={anyBusy || busy}
-        onPrepared={async () => { setSettings(await bridge!.settings()); }}
+      : (tab === 'plugins' || tab === 'mcp' || tab === 'skills') ? <CapabilitySettings
+        key={`${tab}:${capabilityRevision}`} page={tab} bridge={bridge!} language={data.preferences.language}
+        busy={anyBusy || busy} runtimeId={data.runtimeId} settings={settings} target={capabilityTarget?.page === tab ? capabilityTarget : undefined} commands={commands}
+        onEditMcp={name => {
+          const config = name ? settings.mcp[name] : undefined;
+          setMcpEdit({ name: name ?? '', original: name, config: config ?? { command: '', args: [], enabled: true },
+            args: JSON.stringify(config?.args ?? []), secrets: '{}' });
+        }}
+        onChanged={async () => { setSettings(await bridge!.settings()); }}
         onRestart={async () => {
           const next = await bridge!.restart();
           setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
           installSnapshot(next);
-        }}/></>}
-        <h3>{t('Skills 与命令', 'Skills and commands')}</h3>
-        {settings.skills.map(s => <div className="resource-row" key={`${s.source}/${s.name}`}><BookOpen size={17}/><div><strong>{s.name}</strong><small>{s.description}</small><small>{s.source}</small></div></div>)}
-        {commands.map(c => <div className="resource-row" key={c.name}><Terminal size={17}/><div><strong>/{c.name}</strong><small>{c.description}</small><small>{c.source}</small></div></div>)}
-        {!settings.skills.length && !commands.length && <p className="muted">{t('没有已发现的资源', 'No resources discovered')}</p>}</>}
+        }}/> : null}
       </>}
     </div></div></section></div>}
     {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={() => setMcpEdit(null)}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<select value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></select></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}

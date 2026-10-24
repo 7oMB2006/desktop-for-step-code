@@ -13,13 +13,17 @@ test('StepPage messages distinguish a protected Cron restart from installation o
   assert.match(stepPageOperationError(new Error('Send or withdraw the pending messages first'), 'prepare', 'en'), /queued messages/);
   assert.doesNotMatch(stepPageOperationError(new Error('private-token raw subprocess'), 'prepare', 'en'), /private|subprocess/);
 });
-test('only preparation opts out of host-stop guards; polling cannot erase operation feedback', async () => {
+test('preparation and capability edits retain idle checks without stopping Cron hosts; polling keeps feedback', async () => {
   const main = await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8');
   const prepare = main.slice(main.indexOf("case 'prepareStepPage':"), main.indexOf("case 'settings':"));
   assert.match(prepare, /guardIdle\(\{ stopHost: false \}\)/);
-  assert.equal(main.match(/guardIdle\(\{ stopHost: false \}\)/g)?.length, 1);
+  for (const method of ['capabilityMutate', 'capabilityImportSkill']) {
+    const start = main.indexOf(`case '${method}':`);
+    assert.match(main.slice(start, main.indexOf("\n    case ", start + 1)), /guardIdle\(\{ stopHost: false \}\)/);
+  }
+  assert.equal(main.match(/guardIdle\(\{ stopHost: false \}\)/g)?.length, 4);
   const app = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
-  const entry = app.slice(app.indexOf('<StepPageSettings'), app.indexOf("<h3>{t('Skills 与命令'"));
+  const entry = app.slice(app.indexOf('<CapabilitySettings'), app.indexOf('/> : null}', app.indexOf('<CapabilitySettings')));
   assert.doesNotMatch(entry, /applySnapshot/);
   assert.match(entry, /const next = await bridge!\.restart\(\)/);
   const view = await readFile(new URL('../src/StepPageSettings.tsx', import.meta.url), 'utf8');
@@ -38,7 +42,7 @@ test('StepPage setup is Windows-only and startup carries failed Desktop verifica
   const admin = await readFile(new URL('../electron/admin.mjs', import.meta.url), 'utf8');
   assert.match(admin, /case 'reconcile_steppage': \{\s*if \(process\.platform !== 'win32'\)/);
   assert.match(admin, /bundleExists: existsSync\(message\.bundlePath\) && message\.bundlePath !== message\.rejectedBundlePath/);
-  const app = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
-  assert.match(app, /bridge\?\.platform === 'win32' && <button onClick=\{\(\) => setTab\('skills'\)\}/);
-  assert.match(app, /bridge\?\.platform === 'win32' && <><h3>\{t\('内置插件', 'Built-in plugins'\)\}<\/h3><StepPageSettings/);
+  const view = await readFile(new URL('../src/CapabilitySettings.tsx', import.meta.url), 'utf8');
+  assert.match(view, /bridge\.platform === 'win32' && <CapabilityDisclosure className="cap-preparation"/);
+  assert.match(view, /const stepPage = <StepPageSettings/);
 });

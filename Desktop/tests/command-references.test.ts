@@ -36,6 +36,7 @@ test('code, links, paths, unknown and incomplete commands stay ordinary text', (
 
 test('the shared icons match their existing surfaces and retain skill/template provenance', () => {
   for (const [name, Icon] of [['usage', ChartBar], ['cron', Clock3], ['todos', ListTodo],
+    ['skills', BookOpen],
     ['workflows', Workflow], ['ultracode', Network], ['trust', FolderCheck], ['permissions', Shield],
     ['compact', CompactContextIcon], ['clm', WorkingContextIcon], ['clm-compact', OrganizeContextIcon]] as const) {
     assert.equal(commandPresentation({ name, source: 'extension' }, true).Icon, Icon);
@@ -44,6 +45,8 @@ test('the shared icons match their existing surfaces and retain skill/template p
   assert.equal(commandPresentation({ name: 'cron', source: 'prompt' }, true).Icon, Sparkles);
   assert.equal(commandPresentation({ name: 'usage', source: 'skill' }, true).title, 'usage');
   assert.equal(commandPresentation({ name: 'workflows' }, true).title, '工作流');
+  assert.equal(commandPresentation({ name: 'skills', source: 'desktop' }, true).title, '技能');
+  assert.equal(commandPresentation({ name: 'skills', source: 'desktop' }, false).title, 'Skills');
   assert.equal(commandPresentation({ name: 'compact', source: 'skill' }, true).Icon, BookOpen);
   assert.equal(commandPresentation({ name: 'clm', source: 'prompt' }, true).Icon, Sparkles);
   assert.equal(commandPresentation({ name: 'unknown' }, true).Icon, Command);

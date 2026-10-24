@@ -33,6 +33,9 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  capabilityCatalog: () => invoke('capabilityCatalog'),
+  capabilityMutate: input => invoke('capabilityMutate', input),
+  capabilityImportSkill: () => invoke('capabilityImportSkill'),
   importScan: options => invoke('importScan', options),
   importPreview: id => invoke('importPreview', id),
   importStart: (selections, options) => invoke('importStart', selections, options),
@@ -102,6 +105,7 @@ const bridge: DesktopBridge = {
   newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'), openWorkspaceFolder: path => invoke('openWorkspaceFolder', path),
   snapshot: () => invoke('snapshot'), chooseWorkspace: () => invoke('chooseWorkspace'), workspace: path => invoke('workspace', path),
   removeWorkspace: path => invoke('removeWorkspace', path), relocateWorkspace: path => invoke('relocateWorkspace', path),
+  moveSessionToProject: (id, destination) => invoke('moveSessionToProject', id, destination),
   beginSession: workspace => invoke('beginSession', workspace),
   chooseSessionProject: () => invoke('chooseSessionProject'),
   createDraftSession: draftId => invoke('createDraftSession', draftId),

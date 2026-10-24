@@ -216,7 +216,14 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
       } else setFailure(failureMessage ?? '未能确认操作结果。请先刷新列表核对，避免重复创建；同时检查宿主是否空闲、项目信任及时间表达式。');
     } finally { savingRef.current = false; setSaving(false); }
   };
-  return <section className="scheduled-tasks" aria-label="定时任务">
+  return <section className="scheduled-tasks" aria-label="定时任务" onFocusCapture={event => {
+    const field = event.target;
+    // Native textarea focus can reveal only the caret. Keep the full field and
+    // its shared focus outline visible in a short, scrolled editor as well.
+    if (field instanceof HTMLElement && field.matches('.scheduled-editor :is(input, textarea, select, button)')) {
+      field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }}>
     {issue && <div className="scheduled-boundary" role="status"><Info size={15}/><span>{issue}</span></div>}
     {failure && <div className="scheduled-failure" role="alert">{failure}</div>}
     <div key={creating ? 'create' : task ? `task-${task.id}` : 'list'} className={`scheduled-page${leaving ? ' is-leaving' : ''}`} inert={leaving || saving}>

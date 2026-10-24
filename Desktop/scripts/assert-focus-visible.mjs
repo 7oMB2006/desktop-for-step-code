@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 
 // Test the complete outline, including its offset, against every clipping
 // ancestor and the viewport. Border-box-only checks miss rounded focus rings.
-export async function assertFocusVisible(page, field, label) {
-  await page.keyboard.press('Tab');
-  await field.focus();
+export async function assertFocusVisible(page, field, label, { focus = true } = {}) {
+  if (focus) {
+    await page.keyboard.press('Tab');
+    await field.focus();
+  }
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const geometry = await field.evaluate(element => {
     const style = getComputedStyle(element);

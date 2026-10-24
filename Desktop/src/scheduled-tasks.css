@@ -25,7 +25,7 @@
 @media(prefers-reduced-motion:reduce) {
   .sidebar-primary-actions > button,.sidebar-primary-actions > .new-chat > svg,.sidebar-utility-links,.sidebar-search-toggle > svg,.sidebar-search-field { transition:none; }
 }
-.scheduled-tasks { width: 100%; max-width: 1080px; margin-inline: auto; padding: 36px 40px; overflow-y: auto; min-height: 0; flex: 1; }
+.scheduled-tasks { width: 100%; max-width: 1080px; margin-inline: auto; padding: 36px 40px; overflow-y: auto; scroll-padding: 4px; min-height: 0; flex: 1; }
 .scheduled-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 30px; }
 .scheduled-heading-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .scheduled-heading h1 { margin: 0; font-size: 22px; font-weight: 600; overflow-wrap: anywhere; outline: none; }
@@ -125,6 +125,7 @@
 .scheduled-delete-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 12px; }
 .scheduled-editor { max-width: 640px; }
 .scheduled-editor input, .scheduled-editor textarea, .scheduled-editor select { font-size: 13px; }
+.scheduled-editor :is(input, textarea, select, button) { scroll-margin: 4px; }
 .scheduled-editor textarea { min-height: 130px; }
 .scheduled-storage { border: 0; border-block: 1px solid var(--border); padding: 18px 0; margin: 20px 0 0; min-width: 0; }
 .scheduled-storage legend { padding: 0 8px 0 0; font-size: 12px; font-weight: 600; }

@@ -1,5 +1,37 @@
 # Verification
 
+## Cron focus and replay CI follow-up (2026-10-25)
+
+Run `40110441887` passed the repaired project picker and Plan checks, then
+failed Cron management focus geometry at a 684px viewport. A partially visible
+textarea can receive native focus with its caret visible while its bottom and
+outline remain outside the scroller. This was reproduced locally with the
+unchanged renderer: its focused outline extended to about 708px in a 684px
+viewport. Cron editor controls now scroll their complete box into view on focus;
+the scroller and controls reserve 4px for the existing shared outline. No focus
+indicator is removed or weakened. Acceptance covers normal and 684px heights,
+dark/wide and light/narrow layouts, and both programmatic/keyboard and mouse
+focus from a partially scrolled multiline field. The shared geometry helper can
+observe an already focused field without refocusing it, retaining every outline,
+clipping-ancestor and viewport assertion. Local Cron management's 14 cases pass,
+including an additional 540px height reproduction. Typecheck/build and the full
+unit/protocol suite pass (790 passed, one Windows-only skip).
+
+Windows run `40110441868` passed interface and sessions but repeated the Cron
+transcript timeout after reload. A controlled 12-second navigation IPC delay
+reproduces it: the readable cold preview contains both Cron records while main
+still has no selected runtime/session; reloading discards that pending navigation.
+The fixture now waits for authoritative handoff and strictly checks connected
+status, runtime ID and the expected session ID before reload. All original eight
+Cron checks and the 60-second limit remain. Normal source, accepted `549bb39`
+package and the controlled delay pass. This is a test precondition correction,
+not a runtime or Cron message change.
+
+The focus correction changes the renderer, so final Mac packaging and renewed
+acceptance are required. Existing Draft assets remain the earlier accepted RC;
+neither local fixture results nor the earlier partial cloud runs establish full
+cloud success or final source/tag alignment.
+
 ## Replacement CI diagnostics follow-up (2026-10-25)
 
 Commit `5ee398d` passed the original project-picker failure in hosted Mac CI

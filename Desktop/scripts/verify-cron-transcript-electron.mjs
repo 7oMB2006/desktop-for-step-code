@@ -39,6 +39,7 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
 let page;
+let phase = 'startup';
 try {
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE }
     : { args: [resolve('.')] }), env, timeout: 60000 });
@@ -50,6 +51,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1322, 880);
   });
   await page.getByRole('button', { name: '定时来源验收', exact: true }).click({ timeout: 60000 });
+  phase = 'initial replay';
   const fire = page.locator('.cron-message[data-cron-kind=fire]');
   const missed = page.locator('.cron-message[data-cron-kind=missed]');
   await fire.waitFor({ timeout: 60000 });
@@ -74,6 +76,18 @@ try {
   await missed.getByText('Missed 1 one-shot job', { exact: false }).waitFor();
   await page.waitForTimeout(320);
   await page.screenshot({ path: 'test-results/cron-transcript-packaged.png' });
+  phase = 'authoritative session handoff';
+  // Cold history is deliberately readable before its worker is ready. Reloading
+  // that optional preview discards the renderer's pending navigation, so only
+  // test runtime replay after the main process has actually selected this session.
+  await page.waitForFunction(() => document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false'
+    && !document.querySelector('.session-reading-preview'), undefined, { timeout: 60000 });
+  const selected = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(selected.status, 'connected');
+  assert.ok(selected.runtimeId, 'The saved session has an authoritative worker before reload');
+  assert.equal(selected.state?.sessionId, 'cron-source-fixture');
+  await assertTurns();
+  phase = 'reload';
   await page.reload();
   await fire.waitFor({ timeout: 60000 });
   assert.equal(await page.locator('.cron-message').count(), 2);
@@ -85,6 +99,7 @@ try {
     checks: ['native custom-message replay', 'fire/missed classification', 'metadata retained',
       'plain user prefix not reclassified', 'raw cron excluded from assistant prose', 'reload',
       'separate original/fire/missed/user responses', 'all settled footers retained'],
+    authoritativeSessionHandoff: true,
   }, null, 2));
   console.log('Cron transcript Electron acceptance passed (8 checks; isolated saved history, no model requests).');
 } catch (error) {
@@ -98,7 +113,8 @@ try {
         renderedCron: document.querySelectorAll('.cron-message').length,
         conversationBusy: document.querySelector('.conversation')?.getAttribute('aria-busy') };
     }).catch(error => ({ diagnosticError: String(error) }));
-    await writeFile('test-results/cron-transcript-failure.json', JSON.stringify(diagnostic, null, 2));
+    console.error('Cron transcript diagnostic:', JSON.stringify({ phase, ...diagnostic }));
+    await writeFile('test-results/cron-transcript-failure.json', JSON.stringify({ phase, ...diagnostic }, null, 2));
     await page.screenshot({ path: 'test-results/cron-transcript-failure.png' }).catch(() => {});
   }
   throw error;

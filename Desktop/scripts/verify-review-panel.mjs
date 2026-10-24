@@ -156,6 +156,14 @@ try {
   await page.mouse.move(700, 25);
   await page.screenshot({ path: 'test-results/review-last-turn-light.png' });
   await panel.screenshot({ path: 'test-results/review-last-turn-detail.png' });
+  await panel.getByRole('button', { name: '切换为左右对比', exact: true }).click();
+  await panel.locator('.diff-split-table').waitFor();
+  assert.equal(await panel.locator('.review-file.is-open').count(), 1, 'switching diff layout preserves file disclosure');
+  assert.deepEqual(await panel.locator('.diff-split-table thead th').allTextContents(), ['修改前', '修改后']);
+  assert.ok((await panel.locator('.diff-split-table').innerText()).includes('updateTool'));
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.diffLayout, 'split');
+  await panel.screenshot({ path: 'test-results/review-split-detail.png' });
+  await assert.rejects(page.evaluate(() => window.desktop.preferences({ diffLayout: 'vertical' })), /Invalid diff layout/);
   await choose('变更来源', null);
   assert.equal(await panel.getByLabel('变更来源').innerText(), '上一轮');
   await choose('变更来源', '分支');
@@ -167,6 +175,7 @@ try {
   await page.screenshot({ path: 'test-results/review-branch-light.png' });
   await panel.screenshot({ path: 'test-results/review-branch-detail.png' });
   const openPatch = await panel.locator('.turn-diff-table').innerText();
+  assert.equal(await panel.locator('.turn-diff[data-layout="split"]').count(), 1, 'branch differences reuse the saved layout');
   await verifyInspectorExpansion(page, panel, 'diff-expanded-light');
   assert.equal(await panel.locator('.turn-diff-table').innerText(), openPatch);
   assert.equal(await panel.getByLabel('变更来源').innerText(), '分支');
@@ -260,6 +269,7 @@ try {
   // The draft inherits the current Git project; this case needs an actual non-Git worker.
   await page.evaluate(() => window.desktop.newIndependentSession());
   await page.reload();
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.diffLayout, 'split', 'diff preference survives renderer reload');
   await page.waitForFunction(async () => {
     const snapshot = await window.desktop.snapshot();
     return snapshot.independent && Boolean(snapshot.runtimeId) && !snapshot.state.isStreaming;

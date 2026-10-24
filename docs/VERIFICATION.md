@@ -1,5 +1,26 @@
 # Verification
 
+## Sidebar Session Search (2026-10-24)
+
+The former placeholder now filters existing non-archived session metadata in
+the renderer. Title, first prompt, project aliases and paths are searchable;
+full transcript contents are not scanned. Empty queries preserve the original
+catalog. Matching collapsed groups open temporarily without preference writes,
+and filtered views cannot rewrite manual ordering.
+
+Typecheck, production build and 15 focused search/order tests passed, including
+empty-title localization and a 10,000-session metadata catalog. Isolated-profile
+source Electron search acceptance passed real catalog filtering, pinned ordering,
+archived exclusion, independent sessions, IME Escape, empty results, restored
+collapse state, unchanged draft/runtime identity and explicit result navigation.
+Light/dark, narrow layouts and complete composite-field focus bounds are covered.
+The existing source Electron session-navigation, sidebar-order/disclosure and full
+capability-management regressions passed separately. The initially stale local runtime was restaged
+from a separate pinned checkout with the current Desktop patches; all patched
+source hashes and management adapters were checked against this branch before
+rerunning acceptance. No installed user profile was used. No installer,
+paid-model run or complete-suite acceptance is claimed.
+
 ## Shared Elapsed Duration Display (2026-10-24)
 
 The running matrix indicator, completed-turn label and performance strip now share

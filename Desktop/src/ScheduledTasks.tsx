@@ -44,21 +44,23 @@ export interface ScheduledTaskView {
 }
 export interface ScheduledTaskCreation { title: string; prompt: string; workspace: string; runtimeId: string; cron: string; recurring: boolean; durable: boolean }
 
-export function SidebarTaskActions({ selected, onNewSession, onScheduledTasks, onPlugins, disabled = false, language = 'zh' }: {
+export function SidebarTaskActions({ selected, onNewSession, onScheduledTasks, onPlugins, onSearchChange, disabled = false, language = 'zh' }: {
   selected: boolean;
   onNewSession: () => void;
   onScheduledTasks: () => void;
   onPlugins?: () => void;
+  onSearchChange?: (query: string) => void;
   disabled?: boolean;
   language?: 'zh' | 'en';
 }) {
   const zh = language === 'zh';
   const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const searchId = useId();
   const searchInput = useRef<HTMLInputElement>(null);
   const searchTrigger = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (searchOpen) searchInput.current?.focus(); }, [searchOpen]);
-  const closeSearch = () => { setSearchOpen(false); searchTrigger.current?.focus(); };
+  const closeSearch = () => { setSearchOpen(false); setQuery(''); onSearchChange?.(''); searchTrigger.current?.focus(); };
   return <div className="sidebar-task-actions" role="group" aria-label={zh ? '快捷入口' : 'Quick actions'}>
     <div className="sidebar-primary-actions">
       <button type="button" className="new-chat" disabled={disabled} onClick={onNewSession}>
@@ -78,10 +80,13 @@ export function SidebarTaskActions({ selected, onNewSession, onScheduledTasks, o
       {onPlugins && <>
         <div id={searchId} className="sidebar-search-field" inert={!searchOpen} aria-hidden={!searchOpen}>
           <Search size={14} aria-hidden="true"/>
-          <input ref={searchInput} readOnly disabled={disabled} tabIndex={searchOpen ? 0 : -1}
-            aria-label={zh ? '会话搜索（待接入）' : 'Session search (coming soon)'}
-            placeholder={zh ? '搜索会话（待接入）' : 'Search (coming soon)'}
-            onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeSearch(); } }}/>
+          <input ref={searchInput} disabled={disabled} tabIndex={searchOpen ? 0 : -1}
+            aria-label={zh ? '搜索会话' : 'Search sessions'}
+            placeholder={zh ? '搜索会话' : 'Search sessions'} value={query}
+            onChange={event => { setQuery(event.target.value); onSearchChange?.(event.target.value); }}
+            onKeyDown={event => {
+              if (event.key === 'Escape' && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); closeSearch(); }
+            }}/>
         </div>
         <button ref={searchTrigger} type="button" className="sidebar-search-toggle" disabled={disabled}
           aria-label={searchOpen ? zh ? '收起搜索' : 'Close search' : zh ? '搜索' : 'Search'}

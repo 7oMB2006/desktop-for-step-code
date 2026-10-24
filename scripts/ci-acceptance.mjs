@@ -178,7 +178,9 @@ macosAcceptanceGroups.interface.push('verify-macos-updater.mjs');
 macosAcceptanceGroups.sessions.push('verify-turn-undo.mjs');
 
 export function macosGroupScripts(group) {
-  if (group === 'all') return windowsGroups.flatMap(name => macosAcceptanceGroups[name]);
+  // Exercise CPU/resource-sensitive RPC fixtures before the longer UI suites.
+  // Both source and package still run the identical complete serial inventory.
+  if (group === 'all') return ['runtime', 'interface', 'sessions'].flatMap(name => macosAcceptanceGroups[name]);
   if (!windowsGroups.includes(group)) throw new Error(`Unknown macOS acceptance group: ${group}`);
   return macosAcceptanceGroups[group];
 }

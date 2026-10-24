@@ -30,7 +30,7 @@ test('macOS runner executes every group serially using shared deadlines and stop
     active--;
   } });
   assert.deepEqual(executed, macosGroupScripts('all'));
-  await assert.rejects(runGroup('all', { scripts: macosGroupScripts('all'), log() {}, execute() { throw Error('failure'); } }), /verify-startup.mjs failed/);
+  await assert.rejects(runGroup('all', { scripts: macosGroupScripts('all'), log() {}, execute() { throw Error('failure'); } }), /verify-electron.mjs failed/);
 });
 test('Mac CI runs the same serial inventory against source and package and stages the shared release version', () => {
   const workflow = readFileSync(new URL('../.github/workflows/macos-integration.yml', import.meta.url), 'utf8');

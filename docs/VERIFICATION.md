@@ -1,5 +1,36 @@
 # Verification
 
+## Single-slot workflow persistence fixture (2026-10-25)
+
+`2bb6c27` Windows run `40118772782` passed all 83 acceptance checks and the
+final gate. Mac `40118772757` passed its first 75 source checks, then failed
+the Workflow runtime child-transcript assertion. The existing 10-second file
+poll was working; extending it would not resolve the fixture's waiting cycle.
+
+The frozen runtime's default workflow concurrency is CPU-bounded and can be
+one slot. Its session manager first creates a JSONL file after a complete
+assistant message. The fixture held CHILD-A's first response while requiring
+a child transcript to exist; in a single slot CHILD-B cannot start and neither
+child can create that first record. The fixture now completes A before holding
+B. It still inspects a real persisted child while the workflow is active,
+rejects opening/switching to child history and checks every original parallel,
+chain, restart, crash, cache, partial-failure and HTTP429 contract.
+
+A supported explicit maxConcurrency=1 control reproduces the old failure with
+only A requested and no child files. The corrected source and actual `d6fa5da`
+package both pass single-slot and default-slot controls (four passes). The
+single-slot result confirms native limit=1/cap=1. No runtime, pin, environment
+isolation, timeout or assertion is changed. Static review of the remaining
+runtime fixtures found no second held-first-child/await-second-child cycle.
+The fixture logs only allowlisted numeric native concurrency fields and fixture
+request/file counts before the disk assertion, including on a failed scan.
+Mac's complete serial order now starts with runtime, then interface and sessions,
+so resource-dependent checks report earlier. All 84 scripts and deadlines remain
+identical in both source and package modes; Windows order is unchanged. Existing
+CI policy/runner checks pass (18 passed, one Windows-only skip).
+The accepted application remains the clean `d6fa5da` build; replacement full
+Mac cloud source and package results are still required before merging.
+
 ## Complete constrained-display reproduction (2026-10-25)
 
 The ignored local launch wrapper caps native fixture windows to 684px without

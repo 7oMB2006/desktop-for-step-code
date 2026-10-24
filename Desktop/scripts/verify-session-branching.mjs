@@ -1,5 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -132,7 +133,11 @@ try {
     throw error;
   });
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
-  await page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, id), (await snapshot()).runtimeId);
+  // Cold history is readable before the selected runtime accepts mutations.
+  await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
+  const selected = await snapshot();
+  assert.equal(selected.state.sessionId, 'branch-source');
+  await page.evaluate(id => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, id), selected.runtimeId);
   const source = await snapshot();
   const sourceBytes = await readFile(sourceFile);
   assert.deepEqual(source.messages.map(message => message.entryId), ['m0', 'm1', 'm2', 'm3']);
@@ -299,6 +304,7 @@ try {
   checkpoint('failed edit draft restoration');
   const restoredSnapshot = await snapshot();
   await app.evaluate(({ ipcMain, BrowserWindow }, saved) => {
+    globalThis.branchingOriginalHandler = ipcMain._invokeHandlers.get('desktop');
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', async (_event, method) => {
       if (method === 'snapshot') return saved;
@@ -335,11 +341,13 @@ try {
 } finally {
   for (const stream of streams) stream.destroy();
   if (app) {
-    // Isolated fixtures must not wait for a user to confirm stopping a failed test's task.
-    await app.evaluate(({ dialog }) => {
-      dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+    await app.evaluate(({ ipcMain }) => {
+      if (!globalThis.branchingOriginalHandler) return;
+      ipcMain.removeHandler('desktop');
+      ipcMain.handle('desktop', globalThis.branchingOriginalHandler);
+      delete globalThis.branchingOriginalHandler;
     }).catch(() => {});
-    await app.close();
+    await closeDesktopFixture(app);
   }
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));

@@ -138,13 +138,17 @@ function ReviewContent({ runtimeId, messages, busy, active, language, expanded, 
     : repository?.state === 'unborn' ? t('仓库尚无提交，暂时没有可对比的分支基线。', 'This repository has no commits yet. No branch baseline is available.')
     : repository?.state === 'unavailable' ? t('Git 不可用，无法读取分支差异。', 'Git is unavailable. Branch differences cannot be read.')
     : t('与基线一致', 'No changes from the base');
+  const LayoutIcon = layout === 'unified' ? Rows2 : Columns2;
   return <>
     <header className="review-header right-panel-header"><h2>{t('变更', 'Changes')}</h2>
       {onLayoutChange && <button type="button" className="icon-button" data-diff-layout={layout}
         aria-label={layout === 'unified' ? t('切换为左右对比', 'Switch to side-by-side diff') : t('切换为行内对比', 'Switch to inline diff')}
         data-tooltip={layout === 'unified' ? t('切换为左右对比', 'Switch to side-by-side diff') : t('切换为行内对比', 'Switch to inline diff')}
         onClick={() => onLayoutChange(layout === 'unified' ? 'split' : 'unified')}>
-        {layout === 'unified' ? <Rows2 size={15}/> : <Columns2 size={15}/>}
+        <span className="review-layout-icon" aria-hidden="true">
+          <LayoutIcon size={15} className="review-layout-before"/>
+          <LayoutIcon size={15} className="review-layout-after"/>
+        </span>
       </button>}
       <RightPanelExpandButton expanded={expanded} language={language} onToggle={onToggleExpanded}/>
       <button type="button" className={`icon-button${loading ? ' is-refreshing' : ''}`} disabled={loading || !runtimeId}

@@ -12,7 +12,7 @@ Unmarked old history and manually authored identical text are not reclassified.
 
 Clean Windows patch replay and all pre/post-image hashes passed. The upstream
 build and 97 continuation/permission/prompt tests passed. Desktop typecheck,
-production build, 767 tests (13 platform skips), and 15 CI policy/runner tests
+production build, 772 tests (13 platform skips), and 15 CI policy/runner tests
 passed. The real-component browser fixture passed 24 theme/language/preset/width
 cases plus stop, failure, reload, hidden-message and reduced-motion checks.
 Isolated-profile Electron acceptance passed persisted history, renderer reload,

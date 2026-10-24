@@ -51,6 +51,16 @@ corrupt-file rejection/repair and Cron-host coexistence checks without login, to
 calls or publishing. Final package identity, checksums, resource report and
 per-script outcomes will be recorded after the clean candidate is built and tested.
 
+The first 8669326 packaged candidate exposed a real tray-label clipping defect
+that source checks had missed. Tray sizing now measures intrinsic DOM layout
+with actual typography/letter spacing, waits for fonts and includes root chrome
+without measuring entrance transforms. Native source regression passed both
+languages and increased spacing, including strict no-clipping/compactness checks.
+The candidate is rebuilt from a new clean commit; the rejected package and its
+failed report are retained locally. A cloud appearance check also exposed a
+fixture measuring its baseline during entrance animation; it now awaits actual
+animation completion while retaining exact geometry comparisons.
+
 Unsigned/unnotarized installation, real account/model calls, production in-app
 upgrade, external services and execution on the minimum supported macOS remain
 separate user acceptance gates. Local fixture outcomes cannot satisfy them.

@@ -75,13 +75,23 @@ try {
   };
   await popup.waitForFunction(() => document.querySelector('.tray-menu')?.dataset.visible === 'true');
   assert.deepEqual(await popup.getByRole('menuitem').allTextContents(), ['打开 Desktop for Step Code', '退出应用']);
-  assert.ok(await popup.locator('.tray-menu').evaluate(menu => {
-    const label = menu.querySelector('.app-menu-label');
-    const range = document.createRange();
-    range.selectNodeContents(label);
-    const width = menu.getBoundingClientRect().width;
-    return width - range.getBoundingClientRect().width <= 34 && label.scrollWidth <= label.clientWidth;
-  }), 'menu width follows its longest label with compact padding and no clipping');
+  const assertLabelGeometry = async () => {
+    await popup.evaluate(() => document.fonts.ready);
+    await popup.waitForFunction(() => getComputedStyle(document.querySelector('.tray-menu')).transform === 'none');
+    const geometry = await popup.locator('.tray-menu').evaluate(menu => {
+      const labels = [...menu.querySelectorAll('.app-menu-label')].map(label => {
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        return { text: range.getBoundingClientRect().width, available: label.getBoundingClientRect().width,
+          scroll: label.scrollWidth, client: label.clientWidth };
+      });
+      return { width: menu.getBoundingClientRect().width, labels };
+    });
+    assert.ok(geometry.width - Math.max(...geometry.labels.map(label => label.text)) <= 34
+      && geometry.labels.every(label => label.scroll <= label.client && label.text <= label.available + .01),
+    `menu width follows its longest label with compact padding and no clipping: ${JSON.stringify(geometry)}`);
+  };
+  await assertLabelGeometry();
   assert.equal(await popup.evaluate(() => typeof window.desktop), 'undefined', 'tray renderer has no main-window bridge');
   assert.equal(await popup.evaluate(() => typeof window.require), 'undefined');
   await app.evaluate(({ BrowserWindow, ipcMain }) => {
@@ -165,6 +175,15 @@ try {
   await page.evaluate(() => window.desktop.preferences({ language: 'en' }));
   await openMenu();
   assert.deepEqual(await popup.getByRole('menuitem').allTextContents(), ['Open Desktop for Step Code', 'Quit application']);
+  await assertLabelGeometry();
+  // Measure the next language with actual CSS text spacing, including while
+  // the existing menu is still animated or carrying labels from the prior state.
+  const spacing = await popup.addStyleTag({ content: '.tray-menu > button { letter-spacing: 1.25px; }' });
+  await openMenu();
+  await assertLabelGeometry();
+  await spacing.evaluate(style => style.remove());
+  await openMenu();
+  await assertLabelGeometry();
   await page.evaluate(() => window.desktop.windowControl('close'));
   await popup.getByRole('menuitem', { name: 'Quit application', exact: true }).click();
   await page.locator('.quit-confirmation').waitFor();

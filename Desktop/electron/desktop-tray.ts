@@ -72,15 +72,37 @@ export class DesktopTray {
     if (this.disposed || revision !== this.revision || !this.menu || this.menu.isDestroyed()) return;
     const labels = this.language() === 'zh' ? ['打开 Desktop for Step Code', '退出应用']
       : ['Open Desktop for Step Code', 'Quit application'];
-    // Measure with the renderer's actual font, including Windows font fallback.
-    const size = await this.menu.webContents.executeJavaScript(`(() => {
-      const button = document.querySelector('.tray-menu > button');
+    // Measure real intrinsic layout after fonts load. Canvas font metrics omit
+    // text spacing and can race packaged font loading; the menu may also still
+    // be scaled by its entrance animation or showing the previous language.
+    const size = await this.menu.webContents.executeJavaScript(`(async () => {
+      await document.fonts.ready;
       const menu = document.querySelector('.tray-menu');
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      context.font = getComputedStyle(button).font;
-      const textWidth = Math.max(...${JSON.stringify(labels)}.map(label => context.measureText(label).width));
-      return { width: Math.ceil(textWidth + 50), height: Math.ceil(menu.offsetHeight + 20) };
+      const root = menu.parentElement;
+      const measurement = menu.cloneNode(true);
+      measurement.inert = true;
+      Object.assign(measurement.style, {
+        position: 'absolute', top: '0', left: '0', width: 'max-content',
+        visibility: 'hidden', pointerEvents: 'none', transform: 'none', transition: 'none',
+      });
+      measurement.querySelectorAll('.app-menu-label').forEach((label, index) => {
+        label.textContent = ${JSON.stringify(labels)}[index];
+      });
+      root.appendChild(measurement);
+      try {
+        // Force font discovery for the next localized labels before awaiting it.
+        measurement.getBoundingClientRect();
+        await document.fonts.ready;
+        const rect = measurement.getBoundingClientRect();
+        const style = getComputedStyle(root);
+        const length = name => parseFloat(style[name]) || 0;
+        return {
+          width: Math.ceil(rect.width + length('paddingLeft') + length('paddingRight')
+            + length('borderLeftWidth') + length('borderRightWidth')),
+          height: Math.ceil(rect.height + length('paddingTop') + length('paddingBottom')
+            + length('borderTopWidth') + length('borderBottomWidth')),
+        };
+      } finally { measurement.remove(); }
     })()`);
     if (this.disposed || revision !== this.revision || !this.menu || this.menu.isDestroyed()) return;
     const placement = trayMenuPlacement(anchor, screen.getDisplayNearestPoint({

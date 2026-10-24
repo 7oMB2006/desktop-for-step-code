@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
+import type { ScrollIntent } from './conversation-scroll';
 
 type ScrollMetrics = { top: number; height: number; maxScroll: number };
 
@@ -10,10 +11,11 @@ export function thumbMetrics(scrollTop: number, clientHeight: number, scrollHeig
 }
 
 export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scrollId = 'conversation-scroll',
-  label, className = '', contentSelector = '.messages', compact = false }: {
+  label, className = '', contentSelector = '.messages', compact = false, onScrollIntent }: {
   scrollRef: RefObject<HTMLElement | null>; language: 'zh' | 'en';
   sessionId?: string; messageCount: number;
   scrollId?: string; label?: string; className?: string; contentSelector?: string; compact?: boolean;
+  onScrollIntent?: (intent: ScrollIntent) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef<number | null>(null);
@@ -31,6 +33,7 @@ export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scro
     if (content) observer.observe(content);
     scroll.addEventListener('scroll', update, { passive: true });
     const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && event.deltaY) onScrollIntent?.(event.deltaY < 0 ? 'backward' : 'forward');
       if (!compact || scroll.scrollHeight <= scroll.clientHeight) return;
       event.preventDefault();
       scroll.scrollTop += event.deltaY * (event.deltaMode === 1 ? 20 : event.deltaMode === 2 ? scroll.clientHeight : 1);
@@ -38,7 +41,7 @@ export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scro
     track.addEventListener('wheel', wheel, { passive: false });
     update();
     return () => { observer.disconnect(); scroll.removeEventListener('scroll', update); track.removeEventListener('wheel', wheel); };
-  }, [scrollRef, sessionId, messageCount, contentSelector, compact]);
+  }, [scrollRef, sessionId, messageCount, contentSelector, compact, onScrollIntent]);
 
   const setFromPointer = (clientY: number, offset: number) => {
     const scroll = scrollRef.current;
@@ -46,10 +49,13 @@ export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scro
     if (!scroll || !track || !metrics.maxScroll) return;
     const travel = track.clientHeight - metrics.height;
     const top = Math.max(0, Math.min(travel, clientY - track.getBoundingClientRect().top - offset));
-    scroll.scrollTop = travel ? top / travel * metrics.maxScroll : 0;
+    const next = travel ? top / travel * metrics.maxScroll : 0;
+    if (next !== scroll.scrollTop) onScrollIntent?.(next < scroll.scrollTop ? 'backward' : 'forward');
+    scroll.scrollTop = next;
   };
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (!metrics.maxScroll) return;
+    onScrollIntent?.('backward');
     const thumb = trackRef.current?.querySelector('.conversation-scroll-thumb');
     const overThumb = thumb?.contains(event.target as Node);
     dragOffset.current = overThumb ? event.clientY - thumb!.getBoundingClientRect().top : metrics.height / 2;
@@ -72,6 +78,9 @@ export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scro
       const scroll = scrollRef.current;
       if (!scroll) return;
       const delta = { ArrowUp: -48, ArrowDown: 48, PageUp: -scroll.clientHeight * .85, PageDown: scroll.clientHeight * .85 }[event.key];
+      if (delta !== undefined || event.key === 'Home' || event.key === 'End') {
+        onScrollIntent?.(event.key === 'Home' || delta !== undefined && delta < 0 ? 'backward' : 'forward');
+      }
       if (delta !== undefined) scroll.scrollTop += delta;
       else if (event.key === 'Home') scroll.scrollTop = 0;
       else if (event.key === 'End') scroll.scrollTop = metrics.maxScroll;

@@ -83,8 +83,9 @@ export function turnCursor(offsets: number[], position: number): number {
   return offsets.length - 1;
 }
 
-export function ConversationMarkers({ scrollRef, turns, language }: {
+export function ConversationMarkers({ scrollRef, turns, language, onNavigate }: {
   scrollRef: RefObject<HTMLDivElement | null>; turns: ConversationTurn[]; language: 'zh' | 'en';
+  onNavigate?: () => void;
 }) {
   const [ruler, setRuler] = useState({ cursor: 0, height: 0 });
   const [hovered, setHovered] = useState<number | null>(null);
@@ -133,7 +134,7 @@ export function ConversationMarkers({ scrollRef, turns, language }: {
         aria-label={`${language === 'zh' ? '跳到会话' : 'Go to turn'}: ${turn.preview.slice(0, 80)}`}
         onPointerEnter={() => setHovered(turn.index)} onPointerLeave={() => setHovered(null)}
         onFocus={() => setHovered(turn.index)} onBlur={() => setHovered(null)}
-        onClick={() => scrollToTurn(scrollRef.current, turn.index)}><span/></button>)}
+        onClick={() => { onNavigate?.(); scrollToTurn(scrollRef.current, turn.index); }}><span/></button>)}
     </div>
     {selected && <div className="turn-marker-preview" style={{ top: `clamp(8px, ${top - 28}px, calc(100% - 104px))` }}>
       <strong>{selected.preview.slice(0, 70)}</strong>

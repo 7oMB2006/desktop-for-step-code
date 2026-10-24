@@ -11,6 +11,7 @@ export const acceptanceGroups = {
     'verify-interface-settings.mjs',
     'verify-interface-preferences.mjs',
     'verify-disclosure-summary.mjs',
+    'verify-conversation-scroll.mjs',
     'verify-import-performance.mjs',
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',

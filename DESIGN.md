@@ -217,6 +217,15 @@ Inspection-oriented right panels share a header expand/restore control. Context 
 Reference: https://github.com/openchamber/openchamber (MIT), README chat screenshot and workspace organization. No OpenChamber branding or runtime copied.
 
 Layout refinement: sidebar 244px (224px compact, 260px wide), matched 62px navigation/header rhythm. Workspace and session groups form a continuous navigation stack. Transcript and composer share a 920px outer column with identical 32px gutters (1000px/36px on wide windows). User messages are right-aligned and content-sized; assistant output uses the reading column. Composer starts compact and grows to 180px with text. Runtime connection status appears only in the sidebar. Asset redesign is intentionally deferred.
+Transcript auto-follow yields immediately to upward wheel/touch gestures,
+backward scroll keys, scroll-handle manipulation and turn navigation. Reading
+does not resume merely because the transcript is less than 100 pixels from its
+end, including single-turn histories with a shorter total scroll range.
+Downward scrolling to the actual bottom or the explicit return-to-bottom action
+resumes following. The explicit action also follows output arriving during its
+smooth transition. Normal disclosure reflows retain automatic following when
+the reader has not paused it, and nested tool-output scrolling stays native.
+
 ## Conversation Presentation
 
 User and assistant messages do not show role headings. User message copy/edit controls and the timestamp appear below the bubble on hover or keyboard focus, reserving their layout space. Edit restores a copy of the message and its images into an empty composer for sending as a new message; it does not rewrite, rewind or fork runtime history. Existing drafts are not overwritten.

@@ -7,6 +7,13 @@ on:
         description: Acceptance group that actually completed
         type: string
         required: true
+    outputs:
+      group:
+        description: Acceptance group that actually completed
+        value: ${{ jobs.acceptance.outputs.group }}
+      complete:
+        description: True only after every assigned check passed
+        value: ${{ jobs.acceptance.outputs.complete }}
 
 permissions:
   contents: read
@@ -16,6 +23,9 @@ jobs:
     name: macOS ${{ inputs.group }}
     runs-on: macos-15
     timeout-minutes: 90
+    outputs:
+      group: ${{ steps.acceptance.outputs.group }}
+      complete: ${{ steps.acceptance.outputs.complete }}
     env:
       DESKTOP_MACOS_RELEASE_VERSION: 0.6.0
     defaults:
@@ -73,6 +83,7 @@ jobs:
           mkdir -p test-results
           corepack pnpm exec tsx --test --test-concurrency=1 --test-reporter=spec --test-reporter=tap --test-reporter-destination=stdout --test-reporter-destination=test-results/protocol.tap tests/*.test.ts
       - name: Source Electron acceptance
+        id: acceptance
         working-directory: Desktop
         env:
           CI_MACOS_GROUP: ${{ inputs.group }}

@@ -33,7 +33,9 @@ test('macOS runner executes every group serially using shared deadlines and stop
   await assert.rejects(runGroup('all', { scripts: macosGroupScripts('all'), log() {}, execute() { throw Error('failure'); } }), /verify-electron.mjs failed/);
 });
 test('Mac CI runs the same serial inventory against source and package and stages the shared release version', () => {
-  const workflow = readFileSync(new URL('../.github/workflows/macos-integration.yml', import.meta.url), 'utf8');
+  // The job lives in the reusable workflow; the caller only selects the group. Reading the
+  // caller here would miss the runner invocations entirely.
+  const workflow = readFileSync(new URL('../.github/workflows/macos-acceptance.yml', import.meta.url), 'utf8');
   assert.equal(workflow.split('node ../scripts/ci-macos.mjs').length - 1, 2);
   assert.match(workflow, /DESKTOP_MACOS_RELEASE_VERSION: 0\.6\.0/);
   assert.match(workflow, /DESKTOP_VERIFY_EXE:/);

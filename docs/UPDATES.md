@@ -1,10 +1,10 @@
 # GitHub 版本检查
 
-已随 Windows x64 社区预览版 [v0.2.0](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.2.0) 发布。`v0.1.0` 安装包不包含本功能，需手动下载安装包升级。下方各预览结果保留为历史验收记录，不代表当前发布状态。
+当前联合社区预览版为 [v0.6.0](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.6.0)，支持 Windows x64 与 macOS Apple Silicon。版本检查自 Windows v0.2.0 提供，应用内更新已随 Windows v0.5.0 发布；旧版本是否能直接升级取决于其自身更新器支持。下方历史验收记录保留，不代表当前发布状态。
 
 ## 使用与边界
 
-### macOS 0.6.0 候选（本分支，待人工验收）
+### macOS Apple Silicon 应用内更新
 
 macOS Apple Silicon 新增应用内检查、自动检查开关、通道、下载进度、取消/重试和确认重启安装。
 采用独立 ARM64 ZIP 与 `mac-update.json`，固定 Release 路径并校验大小、SHA-512、bundle ID、
@@ -14,18 +14,24 @@ macOS Apple Silicon 新增应用内检查、自动检查开关、通道、下载
 目前无 Developer ID 签名或公证。安装保留 Gatekeeper 隔离标记，使用 LaunchServices 启动；
 可能仍需系统安全确认。磁盘映像、App Translocation 和不可写目录不能原位替换。
 已有 0.5.0-macos.1 不含此更新器，首次升级仍需手动安装。
-共享版本使用 `0.6.0`；Mac 独立实验包递增 `-macos.N`。发布时必须上传 `mac-update.json`，并使用平台独立校验文件名，见 [双平台草稿交接](releases/v0.6.0-macos-preparation.zh-CN.md)。
+共享版本使用 `0.6.0`；Mac 独立实验包递增 `-macos.N`。发布时必须上传 `mac-update.json`；v0.6.0 的 `SHA256SUMS.txt` 包含两端主安装文件，平台证据使用不同文件名。当前来源和验收见 [最终发布记录](releases/v0.6.0-published.zh-CN.md)。
 静态清单保留 Windows `channels`，增加 `platforms.darwin`，互不提示其他平台的专属发布。
 详见 [macOS 构建、发布与限制](MACOS.md)。以下 Windows 开发说明及历史验收继续保留。
 
-### 应用内更新（开发中，尚未发布）
+### Windows 安装版与解压预览版
 
-安装版新增应用内全量下载、下载进度、取消与重试，以及显式确认后的重启安装。
-当前已发布的 v0.4.0 仍使用浏览器下载，不会自行获得这段新增逻辑。
-本地 fixture 验收不等于安装器生命周期验收；云电脑覆盖升级仍是发布门槛。
+受支持安装版提供应用内全量下载、下载进度、取消与重试，以及显式确认后的重启安装。
+v0.4.0 及更早版本仍使用其原有浏览器下载逻辑，不会自行获得新更新器。
+v0.6.0 的手动全新安装／覆盖升级检查已由维护者确认；这不等于公网内置更新下载至重启安装链路已经完整实测，fixture 与人工检查分别记录。
 
 - 仅 Windows x64 NSIS 安装版启用应用内更新。开发模式、解压运行版、
   或未提供更新元数据的旧发布保留浏览器下载入口。
+- 安装版判断要求打包运行、程序同目录存在 `Uninstall Desktop for Step Code.exe`，
+  且 resources 中存在 `app-update.yml`；目标版本还须在清单中声明 `installer.inApp`。
+  同样显示版本号不代表同一种安装方式。桌面快捷方式若指向 `win-unpacked`，仍属于解压预览版，
+  按钮为“下载安装包”，不是更新功能被撤回。不要伪造卸载器或元数据绕过检查。
+- 从本地预览转为安装版时，退出预览，运行官方安装器，确认快捷方式指向实际安装目录。
+  不先卸载或删除 Desktop 数据；若预览使用隔离的测试数据目录，不承诺自动迁移到默认目录。
 - 检查仍使用固定仓库的公开静态清单，保留正式/预览通道与现有通知入口。
   下载锁定已选版本的 Release 目录，不使用浮动的 `latest/download` 决定安装目标。
 - 使用 `electron-updater` 的 NSIS 全量下载和更新安装流程。不开启自动下载、
@@ -70,13 +76,13 @@ Release，不能在生成元数据后改名或替换安装包。校验 `latest.y
 安装包与 `latest.yml` 的版本、文件名、大小和 SHA-512。
 既有 `verify-app-updates.mjs` 继续验收更新检查和旧版本手动下载。
 
-以下为已发布版本的使用说明：
+### 检查、通知与手动回退
 
 - 设置 → 版本更新：独立页面显示 Electron `app.getVersion()`，手动检查更新、版本说明和官方发布页，不挤占通用设置。
 - Windows x64 打包版默认在启动后 10 秒检查，此后每 6 小时检查；可以关闭自动检查。开发模式和隔离验收不会自动访问网络。
 - 默认通道包括正式版与预览版，因为首版 `v0.1.0` 被标为 GitHub Pre-release。可以选择仅正式版，选择会持久保存。
 - 新版在左栏设置入口显示品牌色小点和“有更新”；点击进入版本更新页，不创建会话、不打断任务。已确认的更新提示不会因后台复查或临时断网消失，成功检查确认没有更高版本后才清除。
-- “下载安装包”交给系统浏览器下载官方 Release 附件；**不自动下载到客户端，不静默安装，不自动重启**。安装前结束运行中的任务。
+- “下载更新”使用上述应用内流程；“下载安装包”则交给系统浏览器下载官方 Release 附件，需自行运行。两者都不会未经确认安装或重启。安装前结束运行中的任务，并检查定时调度和未发送草稿。
 - 没有 Windows 安装包时仍显示新版，但不提供下载按钮。不把旧安装包冒充为最新版本。
 - GitHub 的断网、超时、限流和响应异常保留为失败状态，不视为“没有更新”。限流期间遵守重试时间；发布页仍可打开。
 - 不访问 Step 账户凭据，不修改上游 runtime，不使用本机 GitHub 登录或 Token；检查过程仅请求公开发布信息。
@@ -95,6 +101,8 @@ Release，不能在生成元数据后改名或替换安装包。校验 `latest.y
 
 每个响应上限 2 MiB，整个请求链超时 15 秒。并发检查共享请求，同一通道检查间隔至少 1 分钟，限流退避跨通道生效。请求重新验证网络缓存；切换通道或退出时取消旧请求，旧结果不能覆盖新通道。订阅使用 XML 解析器，拒绝语法错误、DTD、外部实体及其他仓库的链接，不执行其中的 HTML。
 
+刚发布时需先等待清单发布工作流成功；GitHub Release 页面可见不等于静态清单已更新。2026-10-25 实测 raw 清单响应含 `Cache-Control: max-age=300`，边缘或代理缓存可能暂留旧版本；这不是固定生效时限。先查工作流与清单版本，至少间隔一分钟重查；仍异常时检查实际响应，不把所有更新故障都归为缓存。
+
 下载入口仅接受对应版本、对应仓库、已上传且尺寸合理的既定 NSIS 安装包名。附件地址必须是固定 GitHub 仓库的 HTTPS Release 下载路径，不允许外部域名、凭据、查询串或额外片段。前端不能提交任意下载 URL。
 
 版本说明以受限 Markdown 展示，不执行 HTML，也不加载其中的远程图片或提供任意链接跳转。该检查不等于对安装包内容或签名的验证；当前公开安装包仍未签名。
@@ -110,7 +118,7 @@ Release，不能在生成元数据后改名或替换安装包。校验 `latest.y
 - [Codex++ 更新服务](https://github.com/BigPizzaV3/CodexPlusPlus/blob/main/crates/codex-plus-core/src/update.rs)及[静态清单发布流程](https://github.com/BigPizzaV3/CodexPlusPlus/blob/main/.github/workflows/release-assets.yml)：把有凭据的发布阶段 API 查询与无凭据的客户端静态文件查询分开。
 - [electron-updater GitHub Provider](https://github.com/electron-userland/electron-builder/blob/master/packages/electron-updater/src/providers/GitHubProvider.ts)：使用公开发布订阅作为发布信息来源。
 
-本项目首版资产是手动上传的 NSIS `.exe` 和校验文件，没有 `latest.yml` 等自动更新 feed。本轮先建立检查/通知/官方下载安装入口，不切换打包技术、不替换已有 Release。若后续做客户端内下载或自动安装，需要单独规划校验、签名、更新元数据、失败恢复以及运行中任务保护。
+历史调研阶段的首版资产只有手动上传的 NSIS `.exe` 和校验文件，没有 `latest.yml`；当时仅建立检查／通知和浏览器下载入口。当前应用内更新、元数据与任务保护以上方说明为准；代码签名与真实更新安装链路验收仍需分别记录，不覆盖历史结果或替换已公开二进制。
 
 ## 清单发布
 

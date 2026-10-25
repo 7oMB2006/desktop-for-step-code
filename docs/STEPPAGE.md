@@ -1,8 +1,8 @@
 # StepPage And MCP Compatibility
 
-## macOS 0.6.0 current preparation
+## macOS 0.6.0 published integration
 
-The Mac candidate now includes the Desktop preparation UI and the same pinned
+The published Mac package includes the Desktop preparation UI and the same pinned
 artifact verification, with bundle and HOME under Desktop userData. Fresh startup
 and enabled-only overrides cannot invoke the upstream personal PATH/HOME installer.
 Explicit custom transports and disabled state are preserved. Native runtime sentinel
@@ -10,7 +10,8 @@ tests cover missing files and explicit preparation. The reviewed official bundle
 1.0.0 also passed an isolated Mac handshake with 13 tools, disable and reconnect;
 no login, tool invocation, model request or publication was performed. Historical
 Windows-only records below do not describe the new Mac candidate's platform gates.
-See [Mac candidate and manual checks](releases/v0.6.0-macos-preparation.zh-CN.md).
+See the [final release record](releases/v0.6.0-published.zh-CN.md) and
+[historical Mac candidate checks](releases/v0.6.0-macos-preparation.zh-CN.md).
 
 ## Scope
 

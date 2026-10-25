@@ -1,16 +1,19 @@
-# macOS Apple Silicon preview
+# macOS Apple Silicon
 
-This branch prepares **Desktop for Step Code 0.6.0** on Apple Silicon. The
-owner authorized the Windows feature freeze at PR #163 merge
-`324e71d1800de020c035cdce598374a6037ba4ca` on 2026-10-24. Existing macOS native
-behavior is retained; later Windows main and Linux changes are outside scope.
+**Desktop for Step Code v0.6.0** was published on October 25, 2026 as a joint
+Windows x64 and Apple Silicon community Pre-release. Both final packages were
+built from clean commit `195f10f906bd2d42ed8e1a86f91614f0cef8cbe2`, following the
+PR #163 feature freeze and reviewed joint-release fixes. Existing native Mac
+behavior is retained; later main and Linux changes are not part of that release.
 Step Code now shares the v0.1.5 pin `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`
 and complete reviewed integration patches with Windows, plus a Darwin process-tree
 cleanup patch. Old preview tags and packages are unchanged.
 
-See [0.6.0 candidate, audit and handoff](releases/v0.6.0-macos-preparation.zh-CN.md)
-for feature coverage, the shared Release draft sequence and user acceptance.
-This is local candidate preparation, not a published or real-account-accepted release.
+Download the ARM64 ZIP from the [v0.6.0 Release](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.6.0)
+and verify it against `SHA256SUMS.txt`. See the
+[final release record](releases/v0.6.0-published.zh-CN.md) for acceptance and
+remaining limits. The [candidate audit and handoff](releases/v0.6.0-macos-preparation.zh-CN.md)
+is historical. Publication does not establish every real-account scenario.
 
 ## v0.5.1 account features
 

@@ -1,5 +1,13 @@
 # Platform port coordination
 
+## Published Release Status
+
+As of October 25, 2026, Windows x64 and macOS Apple Silicon v0.6.0 are published
+jointly from clean commit `195f10f906bd2d42ed8e1a86f91614f0cef8cbe2`.
+The [final release record](releases/v0.6.0-published.zh-CN.md) supersedes candidate
+identities and pending-publication status below. Keep the original handoff history;
+do not replace publicly released binaries or infer later main changes are included.
+
 This file records the macOS work for the maintainer and the ChatGPT Dot agent
 working on Linux. It lives on the macOS branch; it does not change Linux policy.
 

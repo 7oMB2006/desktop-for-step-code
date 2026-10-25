@@ -1,8 +1,8 @@
 # 首版发布准备
 
-> 本页保留首版发布前的历史记录，不表示当前尚未发布。截至 2026-10-24，当前公开 Windows 社区预览版为 v0.5.1，macOS 独立实验版为 v0.5.1-macos.1。下一版见 [v0.6.0 发布准备与验收](releases/v0.6.0-draft.zh-CN.md)；历史记录见 [v0.5.1](releases/v0.5.1-draft.zh-CN.md)、[v0.5.0](releases/v0.5.0-draft.zh-CN.md)、[v0.4.0](releases/v0.4.0-draft.zh-CN.md)、[v0.3.0](releases/v0.3.0-draft.zh-CN.md) 与 [v0.2.0](releases/v0.2.0-draft.zh-CN.md)，版本规则见 [VERSIONING.md](VERSIONING.md)。
+> 本页保留首版发布前的历史记录，不表示当前尚未发布。截至 2026-10-25，Windows x64 与 macOS Apple Silicon 已联合发布 v0.6.0 社区预览版，见 [最终发布与验收](releases/v0.6.0-published.zh-CN.md) 和 [版本正文](releases/v0.6.0.zh-CN.md)。早期 [v0.6.0 准备过程](releases/v0.6.0-draft.zh-CN.md) 及下方首版状态均为历史；版本规则见 [VERSIONING.md](VERSIONING.md)。
 
-状态：发布文案已准备，尚未发布。核对日期：2026-10-08。
+以下为 2026-10-08 首版准备时的原始状态，保留为历史证据，不用于判断当前版本。
 
 ## 定位与候选基线
 

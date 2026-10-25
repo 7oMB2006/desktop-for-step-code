@@ -1,5 +1,20 @@
 # Verification
 
+## v0.6.0 published joint release (2026-10-25)
+
+Windows x64 and macOS Apple Silicon v0.6.0 are published as a GitHub Pre-release,
+from clean shared source `195f10f906bd2d42ed8e1a86f91614f0cef8cbe2` and runtime
+`b5dbed938d9ae589397cf522dcf2ff89ecf4c494`. See the
+[final release record](releases/v0.6.0-published.zh-CN.md) for exact installer
+hashes, final Windows 40/18/25 groups, Mac 80 original plus four resumed checks,
+native-terminal evidence, independent cross-review and maintainer confirmation
+of the requested Windows fresh-install/overwrite-upgrade checks.
+
+Original failures below remain historical evidence, not rewritten successes.
+Manual overwrite installation is distinct from a complete production in-app
+download-to-restart-install test, which is not claimed. PR-head cloud checks are
+also distinct from the final source's local package verification.
+
 ## Single-slot workflow persistence fixture (2026-10-25)
 
 `2bb6c27` Windows run `40118772782` passed all 83 acceptance checks and the

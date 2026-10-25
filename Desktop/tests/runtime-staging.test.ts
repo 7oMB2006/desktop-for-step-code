@@ -101,7 +101,13 @@ test('every documented pin matches the staging guard', { skip: !['win32', 'darwi
   }
   // The workflow already fails when the two drift, because the applier checks the pinned
   // pre-image hashes, but that error blames the upstream source. Checking here names the cause.
-  const workflowPath = process.platform === 'win32' ? '../.github/workflows/windows-integration.yml' : '../.github/workflows/macos-integration.yml';
-  const workflow = await readFile(resolve(workflowPath), 'utf8');
-  assert.ok(workflow.includes(pin!), `${workflowPath} still pins an older Step Code revision`);
+  // macOS splits the job into a caller plus a per-group reusable, and the pin lives in the
+  // reusable alone: duplicating it into the caller would give the two a chance to drift.
+  const workflows = process.platform === 'win32'
+    ? ['../.github/workflows/windows-integration.yml']
+    : ['../.github/workflows/macos-integration.yml', '../.github/workflows/macos-acceptance.yml'];
+  const pinned = await Promise.all(workflows.map(async (workflowPath) =>
+    (await readFile(resolve(workflowPath), 'utf8')).includes(pin!)));
+  assert.ok(pinned.some(Boolean), `no macOS workflow pins the current Step Code revision: ${workflows.join(', ')}`);
+  assert.equal(pinned.filter(Boolean).length, 1, `the Step Code pin is duplicated across ${workflows.join(', ')}`);
 });

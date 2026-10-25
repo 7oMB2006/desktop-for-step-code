@@ -1,0 +1,127 @@
+name: macOS acceptance group
+
+on:
+  workflow_call:
+    inputs:
+      group:
+        description: Acceptance group that actually completed
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: macOS ${{ inputs.group }}
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DESKTOP_MACOS_RELEASE_VERSION: 0.6.0
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          architecture: arm64
+      - name: Confirm native toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          corepack enable
+          node -p 'process.platform + "/" + process.arch'
+      - name: Validate acceptance group
+        env:
+          CI_MACOS_GROUP: ${{ inputs.group }}
+        run: node scripts/ci-macos.mjs --list
+      - name: Fetch and patch frozen Step Code runtime
+        run: |
+          git init Step-Code
+          git -C Step-Code remote add origin https://github.com/stepfun-ai/Step-Code.git
+          git -C Step-Code fetch --depth 1 --no-tags origin b5dbed938d9ae589397cf522dcf2ff89ecf4c494
+          git -C Step-Code checkout --detach FETCH_HEAD
+          test "$(git -C Step-Code rev-parse HEAD)" = b5dbed938d9ae589397cf522dcf2ff89ecf4c494
+          node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v015/step-code-desktop.patch
+      - name: Build pinned Step Code
+        working-directory: Step-Code
+        run: |
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm build:offline
+      - name: Upstream shared runtime integration tests
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts test/step-then-run-command-parity.test.ts test/step-permissions.test.ts test/step-extension.test.ts test/suite/agent-session-prompt.test.ts test/shell-process-tree.test.ts test/shell-process-tree-darwin.test.ts test/step-subagent-events.test.ts test/subagent-exit-drain.test.ts test/step-usage-lifecycle.test.ts test/step-cron.test.ts test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts test/session-import.test.ts test/session-manager/build-context.test.ts test/compaction-serialization.test.ts test/workflow-runtime.test.ts test/workflow-extension.test.ts test/workflow-agent-runner.test.ts test/workflow-vm.test.ts test/workflow-registration.test.ts
+      - name: Install Desktop and test browser
+        working-directory: Desktop
+        run: |
+          corepack pnpm install --frozen-lockfile
+          node node_modules/electron/install.js
+          corepack pnpm exec playwright install chromium ffmpeg
+      - name: Build and stage native runtime
+        working-directory: Desktop
+        run: |
+          corepack pnpm build
+          corepack pnpm stage:runtime
+      - name: Typecheck and protocol tests
+        working-directory: Desktop
+        run: |
+          corepack pnpm typecheck
+          mkdir -p test-results
+          corepack pnpm exec tsx --test --test-concurrency=1 --test-reporter=spec --test-reporter=tap --test-reporter-destination=stdout --test-reporter-destination=test-results/protocol.tap tests/*.test.ts
+      - name: Source Electron acceptance
+        working-directory: Desktop
+        env:
+          CI_MACOS_GROUP: ${{ inputs.group }}
+        run: |
+          node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs
+          node ../scripts/ci-macos.mjs
+      - name: Package unsigned preview and verify resources
+        working-directory: Desktop
+        run: |
+          node scripts/package-macos.mjs
+          node scripts/verify-macos-package.mjs
+      - name: Packaged Electron and native terminal acceptance
+        working-directory: Desktop
+        env:
+          CI_MACOS_GROUP: ${{ inputs.group }}
+          DESKTOP_VERIFY_EXE: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/MacOS/Desktop for Step Code
+          DESKTOP_MACOS_RESOURCES: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/Resources
+        run: |
+          node ../scripts/ci-macos.mjs
+          corepack pnpm exec tsx --test tests/macos-terminal.test.ts
+      - name: Archive tested preview with executable permissions
+        working-directory: Desktop
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent 'release/mac-arm64/Desktop for Step Code.app' release/Desktop.for.Step.Code.macos-arm64.preview.zip
+          shasum -a 256 release/Desktop.for.Step.Code.macos-arm64.preview.zip > release/SHA256SUMS.txt
+          node scripts/prepare-macos-release.mjs
+          git rev-parse HEAD > release/COMMIT.txt
+          cp runtime/manifest.json release/runtime-manifest.json
+      - name: Upload tested preview candidate (not a Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-preview-${{ inputs.group }}-${{ github.sha }}
+          path: |
+            Desktop/release/*.zip
+            Desktop/release/SHA256SUMS.txt
+            Desktop/release/COMMIT.txt
+            Desktop/release/runtime-manifest.json
+            Desktop/release/v*/mac-update.json
+            Desktop/release/v*/*.zip
+            Desktop/release/v*/SHA256SUMS-macos-arm64.txt
+            Desktop/release/v*/COMMIT-macos-arm64.txt
+            Desktop/release/v*/runtime-manifest-macos-arm64.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload fixture diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-fixture-diagnostics-${{ inputs.group }}-${{ github.run_attempt }}
+          path: Desktop/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

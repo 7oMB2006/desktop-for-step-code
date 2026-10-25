@@ -11,7 +11,7 @@
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a></p>
 <p align="center"><a href="https://calm-falcon-0dc2.page.stepcloud.com/"><strong>访问产品展示站</strong></a> · 动态演示、下载安装与开发者介绍</p>
 <p align="center">
-  <img src="assets/readme/home-workspace-v0.5.0.png" width="960" alt="Desktop for Step Code v0.5.0 简体中文工作区与新建会话页面">
+  <img src="assets/readme/home-workspace-v0.6.0.png" width="960" alt="Desktop for Step Code v0.6.0 简体中文工作区与新建会话页面">
 </p>
 
 一个面向 Windows 的 [Step Code](https://github.com/stepfun-ai/Step-Code) 桌面客户端。它提供桌面工作区、对话和会话管理，Agent 执行由 Step Code 提供。

@@ -8,15 +8,16 @@ if (!upstreamDir || !patchPath) {
 	throw new Error("Usage: node apply-step-code-desktop-patch.mjs <step-code-dir> <patch-file>");
 }
 const resolvedPatchPath = path.resolve(patchPath);
-const integrationPatch = path.resolve(import.meta.dirname, "../patches/v015/step-code-desktop.patch");
+const integrationPatches = ["v015", "v016"].map(version =>
+	path.resolve(import.meta.dirname, `../patches/${version}/step-code-desktop.patch`));
 
 function gitBlobHash(bytes) {
 	return createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
 }
 
-// Windows and macOS share the complete v0.1.5 integration; platform additions remain hash-pinned.
-if (resolvedPatchPath === integrationPatch) {
-	const directory = path.dirname(integrationPatch);
+// Preserve historical replay while checking the selected baseline and platform additions.
+if (integrationPatches.includes(resolvedPatchPath)) {
+	const directory = path.dirname(resolvedPatchPath);
 	const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8"));
 	const commit = execFileSync("git", ["-C", upstreamDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 	if (commit !== manifest.commit) throw new Error("Unexpected Step Code baseline");

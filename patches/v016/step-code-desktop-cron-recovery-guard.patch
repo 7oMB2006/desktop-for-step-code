@@ -1,0 +1,65 @@
+diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
+index ee1712a75e3b90591f9d6d5e4d251cc99b7d7d4f..eccb429170ca3b8a52fd9ef986af2678faabe61e 100644
+--- a/packages/coding-agent/src/features/step-cron.ts
++++ b/packages/coding-agent/src/features/step-cron.ts
+@@ -25,10 +25,16 @@ import type { StepTelemetryProperties, StepTelemetryReporter } from "../step/tel
+ 
+ // Desktop Beta: a recovery host cannot deliver until its configuration is verified.
+ let desktopRecoveryBlocked = process.env.DESKTOP_CRON_STATE === "1" && process.env.DESKTOP_CRON_RECOVERY === "1";
+-export function resumeDesktopCronRecovery(): void {
++export function resumeDesktopCronRecovery(before?: number): void {
+ 	if (process.env.DESKTOP_CRON_STATE !== "1" || !desktopRecoveryBlocked) {
+ 		throw new Error("No gated Desktop Cron recovery is pending");
+ 	}
++	if (before !== undefined) {
++		if (typeof before !== "number" || !Number.isFinite(before) || !desktopCronRuntime) {
++			throw new Error("Invalid automatic Cron recovery deadline");
++		}
++		desktopCronRuntime.assertAutomaticRecovery(before);
++	}
+ 	desktopRecoveryBlocked = false;
+ }
+ 
+@@ -510,6 +516,16 @@ export class StepCronRuntime {
+ 		return found;
+ 	}
+ 
++	assertAutomaticRecovery(before: number): void {
++		this.refreshDurableNow();
++		const now = this.readNow();
++		if (now >= before || this.pendingMissed.size > 0 || [...this.jobs.values()].some(job =>
++			job.autoExpireAt !== undefined && job.autoExpireAt <= now
++			|| job.desktopPausedAt === undefined && job.nextFireAt <= now)) {
++			throw new Error("Automatic Cron recovery deadline expired; review recovery again");
++		}
++	}
++
+ 	updateDesktop(id: string, expected: string, changes: { cron?: string; prompt?: string; paused?: boolean }): CronJob {
+ 		if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is unavailable");
+ 		this.refreshDurableNow();
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index a719e43071de58eb2f7a8ee305778cb0f00d2393..7ba2bc71d9882f76e53bb9519045d4d6bf4d145d 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -518,7 +518,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+ 					|| !session.extensionRunner.createContext().isProjectTrusted()) {
+ 					throw new Error("Cron recovery requires an idle trusted project");
+ 				}
+-				resumeDesktopCronRecovery();
++				resumeDesktopCronRecovery(command.before);
+ 				return success(id, "desktop_cron_resume");
+ 			}
+ 			case "desktop_cron": {
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 0612f085f122636496f4118f57a9fe347603f4a3..85b661aa8438565857cc18aa6bde23588ce8c61b 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -30,7 +30,7 @@ export type RpcCommand =
+ 	// State
+ 	| { id?: string; type: "get_state" }
+ 	| { id?: string; type: "get_desktop_summary" }
+-	| { id?: string; type: "desktop_cron_resume" }
++	| { id?: string; type: "desktop_cron_resume"; before?: number }
+ 	| { id?: string; type: "desktop_cron"; action: "list" | "create" | "delete" | "update"; cron?: string; prompt?: string; recurring?: boolean; durable?: boolean; jobId?: string; expected?: string; paused?: boolean }
+ 
+ 	// Model

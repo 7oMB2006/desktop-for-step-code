@@ -1,0 +1,103 @@
+{
+  "commit": "81e79bc4b699148d6823fedde9b5e70d9a80255f",
+  "patches": {
+    "step-code-desktop.patch": "5630080e71192c41176f904a8ec157ec6e8822fc",
+    "step-code-desktop-plan.patch": "055560930ab9368a35f9e953a94b823a32d3d71e",
+    "step-code-desktop-clarification.patch": "8a40b0e1228c7bf24fbced4cbce25e45835928c9",
+    "step-code-desktop-cron.patch": "040940a0a2ad24bb7f3e075a88941c51415a7e61",
+    "step-code-desktop-cron-management.patch": "10b7b76f2f425b874524391b41d8ae02b6dc3e4f",
+    "step-code-desktop-cron-recovery.patch": "2b7a96890c49b0709a9ff2ec3b359914bef89628",
+    "step-code-desktop-plugins.patch": "132a511d2f064185af9d72eee7a10a472b7edac1",
+    "step-code-session-import.patch": "ccbc4e5b9c2f08a0764d4fb73ffd96c6fa532987",
+    "step-code-desktop-cron-scope.patch": "9439c734e584c3013918d4dd89db567b57ffa4d7",
+    "step-code-desktop-cron-enhancements.patch": "12a5dd4ef4c33659bcdce434ee4dd32f67562110",
+    "step-code-desktop-cron-recovery-guard.patch": "017988ee818358617f4c4369599d3f8ffaefe133",
+    "step-code-desktop-auto-resume.patch": "947bee17ae29be5ad57e644f6c22c9f53a03d33d",
+    "step-code-desktop-v016.patch": "50af2ff8a24208814dc444fa1dee0755b828e4a0"
+  },
+  "sources": {
+    "packages/coding-agent/src/core/agent-session.ts": "54acd866d6ad519fd33b0fdb0b7088c2d1357fc6",
+    "packages/coding-agent/src/core/auth-storage.ts": "b7d72e885b80c53e17920a405ec7ce9612a3e2e7",
+    "packages/coding-agent/src/core/extensions/types.ts": "7fc04617577991d1873f6bd97bc9e635238f7489",
+    "packages/coding-agent/src/core/session-manager.ts": "50a626f0d720b4b00442ef3054b330cb161b0ed0",
+    "packages/coding-agent/src/core/tools/bash.ts": "46bceab79addce18e5edc7abe17d354f24be7c7e",
+    "packages/coding-agent/src/core/usage-totals.ts": "35c533e167a824d8605630c641a3d3dafcf5ce80",
+    "packages/coding-agent/src/features/plan-mode-tools.ts": "e7e22b57be93aa936039617d6edfaa783e66b066",
+    "packages/coding-agent/src/features/step-cron.ts": "6f881338a5d4ac34a416706a1e72b1f6e181cff3",
+    "packages/coding-agent/src/features/step-plan.ts": "62e01742a0d8f7e0f81c80a88a78af3f5bf7a9cf",
+    "packages/coding-agent/src/features/step-questionnaire.ts": "7301fc9a497581e9e4a88f880c4da12cdc74f8e0",
+    "packages/coding-agent/src/features/step.ts": "a7536d1a4c96d6e43de08d3860e59a682146cd6e",
+    "packages/coding-agent/src/features/subagent/lane-lifecycle.ts": "c813635ce637ac9919591beaaf2b58345b85b569",
+    "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "7a56c67c032f31b4fdab7f60096aa6b346a10ad0",
+    "packages/coding-agent/src/index.ts": "3c5f0415a9a7f0e994979aeb2e98143fd13d05db",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "fd9aabca7465b6b104dcdd3f83f13ff2bd6b8ec9",
+    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "1565bd4ab5bea1d427fb11a4a7218187d8a91db7",
+    "packages/coding-agent/src/step/mcp.ts": "e6680b2d687c0b99daa1633e15ae97b62c0953d1",
+    "packages/coding-agent/src/step/usage/recording.ts": "188855c3e26f66830d865a34274a4cb4f95e83b6",
+    "packages/coding-agent/src/utils/shell.ts": "43b72e10f5a1d16933848ecb565c48cbe5046750",
+    "packages/coding-agent/test/shell-process-tree.test.ts": "c06ae89118cf8dd080b34057c0333e8679f4fdfe",
+    "packages/coding-agent/test/step-cron.test.ts": "0b0cc15a31f53ee9fe682ca5cdb2747749a5b2ad",
+    "packages/coding-agent/test/step-extension.test.ts": "b2d98339279095124e0bf61990b02ad8ac743f7b",
+    "packages/coding-agent/test/step-plan-extension.test.ts": "d584f1885b0b77b96995f3b7744f03607d53782b",
+    "packages/coding-agent/test/step-subagent-events.test.ts": "eadf369040a2016baf56e2d39bbc5df234927fa9",
+    "packages/coding-agent/test/step-usage-lifecycle.test.ts": "6920f1962798cb6276c136ce954ee5b3e7b31841",
+    "packages/coding-agent/test/subagent-exit-drain.test.ts": "2a3ff540b23c777fcbee5c244760502a9fbdc1ff",
+    "packages/coding-agent/test/suite/agent-session-prompt.test.ts": "f992ec82b78ffec0304e6cf7e06b7fcf1c32815d",
+    "packages/coding-agent/test/workflow-extension.test.ts": "e191d4f6ff5e3c9a0dcdd27025dfec6983fe429e",
+    "packages/coding-agent/test/workflow-runtime.test.ts": "895e8ad40fb759c281dfcdfd70f882a995c25d65",
+    "scripts/build-coding-agent-bundle.mjs": "7f6ba4da2a4caac0b7a5939e5aeb7c7de2b23524"
+  },
+  "patchedSources": {
+    "packages/coding-agent/src/core/agent-session.ts": "92e32567799a10ca43b016a12248976fda21e5e1",
+    "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",
+    "packages/coding-agent/src/core/extensions/types.ts": "f7aa30d22cd536ea1b6f0592d42d25c79eba8902",
+    "packages/coding-agent/src/core/session-import/parsers.ts": "806835c29d1fe9583170019bf0d4d432bec83235",
+    "packages/coding-agent/src/core/session-import/service.ts": "9ce143eb8dae8ced14f717d55d0ff68cec647ad0",
+    "packages/coding-agent/src/core/session-import/types.ts": "7b8c7f68a9c3e02fcc2aa73aac4e847486c79ffa",
+    "packages/coding-agent/src/core/session-manager.ts": "f16947625850f3c0fd7bb2b02f7598a3fa4386b5",
+    "packages/coding-agent/src/core/tools/bash.ts": "85c9673b7986948b34b1b9f42ef5e81518d54cff",
+    "packages/coding-agent/src/core/usage-totals.ts": "4385d8ad5913e7935ee01ec0034660d8a2696cd9",
+    "packages/coding-agent/src/features/plan-mode-tools.ts": "d693e7b855e997799bfa6ff472b7bfa1ad0d9179",
+    "packages/coding-agent/src/features/step-cron.ts": "df403ce2a91314780446c09b5ed26ba5d74cef66",
+    "packages/coding-agent/src/features/step-plan.ts": "0bd077d3a4426e805a50a26278be98719f8496af",
+    "packages/coding-agent/src/features/step-questionnaire.ts": "4b32f0d80c75101e85c35d4b3ea5e98e24daca3f",
+    "packages/coding-agent/src/features/step.ts": "b61757f3db399d2cb0d2b05a862a4d900270dff6",
+    "packages/coding-agent/src/features/subagent/lane-lifecycle.ts": "40de3892a613fab17bb779db3c88ea934e5f93ac",
+    "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "34d712710a277be64df384ca7c5c26c5da88df5f",
+    "packages/coding-agent/src/index.ts": "2f9932826d193532dc24bba967dfa32ab28feb89",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "9ac44d97da310b901682a4a5a0423d76c4ee45f3",
+    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "fbf93e00639ac42ef28382c78df7f2229f8e7172",
+    "packages/coding-agent/src/step/mcp.ts": "569b7203dfa2ce28955ac1c2c93b0a9fd317d484",
+    "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
+    "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
+    "packages/coding-agent/test/session-import.test.ts": "4ab261b29664b45addde1fde7a2747d6168c39b7",
+    "packages/coding-agent/test/shell-process-tree.test.ts": "bd52649d52f78493c2b4c253e5b1824fa184199b",
+    "packages/coding-agent/test/step-cron.test.ts": "c987e99d4ecad2b0d89c7e67d19b7d521b2ad9f7",
+    "packages/coding-agent/test/step-extension.test.ts": "1b12e8113bdb177ad14c10712aef39f8143e903f",
+    "packages/coding-agent/test/step-plan-extension.test.ts": "d994ea51263ec2a36f37b68df256eb4768334000",
+    "packages/coding-agent/test/step-subagent-events.test.ts": "093e2b9010fb31e67613d3b09341fad2a8369351",
+    "packages/coding-agent/test/step-usage-lifecycle.test.ts": "f0fe0840c8e94073d11e41aa6b65c1caec54e07e",
+    "packages/coding-agent/test/subagent-exit-drain.test.ts": "f0932a44b429332a2c3f34351554c4560472124e",
+    "packages/coding-agent/test/suite/agent-session-prompt.test.ts": "d79ac01281b1b39f2322466c4fdc412705a1b0da",
+    "packages/coding-agent/test/workflow-extension.test.ts": "b6552efac93489ef58d0b7b76035fbca44081399",
+    "packages/coding-agent/test/workflow-runtime.test.ts": "5cdec45ed6842072c7f46f084ea7d849dfb970c9",
+    "scripts/build-coding-agent-bundle.mjs": "fac2aeda34008d81d0a01b1fa4d8a0af2ab4b476"
+  },
+  "platforms": {
+    "darwin": {
+      "patches": {
+        "step-code-desktop-darwin-process-tree.patch": "385f53be11e8b25663d82d888c962ab47bcc4b15",
+        "step-code-desktop-darwin-test-portability.patch": "cec1661c6f80c21fea8411ef1eb2f0fac3b572f9"
+      },
+      "patchedSources": {
+        "packages/coding-agent/src/utils/shell.ts": "187c7c34f9f63d9c1865dd1cd057c079e10ed720",
+        "packages/coding-agent/test/shell-process-tree-darwin.test.ts": "7334334f9287035142d0711945d371a6f11811c2",
+        "packages/coding-agent/test/workflow-extension.test.ts": "879daf41db3315b236f08d7dfeb3d9eae6deaf74",
+        "packages/coding-agent/test/workflow-runtime.test.ts": "586ad415a51ea6ab52df34fffceaa11c156032c5"
+      },
+      "patchIds": [
+        "desktop-darwin-process-tree"
+      ]
+    }
+  }
+}

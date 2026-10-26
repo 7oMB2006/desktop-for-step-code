@@ -4,14 +4,14 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { once } from 'node:events';
-import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { closeDesktopFixture, releaseExitedFixturePipes } from './close-desktop-fixture.mjs';
 
 assert.ok(['win32', 'darwin'].includes(process.platform), 'This acceptance exercises native Bash and the pinned runtime');
 await mkdir('test-results', { recursive: true });
-const profile = await mkdtemp(resolve('test-results/then-run-'));
+const profile = await realpath(await mkdtemp(resolve('test-results/then-run-')));
 const workspace = join(profile, 'Workspace with spaces');
 const root = join(profile, 'step-runtime');
 await mkdir(workspace, { recursive: true });

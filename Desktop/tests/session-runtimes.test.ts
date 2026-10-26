@@ -7,6 +7,7 @@ import type { RuntimeEvent } from '../src/contracts';
 import { QUESTION_TITLE } from '../src/questionnaire';
 import { MessageRevision } from '../src/message-revision';
 import { applyToolResult } from '../src/message-events';
+import { quitReasons } from '../electron/quit-review';
 
 class Transport implements WorkerTransport {
   stopped = false;
@@ -37,6 +38,95 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   const open = (cwd = `workspace-${transports.length}`) => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+
+test('live background lanes retain their host without blocking foreground messages', async () => {
+  const { pool, open, transports, events } = fixture({ idleLimit: () => 0 });
+  try {
+    const host = await open();
+    host.messages = [{ role: 'assistant', content: 'Delegated', stopReason: 'stop' }];
+    const notify = (lanes: unknown[]) => transports[0].receive({ type: 'extension_ui_request',
+      method: 'setStatus', statusKey: 'desktop-subagents', statusText: JSON.stringify({ version: 1, lanes }) });
+    notify([{ id: 'lane_12345678', status: 'running' }]);
+    transports[0].receive({ type: 'agent_start' });
+    transports[0].receive({ type: 'agent_end', messages: host.messages });
+    assert.equal(pool.isBusy(host), false, 'The parent can accept another prompt');
+    assert.equal(pool.running, true, 'Billing/config changes still have a live owner');
+    assert.equal(pool.summaries()[0].status, 'running');
+    assert.equal(quitReasons(pool, false).runningTasks, 1);
+    await assert.rejects(pool.assertIdle(host), /background/i);
+    await assert.rejects(pool.assertAllIdle({ stopHost: false }), /background/i);
+    await assert.rejects(pool.refresh(host, 'node', 'step', {}), /background/i);
+    assert.ok(!events.some(event => event.type === 'desktop_task_completed'));
+    assert.ok(!events.some(event => event.statusKey === 'desktop-subagents'));
+    await open();
+    host.touched = 0;
+    await pool.recycle();
+    assert.equal(transports[0].stopped, false);
+    notify([{ id: 'lane_12345678', status: 'settling' }]);
+    assert.equal(pool.running, true, 'Final notification delivery retains the host too');
+    notify([]);
+    await new Promise(resolve => setImmediate(resolve));
+    await pool.recycle();
+    assert.equal(transports[0].stopped, true);
+  } finally { await pool.stopAll(); }
+});
+
+test('historical lanes and stale transports cannot revive live background ownership', async () => {
+  const { pool, open, transports } = fixture();
+  try {
+    const host = await open();
+    host.messages = [{ role: 'custom', customType: 'agent-notification', content: '',
+      details: { agentId: 'lane_12345678', event: 'background_progress', status: 'running' } }];
+    assert.equal(pool.running, false);
+    const receive = transports[0].receive;
+    receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-subagents',
+      statusText: '{invalid' });
+    assert.equal(pool.running, true, 'Unknown live state fails closed');
+    receive({ type: 'desktop_exit' });
+    receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-subagents',
+      statusText: JSON.stringify({ version: 1, lanes: [{ id: 'lane_12345678', status: 'running' }] }) });
+    assert.equal(pool.running, false);
+    assert.equal(quitReasons(pool, false).runningTasks, 0);
+  } finally { await pool.stopAll(); }
+});
+
+test('idle guard rechecks a background lane starting while its RPC read is pending', async () => {
+  const { pool, open, transports } = fixture();
+  try {
+    const host = await open();
+    const original = transports[0].request.bind(transports[0]);
+    transports[0].request = async (type, args) => {
+      if (type === 'get_state') transports[0].receive({ type: 'extension_ui_request', method: 'setStatus',
+        statusKey: 'desktop-subagents', statusText: JSON.stringify({
+          version: 1, lanes: [{ id: 'lane_12345678', status: 'running' }],
+        }) });
+      return original(type, args);
+    };
+    await assert.rejects(pool.assertIdle(host), /background/i);
+    assert.equal(transports[0].stopped, false);
+  } finally { await pool.stopAll(); }
+});
+
+test('background notification handoff retains the host before the parent emits agent_start', async () => {
+  const { pool, open, transports } = fixture({ idleLimit: () => 0 });
+  try {
+    const host = await open();
+    host.messages = [{ role: 'user', content: 'saved' }];
+    await open();
+    transports[0].receive({ type: 'extension_ui_request', method: 'setStatus',
+      statusKey: 'desktop-subagents', statusText: JSON.stringify({ version: 1, lanes: [], parentActive: true }) });
+    assert.equal(host.backgroundActive, false);
+    assert.equal(pool.running, true);
+    await assert.rejects(pool.assertIdle(host), /Stop/);
+    await pool.recycle();
+    assert.equal(transports[0].stopped, false);
+    // Pre-prompt cancellation may settle without starting a model turn.
+    transports[0].receive({ type: 'agent_settled' });
+    assert.equal(pool.running, false);
+    await pool.recycle();
+    assert.equal(transports[0].stopped, true);
+  } finally { await pool.stopAll(); }
+});
 
 test('startup diagnostics separate process, restoration, snapshot and model phases without session content', async () => {
   const { pool, open } = fixture();

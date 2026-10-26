@@ -11,6 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
+import { hasBackgroundWork } from './background-work';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
@@ -332,7 +333,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
       void crashLog.record('cron-history', error);
     }
     if (event.type === 'desktop_exit' && !worker.stopping) {
-      if (runtimes.isBusy(worker) || worker.queued || worker.launch?.goal?.status === 'active')
+      if (runtimes.isBusy(worker) || hasBackgroundWork(worker) || worker.queued || worker.launch?.goal?.status === 'active')
         void cronAutomatic.block(worker.cwd).then(() => emit({ type: 'desktop_cron_changed' }))
           .catch(error => crashLog.record('cron-auto-recovery', error));
       else setTimeout(() => void tryAutomaticCron(worker.cwd), 1000).unref();
@@ -1123,7 +1124,7 @@ async function handle(method: string, args: any[]) {
       const worker = runtimes.require(text(args[0], 80));
       const sessionId = text(args[1], 200), action = text(args[2], 20);
       if (!['on', 'off', 'compact'].includes(action) || worker.state?.sessionId !== sessionId) throw new Error('Invalid CLM action or session changed');
-      if (runtimes.isBusy(worker) || worker.mutating || worker.queued || worker.launch?.goal?.status === 'active')
+      if (runtimes.isBusy(worker) || hasBackgroundWork(worker) || worker.mutating || worker.queued || worker.launch?.goal?.status === 'active')
         throw new Error('Wait for this session to become idle');
       if (action === 'compact' && worker.pendingModel) throw new Error('Apply the pending model change before organizing context');
       const guidance = args[3] === undefined ? '' : text(args[3], 4000).trim();
@@ -1131,7 +1132,7 @@ async function handle(method: string, args: any[]) {
       worker.operations++;
       try {
         const state = await worker.rpc.request('get_state');
-        if (state.sessionId !== sessionId || state.isStreaming || state.isCompacting || state.pendingMessageCount)
+        if (state.sessionId !== sessionId || state.isStreaming || state.isCompacting || state.pendingMessageCount || hasBackgroundWork(worker))
           throw new Error('Session changed or is running');
         await worker.rpc.request('prompt', { message: action === 'compact' ? `/clm-compact${guidance ? ` ${guidance}` : ''}` : `/clm ${action}` }, 600000);
         await runtimes.read(worker);

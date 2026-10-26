@@ -1,0 +1,290 @@
+diff --git a/packages/coding-agent/src/features/plan-mode-tools.ts b/packages/coding-agent/src/features/plan-mode-tools.ts
+index e7e22b57be93aa936039617d6edfaa783e66b066..d693e7b855e997799bfa6ff472b7bfa1ad0d9179 100644
+--- a/packages/coding-agent/src/features/plan-mode-tools.ts
++++ b/packages/coding-agent/src/features/plan-mode-tools.ts
+@@ -119,7 +119,11 @@ async function reviewPlanInteractively(
+ }
+ 
+ /** Register enter_plan_mode and exit_plan_mode against the given controller. */
+-export function registerPlanModeTools(pi: ExtensionAPI, planMode: StepPlanModeController): void {
++export function registerPlanModeTools(
++	pi: ExtensionAPI,
++	planMode: StepPlanModeController,
++	desktopReview = () => false,
++): void {
+ 	pi.registerTool({
+ 		name: "enter_plan_mode",
+ 		label: "Enter plan mode",
+@@ -147,7 +151,7 @@ export function registerPlanModeTools(pi: ExtensionAPI, planMode: StepPlanModeCo
+ 		renderShell: "self",
+ 		renderResult: renderPlanReviewResult,
+ 		description:
+-			"Submit the written proposal for review. Requires a readable, nonempty regular plan file. In interactive mode, user approval exits planning; staying, refining, or cancelling keeps it active. In headless and RPC modes, exits without interactive approval; the caller must gate approval externally before execution.",
++			"Submit the written proposal for review. Requires a readable, nonempty regular plan file. In interactive mode, user approval exits planning; staying, refining, or cancelling keeps it active. Desktop main-session RPC waits for user review. For other headless and RPC modes, this tool exits without interactive approval; the caller must gate approval externally before execution.",
+ 		promptSnippet: "Submit the written proposal for review",
+ 		parameters: Type.Object({}),
+ 		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
+@@ -177,6 +181,58 @@ export function registerPlanModeTools(pi: ExtensionAPI, planMode: StepPlanModeCo
+ 				...(feedback === undefined ? {} : { feedback }),
+ 			});
+ 			if (ctx.mode === "rpc") {
++				if (desktopReview()) {
++					const leafId = ctx.sessionManager.getLeafId();
++					const choices = ["Approve plan", "Request refinements", "Keep planning"];
++					const choice = await ctx.ui.select(`Desktop Plan review\n${planFilePath}\n\n${planContents}`, choices, {
++						signal: _signal,
++						timeout: 240000,
++					});
++					const unchanged = (): boolean => {
++						try {
++							return (
++								!_signal?.aborted &&
++								planMode.isPlanModeActive() &&
++								ctx.sessionManager.getLeafId() === leafId &&
++								planMode.resolvePlanFilePath(ctx) === planFilePath &&
++								readPlanContents(planFilePath) === planContents
++							);
++						} catch {
++							return false;
++						}
++					};
++					if (!unchanged()) {
++						return reviewedResult(
++							"The plan or session changed during review. Approval was not applied. Stop and request a new review when the user asks.",
++							reviewed("dismissed"),
++							true,
++						);
++					}
++					if (choice === choices[0]) {
++						planMode.exitPlanMode("approved", ctx);
++						return reviewedResult(
++							`The user approved this proposal. Plan mode exited. Implement the approved plan at ${planFilePath}.`,
++							reviewed("approved"),
++						);
++					}
++					if (choice === choices[1]) {
++						const feedback = await ctx.ui.input("Desktop Plan refinements", "Changes requested", {
++							signal: _signal,
++							timeout: 240000,
++						});
++						if (feedback?.trim() && unchanged()) {
++							return reviewedResult(
++								`The user requested refinements. Stay in Plan mode, revise the proposal and submit it again. Feedback:\n${feedback}`,
++								reviewed("feedback", feedback),
++							);
++						}
++					}
++					return reviewedResult(
++						"The review ended without approval or notes (it may have expired or been cancelled). Staying in plan mode. Stop here and wait for the user. The user can request another review; do not implement or call exit_plan_mode again until then.",
++						reviewed("dismissed"),
++						true,
++					);
++				}
+ 				// An rpc child has a dialog bridge (hasUI is true) but no real user
+ 				// behind it, so its extension_ui_request select can be auto-cancelled
+ 				// to "Stay", leaving the child idle in plan mode forever. Exit plan mode
+diff --git a/packages/coding-agent/src/features/step-plan.ts b/packages/coding-agent/src/features/step-plan.ts
+index 62e01742a0d8f7e0f81c80a88a78af3f5bf7a9cf..0bd077d3a4426e805a50a26278be98719f8496af 100644
+--- a/packages/coding-agent/src/features/step-plan.ts
++++ b/packages/coding-agent/src/features/step-plan.ts
+@@ -211,6 +211,11 @@ export const createStepPlanExtension =
+ 			type: "boolean",
+ 			default: false,
+ 		});
++		pi.registerFlag("desktop-plan-review", {
++			description: "Gate Desktop main-session plan review through RPC",
++			type: "boolean",
++			default: false,
++		});
+ 		pi.registerCommand("plan", {
+ 			description: "Toggle plan mode, or `/plan <task>` to start planning a task right away",
+ 			handler: async (args, ctx) => {
+@@ -233,7 +238,7 @@ export const createStepPlanExtension =
+ 				pi.sendUserMessage(prompt, ctx.isIdle() ? {} : { deliverAs: "followUp" });
+ 			},
+ 		});
+-		registerPlanModeTools(pi, planModeController);
++		registerPlanModeTools(pi, planModeController, () => pi.getFlag("desktop-plan-review") === true);
+ 		pi.on("tool_call", async (event, ctx) => {
+ 			if (!enabled || !MUTATING_TOOLS.has(event.toolName)) return;
+ 			const planPath = resolvePlanFilePath(ctx);
+@@ -259,19 +264,28 @@ export const createStepPlanExtension =
+ 			};
+ 		});
+ 
+-		// Plan-mode state is carried by the enter_plan_mode/exit_plan_mode tool
+-		// results; nothing is injected into the context. This hook only scrubs
+-		// the hidden meta messages persisted by sessions from older versions of
+-		// this extension.
+-		pi.on("context", async (event) => {
+-			return {
+-				messages: event.messages.filter((message) => {
+-					const candidate = message as AgentMessage & { customType?: string };
+-					return (
+-						candidate.customType !== "step-plan-context" && candidate.customType !== "step-plan-execution-context"
+-					);
+-				}),
+-			};
++		// Ordinary callers keep upstream tool-result semantics. Desktop's main
++		// worker also receives ephemeral state on every call, including tool loops.
++		pi.on("context", async (event, ctxForPlan) => {
++			const messages = event.messages.filter((message) => {
++				const candidate = message as AgentMessage & { customType?: string };
++				return (
++					candidate.customType !== "step-plan-context" && candidate.customType !== "step-plan-execution-context"
++				);
++			});
++			if (enabled && pi.getFlag("desktop-plan-review") === true) {
++				messages.push({
++					role: "user",
++					content: [
++						{
++							type: "text",
++							text: `[Desktop Plan mode active]\nThe user enabled planning. Research and draft an implementation proposal before implementing. Write the proposal to ${resolvePlanFilePath(ctxForPlan)}. Only this proposal may be changed with file-editing tools. Commands retain normal permissions; do not use them to bypass planning. Call exit_plan_mode to submit the proposal and wait for user review. Do not implement until approval. This is runtime state, not an additional user message.`,
++						},
++					],
++					timestamp: Date.now(),
++				});
++			}
++			return { messages };
+ 		});
+ 
+ 		const restorePlanState = (ctx: ExtensionContext, startWithPlan = false): void => {
+diff --git a/packages/coding-agent/test/step-plan-extension.test.ts b/packages/coding-agent/test/step-plan-extension.test.ts
+index d584f1885b0b77b96995f3b7744f03607d53782b..d994ea51263ec2a36f37b68df256eb4768334000 100644
+--- a/packages/coding-agent/test/step-plan-extension.test.ts
++++ b/packages/coding-agent/test/step-plan-extension.test.ts
+@@ -56,6 +56,117 @@ const PLAN_TOOLS_UNDER_TEST = [
+ /** Keys the review dialog reacts to, spelled the way the terminal sends them. */
+ const REVIEW_KEYS = { enter: "\r", escape: "\u001b", down: "\u001b[B", up: "\u001b[A" } as const;
+ 
++test("Desktop context tracks Plan on every model call without persisting messages", async () => {
++	const h = createHarness({ cwd: makeWorkspace(), flags: { "desktop-plan-review": true } });
++	createStepPlanExtension()(h.api);
++	await h.commands.get("plan")!.handler("", h.ctx());
++	const result = (await h.emit({ type: "context", messages: [] }, h.ctx())) as { messages: any[] };
++	expect(result.messages[0].content[0].text).toContain("[Desktop Plan mode active]");
++	expect(result.messages[0].content[0].text).toContain("session-sess-1.md");
++	expect(h.userMessages).toHaveLength(0);
++	await h.commands.get("plan")!.handler("", h.ctx());
++	expect(await h.emit({ type: "context", messages: [] }, h.ctx())).toEqual({ messages: [] });
++});
++
++test.each(["Approve plan", undefined, "changed", "branch", "abort", "missing", "path"])(
++	"Desktop review gates exit: %s",
++	async (choice) => {
++		const cwd = makeWorkspace();
++		let resolveReview!: (value: string | undefined) => void;
++		const h = createHarness({
++			cwd,
++			flags: { "desktop-plan-review": true },
++			select: () =>
++				new Promise((resolve) => {
++					resolveReview = resolve;
++				}),
++		});
++		createStepPlanExtension()(h.api);
++		await h.commands.get("plan")!.handler("", h.ctx());
++		const file = getPlanFilePath("sess-1", cwd);
++		mkdirSync(path.dirname(file), { recursive: true });
++		writeFileSync(file, "Original proposal");
++		const controller = new AbortController();
++		const pending = h.tools
++			.get("exit_plan_mode")!
++			.execute("exit", {}, controller.signal, undefined, h.ctx({ mode: "rpc" }));
++		expect((h.appended.at(-1)!.data as { enabled: boolean }).enabled).toBe(true);
++		if (choice === "changed") writeFileSync(file, "Changed proposal");
++		if (choice === "branch") h.session.appendCustomEntry("other", {});
++		if (choice === "abort") controller.abort();
++		if (choice === "missing") rmSync(file);
++		if (choice === "path") await h.commands.get("plan")!.handler("", h.ctx());
++		resolveReview(choice === undefined ? undefined : "Approve plan");
++		const result = await pending;
++		expect((h.appended.at(-1)!.data as { enabled?: boolean }).enabled === false).toBe(
++			choice === "Approve plan" || choice === "path",
++		);
++		expect(result.details).toMatchObject({
++			outcome: choice === "Approve plan" ? "approved" : "dismissed",
++			planContents: "Original proposal",
++			planHash: createHash("sha256").update("Original proposal", "utf8").digest("hex"),
++			approvalSource: "external",
++			planModeExited: choice === "Approve plan" || choice === "path",
++		});
++		if (choice !== "Approve plan") expect(result.terminate).toBe(true);
++	},
++);
++
++test("Desktop refinements remain in Plan and return feedback to the model", async () => {
++	const cwd = makeWorkspace();
++	const h = createHarness({
++		cwd,
++		flags: { "desktop-plan-review": true },
++		select: async () => "Request refinements",
++		input: async () => "Add validation",
++	});
++	createStepPlanExtension()(h.api);
++	await h.commands.get("plan")!.handler("", h.ctx());
++	const file = getPlanFilePath("sess-1", cwd);
++	mkdirSync(path.dirname(file), { recursive: true });
++	writeFileSync(file, "Proposal");
++	const result = await h.tools
++		.get("exit_plan_mode")!
++		.execute("exit", {}, new AbortController().signal, undefined, h.ctx({ mode: "rpc" }));
++	expect(result.details).toMatchObject({ outcome: "feedback", feedback: "Add validation" });
++	expect(result.details).toMatchObject({ approvalSource: "external", planModeExited: false });
++	expect((h.appended.at(-1)!.data as { enabled: boolean }).enabled).toBe(true);
++});
++
++test.each(["changed", "branch", "abort", "cancel"])(
++	"Desktop refinements reject stale or cancelled notes: %s",
++	async (change) => {
++		const cwd = makeWorkspace();
++		const controller = new AbortController();
++		const file = getPlanFilePath("sess-1", cwd);
++		const h = createHarness({
++			cwd,
++			flags: { "desktop-plan-review": true },
++			select: async () => "Request refinements",
++			input: async () => {
++				if (change === "changed") writeFileSync(file, "Replacement");
++				if (change === "branch") h.session.appendCustomEntry("other", {});
++				if (change === "abort") controller.abort();
++				return change === "cancel" ? undefined : "Do this instead";
++			},
++		});
++		createStepPlanExtension()(h.api);
++		await h.commands.get("plan")!.handler("", h.ctx());
++		mkdirSync(path.dirname(file), { recursive: true });
++		writeFileSync(file, "Original proposal");
++		const result = await h.tools
++			.get("exit_plan_mode")!
++			.execute("exit", {}, controller.signal, undefined, h.ctx({ mode: "rpc" }));
++		expect(result.details).toMatchObject({
++			outcome: "dismissed",
++			planContents: "Original proposal",
++			planModeExited: false,
++		});
++		expect(result.terminate).toBe(true);
++		expect((h.appended.at(-1)!.data as { enabled: boolean }).enabled).toBe(true);
++	},
++);
++
+ function typeReview(text: string): string[] {
+ 	return [...text];
+ }
+@@ -93,6 +204,7 @@ function createHarness(
+ 		cwd?: string;
+ 		flags?: Record<string, boolean | string>;
+ 		select?: (title: string, options: string[]) => Promise<string | undefined>;
++		input?: () => Promise<string | undefined>;
+ 		editor?: (title: string, prefill?: string) => Promise<string | undefined>;
+ 		/** Keystrokes fed to the plan review component mounted through ui.custom. */
+ 		review?: string[];
+@@ -154,6 +266,7 @@ function createHarness(
+ 					notifications.push({ message, type });
+ 				},
+ 				select: options.select ?? (async () => undefined),
++				input: options.input ?? (async () => undefined),
+ 				editor: options.editor ?? (async () => undefined),
+ 				custom: async <T>(
+ 					factory: (

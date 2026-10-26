@@ -1,0 +1,2179 @@
+diff --git a/packages/coding-agent/docs/session-import.md b/packages/coding-agent/docs/session-import.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..c1ec33543cde4f61a187469474cda92e312fbf77
+--- /dev/null
++++ b/packages/coding-agent/docs/session-import.md
+@@ -0,0 +1,96 @@
++# Offline Session Import
++
++`SessionImportService` discovers and imports local Codex and Claude Code history
++without starting either source agent or invoking a model. The Web settings page
++uses this same service. This is history migration, not restoration of source
++processes, approvals, credentials, filesystem checkpoints or hidden reasoning.
++
++## Lifecycle
++
++Construct the service with an explicit `agentDir`, optional `sessionRoot`, and
++an optional `onPersisted` index notification callback. Hosts must call `close()`
++and await it before closing their index.
++
++1. `scan({ codexRoot?, claudeRoot?, includeArchived? })` returns opaque
++   candidate IDs and per-source errors. Default roots honor `CODEX_HOME` and
++   `CLAUDE_CONFIG_DIR`; otherwise they are `~/.codex` and
++   `~/.claude/projects`. Codex archives and child sessions are excluded by
++   default. Claude has no universally recognized archive flag; only explicit
++   supported metadata is interpreted, never inactivity.
++2. `preview(candidateId)` reads a stable snapshot and returns its fingerprint,
++   bounded text excerpt, counts and compatibility warnings. It retains an
++   immutable, in-memory copy of the reviewed messages and embedded attachments.
++   It does not create or open a target session.
++3. `start([{ candidateId, fingerprint, cwd }])` accepts at most 100 selections
++   and returns a job. `cwd` must resolve to an existing absolute directory.
++4. `getJob(id)` and `listJobs()` return durable, per-session outcomes.
++   `cancel(id)` stops remaining work between sessions; poll for settlement.
++
++A scan replaces prior preview capabilities; submitted jobs retain their own
++reviewed snapshots and selection copies. Import uses exactly the reviewed
++snapshot, even if the source continues writing or its attachments change.
++Preview again to include later source changes. Unsubmitted previews expire after
++15 minutes or host restart and can be evicted under cache pressure. The cache
++holds at most 256 MiB of serialized UTF-16 data; submitted snapshots are pinned
++until their jobs settle. Expired or evicted previews require another preview,
++never an implicit re-read at import time.
++An identical source ID and snapshot generates the same target ID, so
++reimport never overwrites an existing target, including one continued in StepCode.
++A changed snapshot generates a new copy. Target publication uses an exclusive
++temporary file and an atomic, non-overwriting hard link on the same filesystem.
++Filesystems without hard-link support fail visibly. Completed imports remain
++when a batch is cancelled. A restarted host marks unfinished journals interrupted;
++re-scanning and retrying safely skips already published snapshots.
++Result titles survive host restart. If the index callback fails after publication,
++the result remains imported (or skipped), with a warning rather than a false
++failure; retrying also re-notifies the index.
++
++## Compatibility
++
++The adapters support Codex response-item JSONL, including paginated-mode rollout
++records, independent function calls/results, source compaction summaries and
++rollback events; and Claude message chains, content blocks and tool-result
++envelopes. Tool names are retained, not renamed to apparently equivalent native
++tools. Unknown Codex record formats fail rather than silently declare success.
++Unsupported Codex item types remain quoted historical text and produce warnings.
++Claude non-message metadata is not replayed. Its source compaction boundaries
++are not reconstructed; only messages reachable from the selected parent chain
++are migrated. Real Claude installations and versions outside the fixtures still
++require acceptance testing; this is not a lossless source-state backup.
++
++Imported entries carry an optional `imported` provenance object. Native context
++projection converts historical tool calls/results to text evidence; it does not
++restore their execution protocol. Tool results explicitly carry completed,
++failed or unknown status into new requests; absent source outcome information
++is never interpreted as success. Imported assistant messages do not select the
++new session's model. Usage ledgers exclude imported entries; source numeric usage,
++when available, remains provenance, not newly incurred StepCode usage. Internal
++zero usage required by the native assistant wire type is not a source measurement.
++
++Source system/developer messages and host control envelopes are not activated.
++Encrypted reasoning is omitted with a warning. Plain reasoning summaries can be
++retained as historical text. Valid source compaction summaries affect only the
++request context; preceding imported entries remain readable. Supported images
++in Codex `replacement_history` survive as provenance-marked
++`stepcode.imported-compaction-attachments` custom messages after the compaction.
++These retain captions and enter model context without introducing synthetic user
++turns into source rollback accounting. Unsupported or missing retained images
++produce the same attachment warnings as ordinary messages. Continuing a long
++session may invoke StepCode's normal model-backed compaction, independently of
++the offline import operation.
++
++Inline supported images and image files contained in the selected source root
++are embedded in the target. Local images are capped at 20 MiB each and 32 MiB
++total, with MIME detection and fingerprinting. External paths, missing images and
++remote URLs are not fetched and are reported. Project files are not copied.
++Source sessions are capped at 128 MiB; discovery at 5,000 candidates and 16
++directory levels. Discovery reads complete JSONL records in bounded chunks until
++metadata is found, within the source size limit. Claude metadata may share a
++record larger than 64 KiB with message content; a final newline is not required.
++Symlinks are not traversed during discovery.
++Codex date subdirectories can be selected directly. A selected path inside
++`archived_sessions` is still excluded unless archive inclusion is enabled.
++
++Web endpoints are specified in [the host OpenAPI contract](../../../apps/web/openapi.yaml).
++They use the host's existing cookie and Origin boundary. The browser always
++scans the **host** machine, not a remote browser device.
+diff --git a/packages/coding-agent/src/core/session-import/parsers.ts b/packages/coding-agent/src/core/session-import/parsers.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..806835c29d1fe9583170019bf0d4d432bec83235
+--- /dev/null
++++ b/packages/coding-agent/src/core/session-import/parsers.ts
+@@ -0,0 +1,408 @@
++import { randomBytes } from "node:crypto";
++import type { AssistantMessage, ImageContent, TextContent, ToolCall } from "@step-harness/providers";
++import type { SessionEntry } from "../session-manager.ts";
++import type { ImportSource, ImportWarning, ParsedImport } from "./types.ts";
++
++type RecordValue = Record<string, unknown>;
++
++export function record(value: unknown): RecordValue {
++	return value && typeof value === "object" && !Array.isArray(value) ? (value as RecordValue) : {};
++}
++
++function text(value: unknown): string {
++	return typeof value === "string" ? value : "";
++}
++
++function list(value: unknown): unknown[] {
++	return Array.isArray(value) ? value : [];
++}
++
++function time(value: unknown): string {
++	const parsed = typeof value === "string" ? Date.parse(value) : Number.NaN;
++	return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date(0).toISOString();
++}
++
++const EMPTY_USAGE: AssistantMessage["usage"] = {
++	input: 0,
++	output: 0,
++	cacheRead: 0,
++	cacheWrite: 0,
++	totalTokens: 0,
++	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++};
++
++/** Parse snapshots only. Never pass a foreign source through SessionManager.open. */
++export function parseForeignSession(source: ImportSource, input: string): ParsedImport {
++	const records: RecordValue[] = [];
++	for (const line of input.split(/\r?\n/u)) {
++		if (!line.trim()) continue;
++		try {
++			const value: unknown = JSON.parse(line);
++			const parsed = record(value);
++			if (typeof parsed.type !== "string") throw new Error("Missing record type");
++			records.push(parsed);
++		} catch {
++			throw new Error("Invalid JSONL snapshot; wait for the source to finish writing and scan again");
++		}
++	}
++	const meta = source === "codex" ? record(records.find((r) => r.type === "session_meta")?.payload) : {};
++	const first = source === "codex" ? meta : (records.find((r) => typeof r.sessionId === "string") ?? {});
++	const sessionId = text(source === "codex" ? first.id : first.sessionId);
++	if (!sessionId) throw new Error("Source session ID is missing");
++	const result: ParsedImport = {
++		sessionId,
++		cwd: text(first.cwd),
++		title: "",
++		version: text(source === "codex" ? first.cli_version : first.version) || "unknown",
++		archived: records.some((r) => r.archived === true || record(r.payload).archived === true),
++		child:
++			source === "codex"
++				? !!record(first.source).subagent || !!record(first.thread_source).subagent
++				: first.isSidechain === true || typeof first.parentAgentId === "string",
++		entries: [],
++		warnings: [],
++	};
++	const warnings = new Map<string, number>();
++	const warn = (code: string) => warnings.set(code, (warnings.get(code) ?? 0) + 1);
++	let activeClaudeIds: Set<string> | undefined;
++	if (source === "claude-code") {
++		const byId = new Map(records.filter((r) => typeof r.uuid === "string").map((r) => [text(r.uuid), r]));
++		const messages = records.filter((r) => (r.type === "user" || r.type === "assistant") && r.isSidechain !== true);
++		if (messages.some((r) => typeof r.parentUuid === "string")) {
++			activeClaudeIds = new Set();
++			let current = messages.at(-1);
++			while (current && typeof current.uuid === "string") {
++				if (activeClaudeIds.has(current.uuid)) throw new Error("Cycle in source message chain");
++				activeClaudeIds.add(current.uuid);
++				if (typeof current.parentUuid !== "string") break;
++				const parent = byId.get(current.parentUuid);
++				if (!parent) {
++					warn("branch_parent_missing");
++					break;
++				}
++				current = parent;
++			}
++		}
++	}
++	let parentId: string | null = null;
++	let sequence = 0;
++	const seen = new Set<string>();
++	const append = (entry: SessionEntry, itemId: string, usage?: unknown) => {
++		if (seen.has(itemId)) return;
++		seen.add(itemId);
++		entry.id = randomBytes(8).toString("hex");
++		entry.parentId = parentId;
++		const historicalUsage = Object.fromEntries(
++			Object.entries(record(usage)).filter(([, n]) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0),
++		);
++		entry.imported = {
++			source,
++			sessionId,
++			itemId,
++			...(Object.keys(historicalUsage).length ? { historicalUsage: historicalUsage as Record<string, number> } : {}),
++		};
++		parentId = entry.id;
++		result.entries.push(entry);
++	};
++	const base = (timestamp: unknown) => ({ id: "", parentId: null, timestamp: time(timestamp) });
++	const content = (value: unknown): (TextContent | ImageContent)[] => {
++		if (typeof value === "string") return value ? [{ type: "text", text: value }] : [];
++		const blocks: (TextContent | ImageContent)[] = [];
++		for (const raw of list(value)) {
++			const block = record(raw);
++			if (["text", "input_text", "output_text"].includes(text(block.type))) {
++				blocks.push({ type: "text", text: text(block.text) });
++			} else if (block.type === "image" && record(block.source).type === "base64") {
++				const image = record(block.source);
++				const mime = text(image.media_type);
++				const data = text(image.data);
++				if (/^image\/(?:png|jpeg|gif|webp)$/u.test(mime) && data.length <= 28_000_000)
++					blocks.push({ type: "image", data, mimeType: mime });
++				else warn("attachment_missing");
++			} else if (block.type === "input_image") {
++				const url = text(block.image_url);
++				const match = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/=\r\n]+)$/u.exec(url);
++				if (match && match[2].length <= 28_000_000)
++					blocks.push({ type: "image", mimeType: match[1], data: match[2] });
++				else warn("attachment_missing");
++			} else if (block.type !== "tool_use" && block.type !== "tool_result" && block.type !== "thinking") {
++				warn("unsupported_content");
++			}
++		}
++		return blocks;
++	};
++	const assistant = (
++		blocks: (TextContent | ImageContent | ToolCall)[],
++		timestamp: unknown,
++		itemId: string,
++		usage?: unknown,
++	) => {
++		const supported = blocks.filter((b): b is TextContent | ToolCall => b.type !== "image");
++		if (!supported.length) return;
++		append(
++			{
++				...base(timestamp),
++				type: "message",
++				message: {
++					role: "assistant",
++					content: supported,
++					api: "imported",
++					provider: source,
++					model: "historical",
++					usage: structuredClone(EMPTY_USAGE),
++					stopReason: supported.some((b) => b.type === "toolCall") ? "toolUse" : "stop",
++					timestamp: Date.parse(time(timestamp)),
++				},
++			},
++			itemId,
++			usage,
++		);
++	};
++	const user = (blocks: (TextContent | ImageContent)[], timestamp: unknown, itemId: string) => {
++		if (!blocks.length) return;
++		if (!result.title)
++			result.title = blocks
++				.filter((b) => b.type === "text")
++				.map((b) => b.text)
++				.join(" ")
++				.slice(0, 120);
++		append(
++			{
++				...base(timestamp),
++				type: "message",
++				message: { role: "user", content: blocks, timestamp: Date.parse(time(timestamp)) },
++			},
++			itemId,
++		);
++	};
++	const calls = new Map<string, string>();
++	const tool = (id: string, name: string, args: unknown): ToolCall => {
++		if (!id || !name) throw new Error("Tool call is missing its ID or name");
++		let parsed: unknown = args;
++		if (typeof args === "string") {
++			try {
++				parsed = JSON.parse(args);
++			} catch {
++				parsed = { raw: args };
++				warn("tool_arguments_as_text");
++			}
++		}
++		calls.set(id, name);
++		return { type: "toolCall", id, name, arguments: record(parsed) };
++	};
++	const toolResult = (
++		id: string,
++		output: unknown,
++		failed: boolean | undefined,
++		timestamp: unknown,
++		itemId: string,
++	) => {
++		if (!id) throw new Error("Tool result is missing its call ID");
++		append(
++			{
++				...base(timestamp),
++				type: "message",
++				message: {
++					role: "toolResult",
++					toolCallId: id,
++					toolName: calls.get(id) ?? "unknown",
++					content: content(typeof output === "object" && !Array.isArray(output) ? JSON.stringify(output) : output),
++					isError: failed === true,
++					details: { importedStatus: failed === undefined ? "unknown" : failed ? "failed" : "completed" },
++					timestamp: Date.parse(time(timestamp)),
++				},
++			},
++			itemId,
++		);
++	};
++	const hasResponseUsers = records.some(
++		(r) => r.type === "response_item" && record(r.payload).type === "message" && record(r.payload).role === "user",
++	);
++	for (const r of records) {
++		const fallbackId = `record-${sequence++}`;
++		const p = record(r.payload);
++		const id =
++			text(source === "codex" ? p.id : r.uuid) ||
++			(source === "codex" && r.type === "response_item" && typeof p.call_id === "string"
++				? `${text(p.type)}:${p.call_id}`
++				: fallbackId);
++		if (source === "codex") {
++			if (r.type === "event_msg" && p.type === "thread_rolled_back") {
++				const n = p.num_turns;
++				if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0) throw new Error("Unsupported rollback");
++				for (let i = 0; i < n; i++) {
++					let index = result.entries.length - 1;
++					while (index >= 0) {
++						const entry = result.entries[index];
++						if (entry.type === "message" && entry.message.role === "user") break;
++						index--;
++					}
++					if (index < 0) throw new Error("Incomplete history for rollback");
++					result.entries.splice(index);
++				}
++				parentId = result.entries.at(-1)?.id ?? null;
++				warn("rolled_back_history");
++			} else if (r.type === "event_msg" && p.type === "user_message" && !hasResponseUsers) {
++				user(content(p.message), r.timestamp, id);
++			} else if (r.type === "response_item") {
++				if (p.type === "message") {
++					if (p.role === "user") {
++						const blocks = content(p.content);
++						// Codex may put host control envelopes in user-shaped records.
++						const safe = blocks.filter(
++							(b) =>
++								b.type !== "text" ||
++								!/^<(?:environment_context|permissions instructions|turn_aborted|request_id|turn_id|model)>/u.test(
++									b.text.trim(),
++								),
++						);
++						if (safe.length !== blocks.length) warn("source_instructions_excluded");
++						user(safe, r.timestamp, id);
++					} else if (p.role === "assistant") assistant(content(p.content), r.timestamp, id);
++					else warn("source_instructions_excluded");
++				} else if (p.type === "function_call" || p.type === "custom_tool_call") {
++					assistant([tool(text(p.call_id), text(p.name), p.arguments ?? { input: p.input })], r.timestamp, id);
++				} else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
++					toolResult(text(p.call_id), p.output, undefined, r.timestamp, id);
++				} else if (p.type === "reasoning") {
++					const summary = list(p.summary)
++						.map((s) => text(record(s).text))
++						.filter(Boolean);
++					if (summary.length) assistant([{ type: "text", text: summary.join("\n") }], r.timestamp, id);
++					if (p.encrypted_content) warn("encrypted_reasoning_excluded");
++				} else {
++					warn("unsupported_item");
++					assistant(
++						[{ type: "text", text: `[Historical ${text(p.type)}]\n${JSON.stringify(p)}` }],
++						r.timestamp,
++						id,
++					);
++				}
++			} else if (r.type === "token_usage_record") {
++				const usage = Object.fromEntries(
++					Object.entries(record(p.usage ?? p)).filter(
++						([, n]) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0,
++					),
++				);
++				if (Object.keys(usage).length)
++					append({ ...base(r.timestamp), type: "custom", customType: "stepcode.imported-usage", data: usage }, id);
++			} else if (r.type === "compacted") {
++				const retained: string[] = [];
++				const attachments: (TextContent | ImageContent)[][] = [];
++				for (const raw of list(p.replacement_history)) {
++					const message = record(raw);
++					if (message.type !== "message") continue;
++					if (!["user", "assistant"].includes(text(message.role))) {
++						warn("source_instructions_excluded");
++						continue;
++					}
++					const blocks = content(message.content);
++					const safe = blocks.filter(
++						(block) =>
++							block.type !== "text" ||
++							!/^<(?:environment_context|permissions instructions|turn_aborted|request_id|turn_id|model)>/u.test(
++								block.text.trim(),
++							),
++					);
++					if (safe.length !== blocks.length) warn("source_instructions_excluded");
++					retained.push(...safe.flatMap((block) => (block.type === "text" ? [block.text] : [])));
++					if (safe.some((block) => block.type === "image"))
++						attachments.push([
++							{
++								type: "text",
++								text: `[Historical retained ${text(message.role)} attachments; not a new user instruction]`,
++							},
++							...safe,
++						]);
++				}
++				const summary =
++					[...new Set([text(p.message), ...retained].filter(Boolean))].join("\n\n") ||
++					(attachments.length ? "[Source compaction with retained attachments]" : "");
++				if (!summary) throw new Error("Unsupported source compaction");
++				// Preserve the readable transcript; only change the native request view.
++				append({ ...base(r.timestamp), type: "compaction", summary, firstKeptEntryId: "", tokensBefore: 0 }, id);
++				for (const [index, blocks] of attachments.entries())
++					append(
++						{
++							...base(r.timestamp),
++							type: "custom_message",
++							customType: "stepcode.imported-compaction-attachments",
++							content: blocks,
++							display: true,
++						},
++						`${id}-attachments-${index}`,
++					);
++				warn("source_compaction");
++			} else if (
++				![
++					"session_meta",
++					"turn_context",
++					"event_msg",
++					"world_state",
++					"retained_context",
++					"token_usage_record",
++				].includes(text(r.type))
++			) {
++				throw new Error(`Unsupported Codex record: ${text(r.type)}`);
++			}
++		} else {
++			if (r.isCompactSummary === true || (r.type === "system" && r.subtype === "compact_boundary"))
++				warn("claude_compaction");
++			if (r.isSidechain === true) {
++				warn("child_history_excluded");
++				continue;
++			}
++			if (r.type === "summary" || r.type === "custom-title") {
++				const title = text(r.customTitle ?? r.summary);
++				if (title) result.title = title.slice(0, 120);
++			}
++			if (r.type !== "user" && r.type !== "assistant") continue;
++			if (activeClaudeIds && !activeClaudeIds.has(text(r.uuid))) continue;
++			const message = record(r.message);
++			if (r.type === "user") {
++				user(content(message.content), r.timestamp, id);
++				for (const [i, raw] of list(message.content).entries()) {
++					const block = record(raw);
++					if (block.type === "tool_result")
++						toolResult(
++							text(block.tool_use_id),
++							block.content,
++							typeof block.is_error === "boolean" ? block.is_error : undefined,
++							r.timestamp,
++							`${id}-tool-${i}`,
++						);
++				}
++			} else {
++				const blocks: (TextContent | ImageContent | ToolCall)[] = [];
++				for (const raw of list(message.content)) {
++					const block = record(raw);
++					if (block.type === "tool_use") blocks.push(tool(text(block.id), text(block.name), block.input));
++					else if (block.type === "thinking") {
++						if (text(block.thinking)) blocks.push({ type: "text", text: text(block.thinking) });
++					} else blocks.push(...content([block]));
++				}
++				assistant(blocks, r.timestamp, id, message.usage);
++			}
++		}
++	}
++	const answered = new Set(
++		result.entries.flatMap((e) =>
++			e.type === "message" && e.message.role === "toolResult" ? [e.message.toolCallId] : [],
++		),
++	);
++	for (const id of calls.keys()) if (!answered.has(id)) warn("tool_result_missing");
++	for (const e of result.entries) {
++		if (e.type === "message" && e.message.role === "toolResult" && !calls.has(e.message.toolCallId))
++			warn("tool_call_missing");
++	}
++	result.warnings = [...warnings].map(([code, count]): ImportWarning => ({ code, count }));
++	if (!result.entries.some((e) => e.type === "message" && e.message.role === "user"))
++		throw new Error("No supported user conversation found");
++	// Rebuild after rollback so no kept entry points to a removed node.
++	parentId = null;
++	for (const entry of result.entries) {
++		entry.parentId = parentId;
++		parentId = entry.id;
++	}
++	return result;
++}
+diff --git a/packages/coding-agent/src/core/session-import/service.ts b/packages/coding-agent/src/core/session-import/service.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9ce143eb8dae8ced14f717d55d0ff68cec647ad0
+--- /dev/null
++++ b/packages/coding-agent/src/core/session-import/service.ts
+@@ -0,0 +1,676 @@
++import { createHash, randomUUID } from "node:crypto";
++import {
++	link,
++	lstat,
++	mkdir,
++	open,
++	readdir,
++	readFile,
++	realpath,
++	rename,
++	stat,
++	unlink,
++	writeFile,
++} from "node:fs/promises";
++import { homedir } from "node:os";
++import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
++import { fileURLToPath } from "node:url";
++import type { FileEntry, SessionFilePersistedEvent } from "../session-manager.ts";
++import { parseForeignSession, record } from "./parsers.ts";
++import type {
++	ImportCandidate,
++	ImportDocument,
++	ImportJob,
++	ImportPreview,
++	ImportResult,
++	ImportSelection,
++	ImportSource,
++	ParsedImport,
++} from "./types.ts";
++
++const MAX_SOURCE_BYTES = 128 * 1024 * 1024;
++const MAX_CANDIDATES = 5000;
++const MAX_DEPTH = 16;
++const MAX_PREVIEW_BYTES = 256 * 1024 * 1024;
++const PREVIEW_TTL_MS = 15 * 60 * 1000;
++
++async function sourceAttachments(input: string, root: string): Promise<{ input: string; digest: string }> {
++	const fingerprints: string[] = [];
++	let total = 0;
++	const localImage = async (value: string): Promise<{ data: string; mime: string } | undefined> => {
++		if (!value || /^data:|^https?:/u.test(value)) return undefined;
++		try {
++			const path = await realpath(
++				value.startsWith("file:") ? fileURLToPath(value) : isAbsolute(value) ? value : join(root, value),
++			);
++			const rel = relative(root, path);
++			if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined;
++			const info = await stat(path);
++			if (!info.isFile() || info.size > 20 * 1024 * 1024 || total + info.size > 32 * 1024 * 1024) return undefined;
++			const data = await readFile(path);
++			const after = await stat(path);
++			if (info.size !== after.size || info.mtimeMs !== after.mtimeMs)
++				throw new SessionImportError("Attachment changed; preview again", 409);
++			const mime = data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
++				? "image/png"
++				: data[0] === 255 && data[1] === 216
++					? "image/jpeg"
++					: data.subarray(0, 3).toString() === "GIF"
++						? "image/gif"
++						: data.subarray(0, 4).toString() === "RIFF" && data.subarray(8, 12).toString() === "WEBP"
++							? "image/webp"
++							: undefined;
++			if (!mime) return undefined;
++			total += data.length;
++			fingerprints.push(`${rel}:${createHash("sha256").update(data).digest("hex")}`);
++			return { data: data.toString("base64"), mime };
++		} catch (error) {
++			if (error instanceof SessionImportError) throw error;
++			if (["ENOENT", "EACCES", "EPERM", "EINVAL"].includes(String(record(error).code))) return undefined;
++			throw error;
++		}
++	};
++	const visit = async (value: unknown, depth: number): Promise<void> => {
++		if (depth > 32) throw new SessionImportError("Source content nesting limit exceeded");
++		if (Array.isArray(value)) {
++			for (const child of value) await visit(child, depth + 1);
++			return;
++		}
++		const r = record(value);
++		if (r.type === "input_image" && typeof r.image_url === "string" && !r.image_url.startsWith("data:")) {
++			const image = await localImage(r.image_url);
++			if (image) r.image_url = `data:${image.mime};base64,${image.data}`;
++		}
++		if (r.type === "image" && record(r.source).type === "file" && typeof record(r.source).path === "string") {
++			const image = await localImage(String(record(r.source).path));
++			if (image) r.source = { type: "base64", media_type: image.mime, data: image.data };
++		}
++		for (const child of Object.values(r)) if (child && typeof child === "object") await visit(child, depth + 1);
++	};
++	const lines: string[] = [];
++	for (const line of input.split(/\r?\n/u)) {
++		if (!line.trim()) continue;
++		let value: unknown;
++		try {
++			value = JSON.parse(line);
++		} catch {
++			throw new SessionImportError("Invalid JSONL snapshot; wait for the source to finish writing");
++		}
++		await visit(value, 0);
++		lines.push(JSON.stringify(value));
++	}
++	return { input: lines.join("\n"), digest: fingerprints.join("\n") };
++}
++
++interface CandidateFile {
++	candidate: ImportCandidate;
++	path: string;
++	root: string;
++}
++
++interface ReviewedSnapshot {
++	data: string;
++	bytes: number;
++	expires: number;
++	users: number;
++}
++
++export interface ImportScanOptions {
++	codexRoot?: string;
++	claudeRoot?: string;
++	includeArchived?: boolean;
++}
++
++export interface ImportScanResult {
++	candidates: ImportCandidate[];
++	errors: { source: ImportSource; message: string }[];
++}
++
++export class SessionImportError extends Error {
++	readonly status: number;
++	constructor(message: string, status = 400) {
++		super(message);
++		this.status = status;
++	}
++}
++
++/** A local, offline migration service. Source files are opened read-only, never as live sessions. */
++export class SessionImportService {
++	private readonly agentDir: string;
++	private readonly sessionRoot: string;
++	private readonly onPersisted?: (event: SessionFilePersistedEvent) => void;
++	private readonly candidates = new Map<string, CandidateFile>();
++	private readonly jobs = new Map<string, ImportJob>();
++	private readonly running = new Map<string, Promise<void>>();
++	private readonly cancelled = new Set<string>();
++	private readonly previews = new Map<string, ReviewedSnapshot>();
++	private queue: Promise<void> = Promise.resolve();
++	private closed = false;
++
++	constructor(options: {
++		agentDir: string;
++		sessionRoot?: string;
++		onPersisted?: (event: SessionFilePersistedEvent) => void;
++	}) {
++		this.agentDir = resolve(options.agentDir);
++		this.sessionRoot = resolve(options.sessionRoot ?? join(this.agentDir, "sessions"));
++		this.onPersisted = options.onPersisted;
++	}
++
++	async scan(options: ImportScanOptions = {}): Promise<ImportScanResult> {
++		if (this.closed) throw new SessionImportError("Importer is closed", 503);
++		const result: ImportScanResult = { candidates: [], errors: [] };
++		const roots: [ImportSource, string][] = [
++			["codex", options.codexRoot?.trim() || process.env.CODEX_HOME?.trim() || join(homedir(), ".codex")],
++			[
++				"claude-code",
++				options.claudeRoot?.trim() ||
++					join(process.env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude"), "projects"),
++			],
++		];
++		// Replace capabilities only after the scan finishes. In-flight previews keep their own file reference.
++		const candidates = new Map<string, CandidateFile>();
++		for (const [source, input] of roots) {
++			try {
++				const root = await realpath(input);
++				if (root.split(sep).includes("archived_sessions") && !options.includeArchived) continue;
++				const rootEntries = await readdir(root, { withFileTypes: true });
++				const codexHome =
++					source === "codex" &&
++					rootEntries.some(
++						(entry) =>
++							(entry.isDirectory() && ["sessions", "archived_sessions"].includes(entry.name)) ||
++							entry.name === "session_index.jsonl",
++					);
++				const titles = new Map<string, string>();
++				if (source === "codex") {
++					const index = join(root, "session_index.jsonl");
++					try {
++						const info = await stat(index);
++						if (info.size > 32 * 1024 * 1024) throw new Error("Source title index exceeds 32 MiB");
++						for (const line of (await readFile(index, "utf8")).split(/\r?\n/u)) {
++							if (!line.trim()) continue;
++							const entry = record(JSON.parse(line));
++							if (typeof entry.id === "string" && typeof entry.thread_name === "string")
++								titles.set(entry.id, entry.thread_name.slice(0, 120));
++						}
++					} catch (error) {
++						if (record(error).code !== "ENOENT")
++							result.errors.push({
++								source,
++								message: `Title index: ${error instanceof Error ? error.message : String(error)}`,
++							});
++					}
++				}
++				const walk = async (dir: string, depth: number): Promise<void> => {
++					if (depth > MAX_DEPTH) throw new Error("Source directory depth limit exceeded");
++					const files = await readdir(dir, { withFileTypes: true });
++					for (const file of files) {
++						if (this.closed) throw new Error("Importer is closed");
++						if (file.isSymbolicLink()) continue;
++						const archived = file.name === "archived_sessions";
++						if (archived && !options.includeArchived) continue;
++						if (
++							["node_modules", ".git", "attachments", "worktrees", "backups", "backups_state"].includes(
++								file.name,
++							)
++						)
++							continue;
++						const path = join(dir, file.name);
++						if (file.isDirectory()) {
++							if (
++								source === "codex" &&
++								codexHome &&
++								dir === root &&
++								!["sessions", "archived_sessions"].includes(file.name)
++							)
++								continue;
++							await walk(path, depth + 1);
++						} else if (
++							file.isFile() &&
++							file.name.endsWith(".jsonl") &&
++							(source !== "codex" || file.name.startsWith("rollout-"))
++						) {
++							if (candidates.size >= MAX_CANDIDATES)
++								throw new Error("Session limit exceeded; select a narrower source directory");
++							try {
++								const candidate = await this.discover(source, path, root);
++								if (!candidate || (candidate.archived && !options.includeArchived)) continue;
++								candidate.title = titles.get(candidate.sessionId) || candidate.title;
++								candidates.set(candidate.id, { candidate, path, root });
++								result.candidates.push(candidate);
++							} catch (error) {
++								result.errors.push({
++									source,
++									message: `${file.name}: ${error instanceof Error ? error.message : String(error)}`,
++								});
++							}
++						}
++					}
++				};
++				await walk(root, 0);
++			} catch (error) {
++				// An absent optional client is normal; permission and parse errors must remain visible.
++				if (record(error).code !== "ENOENT")
++					result.errors.push({ source, message: error instanceof Error ? error.message : String(error) });
++			}
++		}
++		this.candidates.clear();
++		for (const [id, candidate] of candidates) this.candidates.set(id, candidate);
++		result.candidates.sort((a, b) => b.modified.localeCompare(a.modified));
++		return result;
++	}
++
++	private async discover(source: ImportSource, path: string, root: string): Promise<ImportCandidate | undefined> {
++		const handle = await open(path, "r");
++		try {
++			const info = await handle.stat();
++			if (!info.isFile() || info.size > MAX_SOURCE_BYTES)
++				throw new Error("Source is not a regular file or exceeds 128 MiB");
++			let metadata: Record<string, unknown> | undefined;
++			let pending: Buffer[] = [];
++			const inspect = (bytes: Buffer): void => {
++				const line = bytes.toString("utf8");
++				if (!line.trim()) return;
++				const r = record(JSON.parse(line));
++				if (source === "codex" && r.type === "session_meta") {
++					metadata = record(r.payload);
++				} else if (source === "claude-code" && typeof r.sessionId === "string") {
++					metadata = r;
++				}
++			};
++			// Metadata can share a large record with message/image content. Decode only complete records.
++			let position = 0;
++			while (!metadata && position < info.size) {
++				const buffer = Buffer.alloc(Math.min(info.size - position, 64 * 1024));
++				const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
++				if (!bytesRead) break;
++				position += bytesRead;
++				const chunk = buffer.subarray(0, bytesRead);
++				let start = 0;
++				for (let end = chunk.indexOf(10); end !== -1; end = chunk.indexOf(10, start)) {
++					pending.push(chunk.subarray(start, end));
++					inspect(Buffer.concat(pending));
++					pending = [];
++					start = end + 1;
++					if (metadata) break;
++				}
++				if (!metadata && start < chunk.length) pending.push(chunk.subarray(start));
++			}
++			if (!metadata && pending.length) inspect(Buffer.concat(pending));
++			if (!metadata) throw new Error("Session metadata is missing from the bounded header");
++			if (
++				metadata.isSidechain === true ||
++				metadata.parentAgentId ||
++				record(metadata.source).subagent ||
++				record(metadata.thread_source).subagent
++			)
++				return undefined;
++			const sessionId = source === "codex" ? metadata.id : metadata.sessionId;
++			if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid source session ID");
++			const cwd = typeof metadata.cwd === "string" ? metadata.cwd : "";
++			const archived =
++				relative(root, path).split(sep).includes("archived_sessions") ||
++				root.split(sep).includes("archived_sessions") ||
++				metadata.archived === true;
++			return {
++				id: randomUUID(),
++				source,
++				sessionId,
++				title:
++					typeof metadata.customTitle === "string"
++						? metadata.customTitle.slice(0, 120)
++						: `${basename(cwd) || source} · ${sessionId.slice(0, 8)}`,
++				cwd,
++				modified: info.mtime.toISOString(),
++				archived,
++				version:
++					typeof metadata.cli_version === "string"
++						? metadata.cli_version
++						: typeof metadata.version === "string"
++							? metadata.version
++							: "unknown",
++			};
++		} finally {
++			await handle.close();
++		}
++	}
++
++	private async snapshot(
++		id: string,
++		file = this.candidates.get(id),
++	): Promise<{ parsed: ParsedImport; preview: ImportPreview }> {
++		if (!file) throw new SessionImportError("Candidate expired; scan again", 409);
++		const path = await realpath(file.path);
++		const rel = relative(file.root, path);
++		if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || (await lstat(file.path)).isSymbolicLink())
++			throw new SessionImportError("Source escaped its selected directory");
++		const handle = await open(path, "r");
++		let input: string;
++		try {
++			const before = await handle.stat();
++			if (!before.isFile() || before.size > MAX_SOURCE_BYTES) throw new SessionImportError("Source exceeds 128 MiB");
++			input = await handle.readFile("utf8");
++			const after = await handle.stat();
++			const current = await stat(path);
++			if (
++				before.size !== after.size ||
++				before.mtimeMs !== after.mtimeMs ||
++				before.ino !== current.ino ||
++				current.size !== after.size ||
++				current.mtimeMs !== after.mtimeMs
++			)
++				throw new SessionImportError("Source changed while reading; preview again", 409);
++		} finally {
++			await handle.close();
++		}
++		const attachments = await sourceAttachments(input, file.root);
++		const parsed = parseForeignSession(file.candidate.source, attachments.input);
++		if (parsed.child || parsed.sessionId !== file.candidate.sessionId)
++			throw new SessionImportError("Source identity changed", 409);
++		if (parsed.archived && !file.candidate.archived)
++			throw new SessionImportError("Source was archived; scan again", 409);
++		const messages = parsed.entries.filter((e) => e.type === "message");
++		return {
++			parsed,
++			preview: {
++				...file.candidate,
++				title: file.candidate.title.includes(` · ${file.candidate.sessionId.slice(0, 8)}`)
++					? parsed.title || file.candidate.title
++					: file.candidate.title,
++				fingerprint: createHash("sha256")
++					.update(input)
++					.update(attachments.digest ? `\0${attachments.digest}` : "")
++					.digest("hex"),
++				messageCount: messages.length,
++				toolCount: messages.reduce(
++					(n, e) =>
++						n +
++						(e.message.role === "assistant" ? e.message.content.filter((b) => b.type === "toolCall").length : 0),
++					0,
++				),
++				warnings: parsed.warnings,
++				excerpt: messages
++					.flatMap((e) => {
++						const m = e.message;
++						if (!("content" in m)) return [];
++						const body =
++							typeof m.content === "string"
++								? m.content
++								: m.content
++										.filter((b) => b.type === "text")
++										.map((b) => b.text)
++										.join("\n");
++						return body ? [`${m.role}: ${body}`] : [];
++					})
++					.join("\n\n")
++					.slice(0, 12000),
++			},
++		};
++	}
++
++	async preview(id: string): Promise<ImportPreview> {
++		if (this.closed) throw new SessionImportError("Importer is closed", 503);
++		const { parsed, preview } = await this.snapshot(id);
++		if (this.closed) throw new SessionImportError("Importer is closed", 503);
++		const key = `${id}:${preview.fingerprint}`;
++		const existing = this.previews.get(key);
++		if (existing) {
++			existing.expires = Date.now() + PREVIEW_TTL_MS;
++			return preview;
++		}
++		const document: ImportDocument = { preview, entries: parsed.entries };
++		const data = JSON.stringify(document);
++		const bytes = data.length * 2;
++		if (bytes > MAX_PREVIEW_BYTES) throw new SessionImportError("Preview snapshot exceeds cache limit", 413);
++		this.prunePreviews();
++		let used = [...this.previews.values()].reduce((sum, entry) => sum + entry.bytes, 0);
++		for (const [oldKey, entry] of this.previews) {
++			if (used + bytes <= MAX_PREVIEW_BYTES) break;
++			if (entry.users) continue;
++			this.previews.delete(oldKey);
++			used -= entry.bytes;
++		}
++		if (used + bytes > MAX_PREVIEW_BYTES)
++			throw new SessionImportError("Preview cache is busy; wait for current imports to finish", 409);
++		this.previews.set(key, { data, bytes, expires: Date.now() + PREVIEW_TTL_MS, users: 0 });
++		return preview;
++	}
++
++	private prunePreviews(): void {
++		for (const [key, entry] of this.previews) {
++			if (!entry.users && entry.expires <= Date.now()) this.previews.delete(key);
++		}
++	}
++
++	private async saveJob(job: ImportJob): Promise<void> {
++		const dir = join(this.agentDir, "session-imports");
++		await mkdir(dir, { recursive: true });
++		const path = join(dir, `${job.id}.json`);
++		const temporary = `${path}.${randomUUID()}.tmp`;
++		try {
++			await writeFile(temporary, JSON.stringify(job), { flag: "wx", mode: 0o600 });
++			await rename(temporary, path);
++		} finally {
++			await unlink(temporary).catch((error: unknown) => {
++				// A successful rename has already removed the temporary directory entry.
++				if (record(error).code !== "ENOENT") throw error;
++			});
++		}
++	}
++
++	async listJobs(): Promise<ImportJob[]> {
++		const dir = join(this.agentDir, "session-imports");
++		let names: string[];
++		try {
++			names = await readdir(dir);
++		} catch (error) {
++			if (record(error).code === "ENOENT") return [];
++			throw error;
++		}
++		const jobs: ImportJob[] = [];
++		for (const name of names.filter((n) => /^[a-f0-9-]{36}\.json$/u.test(n))) {
++			const id = name.slice(0, -5);
++			const job = await this.getJob(id);
++			jobs.push(job);
++		}
++		return jobs;
++	}
++
++	async getJob(id: string): Promise<ImportJob> {
++		if (!/^[a-f0-9-]{36}$/u.test(id)) throw new SessionImportError("Invalid job ID");
++		const active = this.jobs.get(id);
++		if (active) return structuredClone(active);
++		let value: unknown;
++		try {
++			value = JSON.parse(await readFile(join(this.agentDir, "session-imports", `${id}.json`), "utf8"));
++		} catch (error) {
++			if (record(error).code === "ENOENT") throw new SessionImportError("Job not found", 404);
++			throw error;
++		}
++		const r = record(value);
++		if (
++			r.id !== id ||
++			!["running", "completed", "cancelled", "interrupted"].includes(String(r.status)) ||
++			!Number.isSafeInteger(r.total) ||
++			Number(r.total) < 1 ||
++			Number(r.total) > 100 ||
++			!Array.isArray(r.results)
++		)
++			throw new SessionImportError("Invalid persisted import job", 500);
++		// Only this service owns live jobs; a previous host's unfinished batch cannot still be running.
++		for (const value of r.results) {
++			const result = record(value);
++			if (
++				typeof result.candidateId !== "string" ||
++				!["imported", "skipped", "failed"].includes(String(result.status)) ||
++				(result.sessionId !== undefined && typeof result.sessionId !== "string") ||
++				(result.path !== undefined && typeof result.path !== "string") ||
++				(result.error !== undefined && typeof result.error !== "string") ||
++				(result.warning !== undefined && typeof result.warning !== "string") ||
++				(result.title !== undefined && typeof result.title !== "string")
++			)
++				throw new SessionImportError("Invalid persisted import result", 500);
++		}
++		if (typeof r.createdAt !== "string" || !Number.isFinite(Date.parse(r.createdAt)))
++			throw new SessionImportError("Invalid persisted import date", 500);
++		// The envelope and every result were validated at this persistence boundary.
++		const job = value as ImportJob;
++		if (job.status === "running") {
++			job.status = "interrupted";
++			await this.saveJob(job);
++		}
++		return job;
++	}
++
++	async start(selections: ImportSelection[]): Promise<ImportJob> {
++		if (this.closed) throw new SessionImportError("Importer is closed", 503);
++		if (!selections.length || selections.length > 100)
++			throw new SessionImportError("Select between 1 and 100 sessions");
++		this.prunePreviews();
++		const submitted = selections.map((selection) => {
++			const file = this.candidates.get(selection.candidateId);
++			if (!file || !/^[a-f0-9]{64}$/u.test(selection.fingerprint) || !isAbsolute(selection.cwd))
++				throw new SessionImportError("Invalid selection; preview and choose an absolute project directory");
++			const snapshot = this.previews.get(`${selection.candidateId}:${selection.fingerprint}`);
++			if (!snapshot || snapshot.expires <= Date.now())
++				throw new SessionImportError("Preview expired; preview the selected session again", 409);
++			return { selection: { ...selection }, file, snapshot };
++		});
++		const job: ImportJob = {
++			id: randomUUID(),
++			createdAt: new Date().toISOString(),
++			status: "running",
++			total: selections.length,
++			results: [],
++		};
++		// Pin before the first await so scans, eviction and other jobs cannot replace reviewed content.
++		for (const { snapshot } of submitted) snapshot.users++;
++		try {
++			await this.saveJob(job);
++		} catch (error) {
++			for (const { snapshot } of submitted) snapshot.users--;
++			throw error;
++		}
++		this.jobs.set(job.id, job);
++		const run = this.queue
++			.then(async () => {
++				for (const { selection, file, snapshot } of submitted) {
++					if (this.cancelled.has(job.id) || this.closed) break;
++					let result: ImportResult;
++					try {
++						result = await this.commit(selection, snapshot);
++					} catch (error) {
++						result = {
++							candidateId: selection.candidateId,
++							title: file.candidate.title,
++							status: "failed",
++							error: error instanceof Error ? error.message : String(error),
++						};
++					}
++					job.results.push(result);
++					await this.saveJob(job);
++				}
++				job.status = this.cancelled.has(job.id) || this.closed ? "cancelled" : "completed";
++				await this.saveJob(job);
++			})
++			.catch(async (error: unknown) => {
++				job.status = "interrupted";
++				job.results.push({
++					candidateId: "",
++					status: "failed",
++					error: `Import journal failed: ${error instanceof Error ? error.message : String(error)}`,
++				});
++				// Keep the in-memory terminal failure available even if the disk journal is unavailable.
++			})
++			.finally(() => {
++				for (const { snapshot } of submitted) snapshot.users--;
++				this.prunePreviews();
++				this.running.delete(job.id);
++				this.cancelled.delete(job.id);
++			});
++		this.queue = run;
++		this.running.set(job.id, run);
++		return structuredClone(job);
++	}
++
++	async cancel(id: string): Promise<ImportJob> {
++		const job = await this.getJob(id);
++		if (job.status === "running") this.cancelled.add(id);
++		return job;
++	}
++
++	async close(): Promise<void> {
++		this.closed = true;
++		await this.queue;
++		this.previews.clear();
++	}
++
++	private async commit(selection: ImportSelection, snapshot: ReviewedSnapshot): Promise<ImportResult> {
++		// This immutable document was serialized by preview(), not supplied by the client or source.
++		const { entries: reviewedEntries, preview } = JSON.parse(snapshot.data) as ImportDocument;
++		const cwd = await realpath(selection.cwd);
++		if (!(await stat(cwd)).isDirectory()) throw new SessionImportError("Project directory does not exist");
++		const hash = createHash("sha256")
++			.update(`${preview.source}\0${preview.sessionId}\0${preview.fingerprint}`)
++			.digest("hex");
++		const id = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
++		const dir = join(this.sessionRoot, "imported");
++		await mkdir(dir, { recursive: true });
++		const path = join(dir, `${id}.jsonl`);
++		const temporary = join(dir, `.${id}.${randomUUID()}.tmp`);
++		const timestamp = new Date().toISOString();
++		const last = reviewedEntries.at(-1);
++		const leaf = last && "id" in last ? last.id : null;
++		const entries: FileEntry[] = [
++			{ type: "session", version: 3, id, timestamp, cwd },
++			...reviewedEntries,
++			{
++				type: "custom",
++				id: randomUUID().slice(0, 8),
++				parentId: leaf,
++				timestamp,
++				customType: "stepcode.session-import",
++				data: {
++					source: preview.source,
++					sourceSessionId: preview.sessionId,
++					fingerprint: preview.fingerprint,
++					version: preview.version,
++					sourceCwd: preview.cwd,
++					warnings: preview.warnings,
++				},
++			},
++		];
++		const metadataId = entries.at(-1);
++		entries.push({
++			type: "session_info",
++			id: randomUUID().slice(0, 8),
++			parentId: metadataId && "parentId" in metadataId ? metadataId.id : leaf,
++			timestamp,
++			name: `[${preview.source}] ${preview.title}`,
++		});
++		const handle = await open(temporary, "wx", 0o600);
++		let status: "imported" | "skipped" = "imported";
++		try {
++			await handle.writeFile(`${entries.map((e) => JSON.stringify(e)).join("\n")}\n`);
++			await handle.sync();
++			await handle.close();
++			// A hard-link publication is atomic and, unlike rename, never overwrites another importer.
++			await link(temporary, path);
++		} catch (error) {
++			if (record(error).code === "EEXIST") status = "skipped";
++			else throw error;
++		} finally {
++			await handle.close();
++			await unlink(temporary);
++		}
++		let warning: string | undefined;
++		try {
++			this.onPersisted?.({ path, kind: "append" });
++		} catch (error) {
++			// Publication is already durable. An index failure must not misreport it as a failed import.
++			warning = `Session saved; search index notification failed: ${error instanceof Error ? error.message : String(error)}`;
++		}
++		return { candidateId: selection.candidateId, title: preview.title, status, sessionId: id, path, warning };
++	}
++}
+diff --git a/packages/coding-agent/src/core/session-import/types.ts b/packages/coding-agent/src/core/session-import/types.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7b8c7f68a9c3e02fcc2aa73aac4e847486c79ffa
+--- /dev/null
++++ b/packages/coding-agent/src/core/session-import/types.ts
+@@ -0,0 +1,84 @@
++import type { FileEntry, SessionEntry } from "../session-manager.ts";
++
++export type ImportSource = "codex" | "claude-code";
++
++export interface ImportProvenance {
++	source: ImportSource;
++	sessionId: string;
++	itemId: string;
++	historicalUsage?: Record<string, number>;
++}
++
++export interface ImportCandidate {
++	id: string;
++	source: ImportSource;
++	sessionId: string;
++	title: string;
++	cwd: string;
++	modified: string;
++	archived: boolean;
++	version: string;
++}
++
++export interface ImportWarning {
++	code: string;
++	count: number;
++}
++
++export interface ImportPreview extends ImportCandidate {
++	fingerprint: string;
++	messageCount: number;
++	toolCount: number;
++	warnings: ImportWarning[];
++	excerpt: string;
++}
++
++export interface ParsedImport {
++	sessionId: string;
++	cwd: string;
++	title: string;
++	version: string;
++	archived: boolean;
++	child: boolean;
++	entries: SessionEntry[];
++	warnings: ImportWarning[];
++}
++
++export interface ImportSelection {
++	candidateId: string;
++	fingerprint: string;
++	cwd: string;
++}
++
++export interface ImportResult {
++	candidateId: string;
++	title?: string;
++	status: "imported" | "skipped" | "failed";
++	sessionId?: string;
++	path?: string;
++	error?: string;
++	warning?: string;
++}
++
++export interface ImportJob {
++	id: string;
++	createdAt: string;
++	status: "running" | "completed" | "cancelled" | "interrupted";
++	total: number;
++	results: ImportResult[];
++}
++
++export interface ImportDocument {
++	preview: ImportPreview;
++	entries: FileEntry[];
++}
++
++export function isImportProvenance(value: unknown): value is ImportProvenance {
++	if (!value || typeof value !== "object") return false;
++	const record = value as Record<string, unknown>;
++	return (
++		(record.source === "codex" || record.source === "claude-code") &&
++		typeof record.sessionId === "string" &&
++		typeof record.itemId === "string"
++	);
++}
+diff --git a/packages/coding-agent/src/core/session-manager.ts b/packages/coding-agent/src/core/session-manager.ts
+index 50a626f0d720b4b00442ef3054b330cb161b0ed0..cdaa288cc271c40e713ec2b412445fa8c2d33a76 100644
+--- a/packages/coding-agent/src/core/session-manager.ts
++++ b/packages/coding-agent/src/core/session-manager.ts
+@@ -27,6 +27,7 @@ import {
+ 	createCompactionSummaryMessage,
+ 	createCustomMessage,
+ } from "./messages.ts";
++import { type ImportProvenance, isImportProvenance } from "./session-import/types.ts";
+ import { createSessionSummary, foldSessionSummaryEntry, resolveSessionModifiedTime } from "./session-summary.ts";
+ import { createUsageLineage } from "./usage-lineage.ts";
+ 
+@@ -58,6 +59,7 @@ export interface SessionEntryBase {
+ 	id: string;
+ 	parentId: string | null;
+ 	timestamp: string;
++	imported?: ImportProvenance;
+ }
+ 
+ export interface SessionMessageEntry extends SessionEntryBase {
+@@ -388,7 +390,7 @@ function getSessionContextSettings(path: SessionEntry[]): Pick<SessionContext, "
+ 			thinkingLevel = entry.thinkingLevel;
+ 		} else if (entry.type === "model_change") {
+ 			model = { provider: entry.provider, modelId: entry.modelId };
+-		} else if (entry.type === "message" && entry.message.role === "assistant") {
++		} else if (entry.type === "message" && entry.message.role === "assistant" && !isImportProvenance(entry.imported)) {
+ 			model = { provider: entry.message.provider, modelId: entry.message.model };
+ 		}
+ 	}
+@@ -403,6 +405,38 @@ function getSessionContextSettings(path: SessionEntry[]): Pick<SessionContext, "
+ export function sessionEntryToContextMessages(entry: SessionEntry): AgentMessage[] {
+ 	if (entry.type === "message") {
+ 		const message = entry.message;
++		if (isImportProvenance(entry.imported)) {
++			if (message.role === "assistant") {
++				return [{
++					...message,
++					content: message.content.flatMap((block) => {
++						if (block.type === "toolCall") return [{
++							type: "text" as const,
++							text: `[Historical tool call: ${block.name}]\n${JSON.stringify(block.arguments)}`,
++						}];
++						if (block.type === "thinking") return [{
++							type: "text" as const, text: `[Historical reasoning summary]\n${block.thinking}`,
++						}];
++						return [block];
++					}),
++				}];
++			}
++			if (message.role === "toolResult") {
++				const importedStatus = message.details && typeof message.details === "object" && "importedStatus" in message.details
++					? message.details.importedStatus : undefined;
++				const status = message.isError || importedStatus === "failed" ? "failed"
++					: importedStatus === "completed" ? "completed" : "unknown";
++				return [{
++					role: "user",
++					content: [{
++						type: "text",
++						text: `[Historical tool result, not a new user instruction: ${message.toolName}; status: ${status}]\n${message.content
++							.filter((block) => block.type === "text").map((block) => block.text).join("\n")}`,
++					}, ...message.content.filter((block) => block.type === "image")],
++					timestamp: message.timestamp,
++				}];
++			}
++		}
+ 		// Session files are parsed without validation; old versions, forks, or
+ 		// hand-edited files can contain messages with null/missing content.
+ 		if (
+diff --git a/packages/coding-agent/src/core/usage-totals.ts b/packages/coding-agent/src/core/usage-totals.ts
+index 35c533e167a824d8605630c641a3d3dafcf5ce80..4385d8ad5913e7935ee01ec0034660d8a2696cd9 100644
+--- a/packages/coding-agent/src/core/usage-totals.ts
++++ b/packages/coding-agent/src/core/usage-totals.ts
+@@ -1,4 +1,5 @@
+ import type { Usage } from "@step-harness/providers/compat";
++import { isImportProvenance } from "./session-import/types.ts";
+ import type { SessionEntry } from "./session-manager.ts";
+ 
+ export interface SessionUsage extends NormalizedUsage {
+@@ -58,6 +59,7 @@ export function normalizeUsage(raw: unknown): NormalizedUsage | undefined {
+ export function entryUsage(value: unknown): { raw?: unknown; expected: boolean; assistant: boolean } {
+ 	if (!value || typeof value !== "object") return { expected: false, assistant: false };
+ 	const entry = value as Record<string, unknown>;
++	if (isImportProvenance(entry.imported)) return { expected: false, assistant: false };
+ 	const message = entry.message as Record<string, unknown> | undefined;
+ 	if (entry.type === "message" && message?.role === "assistant")
+ 		return { raw: message.usage, expected: true, assistant: true };
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index d4c762cecf7cfeceaace7076fae61cb349b097aa..5415cdee67827970f2abfc939572295dbf61e7fa 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -889,3 +889,5 @@ export { loadAllHighlightLanguages } from "./utils/syntax-highlight.ts";
+ export { stripBom } from "./utils/text.ts";
+ export { formatElapsedTime } from "./utils/time.ts";
+ export { ensureTool, type ToolStatus } from "./utils/tools-manager.ts";
++export { SessionImportService, SessionImportError } from "./core/session-import/service.ts";
++export type { ImportCandidate, ImportPreview, ImportSelection, ImportResult, ImportJob } from "./core/session-import/types.ts";
+diff --git a/packages/coding-agent/test/session-import.test.ts b/packages/coding-agent/test/session-import.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4ab261b29664b45addde1fde7a2747d6168c39b7
+--- /dev/null
++++ b/packages/coding-agent/test/session-import.test.ts
+@@ -0,0 +1,789 @@
++import { createHash } from "node:crypto";
++import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { fauxAssistantMessage, fauxToolCall } from "@step-harness/providers";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { parseForeignSession } from "../src/core/session-import/parsers.ts";
++import { SessionImportService } from "../src/core/session-import/service.ts";
++import { buildSessionContext, SessionManager } from "../src/core/session-manager.ts";
++import { createWriteTool } from "../src/core/tools/write.ts";
++import { collectSessionUsage } from "../src/core/usage-totals.ts";
++import { createHarness } from "./suite/harness.ts";
++
++const timestamp = "2026-10-22T00:00:00.000Z";
++const jsonl = (records: unknown[]) => `${records.map((r) => JSON.stringify(r)).join("\n")}\n`;
++const meta = (cwd = "/project", id = "source-1") => ({
++	type: "session_meta",
++	timestamp,
++	payload: { id, cwd, cli_version: "0.163.0-alpha.11", history_mode: "paginated" },
++});
++const item = (payload: unknown) => ({ type: "response_item", timestamp, payload });
++const user = (value: string, id?: string) =>
++	item({ type: "message", role: "user", id, content: [{ type: "input_text", text: value }] });
++const reply = (value: string) =>
++	item({ type: "message", role: "assistant", content: [{ type: "output_text", text: value }] });
++
++const directories: string[] = [];
++afterEach(async () => {
++	for (const dir of directories.splice(0)) await rm(dir, { recursive: true, force: true });
++});
++
++async function fixture() {
++	const root = await mkdtemp(join(tmpdir(), "step-session-import-"));
++	directories.push(root);
++	const cwd = join(root, "project");
++	const codexRoot = join(root, "codex");
++	const claudeRoot = join(root, "claude");
++	const agentDir = join(root, "target", "agent");
++	await mkdir(cwd, { recursive: true });
++	await mkdir(join(codexRoot, "sessions"), { recursive: true });
++	await mkdir(claudeRoot);
++	const source = join(codexRoot, "sessions", "rollout-one.jsonl");
++	await writeFile(source, jsonl([meta(cwd), user("Keep migration facts"), reply("Confirmed")]));
++	const events: string[] = [];
++	const service = new SessionImportService({ agentDir, onPersisted: (event) => events.push(event.path) });
++	return { root, cwd, codexRoot, claudeRoot, agentDir, source, service, events };
++}
++
++async function finish(service: SessionImportService, id: string) {
++	for (let i = 0; i < 100; i++) {
++		const job = await service.getJob(id);
++		if (job.status !== "running") return job;
++		await new Promise((resolve) => setTimeout(resolve, 10));
++	}
++	throw new Error("Import did not settle");
++}
++
++describe("foreign adapters", () => {
++	it("deduplicates record identities, not legitimate repeated text or event mirrors", () => {
++		const parsed = parseForeignSession(
++			"codex",
++			jsonl([
++				meta(),
++				{ type: "event_msg", timestamp, payload: { type: "user_message", message: "again" } },
++				user("again", "one"),
++				reply("yes"),
++				user("again", "two"),
++				user("again", "two"),
++			]),
++		);
++		expect(parsed.entries.filter((e) => e.type === "message" && e.message.role === "user")).toHaveLength(2);
++	});
++
++	it("deduplicates tool protocol identities even when source item IDs are absent", () => {
++		const call = item({ type: "function_call", call_id: "stable-call", name: "Read", arguments: "{}" });
++		const output = item({ type: "function_call_output", call_id: "stable-call", output: "evidence" });
++		const parsed = parseForeignSession("codex", jsonl([meta(), user("inspect"), call, output, call, output]));
++		expect(parsed.entries.filter((e) => e.type === "message" && e.message.role === "assistant")).toHaveLength(1);
++		expect(parsed.entries.filter((e) => e.type === "message" && e.message.role === "toolResult")).toHaveLength(1);
++	});
++
++	it("keeps independent tool calls and results but never restores their execution protocol or usage", () => {
++		const parsed = parseForeignSession(
++			"codex",
++			jsonl([
++				meta(),
++				user("inspect"),
++				item({ type: "function_call", call_id: "call-1", name: "exec_command", arguments: '{"cmd":"dir"}' }),
++				item({
++					type: "function_call_output",
++					call_id: "call-1",
++					output: [
++						{ type: "text", text: "recorded output" },
++						{ type: "input_image", image_url: "data:image/png;base64,aW1hZ2U=" },
++					],
++				}),
++				item({ type: "message", role: "developer", content: [{ type: "input_text", text: "old controls" }] }),
++			]),
++		);
++		const context = buildSessionContext(parsed.entries);
++		expect(context.model).toBeNull();
++		expect(JSON.stringify(context.messages)).toContain("Historical tool call");
++		expect(JSON.stringify(context.messages)).toContain("recorded output");
++		expect(JSON.stringify(context.messages)).toContain('"type":"image"');
++		expect(JSON.stringify(context.messages)).not.toContain('"type":"toolCall"');
++		expect(JSON.stringify(context.messages)).not.toContain("old controls");
++		expect(collectSessionUsage(parsed.entries)).toMatchObject({ total: 0, missing: 0, invalid: 0 });
++	});
++
++	it("retains readable pre-compaction history and uses the source summary for context", () => {
++		const parsed = parseForeignSession(
++			"codex",
++			jsonl([
++				meta(),
++				user("old detail"),
++				reply("old reply"),
++				{
++					type: "compacted",
++					timestamp,
++					payload: { message: "Carry forward the task facts", replacement_history: [] },
++				},
++				user("continue"),
++			]),
++		);
++		expect(JSON.stringify(parsed.entries)).toContain("old detail");
++		const context = JSON.stringify(buildSessionContext(parsed.entries).messages);
++		expect(context).toContain("Carry forward the task facts");
++		expect(context).toContain("continue");
++		expect(context).not.toContain("old detail");
++	});
++
++	it("preserves retained compaction images and their captions without activating source controls", () => {
++		const parsed = parseForeignSession(
++			"codex",
++			jsonl([
++				meta(),
++				user("old detail"),
++				{
++					type: "compacted",
++					timestamp,
++					payload: {
++						message: "Task summary",
++						replacement_history: [
++							{
++								type: "message",
++								role: "user",
++								content: [
++									{ type: "input_text", text: "Use this image" },
++									{ type: "input_image", image_url: "data:image/png;base64,aW1hZ2U=" },
++								],
++							},
++							{
++								type: "message",
++								role: "developer",
++								content: [{ type: "input_text", text: "excluded developer controls" }],
++							},
++						],
++					},
++				},
++				user("continue"),
++			]),
++		);
++		const context = JSON.stringify(buildSessionContext(parsed.entries).messages);
++		expect(context).toContain('"type":"image"');
++		expect(context).toContain('"data":"aW1hZ2U="');
++		expect(context).toContain("Use this image");
++		expect(context).not.toContain("old detail");
++		expect(context).not.toContain("excluded developer controls");
++		expect(parsed.warnings).not.toContainEqual(expect.objectContaining({ code: "attachment_missing" }));
++	});
++
++	it("keeps the latest compaction attachments through rollback without counting them as new user turns", () => {
++		const compacted = (data: string) => ({
++			type: "compacted",
++			timestamp,
++			payload: {
++				replacement_history: [
++					{
++						type: "message",
++						role: "user",
++						content: [{ type: "input_image", image_url: `data:image/png;base64,${data}` }],
++					},
++				],
++			},
++		});
++		const parsed = parseForeignSession(
++			"codex",
++			jsonl([
++				meta(),
++				user("old detail"),
++				compacted("b2xk"),
++				compacted("bmV3"),
++				user("rolled back turn"),
++				{ type: "event_msg", timestamp, payload: { type: "thread_rolled_back", num_turns: 1 } },
++			]),
++		);
++		const context = JSON.stringify(buildSessionContext(parsed.entries).messages);
++		expect(context).toContain('"data":"bmV3"');
++		expect(context).not.toContain('"data":"b2xk"');
++		expect(context).not.toContain("rolled back turn");
++		expect(context).not.toContain("old detail");
++	});
++
++	it.each([
++		[true, "failed"],
++		[false, "completed"],
++		[undefined, "unknown"],
++	] as const)("preserves Claude tool outcome %s in continuation context as %s", (isError, status) => {
++		const parsed = parseForeignSession(
++			"claude-code",
++			jsonl([
++				{
++					type: "user",
++					uuid: "u",
++					sessionId: "cc",
++					message: { content: "run" },
++				},
++				{
++					type: "assistant",
++					uuid: "a",
++					parentUuid: "u",
++					sessionId: "cc",
++					message: { content: [{ type: "tool_use", id: "t", name: "Write", input: { path: "x" } }] },
++				},
++				{
++					type: "user",
++					uuid: "r",
++					parentUuid: "a",
++					sessionId: "cc",
++					message: {
++						content: [{ type: "tool_result", tool_use_id: "t", content: "same output", is_error: isError }],
++					},
++				},
++			]),
++		);
++		const context = JSON.stringify(buildSessionContext(parsed.entries).messages);
++		expect(context).toContain(`status: ${status}`);
++		expect(context).toContain("same output");
++		expect(context).not.toContain('"type":"toolCall"');
++	});
++
++	it("keeps Codex tool outcomes unknown when no explicit outcome is recorded", () => {
++		const parsed = parseForeignSession(
++			"codex",
++			jsonl([
++				meta(),
++				user("run"),
++				item({ type: "function_call", call_id: "t", name: "Write", arguments: "{}" }),
++				item({ type: "function_call_output", call_id: "t", output: "done" }),
++			]),
++		);
++		expect(JSON.stringify(buildSessionContext(parsed.entries).messages)).toContain("status: unknown");
++	});
++
++	it("applies rollback and rejects malformed or unknown record formats", () => {
++		const parsed = parseForeignSession(
++			"codex",
++			jsonl([
++				meta(),
++				user("keep"),
++				reply("kept"),
++				user("remove"),
++				reply("removed"),
++				{ type: "event_msg", timestamp, payload: { type: "thread_rolled_back", num_turns: 1 } },
++			]),
++		);
++		expect(JSON.stringify(parsed.entries)).not.toContain('"remove"');
++		expect(() => parseForeignSession("codex", `${jsonl([meta()])}{`)).toThrow("Invalid JSONL");
++		expect(() => parseForeignSession("codex", jsonl([meta(), user("x"), { type: "future_record" }]))).toThrow(
++			"Unsupported",
++		);
++	});
++
++	it("reads the selected Claude branch and does not mistake tool results for human instructions", () => {
++		const parsed = parseForeignSession(
++			"claude-code",
++			jsonl([
++				{
++					type: "user",
++					uuid: "u",
++					parentUuid: null,
++					sessionId: "cc",
++					cwd: "/project",
++					timestamp,
++					message: { content: "inspect" },
++				},
++				{
++					type: "assistant",
++					uuid: "wrong",
++					parentUuid: "u",
++					sessionId: "cc",
++					timestamp,
++					message: { content: [{ type: "text", text: "other branch" }] },
++				},
++				{
++					type: "assistant",
++					uuid: "a",
++					parentUuid: "u",
++					sessionId: "cc",
++					timestamp,
++					message: { content: [{ type: "tool_use", id: "t", name: "Read", input: { file_path: "a.ts" } }] },
++				},
++				{
++					type: "user",
++					uuid: "r",
++					parentUuid: "a",
++					sessionId: "cc",
++					timestamp,
++					message: {
++						content: [{ type: "tool_result", tool_use_id: "t", content: "file contents", is_error: false }],
++					},
++				},
++			]),
++		);
++		expect(parsed.entries.filter((e) => e.type === "message" && e.message.role === "user")).toHaveLength(1);
++		expect(JSON.stringify(parsed.entries)).not.toContain("other branch");
++		expect(JSON.stringify(buildSessionContext(parsed.entries).messages)).toContain("file contents");
++	});
++
++	it("warns when a Claude compaction boundary prevents lossless history migration", () => {
++		const parsed = parseForeignSession(
++			"claude-code",
++			jsonl([
++				{ type: "system", subtype: "compact_boundary", sessionId: "cc", timestamp },
++				{
++					type: "user",
++					uuid: "summary",
++					parentUuid: null,
++					sessionId: "cc",
++					timestamp,
++					isCompactSummary: true,
++					message: { content: "Carry forward the previous task facts" },
++				},
++			]),
++		);
++		expect(parsed.warnings).toContainEqual({ code: "claude_compaction", count: 2 });
++		expect(JSON.stringify(buildSessionContext(parsed.entries).messages)).toContain("previous task facts");
++	});
++});
++
++describe("offline import lifecycle", () => {
++	it("discovers and imports Claude metadata in a first record larger than 64 KiB", async () => {
++		const f = await fixture();
++		const first = {
++			type: "user",
++			uuid: "long-user",
++			sessionId: "long-claude",
++			cwd: f.cwd,
++			timestamp,
++			message: { content: "" },
++		};
++		const emptyRecord = JSON.stringify(first);
++		const contentStart = emptyRecord.indexOf('"content":""') + '"content":"'.length;
++		const prefixBytes = Buffer.byteLength(emptyRecord.slice(0, contentStart));
++		first.message.content = `${"x".repeat(65535 - prefixBytes)}\u754c${"x".repeat(5000)}`;
++		const input = jsonl([first]);
++		// Include a record without a trailing newline; split UTF-8 must not be decoded per chunk.
++		await writeFile(join(f.claudeRoot, "long.jsonl"), input.trimEnd());
++		try {
++			const scan = await f.service.scan(f);
++			expect(scan.errors).toEqual([]);
++			const c = scan.candidates.find((candidate) => candidate.sessionId === "long-claude");
++			expect(c).toBeDefined();
++			const p = await f.service.preview(c?.id ?? "");
++			const job = await finish(
++				f.service,
++				(await f.service.start([{ candidateId: p.id, fingerprint: p.fingerprint, cwd: f.cwd }])).id,
++			);
++			expect(job.results[0].status).toBe("imported");
++			const messages = SessionManager.open(job.results[0].path as string).buildSessionContext().messages;
++			expect(JSON.stringify(messages)).toContain("\u754c");
++			expect(JSON.stringify(messages)).not.toContain("\uFFFD");
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("scans a selected date subtree but excludes archive subtrees even when selected directly", async () => {
++		const f = await fixture();
++		const dateRoot = join(f.codexRoot, "sessions", "2026");
++		const month = join(dateRoot, "10");
++		const archivedRoot = join(f.codexRoot, "archived_sessions", "2026");
++		await mkdir(month, { recursive: true });
++		await mkdir(archivedRoot, { recursive: true });
++		await writeFile(join(month, "rollout-day.jsonl"), jsonl([meta(f.cwd), user("dated")]));
++		await writeFile(join(archivedRoot, "rollout-archive.jsonl"), "{ malformed archive");
++		try {
++			expect((await f.service.scan({ ...f, codexRoot: dateRoot })).candidates).toHaveLength(1);
++			expect(await f.service.scan({ ...f, codexRoot: archivedRoot })).toEqual({ candidates: [], errors: [] });
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("owns submitted selections and source references across later scans", async () => {
++		const f = await fixture();
++		try {
++			const candidate = (await f.service.scan(f)).candidates[0];
++			const p = await f.service.preview(candidate.id);
++			const selections = [{ candidateId: candidate.id, fingerprint: p.fingerprint, cwd: f.cwd }];
++			const pending = f.service.start(selections);
++			selections[0].candidateId = "caller-mutated";
++			selections[0].cwd = join(f.root, "missing");
++			await f.service.scan({ ...f, codexRoot: f.claudeRoot });
++			const job = await finish(f.service, (await pending).id);
++			expect(job.results[0]).toMatchObject({ candidateId: candidate.id, status: "imported" });
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("excludes archives before parsing them and offers an explicit opt-in", async () => {
++		const f = await fixture();
++		await mkdir(join(f.codexRoot, "archived_sessions"));
++		await writeFile(
++			join(f.codexRoot, "archived_sessions", "rollout-archive.jsonl"),
++			jsonl([meta(f.cwd, "archived"), user("old")]),
++		);
++		try {
++			const scan = await f.service.scan(f);
++			expect(scan.candidates).toHaveLength(1);
++			const all = await f.service.scan({ ...f, includeArchived: true });
++			expect(all.candidates).toHaveLength(2);
++			expect(all.candidates.find((c) => c.sessionId === "archived")?.archived).toBe(true);
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("atomically publishes native sessions, skips repeated snapshots, preserves new versions and leaves sources untouched", async () => {
++		const f = await fixture();
++		const original = await readFile(f.source);
++		try {
++			const candidate = (await f.service.scan(f)).candidates[0];
++			const p = await f.service.preview(candidate.id);
++			const selection = { candidateId: candidate.id, fingerprint: p.fingerprint, cwd: f.cwd };
++			const first = await finish(f.service, (await f.service.start([selection])).id);
++			expect(first.results[0].status).toBe("imported");
++			const path = first.results[0].path;
++			expect(path).toBeTruthy();
++			const session = SessionManager.open(path as string);
++			expect(JSON.stringify(session.buildSessionContext().messages)).toContain("migration facts");
++			session.appendMessage({ role: "user", content: "Continue in SCD", timestamp: Date.now() });
++			const second = await finish(f.service, (await f.service.start([selection])).id);
++			expect(second.results[0].status).toBe("skipped");
++			expect(await readFile(path as string, "utf8")).toContain("Continue in SCD");
++			expect(await readFile(f.source)).toEqual(original);
++			await writeFile(f.source, `${original.toString("utf8")}${jsonl([user("new source turn")])}`);
++			const stale = await finish(f.service, (await f.service.start([selection])).id);
++			expect(stale.results[0].status).toBe("skipped");
++			const updated = await f.service.preview(candidate.id);
++			const third = await finish(
++				f.service,
++				(await f.service.start([{ ...selection, fingerprint: updated.fingerprint }])).id,
++			);
++			expect(third.results[0].sessionId).not.toBe(first.results[0].sessionId);
++			expect(f.events).toHaveLength(4);
++			expect(await readdir(join(f.agentDir, "sessions", "imported"))).toHaveLength(2);
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("imports the reviewed snapshot even when an active source appends metadata and messages", async () => {
++		const f = await fixture();
++		try {
++			const c = (await f.service.scan(f)).candidates[0];
++			const p = await f.service.preview(c.id);
++			await writeFile(
++				f.source,
++				`${await readFile(f.source, "utf8")}${jsonl([
++					{ type: "event_msg", timestamp, payload: { type: "token_count", info: {} } },
++					user("not reviewed"),
++				])}`,
++			);
++			const job = await finish(
++				f.service,
++				(await f.service.start([{ candidateId: c.id, fingerprint: p.fingerprint, cwd: f.cwd }])).id,
++			);
++			expect(job.results[0].status).toBe("imported");
++			const saved = await readFile(job.results[0].path as string, "utf8");
++			expect(saved).toContain("Keep migration facts");
++			expect(saved).not.toContain("not reviewed");
++			expect(saved).toContain(p.fingerprint);
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("serializes concurrent duplicate jobs and restores persisted results after restart", async () => {
++		const f = await fixture();
++		const candidate = (await f.service.scan(f)).candidates[0];
++		const p = await f.service.preview(candidate.id);
++		const selection = { candidateId: candidate.id, fingerprint: p.fingerprint, cwd: f.cwd };
++		const jobs = await Promise.all([f.service.start([selection]), f.service.start([selection])]);
++		await Promise.all(jobs.map((j) => finish(f.service, j.id)));
++		await f.service.close();
++		const results = await Promise.all(jobs.map((j) => f.service.getJob(j.id)));
++		expect(results.flatMap((j) => j.results.map((r) => r.status)).sort()).toEqual(["imported", "skipped"]);
++		const restarted = new SessionImportService({ agentDir: f.agentDir });
++		try {
++			expect(await restarted.listJobs()).toHaveLength(2);
++			await writeFile(
++				join(f.agentDir, "session-imports", `${jobs[0].id}.json`),
++				JSON.stringify({ ...jobs[0], status: "running" }),
++			);
++			expect((await restarted.getJob(jobs[0].id)).status).toBe("interrupted");
++		} finally {
++			await restarted.close();
++		}
++	});
++
++	it("rejects expired or unreviewed fingerprints without creating jobs", async () => {
++		const f = await fixture();
++		try {
++			const c = (await f.service.scan(f)).candidates[0];
++			const p = await f.service.preview(c.id);
++			await expect(
++				f.service.start([{ candidateId: c.id, fingerprint: "f".repeat(64), cwd: f.cwd }]),
++			).rejects.toThrow("Preview expired");
++			const now = Date.now();
++			const clock = vi.spyOn(Date, "now").mockReturnValue(now + 16 * 60 * 1000);
++			try {
++				await expect(
++					f.service.start([{ candidateId: c.id, fingerprint: p.fingerprint, cwd: f.cwd }]),
++				).rejects.toThrow("Preview expired");
++			} finally {
++				clock.mockRestore();
++			}
++			expect(await f.service.listJobs()).toHaveLength(0);
++			const refreshed = await f.service.preview(c.id);
++			const job = await finish(
++				f.service,
++				(await f.service.start([{ candidateId: c.id, fingerprint: refreshed.fingerprint, cwd: f.cwd }])).id,
++			);
++			expect(job.results[0].status).toBe("imported");
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("reports durable imports as successful even if the search-index callback fails", async () => {
++		const f = await fixture();
++		const service = new SessionImportService({
++			agentDir: f.agentDir,
++			onPersisted: () => {
++				throw new Error("index unavailable");
++			},
++		});
++		try {
++			const c = (await service.scan(f)).candidates[0];
++			const p = await service.preview(c.id);
++			const job = await finish(
++				service,
++				(await service.start([{ candidateId: c.id, fingerprint: p.fingerprint, cwd: f.cwd }])).id,
++			);
++			expect(job.results[0]).toMatchObject({ status: "imported", title: p.title });
++			expect(job.results[0].warning).toContain("index unavailable");
++			expect(SessionManager.open(job.results[0].path as string).buildSessionContext().messages).not.toHaveLength(0);
++		} finally {
++			await service.close();
++			await f.service.close();
++		}
++	});
++
++	it("validates source bounds, destination and snapshot fingerprints", async () => {
++		const f = await fixture();
++		try {
++			const c = (await f.service.scan(f)).candidates[0];
++			const p = await f.service.preview(c.id);
++			expect(p.fingerprint).toBe(
++				createHash("sha256")
++					.update(await readFile(f.source))
++					.digest("hex"),
++			);
++			await expect(f.service.start([{ candidateId: c.id, fingerprint: "bad", cwd: f.cwd }])).rejects.toThrow(
++				"Invalid selection",
++			);
++			const job = await finish(
++				f.service,
++				(await f.service.start([{ candidateId: c.id, fingerprint: p.fingerprint, cwd: join(f.root, "missing") }]))
++					.id,
++			);
++			expect(job.results[0].status).toBe("failed");
++			await expect(f.service.preview("unknown")).rejects.toThrow("expired");
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("copies only contained image attachments and fingerprints their contents", async () => {
++		const f = await fixture();
++		const image = join(f.codexRoot, "image.png");
++		await writeFile(image, Buffer.from("89504e470d0a1a0a01020304", "hex"));
++		await writeFile(
++			f.source,
++			jsonl([
++				meta(f.cwd),
++				item({
++					type: "message",
++					role: "user",
++					content: [
++						{ type: "input_text", text: "inspect image" },
++						{ type: "input_image", image_url: image },
++						{ type: "input_image", image_url: join(f.root, "outside.png") },
++					],
++				}),
++			]),
++		);
++		try {
++			const c = (await f.service.scan(f)).candidates[0];
++			const p = await f.service.preview(c.id);
++			expect(p.warnings).toContainEqual({ code: "attachment_missing", count: 1 });
++			await writeFile(image, Buffer.from("89504e470d0a1a0a05060708", "hex"));
++			const changed = await f.service.preview(c.id);
++			expect(changed.fingerprint).not.toBe(p.fingerprint);
++			const reviewed = await finish(
++				f.service,
++				(await f.service.start([{ candidateId: c.id, fingerprint: p.fingerprint, cwd: f.cwd }])).id,
++			);
++			expect(await readFile(reviewed.results[0].path as string, "utf8")).toContain(
++				Buffer.from("89504e470d0a1a0a01020304", "hex").toString("base64"),
++			);
++			const job = await finish(
++				f.service,
++				(await f.service.start([{ candidateId: c.id, fingerprint: changed.fingerprint, cwd: f.cwd }])).id,
++			);
++			expect(await readFile(job.results[0].path as string, "utf8")).toContain('"mimeType":"image/png"');
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("reopens compacted attachments and failed tool evidence into a real continuation request", async () => {
++		const f = await fixture();
++		const image = Buffer.from("89504e470d0a1a0a01020304", "hex");
++		await writeFile(join(f.codexRoot, "retained.png"), image);
++		await writeFile(
++			f.source,
++			jsonl([
++				meta(f.cwd),
++				user("old detail"),
++				{
++					type: "compacted",
++					timestamp,
++					payload: {
++						message: "Continue inspecting the retained image",
++						replacement_history: [
++							{
++								type: "message",
++								role: "user",
++								content: [
++									{ type: "input_text", text: "Retained caption" },
++									{ type: "input_image", image_url: "retained.png" },
++									{ type: "input_image", image_url: "missing.png" },
++								],
++							},
++						],
++					},
++				},
++			]),
++		);
++		const h = await createHarness({ tools: [], settings: { compaction: { enabled: false } } });
++		try {
++			const c = (await f.service.scan(f)).candidates[0];
++			const p = await f.service.preview(c.id);
++			expect(p.warnings).toContainEqual({ code: "attachment_missing", count: 1 });
++			const job = await finish(
++				f.service,
++				(await f.service.start([{ candidateId: c.id, fingerprint: p.fingerprint, cwd: f.cwd }])).id,
++			);
++			expect(job.results[0].status).toBe("imported");
++			const reopened = SessionManager.open(job.results[0].path as string);
++			const failedTool = parseForeignSession(
++				"claude-code",
++				jsonl([
++					{ type: "user", uuid: "u", sessionId: "cc", message: { content: "write" } },
++					{
++						type: "assistant",
++						uuid: "a",
++						parentUuid: "u",
++						sessionId: "cc",
++						message: { content: [{ type: "tool_use", id: "t", name: "Write", input: {} }] },
++					},
++					{
++						type: "user",
++						uuid: "r",
++						parentUuid: "a",
++						sessionId: "cc",
++						message: { content: [{ type: "tool_result", tool_use_id: "t", content: "done", is_error: true }] },
++					},
++				]),
++			);
++			h.session.agent.state.messages = [
++				...reopened.buildSessionContext().messages,
++				...buildSessionContext(failedTool.entries).messages,
++			];
++			let observed = false;
++			h.setResponses([
++				(context) => {
++					const request = JSON.stringify(context.messages);
++					expect(request).toContain('"type":"image"');
++					expect(request).toContain(image.toString("base64"));
++					expect(request).toContain("Retained caption");
++					expect(request).toContain("status: failed");
++					expect(request).not.toContain("old detail");
++					expect(request).not.toContain('"type":"toolCall"');
++					observed = true;
++					return fauxAssistantMessage("Verified retained image and failed historical tool");
++				},
++			]);
++			await h.session.prompt("Continue from the migrated evidence.");
++			expect(observed).toBe(true);
++		} finally {
++			h.cleanup();
++			await f.service.close();
++		}
++	});
++
++	it("cancels remaining work and does not publish half-written sessions", async () => {
++		const f = await fixture();
++		try {
++			const c = (await f.service.scan(f)).candidates[0];
++			const p = await f.service.preview(c.id);
++			const selections = Array.from({ length: 100 }, () => ({
++				candidateId: c.id,
++				fingerprint: p.fingerprint,
++				cwd: f.cwd,
++			}));
++			const job = await f.service.start(selections);
++			await f.service.cancel(job.id);
++			const settled = await finish(f.service, job.id);
++			expect(settled.status).toBe("cancelled");
++			expect(settled.results.length).toBeLessThan(100);
++		} finally {
++			await f.service.close();
++		}
++	});
++
++	it("continues a reopened import through a faux provider and executes only a new native tool", async () => {
++		const f = await fixture();
++		await writeFile(
++			f.source,
++			jsonl([
++				meta(f.cwd),
++				user("Migration proof must be written only after continuation"),
++				item({
++					type: "function_call",
++					call_id: "old-tool",
++					name: "exec_command",
++					arguments: '{"cmd":"never replay"}',
++				}),
++				item({ type: "function_call_output", call_id: "old-tool", output: "historical evidence" }),
++			]),
++		);
++		const h = await createHarness({ tools: [createWriteTool(f.cwd)], settings: { compaction: { enabled: false } } });
++		try {
++			const c = (await f.service.scan(f)).candidates[0];
++			const p = await f.service.preview(c.id);
++			const job = await finish(
++				f.service,
++				(await f.service.start([{ candidateId: c.id, fingerprint: p.fingerprint, cwd: f.cwd }])).id,
++			);
++			const loaded = SessionManager.open(job.results[0].path as string).buildSessionContext();
++			h.session.agent.state.messages = loaded.messages;
++			let observed = false;
++			h.setResponses([
++				(context) => {
++					const request = JSON.stringify(context.messages);
++					expect(request).toContain("historical evidence");
++					expect(request).toContain("Migration proof");
++					expect(request).not.toContain('"type":"toolCall"');
++					observed = true;
++					return fauxAssistantMessage(
++						fauxToolCall("write", { path: "migration-proof.txt", content: "continued safely" }),
++						{ stopReason: "toolUse" },
++					);
++				},
++				fauxAssistantMessage("Continuation complete"),
++			]);
++			await h.session.prompt("Continue and write the migration proof.");
++			expect(observed).toBe(true);
++			expect(await readFile(join(f.cwd, "migration-proof.txt"), "utf8")).toBe("continued safely");
++		} finally {
++			h.cleanup();
++			await f.service.close();
++		}
++	});
++});

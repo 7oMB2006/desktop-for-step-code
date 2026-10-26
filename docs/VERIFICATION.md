@@ -1,5 +1,44 @@
 # Verification
 
+## v0.1.6 development integration (2026-10-26)
+
+The isolated `codex/upstream-v016` worktree stages source baseline
+`81e79bc4b699148d6823fedde9b5e70d9a80255f` with `patches/v016`.
+This is the announcement source baseline, not a verified official release tag
+or a binary/source identity claim. See [integration boundaries](UPSTREAM_V016.md).
+
+Final Windows local verification:
+
+- Desktop typecheck and production build pass. The serial protocol suite has
+  799 tests: 785 pass, 14 platform skips, zero failures. The final log is
+  `Desktop/test-results/upstream-v016-protocol-handoff.log`.
+- The patched upstream full check passes; 32 regression files have 668 passing
+  tests and three skips. Coverage includes Plan/cache, CLM, compaction retry,
+  permissions, Cron, Workflow, session import and background lane notifications.
+- Real pinned RPC with an isolated local HTTP model fixture verifies that a
+  delegated lane survives parent idleness and navigation, wakes its original
+  session, and completes once without stealing navigation. Suspension clears
+  live ownership without reporting false completion. Unit regressions cover
+  the pre-`agent_start` parent handoff and cancellation via `agent_settled`.
+- Final staging and the standalone copied-bundle worker probe pass: usage
+  totals/cache/cancellation and a ready SQLite session index with search.
+- Final Electron/native `then_run` acceptance passes approval/denial,
+  cancellation, history reload, working-directory, timeout, output limit and
+  descendant cleanup checks. Its temporary profile resolves directory
+  junctions before comparing workspace identity.
+- Earlier local Electron Workflow runtime, Plan review and CLM cancellation
+  checks passed before the final parent-handoff change; they were not all
+  rerun afterward. CI runner policy tests passed.
+- Clean Windows patch replay and all pre/post source hashes pass. Darwin patch
+  selection/replay and hashes also pass on Windows; this is not native macOS
+  execution.
+
+Remaining gates: replacement Windows/macOS cloud checks, native macOS runtime
+acceptance, an installed package and real-account acceptance. No installer,
+release or implementation push is represented by these local results. Build
+artifacts and isolated test profiles are on D:, and the user's installed app
+and shortcut are unchanged. TODO completion boxes remain open pending gates.
+
 ## Single-slot workflow persistence fixture (2026-10-25)
 
 `2bb6c27` Windows run `40118772782` passed all 83 acceptance checks and the

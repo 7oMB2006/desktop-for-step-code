@@ -8,10 +8,10 @@ const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE
 const runtime = resolve('runtime');
 if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
 const nodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
-const integrationManifest = JSON.parse(await readFile(new URL('../../patches/v015/manifest.json', import.meta.url), 'utf8'));
+const integrationManifest = JSON.parse(await readFile(new URL('../../patches/v016/manifest.json', import.meta.url), 'utf8'));
 const platformManifest = integrationManifest.platforms?.[process.platform];
 const PINNED_COMMIT = integrationManifest.commit;
-const patchFile = 'patches/v015/step-code-desktop.patch';
+const patchFile = 'patches/v016/step-code-desktop.patch';
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 if (commit !== PINNED_COMMIT) {
   // Naming both sides keeps a stale build instruction from reading as a broken checkout.
@@ -43,12 +43,11 @@ const source = join(upstream, 'packages/coding-agent');
 const npmEntry = resolve(dirname(process.execPath), process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : '../lib/node_modules/npm/bin/npm-cli.js');
 await readFile(npmEntry);
 execFileSync(process.execPath, [npmEntry, '--prefix', source, 'run', 'build'], { cwd: upstream, stdio: 'inherit' });
-{
-  // Exported management APIs can move the shared usage code into the root entry.
-  // The upstream bundler deliberately emits its worker beside that code.
-  await readFile(join(source, 'dist/bundle/chunks/activity-worker.js')).catch(error => {
+for (const worker of ['activity-worker.js', 'session-index-worker.js', 'image-resize-worker.js']) {
+  // Worker URLs are relative to their owning bundle chunk, not always the root.
+  await readFile(join(source, 'dist/bundle/chunks', worker)).catch(error => {
     if (error.code !== 'ENOENT') throw error;
-    return readFile(join(source, 'dist/bundle/activity-worker.js'));
+    return readFile(join(source, 'dist/bundle', worker));
   });
 }
 const currentNode = await readFile(process.execPath);
@@ -102,5 +101,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

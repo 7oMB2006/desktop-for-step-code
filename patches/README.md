@@ -2,15 +2,26 @@
 
 Repository: https://github.com/stepfun-ai/Step-Code
 
-Windows and macOS pinned commit: `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`
-(v0.1.5 announcement baseline). Its patches and reviewed pre/post-image hashes
-live in `patches/v015/`. Apply with:
+Development pinned commit: `81e79bc4b699148d6823fedde9b5e70d9a80255f`
+(v0.1.6 announcement source baseline, not an official release tag). The public
+0.1.6 manifest has no source SHA; binary/source identity is not asserted.
+Its patches and reviewed pre/post-image hashes live in `patches/v016/`. Apply with:
 
 ```powershell
-node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v015/step-code-desktop.patch
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v016/step-code-desktop.patch
 ```
 
-The macOS 0.6.0 port uses the same v0.1.5 source and complete shared patch set.
+The 0.6.0 release baseline retains v0.1.5 and `patches/v015/`; both patch sets remain
+replayable. The v016 set copies shared patches rather than modifying historical
+patches. Its final compatibility patch supplies live RPC background-lane state,
+keeps the host while final notifications settle, and updates the migrated code
+to upstream's formatting and `.ts` import checks. Session import now uses native
+`SessionFilePersistedEvent`; it does not replace the new session-index service.
+
+Development Windows/macOS builds select the same v016 base.
+The v016 bundle also supplies module-relative CommonJS filename globals so the
+new Lark dependency can load under Node ESM. This does not add Desktop Lark UI.
+See `docs/UPSTREAM_V016.md` for source identity, ownership and acceptance boundaries.
 `manifest.json` additionally pins the Darwin process-tree patch and its resulting
 sources under `platforms.darwin`; the applier selects this addition on macOS.
 The older macOS 0.5.1 source `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`

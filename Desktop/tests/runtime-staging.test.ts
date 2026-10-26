@@ -6,10 +6,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-test('Shared v0.1.5 patch manifest pins every reviewed pre-image, result and patch', async () => {
-  const root = resolve('../patches/v015');
+test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and patch', async () => {
+  const root = resolve('../patches/v016');
   const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
-  assert.equal(manifest.commit, 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494');
+  assert.equal(manifest.commit, '81e79bc4b699148d6823fedde9b5e70d9a80255f');
   assert.ok(Object.keys(manifest.sources).every(path => path in manifest.patchedSources));
   assert.deepEqual(Object.keys(manifest.patchedSources).filter(path => !(path in manifest.sources)).sort(), [
     'packages/coding-agent/src/core/session-import/parsers.ts',
@@ -18,13 +18,16 @@ test('Shared v0.1.5 patch manifest pins every reviewed pre-image, result and pat
     'packages/coding-agent/test/session-import.test.ts',
   ]);
   assert.deepEqual(Object.keys(manifest.patches).sort(),
-    ['../step-code-desktop-cron-management.patch', '../step-code-desktop-cron.patch', '../step-code-desktop-plugins.patch',
-      'step-code-desktop-auto-resume.patch', 'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch',
+    ['step-code-desktop-auto-resume.patch', 'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch',
+      'step-code-desktop-cron-management.patch',
       'step-code-desktop-cron-recovery-guard.patch', 'step-code-desktop-cron-recovery.patch',
-      'step-code-desktop-cron-scope.patch',
-      'step-code-desktop-plan.patch', 'step-code-desktop.patch', 'step-code-session-import.patch']);
+      'step-code-desktop-cron-scope.patch', 'step-code-desktop-cron.patch',
+      'step-code-desktop-plan.patch', 'step-code-desktop-plugins.patch', 'step-code-desktop-v016.patch',
+      'step-code-desktop.patch', 'step-code-session-import.patch']);
   assert.equal(manifest.sources['packages/coding-agent/src/features/step-cron.ts'], '6f881338a5d4ac34a416706a1e72b1f6e181cff3');
-  assert.equal(manifest.patchedSources['packages/coding-agent/src/features/step-cron.ts'], 'eccb429170ca3b8a52fd9ef986af2678faabe61e');
+  assert.notEqual(manifest.patchedSources['packages/coding-agent/src/features/step-cron.ts'],
+    manifest.sources['packages/coding-agent/src/features/step-cron.ts']);
+  assert.ok(manifest.sources['packages/coding-agent/src/features/subagent/lane-lifecycle.ts']);
   for (const [name, hash] of Object.entries(manifest.patches)) {
     const bytes = Buffer.from((await readFile(join(root, name), 'utf8')).replace(/\r\n/g, '\n'));
     const actual = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
@@ -39,7 +42,7 @@ test('Shared v0.1.5 patch manifest pins every reviewed pre-image, result and pat
 });
 
 test('Darwin additions retain the complete shared integration and pin their own sources', async () => {
-  const root = resolve('../patches/v015');
+  const root = resolve('../patches/v016');
   const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
   const darwin = manifest.platforms.darwin;
   assert.deepEqual(darwin.patchIds, ['desktop-darwin-process-tree']);
@@ -89,7 +92,7 @@ test('staging rejects the wrong upstream before touching runtime through every s
 // stale build instruction fails in CI instead of on a contributor's machine.
 test('every documented pin matches the staging guard', { skip: !['win32', 'darwin'].includes(process.platform) }, async () => {
   const guard = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
-  const manifest = JSON.parse(await readFile(resolve('../patches/v015/manifest.json'), 'utf8'));
+  const manifest = JSON.parse(await readFile(resolve('../patches/v016/manifest.json'), 'utf8'));
   const pin = manifest.commit;
   assert.match(guard, /const PINNED_COMMIT = integrationManifest.commit/);
   assert.match(pin ?? '', /^[0-9a-f]{40}$/, 'staging guard declares a pin');

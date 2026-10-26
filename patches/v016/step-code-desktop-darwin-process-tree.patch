@@ -1,0 +1,146 @@
+diff --git a/packages/coding-agent/src/utils/shell.ts b/packages/coding-agent/src/utils/shell.ts
+--- a/packages/coding-agent/src/utils/shell.ts
++++ b/packages/coding-agent/src/utils/shell.ts
+@@ -322,6 +322,44 @@
+ 	return descendants;
+ }
+ 
++type DarwinProcessIdentity = { pid: number; ppid: number; started: string };
++
++function readDarwinProcessTable(pid?: number): DarwinProcessIdentity[] {
++	// Use the system ps directly: PATH and user shell startup files are untrusted.
++	// lstart survives reparenting, so a detached descendant can be rechecked after
++	// its original parent was killed. Never infer ownership from command names.
++	const result = spawnSync("/bin/ps", [...(pid ? ["-p", String(pid)] : ["-axo", "pid=,ppid=,lstart="]),
++		...(pid ? ["-o", "pid=,ppid=,lstart="] : [])], {
++		encoding: "utf8", timeout: 2000, maxBuffer: 4 * 1024 * 1024,
++		env: { ...process.env, LC_ALL: "C" },
++	});
++	if (result.error || result.status !== 0) return [];
++	return result.stdout.split(/\r?\n/).flatMap((line) => {
++		const match = /^\s*(\d+)\s+(\d+)\s+([A-Za-z]{3} [A-Za-z]{3}\s+\d+ \d{2}:\d{2}:\d{2} \d{4})\s*$/u.exec(line);
++		if (!match) return [];
++		const pid = Number(match[1]), ppid = Number(match[2]);
++		return Number.isSafeInteger(pid) && pid > 0 && Number.isSafeInteger(ppid) && ppid >= 0
++			? [{ pid, ppid, started: match[3] }] : [];
++	});
++}
++
++function getDarwinDescendants(pid: number): DarwinProcessIdentity[] {
++	const table = readDarwinProcessTable();
++	const owned = new Set([pid]);
++	const descendants: DarwinProcessIdentity[] = [];
++	for (let changed = true; changed;) {
++		changed = false;
++		for (const row of table) {
++			if (!owned.has(row.pid) && owned.has(row.ppid)) {
++				owned.add(row.pid);
++				descendants.push(row);
++				changed = true;
++			}
++		}
++	}
++	return descendants;
++}
++
+ /**
+  * Kill a process and all its children (cross-platform)
+  */
+@@ -346,6 +384,7 @@
+ 		}
+ 	} else {
+ 		const descendants = process.platform === "linux" ? getLinuxDescendants(pid) : [];
++		const darwinDescendants = process.platform === "darwin" ? getDarwinDescendants(pid) : [];
+ 		// Use SIGKILL on Unix/Linux/Mac
+ 		try {
+ 			process.kill(-pid, "SIGKILL");
+@@ -365,6 +404,14 @@
+ 				process.kill(descendant.pid, "SIGKILL");
+ 			} catch {
+ 				// The descendant already exited or was killed with the parent group.
++			}
++		}
++		for (const descendant of darwinDescendants.reverse()) {
++			if (readDarwinProcessTable(descendant.pid)[0]?.started !== descendant.started) continue;
++			try {
++				process.kill(descendant.pid, "SIGKILL");
++			} catch {
++				// The descendant exited after the identity check.
+ 			}
+ 		}
+ 	}
+diff --git a/packages/coding-agent/test/shell-process-tree-darwin.test.ts b/packages/coding-agent/test/shell-process-tree-darwin.test.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/coding-agent/test/shell-process-tree-darwin.test.ts
+@@ -0,0 +1,70 @@
++import { spawn, spawnSync } from "node:child_process";
++import * as childProcess from "child_process";
++import { once } from "node:events";
++import { setTimeout as delay } from "node:timers/promises";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { killProcessTree } from "../src/utils/shell.ts";
++
++vi.mock("child_process", async (importOriginal) => ({ ...await importOriginal<typeof childProcess>() }));
++
++const started = "Sat Oct 24 18:00:00 2026";
++describe.skipIf(process.platform !== "darwin")("Darwin shell descendant ownership", () => {
++	afterEach(() => vi.restoreAllMocks());
++	function fixture(reused = false, unavailable = false) {
++		const kill = vi.spyOn(process, "kill").mockReturnValue(true);
++		const ps = vi.spyOn(childProcess, "spawnSync").mockImplementation((_executable, args) => ({
++			status: unavailable ? 1 : 0, signal: null, pid: 0, output: [], stderr: "",
++			stdout: args?.[0] === "-p"
++				? `${args[1]} 1 ${reused && args[1] === "102" ? started.replace("18:00", "19:00") : started}\n`
++				: `101 1 ${started}\n103 102 ${started}\n102 101 ${started}\n199 1 ${started}\n`,
++		}) as ReturnType<typeof spawnSync>);
++		return { kill, ps };
++	}
++	it("targets detached descendants in reverse order and excludes unrelated jobs", () => {
++		const { kill, ps } = fixture();
++		killProcessTree(101);
++		expect(kill.mock.calls).toEqual([[-101, "SIGKILL"], [103, "SIGKILL"], [102, "SIGKILL"]]);
++		expect(ps.mock.calls[0][0]).toBe("/bin/ps");
++		expect(ps.mock.calls[0][2]).toMatchObject({ timeout: 2000, env: { LC_ALL: "C" } });
++	});
++	it("does not signal a PID with a changed birth timestamp", () => {
++		const { kill } = fixture(true);
++		killProcessTree(101);
++		expect(kill.mock.calls).toEqual([[-101, "SIGKILL"], [103, "SIGKILL"]]);
++	});
++	it("retains group cleanup when process discovery is unavailable", () => {
++		const { kill } = fixture(false, true);
++		killProcessTree(101);
++		expect(kill.mock.calls).toEqual([[-101, "SIGKILL"]]);
++	});
++});
++
++function alive(pid: number): boolean {
++	const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" });
++	return result.status === 0 && !!result.stdout.trim() && !result.stdout.trim().startsWith("Z");
++}
++
++describe.skipIf(process.platform !== "darwin")("real Darwin shell cancellation", () => {
++	it("kills a nested detached process while another command survives", async () => {
++		const childScript = `setInterval(() => {}, 1000)`;
++		const parentScript = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], {detached:true,stdio:'ignore'}); console.log(child.pid); setInterval(()=>{},1000);`;
++		const parent = spawn(process.execPath, ["-e", parentScript], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
++		const other = spawn(process.execPath, ["-e", childScript], { detached: true, stdio: "ignore" });
++		let descendant = 0;
++		try {
++			const output = await Promise.race([once(parent.stdout!, "data"), delay(5000).then(() => { throw new Error("Missing descendant PID"); })]);
++			descendant = Number(String(output[0]).trim());
++			expect(descendant).toBeGreaterThan(0);
++			expect(alive(descendant)).toBe(true);
++			killProcessTree(parent.pid!);
++			for (let attempt = 0; attempt < 100 && (alive(parent.pid!) || alive(descendant)); attempt++) await delay(20);
++			expect(alive(parent.pid!)).toBe(false);
++			expect(alive(descendant)).toBe(false);
++			expect(alive(other.pid!)).toBe(true);
++		} finally {
++			for (const pid of [parent.pid, descendant, other.pid]) {
++				if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} }
++			}
++		}
++	}, 15000);
++});

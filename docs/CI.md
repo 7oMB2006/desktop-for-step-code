@@ -93,6 +93,32 @@ queueing and duplicated preparation affect both duration and cost.
 No installer build is required for a CI-only change. Real model and release
 acceptance still follow `VERIFICATION.md`.
 
+## macOS Apple Silicon Preview
+
+`macos-integration.yml` is a separate workflow from `PR CI` and does not gate
+merges: `CI result` depends only on classification, documentation and the three
+Windows groups. It stages the same pinned upstream, applies the integration
+patch and runs the full 84-script Electron inventory twice, once against the
+source build and once against the packaged `.app`, in a single serial job on
+`macos-15`.
+
+That runner is shared by the whole repository, so the workflow's concurrency
+group deliberately omits `github.ref` and only one macOS job runs at a time.
+Before 2026-10-26 the group was keyed per ref, which let several pull requests
+run their inventories in parallel on the one runner; each script spawns its own
+Electron plus Step Code workers, and the contention surfaced as timeouts in
+whichever script happened to be running. A lone run finishes in roughly 45-50
+minutes, while three refs triggered together all failed, two of them on pull
+requests unrelated to the change that introduced the contention. `cancel-in-progress`
+is false for the same reason: cancelling a run already on the runner turns its
+check red and discards the elapsed minutes, whereas queueing behind it is a
+known wait.
+
+A queued macOS job is therefore not a stalled one. Splitting the inventory
+across parallel jobs was tried and reverted; the preparation and packaging
+steps would have to move into their own job with artifacts passed to the
+acceptance jobs before that is worth another attempt.
+
 ## Local Split Validation (2026-10-13)
 
 On baseline `45ff68e`, actionlint 1.7.12, the 12 CI policy/runner tests, Desktop

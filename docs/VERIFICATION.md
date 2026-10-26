@@ -1,5 +1,26 @@
 # Verification
 
+## Workflow catalog drawer (2026-10-26, development branch)
+
+The bare `/workflows` command now opens a read-only Desktop drawer. The main
+process reads bounded native workflow records and isolated Desktop definitions;
+it does not execute scripts, mutate records, or send a model request. Parameters
+retain the existing upstream dispatch. The runtime pin is unchanged.
+
+Local Windows checks: TypeScript and production build passed; unit/protocol
+tests reported 786 passed, 14 skipped, zero failures. CI inventory/policy tests
+reported 19 passed. `verify-command-dispatch.mjs` checks the real listing IPC
+against an isolated Desktop profile and rejects a wrong session identity before
+switching to mocked IPC for UI routing and page-exit checks.
+
+`verify-workflow-catalog.mjs` uses the production React component with fixture
+data in local Edge: five-second expiry and reopen, hover/focus/disclosure
+pauses, focus restoration, short/long drag, error recovery, stale response
+isolation, reduced motion, and light/dark layouts at 1100/390/320px passed.
+The test is assigned to the shared interface CI inventory. Browser fixture
+success is not cloud CI, macOS execution, installer or real-account acceptance.
+No package or release is claimed by this section.
+
 ## Single-slot workflow persistence fixture (2026-10-25)
 
 `2bb6c27` Windows run `40118772782` passed all 83 acceptance checks and the

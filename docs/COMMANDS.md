@@ -50,7 +50,7 @@ retains a selectable slash, so selecting transcript text does not remove it.
 | Model, permissions and MCP actions | Open their existing Desktop controls | Existing discovery acceptance retained |
 | `/compact [instructions]` | Call the `compact` RPC with `customInstructions` | Fixture covers success, failure retaining the draft, and busy rejection; actual model summarization is separate acceptance |
 | `/todos` | Upstream task-list notification | Empty list tested against the real bundle; a right-panel shortcut remains future work |
-| `/workflows` | Upstream saved-workflow and recent-run notification | Empty lists tested against the real bundle; not equated to the current agent inspector |
+| `/workflows` | Desktop read-only top drawer for saved definitions and recent project runs | Bare command only; parameters retain upstream routing; not the current agent inspector |
 | `/clm` | Opens the CLM inspector after Context and Status | Read-only active-branch revisions, saved contents and runtime diff; no model request |
 | `/clm on\|off\|diff\|reset`, `/clm-compact [instructions]` | Existing core working-context handlers | Parameterized commands retain their native semantics; manual organization may use the model |
 | `/plan` | Existing upstream plan-mode handler and Desktop approval flow | On/off state verified against the real bundle; no change to approvals |
@@ -94,7 +94,7 @@ ordinary prose while a task is running.
 | 指令 | 现状 | 待适配边界 |
 | --- | --- | --- |
 | `/todos` | 返回上游清单通知 | 映射到已有右栏清单；保留空状态与历史边界 |
-| `/workflows` | 通知列出已保存工作流与近期运行记录，仍有英文原始输出 | 中文列表与运行详情；不直接等同于当前代理面板 |
+| `/workflows` | 裸命令已接只读顶部抽屉，展示项目／Desktop 保存项与近期项目运行 | 安装包及双平台验收待完成；运行详情、启动、重试与恢复不在本轮范围 |
 | `/clm`、`/clm-compact` | CLM 独立页已接真实分支修订查询；面板启停和手动整理复用上游命令 | Windows v0.1.5 增加只读 RPC；旧运行时明确显示接口不可用，尚未声明安装包验收 |
 
 `/plugin` 已映射至专用插件管理页，隔离运行时和 Electron 验收覆盖本地市场安装、
@@ -119,13 +119,21 @@ ordinary prose while a task is running.
 `/status`、模型、权限、MCP、`/compact`、`/trust` 等已有 Desktop 映射，
 不在本次“未映射”清单中。
 
-### 工作流面板预览
+### 工作流只读面板
 
-正式接入已列入 [TODO P0](../TODO.md)，安排在 v0.6.0 之后的下一版；
-本次发布保留现有上游通知，不将预览列为已交付功能。
+正式接入属于 [TODO P0](../TODO.md) 中 v0.6.0 之后的下一版工作，
+尚未声明发布或安装包验收。裸 `/workflows` 在 Desktop 本地打开抽屉，
+不发送模型请求；带参数、附件、引用或普通正文仍走原有分流规则。
 
-`Desktop/tests/fixtures/workflow-panel.html` 提供独立模拟预览，尚未替换
-真实 `/workflows` 通知或接入真实运行数据。顶部三次方缓动滑入和收回，
+主进程只读当前项目的 `.stepcode/workflows/saved`、`runs`，
+以及 Desktop 隔离存储中的 `workflows/saved`，不读取个人 CLI 配置。
+不执行保存的脚本，不将路径或原始运行 JSON 交给渲染进程。
+同名保存项以项目为准；最多展示 100 个保存项和最近 20 个运行记录。
+损坏、未知格式、部分读取和截断均有提示；历史活动状态未经存活确认显示未知，
+不伪装为当前会话仍在运行。定义、项目历史与当前轮代理保持区分。
+
+`Desktop/tests/fixtures/workflow-catalog.html` 使用正式 React 组件和模拟数据，
+原 `workflow-panel.html?view=icons` 图标预览保持不变。顶部三次方缓动滑入和收回，
 5 秒后自动收起；悬停、聚焦、展开说明或拖动时暂停计时。
 底部抓手支持上推至少 48px 收起、短距离拖动回位，以及点击或键盘激活收起；
 保留关闭按钮、Esc、亮暗色、空状态、长列表滚动和减少动态效果适配。
@@ -148,7 +156,13 @@ raw spelling has been blocked at the runtime.
 - `Desktop/scripts/verify-composer-menu.mjs`: real Electron menu and transcript
   icons, inline editing, clipboard/transport and light/dark/narrow layouts.
 - `Desktop/scripts/verify-command-dispatch.mjs`: real Electron UI with mocked IPC
-  for local page dispatch and Compact success/failure/busy boundaries.
+  for local page dispatch and Compact success/failure/busy boundaries; before
+  mocking, validates the real Workflow listing IPC and session ownership.
+- `Desktop/tests/workflow-catalog.test.ts`: isolated read-only storage, definition
+  precedence, bounded reads, path containment, schema and historical-state projection.
+- `Desktop/scripts/verify-workflow-catalog.mjs`: production component with fixture
+  data; timer, interaction pauses, focus restoration, drag, owner isolation,
+  error recovery, reduced motion and responsive themes.
 
 Fixture and loopback results do not establish real-account execution,
 marketplace installation, feedback delivery or packaged acceptance.

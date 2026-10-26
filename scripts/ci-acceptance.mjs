@@ -109,6 +109,8 @@ export const localOnly = [
   // CLM visual fixtures; protocol tests and verify-command-dispatch cover the integration in CI.
   'verify-clm-panel.mjs',
   'verify-clm-preview.mjs',
+  // Mock-data search preview; requires a local Vite server, not runtime integration acceptance.
+  'verify-fulltext-search-preview.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

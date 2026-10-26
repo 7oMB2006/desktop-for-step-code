@@ -42,12 +42,12 @@ test('only complete supported standalone commands select a Desktop action', () =
   for (const [message, name, args] of [
     [' /status \n', 'status', ''], ['/usage', 'usage', ''],
     ['/usage overview', 'usage', 'overview'], ['/usage account', 'usage', 'account'],
-    ['/cron', 'cron', ''], ['/clm', 'clm', ''], ['/compact keep protocol\nand tests', 'compact', 'keep protocol\nand tests'],
+    ['/cron', 'cron', ''], ['/clm', 'clm', ''], ['/workflows', 'workflows', ''], ['/compact keep protocol\nand tests', 'compact', 'keep protocol\nand tests'],
   ]) assert.deepEqual(desktopCommand(message), { name, args });
-  for (const message of ['explain /usage', '/cron list', '/cron delete job', '/usage other', '/status extra', '/compactness', '/clm on', '/clm diff', '/clm-compact']) {
+  for (const message of ['explain /usage', 'explain /workflows', '/workflows extra', '/workflow', '/cron list', '/cron delete job', '/usage other', '/status extra', '/compactness', '/clm on', '/clm diff', '/clm-compact']) {
     assert.equal(desktopCommand(message), undefined, message);
   }
-  for (const message of ['/usage', '/cron', '/compact keep notes', '/status', '/clm']) {
+  for (const message of ['/usage', '/cron', '/compact keep notes', '/status', '/clm', '/workflows']) {
     assert.equal(desktopCommand(message, 1), undefined);
     assert.equal(desktopCommand(message, 0, 1), undefined);
   }

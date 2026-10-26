@@ -20,6 +20,7 @@ export const acceptanceGroups = {
     'verify-desktop-tray.mjs',
     'verify-composer-menu.mjs',
     'verify-command-dispatch.mjs',
+    'verify-workflow-catalog.mjs',
     'verify-composer-editing.mjs',
     'verify-terminal-panel.mjs',
     'verify-terminal-scopes.mjs',

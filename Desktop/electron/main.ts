@@ -50,6 +50,8 @@ import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
 import { clmSnapshot } from './clm';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
+import { readWorkflowCatalog } from './workflow-catalog';
+import { workflowsFromMessages, workflowIsActive } from '../src/workflow-state';
 import { TerminalSessions } from './terminal-sessions';
 import { BrowserTabs } from './browser-tabs';
 import { linkPreview } from './link-preview';
@@ -1108,6 +1110,21 @@ async function handle(method: string, args: any[]) {
         menu.popup({ window, x: Math.max(0, Math.min(width - 1, Math.round(position.x))),
           y: Math.max(0, Math.min(height - 1, Math.round(position.y))), callback: () => resolve(choice) });
       });
+    }
+    case 'workflows': {
+      const worker = runtimes.require(text(args[0], 80));
+      const sessionId = text(args[1], 200);
+      if (!sessionId || worker.state?.sessionId !== sessionId || transition || worker.mutating)
+        throw new Error('Session is not ready');
+      const cwd = worker.cwd;
+      const liveRuns = [...runtimes.workers.values()].filter(peer => peer.cwd === cwd && peer.status === 'connected')
+        .flatMap(peer => workflowsFromMessages(peer.messages, runtimes.isBusy(peer)))
+        .filter(flow => flow.runId && flow.startedAt !== undefined && workflowIsActive(flow.status))
+        .map(flow => ({ runId: flow.runId!, startedAt: flow.startedAt! }));
+      const result = await readWorkflowCatalog(cwd, dataRoot, liveRuns);
+      if (runtimes.workers.get(worker.id) !== worker || worker.state?.sessionId !== sessionId || worker.cwd !== cwd || transition || worker.mutating)
+        throw new Error('Session changed');
+      return result;
     }
     case 'clm': {
       const worker = runtimes.require(text(args[0], 80));

@@ -19,35 +19,52 @@ try {
   const page = await app.firstWindow();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await app.evaluate(({ BrowserWindow }) => {
+  const contentHeight = Number(process.env.DESKTOP_PREVIEW_CONTENT_HEIGHT);
+  await app.evaluate(({ BrowserWindow }, contentHeight) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0);
     window.setIgnoreMouseEvents(true);
     window.showInactive();
-  });
+    if (Number.isFinite(contentHeight) && contentHeight >= 540 && contentHeight <= 2160)
+      window.setContentSize(window.getContentSize()[0], contentHeight);
+  }, contentHeight);
   async function openUsage() {
     await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
     await page.getByRole('button', { name: '用量统计', exact: true }).click();
     await page.locator('.usage-overview-preview h1').waitFor();
+    await page.evaluate(() => {
+      globalThis.usagePreviewPointer = null;
+      document.addEventListener('pointermove', event => {
+        globalThis.usagePreviewPointer = { x: event.clientX, y: event.clientY };
+      }, true);
+    });
   }
   await openUsage();
   const card = page.getByRole('tooltip', { name: '图表数据', exact: true });
   const hour = page.locator('.hour-bar[data-hour="18"]');
+  async function readPointer() {
+    const point = await page.evaluate(() => globalThis.usagePreviewPointer);
+    assert.ok(point && Number.isFinite(point.x) && Number.isFinite(point.y), 'A real pointer event must reach the chart');
+    return point;
+  }
   async function hoverHour() {
     const target = hour.locator('.chart-hit-area');
     await target.hover({ position: { x: 4, y: 20 } });
     await card.waitFor();
     await card.evaluate(async element => Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => {}))));
-    const bounds = await target.boundingBox();
-    return { x: bounds.x + 4, y: bounds.y + 20 };
+    // Scrolling/layout can move the SVG after the input event; do not infer the
+    // original pointer from a later bounding box.
+    return readPointer();
   }
   async function checkPosition(pointer) {
     const actual = await card.boundingBox();
     const size = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
     const left = pointer.x + 28 + actual.width <= size.width - 10 ? pointer.x + 28 : pointer.x - actual.width - 28;
     const top = pointer.y + 24 + actual.height <= size.height - 10 ? pointer.y + 24 : pointer.y - actual.height - 24;
-    assert.ok(Math.abs(actual.x - Math.max(10, Math.min(size.width - actual.width - 10, left))) < 1, 'Card must follow the pointer horizontally');
-    assert.ok(Math.abs(actual.y - Math.max(10, Math.min(size.height - actual.height - 10, top))) < 1, 'Card must follow the pointer vertically');
+    assert.ok(Math.abs(actual.x - Math.max(10, Math.min(size.width - actual.width - 10, left))) < 1,
+      `Card must follow the pointer horizontally: ${JSON.stringify({ pointer, actual, size, left })}`);
+    assert.ok(Math.abs(actual.y - Math.max(10, Math.min(size.height - actual.height - 10, top))) < 1,
+      `Card must follow the pointer vertically: ${JSON.stringify({ pointer, actual, size, top })}`);
     assert.ok(actual.x >= 10 && actual.y >= 10 && actual.x + actual.width <= size.width - 9 &&
       actual.y + actual.height <= size.height - 9, 'Card must remain inside the viewport');
   }
@@ -68,7 +85,7 @@ try {
     return element && Number.parseFloat(element.style.left) > 0;
   }, await card.getAttribute('id'));
   await card.evaluate(() => new Promise(requestAnimationFrame));
-  await checkPosition({ x: pointer.x + 4, y: pointer.y + 8 });
+  await checkPosition(await readPointer());
   assert.equal(await cardNode.evaluate(element => element.isConnected), true, 'Pointer motion must not remount the card');
   await page.screenshot({ path: join(evidence, 'hour-card-light.png') });
   await page.keyboard.press('Escape');

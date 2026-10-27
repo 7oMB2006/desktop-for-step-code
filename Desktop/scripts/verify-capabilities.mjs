@@ -366,7 +366,7 @@ try {
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   await composer.fill('/mcp');
-  await page.getByRole('option', { name: /MCP/ }).click();
+  await page.getByRole('option', { name: 'MCP 查看与管理服务器', exact: true }).click();
   await page.locator('.cap-heading').getByRole('heading', { name: 'MCP', exact: true }).waitFor();
   assert.equal(await resourceSearch.inputValue(), '', 'Plugin command filters cannot leak into MCP action navigation');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).messages.length, messagesBefore, 'Management commands are local navigation, not model prompts');

@@ -952,8 +952,14 @@ try {
     const notice = document.querySelector('.notice-toast');
     return notice && !notice.matches(':hover') && !notice.contains(document.activeElement);
   });
-  await page.clock.runFor(3100);
-  await toast.waitFor({ state: 'hidden' });
+  // The component restarts its timer on mouse leave and blur, and a timer created
+  // after runFor only fires on the next advance. Waiting for the DOM to settle does
+  // not order that against React's effects, so drop the synthetic clock here and let
+  // the toast dismiss on real time instead of guessing when to jump.
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => { (document.activeElement instanceof HTMLElement ? document.activeElement : null)?.blur(); });
+  await page.clock.resume();
+  await toast.waitFor({ state: 'hidden', timeout: 10000 });
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.archivedSessionIds.includes('fixture-1'), false);
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).click({ button: 'right' });

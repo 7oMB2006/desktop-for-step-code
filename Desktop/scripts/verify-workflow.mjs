@@ -65,6 +65,10 @@ try {
   assert.equal(await page.locator('.composer .launch-status-trigger').count(), 0);
   assert.equal(await page.locator('.working .launch-status-pulse').count(), 1);
   assert.equal(await page.locator('.working .launch-status-pulse svg.lucide-network').count(), 0, 'The actual workflow owns the orchestration entry');
+  // The sampling below depends on the expand animation running. The runner does not
+  // guarantee a motion preference, and reduced motion drops the animation, so pin it
+  // before sampling rather than assuming the default.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const entrance = await page.evaluate(async () => {
     document.querySelector('.working .launch-status-pulse').click();
     const frames = [], start = performance.now();

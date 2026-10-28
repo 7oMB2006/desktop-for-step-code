@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { captureWaapi } from './capture-waapi.mjs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
@@ -13,6 +14,7 @@ try {
   browser = await chromium.launch({ headless: true,
     ...(process.env.DESKTOP_TEST_BROWSER_CHANNEL ? { channel: process.env.DESKTOP_TEST_BROWSER_CHANNEL } : {}) });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(url);
@@ -52,22 +54,19 @@ try {
   const body = page.locator('.process-tool-body');
   await page.waitForTimeout(280);
   assert.match(await body.innerText(), /export function App/);
-  const closing = await page.evaluate(() => {
-    document.querySelector('.process-tool > summary').click();
-    return new Promise(resolve => requestAnimationFrame(() => {
-      const element = document.querySelector('.process-tool-body');
-      const animation = element.getAnimations()[0];
-      if (!animation) return resolve(null);
-      animation.pause();
-      animation.currentTime = 120;
-      resolve({ height: element.getBoundingClientRect().height, full: element.scrollHeight, easing: animation.effect.getTiming().easing });
-      animation.play();
-    }));
+  const closeAnimation = await captureWaapi(page, '.process-tool-body', () => page.locator('.process-tool > summary').click());
+  const closing = await closeAnimation.evaluate(animation => {
+    const element = animation.effect.target;
+    animation.currentTime = 120;
+    return { height: element.getBoundingClientRect().height, full: element.scrollHeight,
+      easing: animation.effect.getTiming().easing };
   });
   assert.ok(closing && closing.height > 0 && closing.height < closing.full, 'tool closing must have intermediate height');
   assert.equal(closing.easing, 'cubic-bezier(0.215, 0.61, 0.355, 1)');
   assert.equal(await body.getAttribute('inert'), '');
+  await closeAnimation.evaluate(animation => animation.play());
   await page.waitForFunction(() => !document.querySelector('.process-tool')?.open);
+  await closeAnimation.dispose();
   await page.locator('.process-tool > summary').focus();
   await page.keyboard.press('Enter');
   await page.keyboard.press('Space');

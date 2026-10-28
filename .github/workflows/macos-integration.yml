@@ -83,6 +83,7 @@ jobs:
         working-directory: Desktop
         run: |
           node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs
+          node --test scripts/motion-helpers.test.mjs
           node ../scripts/ci-macos.mjs
       - name: Package unsigned preview and verify resources
         working-directory: Desktop

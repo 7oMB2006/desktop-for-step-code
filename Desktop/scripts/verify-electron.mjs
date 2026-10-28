@@ -1,3 +1,5 @@
+import { sampleMotion } from './sample-motion.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -38,6 +40,7 @@ const app = await electron.launch(launchOptions);
 const errors = [];
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const windowState = await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0);
@@ -291,22 +294,21 @@ try {
       await page.waitForFunction(() => document.querySelector('.sidebar').getBoundingClientRect().x === 0 &&
         !document.querySelector('.sidebar').getAnimations().some(animation => animation.playState === 'running'));
       for (const direction of ['close', 'open']) {
-        const frames = await page.evaluate(async () => {
-          const tools = document.querySelector('.window-tools');
-          const sidebar = document.querySelector('.sidebar');
-          document.querySelector('.window-sidebar-toggle').click();
-          const frames = [];
-          const start = performance.now();
-          do {
-            await new Promise(requestAnimationFrame);
-            const top = getComputedStyle(tools, '::before');
-            const matrix = new DOMMatrixReadOnly(top.transform);
-            frames.push({ topRight: tools.getBoundingClientRect().left + parseFloat(top.width) + matrix.m41,
-              bottomRight: sidebar.getBoundingClientRect().right,
-              topColor: top.backgroundColor, bottomColor: getComputedStyle(sidebar).backgroundColor });
-          } while (performance.now() - start < 350);
-          return frames;
-        });
+        await settleLayout(page.locator('.app'));
+        const sample = await sampleMotion(page, {
+          label: `macOS sidebar ${direction}`,
+          state: { selector: direction === 'close' ? '.app.sidebar-hidden' : '.app:not(.sidebar-hidden)' },
+          targets: [{ name: 'sidebar', selector: '.sidebar', properties: ['transform'] },
+            { name: 'tools', selector: '.window-tools', pseudoProperties: { '::before': ['transform'] }, pseudoElements: ['::before'] },
+            { name: 'app', selector: '.app', pseudoProperties: { '::before': ['flex-basis'] }, pseudoElements: ['::before'] }],
+          duration: 280, easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+        }, () => page.locator('.window-sidebar-toggle').click());
+        const frames = sample.frames.map(frame => ({
+          topRight: frame.tools.x + frame.tools.pseudo['::before'].width + frame.tools.pseudo['::before'].transformMatrixX,
+          bottomRight: frame.sidebar.right, topColor: frame.tools.pseudo['::before'].backgroundColor,
+          bottomColor: frame.sidebar.backgroundColor,
+        }));
+        await settleLayout(page.locator('.app'));
         assert.ok(frames.some(frame => frame.bottomRight > 1 && frame.bottomRight < 200), `${direction}: sampled moving sidebar`);
         for (const frame of frames) {
           assert.ok(Math.abs(frame.topRight - frame.bottomRight) < 1, `${direction}: continuous sidebar edge ${JSON.stringify(frame)}`);
@@ -408,12 +410,18 @@ try {
     assert.match(transitionStyle.timing, /cubic-bezier\(0\.65, 0, 0\.35, 1\)/);
     assert.ok(transitionStyle.duration.split(',').some(value => parseFloat(value) >= 0.24));
     const openHeight = await projectDisclosure.evaluate(element => element.getBoundingClientRect().height);
-    await projectToggle.click();
-    await page.waitForTimeout(60);
-    const closingHeight = await projectDisclosure.evaluate(element => element.getBoundingClientRect().height);
+    await projectDisclosure.evaluate(element => { element.dataset.motionFixture = 'workspace-collapse'; });
+    const selector = '[data-motion-fixture="workspace-collapse"]';
+    const sample = await sampleMotion(page, {
+      label: 'workspace collapse', state: { selector, attribute: 'aria-hidden', value: 'true' },
+      targets: [{ name: 'disclosure', selector, properties: ['grid-template-rows', 'opacity'] }],
+      easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+    }, () => projectToggle.click());
+    const closingHeight = sample.frames[1].disclosure.height;
     assert.ok(closingHeight > 0 && closingHeight < openHeight);
+    await settleLayout(projectDisclosure);
     await projectToggle.click();
-    await page.waitForTimeout(280);
+    await settleLayout(projectDisclosure);
   }
   assert.equal(await page.getByRole('button', { name: 'Independent cwd', exact: true }).count(), 0);
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });

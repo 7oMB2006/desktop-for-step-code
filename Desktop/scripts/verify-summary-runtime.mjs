@@ -7,6 +7,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { sampleMotion } from './sample-motion.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-summary-runtime-'));
 const workspace = join(profile, 'summary-board');
@@ -62,6 +63,7 @@ const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const app = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: [...(executablePath ? [] : [resolve('.')]), '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-features=CalculateNativeWinOcclusion'], env, timeout: 60000 });
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -108,8 +110,16 @@ try {
     };
     requestAnimationFrame(record);
   });
-  await page.locator('.composer > .composer-input').fill('完成第二项');
-  await page.locator('.composer > .composer-input').press('Enter');
+  const createdTaskSelector = '.sb-task-shell:has(.sb-step-trigger[aria-label="验证清单生成动画 · 待推进"])';
+  const entranceMotion = await sampleMotion(page, {
+    label: 'native task_create summary entrance', state: { selector: createdTaskSelector },
+    targets: [{ name: 'task', selector: createdTaskSelector, properties: ['grid-template-rows', 'opacity'] }],
+    duration: 240, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', timeoutMs: 30000,
+  }, async () => {
+    // Keep the actual RPC/local-provider path; observe its resulting DOM commit.
+    await page.locator('.composer > .composer-input').fill('完成第二项');
+    await page.locator('.composer > .composer-input').press('Enter');
+  });
   await board.getByRole('button', { name: /已完成 2 项/ }).waitFor();
   await board.locator('.sb-task-history').getByRole('button', { name: /已完成任务.*1 项/ }).waitFor();
   await page.waitForFunction(() => window.summaryEntrance.some(frame => frame.height >= 34 && frame.opacity === 1));
@@ -123,12 +133,14 @@ try {
   assert.equal(update.tasks.find(task => task.id === '2').status, 'completed', 'Actual task_update must reach the board');
   assert.equal(update.tasks.find(task => task.id === '3').status, 'completed', 'A pending task can complete directly');
   assert.ok(update.tasks.some(task => task.subject === '验证清单生成动画'), 'Actual task_create must reach the board');
-  const entrance = await page.evaluate(() => window.summaryEntrance);
-  const finalHeight = entrance.at(-1)?.height ?? 0;
+  const naturalEntrance = await page.evaluate(() => window.summaryEntrance);
+  const finalHeight = naturalEntrance.at(-1)?.height ?? 0;
+  const entrance = entranceMotion.frames.map(frame => ({ height: frame.task.height, opacity: frame.task.opacity,
+    easing: entranceMotion.transitions.find(animation => animation.property === 'grid-template-rows').easing }));
   assert.ok(entrance.some(frame => frame.height > 0 && frame.height < finalHeight - 0.5 && frame.opacity > 0 && frame.opacity < 1),
     `New tasks must have intermediate height and opacity frames: ${JSON.stringify(entrance.slice(0, 8))}`);
   assert.ok(entrance.some(frame => frame.easing.includes('cubic-bezier(0.22, 1, 0.36, 1)')), 'Entrance uses shared cubic easing');
-  assert.ok(entrance.some(frame => frame.height >= 34 && frame.opacity === 1), 'New tasks settle at full height and opacity');
+  assert.ok(naturalEntrance.some(frame => frame.height >= 34 && frame.opacity === 1), 'New tasks settle at full height and opacity');
   const frames = await page.evaluate(() => window.summaryMotion);
   assert.ok(frames.some(frame => frame.settling === 'true' && frame.height > 20), 'mounted completion must animate before folding');
   const fastFrames = await page.evaluate(() => window.summaryFastCompletion);

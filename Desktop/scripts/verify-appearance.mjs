@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { sampleMotion } from './sample-motion.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-appearance-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: [], autoCheckUpdates: false }));
@@ -15,6 +16,7 @@ async function launch() {
   const executablePath = process.env.DESKTOP_VERIFY_EXE;
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   if (process.env.DESKTOP_VERIFY_CPU_RATE) {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.DESKTOP_VERIFY_CPU_RATE) });
@@ -53,18 +55,14 @@ try {
   const shellBounds = await page.getByRole('dialog').boundingBox();
   await page.waitForFunction(() => document.documentElement.dataset.themeMotion === 'ready');
   const beforeMotion = (await colors())['--bg'];
-  await selectTheme('暗', 'dark');
-  const motion = await (await page.waitForFunction(() => {
-    const root = document.documentElement;
-    const animations = root.getAnimations();
-    const background = animations.find(animation => animation.transitionProperty === '--bg');
-    if (!background) return false;
-    for (const animation of animations) { animation.pause(); animation.currentTime = 120; }
-    const intermediate = getComputedStyle(root).getPropertyValue('--bg');
-    const easing = background.effect.getTiming().easing;
-    for (const animation of animations) animation.finish();
-    return { intermediate, easing };
-  })).jsonValue();
+  const themeMotion = await sampleMotion(page, {
+    label: 'appearance root color transition',
+    state: { selector: ':root[data-palette="dark"]' },
+    targets: [{ name: 'root', selector: ':root', properties: ['--bg'], customProperties: ['--bg'] }],
+    duration: 360, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  }, () => selectTheme('暗', 'dark'));
+  const motion = { intermediate: themeMotion.frames[1].root.customProperties['--bg'],
+    easing: themeMotion.transitions.find(animation => animation.property === '--bg').easing };
   assert.notEqual(motion.intermediate, beforeMotion);
   assert.notEqual(motion.intermediate, cssColor('#1f222a'));
   assert.match(motion.easing, /cubic-bezier/);
@@ -174,20 +172,46 @@ try {
     await hex.fill('#fefefe');
     await page.waitForFunction(() => document.querySelector('#accent-hex')?.value === '#fefefe' &&
       document.querySelector('#accent-hex')?.getAttribute('aria-invalid') === 'false');
-    const reopened = await page.evaluate(async close => {
+    const reopened = await page.evaluate(close => new Promise((resolve, reject) => {
       const previous = document.querySelector('#accent-hex');
       const trigger = document.querySelector('.accent-custom');
       const disclosure = document.querySelector('.accent-disclosure');
       for (const animation of disclosure.getAnimations()) animation.finish();
+      const full = disclosure.getBoundingClientRect().height;
+      let result;
+      const finish = (error, value) => {
+        observer.disconnect(); clearTimeout(timer);
+        if (error) reject(error); else resolve(value);
+      };
+      const observer = new MutationObserver(() => {
+        try {
+          if (!result) {
+            if (disclosure.classList.contains('is-open')) return;
+            // Inspect the real closing transition before the retention timer can
+            // remove the editor, then reopen from an actual interior position.
+            getComputedStyle(disclosure).gridTemplateRows;
+            const animation = disclosure.getAnimations().find(animation => animation instanceof CSSTransition &&
+              animation.effect?.target === disclosure && animation.transitionProperty === 'grid-template-rows');
+            if (!animation || animation.playState !== 'running' || animation.effect.getTiming().duration !== 220)
+              throw new Error('Missing running accent disclosure close transition');
+            animation.pause(); animation.currentTime = 110;
+            const height = disclosure.getBoundingClientRect().height;
+            if (!(height > 0 && height < full)) throw new Error(`Accent close has no interior height: ${height}/${full}`);
+            result = { retained: document.querySelector('#accent-hex') === previous,
+              closing: !disclosure.classList.contains('is-open') };
+            animation.play();
+            trigger.click();
+          } else if (disclosure.classList.contains('is-open')) {
+            finish(null, { ...result, fresh: document.querySelector('#accent-hex') !== previous,
+              value: document.querySelector('#accent-hex')?.value });
+          }
+        } catch (error) { finish(error); }
+      });
+      const timer = setTimeout(() => finish(new Error(`Accent ${close}/reopen did not commit`)), 5000);
+      observer.observe(disclosure, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
       if (close === 'cancel') document.querySelector('.accent-editor-actions button').click();
       else trigger.click();
-      await new Promise(requestAnimationFrame);
-      const retained = document.querySelector('#accent-hex') === previous;
-      const closing = !disclosure.classList.contains('is-open');
-      trigger.click();
-      await new Promise(requestAnimationFrame);
-      return { retained, closing, fresh: document.querySelector('#accent-hex') !== previous, value: document.querySelector('#accent-hex')?.value };
-    }, close);
+    }), close);
     assert.equal(reopened.retained && reopened.closing, true, 'reopen occurs while the exit animation still retains the editor');
     assert.equal(reopened.fresh, true, `${close} then rapid reopen discards the old editor instance`);
     assert.equal(reopened.value, '#487bd1', `${close} then rapid reopen restores the saved HEX`);

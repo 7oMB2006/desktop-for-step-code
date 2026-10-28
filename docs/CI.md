@@ -116,6 +116,15 @@ again against the packaged `.app`. Packaged native terminal checks follow.
 count is maintained here. The job has a 90-minute timeout and retains the shared
 per-script deadlines and owned-process cancellation rules.
 
+Short animation checks capture product-created CSS transitions at the DOM state
+change, or WAAPI effects when created, before a native action's response can
+outlast the motion. They require finite running effects, check real intermediate
+geometry and restore playback before checking natural completion. Required host,
+pseudo-element and descendant effects have distinct identities. Reduced-motion
+checks retain their own immediate-state assertions. Run the browser-backed helper
+regressions from `Desktop/` with `node --test scripts/motion-helpers.test.mjs`;
+the macOS source acceptance step also runs them after Chromium installation.
+
 The `macos-fixture-diagnostics-<attempt>` artifact contains the source and package
 JSON reports and captured per-script output. Logs use separate paths under
 `Desktop/test-results/logs/source/<group>/<script>.log` and

@@ -41,6 +41,7 @@ test('Mac CI runs the same serial inventory against source and package and stage
   assert.match(workflow, /DESKTOP_MACOS_RELEASE_VERSION: 0\.6\.0/);
   assert.match(workflow, /DESKTOP_VERIFY_EXE:/);
   assert.match(workflow, /tests\/macos-terminal.test.ts/);
+  assert.match(workflow, /node --test scripts\/motion-helpers.test.mjs/);
   assert.match(workflow, /^  group: macos-preview-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}$/m);
   assert.match(workflow, /^  cancel-in-progress: true$/m);
 });

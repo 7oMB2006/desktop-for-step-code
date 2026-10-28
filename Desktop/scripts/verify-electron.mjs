@@ -709,10 +709,14 @@ try {
   const projectState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(projectState.independent, false);
   assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
-  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
-  await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained empty project draft');
-  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
   const draftInput = page.getByRole('textbox', { name: '消息', exact: true });
+  assert.equal(await draftInput.isEnabled(), true);
+  await page.getByRole('button', { name: '会话归属: 中文项目 with spaces', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '' &&
+    document.querySelector('.composer-input')?.getAttribute('data-empty') === 'true');
+  // Use the editor's keyboard path for initial input as well as clear/retype.
+  await draftInput.pressSequentially('Retained empty project draft');
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
   // Exercise editor transactions instead of racing fill('') DOM mutation with React.
   await draftInput.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
   await draftInput.press('Backspace');
@@ -797,8 +801,14 @@ try {
   assert.deepEqual(await imageMenu.getByRole('menuitem').allTextContents(), ['添加到聊天', '复制图像', '在资源管理器中打开', '下载副本']);
   await page.screenshot({ path: 'test-results/transcript-image-menu.png' });
   await imageMenu.getByRole('menuitem', { name: '在资源管理器中打开', exact: true }).click();
-  await page.evaluate(() => window.desktop.snapshot());
-  const revealedPath = await app.evaluate(() => globalThis.imageMenuTest.revealed[0]);
+  // A snapshot IPC can finish while imageAction is still writing the cache.
+  // Wait for its actual shell receipt in main, whose clock is not mocked here.
+  const revealedPath = await app.evaluate(async () => {
+    const revealed = globalThis.imageMenuTest.revealed;
+    const deadline = Date.now() + 10000;
+    while (!revealed.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    return revealed[0];
+  });
   const imageCache = join(profile, 'cache', 'image-previews');
   assert.equal(revealedPath, join(imageCache, 'image-preview.png'));
   assert.deepEqual(await readFile(revealedPath), Buffer.from(fixtureImageData.split(',')[1], 'base64'));

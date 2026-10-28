@@ -71,7 +71,7 @@ try {
   await input.waitFor();
   // Command completion restores its caret on the next frame. Let that finish
   // before replacing the draft through the editor's selection transactions.
-  const replaceDraft = async value => {
+  const replaceDraft = async (value, { bulk = false } = {}) => {
     let phase = 'settle preceding interaction';
     try {
       await settleLayout(input);
@@ -89,8 +89,12 @@ try {
       phase = 'type replacement';
       for (const [index, line] of value.split('\n').entries()) {
         if (index) await input.press('Shift+Enter');
-        await input.pressSequentially(line);
+        if (bulk) await page.keyboard.insertText(line);
+        else await input.pressSequentially(line);
       }
+      // A bulk density fixture needs one input operation, then an editor key event
+      // to flush pending DOM changes before checking its authoritative value.
+      if (bulk) await input.press('ArrowRight');
       await page.waitForFunction(expected => {
         const element = document.querySelector('.composer-input');
         return element?.value === expected && element.dataset.empty === String(!expected);
@@ -342,7 +346,7 @@ try {
   assert.equal(await input.evaluate(element => element.scrollWidth <= element.clientWidth), true, 'Long links wrap with the surrounding input text');
   await input.evaluate(element => { element.setSelectionRange(3, 8); });
   assert.equal(await input.evaluate(element => element.value.slice(element.selectionStart, element.selectionEnd)), linkDraft.slice(3, 8));
-  await replaceDraft(Array.from({ length: 40 }, (_, index) => `https://example.com/long-reference-${index}`).join(' '));
+  await replaceDraft(Array.from({ length: 40 }, (_, index) => `https://example.com/long-reference-${index}`).join(' '), { bulk: true });
   assert.equal(await links.count(), 32);
   assert.equal(await input.evaluate(element => {
     const bounds = element.getBoundingClientRect();

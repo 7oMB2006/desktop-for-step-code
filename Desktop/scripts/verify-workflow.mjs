@@ -65,6 +65,10 @@ try {
   assert.equal(await page.locator('.composer .launch-status-trigger').count(), 0);
   assert.equal(await page.locator('.working .launch-status-pulse').count(), 1);
   assert.equal(await page.locator('.working .launch-status-pulse svg.lucide-network').count(), 0, 'The actual workflow owns the orchestration entry');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The sampling below asserts intermediate frames, which only exist while the
+  // animation runs. The runner does not guarantee a motion preference, so pin it
+  // before sampling instead of inheriting whatever the environment defaults to.
   const entrance = await page.evaluate(async () => {
     document.querySelector('.working .launch-status-pulse').click();
     const frames = [], start = performance.now();

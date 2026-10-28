@@ -269,6 +269,10 @@ try {
   await assert.rejects(page.evaluate(() => window.desktop.rightPanelWidthMenu('invalid', { x: 0, y: 0 })));
   await assert.rejects(page.evaluate(() => window.desktop.rightPanelWidthMenu('standard', { x: null, y: 0 })));
   await chooseWidth('wide');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The sampling below asserts intermediate frames, which only exist while the
+  // animation runs. The runner does not guarantee a motion preference, so pin it
+  // before sampling instead of inheriting whatever the environment defaults to.
   const wideFrames = await panel.evaluate(async element => {
     const values = [];
     const start = performance.now();
@@ -288,6 +292,10 @@ try {
   const wideHost = await panel.locator('.browser-page').boundingBox();
   assert.ok(Math.abs(wideNative.bounds.x - wideHost.x) < 2 && Math.abs(wideNative.bounds.width - wideHost.width) < 2);
   await panel.getByRole('button', { name: '全屏查看', exact: true }).click();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The sampling below asserts intermediate frames, which only exist while the
+  // animation runs. The runner does not guarantee a motion preference, so pin it
+  // before sampling instead of inheriting whatever the environment defaults to.
   const frames = await panel.evaluate(async element => {
     const values = [];
     const start = performance.now();

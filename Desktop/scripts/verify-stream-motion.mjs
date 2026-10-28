@@ -41,6 +41,10 @@ try {
     }
   }, events);
   const delta = text => emit([{ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 1, delta: text } }]);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The assertions below read real animation frames, which only exist while the
+  // animation runs. The runner does not guarantee a motion preference, so pin it
+  // instead of inheriting whatever the environment defaults to.
   const startSampling = () => page.evaluate(() => {
     window.motionFrames = [];
     window.motionSampling = true;
@@ -90,6 +94,10 @@ try {
   assert.ok(fullHeight.height > 250);
   await delta('正文开始出现，思考区会平滑收起。');
   await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.expanded === 'false');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The assertions below read real animation frames, which only exist while the
+  // animation runs. The runner does not guarantee a motion preference, so pin it
+  // instead of inheriting whatever the environment defaults to.
   await thinking.evaluate(element => {
     const tween = element.querySelector('.thinking-body').getAnimations()[0];
     if (!tween) throw new Error('Missing thinking collapse animation');

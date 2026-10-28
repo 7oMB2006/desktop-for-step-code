@@ -32,6 +32,10 @@ try {
   await page.getByRole('button', { name: '模型与思考强度' }).click();
   const dialog = page.getByRole('dialog', { name: '模型与思考强度' });
   const slider = dialog.getByRole('slider', { name: '思考强度' });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The assertions below read real animation frames, which only exist while the
+  // animation runs. The runner does not guarantee a motion preference, so pin it
+  // instead of inheriting whatever the environment defaults to.
   const recordFaderMotion = async (interact, label) => {
     await page.evaluate(() => {
       const frames = [];

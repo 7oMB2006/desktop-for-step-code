@@ -35,6 +35,10 @@ export async function verifyInspectorExpansion(page, panel, screenshot) {
     }
     return frames;
   }, label);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The sampling below asserts intermediate frames, which only exist while the
+  // animation runs. The runner does not guarantee a motion preference, so pin it
+  // before sampling instead of inheriting whatever the environment defaults to.
   const expanding = await sample('全屏查看');
   const end = expanding.at(-1);
   assert.ok(Math.abs(end.x - end.sidebar) < 1, 'expanded inspector must fill only the main view');

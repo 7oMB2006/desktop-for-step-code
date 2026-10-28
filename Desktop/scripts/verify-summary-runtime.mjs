@@ -123,6 +123,10 @@ try {
   assert.equal(update.tasks.find(task => task.id === '2').status, 'completed', 'Actual task_update must reach the board');
   assert.equal(update.tasks.find(task => task.id === '3').status, 'completed', 'A pending task can complete directly');
   assert.ok(update.tasks.some(task => task.subject === '验证清单生成动画'), 'Actual task_create must reach the board');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The sampling below asserts intermediate frames, which only exist while the
+  // animation runs. The runner does not guarantee a motion preference, so pin it
+  // before sampling instead of inheriting whatever the environment defaults to.
   const entrance = await page.evaluate(() => window.summaryEntrance);
   const finalHeight = entrance.at(-1)?.height ?? 0;
   assert.ok(entrance.some(frame => frame.height > 0 && frame.height < finalHeight - 0.5 && frame.opacity > 0 && frame.opacity < 1),

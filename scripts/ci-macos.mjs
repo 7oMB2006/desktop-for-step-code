@@ -37,10 +37,18 @@ export async function executeWithLog(script, {
       const child = spawn(process.execPath, [script], {
         cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32',
       });
-      let stopped, spawnError;
+      let stopped, spawnError, closed = false;
       const stop = reason => {
-        if (stopped || child.exitCode !== null || child.signalCode !== null) return;
+        // A leader can exit while descendants still hold its inherited pipes.
+        // Keep the deadline/abort active until stdio actually closes.
+        if (stopped || closed) return;
         stopped = new Error(reason);
+        if (process.platform === 'win32' && (child.exitCode !== null || child.signalCode !== null)) {
+          // taskkill cannot recover an exited leader's tree, and its PID could
+          // have been reused. Close only our pipe handles and report failure.
+          child.stdout.destroy(); child.stderr.destroy();
+          return;
+        }
         if (!child.pid) return;
         try {
           // Terminate only this acceptance script's process tree.
@@ -73,6 +81,7 @@ export async function executeWithLog(script, {
       child.once('error', error => { spawnError = error; stamp(`spawn error: ${error.message}`); });
       // 'close', unlike 'exit', means both output pipes have drained.
       child.once('close', (code, exitSignal) => {
+        closed = true;
         clearTimeout(timer);
         signal?.removeEventListener('abort', abort);
         stream.removeListener('error', logFailed);

@@ -128,3 +128,47 @@ test('Mac logs drain output larger than pipe buffers and retain separate source/
   assert.equal(probe.log(), sourceLog, 'packaged execution must not overwrite source output');
   assert.match(readFileSync(join(probe.directory, 'logs/package/all/probe.mjs.log'), 'utf8'), /PACKAGE FAILURE/);
 });
+
+test('Mac cancellation after leader exit still closes its owned descendant pipes', { skip: process.platform === 'win32', timeout: 10000 }, async t => {
+  const probe = logFixture(t, `
+    import { spawn } from 'node:child_process';
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' });
+    console.log(JSON.stringify({ leader: process.pid, descendant: child.pid }));
+    child.unref();
+  `);
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const waitFor = async predicate => {
+    const deadline = Date.now() + 3000;
+    while (!predicate()) {
+      assert.ok(Date.now() < deadline, 'owned subprocess state must settle');
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  };
+  const controller = new AbortController();
+  const pending = executeWithLog(probe.script, { ...probe.options, signal: controller.signal });
+  pending.catch(() => {});
+  let pids, cleanup;
+  const terminateOwnedGroup = () => {
+    if (!pids) return;
+    try { process.kill(-pids.leader, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+  };
+  try {
+    await waitFor(() => {
+      try { pids = JSON.parse(Buffer.concat(probe.stdout).toString()); return true; } catch { return false; }
+    });
+    await waitFor(() => !alive(pids.leader));
+    assert.equal(alive(pids.descendant), true, 'the exited leader leaves a live child holding its output pipes');
+    // Bound the old broken behavior: forced cleanup lets its false success surface
+    // as a failed assertion rather than leaving the test runner hanging forever.
+    cleanup = setTimeout(terminateOwnedGroup, 250);
+    controller.abort();
+    await assert.rejects(pending, /cancelled/);
+    await waitFor(() => !alive(pids.descendant));
+    assert.match(probe.log(), /exit: code=0 stopped=Acceptance cancelled\n$/);
+  } finally {
+    clearTimeout(cleanup);
+    controller.abort();
+    terminateOwnedGroup();
+    await pending.catch(() => {});
+  }
+});

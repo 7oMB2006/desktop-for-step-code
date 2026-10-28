@@ -1,5 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -117,11 +118,48 @@ try {
     await page.getByRole('button', { name: theme, exact: true }).click();
     await page.getByRole('button', { name: accent, exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
-    await page.waitForFunction(() => !document.documentElement.getAnimations().some(animation => animation.playState === 'running'));
-    const primary = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim());
-    assert.equal(await link.evaluate(element => getComputedStyle(element).color), primary, 'message links follow the selected accent');
-    await link.hover();
-    await page.locator('.link-preview-body p').waitFor();
+    let primary;
+    try {
+      // Root color transitions do not establish dismissal of the animated settings
+      // descendants. Finish dismissal and scrolling before starting a fresh hover.
+      await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
+      await page.waitForFunction(() => !document.documentElement.getAnimations().some(animation => animation.playState === 'running'));
+      primary = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim());
+      assert.equal(await link.evaluate(element => getComputedStyle(element).color), primary, 'message links follow the selected accent');
+      await page.mouse.move(0, 0);
+      await link.scrollIntoViewIfNeeded();
+      await settleLayout(link);
+      await link.hover();
+      await page.locator('.link-preview[aria-hidden="false"] .link-preview-body p').waitFor();
+    } catch (error) {
+      let diagnosticTimer;
+      try {
+        const state = await Promise.race([
+          page.evaluate(() => {
+            const anchor = document.querySelector('a.message-link[href="https://www.stepfun.com/"]');
+            const rect = anchor?.getBoundingClientRect();
+            const describe = element => element ? { tag: element.tagName, id: element.id, className: element.className,
+              href: element.getAttribute('href') } : null;
+            return { visibility: document.visibilityState, hovered: anchor?.matches(':hover'),
+              focused: document.activeElement === anchor, activeElement: describe(document.activeElement),
+              settingsBackdrops: document.querySelectorAll('.settings-backdrop').length,
+              previews: [...document.querySelectorAll('.link-preview')].map(element => ({
+                className: element.className, ariaHidden: element.getAttribute('aria-hidden'),
+                hasParagraph: Boolean(element.querySelector('.link-preview-body p')),
+              })), rect: rect && { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+              hitTarget: rect && describe(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)) };
+          }),
+          new Promise(resolve => { diagnosticTimer = setTimeout(() => resolve({ diagnosticTimedOut: true }), 3000); }),
+        ]);
+        console.error('Message link preview hover failed:', { theme, accent, ...state });
+      } catch (diagnosticError) {
+        console.error('Message link preview diagnostics failed:', { theme, accent, message: diagnosticError.message });
+      } finally { clearTimeout(diagnosticTimer); }
+      await page.screenshot({ path: `test-results/message-links-accent-${screenshot}-failure.png`, timeout: 3000 })
+        .catch(diagnosticError => console.error('Message link failure screenshot unavailable:', diagnosticError.message));
+      throw error;
+    }
+    assert.equal(await page.locator('.link-preview[aria-hidden="false"] .link-preview-top > a').count(), 2, 'Both preview actions remain present');
     assert.ok(await page.locator('.link-preview-top > a').evaluateAll((elements, color) =>
       elements.every(element => getComputedStyle(element).color === color), primary), 'both preview actions share the accent');
     await page.screenshot({ path: `test-results/message-links-accent-${screenshot}.png`, animations: 'disabled' });

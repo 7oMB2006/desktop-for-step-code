@@ -42,7 +42,7 @@ request. The runner tests also run on each Windows job, including owned-process
 tree cancellation. Run them locally without installing Desktop dependencies:
 
 ```sh
-node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs
+node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs
 ```
 
 ## Acceptance Inventory
@@ -63,14 +63,31 @@ The three callers all depend only on classification, not on one another.
 No matrix fail-fast can hide another group's diagnosis.
 
 `scripts/ci-windows.mjs` runs each group's scripts in the Desktop directory,
-stops on the first failure and prints named log groups. Existing five-minute
-limits on model-switch and theme-bootstrap acceptance are retained; other tests
-retain the 45-minute group job limit. Timeouts/cancellation terminate only the
+stops on the first failure and prints named log groups. Every script has a
+five-minute deadline, within the 45-minute group job limit.
+Timeouts/cancellation terminate only the
 owned test process tree. Logs and the job summary report per-script durations;
 `acceptance-timings-<group>-<attempt>` contains a JSON report including expected count,
 executed checks and completion status. Failure screenshots also have group-specific
 artifact names, including the run attempt to avoid rerun collisions. Records
 remain available for seven days.
+
+The Windows workflow also runs `scripts/windows-ci-summary.mjs` after preparation
+or acceptance, including on failure or cancellation when checkout and Node setup
+succeeded and the runner can still execute cleanup steps.
+It identifies failed/cancelled stages, a failed or last-recorded active
+script, checks not started and the five slowest recorded checks. The Markdown
+summary is included in the existing timing artifact. An active record without a
+result means interrupted/incomplete evidence, not necessarily a timeout.
+Missing reports never imply success; malformed or inconsistent reports fail the
+diagnostic step without echoing their unvalidated contents.
+
+The diagnostic helper receives only explicit stage outcomes and allowlists
+script names against the group's existing inventory. It does not collect raw
+environment values, credentials, child-process output or conversation content.
+It does not retry tests, change deadlines, grant completion receipts, or modify
+the shared runner, acceptance assignments or macOS workflow.
+The helper filenames also stay outside the macOS workflow's path filters.
 
 Inspect the assigned scripts without building:
 

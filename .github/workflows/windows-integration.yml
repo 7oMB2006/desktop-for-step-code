@@ -27,26 +27,30 @@ jobs:
       complete: ${{ steps.acceptance.outputs.complete }}
     steps:
       - name: Check out Desktop
+        id: checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
       - name: Set up Node.js
+        id: node
         uses: actions/setup-node@v4
         with:
           # Includes the Windows TCP-connect crash fix (nodejs/node#63620).
           node-version: 24.16.0
 
       - name: Validate acceptance group
+        id: validate
         env:
           CI_WINDOWS_GROUP: ${{ inputs.group }}
         run: |
-          node --test scripts/ci-windows.test.mjs
+          node --test scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Windows acceptance runner tests failed' }
           node scripts/ci-windows.mjs --list
           if ($LASTEXITCODE -ne 0) { throw 'Invalid Windows acceptance group' }
 
       - name: Fetch pinned Step Code
+        id: upstream_fetch
         shell: pwsh
         run: |
           $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
@@ -65,6 +69,7 @@ jobs:
           }
 
       - name: Apply Desktop integration patch
+        id: upstream_patch
         shell: pwsh
         run: |
           $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
@@ -76,6 +81,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Step Code integration changes contain whitespace errors' }
 
       - name: Install and build Step Code
+        id: upstream_build
         working-directory: Step-Code
         run: |
           corepack pnpm install --frozen-lockfile
@@ -84,6 +90,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Step Code build failed' }
 
       - name: Install Desktop dependencies
+        id: desktop_install
         working-directory: Desktop
         run: |
           corepack pnpm install --frozen-lockfile
@@ -92,12 +99,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Electron install failed' }
 
       - name: Upstream Plan integration tests
+        id: upstream_plan
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream Plan integration tests failed' }
 
       - name: Install startup preview browser
+        id: preview_browser
         if: inputs.group == 'interface'
         timeout-minutes: 5
         working-directory: Desktop
@@ -106,42 +115,49 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Startup preview browser install failed' }
 
       - name: Upstream Windows shell and Ultracode tests
+        id: upstream_shell
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/shell-discovery.test.ts test/resolve-config-value.test.ts test/workflow-ultraloop-opt-in.test.ts test/suite/ultracode-discovery.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream Windows shell and Ultracode tests failed' }
 
       - name: Upstream command and usage compatibility tests
+        id: upstream_compatibility
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/step-then-run-command-parity.test.ts test/step-permissions.test.ts test/step-extension.test.ts test/suite/agent-session-prompt.test.ts test/shell-process-tree.test.ts test/step-subagent-events.test.ts test/subagent-exit-drain.test.ts test/step-usage-lifecycle.test.ts test/step-cron.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream command and usage compatibility tests failed' }
 
       - name: Upstream automatic CLM tests
+        id: upstream_clm
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts test/session-import.test.ts test/session-manager/build-context.test.ts test/compaction-serialization.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream automatic CLM tests failed' }
 
       - name: Upstream Workflow stability tests
+        id: upstream_workflow
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/workflow-runtime.test.ts test/workflow-extension.test.ts test/workflow-agent-runner.test.ts test/workflow-vm.test.ts test/workflow-registration.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream Workflow stability tests failed' }
 
       - name: Runtime staging
+        id: runtime_stage
         working-directory: Desktop
         run: |
           corepack pnpm stage:runtime
           if ($LASTEXITCODE -ne 0) { throw 'Runtime staging failed' }
 
       - name: Typecheck
+        id: typecheck
         working-directory: Desktop
         run: |
           corepack pnpm typecheck
           if ($LASTEXITCODE -ne 0) { throw 'Typecheck failed' }
 
       - name: Protocol tests
+        id: protocol
         working-directory: Desktop
         run: |
           New-Item -ItemType Directory -Force test-results | Out-Null
@@ -149,6 +165,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Protocol tests failed' }
 
       - name: Desktop build
+        id: desktop_build
         working-directory: Desktop
         run: |
           corepack pnpm build
@@ -160,12 +177,39 @@ jobs:
           CI_WINDOWS_GROUP: ${{ inputs.group }}
         run: node scripts/ci-windows.mjs
 
+      - name: Summarize Windows diagnostics
+        if: always() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success'
+        env:
+          CI_WINDOWS_GROUP: ${{ inputs.group }}
+          CI_WINDOWS_STEPS: >-
+            {
+              "validate": "${{ steps.validate.outcome }}",
+              "upstream_fetch": "${{ steps.upstream_fetch.outcome }}",
+              "upstream_patch": "${{ steps.upstream_patch.outcome }}",
+              "upstream_build": "${{ steps.upstream_build.outcome }}",
+              "desktop_install": "${{ steps.desktop_install.outcome }}",
+              "upstream_plan": "${{ steps.upstream_plan.outcome }}",
+              "preview_browser": "${{ steps.preview_browser.outcome }}",
+              "upstream_shell": "${{ steps.upstream_shell.outcome }}",
+              "upstream_compatibility": "${{ steps.upstream_compatibility.outcome }}",
+              "upstream_clm": "${{ steps.upstream_clm.outcome }}",
+              "upstream_workflow": "${{ steps.upstream_workflow.outcome }}",
+              "runtime_stage": "${{ steps.runtime_stage.outcome }}",
+              "typecheck": "${{ steps.typecheck.outcome }}",
+              "protocol": "${{ steps.protocol.outcome }}",
+              "desktop_build": "${{ steps.desktop_build.outcome }}",
+              "acceptance": "${{ steps.acceptance.outcome }}"
+            }
+        run: node scripts/windows-ci-summary.mjs
+
       - name: Upload acceptance timings
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: acceptance-timings-${{ inputs.group }}-${{ github.run_attempt }}
-          path: Desktop/test-results/ci-*.json
+          path: |
+            Desktop/test-results/ci-${{ inputs.group }}.json
+            Desktop/test-results/ci-windows-${{ inputs.group }}-summary.md
           if-no-files-found: ignore
           retention-days: 7
 

@@ -148,9 +148,19 @@ try {
   await page.locator('.attachment-preview-image').click({ button: 'right' });
   await imageMenu.getByRole('menuitem', { name: '另存为', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.image-context'));
-  // Wait for the asynchronous file write through a benign IPC barrier.
-  await page.evaluate(() => window.desktop.snapshot());
-  assert.deepEqual(await readFile(imageSavePath), Buffer.from(fixtureImageData.split(',')[1], 'base64'));
+  // The snapshot IPC does not await the save handler's asynchronous file write.
+  // Observe complete expected bytes with host timers, independent of page.clock.
+  const expectedImageBytes = Buffer.from(fixtureImageData.split(',')[1], 'base64');
+  const saveDeadline = Date.now() + 10000;
+  while (Date.now() < saveDeadline) {
+    try {
+      if ((await readFile(imageSavePath)).equals(expectedImageBytes)) break;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.deepEqual(await readFile(imageSavePath), expectedImageBytes);
   await app.evaluate(() => { globalThis.imageMenuTest.canceled = true; });
   assert.equal(await page.evaluate(src => window.desktop.imageAction('save', src, 'clipboard.png'), fixtureImageData), false);
   await app.evaluate(() => { globalThis.imageMenuTest.canceled = false; });

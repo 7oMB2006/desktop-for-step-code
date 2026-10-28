@@ -95,29 +95,35 @@ acceptance still follow `VERIFICATION.md`.
 
 ## macOS Apple Silicon Preview
 
-`macos-integration.yml` is a separate workflow from `PR CI` and does not gate
-merges: `CI result` depends only on classification, documentation and the three
-Windows groups. It stages the same pinned upstream, applies the integration
-patch and runs the full 84-script Electron inventory twice, once against the
-source build and once against the packaged `.app`, in a single serial job on
-`macos-15`.
+`.github/workflows/macos-integration.yml` runs separately from `PR CI`.
+The shared `CI result` includes classification, documentation and the three
+Windows groups; it does not include macOS acceptance. A green shared result
+therefore does not establish macOS readiness.
 
-That runner is shared by the whole repository, so the workflow's concurrency
-group deliberately omits `github.ref` and only one macOS job runs at a time.
-Before 2026-10-26 the group was keyed per ref, which let several pull requests
-run their inventories in parallel on the one runner; each script spawns its own
-Electron plus Step Code workers, and the contention surfaced as timeouts in
-whichever script happened to be running. A lone run finishes in roughly 45-50
-minutes, while three refs triggered together all failed, two of them on pull
-requests unrelated to the change that introduced the contention. `cancel-in-progress`
-is false for the same reason: cancelling a run already on the runner turns its
-check red and discards the elapsed minutes, whereas queueing behind it is a
-known wait.
+Each `macos-15` job runs on its own GitHub-hosted virtual machine, as described
+in [GitHub's hosted runner documentation](https://docs.github.com/en/actions/concepts/runners/github-hosted-runners).
+Different pull requests do not run their jobs on one repository-wide VM.
+Simultaneous failures alone do not establish CPU or memory contention between
+pull requests. The concurrency group includes both `github.workflow` and
+`github.ref`: different pull requests do not block each other through this
+group, while `cancel-in-progress: true` cancels an older run superseded on the
+same ref. GitHub runner availability and account limits can still cause queues.
 
-A queued macOS job is therefore not a stalled one. Splitting the inventory
-across parallel jobs was tried and reverted; the preparation and packaging
-steps would have to move into their own job with artifacts passed to the
-acceptance jobs before that is worth another attempt.
+One native job builds and stages the pinned runtime, runs typecheck and protocol
+tests, then executes the full serial inventory against the source build and
+again against the packaged `.app`. Packaged native terminal checks follow.
+`scripts/ci-acceptance.mjs` defines the current inventory; no separate script
+count is maintained here. The job has a 90-minute timeout and retains the shared
+per-script deadlines and owned-process cancellation rules.
+
+The `macos-fixture-diagnostics-<attempt>` artifact contains the source and package
+JSON reports and captured per-script output. Logs use separate paths under
+`Desktop/test-results/logs/source/<group>/<script>.log` and
+`Desktop/test-results/logs/package/<group>/<script>.log`, so packaged acceptance
+does not overwrite source diagnostics. The workflow uses group `all`; the job
+summary lists artifact-relative log paths. Console stdout and stderr remain
+visible while each script runs, and diagnostic artifacts are retained for seven
+days, including after failures.
 
 ## Local Split Validation (2026-10-13)
 

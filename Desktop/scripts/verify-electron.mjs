@@ -1,3 +1,5 @@
+import { sampleMotion } from './sample-motion.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -38,6 +40,7 @@ const app = await electron.launch(launchOptions);
 const errors = [];
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const windowState = await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0);
@@ -148,9 +151,19 @@ try {
   await page.locator('.attachment-preview-image').click({ button: 'right' });
   await imageMenu.getByRole('menuitem', { name: '另存为', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.image-context'));
-  // Wait for the asynchronous file write through a benign IPC barrier.
-  await page.evaluate(() => window.desktop.snapshot());
-  assert.deepEqual(await readFile(imageSavePath), Buffer.from(fixtureImageData.split(',')[1], 'base64'));
+  // The snapshot IPC does not await the save handler's asynchronous file write.
+  // Observe complete expected bytes with host timers, independent of page.clock.
+  const expectedImageBytes = Buffer.from(fixtureImageData.split(',')[1], 'base64');
+  const saveDeadline = Date.now() + 10000;
+  while (Date.now() < saveDeadline) {
+    try {
+      if ((await readFile(imageSavePath)).equals(expectedImageBytes)) break;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.deepEqual(await readFile(imageSavePath), expectedImageBytes);
   await app.evaluate(() => { globalThis.imageMenuTest.canceled = true; });
   assert.equal(await page.evaluate(src => window.desktop.imageAction('save', src, 'clipboard.png'), fixtureImageData), false);
   await app.evaluate(() => { globalThis.imageMenuTest.canceled = false; });
@@ -281,22 +294,21 @@ try {
       await page.waitForFunction(() => document.querySelector('.sidebar').getBoundingClientRect().x === 0 &&
         !document.querySelector('.sidebar').getAnimations().some(animation => animation.playState === 'running'));
       for (const direction of ['close', 'open']) {
-        const frames = await page.evaluate(async () => {
-          const tools = document.querySelector('.window-tools');
-          const sidebar = document.querySelector('.sidebar');
-          document.querySelector('.window-sidebar-toggle').click();
-          const frames = [];
-          const start = performance.now();
-          do {
-            await new Promise(requestAnimationFrame);
-            const top = getComputedStyle(tools, '::before');
-            const matrix = new DOMMatrixReadOnly(top.transform);
-            frames.push({ topRight: tools.getBoundingClientRect().left + parseFloat(top.width) + matrix.m41,
-              bottomRight: sidebar.getBoundingClientRect().right,
-              topColor: top.backgroundColor, bottomColor: getComputedStyle(sidebar).backgroundColor });
-          } while (performance.now() - start < 350);
-          return frames;
-        });
+        await settleLayout(page.locator('.app'));
+        const sample = await sampleMotion(page, {
+          label: `macOS sidebar ${direction}`,
+          state: { selector: direction === 'close' ? '.app.sidebar-hidden' : '.app:not(.sidebar-hidden)' },
+          targets: [{ name: 'sidebar', selector: '.sidebar', properties: ['transform'] },
+            { name: 'tools', selector: '.window-tools', pseudoProperties: { '::before': ['transform'] }, pseudoElements: ['::before'] },
+            { name: 'app', selector: '.app', pseudoProperties: { '::before': ['flex-basis'] }, pseudoElements: ['::before'] }],
+          duration: 280, easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+        }, () => page.locator('.window-sidebar-toggle').click());
+        const frames = sample.frames.map(frame => ({
+          topRight: frame.tools.x + frame.tools.pseudo['::before'].width + frame.tools.pseudo['::before'].transformMatrixX,
+          bottomRight: frame.sidebar.right, topColor: frame.tools.pseudo['::before'].backgroundColor,
+          bottomColor: frame.sidebar.backgroundColor,
+        }));
+        await settleLayout(page.locator('.app'));
         assert.ok(frames.some(frame => frame.bottomRight > 1 && frame.bottomRight < 200), `${direction}: sampled moving sidebar`);
         for (const frame of frames) {
           assert.ok(Math.abs(frame.topRight - frame.bottomRight) < 1, `${direction}: continuous sidebar edge ${JSON.stringify(frame)}`);
@@ -398,12 +410,18 @@ try {
     assert.match(transitionStyle.timing, /cubic-bezier\(0\.65, 0, 0\.35, 1\)/);
     assert.ok(transitionStyle.duration.split(',').some(value => parseFloat(value) >= 0.24));
     const openHeight = await projectDisclosure.evaluate(element => element.getBoundingClientRect().height);
-    await projectToggle.click();
-    await page.waitForTimeout(60);
-    const closingHeight = await projectDisclosure.evaluate(element => element.getBoundingClientRect().height);
+    await projectDisclosure.evaluate(element => { element.dataset.motionFixture = 'workspace-collapse'; });
+    const selector = '[data-motion-fixture="workspace-collapse"]';
+    const sample = await sampleMotion(page, {
+      label: 'workspace collapse', state: { selector, attribute: 'aria-hidden', value: 'true' },
+      targets: [{ name: 'disclosure', selector, properties: ['grid-template-rows', 'opacity'] }],
+      easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+    }, () => projectToggle.click());
+    const closingHeight = sample.frames[1].disclosure.height;
     assert.ok(closingHeight > 0 && closingHeight < openHeight);
+    await settleLayout(projectDisclosure);
     await projectToggle.click();
-    await page.waitForTimeout(280);
+    await settleLayout(projectDisclosure);
   }
   assert.equal(await page.getByRole('button', { name: 'Independent cwd', exact: true }).count(), 0);
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
@@ -709,10 +727,14 @@ try {
   const projectState = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(projectState.independent, false);
   assert.equal(await realpath(projectState.preferences.workspace), await realpath(workspace));
-  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isEnabled(), true);
-  await page.getByRole('textbox', { name: '消息', exact: true }).fill('Retained empty project draft');
-  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
   const draftInput = page.getByRole('textbox', { name: '消息', exact: true });
+  assert.equal(await draftInput.isEnabled(), true);
+  await page.getByRole('button', { name: '会话归属: 中文项目 with spaces', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '' &&
+    document.querySelector('.composer-input')?.getAttribute('data-empty') === 'true');
+  // Use the editor's keyboard path for initial input as well as clear/retype.
+  await draftInput.pressSequentially('Retained empty project draft');
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Retained empty project draft');
   // Exercise editor transactions instead of racing fill('') DOM mutation with React.
   await draftInput.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
   await draftInput.press('Backspace');
@@ -797,8 +819,14 @@ try {
   assert.deepEqual(await imageMenu.getByRole('menuitem').allTextContents(), ['添加到聊天', '复制图像', '在资源管理器中打开', '下载副本']);
   await page.screenshot({ path: 'test-results/transcript-image-menu.png' });
   await imageMenu.getByRole('menuitem', { name: '在资源管理器中打开', exact: true }).click();
-  await page.evaluate(() => window.desktop.snapshot());
-  const revealedPath = await app.evaluate(() => globalThis.imageMenuTest.revealed[0]);
+  // A snapshot IPC can finish while imageAction is still writing the cache.
+  // Wait for its actual shell receipt in main, whose clock is not mocked here.
+  const revealedPath = await app.evaluate(async () => {
+    const revealed = globalThis.imageMenuTest.revealed;
+    const deadline = Date.now() + 10000;
+    while (!revealed.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    return revealed[0];
+  });
   const imageCache = join(profile, 'cache', 'image-previews');
   assert.equal(revealedPath, join(imageCache, 'image-preview.png'));
   assert.deepEqual(await readFile(revealedPath), Buffer.from(fixtureImageData.split(',')[1], 'base64'));

@@ -18,16 +18,9 @@ permissions:
   contents: read
 
 concurrency:
-  # One macos-15 runner serves every branch, so the group must span refs. Keying it on
-  # github.ref let several pull requests run their 84-script serial Electron acceptance
-  # at once; each suite spawns its own Electron plus Step Code workers, and the
-  # contention surfaced as timeouts in whichever script happened to be running.
-  # Observed 2026-10-25/26: a lone run finished in 45-48 minutes, while three refs
-  # triggered together all failed, two of them on unrelated pull requests.
-  group: macos-preview-${{ github.workflow }}
-  # Never cancel a run already on the runner: a cancelled check reads as red and the
-  # elapsed minutes are gone. Queuing behind it is cheaper than starting over.
-  cancel-in-progress: false
+  # Each hosted job gets its own VM; supersede only runs for the same ref.
+  group: macos-preview-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   macos:
@@ -90,6 +83,7 @@ jobs:
         working-directory: Desktop
         run: |
           node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs
+          node --test scripts/motion-helpers.test.mjs
           node ../scripts/ci-macos.mjs
       - name: Package unsigned preview and verify resources
         working-directory: Desktop

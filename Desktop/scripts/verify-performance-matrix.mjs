@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { sampleMotion } from './sample-motion.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 await mkdir('test-results', { recursive: true });
 let preview;
@@ -14,6 +16,7 @@ try {
   const base = process.env.DESKTOP_PREVIEW_URL ?? preview.resolvedUrls.local[0].replace(/\/$/, '');
   browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1100, height: 780 } });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const url = `${base}/tests/fixtures/performance-matrix.html`;
@@ -88,17 +91,25 @@ try {
   assert.match(initialTime, /^总耗时 /, 'pulse reports total run duration, not phase duration');
   await page.waitForFunction(initial => document.querySelector('.working-elapsed').textContent !== initial, initialTime);
   const iconBox = await page.locator('.matrix-pulse').boundingBox();
-  await page.getByRole('button', { name: '思考', exact: true }).click();
-  await page.waitForTimeout(80);
-  const crossfade = await page.locator('.matrix-pulse').evaluate(el => ({
-    incoming: Number(getComputedStyle(el.querySelector('.matrix-thinking')).opacity),
-    outgoing: Number(getComputedStyle(el.querySelector('.matrix-executing')).opacity),
-    easing: getComputedStyle(el.querySelector('.matrix-thinking')).transitionTimingFunction,
-  }));
-  assert.ok(crossfade.incoming > 0 && crossfade.incoming < 1 && crossfade.outgoing > 0 && crossfade.outgoing < 1, 'mode change must crossfade rather than jump');
-  assert.match(crossfade.easing, /cubic-bezier/);
+  const crossfade = await sampleMotion(page, {
+    label: 'matrix executing to thinking crossfade',
+    state: { selector: '.matrix-pulse', attribute: 'data-mode', value: 'thinking' },
+    targets: [
+      { name: 'incoming', selector: '.matrix-thinking', properties: ['opacity'] },
+      { name: 'outgoing', selector: '.matrix-executing', properties: ['opacity'] },
+    ],
+    duration: 320, easing: 'cubic-bezier(0.215, 0.61, 0.355, 1)',
+  }, () => page.getByRole('button', { name: '思考', exact: true }).click());
+  assert.ok(crossfade.frames.some(frame => frame.incoming.opacity > 0 && frame.incoming.opacity < 1
+    && frame.outgoing.opacity > 0 && frame.outgoing.opacity < 1), 'mode change must crossfade rather than jump');
+  assert.match(crossfade.transitions.find(transition => transition.target === 'incoming' && transition.property === 'opacity').easing,
+    /cubic-bezier/);
+  assert.equal(crossfade.frames[0].incoming.opacity, 0);
+  assert.equal(crossfade.frames[0].outgoing.opacity, 1);
+  assert.equal(crossfade.frames.at(-1).incoming.opacity, 1);
+  assert.equal(crossfade.frames.at(-1).outgoing.opacity, 0);
   assert.equal(await page.locator('.matrix-thinking .matrix-orbit-pixel').first().evaluate(el => getComputedStyle(el).animationDuration), '4.8s');
-  await page.waitForTimeout(350);
+  await settleLayout(page.locator('.matrix-pulse'));
   assert.deepEqual(await page.locator('.matrix-pulse').boundingBox(), iconBox, 'mode changes must preserve icon geometry');
   await page.screenshot({ path: 'test-results/performance-matrix-thinking-dark.png' });
   await page.getByRole('button', { name: '等待', exact: true }).click();

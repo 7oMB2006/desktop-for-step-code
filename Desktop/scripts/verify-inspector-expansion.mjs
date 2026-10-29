@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { sampleMotion } from './sample-motion.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 export async function verifyInspectorExpansion(page, panel, screenshot) {
+  await settleLayout(panel);
   const before = await panel.evaluate(element => ({
     width: element.closest('.right-inspector-surface').getBoundingClientRect().width,
     scroll: element.querySelector('.context-panel-scroll, .review-scroll').scrollTop,
@@ -18,23 +21,32 @@ export async function verifyInspectorExpansion(page, panel, screenshot) {
       assert.equal(await panel.evaluate(element => element.querySelector('.context-panel-scroll, .review-scroll').scrollTop), before.scroll);
     }
   }
-  const sample = label => panel.evaluate(async (element, label) => {
-    const surface = element.closest('.right-inspector-surface');
-    surface.dataset.expansionProbe = 'preserved';
-    element.querySelector(`button[aria-label="${label}"]`).click();
-    const frames = [];
-    const start = performance.now();
-    while (performance.now() - start < 350) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      const box = surface.getBoundingClientRect();
-      const app = document.querySelector('.app');
-      const rail = document.querySelector('.right-tool-rail').getBoundingClientRect();
-      frames.push({ width: box.width, x: box.x, gap: rail.x - box.right,
-        sidebar: parseFloat(getComputedStyle(app).getPropertyValue('--sidebar-track')),
-        mainInert: document.querySelector('.main-content').inert });
-    }
+  const sample = async label => {
+    await settleLayout(page.locator('.app'));
+    await panel.evaluate(element => { element.closest('.right-inspector-surface').dataset.expansionProbe = 'preserved'; });
+    const surface = '[data-expansion-probe="preserved"]';
+    const motion = await sampleMotion(page, {
+      label: `inspector ${label}`,
+      state: { selector: `${surface}${label === '全屏查看' ? '.is-expanded' : ':not(.is-expanded)'}` },
+      targets: [{ name: 'surface', selector: surface, properties: ['width'] },
+        { name: 'rail', selector: '.right-tool-rail' },
+        { name: 'app', selector: '.app', customProperties: ['--sidebar-track'] },
+        { name: 'main', selector: '.main-content' }],
+      duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    }, () => panel.getByRole('button', { name: label, exact: true }).click());
+    const frames = motion.frames.map(frame => ({ width: frame.surface.width, x: frame.surface.x,
+      gap: frame.rail.x - frame.surface.right,
+      sidebar: parseFloat(frame.app.customProperties['--sidebar-track']), mainInert: frame.main.inert }));
+    await settleLayout(page.locator('.app'));
+    // Keep a naturally settled endpoint as well as the real effect's samples.
+    frames.push(await panel.evaluate(element => {
+      const box = element.closest('.right-inspector-surface').getBoundingClientRect();
+      return { width: box.width, x: box.x, gap: document.querySelector('.right-tool-rail').getBoundingClientRect().x - box.right,
+        sidebar: parseFloat(getComputedStyle(document.querySelector('.app')).getPropertyValue('--sidebar-track')),
+        mainInert: document.querySelector('.main-content').inert };
+    }));
     return frames;
-  }, label);
+  };
   const expanding = await sample('全屏查看');
   const end = expanding.at(-1);
   assert.ok(Math.abs(end.x - end.sidebar) < 1, 'expanded inspector must fill only the main view');

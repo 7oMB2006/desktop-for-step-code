@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { captureWaapi } from './capture-waapi.mjs';
 import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -20,6 +21,7 @@ let phase = 'startup';
 const evidence = [];
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }, testMaxHeight) => {
@@ -128,16 +130,13 @@ try {
   }
   phase = 'upward wheel during disclosure animation';
   await reset();
-  await tool.locator(':scope > summary').click();
-  await tool.locator('.process-tool-body').evaluate(body => {
-    const animation = body.getAnimations()[0];
-    if (!animation) throw new Error('Missing disclosure animation');
-    animation.pause(); animation.currentTime = 140;
-  });
+  const expansion = await captureWaapi(page, '.process-tool-body', () => tool.locator(':scope > summary').click());
+  await expansion.evaluate(animation => { animation.currentTime = 140; });
   await settle();
   await wheel(-40);
   const interrupted = await measure();
-  await tool.locator('.process-tool-body').evaluate(body => body.getAnimations()[0].finish());
+  await expansion.evaluate(animation => animation.finish());
+  await expansion.dispose();
   await settle();
   const finished = await measure();
   assert.ok(finished.max - finished.top > 20, 'Finishing expansion must not pull an upward gesture to the tail');

@@ -90,7 +90,12 @@ try {
   await page.waitForFunction(() => document.querySelector('.lane-row[data-lane-agent="review"] .subagent-status-icon').dataset.settling === 'true');
   const setTime = time => icon.evaluate((element, time) => {
     for (const animation of element.getAnimations({ subtree: true })) {
-      if (!(animation instanceof CSSAnimation)) animation.currentTime = time;
+      if (!(animation instanceof CSSAnimation)) {
+        // Reload discards the animate hook above. Hold every sampled effect here
+        // so its midpoint cannot advance between this seek and the assertion.
+        animation.pause();
+        animation.currentTime = time;
+      }
     }
   }, time);
   await setTime(180);

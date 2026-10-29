@@ -5,6 +5,8 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { verifyInspectorExpansion } from './verify-inspector-expansion.mjs';
+import { sampleMotion } from './sample-motion.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-context-panel-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
@@ -17,6 +19,7 @@ const app = await electron.launch({ ...(executablePath ? { executablePath } : {}
     '--disable-features=CalculateNativeWinOcclusion'], env, timeout: 60000 });
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -199,18 +202,19 @@ try {
   async function verifyNavigationAnchor(source, settle = 380) {
     await page.locator('.right-tool-rail').getByRole('button', { name: source, exact: true }).click();
     await page.waitForTimeout(settle);
-    const frames = await page.evaluate(async () => {
-      document.querySelector('.right-tool-rail button[aria-label="会话导航"]').click();
-      const frames = [];
-      const start = performance.now();
-      while (performance.now() - start < 420) {
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        const panel = document.querySelector('.conversation-nav-panel').getBoundingClientRect();
-        const rail = document.querySelector('.right-tool-rail').getBoundingClientRect();
-        frames.push({ gap: rail.x - panel.right, track: document.querySelector('.summary-track').getBoundingClientRect().width });
-      }
-      return frames;
-    });
+    const motion = await sampleMotion(page, {
+      label: `${source} to navigation anchor`, state: { selector: '.conversation-nav-panel:not(.is-closing)' },
+      targets: [{ name: 'panel', selector: '.conversation-nav-panel', properties: ['opacity', 'transform'] },
+        { name: 'rail', selector: '.right-tool-rail' }, { name: 'summary', selector: '.summary-track' }],
+      duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    }, () => page.locator('.right-tool-rail').getByRole('button', { name: '会话导航', exact: true }).click());
+    const frames = motion.frames.map(frame => ({ gap: frame.rail.x - frame.panel.right, track: frame.summary.width }));
+    await settleLayout(page.locator('.app'));
+    frames.push(await page.evaluate(() => ({
+      gap: document.querySelector('.right-tool-rail').getBoundingClientRect().x
+        - document.querySelector('.conversation-nav-panel').getBoundingClientRect().right,
+      track: document.querySelector('.summary-track').getBoundingClientRect().width,
+    })));
     switchFrames.push({ source, settle, frames });
     assert.ok(frames.length > 3);
     assert.ok(frames.every(frame => frame.gap >= -8.5 && frame.gap <= .5),
@@ -365,18 +369,23 @@ try {
   await page.waitForFunction(() => document.querySelector('.conversation-nav-panel nav').scrollTop > 100);
   await page.screenshot({ path: 'test-results/right-panel-navigation-trackless.png' });
   async function verifyClose() {
-    const frames = await page.evaluate(async () => {
-      document.querySelector('.conversation-nav-panel header button').click();
-      const frames = [];
-      const start = performance.now();
-      while (performance.now() - start < 360) {
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        const panel = document.querySelector('.conversation-nav-panel');
-        frames.push(panel ? { opacity: Number(getComputedStyle(panel).opacity), inert: panel.inert,
-          width: document.querySelector('.conversation-nav-track').getBoundingClientRect().width } : null);
-      }
-      return frames;
-    });
+    await settleLayout(page.locator('.app'));
+    const docked = await page.locator('.conversation-nav-track').evaluate(element => element.getBoundingClientRect().width > 1);
+    const motion = await sampleMotion(page, {
+      label: `navigation ${docked ? 'docked' : 'overlay'} close`, state: { selector: '.conversation-nav-panel.is-closing' },
+      targets: [{ name: 'panel', selector: '.conversation-nav-panel', properties: ['opacity', 'transform'] },
+        { name: 'track', selector: '.conversation-nav-track', properties: docked ? ['flex-basis'] : [] }],
+      duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    }, () => navigation.locator('header button').click());
+    const frames = motion.frames.map(frame => ({ opacity: frame.panel.opacity, inert: frame.panel.inert, width: frame.track.width }));
+    // aria-hidden removes the closing surface from role queries immediately;
+    // its DOM node remains until the actual retained exit completes.
+    await page.locator('.conversation-nav-panel').waitFor({ state: 'detached' });
+    frames.push(await page.evaluate(() => {
+      const panel = document.querySelector('.conversation-nav-panel');
+      return panel ? { opacity: Number(getComputedStyle(panel).opacity), inert: panel.inert,
+        width: document.querySelector('.conversation-nav-track').getBoundingClientRect().width } : null;
+    }));
     const visible = frames.filter(Boolean);
     assert.ok(visible.some(frame => frame.opacity > .01 && frame.opacity < .99), 'navigation must fade over frames');
     assert.ok(visible.every(frame => frame.inert));

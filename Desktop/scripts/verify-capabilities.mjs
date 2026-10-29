@@ -1,4 +1,5 @@
 import { _electron as electron } from 'playwright';
+import { captureWaapi } from './capture-waapi.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -35,7 +36,8 @@ const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
 const errors = [];
 async function verifyDisclosure(locator, reducedMotion = false) {
-  const result = await locator.evaluate(async (panel) => {
+  let result;
+  if (reducedMotion) result = await locator.evaluate(async (panel) => {
     const summary = panel.querySelector('summary');
     const body = panel.querySelector('.cap-disclosure-body');
     const chevron = summary.querySelector('.cap-chevron svg');
@@ -57,6 +59,31 @@ async function verifyDisclosure(locator, reducedMotion = false) {
     check.settled = !panel.open;
     return check;
   });
+  else {
+    const page = locator.page(), body = locator.locator('.cap-disclosure-body');
+    result = await locator.evaluate(panel => ({
+      chevron: panel.querySelector('.cap-chevron svg')?.getAttribute('viewBox'),
+      closed: !panel.open && panel.querySelector('.cap-disclosure-body').inert,
+    }));
+    const opening = await captureWaapi(page, body, () => locator.locator(':scope > summary').click());
+    Object.assign(result, await locator.evaluate(panel => ({
+      opening: panel.querySelector('.cap-disclosure-body').getAnimations().map(animation => animation.effect.getTiming()),
+      accessible: panel.querySelector('summary').getAttribute('aria-expanded') === 'true'
+        && !panel.querySelector('.cap-disclosure-body').inert,
+    })));
+    await opening.evaluate(async animation => { animation.play(); await animation.finished; });
+    await opening.dispose();
+    result.open = await locator.evaluate(panel => panel.open && panel.querySelector('.cap-disclosure-body').getBoundingClientRect().height > 0);
+    const closing = await captureWaapi(page, body, () => locator.locator(':scope > summary').click());
+    Object.assign(result, await locator.evaluate(panel => {
+      const body = panel.querySelector('.cap-disclosure-body');
+      return { closing: body.getAnimations().map(animation => animation.effect.getTiming()),
+        inertOnClose: body.inert && body.getAttribute('aria-hidden') === 'true', retainedDuringClose: panel.open };
+    }));
+    await closing.evaluate(async animation => { animation.play(); await animation.finished; });
+    await closing.dispose();
+    result.settled = await locator.evaluate(panel => !panel.open);
+  }
   assert.equal(result.chevron, '0 0 14 14', 'Use the shared disclosure icon');
   for (const key of ['closed', 'accessible', 'open', 'inertOnClose', 'settled']) assert.equal(result[key], true, key);
   for (const direction of ['opening', 'closing']) {
@@ -70,6 +97,7 @@ async function verifyDisclosure(locator, reducedMotion = false) {
 }
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];

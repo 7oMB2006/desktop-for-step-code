@@ -193,7 +193,14 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
   const entries = tasks.length ? tasks : planned.map((entry, index) => ({ ...entry,
     status: Array.isArray(args?.chain) && index > 0 ? 'queued' as const : 'running' as const, messages: [] }));
   const backgroundAgentId = typeof result?.details?.agentId === 'string' ? result.details.agentId : undefined;
-  const laneStatus = backgroundAgentId ? background?.get(backgroundAgentId) : undefined;
+  // A background lane reports through the agentId map. A foreground chain lane has no
+  // agentId, but its tool result still carries the lane verdict in details.status, so
+  // read that as a second source instead of leaving steps stuck at running.
+  const reportedDetails = result?.details as { status?: unknown } | undefined;
+  const reportedStatus = SUBAGENT_STATUSES.includes(reportedDetails?.status as SubagentTask['status'])
+    ? reportedDetails!.status as SubagentTask['status']
+    : undefined;
+  const laneStatus = backgroundAgentId ? background?.get(backgroundAgentId) : reportedStatus;
   return entries.map((entry, taskIndex) => ({
     ...entry, toolCallId: call?.id ?? result?.toolCallId, taskIndex, backgroundAgentId,
     // Preserve already-settled steps in a failed multi-step lane. A single lane can run again.

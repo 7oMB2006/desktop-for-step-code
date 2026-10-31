@@ -21,6 +21,18 @@ also completed rendering. Existing intermediate and final geometry assertions
 are unchanged. CI policy/runner/diagnostic tests pass with one Mac-only skip.
 The updated patch applier also passes a clean Windows source/hash replay.
 
+Replacement head `0dd76ce` passed all Windows groups and the final gate
+(`41183029529`). macOS `41183029175` passed the complete source inventory,
+including Workflow motion, then failed the packaged Launch modes footer
+alignment assertion. That check polled transient alignment before separately
+measuring a trigger that can be reparented with a fresh entrance animation.
+The fixture now awaits real footer animation completion before the final
+atomic geometry read and includes both rectangles in failure diagnostics.
+The same 1px center tolerance and non-overlap assertion remain unchanged.
+Local real Goal/RPC acceptance passes both normal motion and a 1000ms entrance
+control. A persistent 2px trigger offset still fails the original alignment
+guard. Replacement package CI is still required.
+
 ## v0.1.6 development integration (2026-10-26)
 
 The isolated `codex/upstream-v016` worktree stages source baseline

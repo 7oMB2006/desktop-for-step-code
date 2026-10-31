@@ -1,4 +1,5 @@
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
@@ -208,12 +209,18 @@ try {
     const left = actions.getBoundingClientRect(), right = trigger.getBoundingClientRect();
     return Math.abs(left.y + left.height / 2 - right.y - right.height / 2) <= 1 && left.right <= right.left;
   });
-  assert.ok(await page.locator('.working-idle .launch-status-pulse').evaluate(element => {
+  // Completion can reparent the trigger and start a new entrance after polling.
+  await settleLayout(page.locator('.assistant-footer-row:has(.launch-status-pulse[data-goal-state="complete"])'));
+  const completedFooter = await page.locator('.working-idle .launch-status-pulse').evaluate(element => {
     const actions = element.closest('.assistant-footer-row')?.querySelector('.assistant-actions');
-    if (!actions) return false;
+    if (!actions) return null;
     const left = actions.getBoundingClientRect(), right = element.getBoundingClientRect();
-    return Math.abs(left.y + left.height / 2 - right.y - right.height / 2) <= 1 && left.right <= right.left;
-  }), 'Goal shares the final response footer rather than adding another row');
+    return { actions: left.toJSON(), trigger: right.toJSON(),
+      centerDifference: Math.abs(left.y + left.height / 2 - right.y - right.height / 2) };
+  });
+  assert.ok(completedFooter && completedFooter.centerDifference <= 1
+    && completedFooter.actions.right <= completedFooter.trigger.left,
+  `Goal shares the final response footer rather than adding another row: ${JSON.stringify(completedFooter)}`);
   await page.mouse.move(0, 0);
   await page.locator('.composer > .composer-input').focus();
   await page.waitForTimeout(200);

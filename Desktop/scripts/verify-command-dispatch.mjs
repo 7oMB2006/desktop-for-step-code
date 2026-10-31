@@ -1,12 +1,15 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-command-dispatch-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
+const savedDirectory = join(profile, 'step-runtime', 'workflows', 'saved');
+await mkdir(savedDirectory, { recursive: true });
+await writeFile(join(savedDirectory, 'desktop-catalog-fixture.js'), 'throw new Error("Never execute catalog definitions");');
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({
@@ -24,6 +27,14 @@ try {
     win.setOpacity(0); win.setIgnoreMouseEvents(true); win.showInactive(); win.setSize(1300, 900);
   });
   const snapshot = await prepareSessionFixture(page);
+  const nativeCatalog = await page.evaluate(snapshot =>
+    window.desktop.workflows(snapshot.runtimeId, snapshot.state.sessionId), snapshot);
+  assert.ok(nativeCatalog.saved.some(item => item.name === 'desktop-catalog-fixture' && item.scope === 'desktop'),
+    'Real IPC reads only the isolated Desktop profile without executing scripts');
+  assert.equal(await page.evaluate(async snapshot => {
+    try { await window.desktop.workflows(snapshot.runtimeId, 'wrong-session'); return false; }
+    catch { return true; }
+  }, snapshot), true, 'Real IPC rejects mismatched session ownership');
   await app.evaluate(({ ipcMain }, snapshot) => {
     globalThis.dispatchFixture = snapshot;
     globalThis.dispatchCalls = [];
@@ -34,6 +45,10 @@ try {
       if (method === 'systemTheme') return { systemDark: true };
       if (method === 'sessions') return snapshot.sessions;
       if (method === 'summary') return { tasks: [], mcp: [], skillCount: 0 };
+      if (method === 'workflows') {
+        globalThis.dispatchCalls.push({ type: 'workflows', args });
+        return { saved: [{ id: 'fixture', name: '验收工作流', scope: 'project' }], runs: [], issues: [] };
+      }
       if (method === 'clm') return { sessionId: snapshot.state.sessionId, leafId: null, enabled: true, total: 0, revisions: [] };
       if (method === 'cronList') return { tasks: [], hosts: [], issues: [] };
       if (method === 'usageOverview') throw new Error('Isolated usage query unavailable');
@@ -59,16 +74,35 @@ try {
     await page.locator('.composer-action-button').click();
   };
   const calls = type => app.evaluate((_electron, type) => globalThis.dispatchCalls.filter(call => call.type === type), type);
+  await send('/workflows');
+  await page.getByRole('region', { name: '工作流', exact: true }).getByText('验收工作流').waitFor();
+  assert.deepEqual((await calls('workflows'))[0].args, [snapshot.runtimeId, snapshot.state.sessionId]);
+  assert.equal((await calls('prompt')).length, 0, 'Workflow catalog does not send a model prompt');
+  await page.locator('#workflow-catalog-panel').hover();
+  await page.waitForTimeout(450);
+  assert.equal(await page.locator('#workflow-catalog-panel').evaluate(el => {
+    const panel = el.getBoundingClientRect();
+    const container = el.parentElement.parentElement.getBoundingClientRect();
+    return panel.top >= container.top && panel.bottom <= container.bottom + 1;
+  }), true, 'Workflow drawer fits the real conversation surface');
+  await mkdir('test-results/workflow-catalog', { recursive: true });
+  await page.screenshot({ path: 'test-results/workflow-catalog/electron.png' });
+  await page.keyboard.press('Escape');
+  await page.getByRole('region', { name: '工作流', exact: true }).waitFor({ state: 'hidden' });
   await send('/clm');
   await page.getByText('CLM 已启用', { exact: true }).waitFor();
   assert.equal(await page.getByRole('tab', { name: 'CLM', exact: true }).getAttribute('aria-selected'), 'true');
   assert.equal((await calls('prompt')).length, 0, 'Bare CLM opens the inspector without a model request');
   await page.getByRole('button', { name: '关闭上下文', exact: true }).click();
   await page.locator('.context-panel').waitFor({ state: 'detached' });
+  await send('/workflows');
+  await page.getByRole('region', { name: '工作流', exact: true }).waitFor();
   await send('/usage');
   await page.getByRole('region', { name: '用量统计', exact: true }).waitFor();
   assert.equal((await calls('prompt')).length, 0, 'Usage opens the Desktop page without sending terminal heatmap text');
   await page.getByRole('button', { name: '返回会话', exact: true }).click();
+  assert.equal(await page.locator('#workflow-catalog-panel').getAttribute('aria-hidden'), 'true',
+    'Returning from another page does not reopen an old catalog');
   await send('/usage overview');
   await page.getByRole('region', { name: '用量统计', exact: true }).waitFor();
   await page.getByRole('button', { name: '返回会话', exact: true }).click();
@@ -101,7 +135,8 @@ try {
   assert.equal(await input.evaluate(element => element.value), '/compact 保留失败草稿');
   await send('请解释 /clm 和 /usage');
   await send('/cron list');
-  assert.deepEqual((await calls('prompt')).map(call => call.payload.message), ['请解释 /clm 和 /usage', '/cron list']);
+  await send('/workflows list');
+  assert.deepEqual((await calls('prompt')).map(call => call.payload.message), ['请解释 /clm 和 /usage', '/cron list', '/workflows list']);
   await app.evaluate(({ BrowserWindow }) => {
     globalThis.dispatchFixture.state.isStreaming = true;
     BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'agent_start', runtimeId: globalThis.dispatchFixture.runtimeId });
@@ -114,5 +149,5 @@ try {
   assert.equal((await calls('compact')).length, 2, 'Busy compact is not sent or queued as prose');
   assert.equal(await input.evaluate(element => element.value), '/compact');
   assert.deepEqual(errors, []);
-  console.log('Command dispatch passed: usage tabs, Cron page, compact RPC/failure/busy guards, inline mentions and Cron parameters.');
+  console.log('Command dispatch passed: real read-only Workflow IPC and ownership, local pages, compact RPC/failure/busy guards and parameter passthrough.');
 } finally { await app.close(); }

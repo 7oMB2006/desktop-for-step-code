@@ -18,6 +18,7 @@ export function NoticeToast({ notice, language, onDismiss, onDetails }: {
   onDetails: () => void;
 }) {
   const timer = useRef<number | undefined>(undefined);
+  const pauseCap = useRef<number | undefined>(undefined);
   const bubble = useRef<HTMLDivElement>(null);
   const previousSize = useRef<{ id: number; width: number } | null>(null);
   const resizeAnimation = useRef<Animation | null>(null);
@@ -56,7 +57,7 @@ export function NoticeToast({ notice, language, onDismiss, onDetails }: {
     remaining.current = notice.type === 'success' ? 3000 : notice.type === 'warning' || notice.actions?.length ? 8000 : 4000;
     started.current = Date.now();
     if (!hovered.current && !focused.current) timer.current = window.setTimeout(() => dismiss.current(), remaining.current);
-    return () => { window.clearTimeout(timer.current); timer.current = undefined; };
+    return () => { window.clearTimeout(timer.current); timer.current = undefined; window.clearTimeout(pauseCap.current); pauseCap.current = undefined; };
   }, [notice?.id]);
 
   const pause = () => {
@@ -64,8 +65,21 @@ export function NoticeToast({ notice, language, onDismiss, onDetails }: {
     window.clearTimeout(timer.current);
     timer.current = undefined;
     remaining.current = Math.max(0, remaining.current - (Date.now() - started.current));
+    // A pointer can come to rest on the bubble and never leave it, so hovering alone
+    // must not park the notice forever. Cap how long a pause may hold it.
+    if (pauseCap.current === undefined) {
+      pauseCap.current = window.setTimeout(() => {
+        pauseCap.current = undefined;
+        if (executing.current) return;
+        hovered.current = false;
+        focused.current = false;
+        resume();
+      }, 10000);
+    }
   };
   const resume = () => {
+    window.clearTimeout(pauseCap.current);
+    pauseCap.current = undefined;
     if (executing.current || hovered.current || focused.current || timer.current !== undefined) return;
     started.current = Date.now();
     timer.current = window.setTimeout(() => dismiss.current(), remaining.current);

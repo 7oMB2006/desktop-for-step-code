@@ -1,4 +1,6 @@
 import { _electron as electron } from 'playwright';
+import { sampleMotion } from './sample-motion.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import { build } from 'esbuild';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -24,6 +26,7 @@ try {
     window.showInactive();
   });
   const page = await pagePromise;
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.isFocused())), false);
   await page.setContent('<div id="root"></div>');
   await page.addStyleTag({ content: `${css}\nbody { height: 100vh; display: flex; align-items: flex-end; justify-content: center; } .test-composer { width: min(500px, calc(100vw - 36px)); display: flex; justify-content: flex-end; padding-right: 30px; margin-bottom: 45px; }` });
@@ -59,6 +62,65 @@ try {
     const drift = Math.max(...frames.map(frame => Math.abs(frame.thumb - frame.fill)));
     assert.ok(drift <= 1, `${label}: fill must follow the thumb center on every frame, drift ${drift.toFixed(2)}px`);
     console.log(`${label}: ${frames.length} frames, max fill/thumb drift ${drift.toFixed(2)}px`);
+  };
+  // Capture this component's CSS keyframes in the same DOM commit as the
+  // keyboard change, before an IPC round trip can consume their 380ms lifetime.
+  const sampleHeadingThreshold = async interact => {
+    await page.evaluate(() => {
+      const stage = document.querySelector('.model-effort-heading-level-stage');
+      const previous = document.querySelector('.model-effort-heading-level-current');
+      let resolveResult, observer, timer, finished = false;
+      const result = new Promise(resolve => { resolveResult = resolve; });
+      const finish = outcome => {
+        if (finished) return;
+        finished = true; observer.disconnect(); clearTimeout(timer); resolveResult(outcome);
+      };
+      window.effortHeadingSample = { result, cancel: () => finish({ error: 'Heading change did not complete' }) };
+      observer = new MutationObserver(() => {
+        const incoming = stage.querySelector('.model-effort-heading-level-entering');
+        if (!incoming || incoming === previous) return;
+        const captured = [];
+        try {
+          for (const [selector, name] of [
+            ['.model-effort-heading-level-entering', 'model-effort-level-in'],
+            ['.model-effort-heading-level-outgoing', 'model-effort-level-out'],
+          ]) {
+            const element = stage.querySelector(selector);
+            if (!element) throw new Error(`Missing heading ${selector}`);
+            getComputedStyle(element).transform;
+            const animation = element.getAnimations().find(animation => animation instanceof CSSAnimation
+              && animation.animationName === name && animation.effect?.target === element);
+            const timing = animation?.effect.getTiming();
+            if (!animation || animation.playState !== 'running' || timing.duration !== 380)
+              throw new Error(`Missing running 380ms ${name} animation`);
+            captured.push({ animation, currentTime: animation.currentTime, name, duration: timing.duration });
+          }
+          for (const { animation, duration } of captured) {
+            animation.pause(); animation.currentTime = duration * .48;
+          }
+          finish({ value: new DOMMatrix(getComputedStyle(incoming).transform).m41,
+            animations: captured.map(({ name, duration }) => ({ name, duration })) });
+        } catch (error) {
+          finish({ error: error.message });
+        } finally {
+          // Restore the real timeline before the product's 380ms retention timer.
+          for (const { animation, currentTime } of captured) {
+            animation.currentTime = currentTime; animation.play();
+          }
+        }
+      });
+      timer = setTimeout(() => finish({ error: 'Heading animation did not commit' }), 5000);
+      observer.observe(stage, { subtree: true, childList: true, attributes: true });
+    });
+    try {
+      await interact();
+      const outcome = await page.evaluate(() => window.effortHeadingSample.result);
+      if (outcome.error) throw new Error(outcome.error);
+      console.log('Model effort heading threshold:', JSON.stringify(outcome));
+      return outcome.value;
+    } finally {
+      await page.evaluate(() => { window.effortHeadingSample.cancel(); delete window.effortHeadingSample; });
+    }
   };
   await slider.waitFor();
   const box = await slider.boundingBox();
@@ -98,7 +160,7 @@ try {
   await page.screenshot({ path: 'test-results/model-effort-parameters-light.png' });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await dialog.getByRole('button', { name: '模型参数', exact: true }).click();
-  await page.waitForTimeout(350);
+  await settleLayout(dialog);
   assert.equal(await dialog.locator('.model-effort-effort-panel').evaluate(e => getComputedStyle(e).transform), 'matrix(1, 0, 0, 1, 0, 0)');
   assert.match(await dialog.locator('.model-effort-fader-fill').evaluate(element => getComputedStyle(element).backgroundImage), /linear-gradient/);
   assert.equal(await dialog.locator('.model-effort-fader-thumb').textContent(), '');
@@ -115,27 +177,21 @@ try {
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await page.waitForTimeout(220);
   const effortBounds = await dialog.boundingBox();
-  await dialog.getByRole('button', { name: '选择模型' }).click();
+  const modelReveal = await sampleMotion(page, {
+    label: 'model picker panel reveal', state: { selector: '.model-effort-popover.models-view' },
+    targets: [{ name: 'models', selector: '.model-effort-models-panel', properties: ['clip-path', 'transform'] }],
+    duration: 320, easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+  }, () => dialog.getByRole('button', { name: '选择模型' }).click());
   assert.equal(await dialog.getByRole('slider').count(), 0, 'The covered effort panel must not be accessible');
   assert.equal(await dialog.getByRole('listbox', { name: '模型' }).count(), 1);
-  const midReveal = await dialog.locator('.model-effort-models-panel').evaluate(element => {
-    const animations = element.getAnimations();
-    for (const animation of animations) {
-      animation.pause();
-      animation.currentTime = Number(animation.effect.getComputedTiming().duration) / 2;
-    }
-    return getComputedStyle(element).clipPath;
-  });
+  const midReveal = modelReveal.frames[2].models.clipPath;
   assert.match(midReveal, /inset\(0px 0px [1-9]/, 'The model panel should reveal from top to bottom');
   await page.screenshot({ path: 'test-results/model-effort-models-transition.png' });
-  await dialog.locator('.model-effort-models-panel').evaluate(element => {
-    for (const animation of element.getAnimations()) animation.play();
-  });
-  await page.waitForTimeout(350);
+  await settleLayout(dialog);
   assert.equal(await dialog.locator('.model-effort-models-panel').evaluate(element => getComputedStyle(element).clipPath), 'inset(0px)');
   await page.screenshot({ path: 'test-results/model-effort-models.png' });
   await dialog.getByRole('button', { name: '选择模型' }).click();
-  await page.waitForTimeout(350);
+  await settleLayout(dialog);
   assert.equal(await dialog.getByRole('slider').count(), 1);
   assert.equal(await dialog.getByRole('listbox').count(), 0, 'The hidden model panel must not be accessible');
   assert.deepEqual(await dialog.boundingBox(), effortBounds, 'Switching views must not move or resize the popover');
@@ -185,39 +241,19 @@ try {
   assert.ok(!firstFrame.equals(nextFrame), 'The max-level pool should keep flowing');
   await page.screenshot({ path: 'test-results/model-effort-full.png' });
   await page.screenshot({ path: 'test-results/model-effort-flow.png' });
-  await slider.press('ArrowDown');
+  const peak = await sampleHeadingThreshold(() => slider.press('ArrowDown'));
   assert.equal(await slider.locator('.model-effort-fader-pixel').count(), 0);
   assert.equal(await slider.evaluate(element => element.classList.contains('is-max')), false);
-  const peak = await dialog.locator('.model-effort-heading-level-entering').evaluate(element => {
-    const items = element.parentElement.querySelectorAll('.model-effort-heading-level-item');
-    for (const item of items) {
-      const animation = item.getAnimations()[0];
-      animation.pause();
-      animation.currentTime = Number(animation.effect.getComputedTiming().duration) * .48;
-    }
-    return new DOMMatrix(getComputedStyle(element).transform).m41;
-  });
   assert.ok(Math.abs(peak + 12.8) < .5, `A lower level should hit the left threshold, got ${peak}px`);
   await page.screenshot({ path: 'test-results/model-effort-threshold.png' });
-  await dialog.locator('.model-effort-heading-level-item').evaluateAll(items => {
-    for (const item of items) item.getAnimations()[0]?.play();
-  });
   await page.waitForTimeout(150);
   await page.screenshot({ path: 'test-results/model-effort-transition.png' });
   assert.equal(await dialog.locator('.model-effort-heading-level-current').textContent(), '极高');
-  await page.waitForTimeout(250);
+  await dialog.locator('.model-effort-heading-level-outgoing').waitFor({ state: 'detached' });
   assert.equal(await dialog.locator('.model-effort-heading-level-outgoing').count(), 0);
-  await slider.press('ArrowUp');
-  const risingPeak = await dialog.locator('.model-effort-heading-level-entering').evaluate(element => {
-    const animation = element.getAnimations()[0];
-    animation.pause();
-    animation.currentTime = Number(animation.effect.getComputedTiming().duration) * .48;
-    const offset = new DOMMatrix(getComputedStyle(element).transform).m41;
-    animation.play();
-    return offset;
-  });
+  const risingPeak = await sampleHeadingThreshold(() => slider.press('ArrowUp'));
   assert.ok(Math.abs(risingPeak - 12.8) < .5, `A higher level should hit the right threshold, got ${risingPeak}px`);
-  await page.waitForTimeout(420);
+  await settleLayout(dialog);
   for (const theme of ['dark', 'light']) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
     await slider.press('Home');

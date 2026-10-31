@@ -26,21 +26,40 @@ if (integrationPatches.includes(resolvedPatchPath)) {
 		if (hash !== expected) throw new Error(`Unexpected pinned source: ${relative}`);
 	}
 	const patches = [];
-	for (const [name, expected] of Object.entries(manifest.patches)) {
-		const bytes = Buffer.from((await readFile(path.join(directory, name), "utf8")).replace(/\r\n/g, "\n"));
-		if (gitBlobHash(bytes) !== expected) throw new Error(`Unexpected integration patch: ${name}`);
-		patches.push(bytes);
-	}
-	const platform = manifest.platforms?.[process.platform];
-	for (const [name, expected] of Object.entries(platform?.patches ?? {})) {
-		const bytes = Buffer.from((await readFile(path.join(directory, name), "utf8")).replace(/\r\n/g, "\n"));
-		if (gitBlobHash(bytes) !== expected) throw new Error(`Unexpected ${process.platform} integration patch: ${name}`);
-		patches.push(bytes);
-	}
+	const collect = async (entries, label) => {
+		for (const [name, expected] of Object.entries(entries)) {
+			const bytes = Buffer.from((await readFile(path.join(directory, name), "utf8")).replace(/\r\n/g, "\n"));
+			if (gitBlobHash(bytes) !== expected) throw new Error(`Unexpected ${label}: ${name}`);
+			patches.push({ name, bytes });
+		}
+	};
+	await collect(manifest.patches, "integration patch");
+	await collect(manifest.platforms?.[process.platform]?.patches ?? {}, `${process.platform} integration patch`);
 	// Validate every patch before touching source, including platform additions.
-	const options = { input: Buffer.concat(patches), stdio: ["pipe", "inherit", "inherit"] };
-	execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], options);
-	execFileSync("git", ["-C", upstreamDir, "apply", "-"], options);
+	// The manifest key order is the apply order, and later patches edit lines that
+	// earlier ones add, so a single combined check is what keeps that sequence
+	// honest. Its error only names a file and line, though, so when it fails, walk
+	// the prefixes to report the patch that actually broke.
+	const combined = Buffer.concat(patches.map((entry) => entry.bytes));
+	const check = (input) => execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], {
+		input, stdio: ["pipe", "pipe", "pipe"],
+	});
+	try {
+		check(combined);
+	} catch {
+		let applied = 0;
+		for (let end = 1; end < patches.length; end += 1) {
+			try {
+				check(Buffer.concat(patches.slice(0, end).map((entry) => entry.bytes)));
+				applied = end;
+			} catch {
+				break;
+			}
+		}
+		throw new Error(`Integration patch does not apply: ${patches[applied].name}`);
+	}
+	execFileSync("git", ["-C", upstreamDir, "apply", "-"], { input: combined, stdio: ["pipe", "inherit", "inherit"] });
+	const platform = manifest.platforms?.[process.platform];
 	for (const [relative, expected] of Object.entries({ ...manifest.patchedSources, ...platform?.patchedSources })) {
 		const hash = execFileSync("git", ["-C", upstreamDir, "hash-object", relative], { encoding: "utf8" }).trim();
 		if (hash !== expected) throw new Error(`Unexpected patched source: ${relative}`);

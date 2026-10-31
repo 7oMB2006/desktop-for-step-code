@@ -1,4 +1,6 @@
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
+import { captureWaapi } from './capture-waapi.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -16,6 +18,7 @@ await mkdir('test-results', { recursive: true });
 const errors = [];
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
@@ -46,12 +49,41 @@ try {
   await page.getByRole('toolbar', { name: '选中文字' }).getByRole('button', { name: '引用', exact: true }).click();
   const long = 'QUEUED-FIRST ' + '保留布局位置，长消息在队列内查看完整内容，不要覆盖输入框草稿。\n\n'.repeat(22);
   const before = await page.locator('.live-turn-context').boundingBox();
-  await send(long);
-  await pending(1);
-  await page.waitForTimeout(80);
-  const motion = await page.locator('.live-turn-context').evaluate(e => e.getAnimations().map(a => ({ state: a.playState, duration: a.effect.getTiming().duration })));
-  assert.ok(motion.some(a => a.state === 'running'), 'diff movement needs an active animation');
-  await page.waitForTimeout(300);
+  // Hold the real FLIP effect before queue IPC can outlast its 240ms motion.
+  const movement = await captureWaapi(page, '.composer-context-bar.has-queue .live-turn-context', async () => {
+    await send(long);
+    await pending(1);
+  });
+  let motion;
+  try {
+    motion = await movement.evaluate(animation => {
+      try {
+        const timing = animation.effect.getTiming();
+        const element = animation.effect.target;
+        if (animation.playState !== 'paused') throw new Error('Captured queue movement did not remain held');
+        if (!animation.effect.getKeyframes().some(frame => 'translate' in frame))
+          throw new Error('Queue movement must animate its real translate property');
+        const frames = [0, .25, .5, 1].map(progress => {
+          animation.currentTime = timing.duration * progress;
+          return { progress, x: element.getBoundingClientRect().x,
+            translate: parseFloat(getComputedStyle(element).translate) || 0 };
+        });
+        return { duration: timing.duration, easing: timing.easing, frames };
+      } finally {
+        if (animation.playState === 'paused') { animation.currentTime = 0; animation.play(); }
+      }
+    });
+  } finally { await movement.dispose(); }
+  assert.equal(motion.duration, 240);
+  assert.equal(motion.easing, 'cubic-bezier(0.22, 1, 0.36, 1)');
+  const initialOffset = Math.abs(motion.frames[0].translate);
+  assert.ok(initialOffset >= .5 && Math.abs(motion.frames.at(-1).translate) < .05,
+    `diff movement must traverse a real offset: ${JSON.stringify(motion)}`);
+  assert.ok(motion.frames.slice(1, -1).some(frame => Math.abs(frame.translate) > .05
+    && Math.abs(frame.translate) < initialOffset - .05),
+    `diff movement must have an intermediate translate: ${JSON.stringify(motion)}`);
+  console.log('Queue movement sample:', JSON.stringify(motion));
+  await settleLayout(page.locator('.live-turn-context'));
   const moved = await page.locator('.live-turn-context').boundingBox();
   assert.ok(moved.x > before.x + 40, 'queued block should move diff right');
   await send('QUEUED-SECOND 插队补充');

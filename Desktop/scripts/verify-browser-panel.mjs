@@ -1,4 +1,5 @@
 import { settleLayout } from './settle-layout.mjs';
+import { sampleMotion } from './sample-motion.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -55,6 +56,7 @@ let closed = false;
 const errors = [];
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.setDefaultTimeout(15000);
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -268,16 +270,19 @@ try {
   ]);
   await assert.rejects(page.evaluate(() => window.desktop.rightPanelWidthMenu('invalid', { x: 0, y: 0 })));
   await assert.rejects(page.evaluate(() => window.desktop.rightPanelWidthMenu('standard', { x: null, y: 0 })));
-  await chooseWidth('wide');
-  const wideFrames = await panel.evaluate(async element => {
-    const values = [];
-    const start = performance.now();
-    while (performance.now() - start < 340) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      values.push(element.getBoundingClientRect().width);
-    }
-    return values;
-  });
+  const widthMotion = async (mode, action) => sampleMotion(page, {
+    label: `Browser ${mode}`,
+    state: { selector: '#browser-panel .right-panel-width-control', attribute: 'data-width', value: mode },
+    targets: [
+      { name: 'track', selector: '.browser-track', properties: mode === 'wide' ? ['flex-basis'] : [] },
+      { name: 'panel', selector: '#browser-panel', properties: ['width'] },
+      { name: 'main', selector: 'main' },
+    ],
+    duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  }, action);
+  const wideSample = await widthMotion('wide', () => chooseWidth('wide'));
+  const wideFrames = wideSample.frames.map(frame => frame.panel.width);
+  await settleLayout(page.locator('.app'));
   const wideWidth = (await panel.boundingBox()).width;
   assert.ok(wideWidth > initialWidth + 30, 'wide mode adds real webpage space');
   assert.ok(wideFrames.some(width => width > initialWidth + 1 && width < wideWidth - 1), 'wide mode animates intermediate widths');
@@ -287,16 +292,9 @@ try {
   let wideNative = (await viewState()).find(view => view.url === url && view.visible);
   const wideHost = await panel.locator('.browser-page').boundingBox();
   assert.ok(Math.abs(wideNative.bounds.x - wideHost.x) < 2 && Math.abs(wideNative.bounds.width - wideHost.width) < 2);
-  await panel.getByRole('button', { name: '全屏查看', exact: true }).click();
-  const frames = await panel.evaluate(async element => {
-    const values = [];
-    const start = performance.now();
-    while (performance.now() - start < 340) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      values.push(element.getBoundingClientRect().width);
-    }
-    return values;
-  });
+  const expandedSample = await widthMotion('fullscreen', () => panel.getByRole('button', { name: '全屏查看', exact: true }).click());
+  const frames = expandedSample.frames.map(frame => frame.panel.width);
+  await settleLayout(page.locator('.app'));
   assert.ok(frames.some(width => width > wideWidth + 1 && width < frames.at(-1) - 1));
   assert.equal(await widthControl.getAttribute('data-width'), 'fullscreen');
   assert.equal(await page.locator('.main-content').evaluate(element => element.inert), true);
@@ -368,21 +366,20 @@ try {
       basis: parseFloat(getComputedStyle(document.querySelector('.browser-track')).flexBasis),
       main: document.querySelector('main').getBoundingClientRect().width,
     }));
-    await rail.click();
+    const closeSample = await sampleMotion(page, {
+      label: `Browser ${mode} close`, state: { selector: '.browser-track.is-closing' },
+      targets: [
+        { name: 'track', selector: '.browser-track', properties: ['flex-basis'] },
+        { name: 'panel', selector: '#browser-panel', properties: ['opacity'] },
+        { name: 'main', selector: 'main' },
+      ],
+      duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    }, () => rail.click());
     assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0,
       'closing hides the opaque native page at the start of the shell fade');
-    const closeFrames = await page.evaluate(async () => {
-      const track = document.querySelector('.browser-track');
-      const frames = [];
-      const start = performance.now();
-      while (performance.now() - start < 340) {
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        frames.push({ basis: parseFloat(getComputedStyle(track).flexBasis),
-          main: document.querySelector('main').getBoundingClientRect().width,
-          opacity: Number(getComputedStyle(document.querySelector('.browser-panel')).opacity) });
-      }
-      return frames;
-    });
+    const closeFrames = closeSample.frames.map(frame => ({ basis: frame.track.basis,
+      main: frame.main.width, opacity: frame.panel.opacity }));
+    await settleLayout(page.locator('.app'));
     const final = closeFrames.at(-1);
     assert.ok(before.basis > 1 && final.basis < 1, `${mode} closes the layout reservation completely`);
     assert.ok(closeFrames.some(frame => frame.basis > 1 && frame.basis < before.basis - 1),

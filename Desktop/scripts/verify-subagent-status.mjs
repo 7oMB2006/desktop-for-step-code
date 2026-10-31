@@ -53,16 +53,18 @@ try {
   const review = page.locator('.lane-row[data-lane-agent="review"]');
   const icon = review.locator('.subagent-status-icon');
   const check = icon.locator('.subagent-status-check path');
-  const update = async (status, index = 0) => {
+  // A foreground chain lane has no agentId, so its steps inherit the lane verdict from
+  // details.status. Pass it alongside the per-task records the way the runtime does.
+  const update = async (status, index = 0, laneStatus) => {
     tasks[index] = { ...tasks[index], status };
-    await app.evaluate(({ BrowserWindow }, tasks) => {
+    await app.evaluate(({ BrowserWindow }, { tasks, laneStatus }) => {
       const snapshot = globalThis.subagentStatusFixture;
-      const result = { content: '', details: { results: tasks } };
+      const result = { content: '', details: { results: tasks, ...(laneStatus ? { status: laneStatus } : {}) } };
       snapshot.messages[snapshot.messages.length - 1] = { ...snapshot.messages.at(-1), ...result };
       BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', {
         type: 'tool_execution_update', toolCallId: 'status-fixture', toolName: 'subagent', partialResult: result,
       });
-    }, tasks);
+    }, { tasks, laneStatus });
   };
   await page.reload();
   await review.waitFor();
@@ -90,7 +92,12 @@ try {
   await page.waitForFunction(() => document.querySelector('.lane-row[data-lane-agent="review"] .subagent-status-icon').dataset.settling === 'true');
   const setTime = time => icon.evaluate((element, time) => {
     for (const animation of element.getAnimations({ subtree: true })) {
-      if (!(animation instanceof CSSAnimation)) animation.currentTime = time;
+      if (!(animation instanceof CSSAnimation)) {
+        // Reload discards the animate hook above. Hold every sampled effect here
+        // so its midpoint cannot advance between this seek and the assertion.
+        animation.pause();
+        animation.currentTime = time;
+      }
     }
   }, time);
   await setTime(180);
@@ -313,6 +320,20 @@ try {
   await update('failed');
   await icon.locator('.subagent-status-failure').waitFor({ state: 'visible' });
   assert.match(await review.getAttribute('aria-label'), /已失败/);
+  // A foreground chain lane has no agentId, so a step left at running must inherit the
+  // lane verdict from details.status instead of spinning forever. The second step stays
+  // queued and the third already settled, so only the first one moves.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await update('running', 0, 'failed');
+  await page.locator('.lane-row[data-lane-agent="review"]').waitFor({ state: 'attached' });
+  await page.waitForFunction(() => /已失败/.test(document.querySelector('.lane-row[data-lane-agent="review"]')?.getAttribute('aria-label') ?? ''));
+  await update('running', 1, 'failed');
+  await page.waitForFunction(() => /已失败/.test(document.querySelector('.lane-row[data-lane-agent="explore"]')?.getAttribute('aria-label') ?? ''));
+  assert.match(await page.locator('.lane-row[data-lane-agent="general"]').getAttribute('aria-label'), /已完成/);
+  // A lane verdict of running must not drag a settled step back into running.
+  await update('completed', 2, 'running');
+  await page.waitForTimeout(200);
+  assert.match(await page.locator('.lane-row[data-lane-agent="general"]').getAttribute('aria-label'), /已完成/);
   assert.deepEqual(errors, []);
   console.log('Subagent status passed: rotation, shrink/hold/grow/draw, stable layout, history, themes, narrow, reduced motion, failure, skipped step and click-toggle.');
 } finally { await app.close(); }

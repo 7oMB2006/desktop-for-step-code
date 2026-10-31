@@ -1,5 +1,7 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
+import { sampleMotion } from './sample-motion.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import assert from 'node:assert/strict';
 import { createPatch } from 'diff';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -17,6 +19,7 @@ const app = await electron.launch({ ...(executablePath ? { executablePath } : {}
     '--disable-renderer-backgrounding', '--disable-features=CalculateNativeWinOcclusion'], env, timeout: 60000 });
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -179,26 +182,39 @@ try {
   assert.equal(await page.locator('.live-turn-popover').evaluate(element => getComputedStyle(element).display), 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await liveChip.click();
-  await page.waitForTimeout(250);
-  const closeFrames = await page.evaluate(async () => {
+  await settleLayout(livePanel);
+  const popoverClose = await sampleMotion(page, {
+    label: 'live changes native popover close',
+    state: { selector: '.live-turn-popover:not(:popover-open)', attribute: 'data-motion-fixture', value: 'popover-close' },
+    targets: [{ name: 'panel', selector: '.live-turn-popover', properties: ['opacity', 'transform'] }],
+    duration: 200,
+  }, () => page.evaluate(() => {
     const panel = document.querySelector('.live-turn-popover');
-    const initial = panel.getBoundingClientRect();
     panel.hidePopover();
-    const frames = [];
-    const start = performance.now();
-    while (performance.now() - start < 300) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      const style = getComputedStyle(panel);
-      const box = panel.getBoundingClientRect();
-      frames.push({ opacity: Number(style.opacity), display: style.display, inert: panel.inert,
-        x: box.x, y: box.y, startX: initial.x, startY: initial.y });
-    }
-    return frames;
-  });
+    // Native :popover-open changes are not DOM mutations. Mark the completed
+    // action in the same task so capture precedes the async toggle event/IPC.
+    panel.dataset.motionFixture = 'popover-close';
+  }));
+  for (const property of ['opacity', 'transform']) assert.equal(
+    popoverClose.transitions.find(transition => transition.property === property)?.easing,
+    'cubic-bezier(0.22, 1, 0.36, 1)', `${property}: popover exit uses shared cubic easing`);
+  const closeFrames = popoverClose.frames.map(frame => ({
+    opacity: frame.panel.opacity, display: frame.panel.display, inert: frame.panel.inert,
+    x: frame.panel.x, y: frame.panel.y,
+    startX: popoverClose.before.panel.x, startY: popoverClose.before.panel.y,
+  }));
+  const closedPanel = await (await page.waitForFunction(() => {
+    const panel = document.querySelector('.live-turn-popover');
+    const style = getComputedStyle(panel), box = panel.getBoundingClientRect();
+    return style.display === 'none' && panel.inert && { opacity: Number(style.opacity),
+      display: style.display, inert: panel.inert, x: box.x, y: box.y };
+  })).jsonValue();
+  closeFrames.push({ ...closedPanel, startX: popoverClose.before.panel.x, startY: popoverClose.before.panel.y });
   assert.ok(closeFrames.some(frame => frame.opacity > .01 && frame.opacity < .99 && frame.display !== 'none'));
   assert.ok(closeFrames.filter(frame => frame.display !== 'none').every(frame =>
     Math.abs(frame.x - frame.startX) < 1 && Math.abs(frame.y - frame.startY) <= 4.5), 'exit keeps the anchored position');
   assert.equal(closeFrames.at(-1).display, 'none');
+  assert.equal(closeFrames.at(-1).inert, true);
   await writeFile('test-results/live-popover-close-frames.json', JSON.stringify({ rolling, closeFrames }, null, 2));
   await liveChip.click();
   await page.waitForTimeout(250);
@@ -236,21 +252,22 @@ try {
   await liveChip.click();
   await page.waitForTimeout(250);
   const stripBeforeEnd = await page.locator('.composer-context-bar').boundingBox();
-  await app.evaluate(({ BrowserWindow }) => {
+  const completionMotion = await sampleMotion(page, {
+    label: 'live changes agent completion close', state: { selector: '.live-turn-context.is-leaving' },
+    targets: [{ name: 'context', selector: '.live-turn-context', properties: ['opacity'] },
+      { name: 'strip', selector: '.composer-context-bar' }],
+    duration: 200, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  }, () => app.evaluate(({ BrowserWindow }) => {
     globalThis.turnFixture.state.isStreaming = false;
     BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'agent_end' });
-  });
-  const completionFrames = await page.evaluate(async () => {
-    const frames = [];
-    const start = performance.now();
-    while (performance.now() - start < 300) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      const context = document.querySelector('.live-turn-context');
-      frames.push({ opacity: context ? Number(getComputedStyle(context).opacity) : null,
-        height: document.querySelector('.composer-context-bar').getBoundingClientRect().height });
-    }
-    return frames;
-  });
+  }));
+  const completionFrames = completionMotion.frames.map(frame => ({
+    opacity: frame.context.opacity, height: frame.strip.height,
+  }));
+  const completed = await (await page.waitForFunction(() => !document.querySelector('.live-turn-context') && {
+    opacity: null, height: document.querySelector('.composer-context-bar').getBoundingClientRect().height,
+  })).jsonValue();
+  completionFrames.push(completed);
   assert.ok(completionFrames.some(frame => frame.opacity !== null && frame.opacity > .01 && frame.opacity < .99));
   assert.equal(completionFrames.at(-1).opacity, null);
   assert.ok(completionFrames.every(frame => frame.height === stripBeforeEnd.height));

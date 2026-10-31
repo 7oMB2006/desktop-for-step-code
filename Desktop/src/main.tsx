@@ -98,6 +98,7 @@ import { SubagentPanel } from './SubagentPanel';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
 import { currentTurnWorkflows, workflowsFromMessages, workflowIsActive } from './workflow-state';
+import { WorkflowCatalogPanel } from './WorkflowCatalogPanel';
 import { WorkflowTrigger } from './WorkflowView';
 import './appearance.css';
 import './theme.css';
@@ -140,6 +141,8 @@ function App() {
   const sessionActivity = useRef(new Map<string, RuntimeSummary['status']>());
   const nextNoticeId = useRef(0);
   const [draft, setDraft] = useState('');
+  const [workflowCatalogRequest, setWorkflowCatalogRequest] = useState<{ runtimeId?: string; sessionId?: string; id: number } | null>(null);
+  const workflowCatalogSequence = useRef(0);
   const [referencesOpen, setReferencesOpen] = useState(false);
   const [quotes, setQuotes] = useState<ChatQuote[]>([]);
   const [focusedQuoteId, setFocusedQuoteId] = useState<string | null>(null);
@@ -408,6 +411,14 @@ function App() {
   const terminalOpen = !usageOpen && !scheduledOpen && (terminalDock === 'bottom'
     ? bottomTerminalOpen && (!inspectorExpanded || bottomTerminalExpanded)
     : visibleRightPanel === 'terminal' && !details);
+  useEffect(() => {
+    if (workflowCatalogRequest && (workflowCatalogRequest.runtimeId !== data.runtimeId
+      || workflowCatalogRequest.sessionId !== data.state?.sessionId || navigationTarget || settingsOpen
+      || usageOpen || scheduledOpen || inspectorExpanded || removeProject || requests.length)) {
+      setWorkflowCatalogRequest(null);
+    }
+  }, [workflowCatalogRequest, data.runtimeId, data.state?.sessionId, navigationTarget, settingsOpen,
+    usageOpen, scheduledOpen, inspectorExpanded, removeProject, requests.length]);
   useEffect(() => {
     if (bottomTerminalExpanded) return;
     if (!usageOpen && expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
@@ -1014,6 +1025,9 @@ function App() {
         if (local.args === 'account') { setTab('account'); await openSettings(); }
         else openUsage();
       } else if (local.name === 'cron') openScheduled();
+      else if (local.name === 'workflows') setWorkflowCatalogRequest({
+        runtimeId: data.runtimeId, sessionId: data.state?.sessionId, id: ++workflowCatalogSequence.current,
+      });
       else { setDetails(''); setContextView(local.name === 'clm' ? 'clm' : 'status'); setRightPanel('context'); }
       return;
     }
@@ -1516,6 +1530,12 @@ function App() {
       </div>}
       {usageOpen && <UsageOverviewPanel language={data.preferences.language} onBack={() => setUsageOpen(false)}/>}
       <div className="main-content" style={usageOpen ? { display: 'none' } : undefined} inert={inspectorExpanded || usageOpen}>
+      <WorkflowCatalogPanel key={`${data.runtimeId ?? data.draftId}:${data.state?.sessionId}`}
+        open={Boolean(workflowCatalogRequest && workflowCatalogRequest.runtimeId === data.runtimeId
+          && workflowCatalogRequest.sessionId === data.state?.sessionId && !navigationTarget && !settingsOpen
+          && !usageOpen && !scheduledOpen && !inspectorExpanded && !removeProject && !requests.length)}
+        requestId={workflowCatalogRequest?.id ?? 0} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
+        language={data.preferences.language} bridge={bridge} onClose={() => setWorkflowCatalogRequest(null)}/>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
       {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && !reviewQuestion && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}

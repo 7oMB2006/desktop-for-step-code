@@ -124,6 +124,7 @@ export interface DesktopBridge extends SessionImportBridge {
   artifactAction(runtimeId: string, path: string, action: 'open' | 'reveal' | 'copy'): Promise<void>;
   linkPreview(url: string): Promise<LinkPreview>;
   summary(runtimeId: string): Promise<SessionSummary>;
+  workflows(runtimeId: string, sessionId: string): Promise<import('./workflow-catalog').WorkflowCatalog>;
   clm(runtimeId: string, entryId?: string): Promise<import('./clm').ClmSnapshot>;
   clmAction(runtimeId: string, sessionId: string, action: import('./clm').ClmAction, guidance?: string): Promise<void>;
   rightPanelWidthMenu(selected: 'standard' | 'wide' | 'fullscreen', position: { x: number; y: number }): Promise<'standard' | 'wide' | 'fullscreen' | undefined>;

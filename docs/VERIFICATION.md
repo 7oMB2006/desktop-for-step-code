@@ -1,5 +1,26 @@
 # Verification
 
+## v0.1.6 CI base synchronization (2026-10-31)
+
+PR #170's original Windows interface, sessions and runtime groups passed.
+Its macOS run `40284635861` failed `verify-workflow.mjs` at the intermediate
+disclosure-height assertion. The latest main includes the shared fixture fix:
+explicit motion preference and synchronous sampling of the real CSS effect
+before hidden-window frame delivery can skip its intermediate states.
+The v0.1.6 branch incorporates that fix without changing product animation,
+runtime source identity or acceptance assertions. Replacement current-head
+cloud results remain required; the October 26 evidence below is historical.
+
+After synchronizing main, local Windows typecheck/build, real Electron
+Workflow UI, command dispatch and the standalone worker probe pass. The serial
+Desktop suite has 807 tests: 793 pass, 14 platform skips, zero failures
+(`Desktop/test-results/upstream-v016-merge-main-20261031.log`). All 15 browser
+motion-helper tests pass; the restored-playback endpoint now awaits the real
+animation's `finished` receipt instead of assuming the action's 300ms delay
+also completed rendering. Existing intermediate and final geometry assertions
+are unchanged. CI policy/runner/diagnostic tests pass with one Mac-only skip.
+The updated patch applier also passes a clean Windows source/hash replay.
+
 ## v0.1.6 development integration (2026-10-26)
 
 The isolated `codex/upstream-v016` worktree stages source baseline
@@ -38,6 +59,27 @@ acceptance, an installed package and real-account acceptance. No installer,
 release or implementation push is represented by these local results. Build
 artifacts and isolated test profiles are on D:, and the user's installed app
 and shortcut are unchanged. TODO completion boxes remain open pending gates.
+
+## Workflow catalog drawer (2026-10-26, development branch)
+
+The bare `/workflows` command now opens a read-only Desktop drawer. The main
+process reads bounded native workflow records and isolated Desktop definitions;
+it does not execute scripts, mutate records, or send a model request. Parameters
+retain the existing upstream dispatch. The runtime pin is unchanged.
+
+Local Windows checks: TypeScript and production build passed; unit/protocol
+tests reported 786 passed, 14 skipped, zero failures. CI inventory/policy tests
+reported 19 passed. `verify-command-dispatch.mjs` checks the real listing IPC
+against an isolated Desktop profile and rejects a wrong session identity before
+switching to mocked IPC for UI routing and page-exit checks.
+
+`verify-workflow-catalog.mjs` uses the production React component with fixture
+data in local Edge: five-second expiry and reopen, hover/focus/disclosure
+pauses, focus restoration, short/long drag, error recovery, stale response
+isolation, reduced motion, and light/dark layouts at 1100/390/320px passed.
+The test is assigned to the shared interface CI inventory. Browser fixture
+success is not cloud CI, macOS execution, installer or real-account acceptance.
+No package or release is claimed by this section.
 
 ## Single-slot workflow persistence fixture (2026-10-25)
 

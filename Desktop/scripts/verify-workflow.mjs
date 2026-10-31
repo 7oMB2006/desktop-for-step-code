@@ -7,6 +7,75 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+// Capture the real CSS effect in the commit that opens/closes the disclosure.
+// A hidden native window can deliver its first rAF after the entire 180ms motion;
+// a fixed wall-clock sampling window then sees only the final height. Seek the
+// actual effect synchronously, then restore playback and verify normal completion.
+async function sampleLaunchDisclosure(page, open) {
+  return page.evaluate(open => new Promise((resolve, reject) => {
+    const selector = '.launch-inline-reveal';
+    const before = document.querySelector(selector);
+    if (before) getComputedStyle(before).gridTemplateRows;
+    const diagnostics = () => {
+      const element = document.querySelector(selector);
+      return { open, reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        visibility: document.visibilityState, present: Boolean(element),
+        state: element?.getAttribute('data-open'),
+        animations: element?.getAnimations().map(animation => ({
+          name: animation.animationName ?? animation.transitionProperty,
+          playState: animation.playState, currentTime: animation.currentTime,
+          duration: animation.effect?.getTiming().duration,
+        })) };
+    };
+    const finish = (error, result) => {
+      observer.disconnect(); clearTimeout(timer);
+      if (error) reject(error); else resolve(result);
+    };
+    const observer = new MutationObserver(() => {
+      const element = document.querySelector(selector);
+      if (element?.getAttribute('data-open') !== String(open)) return;
+      try {
+        // Flush styles before asking for the animation created by this commit.
+        getComputedStyle(element).gridTemplateRows;
+        const animation = element.getAnimations().find(animation =>
+          animation.effect?.target === element && (open
+            ? animation instanceof CSSAnimation && animation.animationName === 'launch-inline-expand'
+            : animation instanceof CSSTransition && animation.transitionProperty === 'grid-template-rows'));
+        const detail = diagnostics();
+        const timing = animation?.effect.getTiming();
+        if (!animation || !(timing.duration > 0) || !Number.isFinite(timing.duration))
+          throw new Error(`Missing disclosure height animation: ${JSON.stringify(detail)}`);
+        if (animation.playState !== 'running')
+          throw new Error(`Disclosure animation is not playing: ${JSON.stringify(detail)}`);
+        animation.pause();
+        const frames = [0, .25, .5, 1].map(progress => {
+          animation.currentTime = timing.duration * progress;
+          return { progress, height: element.getBoundingClientRect().height };
+        });
+        animation.currentTime = 0;
+        animation.play();
+        finish(null, { ...detail, duration: timing.duration, frames });
+      } catch (error) { finish(error); }
+    });
+    const timer = setTimeout(() => finish(new Error(`Disclosure did not toggle: ${JSON.stringify(diagnostics())}`)), 5000);
+    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-open'] });
+    const trigger = document.querySelector(open ? '.working .launch-status-pulse' : '.launch-status-panel header button');
+    if (!trigger) return finish(new Error('Missing disclosure trigger'));
+    trigger.click();
+  }), open);
+}
+
+function assertDisclosureMotion(sample, open) {
+  const heights = sample.frames.map(frame => frame.height);
+  const [start] = heights, end = heights.at(-1);
+  assert.equal(sample.reducedMotion, false, JSON.stringify(sample));
+  assert.equal(sample.duration, 180, JSON.stringify(sample));
+  assert.ok(open ? start <= 1 && end > 2 : start > 2 && end <= 1, `Disclosure endpoints: ${JSON.stringify(sample)}`);
+  assert.ok(heights.slice(1, -1).some(height => height > Math.min(start, end) + 1 && height < Math.max(start, end) - 2),
+    `Details ${open ? 'unfold' : 'fold back'} through intermediate heights: ${JSON.stringify(sample)}`);
+  console.log('Launch disclosure motion:', JSON.stringify(sample));
+}
+
 const profile = await mkdtemp(join(tmpdir(), 'step-workflow-ui-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
 await mkdir('test-results', { recursive: true });
@@ -65,16 +134,11 @@ try {
   assert.equal(await page.locator('.composer .launch-status-trigger').count(), 0);
   assert.equal(await page.locator('.working .launch-status-pulse').count(), 1);
   assert.equal(await page.locator('.working .launch-status-pulse svg.lucide-network').count(), 0, 'The actual workflow owns the orchestration entry');
-  const entrance = await page.evaluate(async () => {
-    document.querySelector('.working .launch-status-pulse').click();
-    const frames = [], start = performance.now();
-    while (performance.now() - start < 260) {
-      await new Promise(requestAnimationFrame);
-      frames.push(document.querySelector('.launch-inline-reveal')?.getBoundingClientRect().height ?? 0);
-    }
-    return frames;
-  });
-  assert.ok(entrance.some(height => height > 1 && height < entrance.at(-1) - 2), 'Details unfold through intermediate heights');
+  // The sampling below depends on the expand animation running. The runner does not
+  // guarantee a motion preference, and reduced motion drops the animation, so pin it
+  // before sampling rather than assuming the default.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  assertDisclosureMotion(await sampleLaunchDisclosure(page, true), true);
   await page.getByRole('dialog', { name: '任务状态', exact: true }).waitFor();
   assert.equal(await page.getByLabel('Token 预算', { exact: true }).inputValue(), '200000');
   await settleLayout(page.locator('.working'));
@@ -83,18 +147,8 @@ try {
   assert.ok(detailBounds.y >= anchorBounds.y + anchorBounds.height && Math.abs(detailBounds.x - anchorBounds.x) <= 1,
     'Details open below the original pulse anchor, not over the preceding conversation');
   await page.screenshot({ path: 'test-results/launch-goal-workflow-details-dark.png' });
-  const exit = await page.evaluate(async () => {
-    const full = document.querySelector('.launch-inline-reveal').getBoundingClientRect().height;
-    document.querySelector('.launch-status-panel header button').click();
-    const frames = [], start = performance.now();
-    while (performance.now() - start < 260) {
-      await new Promise(requestAnimationFrame);
-      frames.push(document.querySelector('.launch-inline-reveal')?.getBoundingClientRect().height ?? 0);
-    }
-    return { full, frames };
-  });
-  assert.equal(exit.frames.at(-1), 0);
-  assert.ok(exit.frames.some(height => height > 1 && height < exit.full - 2), 'Details fold back through intermediate heights');
+  assertDisclosureMotion(await sampleLaunchDisclosure(page, false), false);
+  await page.waitForFunction(() => !document.querySelector('.launch-inline-reveal'));
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.locator('.working .launch-status-pulse').click();
   await page.getByRole('dialog', { name: '任务状态', exact: true }).waitFor();

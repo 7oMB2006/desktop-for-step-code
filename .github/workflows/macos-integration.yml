@@ -18,6 +18,7 @@ permissions:
   contents: read
 
 concurrency:
+  # Each hosted job gets its own VM; supersede only runs for the same ref.
   group: macos-preview-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -86,6 +87,7 @@ jobs:
         working-directory: Desktop
         run: |
           node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs
+          node --test scripts/motion-helpers.test.mjs
           node ../scripts/ci-macos.mjs
       - name: Package unsigned preview and verify resources
         working-directory: Desktop

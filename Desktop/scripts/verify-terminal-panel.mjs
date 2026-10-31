@@ -1,3 +1,5 @@
+import { sampleMotion } from './sample-motion.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -29,6 +31,7 @@ let appClosed = false;
 let independentPid;
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow, clipboard }, mac) => {
     const window = BrowserWindow.getAllWindows()[0];
@@ -193,25 +196,19 @@ try {
   assert.ok(ease.includes('cubic-bezier(0.22, 1, 0.36, 1)'));
   const widthControl = panel.getByRole('button', { name: '终端宽度', exact: true });
   const initialWidth = (await panel.boundingBox()).width;
-  const sampleWidths = async action => {
-    await panel.evaluate(element => {
-      element.widthFrames = [];
-      const sample = () => {
-        element.widthFrames.push(element.getBoundingClientRect().width);
-        element.widthFrame = requestAnimationFrame(sample);
-      };
-      sample();
-    });
-    try {
-      await action();
-      await page.waitForTimeout(350);
-      return await panel.evaluate(element => element.widthFrames);
-    } finally {
-      await panel.evaluate(element => {
-        cancelAnimationFrame(element.widthFrame);
-        delete element.widthFrame; delete element.widthFrames;
-      });
-    }
+  const sampleWidths = async (mode, action) => {
+    await settleLayout(page.locator('.app'));
+    const sample = await sampleMotion(page, {
+      label: `terminal ${mode} width`,
+      state: { selector: mode === 'wide' ? '.terminal-track.is-wide' : '#terminal-panel.is-expanded' },
+      targets: [{ name: 'panel', selector: '#terminal-panel', properties: ['width'] },
+        { name: 'track', selector: '.terminal-track' }],
+      duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    }, action);
+    await settleLayout(page.locator('.app'));
+    await page.waitForFunction(async ({ runtimeId, normalCols }) =>
+      (await window.desktop.terminalList(runtimeId))[0]?.cols > normalCols, { runtimeId, normalCols });
+    return sample.frames.map(frame => frame.panel.width);
   };
   const chooseWidth = async value => {
     await app.evaluate((_, choice) => { globalThis.rightPanelWidthMenuFixture.choice = choice; },
@@ -219,7 +216,7 @@ try {
     await widthControl.click();
     await page.waitForFunction(() => document.querySelector('#terminal-panel .right-panel-width-control').getAttribute('aria-expanded') === 'false');
   };
-  const wideFrames = await sampleWidths(() => chooseWidth('wide'));
+  const wideFrames = await sampleWidths('wide', () => chooseWidth('wide'));
   assert.deepEqual(await app.evaluate(() => globalThis.rightPanelWidthMenuFixture.menus[0]), [
     { label: '标准', checked: true, type: 'radio' },
     { label: '宽幅', checked: false, type: 'radio' },
@@ -240,7 +237,7 @@ try {
   await page.waitForTimeout(350);
   assert.equal(await widthControl.getAttribute('data-width'), 'standard', 'fullscreen menu restores the selected width mode');
   const beforeWidth = (await panel.boundingBox()).width;
-  const expansion = await sampleWidths(() => panel.getByRole('button', { name: '全屏查看', exact: true }).click());
+  const expansion = await sampleWidths('fullscreen', () => panel.getByRole('button', { name: '全屏查看', exact: true }).click());
   assert.equal(await page.locator('.main-content').evaluate(element => element.inert), true);
   const rect = await panel.boundingBox();
   const sidebar = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.app')).getPropertyValue('--sidebar-track')));
@@ -373,16 +370,15 @@ try {
   assert.ok(closing.every(opacity => opacity === 0));
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await rail.click(); await page.waitForTimeout(350);
-  await rail.click();
-  const motion = await panel.evaluate(async element => {
-    const frames = [];
-    const start = performance.now();
-    while (performance.now() - start < 320) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      frames.push(Number(getComputedStyle(element).opacity));
-    }
-    return frames;
-  });
+  await settleLayout(page.locator('.app'));
+  const closingMotion = await sampleMotion(page, {
+    label: 'terminal normal close', state: { selector: '#terminal-panel.is-closing' },
+    targets: [{ name: 'panel', selector: '#terminal-panel', properties: ['opacity'] },
+      { name: 'track', selector: '.terminal-track' }],
+    duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  }, () => rail.click());
+  const motion = closingMotion.frames.map(frame => frame.panel.opacity);
+  await settleLayout(page.locator('.app'));
   assert.ok(motion.some(opacity => opacity > 0 && opacity < 1), 'terminal close must animate');
   await rail.click(); await page.waitForTimeout(350);
   assert.equal((await list()).length, 0, 'closing the last terminal must not recreate it automatically');

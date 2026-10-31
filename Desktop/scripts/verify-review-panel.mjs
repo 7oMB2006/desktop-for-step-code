@@ -1,6 +1,8 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { verifyInspectorExpansion } from './verify-inspector-expansion.mjs';
+import { sampleMotion } from './sample-motion.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, mkdir, readFile, writeFile, rename } from 'node:fs/promises';
@@ -101,6 +103,7 @@ const app = await electron.launch({ ...(executablePath ? { executablePath } : {}
   '--disable-renderer-backgrounding', '--disable-features=CalculateNativeWinOcclusion'], env, timeout: 60000 });
 try {
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -240,16 +243,13 @@ try {
   await page.screenshot({ path: 'test-results/review-branch-narrow.png' });
   await verifyInspectorExpansion(page, panel, 'diff-expanded-narrow');
   // Sample a real close, including inert content and the retained exit surface.
-  const frames = await page.evaluate(async () => {
-    document.querySelector('[aria-label="关闭变更"]').click();
-    const frames = []; const start = performance.now();
-    while (performance.now() - start < 320) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      const panel = document.querySelector('.review-panel');
-      if (panel) frames.push({ opacity: Number(getComputedStyle(panel).opacity), inert: panel.inert });
-    }
-    return frames;
-  });
+  await settleLayout(page.locator('.app'));
+  const closingMotion = await sampleMotion(page, {
+    label: 'review close', state: { selector: '.review-panel.is-closing' },
+    targets: [{ name: 'panel', selector: '.review-panel', properties: ['opacity', 'transform'] }],
+    duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  }, () => panel.getByRole('button', { name: '关闭变更', exact: true }).click());
+  const frames = closingMotion.frames.map(frame => ({ opacity: frame.panel.opacity, inert: frame.panel.inert }));
   assert.ok(frames.some(frame => frame.opacity > 0 && frame.opacity < 1 && frame.inert));
   await page.locator('.review-panel').waitFor({ state: 'detached' });
   await toggle.click();

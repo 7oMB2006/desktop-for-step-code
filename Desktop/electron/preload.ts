@@ -97,6 +97,7 @@ const bridge: DesktopBridge = {
   reviewMenu: (runtimeId, kind, selected, position) => invoke('reviewMenu', runtimeId, kind, selected, position),
   repositoryDiff: (runtimeId, base) => invoke('repositoryDiff', runtimeId, base),
   summary: runtimeId => invoke('summary', runtimeId),
+  workflows: (runtimeId, sessionId) => invoke('workflows', runtimeId, sessionId),
   clm: (runtimeId, entryId) => invoke('clm', runtimeId, entryId),
   clmAction: (runtimeId, sessionId, action, guidance) => invoke('clmAction', runtimeId, sessionId, action, guidance),
   repositoryFileDiff: (runtimeId, base, path) => invoke('repositoryFileDiff', runtimeId, base, path),

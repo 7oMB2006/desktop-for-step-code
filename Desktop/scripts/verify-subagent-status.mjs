@@ -91,8 +91,8 @@ try {
   const setTime = time => icon.evaluate((element, time) => {
     for (const animation of element.getAnimations({ subtree: true })) {
       if (!(animation instanceof CSSAnimation)) {
-        // Reload discards the animate hook above. Hold the sampled frame until
-        // its geometry and strokes have both been inspected.
+        // Reload discards the animate hook above. Hold every sampled effect here
+        // so its midpoint cannot advance between this seek and the assertion.
         animation.pause();
         animation.currentTime = time;
       }

@@ -33,6 +33,14 @@ Local real Goal/RPC acceptance passes both normal motion and a 1000ms entrance
 control. A persistent 2px trigger offset still fails the original alignment
 guard. Replacement package CI is still required.
 
+The next Windows runtime job on `94735be` failed only in the capability
+fixture teardown: `rm` reported `EBUSY` for its isolated Desktop directory
+after management workers stopped. Cleanup now uses five bounded filesystem
+retries at a 100ms base delay; it still rejects if removal cannot finish.
+All 12 capability tests pass locally. A native Windows control holding a
+temporary working directory reproduces immediate `EBUSY` and verifies that
+the same bounded removal succeeds after the owning process exits.
+
 ## v0.1.6 development integration (2026-10-26)
 
 The isolated `codex/upstream-v016` worktree stages source baseline

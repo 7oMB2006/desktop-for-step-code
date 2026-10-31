@@ -19,7 +19,10 @@ async function fixture(t: test.TestContext) {
     root, runtime, node: join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'),
     environment: () => isolatedEnvironment(root),
   });
-  t.after(async () => { await service.stop(); await rm(folder, { recursive: true, force: true }); });
+  t.after(async () => {
+    await service.stop();
+    await rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
   return { folder, root, service };
 }
 async function marketplace(folder: string, options: { id?: string; link?: boolean } = {}) {

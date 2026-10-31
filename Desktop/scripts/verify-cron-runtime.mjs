@@ -85,6 +85,8 @@ async function fixture(name, trusted = true) {
     'defaultProvider = "fixture"', 'defaultModel = "fixture"', 'permissionPreset = "full-access"',
     'approvalMode = "auto"', 'nonInteractiveApproval = "allow"', 'fullAccessAcknowledged = true',
     '[telemetry]', 'enabled = false', '',
+    // Cron acceptance must not invoke the unrelated macOS StepPage installer.
+    '[mcp_servers.steppage__steppage]', 'enabled = false', '',
   ].join('\n'));
   await writeFile(join(profile, 'models.json'), JSON.stringify({ providers: { fixture: {
     baseUrl: `${origin}/v1`, api: 'openai-completions', apiKey: 'local-cron-fixture-only',

@@ -28,6 +28,11 @@ These checks do not establish real-account balances or official billing outcomes
 
 ## Build natively
 
+The commands below target the development v0.1.6 announcement source baseline
+`81e79bc4b699148d6823fedde9b5e70d9a80255f` and `patches/v016/`. The 0.6.0
+freeze and acceptance records above remain historical. Darwin patch replay on
+Windows is not a native macOS build or package acceptance.
+
 Use an Apple Silicon Mac running macOS 13.5 or newer, Git, Xcode Command Line Tools, Node.js 24.15.0 and
 Corepack. Use a dedicated checkout when the existing Step-Code directory has local changes.
 
@@ -35,8 +40,8 @@ From the repository root:
 
 ```sh
 git clone https://github.com/stepfun-ai/Step-Code.git Step-Code
-git -C Step-Code checkout b5dbed938d9ae589397cf522dcf2ff89ecf4c494
-node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v015/step-code-desktop.patch
+git -C Step-Code checkout 81e79bc4b699148d6823fedde9b5e70d9a80255f
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v016/step-code-desktop.patch
 (cd Step-Code && corepack pnpm install --frozen-lockfile && corepack pnpm build:offline)
 cd Desktop
 corepack pnpm install --frozen-lockfile

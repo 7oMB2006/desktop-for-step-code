@@ -63,6 +63,9 @@ test('CSS sampling survives action latency, samples real geometry and restores n
     assert.equal(result.frames[0].target.width, 100);
     assert.equal(result.frames.at(-1).target.width, 300);
     assert.ok(result.frames.slice(1, -1).every(frame => frame.target.width > 100 && frame.target.width < 300));
+    await page.locator('#target').evaluate(async element => {
+      await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished));
+    });
     assert.equal(await page.locator('#target').evaluate(element => element.getBoundingClientRect().width), 300);
     assert.equal(await cleanCss(page), 0);
   });

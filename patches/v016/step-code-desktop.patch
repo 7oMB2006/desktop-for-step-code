@@ -1,0 +1,1054 @@
+diff --git a/packages/coding-agent/src/core/auth-storage.ts b/packages/coding-agent/src/core/auth-storage.ts
+index b7d72e885b80c53e17920a405ec7ce9612a3e2e7..506db42293f273178e3577cdf9c0494e35924ffc 100644
+--- a/packages/coding-agent/src/core/auth-storage.ts
++++ b/packages/coding-agent/src/core/auth-storage.ts
+@@ -6,7 +6,7 @@
+ import { createHash } from "node:crypto";
+ import type { AuthOperationOptions, Credential, CredentialInfo, CredentialStore } from "@step-harness/providers";
+ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+-import { dirname, join } from "path";
++import { dirname, join, resolve } from "path";
+ import lockfile from "proper-lockfile";
+ import { setTimeout as sleep } from "timers/promises";
+ import { getAgentDir } from "../config.ts";
+@@ -38,6 +38,32 @@ type AuthFileReadState = {
+ };
+ 
+ let sharedAuthFileReadState: { authPath: string; readState: AuthFileReadState } | undefined;
++const desktopAuthPath = process.env.STEPCODE_DESKTOP_AUTH_PATH
++	? resolve(normalizePath(process.env.STEPCODE_DESKTOP_AUTH_PATH)).toLowerCase()
++	: undefined;
++const desktopAuthPayload = process.env.STEPCODE_DESKTOP_AUTH_DATA;
++delete process.env.STEPCODE_DESKTOP_AUTH_PATH;
++delete process.env.STEPCODE_DESKTOP_AUTH_DATA;
++let desktopAuthBackend: InMemoryAuthStorageBackend | undefined;
++
++function desktopStorage(path: string): InMemoryAuthStorageBackend | undefined {
++	if (!desktopAuthPath || resolve(normalizePath(path)).toLowerCase() !== desktopAuthPath) return undefined;
++	if (!desktopAuthBackend) {
++		const data = desktopAuthPayload ? (JSON.parse(desktopAuthPayload) as AuthStorageData) : {};
++		if (!data || typeof data !== "object" || Array.isArray(data))
++			throw new Error("Invalid desktop credential payload");
++		desktopAuthBackend = new InMemoryAuthStorageBackend();
++		desktopAuthBackend.withLock(() => ({ result: undefined, next: JSON.stringify(data) }));
++	}
++	return desktopAuthBackend;
++}
++
++/** Desktop-only snapshot for the parent process to encrypt after management writes. */
++export function readDesktopAuthData(): Record<string, Credential> {
++	if (!desktopAuthPath) throw new Error("Desktop credential storage is not active");
++	const content = desktopStorage(desktopAuthPath)!.withLock((current) => ({ result: current }));
++	return content ? (JSON.parse(content) as AuthStorageData) : {};
++}
+ 
+ /**
+  * auth.json is small and can be edited by another process between reads. A
+@@ -234,7 +260,11 @@ export class ReadOnlyAuthStorage implements CredentialStore {
+ 
+ 		let parsed: unknown;
+ 		try {
+-			parsed = JSON.parse(stripBom(readFileSync(this.authPath, "utf-8")));
++			const memory = desktopStorage(this.authPath);
++			const content = memory
++				? memory.withLock((current) => ({ result: current ?? "{}" }))
++				: readFileSync(this.authPath, "utf-8");
++			parsed = JSON.parse(stripBom(content));
+ 		} catch (error) {
+ 			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+ 				this.data = {};
+@@ -367,7 +397,11 @@ export class AuthStorage implements CredentialStore {
+ 
+ 	static create(authPath: string = join(getAgentDir(), "auth.json")): AuthStorage {
+ 		const normalizedAuthPath = normalizePath(authPath);
+-		return new AuthStorage(new FileAuthStorageBackend(normalizedAuthPath), normalizedAuthPath);
++		const memory = desktopStorage(normalizedAuthPath);
++		return new AuthStorage(
++			memory ?? new FileAuthStorageBackend(normalizedAuthPath),
++			memory ? undefined : normalizedAuthPath,
++		);
+ 	}
+ 
+ 	static fromStorage(storage: AuthStorageBackend): AuthStorage {
+@@ -519,7 +553,11 @@ export function readStoredCredential(
+ 	authPath: string = join(getAgentDir(), "auth.json"),
+ ): Credential | undefined {
+ 	try {
+-		const data = JSON.parse(stripBom(readFileSync(normalizePath(authPath), "utf-8"))) as AuthStorageData;
++		const memory = desktopStorage(authPath);
++		const content = memory
++			? memory.withLock((current) => ({ result: current ?? "{}" }))
++			: readFileSync(normalizePath(authPath), "utf-8");
++		const data = JSON.parse(stripBom(content)) as AuthStorageData;
+ 		return data[providerId];
+ 	} catch {
+ 		return undefined;
+diff --git a/packages/coding-agent/src/core/tools/bash.ts b/packages/coding-agent/src/core/tools/bash.ts
+index 46bceab79addce18e5edc7abe17d354f24be7c7e..85c9673b7986948b34b1b9f42ef5e81518d54cff 100644
+--- a/packages/coding-agent/src/core/tools/bash.ts
++++ b/packages/coding-agent/src/core/tools/bash.ts
+@@ -10,9 +10,9 @@ import { waitForChildProcess } from "../../utils/child-process.ts";
+ import {
+ 	getShellConfig,
+ 	getShellEnv,
+-	killProcessTree,
+ 	type ShellConfig,
+ 	spawnShellChild,
++	stopShellChild,
+ 	trackDetachedChildPid,
+ 	untrackDetachedChildPid,
+ } from "../../utils/shell.ts";
+@@ -117,8 +117,11 @@ export function createLocalShellOperations(
+ 			if (child.pid) trackDetachedChildPid(child.pid);
+ 			let timedOut = false;
+ 			let timeoutHandle: NodeJS.Timeout | undefined;
++			let stopping: Promise<void> | undefined;
+ 			const onAbort = () => {
+-				if (child.pid) killProcessTree(child.pid);
++				if (child.pid && !stopping) {
++					stopping = stopShellChild(child, shellConfig);
++				}
+ 			};
+ 
+ 			try {
+@@ -126,7 +129,7 @@ export function createLocalShellOperations(
+ 				if (timeoutMs !== undefined) {
+ 					timeoutHandle = setTimeout(() => {
+ 						timedOut = true;
+-						if (child.pid) killProcessTree(child.pid);
++						onAbort();
+ 					}, timeoutMs);
+ 				}
+ 				// Stream stdout and stderr.
+@@ -151,6 +154,8 @@ export function createLocalShellOperations(
+ 				}
+ 				return { exitCode };
+ 			} finally {
++				// Keep the shell tracked until Windows descendant cleanup has drained.
++				if (stopping) await stopping;
+ 				if (child.pid) untrackDetachedChildPid(child.pid);
+ 				if (timeoutHandle) clearTimeout(timeoutHandle);
+ 				if (signal) signal.removeEventListener("abort", onAbort);
+diff --git a/packages/coding-agent/src/features/subagent/rpc-adapter.ts b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+index 7a56c67c032f31b4fdab7f60096aa6b346a10ad0..34d712710a277be64df384ca7c5c26c5da88df5f 100644
+--- a/packages/coding-agent/src/features/subagent/rpc-adapter.ts
++++ b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+@@ -14,6 +14,7 @@ import { rmSync } from "node:fs";
+ import { mkdtemp, rm, writeFile } from "node:fs/promises";
+ import os from "node:os";
+ import path from "node:path";
++import { readDesktopAuthData } from "../../core/auth-storage.ts";
+ import { waitForChildProcess } from "../../utils/child-process.ts";
+ import { trackDetachedChildPid, untrackDetachedChildPid } from "../../utils/shell.ts";
+ import {
+@@ -191,6 +192,20 @@ export function resolveSubagentTurnIdleTimeoutMs(
+ 	return Math.floor(parsed);
+ }
+ 
++/** Re-export the Desktop-only in-memory credentials consumed at module load. */
++function desktopAuthChildEnv(): NodeJS.ProcessEnv {
++	try {
++		const authPath = process.env.STEPCODE_AUTH_PATH;
++		if (!authPath) return {};
++		return {
++			STEPCODE_DESKTOP_AUTH_PATH: authPath,
++			STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(readDesktopAuthData()),
++		};
++	} catch {
++		return {};
++	}
++}
++
+ /**
+  * Environment for one rpc child.
+  *
+@@ -219,6 +234,7 @@ export function resolveSubagentTurnIdleTimeoutMs(
+ export function buildSubagentChildEnv(input: StepSubagentRunInput): NodeJS.ProcessEnv {
+ 	return {
+ 		...process.env,
++		...desktopAuthChildEnv(),
+ 		[CHILD_MARKER]: "1",
+ 		STEPCODE_USAGE_PARENT_CWD: input.parentCwd ?? input.workflowAcl?.baseCwd,
+ 		STEPCODE_USAGE_PARENT_SESSION_ID: input.parentSessionId,
+@@ -237,6 +253,13 @@ export async function createSubagentRpcSession(
+ 	sessionId: string,
+ ): Promise<StepSubagentRpcSession> {
+ 	const tempDir = await mkdtemp(path.join(os.tmpdir(), "stepcode-subagent-"));
++	let tempCleanup: Promise<void> | undefined;
++	const cleanupTempDir = (): void => {
++		// Both close and the bounded exit-drain callback can settle the child.
++		// Windows may retain a file handle briefly; cleanup must not crash its parent.
++		if (tempCleanup) return;
++		tempCleanup = rm(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
++	};
+ 	const args = ["--mode", "rpc", "--session-id", sessionId];
+ 	const model = input.agent.model ?? input.model;
+ 	if (model) args.push("--model", model);
+@@ -496,7 +519,7 @@ export async function createSubagentRpcSession(
+ 			current.stopReason = "error";
+ 			current.errorMessage = processError;
+ 		});
+-		void rm(tempDir, { recursive: true, force: true });
++		cleanupTempDir();
+ 	});
+ 	const finishExitedChild = (code: number | null): void => {
+ 		childExited = true;
+@@ -520,7 +543,7 @@ export async function createSubagentRpcSession(
+ 				current.errorMessage = current.errorMessage ?? `Subagent exited with code ${code ?? 1}`;
+ 			}
+ 		});
+-		void rm(tempDir, { recursive: true, force: true });
++		cleanupTempDir();
+ 	};
+ 	child.once("exit", () => {
+ 		childExited = true;
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index 3c5f0415a9a7f0e994979aeb2e98143fd13d05db..5dc318bd8cd224c5df456c1bbe3ecbdfc31ae240 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -41,7 +41,7 @@ export {
+ 	type SessionStats,
+ } from "./core/agent-session.ts";
+ export { SessionImportFileNotFoundError } from "./core/agent-session-runtime.ts";
+-export { readStoredCredential } from "./core/auth-storage.ts";
++export { readDesktopAuthData, readStoredCredential } from "./core/auth-storage.ts";
+ export {
+ 	CACHE_TTL_MS,
+ 	type CacheMiss,
+@@ -481,7 +481,7 @@ export {
+ 	type StepCronRuntimeOptions,
+ 	stepCronExtensionInline,
+ } from "./features/step-cron.ts";
+-export { createStepProviderConfig, STEP_PROVIDER_ID } from "./features/step-provider/index.ts";
++export { createStepProviderConfig, loginStepOAuth, STEP_PROVIDER_ID } from "./features/step-provider/index.ts";
+ export {
+ 	CreateGoalParams,
+ 	continuationPrompt,
+@@ -629,6 +629,7 @@ export {
+ 	type StepLoginHost,
+ 	type StepLoginOutcome,
+ 	syncStepLoginProfileEndpoint,
++	writeStepLoginCredential,
+ } from "./step/login-flow.ts";
+ export {
+ 	buildStepLoginState,
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index fd9aabca7465b6b104dcdd3f83f13ff2bd6b8ec9..34b9ae980484db028612280f3b57eca48cf478b8 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -25,6 +25,9 @@ import {
+ 	waitForRawStdoutBackpressure,
+ 	writeRawStdout,
+ } from "../../core/output-guard.ts";
++import { getStepPlanMode } from "../../features/step-plan.ts";
++import { getStepMcpStatuses } from "../../step/mcp.ts";
++import { STEPCODE_VERSION } from "../../step/version.ts";
+ import { type Theme, theme } from "../../theme/theme.ts";
+ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+ import { toJsonEvent } from "../json-event.ts";
+@@ -449,6 +452,66 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+ 			// State
+ 			// =================================================================
+ 
++			case "get_desktop_clm": {
++				const { renderLiveContext } = await import("../../core/compaction/live-context/document.js");
++				const branch = session.sessionManager.getBranch();
++				const records = branch.flatMap((entry) => {
++					const value = entry.type === "custom" && entry.customType === "step-live-context"
++						? entry.data : entry.type === "compaction" ? (entry.details as any)?.liveContext : undefined;
++					return value && Number.isSafeInteger((value as any).revision)
++						? [{ entryId: entry.id, timestamp: entry.timestamp, kind: (value as any).reset ? "reset" : entry.type === "compaction" ? "compaction" : "edit", value: value as any }] : [];
++				});
++				const status = session.getLiveContextStatus();
++				const selected = command.entryId ? records.find((item) => item.entryId === command.entryId) : records.at(-1);
++				if (command.entryId && !selected) return error(id, command.type, "Revision is not on the active branch");
++				const messages = selected?.value.messages;
++				const blocks = Array.isArray(messages) && messages.length <= 10000
++					? renderLiveContext(messages, selected!.value.revision, selected!.entryId).blocks : [];
++				let budget = 500000;
++				const shown = blocks.slice(0, 200).map((block) => {
++					const body = block.body.slice(0, Math.min(16000, Math.max(0, budget)));
++					budget -= body.length;
++					return { id: block.id, role: block.role, protected: block.protected, text: body, truncated: body.length < block.body.length };
++				});
++				return success(id, command.type, {
++					sessionId: session.sessionId, leafId: session.sessionManager.getLeafId(),
++					enabled: session.settingsManager.getContextProjectionMode() === "clm-v1",
++					revision: status?.revision, tokens: status?.tokens, lastOutcome: selected?.kind === "edit" && selected.value.archivePath && selected.value.archivePath === status?.lastOutcome?.archivePath ? status?.lastOutcome : undefined,
++					total: records.length, revisions: records.slice(-2000).map(({ value, ...item }) => ({ ...item, revision: value.revision })),
++					selected: selected ? { entryId: selected.entryId, blocks: shown, truncated: Array.isArray(messages) && messages.length > 10000 || shown.length < blocks.length || shown.some((block) => block.truncated),
++						diff: typeof selected.value.diff === "string" ? selected.value.diff.slice(0, 128000) : "", diffTruncated: typeof selected.value.diff === "string" && selected.value.diff.length > 128000 } : undefined,
++				});
++			}
++
++			case "get_desktop_summary": {
++				const entries = session.sessionManager.getBranch();
++				const tasks = [...entries]
++					.reverse()
++					.find((entry) => entry.type === "custom" && entry.customType === "step-tasks");
++				let endpoint: string | undefined;
++				try {
++					const url = new URL(session.model?.baseUrl ?? "");
++					if (url.protocol === "https:" || url.protocol === "http:") endpoint = `${url.origin}${url.pathname}`;
++				} catch {
++					/* No configured endpoint. */
++				}
++				return success(id, "get_desktop_summary", {
++					sessionId: session.sessionId,
++					tasks: tasks?.type === "custom" ? tasks.data : null,
++					mcp: getStepMcpStatuses(),
++					status: {
++						trusted: session.settingsManager.isProjectTrusted(),
++						agents: session.resourceLoader.getAgentsFiles().agentsFiles.map((file) => file.path),
++						collaboration: getStepPlanMode(session.sessionManager),
++						version: STEPCODE_VERSION.value,
++						versionSource: STEPCODE_VERSION.source,
++						endpoint,
++						provider: session.model?.provider,
++						model: session.model?.id,
++					},
++					skillCount: session.resourceLoader.getSkills().skills.length,
++				});
++			}
+ 			case "get_state": {
+ 				const state: RpcSessionState = {
+ 					model: session.model,
+@@ -605,7 +668,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+ 			}
+ 
+ 			case "switch_session": {
+-				const result = await runtimeHost.switchSession(command.sessionPath);
++				const result = await runtimeHost.switchSession(command.sessionPath, { cwdOverride: command.cwdOverride });
+ 				return success(id, "switch_session", result);
+ 			}
+ 
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 1565bd4ab5bea1d427fb11a4a7218187d8a91db7..1360fa84f47279465442ade87d4d7e2e85d16a35 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -26,8 +26,10 @@ export type RpcCommand =
+ 	| { id?: string; type: "clear_queue" }
+ 	| { id?: string; type: "new_session"; parentSession?: string }
+ 
++	| { id?: string; type: "get_desktop_clm"; entryId?: string }
+ 	// State
+ 	| { id?: string; type: "get_state" }
++	| { id?: string; type: "get_desktop_summary" }
+ 
+ 	// Model
+ 	| { id?: string; type: "set_model"; provider: string; modelId: string }
+@@ -58,7 +60,7 @@ export type RpcCommand =
+ 	// Session
+ 	| { id?: string; type: "get_session_stats" }
+ 	| { id?: string; type: "export_html"; outputPath?: string }
+-	| { id?: string; type: "switch_session"; sessionPath: string }
++	| { id?: string; type: "switch_session"; sessionPath: string; cwdOverride?: string }
+ 	| { id?: string; type: "fork"; entryId: string }
+ 	| { id?: string; type: "clone" }
+ 	| { id?: string; type: "get_fork_messages" }
+diff --git a/packages/coding-agent/src/step/mcp.ts b/packages/coding-agent/src/step/mcp.ts
+index e6680b2d687c0b99daa1633e15ae97b62c0953d1..569b7203dfa2ce28955ac1c2c93b0a9fd317d484 100644
+--- a/packages/coding-agent/src/step/mcp.ts
++++ b/packages/coding-agent/src/step/mcp.ts
+@@ -152,6 +152,14 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 				if (controller.signal.aborted) return;
+ 				const discovered = await discoverStepMcpServers(ctx.cwd, ctx.isProjectTrusted());
+ 				if (controller.signal.aborted) return;
++				const disabled = Object.entries(readGlobalStepConfig(process.env).mcp_servers ?? {})
++					.filter(
++						([name, declaration]) =>
++							isRecord(declaration) &&
++							declaration.enabled === false &&
++							!discovered.some((server) => server.name === name),
++					)
++					.map(([name]): StepMcpStatus => ({ name, status: "disabled", toolCount: 0 }));
+ 				statuses.push(
+ 					...discovered.map(
+ 						(item): StepMcpStatus => ({
+@@ -161,6 +169,7 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 						}),
+ 					),
+ 				);
++				statuses.push(...disabled);
+ 				await Promise.all(
+ 					discovered.map(async (item, index) => {
+ 						let connected: ConnectedServer | undefined;
+diff --git a/packages/coding-agent/src/step/usage/recording.ts b/packages/coding-agent/src/step/usage/recording.ts
+index 188855c3e26f66830d865a34274a4cb4f95e83b6..069045cda51c11b0fb642c4ebc5fddecfe91be1a 100644
+--- a/packages/coding-agent/src/step/usage/recording.ts
++++ b/packages/coding-agent/src/step/usage/recording.ts
+@@ -36,6 +36,13 @@ export function registerUsageRecording(pi: ExtensionAPI, resources: (() => Usage
+ 	};
+ 	pi.on("session_start", (_event, ctx) => {
+ 		discovered.clear();
++		// A Desktop branch worker reads the original before forking it. Do not
++		// append discovery metadata to that source; the new branch records normally.
++		const source = process.env.STEPCODE_DESKTOP_BRANCH_SOURCE;
++		const sessionFile = source ? ctx.sessionManager.getSessionFile() : undefined;
++		const identity = (file: string): string =>
++			process.platform === "win32" ? resolve(file).toLowerCase() : resolve(file);
++		if (source && sessionFile && identity(source) === identity(sessionFile)) return;
+ 		append("step.activity_capabilities", {
+ 			version: 1,
+ 			sessionId: ctx.sessionManager.getSessionId(),
+diff --git a/packages/coding-agent/src/utils/shell.ts b/packages/coding-agent/src/utils/shell.ts
+index 43b72e10f5a1d16933848ecb565c48cbe5046750..34a10c2fcd947c4951e1fb85bea3de9ae3d6a365 100644
+--- a/packages/coding-agent/src/utils/shell.ts
++++ b/packages/coding-agent/src/utils/shell.ts
+@@ -1,6 +1,6 @@
+ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+ import { delimiter, join, win32 } from "node:path";
+-import { type ChildProcess, spawn, spawnSync } from "child_process";
++import { type ChildProcess, execFile, spawn, spawnSync } from "child_process";
+ import { getBinDir } from "../config.ts";
+ import { isStepStorageContext, resolveStepAgentDir } from "../step/environment.ts";
+ 
+@@ -325,13 +325,13 @@ function getLinuxDescendants(pid: number): LinuxProcessIdentity[] {
+ /**
+  * Kill a process and all its children (cross-platform)
+  */
+-export function killProcessTree(pid: number): void {
++export function killProcessTree(pid: number, additionalPids: number[] = []): ChildProcess | undefined {
+ 	if (process.platform === "win32") {
+ 		// Use the trusted System32 executable so cleanup does not depend on PATH.
+ 		try {
+ 			const child = spawn(
+ 				join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
+-				["/F", "/T", "/PID", String(pid)],
++				["/F", "/T", ...[...new Set([...additionalPids, pid])].flatMap((target) => ["/PID", String(target)])],
+ 				{
+ 					stdio: "ignore",
+ 					detached: true,
+@@ -340,6 +340,7 @@ export function killProcessTree(pid: number): void {
+ 			);
+ 			// A failed spawn emits "error" asynchronously; consume it to avoid crashing Node.
+ 			child.once("error", () => {});
++			return child;
+ 		} catch {
+ 			// Ignore errors if taskkill fails.
+ 		}
+@@ -368,3 +369,99 @@ export function killProcessTree(pid: number): void {
+ 		}
+ 	}
+ }
++
++function readProcessTable(executable: string, args: string[], timeout = 3000): Promise<string> {
++	return new Promise((resolve) => {
++		execFile(
++			executable,
++			args,
++			{ encoding: "utf8", timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
++			(error, stdout) => resolve(error ? "" : stdout),
++		);
++	});
++}
++
++/** MSYS fork/exec can leave Windows parent IDs pointing to an already exited process. */
++export function getMsysDescendantWindowsPids(table: string, rootWindowsPids: number[]): number[] {
++	const lines = table.trim().split(/\r?\n/);
++	const header = lines.shift()?.trim().split(/\s+/) ?? [];
++	const indexes = ["PID", "PPID", "WINPID"].map((name) => header.indexOf(name));
++	if (indexes.some((index) => index < 0)) return [];
++	const rows = lines
++		.map((line) => {
++			const values = line
++				.trim()
++				.replace(/^\*\s*/, "")
++				.split(/\s+/);
++			return {
++				pid: Number(values[indexes[0]!]),
++				ppid: Number(values[indexes[1]!]),
++				winpid: Number(values[indexes[2]!]),
++			};
++		})
++		.filter((row) => [row.pid, row.ppid, row.winpid].every(Number.isSafeInteger) && row.pid > 0 && row.winpid > 0);
++	const owned = new Set(rows.filter((row) => rootWindowsPids.includes(row.winpid)).map((row) => row.pid));
++	for (let changed = true; changed; ) {
++		changed = false;
++		for (const row of rows) {
++			if (owned.has(row.ppid) && !owned.has(row.pid)) {
++				owned.add(row.pid);
++				changed = true;
++			}
++		}
++	}
++	return rows
++		.filter((row) => owned.has(row.pid))
++		.map((row) => row.winpid)
++		.reverse();
++}
++
++/** Capture only this live shell's MSYS descendants before terminating its Windows tree. */
++export async function stopShellChild(child: ChildProcess, shellConfig: ShellConfig): Promise<void> {
++	const pid = child.pid;
++	if (!pid || child.exitCode !== null || child.signalCode !== null) return;
++	let extraPids: number[] = [];
++	if (process.platform === "win32" && win32.basename(shellConfig.shell).toLowerCase() === "bash.exe") {
++		let root = win32.dirname(win32.dirname(shellConfig.shell));
++		if (win32.basename(root).toLowerCase() === "usr") root = win32.dirname(root);
++		const ps = win32.join(root, "usr", "bin", "ps.exe");
++		if (isFile(win32.join(root, "cmd", "git.exe")) && isFile(ps)) {
++			const powershell = win32.join(
++				process.env.SystemRoot ?? "C:\\Windows",
++				"System32",
++				"WindowsPowerShell",
++				"v1.0",
++				"powershell.exe",
++			);
++			// A cold CIM startup can exceed three seconds on a loaded Windows host.
++			const directChildren = await readProcessTable(
++				powershell,
++				[
++					"-NoProfile",
++					"-NonInteractive",
++					"-Command",
++					`Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${pid}' | Select-Object -ExpandProperty ProcessId`,
++				],
++				10000,
++			);
++			if (child.exitCode !== null || child.signalCode !== null) return;
++			const seeds = [
++				pid,
++				...directChildren
++					.trim()
++					.split(/\s+/)
++					.map(Number)
++					.filter((value) => Number.isSafeInteger(value) && value > 0),
++			];
++			extraPids = getMsysDescendantWindowsPids(await readProcessTable(ps, ["-W"]), seeds);
++		}
++	}
++	if (child.exitCode !== null || child.signalCode !== null) return;
++	const cleanup = killProcessTree(pid, extraPids);
++	if (cleanup) {
++		await new Promise<void>((resolve) => {
++			cleanup.once("error", () => resolve());
++			cleanup.once("exit", () => resolve());
++		});
++	}
++}
+diff --git a/packages/coding-agent/test/shell-process-tree.test.ts b/packages/coding-agent/test/shell-process-tree.test.ts
+index c06ae89118cf8dd080b34057c0333e8679f4fdfe..bd52649d52f78493c2b4c253e5b1824fa184199b 100644
+--- a/packages/coding-agent/test/shell-process-tree.test.ts
++++ b/packages/coding-agent/test/shell-process-tree.test.ts
+@@ -1,11 +1,17 @@
++import { EventEmitter } from "node:events";
+ import * as fs from "node:fs";
++import * as childProcess from "child_process";
+ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+-import { killProcessTree } from "../src/utils/shell.ts";
++import { getMsysDescendantWindowsPids, killProcessTree, stopShellChild } from "../src/utils/shell.ts";
+ 
+ vi.mock("node:fs", async (importOriginal) => {
+ 	const actual = await importOriginal<typeof fs>();
+ 	return { ...actual, readFileSync: vi.fn(actual.readFileSync), readdirSync: vi.fn(actual.readdirSync) };
+ });
++vi.mock("child_process", async (importOriginal) => {
++	const actual = await importOriginal<typeof childProcess>();
++	return { ...actual, execFile: vi.fn(), spawn: vi.fn() };
++});
+ 
+ function processStat(pid: number, parent: number, started: string): string {
+ 	const fields = Array<string>(22).fill("0");
+@@ -16,6 +22,125 @@ function processStat(pid: number, parent: number, started: string): string {
+ 	return `${pid} (fixture (with parentheses)) ${fields.join(" ")}`;
+ }
+ 
++describe("MSYS command descendant selection", () => {
++	const table = [
++		" PID PPID PGID WINPID TTY UID STIME COMMAND",
++		" 317 1 317 17060 ? 0 01:00 /usr/bin/bash",
++		" 318 317 317 10820 ? 0 01:00 /usr/bin/bash",
++		" 319 318 317 10821 ? 0 01:00 /usr/bin/sleep",
++		" 401 1 401 19820 ? 0 01:00 /usr/bin/bash",
++		" 402 401 401 19821 ? 0 01:00 /usr/bin/sleep",
++	].join("\n");
++
++	it("uses POSIX parentage without including a simultaneous unrelated shell", () => {
++		expect(getMsysDescendantWindowsPids(table, [42296, 17060])).toEqual([10821, 10820, 17060]);
++	});
++
++	it("does not guess ownership when the root has disappeared", () => {
++		expect(getMsysDescendantWindowsPids(table, [99999])).toEqual([]);
++	});
++
++	it("rejects an unsupported table or malformed process identity", () => {
++		expect(getMsysDescendantWindowsPids("PID PPID COMMAND\n317 1 bash", [17060])).toEqual([]);
++		expect(getMsysDescendantWindowsPids(`${table}\n 320 317 317 -1 ? 0 01:00 bad`, [17060])).toEqual([
++			10821, 10820, 17060,
++		]);
++	});
++});
++
++describe("Windows shell stop lifecycle", () => {
++	beforeEach(() => vi.clearAllMocks());
++	afterEach(() => {
++		vi.useRealTimers();
++		vi.restoreAllMocks();
++	});
++
++	function fixture(table = "PID PPID PGID WINPID\n101 1 101 501\n102 101 101 502") {
++		vi.spyOn(process, "platform", "get").mockReturnValue("win32");
++		vi.spyOn(fs, "statSync").mockReturnValue({ isFile: () => true } as ReturnType<typeof fs.statSync>);
++		const shell = { pid: 500, exitCode: null, signalCode: null } as unknown as childProcess.ChildProcess;
++		const lookup = vi.spyOn(childProcess, "execFile").mockImplementation((...args: unknown[]) => {
++			const callback = args.at(-1) as (error: Error | null, stdout: string) => void;
++			queueMicrotask(() => callback(null, String(args[0]).endsWith("ps.exe") ? table : "501\n"));
++			return {} as childProcess.ChildProcess;
++		});
++		const cleanup = new EventEmitter();
++		const spawn = vi.spyOn(childProcess, "spawn").mockImplementation(() => {
++			queueMicrotask(() => cleanup.emit("exit", 0));
++			return cleanup as childProcess.ChildProcess;
++		});
++		return { shell, lookup, spawn };
++	}
++
++	it("captures MSYS descendants and waits for the exact taskkill operation", async () => {
++		const { shell, spawn } = fixture();
++		await stopShellChild(shell, { shell: "E:\\Git\\bin\\bash.exe", args: ["-c"] });
++		expect(spawn).toHaveBeenCalledWith(
++			expect.any(String),
++			["/F", "/T", "/PID", "502", "/PID", "501", "/PID", "500"],
++			expect.objectContaining({ windowsHide: true, stdio: "ignore" }),
++		);
++	});
++
++	it("does not inspect MSYS for a PowerShell command", async () => {
++		const { shell, lookup, spawn } = fixture();
++		await stopShellChild(shell, { shell: "E:\\pwsh.exe", args: [] });
++		expect(lookup).not.toHaveBeenCalled();
++		expect(spawn).toHaveBeenCalledWith(expect.any(String), ["/F", "/T", "/PID", "500"], expect.any(Object));
++	});
++
++	it("retains MSYS ownership when a cold CIM query takes more than three seconds", async () => {
++		vi.useFakeTimers();
++		const { shell, lookup, spawn } = fixture();
++		lookup.mockImplementation((...args: unknown[]) => {
++			const options = args[2] as { timeout: number };
++			const callback = args.at(-1) as (error: Error | null, stdout: string) => void;
++			if (String(args[0]).endsWith("ps.exe")) {
++				queueMicrotask(() => callback(null, "PID PPID PGID WINPID\n101 1 101 501\n102 101 101 502"));
++			} else {
++				setTimeout(
++					() => callback(options.timeout < 4000 ? new Error("CIM timed out") : null, "501\n"),
++					Math.min(options.timeout, 4000),
++				);
++			}
++			return {} as childProcess.ChildProcess;
++		});
++		const stopping = stopShellChild(shell, { shell: "E:\\Git\\bin\\bash.exe", args: ["-c"] });
++		await vi.runAllTimersAsync();
++		await stopping;
++		expect(spawn).toHaveBeenCalledWith(
++			expect.any(String),
++			["/F", "/T", "/PID", "502", "/PID", "501", "/PID", "500"],
++			expect.any(Object),
++		);
++	});
++
++	it("does not target a root PID after its child process has exited", async () => {
++		const { shell, lookup, spawn } = fixture();
++		lookup.mockImplementation((...args: unknown[]) => {
++			const callback = args.at(-1) as (error: Error | null, stdout: string) => void;
++			queueMicrotask(() => {
++				Object.defineProperty(shell, "exitCode", { value: 0 });
++				callback(null, "501\n");
++			});
++			return {} as childProcess.ChildProcess;
++		});
++		await stopShellChild(shell, { shell: "E:\\Git\\bin\\bash.exe", args: ["-c"] });
++		expect(spawn).not.toHaveBeenCalled();
++	});
++
++	it("retains ordinary tree cleanup when MSYS discovery fails", async () => {
++		const { shell, lookup, spawn } = fixture();
++		lookup.mockImplementation((...args: unknown[]) => {
++			const callback = args.at(-1) as (error: Error | null, stdout: string) => void;
++			queueMicrotask(() => callback(new Error("unavailable"), ""));
++			return {} as childProcess.ChildProcess;
++		});
++		await stopShellChild(shell, { shell: "E:\\Git\\bin\\bash.exe", args: ["-c"] });
++		expect(spawn).toHaveBeenCalledWith(expect.any(String), ["/F", "/T", "/PID", "500"], expect.any(Object));
++	});
++});
++
+ describe.skipIf(process.platform !== "linux")("Linux command descendant cleanup", () => {
+ 	beforeEach(() => {
+ 		vi.spyOn(process, "kill").mockReturnValue(true);
+diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
+index eadf369040a2016baf56e2d39bbc5df234927fa9..5bd28b9cd4a3435f9e5e655e18350e6dbb80fe89 100644
+--- a/packages/coding-agent/test/step-subagent-events.test.ts
++++ b/packages/coding-agent/test/step-subagent-events.test.ts
+@@ -12,6 +12,9 @@ import {
+ 	type StepSubagentRunResult,
+ } from "../src/features/step-subagent.ts";
+ import { builtinStepAgents, resolveStepAgent, type StepAgentConfig } from "../src/features/step-subagent-agents.ts";
++import { resetWorkflowAdmission } from "../src/features/workflow/admission.ts";
++import { createWorkflowRunPaths, WorkflowJournal } from "../src/features/workflow/journal.ts";
++import { WorkflowRuntime } from "../src/features/workflow/runtime.ts";
+ 
+ interface SentMessage {
+ 	customType: string;
+@@ -295,6 +298,120 @@ test("a ten-task batch starts eight and queues two on a ten-core host", async ()
+ 	}
+ });
+ 
++test.each([
++	["workflow", false],
++	["subagent", false],
++	["workflow", true],
++	["subagent", true],
++] as const)("shared admission with %s first and queued cancellation=%s", async (first, cancelQueued) => {
++	const cwd = await mkdtemp(join(tmpdir(), "step-shared-admission-"));
++	const cpu = vi.spyOn(os, "cpus").mockReturnValue(Array(10).fill(os.cpus()[0]!));
++	vi.stubEnv("STEP_WORKFLOW_CONCURRENCY_LIMIT", "2");
++	let release!: () => void;
++	const gate = new Promise<void>((resolve) => {
++		release = resolve;
++	});
++	const controller = new AbortController();
++	let active = 0;
++	let peak = 0;
++	const starts: string[] = [];
++	const operations: Promise<unknown>[] = [];
++	const occupy = async (kind: string, signal?: AbortSignal) => {
++		starts.push(kind);
++		active++;
++		peak = Math.max(peak, active);
++		let onAbort: (() => void) | undefined;
++		try {
++			await Promise.race([
++				gate,
++				new Promise<void>((resolve) => {
++					onAbort = resolve;
++					if (signal?.aborted) resolve();
++					else signal?.addEventListener("abort", onAbort, { once: true });
++				}),
++			]);
++		} finally {
++			if (onAbort) signal?.removeEventListener("abort", onAbort);
++			active--;
++		}
++	};
++	try {
++		const { api, tools } = createApi();
++		let subagentQueued = false;
++		let workflowQueued = false;
++		createStepSubagentExtension({
++			agentDir: join(cwd, "agents"),
++			runner: async (input) => {
++				expect(input.awaitExit).toBe(true);
++				await occupy("subagent", input.signal);
++				return textResult("ok");
++			},
++		})(api);
++		const runSubagents = (signal?: AbortSignal) =>
++			tools.get("subagent")!.execute(
++				"shared",
++				{ tasks: Array.from({ length: 4 }, () => ({ agent: "general", task: "inspect" })) } as never,
++				signal,
++				(update) => {
++					const records = (update.details as { results: Array<{ status: string }> }).results;
++					subagentQueued ||= records.some((record) => record.status === "queued");
++				},
++				createContext(cwd),
++			);
++		const paths = createWorkflowRunPaths(cwd, "wf_shared");
++		const journal = new WorkflowJournal(paths);
++		const workflow = new WorkflowRuntime({
++			cwd,
++			runId: "wf_shared",
++			name: "shared",
++			journal,
++			providerConcurrencyLimit: 2,
++			maxConcurrency: 2,
++			signal: first === "subagent" ? controller.signal : undefined,
++			runner: async (input) => {
++				await occupy("workflow", input.signal);
++				return { status: "completed", value: "ok", toolActivityObserved: true };
++			},
++			onProgress: (progress) => {
++				workflowQueued ||= progress.agents.some((agent) => agent.status === "queued");
++			},
++		});
++		const script = 'return await parallel([() => agent("a"), () => agent("b"), () => agent("c"), () => agent("d")]);';
++		await journal.initialize(script);
++		const runWorkflow = () => workflow.runScript(script, null);
++		const leading = Promise.resolve(first === "workflow" ? runWorkflow() : runSubagents());
++		operations.push(leading);
++		await waitFor(() => starts.length === 2);
++		const trailing = Promise.resolve(first === "workflow" ? runSubagents(controller.signal) : runWorkflow());
++		operations.push(trailing);
++		void trailing.catch(() => {});
++		await waitFor(() => (first === "workflow" ? subagentQueued : workflowQueued));
++		expect(starts).toEqual([first, first]);
++		if (cancelQueued) {
++			controller.abort();
++			await trailing.catch(() => {});
++			expect(starts).toEqual([first, first]);
++			expect(active).toBe(2);
++		}
++		release();
++		const settled = await Promise.allSettled(operations);
++		expect(settled[0].status).toBe("fulfilled");
++		expect(active).toBe(0);
++		expect(peak).toBe(2);
++		expect(starts.filter((kind) => kind === first)).toHaveLength(4);
++		expect(starts.filter((kind) => kind !== first)).toHaveLength(cancelQueued ? 0 : 4);
++		if (!cancelQueued) expect(settled.every((result) => result.status === "fulfilled")).toBe(true);
++	} finally {
++		controller.abort();
++		release();
++		await Promise.allSettled(operations);
++		cpu.mockRestore();
++		vi.unstubAllEnvs();
++		resetWorkflowAdmission();
++		await rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
++	}
++});
++
+ test("an exact custom agent name takes precedence over a descriptive alias", () => {
+ 	const custom: StepAgentConfig = {
+ 		name: "general-purpose",
+diff --git a/packages/coding-agent/test/step-usage-lifecycle.test.ts b/packages/coding-agent/test/step-usage-lifecycle.test.ts
+index 6920f1962798cb6276c136ce954ee5b3e7b31841..f0fe0840c8e94073d11e41aa6b65c1caec54e07e 100644
+--- a/packages/coding-agent/test/step-usage-lifecycle.test.ts
++++ b/packages/coding-agent/test/step-usage-lifecycle.test.ts
+@@ -1,3 +1,4 @@
++import { resolve } from "node:path";
+ import { describe, expect, it, vi } from "vitest";
+ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../src/core/extensions/types.ts";
+ import { PlanUsageController } from "../src/step/usage/account.ts";
+@@ -79,6 +80,26 @@ function fixture() {
+ }
+ 
+ describe("usage command lifecycle", () => {
++	it("does not mutate a Desktop branch source but records the new branch normally", async () => {
++		const f = fixture();
++		const source = resolve("source-session.jsonl");
++		let sessionFile = source;
++		Object.assign(f.ctx.sessionManager, { getSessionFile: () => sessionFile });
++		vi.stubEnv("STEPCODE_DESKTOP_BRANCH_SOURCE", source);
++		try {
++			await f.handlers.get("session_start")!({}, f.ctx);
++			expect(f.pi.appendEntry).not.toHaveBeenCalled();
++			sessionFile = resolve("branched-session.jsonl");
++			f.changeSession();
++			await f.handlers.get("session_start")!({}, f.ctx);
++			expect(f.pi.appendEntry).toHaveBeenCalledWith(
++				"step.activity_capabilities",
++				expect.objectContaining({ sessionId: "second", version: 1 }),
++			);
++		} finally {
++			vi.unstubAllEnvs();
++		}
++	});
+ 	it("captures actual local status without querying the account or scanning files", async () => {
+ 		const f = fixture(),
+ 			query = vi.spyOn(f.host.account, "query");
+diff --git a/packages/coding-agent/test/subagent-exit-drain.test.ts b/packages/coding-agent/test/subagent-exit-drain.test.ts
+index 2a3ff540b23c777fcbee5c244760502a9fbdc1ff..f0932a44b429332a2c3f34351554c4560472124e 100644
+--- a/packages/coding-agent/test/subagent-exit-drain.test.ts
++++ b/packages/coding-agent/test/subagent-exit-drain.test.ts
+@@ -11,6 +11,10 @@ const state = vi.hoisted(() => ({
+ 	descendants: [] as number[],
+ 	child: undefined as ChildProcess | undefined,
+ }));
++vi.mock("node:fs/promises", async (importOriginal) => {
++	const actual = await importOriginal<typeof import("node:fs/promises")>();
++	return { ...actual, rm: vi.fn(actual.rm) };
++});
+ vi.mock("node:child_process", async (importOriginal) => {
+ 	const actual = await importOriginal<typeof import("node:child_process")>();
+ 	return {
+@@ -70,7 +74,7 @@ process.stdin.once('data', () => {
+ 			} catch {}
+ 		}
+ 		state.child?.kill();
+-		await rm(cwd, { recursive: true, force: true });
++		await rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+ 	}
+ });
+ 
+@@ -101,6 +105,37 @@ process.stdin.resume();
+ 		await new Promise((resolve) => unadmitted?.once("exit", resolve));
+ 	} finally {
+ 		state.child?.kill();
+-		await rm(cwd, { recursive: true, force: true });
++		await rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
++	}
++});
++
++test("subagent temporary-directory cleanup failure never terminates its parent", async () => {
++	const cwd = await mkdtemp(path.join(tmpdir(), "subagent-cleanup-failure-"));
++	state.fixture = path.join(cwd, "rpc-child.cjs");
++	await writeFile(
++		state.fixture,
++		`
++process.stdin.once('data', () => {
++  console.log(JSON.stringify({type:'message_end',message:{role:'assistant',content:[{type:'text',text:'OK'}],stopReason:'stop',timestamp:Date.now(),usage:{input:0,output:0,cacheRead:0,cacheWrite:0,cost:{total:0}}}}));
++  console.log(JSON.stringify({type:'agent_settled'}));
++});
++process.stdin.on('end', () => process.exit(0));
++process.stdin.resume();
++`,
++	);
++	try {
++		vi.mocked(rm).mockRejectedValueOnce(Object.assign(new Error("Fixture cleanup locked"), { code: "EPERM" }));
++		const result = await runStepSubagentProcess({
++			agent: { ...builtinStepAgents.find((agent) => agent.name === "general")!, systemPrompt: "" },
++			task: "test",
++			cwd,
++			keepAlive: false,
++			awaitExit: true,
++		});
++		expect(result.stopReason).toBe("stop");
++		await new Promise((resolve) => setTimeout(resolve, 20));
++	} finally {
++		state.child?.kill();
++		await rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+ 	}
+ });
+diff --git a/packages/coding-agent/test/workflow-extension.test.ts b/packages/coding-agent/test/workflow-extension.test.ts
+index e191d4f6ff5e3c9a0dcdd27025dfec6983fe429e..b6552efac93489ef58d0b7b76035fbca44081399 100644
+--- a/packages/coding-agent/test/workflow-extension.test.ts
++++ b/packages/coding-agent/test/workflow-extension.test.ts
+@@ -230,10 +230,19 @@ test("workflow script resolution rejects ambiguous, oversized, and escaping sour
+ 	const outside = await workspace("step-workflow-outside-");
+ 	const homeRoot = await workspace("step-workflow-home-");
+ 	await writeFile(path.join(outside, "outside.js"), "return 'outside';\n");
+-	await symlink(path.join(outside, "outside.js"), path.join(cwd, "escape.js"));
+ 	const saved = path.join(cwd, ".stepcode", "workflows", "saved");
+-	await mkdir(saved, { recursive: true });
+-	await symlink(path.join(outside, "outside.js"), path.join(saved, "escape.js"));
++	const windows = process.platform === "win32";
++	if (windows) {
++		// Junctions exercise realpath escape checks without requiring symlink privileges.
++		await symlink(outside, path.join(cwd, "escape"), "junction");
++		await writeFile(path.join(outside, "escape.js"), "return 'outside';\n");
++		await mkdir(path.dirname(saved), { recursive: true });
++		await symlink(outside, saved, "junction");
++	} else {
++		await symlink(path.join(outside, "outside.js"), path.join(cwd, "escape.js"));
++		await mkdir(saved, { recursive: true });
++		await symlink(path.join(outside, "outside.js"), path.join(saved, "escape.js"));
++	}
+ 
+ 	await expect(resolveWorkflowScript(cwd, {}, homeRoot)).rejects.toThrow("exactly one");
+ 	await expect(resolveWorkflowScript(cwd, { script: "return 1", name: "sample" }, homeRoot)).rejects.toThrow(
+@@ -242,9 +251,9 @@ test("workflow script resolution rejects ambiguous, oversized, and escaping sour
+ 	await expect(resolveWorkflowScript(cwd, { script: "x".repeat(128 * 1024 + 1) }, homeRoot)).rejects.toThrow(
+ 		"exceeds",
+ 	);
+-	await expect(resolveWorkflowScript(cwd, { scriptPath: "escape.js" }, homeRoot)).rejects.toThrow(
+-		"inside the working directory",
+-	);
++	await expect(
++		resolveWorkflowScript(cwd, { scriptPath: windows ? "escape/outside.js" : "escape.js" }, homeRoot),
++	).rejects.toThrow("inside the working directory");
+ 	await expect(resolveWorkflowScript(cwd, { name: "escape" }, homeRoot)).rejects.toThrow("was not found");
+ });
+ 
+@@ -345,7 +354,7 @@ test("workflow rejects a resume directory that escapes the project", async () =>
+ 	const outside = await workspace("step-workflow-resume-outside-");
+ 	const runsRoot = path.join(cwd, ".stepcode", "workflows", "runs");
+ 	await mkdir(runsRoot, { recursive: true });
+-	await symlink(outside, path.join(runsRoot, "escape"));
++	await symlink(outside, path.join(runsRoot, "escape"), process.platform === "win32" ? "junction" : "dir");
+ 	const testHarness = harness();
+ 	createStepWorkflowExtension({
+ 		enabled: true,
+@@ -368,7 +377,7 @@ test("workflow rejects a symlinked project workflow root", async () => {
+ 	const outside = await workspace("step-workflow-saved-outside-");
+ 	const workflowRoot = path.join(cwd, ".stepcode", "workflows");
+ 	await mkdir(path.dirname(workflowRoot), { recursive: true });
+-	await symlink(outside, workflowRoot);
++	await symlink(outside, workflowRoot, process.platform === "win32" ? "junction" : "dir");
+ 	const testHarness = harness();
+ 	createStepWorkflowExtension({
+ 		enabled: true,
+diff --git a/packages/coding-agent/test/workflow-runtime.test.ts b/packages/coding-agent/test/workflow-runtime.test.ts
+index 895e8ad40fb759c281dfcdfd70f882a995c25d65..5cdec45ed6842072c7f46f084ea7d849dfb970c9 100644
+--- a/packages/coding-agent/test/workflow-runtime.test.ts
++++ b/packages/coding-agent/test/workflow-runtime.test.ts
+@@ -33,6 +33,7 @@ import type {
+ } from "../src/features/workflow/types.ts";
+ 
+ const cleanups: string[] = [];
++const journals: WorkflowJournal[] = [];
+ let runSequence = 0;
+ 
+ beforeEach(() => {
+@@ -44,6 +45,8 @@ afterEach(async () => {
+ 	vi.useRealTimers();
+ 	vi.restoreAllMocks();
+ 	resetWorkflowAdmission();
++	// Direct agent() calls queue telemetry after their final awaited write.
++	await Promise.all(journals.splice(0).map((journal) => journal.flush()));
+ 	await Promise.all(cleanups.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+ });
+ 
+@@ -71,6 +74,7 @@ function runtimeAt(
+ 	runSequence += 1;
+ 	const paths = createWorkflowRunPaths(cwd, `test_${runSequence}`);
+ 	const journal = new WorkflowJournal(paths, options.resumeFrom);
++	journals.push(journal);
+ 	const runtime = new WorkflowRuntime({
+ 		cwd,
+ 		runId: `test_${runSequence}`,
+@@ -529,7 +533,9 @@ test("a transient progress write failure does not poison later writes", async ()
+ 	await mkdir(path.join(blocked, "progress.json"), { recursive: true });
+ 	const target = store as unknown as { path: string };
+ 	target.path = path.join(blocked, "progress.json");
+-	await expect(store.update({ message: "first failure" })).rejects.toThrow(/EISDIR|ENOTDIR/);
++	await expect(store.update({ message: "first failure" })).rejects.toMatchObject({
++		code: expect.stringMatching(process.platform === "win32" ? /^(EPERM|EISDIR|ENOTDIR)$/ : /^(EISDIR|ENOTDIR)$/),
++	});
+ 	target.path = paths.progressPath;
+ 	await store.update({ status: "completed", message: "recovered" });
+ 	expect(JSON.parse(await readFile(paths.progressPath, "utf8"))).toMatchObject({
+@@ -1506,7 +1512,7 @@ test("path ACL blocks read-only writes, traversal, and symlink escapes", async (
+ 	const artifact = path.join(cwd, "artifact");
+ 	const outside = await workspace();
+ 	await mkdir(artifact);
+-	await symlink(outside, path.join(artifact, "escape"));
++	await symlink(outside, path.join(artifact, "escape"), process.platform === "win32" ? "junction" : "dir");
+ 	const acl = { readOnly: [artifact], writable: [path.join(cwd, "output")] };
+ 
+ 	expect(checkWorkflowPathAccess(cwd, path.join(artifact, "file.ts"), "write", acl).allowed).toBe(false);
+diff --git a/scripts/build-coding-agent-bundle.mjs b/scripts/build-coding-agent-bundle.mjs
+index 7f6ba4da2a4caac0b7a5939e5aeb7c7de2b23524..af80dd75c3bf429cc63bd08b5d0fd1c0cc7aa8f9 100644
+--- a/scripts/build-coding-agent-bundle.mjs
++++ b/scripts/build-coding-agent-bundle.mjs
+@@ -180,7 +180,29 @@ function outputBytes(metafiles) {
+ // stays self-contained despite the entry now living in the app package. Always
+ // rebuild rather than trusting a pre-existing dist/main.js: a stale app compile
+ // from an earlier checkout would otherwise be baked into the bundle.
+-execFileSync("npm", ["--prefix", appEntryDir, "run", "build"], { stdio: "inherit", cwd: repoRoot });
++// Run npm's CLI entry point through the current Node binary instead of
++// spawning the `npm` command, which fails on Windows in every naive form:
++// `execFileSync("npm")` cannot resolve the `npm.cmd` shim (ENOENT), Node
++// rejects spawning `.cmd` files without a shell (EINVAL), and a
++// `shell: true` retry splits `--prefix <path>` on spaces (the argument is
++// passed to cmd.exe unquoted).
++// 1. npm/pnpm lifecycle scripts expose their own entry via `npm_execpath`.
++// 2. The standard Windows installer ships npm-cli.js next to node.exe.
++// 3. Otherwise fall back to spawning `npm` (shell-resolved on win32 only),
++//    matching profile-coding-agent-node.mjs.
++function resolveNpmEntryPoint() {
++	const fromEnv = process.env.npm_execpath;
++	if (fromEnv && fromEnv.endsWith(".js") && existsSync(fromEnv)) return fromEnv;
++	const besideNode = join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
++	return existsSync(besideNode) ? besideNode : undefined;
++}
++const npmBuildArgs = ["--prefix", appEntryDir, "run", "build"];
++const npmEntryPoint = resolveNpmEntryPoint();
++if (npmEntryPoint) {
++	execFileSync(process.execPath, [npmEntryPoint, ...npmBuildArgs], { stdio: "inherit", cwd: repoRoot });
++} else {
++	execFileSync("npm", npmBuildArgs, { stdio: "inherit", cwd: repoRoot, shell: process.platform === "win32" });
++}
+ 
+ for (const entry of [
+ 	join(appEntryDistDir, "main.js"),

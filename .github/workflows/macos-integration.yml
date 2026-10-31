@@ -49,10 +49,10 @@ jobs:
         run: |
           git init Step-Code
           git -C Step-Code remote add origin https://github.com/stepfun-ai/Step-Code.git
-          git -C Step-Code fetch --depth 1 --no-tags origin b5dbed938d9ae589397cf522dcf2ff89ecf4c494
+          git -C Step-Code fetch --depth 1 --no-tags origin 81e79bc4b699148d6823fedde9b5e70d9a80255f
           git -C Step-Code checkout --detach FETCH_HEAD
-          test "$(git -C Step-Code rev-parse HEAD)" = b5dbed938d9ae589397cf522dcf2ff89ecf4c494
-          node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v015/step-code-desktop.patch
+          test "$(git -C Step-Code rev-parse HEAD)" = 81e79bc4b699148d6823fedde9b5e70d9a80255f
+          node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v016/step-code-desktop.patch
       - name: Build pinned Step Code
         working-directory: Step-Code
         run: |
@@ -62,6 +62,10 @@ jobs:
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts test/step-then-run-command-parity.test.ts test/step-permissions.test.ts test/step-extension.test.ts test/suite/agent-session-prompt.test.ts test/shell-process-tree.test.ts test/shell-process-tree-darwin.test.ts test/step-subagent-events.test.ts test/subagent-exit-drain.test.ts test/step-usage-lifecycle.test.ts test/step-cron.test.ts test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts test/session-import.test.ts test/session-manager/build-context.test.ts test/compaction-serialization.test.ts test/workflow-runtime.test.ts test/workflow-extension.test.ts test/workflow-agent-runner.test.ts test/workflow-vm.test.ts test/workflow-registration.test.ts
+      - name: Upstream v0.1.6 boundary regressions
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/subagent-lane-notifications.test.ts test/subagent-background-tui.test.ts test/step-search-web.test.ts test/suite/regressions/plan-mode-prompt-cache-prefix.test.ts test/suite/regressions/6647-compaction-retries-transient-stream-drop.test.ts test/suite/regressions/subagent-lane-progress-backlog.test.ts
       - name: Install Desktop and test browser
         working-directory: Desktop
         run: |

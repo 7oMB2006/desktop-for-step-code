@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { QuitReasons, QuitReviewState } from '../src/quit-confirmation';
 import { normalizedWorkspaceKey } from '../src/workspace-key';
 import type { SessionRuntimes } from './session-runtimes';
+import { hasBackgroundWork } from './background-work';
 
 export function quitReasons(pool: Pick<SessionRuntimes, 'workers' | 'isBusy'>, transitioning: boolean): QuitReasons {
   const reasons: QuitReasons = { temporaryJobs: 0, durableJobs: 0, runningTasks: 0, activeGoals: 0,
     unknownCronHosts: 0, transitioning };
   const durable = new Set<string>();
   for (const worker of pool.workers.values()) {
-    if (pool.isBusy(worker) || worker.queued) reasons.runningTasks++;
+    if (pool.isBusy(worker) || hasBackgroundWork(worker) || worker.queued) reasons.runningTasks++;
     if (worker.status !== 'connected') continue;
     if (worker.launch?.goal?.status === 'active') reasons.activeGoals++;
     if (worker.cron?.status === 'unavailable') reasons.unknownCronHosts!++;

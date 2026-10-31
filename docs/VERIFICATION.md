@@ -1,5 +1,85 @@
 # Verification
 
+## v0.1.6 CI base synchronization (2026-10-31)
+
+PR #170's original Windows interface, sessions and runtime groups passed.
+Its macOS run `40284635861` failed `verify-workflow.mjs` at the intermediate
+disclosure-height assertion. The latest main includes the shared fixture fix:
+explicit motion preference and synchronous sampling of the real CSS effect
+before hidden-window frame delivery can skip its intermediate states.
+The v0.1.6 branch incorporates that fix without changing product animation,
+runtime source identity or acceptance assertions. Replacement current-head
+cloud results remain required; the October 26 evidence below is historical.
+
+After synchronizing main, local Windows typecheck/build, real Electron
+Workflow UI, command dispatch and the standalone worker probe pass. The serial
+Desktop suite has 807 tests: 793 pass, 14 platform skips, zero failures
+(`Desktop/test-results/upstream-v016-merge-main-20261031.log`). All 15 browser
+motion-helper tests pass; the restored-playback endpoint now awaits the real
+animation's `finished` receipt instead of assuming the action's 300ms delay
+also completed rendering. Existing intermediate and final geometry assertions
+are unchanged. CI policy/runner/diagnostic tests pass with one Mac-only skip.
+The updated patch applier also passes a clean Windows source/hash replay.
+
+Replacement head `0dd76ce` passed all Windows groups and the final gate
+(`41183029529`). macOS `41183029175` passed the complete source inventory,
+including Workflow motion, then failed the packaged Launch modes footer
+alignment assertion. That check polled transient alignment before separately
+measuring a trigger that can be reparented with a fresh entrance animation.
+The fixture now awaits real footer animation completion before the final
+atomic geometry read and includes both rectangles in failure diagnostics.
+The same 1px center tolerance and non-overlap assertion remain unchanged.
+Local real Goal/RPC acceptance passes both normal motion and a 1000ms entrance
+control. A persistent 2px trigger offset still fails the original alignment
+guard. Replacement package CI is still required.
+
+The next Windows runtime job on `94735be` failed only in the capability
+fixture teardown: `rm` reported `EBUSY` for its isolated Desktop directory
+after management workers stopped. Cleanup now uses five bounded filesystem
+retries at a 100ms base delay; it still rejects if removal cannot finish.
+All 12 capability tests pass locally. A native Windows control holding a
+temporary working directory reproduces immediate `EBUSY` and verifies that
+the same bounded removal succeeds after the owning process exits.
+
+## v0.1.6 development integration (2026-10-26)
+
+The isolated `codex/upstream-v016` worktree stages source baseline
+`81e79bc4b699148d6823fedde9b5e70d9a80255f` with `patches/v016`.
+This is the announcement source baseline, not a verified official release tag
+or a binary/source identity claim. See [integration boundaries](UPSTREAM_V016.md).
+
+Final Windows local verification:
+
+- Desktop typecheck and production build pass. The serial protocol suite has
+  799 tests: 785 pass, 14 platform skips, zero failures. The final log is
+  `Desktop/test-results/upstream-v016-protocol-handoff.log`.
+- The patched upstream full check passes; 32 regression files have 668 passing
+  tests and three skips. Coverage includes Plan/cache, CLM, compaction retry,
+  permissions, Cron, Workflow, session import and background lane notifications.
+- Real pinned RPC with an isolated local HTTP model fixture verifies that a
+  delegated lane survives parent idleness and navigation, wakes its original
+  session, and completes once without stealing navigation. Suspension clears
+  live ownership without reporting false completion. Unit regressions cover
+  the pre-`agent_start` parent handoff and cancellation via `agent_settled`.
+- Final staging and the standalone copied-bundle worker probe pass: usage
+  totals/cache/cancellation and a ready SQLite session index with search.
+- Final Electron/native `then_run` acceptance passes approval/denial,
+  cancellation, history reload, working-directory, timeout, output limit and
+  descendant cleanup checks. Its temporary profile resolves directory
+  junctions before comparing workspace identity.
+- Earlier local Electron Workflow runtime, Plan review and CLM cancellation
+  checks passed before the final parent-handoff change; they were not all
+  rerun afterward. CI runner policy tests passed.
+- Clean Windows patch replay and all pre/post source hashes pass. Darwin patch
+  selection/replay and hashes also pass on Windows; this is not native macOS
+  execution.
+
+Remaining gates: replacement Windows/macOS cloud checks, native macOS runtime
+acceptance, an installed package and real-account acceptance. No installer,
+release or implementation push is represented by these local results. Build
+artifacts and isolated test profiles are on D:, and the user's installed app
+and shortcut are unchanged. TODO completion boxes remain open pending gates.
+
 ## Workflow catalog drawer (2026-10-26, development branch)
 
 The bare `/workflows` command now opens a read-only Desktop drawer. The main

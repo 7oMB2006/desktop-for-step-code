@@ -40,7 +40,7 @@ test('pinned slash handlers support read-only commands, cancellable dialogs and 
       { ...isolatedEnvironment(profile), STEPCODE_FEEDBACK_ENDPOINT: `${origin}/feedback` });
     const { commands } = await rpc.request('get_commands');
     const manifest = JSON.parse(await readFile(resolve('runtime/manifest.json'), 'utf8'));
-    assert.equal(manifest.commit, 'b5dbed938d9ae589397cf522dcf2ff89ecf4c494');
+    assert.equal(manifest.commit, '81e79bc4b699148d6823fedde9b5e70d9a80255f');
     assert.equal(commands.some((command: { name: string }) => command.name === 'usage'), true,
       'Native Usage registration matches the staged baseline; Desktop provides its own Usage mapping');
     for (const name of ['todos', 'workflows', 'cron', 'feedback', 'plugin', 'plan', 'goal', 'ultracode', 'init']) {

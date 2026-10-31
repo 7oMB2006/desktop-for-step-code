@@ -16,6 +16,7 @@ import { isFullAccessRisk } from '../src/full-access-risk';
 import { questionnaire } from '../src/questionnaire';
 import { cronState, hasScheduledCron, type CronState } from './cron-state';
 import { restoreSelectedModel, UnavailableModelError } from './model-preference';
+import { backgroundState, hasBackgroundWork } from './background-work';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -52,6 +53,7 @@ export interface SessionRuntime {
   queued?: boolean;
   stopping?: boolean;
   cron?: CronState;
+  backgroundActive?: boolean;
   cronScopeDirectory?: string;
   startupTiming?: RuntimeStartupTiming;
 }
@@ -99,7 +101,7 @@ export class SessionRuntimes {
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
-  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || worker.queued
+  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || hasBackgroundWork(worker) || worker.queued
     || worker.status === 'connected' && (worker.launch?.goal?.status === 'active' || hasScheduledCron(worker.cron))); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
   async preparePrompt(worker: SessionRuntime, message: string) { await this.hooks.beforePrompt?.(worker, message); }
@@ -107,7 +109,7 @@ export class SessionRuntimes {
     return [...this.workers.values()].filter(worker => worker.state?.sessionId).map(worker => ({
       runtimeId: worker.id, sessionId: worker.state!.sessionId!, cwd: worker.cwd,
       firstMessage: firstUserText(worker.messages), name: worker.state?.sessionName,
-      status: worker.status === 'disconnected' ? 'failed' as const : worker.pendingUI.size ? 'waiting' as const : this.isBusy(worker) ? 'running' as const : worker.failed ? 'failed' as const : worker.interrupted || taskOutcome(worker.messages) === 'interrupted' ? 'interrupted' as const : this.unreadSessionIds.has(worker.state!.sessionId!) ? 'completed' as const : 'idle' as const,
+      status: worker.status === 'disconnected' ? 'failed' as const : worker.pendingUI.size ? 'waiting' as const : this.isBusy(worker) || hasBackgroundWork(worker) ? 'running' as const : worker.failed ? 'failed' as const : worker.interrupted || taskOutcome(worker.messages) === 'interrupted' ? 'interrupted' as const : this.unreadSessionIds.has(worker.state!.sessionId!) ? 'completed' as const : 'idle' as const,
     }));
   }
   publish() { this.emit({ type: 'desktop_runtimes', runtimes: this.summaries(), unreadSessionIds: [...this.unreadSessionIds] }); }
@@ -130,7 +132,7 @@ export class SessionRuntimes {
       while (this.openingEmpty.has(key)) await this.openingEmpty.get(key);
       const candidates = [...this.workers.values()].filter(worker =>
         workspaceKey(worker.cwd) === key && worker.status === 'connected' && worker.state?.sessionId &&
-        !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !worker.mutating &&
+        !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !hasBackgroundWork(worker) && !worker.mutating &&
         !worker.failed && !worker.interrupted);
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
@@ -158,6 +160,7 @@ export class SessionRuntimes {
     worker.cronScopeDirectory = env.DESKTOP_CRON_SCOPE_DIR ?? existing?.cronScopeDirectory;
     worker.status = 'connecting';
     worker.cron = undefined;
+    worker.backgroundActive = false;
     // A transport-local Full Access grant must not survive process replacement.
     if (existing?.permissionPreset === 'full-access') worker.permissionPreset = undefined;
     worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false };
@@ -168,6 +171,10 @@ export class SessionRuntimes {
       event = this.hooks.event?.(worker, event) ?? event;
       worker.revision++;
       if (event.type === 'agent_start') { if (!worker.runActive) runGeneration++; worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
+      if (event.type === 'agent_settled' && !worker.runActive) {
+        worker.busy = false;
+        if (worker.state) worker.state = { ...worker.state, isStreaming: false };
+      }
       if (event.type === 'message_start' && event.message?.role === 'user') {
         const content = event.message.content;
         const text = typeof content === 'string' ? content : content?.find((block: any) => block.type === 'text')?.text ?? '';
@@ -187,7 +194,7 @@ export class SessionRuntimes {
         const notifyCompleted = () => {
           // A shared launch read can settle after several runs; only its latest owner may notify.
           if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status !== 'connected'
-            || worker.runActive || completedGeneration !== runGeneration || notifiedGeneration === completedGeneration) return;
+            || worker.runActive || hasBackgroundWork(worker) || completedGeneration !== runGeneration || notifiedGeneration === completedGeneration) return;
           notifiedGeneration = completedGeneration;
           if (worker.id !== this.activeId && worker.state?.sessionId) this.unreadSessionIds.add(worker.state.sessionId);
           this.emit({ type: 'desktop_task_completed', runtimeId: worker.id, sessionId: worker.state?.sessionId });
@@ -217,11 +224,23 @@ export class SessionRuntimes {
       if (event.type === 'desktop_exit') {
         worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
         worker.cron = undefined;
+        worker.backgroundActive = false;
         this.hooks.dispose?.(worker);
         if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
         for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
       }
       if (event.type === 'extension_ui_request') {
+        if (event.method === 'setStatus' && event.statusKey === 'desktop-subagents') {
+          const background = backgroundState(event.statusText);
+          worker.backgroundActive = background.active;
+          // The native wake-up can run CLM before emitting agent_start.
+          if (background.parentActive) {
+            worker.busy = true;
+            if (worker.state) worker.state = { ...worker.state, isStreaming: true };
+          }
+          this.publish();
+          return;
+        }
         // Only Desktop's explicit confirmation can carry project-trust UI metadata.
         if ('projectTrust' in event) {
           const { projectTrust: _projectTrust, ...nativeEvent } = event;
@@ -272,7 +291,7 @@ export class SessionRuntimes {
         || event.type === 'extension_ui_request' && (event.method === 'setStatus' && ['step-goal', 'plan-mode'].includes(event.statusKey)
           || event.method === 'notify' && /^(?:Goal|Plan mode|Ultraloop)/.test(event.message ?? ''))))
         void this.readLaunch(worker).catch(() => {});
-      if (['agent_start', 'agent_end', 'desktop_exit', 'extension_ui_request', 'compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_compaction_end', 'auto_clm_start', 'auto_clm_end'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
+      if (['agent_start', 'agent_end', 'agent_settled', 'desktop_exit', 'extension_ui_request', 'compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_compaction_end', 'auto_clm_start', 'auto_clm_end'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
     });
     worker.rpc = transport;
     this.workers.set(worker.id, worker);
@@ -449,16 +468,17 @@ export class SessionRuntimes {
     return read;
   }
   async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean } = {}) {
-    const assertCron = () => {
+    const assertHost = () => {
+      if (hasBackgroundWork(worker)) throw new Error('Stop background agents before changing this session runtime');
       if (options.stopHost && hasScheduledCron(worker.cron)) throw new Error('Delete scheduled Cron jobs before restarting or changing this runtime; Cron state must be available');
     };
-    assertCron();
+    assertHost();
     if (worker.launch?.goal?.status === 'active') throw new Error('Pause the active goal first');
     if (worker.queued) throw new Error('Send or withdraw the pending messages first');
     if (this.isBusy(worker)) throw new Error('Stop this session task first');
     if (worker.status === 'connected') {
       const state = await worker.rpc.request('get_state');
-      assertCron();
+      assertHost();
       if (state.isStreaming || state.isCompacting || state.pendingMessageCount) throw new Error('Stop this session task first');
     }
   }
@@ -553,6 +573,7 @@ export class SessionRuntimes {
     for (const worker of workers) {
       worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
       worker.cron = undefined;
+      worker.backgroundActive = false;
       worker.failed = true;
       if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
       this.workers.set(worker.id, worker);
@@ -616,6 +637,7 @@ export class SessionRuntimes {
   async recycle(retain: (worker: SessionRuntime) => boolean = () => false) {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
       !retain(worker) && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
+      !hasBackgroundWork(worker) &&
       worker.launch?.goal?.status !== 'active' &&
       !hasScheduledCron(worker.cron) &&
       !worker.operations && !worker.mutating && !worker.pendingModel && !worker.queued && worker.messages.length > 0;

@@ -20,7 +20,7 @@ assert.equal(marker.version.replace(/-macos\.\d+$/, ''), source.version);
 assert.equal(marker.sourceCommit, execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
 assert.equal(marker.sourceDirty, Boolean(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()));
 const packagedRuntime = JSON.parse(await readFile(join(resources, 'runtime/manifest.json'), 'utf8'));
-const runtimeBaseline = JSON.parse(await readFile('../patches/v015/manifest.json', 'utf8'));
+const runtimeBaseline = JSON.parse(await readFile('../patches/v016/manifest.json', 'utf8'));
 assert.equal(packagedRuntime.commit, runtimeBaseline.commit);
 assert.ok(packagedRuntime.patches.includes('desktop-auto-resume-origin'));
 assert.ok(packagedRuntime.patches.includes('desktop-session-import'));

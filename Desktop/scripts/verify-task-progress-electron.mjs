@@ -103,7 +103,8 @@ try {
   await page.locator('.composer > .composer-input').fill('完成最后一项，然后总结。');
   await page.locator('.composer > .composer-input').press('Enter');
   await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '1'
-    && document.querySelector('[role=progressbar]')?.getAttribute('aria-valuemax') === '1');
+    && document.querySelector('[role=progressbar]')?.getAttribute('aria-valuemax') === '1'
+    && document.querySelector('.sb-task-progress')?.dataset.phase === 'running');
   await board.locator('.sb-task-history').getByRole('button', { name: /已完成任务.*1 项/ }).waitFor();
   assert.equal(await progress.getAttribute('data-phase'), 'running', 'Task completion must wait for round completion');
   assert.equal(await page.evaluate(() => window.progressAudio.length), 0);

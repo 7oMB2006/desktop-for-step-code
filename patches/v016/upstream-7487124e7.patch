@@ -1,0 +1,3974 @@
+diff --git a/apps/cli/src/main.ts b/apps/cli/src/main.ts
+index 566ba90..d8b1c97 100644
+--- a/apps/cli/src/main.ts
++++ b/apps/cli/src/main.ts
+@@ -885,7 +885,7 @@ function readCredentialUid(credential: unknown): string | undefined {
+ async function dispatchStepAppMode(prep: Extract<MainPreparation, { kind: "dispatch" }>): Promise<void> {
+ 	switch (prep.appMode) {
+ 		case "rpc": {
+-			await runRpcMode(prep.runtimeHost);
++			await runRpcMode(prep.runtimeHost, { includeLiveEvents: prep.parsed.includeLiveEvents });
+ 			break;
+ 		}
+ 		case "interactive": {
+@@ -917,6 +917,7 @@ async function dispatchStepAppMode(prep: Extract<MainPreparation, { kind: "dispa
+ 				completionCheck: prep.parsed.completionCheck,
+ 				completionCheckAttempts: prep.parsed.completionCheckAttempts,
+ 				completionReview: prep.parsed.completionReview,
++				includeLiveEvents: prep.parsed.includeLiveEvents,
+ 				messages: prep.parsed.messages,
+ 				initialMessage: prep.initialMessage,
+ 				initialImages: prep.initialImages,
+diff --git a/docs/research/2026-10-27-subagent-live-update-amplification/README.md b/docs/research/2026-10-27-subagent-live-update-amplification/README.md
+new file mode 100644
+index 0000000..9dbb2ff
+--- /dev/null
++++ b/docs/research/2026-10-27-subagent-live-update-amplification/README.md
+@@ -0,0 +1,371 @@
++# Subagent event-log amplification: cause, design, and what comes next
++
++- Date: 2026-10-28
++- Status: implemented on `feat/event-durability`; the frame-payload bounds it
++  introduces are deliberate stopgaps, with their removal condition in §8
++- Reproduction: `repro.mts` and `child.mjs` in this directory
++
++## 1. Symptom
++
++With the benchmark configuration, a single trial's `stepcode.jsonl` reached GB
++scale and the run OOMed. A harness redirects the standalone CLI's `--mode json`
++stdout to that file, so the file *is* the session event stream.
++
++| native log metric | old run | new run |
++| --- | --- | --- |
++| files | 171 | 95 |
++| total | 1.472 GiB | 127.332 GiB |
++| median file | 6.552 MiB | 874.835 MiB |
++| file P95 | 22.957 MiB | 4,281.838 MiB |
++| largest file | 0.049 GiB | 11.713 GiB |
++
++Two adjacent lines at the 50% offset of the largest file:
++
++```
++type: tool_execution_update
++toolName: subagent
++event bytes: 2,845,152
++partialResult.details.results[0].messages: 2,036,197 bytes
++messages SHA256 of the previous line: identical
++```
++
++The two runs cover different task sets, so the ratio is not a per-call cost. It
++is evidence of one datum being written over and over.
++
++## 2. Cause: one stream, two audiences
++
++`tool_execution_update` was doing two jobs at once:
++
++1. the UI's refresh signal, and
++2. a line in whatever stream the host redirected to a file.
++
++Because an event could always end up in a log, its producer had to keep it small,
++and because it fired per streamed delta, keeping it small was expensive. `messages`
++changes only at `message_end`, so between two of them hundreds of events carried a
++byte-identical array.
++
++The chain, with the location of each step:
++
++| step | location | behaviour |
++| --- | --- | --- |
++| 1 | `features/step-subagent.ts` `parseJsonEvent` | every child event, deltas included, calls `onUpdate` |
++| 2 | `features/subagent/execute.ts` `emit` | each `onUpdate` rebuilt `details` with `results[].messages` |
++| 3 | `agent-core/src/agent-loop.ts` | each `partialResult` became a `tool_execution_update` |
++| 4 | `modes/print-mode.ts`, `modes/rpc/rpc-mode.ts` | **every** event was serialized to one JSONL line |
++
++Step 4 is the actual defect. With N turns and M deltas per turn there are ~NxM
++events, and turn k carries a transcript of ~k turns, so the total is ~O(N^2 x M).
++A 40-turn, 150-delta child had 82 distinct `messages` snapshots and wrote 6,327
++of them.
++
++A corroborating detail: `modes/json-event.ts` already stripped the cumulative
++snapshot from `message_update` (*"Remove cumulative assistant snapshots from
++streaming wire events"*) but not from `tool_execution_update`. The question was
++never "how do we make one event smaller" — it was "which events belong on this
++stream at all".
++
++## 3. Reproduction
++
++Both test doubles are the ones the repository's testing policy already allows —
++the parent's model (faux provider, no network) and the child's token stream. The
++measured path is production code: real rpc adapter, real event projection, real
++orchestrator, real Agent Loop, real `toJsonEvent`, and the same durability filter
++the transport applies.
++
++```bash
++cd packages/coding-agent
++node --import tsx ../../docs/research/2026-10-27-subagent-live-update-amplification/repro.mts
++REPRO_LIVE=1 node --import tsx ../../docs/research/2026-10-27-subagent-live-update-amplification/repro.mts
++```
++
++Before the change (`main`, Node 22):
++
++| child | log | updates | `messages` share | largest line | peak RSS |
++| --- | --- | --- | --- | --- | --- |
++| 20 turns x 60 deltas, 20 KB tool results | 268.05 MiB | 1367 | 99.2% | 0.42 MiB | 724 MiB |
++| 40 turns x 150 deltas, 40 KB tool results | 4992.61 MiB | 6327 | 99.8% | 1.63 MiB | 1333 MiB |
++
++After the change, with the `--mode json` default (durable events only):
++
++| child | log | durable | live frames (dropped) | largest durable line | peak RSS |
++| --- | --- | --- | --- | --- | --- |
++| 20 turns x 60 deltas | **0.005 MiB** | 0.005 MiB | 11 | 0.001 MiB | 261 MiB |
++| 40 turns x 150 deltas | **0.005 MiB** | 0.005 MiB | 10 | 0.001 MiB | 259 MiB |
++| 80 turns x 300 deltas | **0.005 MiB** | 0.005 MiB | 13 | 0.001 MiB | 258 MiB |
++
++The log is now **independent of the child's size**, which is the property to
++assert: quadrupling the child does not move the number. With
++`--include-live-events` the same 40-turn run writes 0.010 MiB, of which 0.005 MiB
++is frames, and no frame carries a transcript.
++
++## 4. Competitor survey
++
++Six implementations, source-read. Versions: opencode `f669c46c`, codex `970111f6`
++(Rust under `codex-rs/`), kimi-code `743f14097`, minimax-code `da22f11`,
++deepseek-harness, ZCode.
++
++| implementation | where the decision lives | deltas persisted | progress persisted | persistence trigger | child history |
++| --- | --- | --- | --- | --- | --- |
++| opencode | **event type**: `durable` / `ephemeral` are mutually exclusive | no | no | `text.ended`, `tool.success`, `step.ended` | own session; parent keeps sessionID + final text |
++| codex | **storage boundary**: `rollout/policy.rs` transient list | no | no | `ItemCompleted`, full `ResponseItem` | own thread; parent keeps agent_thread_id |
++| kimi-code | **event type**: static `durable` flag, default false | no | no | durable event; content parts at step end | own agent log; parent keeps resultSummary |
++| minimax-code | **transport**: `VOLATILE_EVENT_TYPES` | no | no | `message_end`, `tool_execution_end` | own child session; parent keeps a report |
++| deepseek-harness | **event vocabulary**: no progress event type exists | no | no | turn/step boundaries, 200ms batches | own session; parent keeps childId + label |
++| ZCode | **event type set**: `TRANSIENT_SESSION_EVENT_TYPES` | no | no | pending/running/completed upserts | own session; parent keeps childSessionId + outputPath |
++
++What all six share:
++
++1. **A non-durable event flows to the UI and not to storage.** codex's
++   `SubAgentActivity` is durable only when `kind == Completed`, so `Started`,
++   `Interacted` and `Interrupted` never reach the rollout; opencode's
++   `session.tool.progress` is `Event.ephemeral`, whose type has no durable
++   envelope at all.
++2. **The successor is the replayable value.** `message_end` / `tool_execution_end`
++   / `Text.Ended` carry the authoritative payload; a reader can skip every frame.
++3. **Capability, not throttling, is what makes them more live.** Because a frame
++   is never written, emitting one per token is free — there is no trade between
++   latency and log size to make.
++4. **The child's transcript has its own home**, referenced by id.
++
++One structural difference matters for us: in all six the log file *is* their
++storage layer, so filtering at the storage boundary works. Our `stepcode.jsonl`
++is a **redirected stdout**, and the session file itself only ever received
++`message_end` — it was never the problem. So the classification has to be applied
++by the serialized transports, not by the session store.
++
++## 5. Design
++
++### 5.1 Principle
++
++1. **Durability is a property of the event, not the size of its payload.** It is
++   decided once and enforced at every serialized output.
++2. **A live frame is a replacement snapshot.** It may be dropped, coalesced, or
++   superseded; only the terminal result must arrive.
++3. **A record carries a fact once.** An event whose payload is only a summary of
++   events already written reports the boundary instead of repeating them.
++4. **The terminal result is a summary.** Full history stays in the child session
++   and is referenced by id.
++
++### 5.2 One classification, enforced by one projection
++
++`core/session-event-durability.ts` declares the two frame types:
++
++```ts
++const EPHEMERAL_SESSION_EVENT_TYPES = new Set(["message_update", "tool_execution_update"]);
++
++export function sessionEventDurability(event): "durable" | "ephemeral" {
++  return EPHEMERAL_SESSION_EVENT_TYPES.has(event.type) ? "ephemeral" : "durable";
++}
++```
++
++It is an allowlist of *frames*, so an event added later is durable by default:
++forgetting to classify cannot silently opt a new event into a log. The criterion
++is "payload is a cumulative snapshot of in-flight work", the same boundary
++opencode draws at `Text.Ended`.
++
++The classification is applied in `modes/json-event.ts`, and nowhere else.
++`toJsonEvent(event, { includeLiveEvents })` returns `undefined` for a frame the
++caller did not opt into; a transport writes `if (projected)`. Filtering at the
++call site is what turns one policy into two, so `check:session-event-transports`
++fails the build when `toJsonEvent` is called outside a known transport, when a
++transport's call does not pass `{ includeLiveEvents }` as its own second
++argument, or when the classification is referenced outside the projection.
++
++| transport | default | reason |
++| --- | --- | --- |
++| `--mode json` | facts only | it is a machine-readable record of one run; traces read `message_end` |
++| `--mode rpc` | facts only | it is a control channel, but its stdout redirects just as easily |
++| in-process `session.subscribe` | all events | an in-process subscriber is a live consumer by construction |
++
++`--include-live-events` is the single explicit opt-in. A harness does not pass
++it, so its log is clean. The subagent runner does pass it to its child, because
++that child's stdout is a pipe it reads frame by frame and renders in the lane
++list.
++
++The guard is textual — a "forgot to classify" guard, not a security boundary. It
++does not stop a namespace import, a hand-rolled `JSON.stringify(event)`, a
++wrapper outside its scanned roots, or an edit to its allowlist. Those are
++deliberate acts visible in review; the ordinary mistake is what it catches.
++
++### 5.3 What the record contains
++
++Frames are excluded. Beyond that, a record repeated its own results: `turn_end`
++carries the assistant message and its tool results, and `agent_end` carries every
++message of the run — all of them already written as their own
++`message_start`/`message_end`, and a tool result also as `tool_execution_end`.
++
++Projected both ways on the same runs, those two events were **40.2% of the
++durable record** for a 100-task batch (713,553 -> 426,615 bytes) and **51.6%** for
++a 20-task batch whose answer is 40,000 characters (278,463 -> 134,739 bytes). They
++now carry `{ messageRole, toolResultCount }` and `{ willRetry, messageCount }`:
++the boundary says where the turn and the run ended, not what they contained, and
++a reader reconstructs the transcript from `message_end` exactly as before.
++
++`messageCount` is not a checksum. It is the length of that run's `messages` array,
++and the loop can emit more `message_end` events than it lists (a resampled
++tool-call leak, a throwing `shouldStopAfterTurn`). A reader detects a truncated
++run by a message that never got its `message_end`, not by comparing counts.
++
++This is boundary-payload deduplication, **not** an exactly-once record. What still
++repeats, and why it stays:
++
++| payload | wire events carrying it | why it stays |
++| --- | --- | --- |
++| tool result | `tool_execution_end`, `message_start`, `message_end` (3) | the begin/end pair frames it; the tool event is its execution outcome |
++| user message | `message_start`, `message_end` (2) | the pair is how a reader frames a message |
++| assistant message | `message_end` only (1) | its `message_start` carries the empty partial that streaming builds from |
++
++The projection test pins the marginal record bytes for the tool-result payload at
++a constant 3 per added character; a repeated transcript would make that
++multiplier grow with the number of events. Multipliers are per payload kind, not
++a single record-wide factor.
++
++### 5.4 A live frame stays cheap
++
++A frame no longer reaches a file by default, but it is still a replacement
++snapshot, so re-sending accumulated state wastes the consumer's own budget.
++`features/subagent/projection.ts` projects a record by explicit allowlist:
++
++- no `messages`;
++- short tails for streamed text, tool output and `stderr`;
++- a task prompt clipped at both ends, because a chain splices the previous step's
++  whole answer into it;
++- one roster per frame bounded by bytes, with the tail counted in
++  `omittedResults` so a renderer still reports the real task count.
++
++`agent-core` keeps **at most one frame in flight per tool**: a frame arriving
++while another is being delivered replaces the pending one, and the drain that the
++tool result awaits delivers the newest frame before returning. A slow consumer
++can therefore never make the loop hold one promise per token — the memory half of
++the incident, independent of which transport consumes the frames.
++
++`execute.ts` additionally coalesces frames on a 100ms window. That is a **repaint
++budget** (recomputing a roster projection per token costs more than a screen can
++show), not a log-safety mechanism.
++
++### 5.5 The terminal result is a summary
++
++`messages` is gone from the final `details`. The transcript is the child session's
++property, referenced by `sessionId` / `sessionFile`; a second copy in the tool
++result competed for the same budget and reached only one of the events that echo
++it. What remains is `activeText` (bounded at 50,000 characters, the renderer's own
++truncation point), the failure diagnostics, and the session pointers.
++
++The 128 KiB shared final-field budget reserves small task, output, and diagnostic
++floors for every record, then divides the remaining bytes across the records and
++fields still to project. Floors add only O(records x small) bytes, so a record
++never loses its identity or its failure reason to an earlier sibling's long
++output, and the total does not grow with the child's output.
++Model-facing `content` is unaffected and still passes through the existing 50 KiB
++/ 2000-line retention.
++
++### 5.6 The wire backstop
++
++One `tool_execution_update`, if written at all, is capped at 256 KiB of
++**serialized** bytes: the tail of its text plus `[live output truncated]`, with
++`args`/`details` dropped (they are on the start/end events). Measuring after JSON
++escaping matters — a control character is a six-byte escape, so counting
++characters under-counts by 6x — and both ids and tool names are clipped so the
++halving loop always converges. Terminal events are never bounded.
++
++## 6. Impact
++
++**Users**
++
++- `--mode json` / `--mode rpc` no longer contain `message_update` or
++  `tool_execution_update`, and `turn_end` / `agent_end` report `messageRole` /
++  `toolResultCount` and `willRetry` / `messageCount` instead of the messages they
++  close over. Scripts that counted deltas or read those two payloads need
++  `--include-live-events` (which restores frames, not the boundary payloads; the
++  boundary values were always available on `message_end`).
++- Trace reconstruction is unaffected: it reads `message_end` and
++  `tool_execution_end`, both of which still carry the value.
++- The TUI keeps its live list: it subscribes in process. Frames arrive on a 100ms
++  repaint budget, and a state that lasts under 100ms may not be painted.
++- Subagent cards no longer show the child transcript; it is reachable through
++  `sessionId` / `sessionFile`.
++- No migration, no new configuration, one new optional flag.
++
++**Agent**
++
++- Model-visible `content` is unchanged, including the existing 50 KiB retention.
++- A chain's `{previous}` is unchanged: it reads the internal unprojected records;
++  budgets apply only to what leaves the module.
++- The subagent runner adds `--include-live-events` to its child, without which the
++  parent would lose `activeToolOutput` and the live list would degrade.
++- Contract changes, documented in `docs/json.md`, `docs/rpc.md` and
++  `docs/tool-output-retention.md`: the wire `turn_end` / `agent_end` carry
++  structure instead of messages; `StepSubagentDetails.results[].messages` is
++  removed; the optional `omittedResults` is added.
++
++**Risk and rollback**
++
++| risk | control |
++| --- | --- |
++| an external script depends on deltas in `--mode json` | documented in `docs/json.md`; `--include-live-events` restores them |
++| a subagent child missing the flag degrades the live list | end-to-end test asserts a progress-only marker reaches the parent; removing the flag fails it |
++| a new event type is misclassified | allowlist of frames: new types default to durable |
++| removing `messages` breaks a renderer | renderers prefer `activeText`, which is backfilled from the full transcript |
++| merge conflicts on the web branch | changes concentrate in `emit`, the transports and projections; web consumes subscriptions unchanged |
++
++Rollback: the classification is one module and one flag; `git revert` needs no
++data migration. Details already written by an older version are not restored by
++the revert — read the child session instead.
++
++## 7. Validation
++
++- `session-event-durability.test.ts`: each type's classification, the
++  allowlist bias (an unknown type is durable), and that every frame has a durable
++  successor.
++- `json-event-projection.test.ts`: frames are `undefined` unless opted in; the
++  boundary projection; a boundary with nothing to close over; a real run through a
++  local tool asserting no frame, no boundary payload, and the per-payload
++  occurrence counts; the marginal bytes per added character (3 for a tool result,
++  constant) so a repeated transcript would fail.
++- `json-mode-durability.test.ts`: the real CLI under `--mode json` writes no
++  frames, restores them under `--include-live-events`, and writes the boundary
++  shapes above.
++- `subagent-live-channel.test.ts`: a real spawned `--mode rpc` child; the parent
++  receives a marker that exists only in a progress frame, no frame carries a
++  transcript, and the final result has no `messages`. The fixture honours
++  `--include-live-events` like the CLI, so dropping the flag fails the test.
++- `json-event-backstop.test.ts`: the 256 KiB cap under ASCII, control characters,
++  quotes, CJK, a lone surrogate and emoji; a pathological id; a terminal result is
++  never bounded.
++- `agent-core/test/agent.test.ts`: frames separated by a yield all arrive in
++  order; a synchronous burst may coalesce but never loses or reorders the newest
++  frame; a delivery failure surfaces through the awaited tool result.
++- `scripts/guard-self-tests.test.mjs` runs the transport guard's self-test, which
++  pins both its detections and its documented non-guarantees.
++- `packages/agent-core` and `packages/coding-agent` full suites; `pnpm run check`
++  (biome, boundary checks, the guards, `tsgo`, browser smoke).
++
++## 8. Not in this change, and what would let us delete the stopgaps
++
++1. **Progress does not yet have a channel of its own.** It is classified as
++   non-durable and excluded from the log, which removes the amplification, but it
++   still travels as a session event. The target design gives live progress a
++   dedicated surface — the shape codex and opencode converge on — so that
++   `omittedResults`, the roster byte budget and `rosterFields` can be deleted
++   outright. **Removal condition:** when a live frame no longer carries a roster,
++   all three go, and no test needs them.
++2. **A dedicated `subagent_progress` event type is optional, not required.** Now
++   that frames are excluded from storage, a new event type would buy naming
++   clarity only, at the cost of a new type plus every consumer. Prefer to revisit
++   it together with (1).
++3. **Session-file compaction.** After this change growth is linear, not quadratic,
++   but a long session is still large. Competitors have zstd or a file cap; we do
++   not.
++4. **Full backpressure.** One frame in flight bounds the loop's queue, but
++   `output-guard`'s stdout queue has no hard limit. With facts only, that traffic
++   is small, so this is secondary.
++5. **A tool result still reaches the record three times.**
++   `tool_execution_end`, `message_start` and `message_end` each carry it;
++   `turn_end` / `agent_end` no longer do (see §5.3). Two of those are the
++   begin/end pair that frames a message, so collapsing them is an
++   event-sequence change, not a de-duplication — a different risk class than this
++   change, which only removed payload from events whose whole purpose is the
++   boundary.
++6. **Type-level durability.** The classification is enforced in one projection
++   module, not by the event type, and a check script fails the build if a second
++   policy appears. opencode makes it a compile-time property; we do not yet.
+diff --git a/docs/research/2026-10-27-subagent-live-update-amplification/child.mjs b/docs/research/2026-10-27-subagent-live-update-amplification/child.mjs
+new file mode 100644
+index 0000000..a2235eb
+--- /dev/null
++++ b/docs/research/2026-10-27-subagent-live-update-amplification/child.mjs
+@@ -0,0 +1,103 @@
++// Fake `step --mode rpc` child used by the local amplification repro.
++// It speaks the real rpc framing (one JSON object per LF-framed line) and
++// replays what a child with a long streaming turn looks like: many text deltas,
++// then a persisted assistant message, then a tool result.
++const TURNS = Number(process.env.REPRO_TURNS ?? 20); // assistant turns in the child
++const DELTAS = Number(process.env.REPRO_DELTAS ?? 60); // text deltas per turn
++const TOOL_BYTES = Number(process.env.REPRO_TOOL_BYTES ?? 20_000); // child tool result size
++
++let buffer = "";
++process.stdin.setEncoding("utf8");
++process.stdin.on("data", (chunk) => {
++	buffer += chunk;
++	const lines = buffer.split("\n");
++	buffer = lines.pop() ?? "";
++	for (const line of lines) handle(line.trim());
++});
++
++function write(value) {
++	process.stdout.write(`${JSON.stringify(value)}\n`);
++}
++
++function assistant(content, stopReason = "stop") {
++	return {
++		role: "assistant",
++		content,
++		api: "anthropic-messages",
++		provider: "step",
++		model: "step-3.8-code-alpha",
++		usage: { input: 1000, output: 200, cacheRead: 0, cacheWrite: 0, totalTokens: 1200, cost: {} },
++		stopReason,
++		timestamp: Date.now(),
++	};
++}
++
++async function handle(line) {
++	if (!line) return;
++	let command;
++	try {
++		command = JSON.parse(line);
++	} catch {
++		return;
++	}
++	if (command.type === "get_state") {
++		write({ type: "response", id: command.id, command: "get_state", success: true, data: { sessionFile: "/tmp/child.jsonl" } });
++		return;
++	}
++	if (command.type === "abort") {
++		write({ type: "agent_settled" });
++		return;
++	}
++	if (command.type !== "prompt") return;
++
++	write({ type: "response", id: command.id, command: "prompt", success: true });
++	write({ type: "agent_start" });
++
++	const messages = [];
++	for (let turn = 0; turn < TURNS; turn++) {
++		write({ type: "turn_start" });
++		write({ type: "message_start", message: assistant([]) });
++
++		let text = "";
++		for (let index = 0; index < DELTAS; index++) {
++			const delta = `token-${turn}-${index} `;
++			text += delta;
++			write({
++				type: "message_update",
++				assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta },
++			});
++		}
++
++		// The persisted assistant message, exactly as the real child sends it.
++		const message = assistant([{ type: "text", text }], "toolUse");
++		messages.push(message);
++		write({ type: "message_end", message });
++
++		// A tool call whose result the child accumulates into its transcript.
++		const toolCallId = `call_${turn}`;
++		write({
++			type: "tool_execution_start",
++			toolCallId,
++			toolName: "run_command",
++			args: { command: `echo ${turn}` },
++		});
++		const output = "x".repeat(TOOL_BYTES);
++		write({ type: "tool_execution_update", toolCallId, toolName: "run_command", partialResult: output });
++		const result = {
++			role: "toolResult",
++			toolCallId,
++			toolName: "run_command",
++			content: [{ type: "text", text: output }],
++			isError: false,
++			timestamp: Date.now(),
++		};
++		messages.push(result);
++		write({ type: "tool_execution_end", toolCallId, toolName: "run_command", result: { content: [{ type: "text", text: output }] }, isError: false });
++		write({ type: "message_end", message: result });
++		write({ type: "turn_end" });
++	}
++
++	write({ type: "message_end", message: assistant([{ type: "text", text: "child done" }]) });
++	write({ type: "agent_end" });
++	write({ type: "agent_settled" });
++}
+diff --git a/docs/research/2026-10-27-subagent-live-update-amplification/repro.mts b/docs/research/2026-10-27-subagent-live-update-amplification/repro.mts
+new file mode 100644
+index 0000000..005693f
+--- /dev/null
++++ b/docs/research/2026-10-27-subagent-live-update-amplification/repro.mts
+@@ -0,0 +1,147 @@
++/**
++ * Local, offline reproduction of the subagent event-log amplification.
++ *
++ * Everything below is production code except the two test doubles the repo's
++ * testing policy already sanctions:
++ *   - the parent model (faux provider, no network),
++ *   - the child (a fake `step --mode rpc` process that only streams tokens).
++ *
++ * The measured path is real end to end:
++ *   child stdout -> routeSubagentRpcLine -> parseJsonEvent -> onUpdate
++ *   -> execute.emit -> agent-loop tool_execution_update -> AgentSession event
++ *   -> sessionEventDurability -> toJsonEvent -> the JSONL a host redirects
++ *      from `--mode json`.
++ *
++ * The point of the run is the `--mode json` default: a durable-only stream is
++ * what a harness writes to disk, so the measurement applies the same filter the
++ * transport does.
++ *
++ * Run from packages/coding-agent:
++ *   node --import tsx ../../docs/research/2026-10-27-subagent-live-update-amplification/repro.mts
++ *   REPRO_TURNS=40 REPRO_DELTAS=150 REPRO_TOOL_BYTES=40000 node --import tsx <same>
++ *   REPRO_LIVE=1 node --import tsx <same>     # simulate --include-live-events
++ */
++import { createHash } from "node:crypto";
++import { createWriteStream, mkdtempSync, rmSync, statSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { fileURLToPath } from "node:url";
++import { fauxAssistantMessage, fauxToolCall } from "@step-harness/providers";
++import { isEphemeralSessionEvent } from "../../../packages/coding-agent/src/core/session-event-durability.ts";
++import { createStepSubagentExtension } from "../../../packages/coding-agent/src/features/step-subagent.ts";
++import { toJsonEvent } from "../../../packages/coding-agent/src/modes/json-event.ts";
++import { createHarness } from "../../../packages/coding-agent/test/suite/harness.ts";
++
++const childPath = fileURLToPath(new URL("./child.mjs", import.meta.url));
++const includeLive = process.env.REPRO_LIVE === "1";
++const workDir = mkdtempSync(join(tmpdir(), "step-amp-"));
++const logPath = join(workDir, "stepcode.jsonl");
++
++// The default runner spawns `process.argv[1]`. Point it at the fake rpc child so
++// this repro works on any branch, without the host-only `cliPath` option.
++process.argv[1] = childPath;
++// The child is plain ESM: do not forward the parent's tsx loader into it.
++process.execArgv = process.execArgv.filter((arg) => !/^(?:--import|--loader|--require|-r)$/u.test(arg));
++
++const harness = await createHarness({
++	extensionFactories: [
++		{ name: "step-subagent", factory: createStepSubagentExtension({ agentDir: join(workDir, "agent") }) },
++	],
++});
++
++const out = createWriteStream(logPath);
++const stats = {
++	byType: new Map<string, number>(),
++	durableBytes: 0,
++	liveBytes: 0,
++	liveFrames: 0,
++	largestLiveFrame: 0,
++	largestDurable: 0,
++	messageHashes: new Map<string, number>(),
++};
++let writeChain: Promise<void> = Promise.resolve();
++let peakRss = 0;
++const sampler = setInterval(() => {
++	peakRss = Math.max(peakRss, process.memoryUsage().rss);
++}, 10);
++
++harness.session.subscribe((event) => {
++	// The projection decides what the record contains; the flag is the live
++	// consumer's opt-in. A frame is measured on its own line either way.
++	if (isEphemeralSessionEvent(event)) {
++		const frameLine = JSON.stringify(toJsonEvent(event, { includeLiveEvents: true }));
++		const frameBytes = Buffer.byteLength(frameLine, "utf8");
++		stats.liveFrames += 1;
++		stats.liveBytes += frameBytes;
++		stats.largestLiveFrame = Math.max(stats.largestLiveFrame, frameBytes);
++	}
++	const projected = toJsonEvent(event, { includeLiveEvents: includeLive });
++	if (!projected) return;
++	const line = JSON.stringify(projected);
++	const bytes = Buffer.byteLength(line, "utf8");
++	if (!isEphemeralSessionEvent(event)) {
++		stats.durableBytes += bytes;
++		stats.largestDurable = Math.max(stats.largestDurable, bytes);
++	}
++	stats.byType.set(event.type, (stats.byType.get(event.type) ?? 0) + 1);
++	writeChain = writeChain.then(
++		() => new Promise<void>((resolve) => (out.write(`${line}\n`) ? resolve() : out.once("drain", () => resolve()))),
++	);
++	if (event.type !== "tool_execution_update") return;
++	const results = event.partialResult?.details?.results;
++	if (!Array.isArray(results)) return;
++	for (const record of results) {
++		const messages = record?.messages;
++		if (!Array.isArray(messages) || messages.length === 0) continue;
++		const hash = createHash("sha256").update(JSON.stringify(messages)).digest("hex");
++		stats.messageHashes.set(hash, (stats.messageHashes.get(hash) ?? 0) + 1);
++	}
++});
++
++harness.setResponses([
++	fauxAssistantMessage(fauxToolCall("subagent", { agent: "general", task: "inspect the repository" }), {
++		stopReason: "toolUse",
++	}),
++	fauxAssistantMessage("parent done"),
++]);
++
++const startedAt = Date.now();
++await harness.session.prompt("delegate the inspection");
++await writeChain;
++await new Promise<void>((resolve) => out.end(resolve));
++clearInterval(sampler);
++peakRss = Math.max(peakRss, process.memoryUsage().rss);
++
++const size = statSync(logPath).size;
++const mib = (n: number): number => +(n / 1024 / 1024).toFixed(3);
++const pct = (part: number, whole: number): number => +((part / Math.max(1, whole)) * 100).toFixed(1);
++
++console.log(
++	JSON.stringify(
++		{
++			config: {
++				childTurns: Number(process.env.REPRO_TURNS ?? 20),
++				deltasPerTurn: Number(process.env.REPRO_DELTAS ?? 60),
++				childToolBytes: Number(process.env.REPRO_TOOL_BYTES ?? 20_000),
++				includeLive,
++			},
++			logMiB: mib(size),
++			durableMiB: mib(stats.durableBytes),
++			liveFrames: stats.liveFrames,
++			liveFramesWritten: includeLive,
++			liveMiB: mib(stats.liveBytes),
++			liveShareOfTotalPct: pct(stats.liveBytes, stats.durableBytes + stats.liveBytes),
++			largestDurableMiB: mib(stats.largestDurable),
++			largestLiveFrameMiB: mib(stats.largestLiveFrame),
++			liveFramesCarryingTranscript: [...stats.messageHashes.values()].reduce((a, b) => a + b, 0),
++			peakRssMiB: mib(peakRss),
++			elapsedMs: Date.now() - startedAt,
++			eventsByType: Object.fromEntries([...stats.byType.entries()].sort((a, b) => b[1] - a[1])),
++		},
++		null,
++		2,
++	),
++);
++
++harness.cleanup();
++rmSync(workDir, { recursive: true, force: true });
+diff --git a/package.json b/package.json
+index 436b28e..2a6267b 100644
+--- a/package.json
++++ b/package.json
+@@ -16,7 +16,7 @@
+ 		"build": "cd packages/tui && npm run build && cd ../telemetry && npm run build && cd ../providers && npm run build && cd ../agent-core && npm run build && cd ../config && npm run build && cd ../lark-adapter && npm run build && cd ../coding-agent && npm run build && cd ../../apps/cli && npm run build",
+ 		"build:offline": "cd packages/tui && npm run build && cd ../telemetry && npm run build && cd ../providers && npm run build:offline && cd ../agent-core && npm run build && cd ../config && npm run build && cd ../lark-adapter && npm run build && cd ../coding-agent && npm run build && cd ../../apps/cli && npm run build",
+ 		"build:binaries": "bash scripts/build-binaries.sh --product step --offline-model-data",
+-		"check": "biome check --write --error-on-warnings . && pnpm run check:pinned-deps && pnpm run check:ts-imports && pnpm run check:layer-direction && pnpm run check:ui-layer && pnpm run check:workspace-registry && pnpm run check:tui-no-ai && pnpm run check:coding-agent-entry-freeze && pnpm run check:contracts-deps-empty && pnpm run check:derived-compat-only && pnpm run check:no-provider-dispatch && pnpm run check:metadata-not-in-dispatch && pnpm run check:no-secret-leak && pnpm run check:legacy-scope-prefix && pnpm run check:no-observability && pnpm run check:public-boundary && tsgo --noEmit && pnpm run check:browser-smoke",
++		"check": "biome check --write --error-on-warnings . && pnpm run check:pinned-deps && pnpm run check:ts-imports && pnpm run check:layer-direction && pnpm run check:ui-layer && pnpm run check:workspace-registry && pnpm run check:tui-no-ai && pnpm run check:coding-agent-entry-freeze && pnpm run check:contracts-deps-empty && pnpm run check:derived-compat-only && pnpm run check:no-provider-dispatch && pnpm run check:session-event-transports && pnpm run check:metadata-not-in-dispatch && pnpm run check:no-secret-leak && pnpm run check:legacy-scope-prefix && pnpm run check:no-observability && pnpm run check:public-boundary && tsgo --noEmit && pnpm run check:browser-smoke",
+ 		"check:browser-smoke": "node scripts/check-browser-smoke.mjs",
+ 		"check:pinned-deps": "node scripts/check-pinned-deps.mjs",
+ 		"check:ts-imports": "node scripts/check-ts-relative-imports.mjs",
+@@ -28,6 +28,7 @@
+ 		"check:contracts-deps-empty": "node scripts/check-contracts-deps-empty.mjs",
+ 		"check:derived-compat-only": "node scripts/check-derived-compat-only.mjs",
+ 		"check:no-provider-dispatch": "node scripts/check-no-provider-dispatch.mjs",
++		"check:session-event-transports": "node scripts/check-session-event-transports.mjs",
+ 		"check:metadata-not-in-dispatch": "node scripts/check-metadata-not-in-dispatch.mjs",
+ 		"check:no-secret-leak": "node scripts/check-no-secret-leak.mjs",
+ 		"check:legacy-scope-prefix": "node scripts/check-legacy-scope-prefix.mjs",
+diff --git a/packages/agent-core/AGENTS.md b/packages/agent-core/AGENTS.md
+index b8d697e..f7a3cdc 100644
+--- a/packages/agent-core/AGENTS.md
++++ b/packages/agent-core/AGENTS.md
+@@ -15,6 +15,7 @@ Inherits the [root rules](../../AGENTS.md). This package is `@step-harness/agent
+ - Do not introduce vendor SDKs, Step defaults, CLI argument parsing, or UI objects. Products compose capabilities through stream, tool, environment, and resource interfaces.
+ - All product modes share this loop. New entry points must not copy the tool-call loop or message state machine.
+ - Preserve tool-call/result pairing, event ordering, cancellation propagation, steer / follow-up timing, and the distinction between errors and normal completion.
++- Tool updates are replacement snapshots and may coalesce. Observe background delivery failures and report them through the awaited tool-result path, without leaving a run unsettled.
+ - Generic session context and persistence contracts belong in the harness. Product session adapters may compose them; client caches must not become authoritative state.
+ - Pass telemetry contexts explicitly. Disabling telemetry must not change business return values, errors, or execution order.
+ 
+diff --git a/packages/agent-core/README.md b/packages/agent-core/README.md
+index a9bb81b..e24f816 100644
+--- a/packages/agent-core/README.md
++++ b/packages/agent-core/README.md
+@@ -187,6 +187,11 @@ The last message in context must be `user` or `toolResult` (not `assistant`).
+ | `tool_execution_update` | Tool streams progress |
+ | `tool_execution_end` | Tool completes |
+ 
++Tool updates are replacement snapshots: intermediate frames may be coalesced
++while delivery is in flight. A tool must put anything it needs preserved in its
++returned result. Delivery failures are observed by the awaited tool-result path;
++they do not leave background promise rejections or prevent the run from settling.
++
+ `Agent.subscribe()` listeners are awaited in registration order. `agent_end` means no more loop events will be emitted, but `await agent.waitForIdle()` and `await agent.prompt(...)` only settle after awaited `agent_end` listeners finish.
+ 
+ ## Agent Options
+diff --git a/packages/agent-core/src/agent-loop.ts b/packages/agent-core/src/agent-loop.ts
+index ef7ae85..a16ae90 100644
+--- a/packages/agent-core/src/agent-loop.ts
++++ b/packages/agent-core/src/agent-loop.ts
+@@ -781,46 +781,93 @@ async function prepareToolCall(
+ 	}
+ }
+ 
++/**
++ * Run one prepared tool call, forwarding its progress as session events.
++ *
++ * Progress is a *replacement snapshot*: the next frame supersedes this one, so
++ * an intermediate frame may be dropped without losing information. That is not
++ * true of the result, which is returned to the loop and persisted as a message.
++ *
++ * The consequence for this function is that it must not accumulate one promise
++ * per progress callback. A tool that streams for a minute would otherwise hold
++ * every frame — and every consumer slow enough to fall behind — in memory, which
++ * is exactly how a large live payload turns into an OOM. Instead at most one
++ * frame is in flight; a frame arriving while another is being delivered replaces
++ * it, and the newest snapshot wins.
++ */
+ async function executePreparedToolCall(
+ 	prepared: PreparedToolCall,
+ 	signal: AbortSignal | undefined,
+ 	emit: AgentEventSink,
+ ): Promise<ExecutedToolCallOutcome> {
+-	const updateEvents: Promise<void>[] = [];
+ 	let acceptingUpdates = true;
++	let delivering = false;
++	let pending: unknown;
++	let hasPending = false;
++	let idle: Promise<void> | undefined;
++	// Wrapped so a listener that throws `undefined` is still recorded as a failure.
++	let deliveryFailure: { error: unknown } | undefined;
++
++	const deliver = async (): Promise<void> => {
++		delivering = true;
++		try {
++			// Drain whatever is pending, even if the tool has already returned: that
++			// frame is the newest state and is exactly what the caller must see before
++			// the result. `acceptingUpdates` only rejects frames arriving afterwards.
++			while (hasPending) {
++				const partialResult = pending;
++				pending = undefined;
++				hasPending = false;
++				await emit({
++					type: "tool_execution_update",
++					toolCallId: prepared.toolCall.id,
++					toolName: prepared.toolCall.name,
++					args: prepared.toolCall.arguments,
++					partialResult,
++				});
++			}
++		} finally {
++			delivering = false;
++		}
++	};
++
++	const forward = (partialResult: unknown): void => {
++		if (!acceptingUpdates) return;
++		// Only the newest frame matters while one is in flight; that replacement is
++		// what keeps a fast producer from queueing a promise per token. Once the
++		// drain finishes, the next frame has to start a new one — caching the handle
++		// from the first frame and never clearing it silently stops forwarding.
++		pending = partialResult;
++		hasPending = true;
++		if (delivering) return;
++		idle = deliver().catch((error: unknown) => {
++			// Updates are not awaited by the tool. Retain listener failures for the
++			// awaited drain so a later frame cannot erase them or leave a rejection
++			// unobserved while the tool is still running.
++			deliveryFailure ??= { error };
++		});
++	};
+ 
+ 	try {
+-		const result = await prepared.tool.execute(
+-			prepared.toolCall.id,
+-			prepared.args as never,
+-			signal,
+-			(partialResult) => {
+-				if (!acceptingUpdates) return;
+-				updateEvents.push(
+-					Promise.resolve(
+-						emit({
+-							type: "tool_execution_update",
+-							toolCallId: prepared.toolCall.id,
+-							toolName: prepared.toolCall.name,
+-							args: prepared.toolCall.arguments,
+-							partialResult,
+-						}),
+-					),
+-				);
+-			},
+-		);
++		const result = await prepared.tool.execute(prepared.toolCall.id, prepared.args as never, signal, forward);
++		// Stop accepting frames, then let the last one land before returning the
++		// result, so a consumer sees progress and then completion, not the reverse.
+ 		acceptingUpdates = false;
+-		await Promise.all(updateEvents);
++		await idle;
++		if (deliveryFailure) throw deliveryFailure.error;
+ 		return { result, isError: result.isError === true };
+ 	} catch (error) {
+ 		acceptingUpdates = false;
+-		await Promise.all(updateEvents);
++		await idle;
++		// The tool's own failure is what stopped the call; a listener failure is a
++		// second cause and must not be hidden by it (or repeat it).
++		const causes = deliveryFailure && deliveryFailure.error !== error ? [error, deliveryFailure.error] : [error];
+ 		return {
+-			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
++			result: createErrorToolResult(
++				causes.map((cause) => (cause instanceof Error ? cause.message : String(cause))).join("\n"),
++			),
+ 			isError: true,
+ 		};
+-	} finally {
+-		acceptingUpdates = false;
+ 	}
+ }
+ 
+diff --git a/packages/agent-core/src/types.ts b/packages/agent-core/src/types.ts
+index a4acd33..f2112af 100644
+--- a/packages/agent-core/src/types.ts
++++ b/packages/agent-core/src/types.ts
+@@ -402,6 +402,8 @@ export interface AgentToolResult<T> {
+ 
+ /**
+  * Callback used by tools to stream partial execution updates.
++ * An update is a replacement snapshot; intermediate frames may be coalesced
++ * before delivery. Anything that must be preserved belongs in the returned result.
+  *
+  * The callback is scoped to the current `execute()` invocation. Calls made after
+  * the tool promise settles are ignored.
+diff --git a/packages/agent-core/test/agent.test.ts b/packages/agent-core/test/agent.test.ts
+index 797127c..0fb28f5 100644
+--- a/packages/agent-core/test/agent.test.ts
++++ b/packages/agent-core/test/agent.test.ts
+@@ -299,6 +299,150 @@ describe("Agent", () => {
+ 		expect(receivedSignal?.aborted).toBe(true);
+ 	});
+ 
++	it("should forward every tool update that is separated in time", async () => {
++		// A drain that finishes must not stop later frames from being forwarded.
++		// Caching the first delivery handle and never clearing it delivered exactly
++		// one frame per call, which silently starved live progress.
++		const toolSchema = Type.Object({});
++		const tool: AgentTool<typeof toolSchema, { step: number }> = {
++			name: "paced_tool",
++			label: "Paced Tool",
++			description: "Emits frames separated by a yield",
++			parameters: toolSchema,
++			async execute(_toolCallId, _params, _signal, onUpdate) {
++				for (let step = 0; step < 4; step += 1) {
++					onUpdate?.({ content: [{ type: "text", text: `frame ${step}` }], details: { step } });
++					// Yield so each frame is fully delivered before the next one.
++					await new Promise((resolve) => setTimeout(resolve, 0));
++				}
++				// Ends the run so the single queued model response is not replayed.
++				return { content: [{ type: "text", text: "ok" }], details: { step: 4 }, terminate: true };
++			},
++		};
++		const agent = new Agent({
++			initialState: { tools: [tool] },
++			streamFn: () => {
++				const stream = new MockAssistantStream();
++				queueMicrotask(() => {
++					stream.push({
++						type: "done",
++						reason: "toolUse",
++						message: createAssistantToolUseMessage([
++							{ type: "toolCall", id: "paced-1", name: "paced_tool", arguments: {} },
++						]),
++					});
++				});
++				return stream;
++			},
++		});
++		const events: AgentEvent[] = [];
++		agent.subscribe((event) => {
++			events.push(event);
++		});
++		await agent.prompt("run the paced tool");
++
++		const frames = events.filter((event) => event.type === "tool_execution_update");
++		expect(
++			frames.map((event) => (event as { partialResult: { details: { step: number } } }).partialResult.details.step),
++		).toEqual([0, 1, 2, 3]);
++	});
++
++	it("should deliver the newest of several frames emitted in one synchronous burst", async () => {
++		// The other half of the same contract: a burst may coalesce, but the last
++		// frame must always arrive, and frames must never be reordered.
++		const toolSchema = Type.Object({});
++		const tool: AgentTool<typeof toolSchema, { step: number }> = {
++			name: "burst_tool",
++			label: "Burst Tool",
++			description: "Emits frames without yielding",
++			parameters: toolSchema,
++			async execute(_toolCallId, _params, _signal, onUpdate) {
++				for (let step = 0; step < 50; step += 1) {
++					onUpdate?.({ content: [{ type: "text", text: `frame ${step}` }], details: { step } });
++				}
++				return { content: [{ type: "text", text: "ok" }], details: { step: 50 }, terminate: true };
++			},
++		};
++		const agent = new Agent({
++			initialState: { tools: [tool] },
++			streamFn: () => {
++				const stream = new MockAssistantStream();
++				queueMicrotask(() => {
++					stream.push({
++						type: "done",
++						reason: "toolUse",
++						message: createAssistantToolUseMessage([
++							{ type: "toolCall", id: "burst-1", name: "burst_tool", arguments: {} },
++						]),
++					});
++				});
++				return stream;
++			},
++		});
++		const events: AgentEvent[] = [];
++		agent.subscribe((event) => {
++			events.push(event);
++		});
++		await agent.prompt("run the burst tool");
++
++		const steps = events
++			.filter((event) => event.type === "tool_execution_update")
++			.map((event) => (event as { partialResult: { details: { step: number } } }).partialResult.details.step);
++		expect(steps.length).toBeGreaterThanOrEqual(1);
++		expect(steps.length).toBeLessThanOrEqual(50);
++		// The last frame is never dropped, and order is preserved.
++		expect(steps.at(-1)).toBe(49);
++		expect([...steps].sort((a, b) => a - b)).toEqual(steps);
++	});
++
++	it("reports an earlier frame delivery failure even after a later drain succeeds", async () => {
++		const schema = Type.Object({});
++		const tool: AgentTool<typeof schema> = {
++			name: "frames",
++			label: "Frames",
++			description: "Streams snapshots",
++			parameters: schema,
++			async execute(_id, _params, _signal, onUpdate) {
++				onUpdate?.({ content: [{ type: "text", text: "first" }], details: {} });
++				// Cross an event-loop checkpoint so the first drain has rejected before
++				// another update replaces its handle. No elapsed-time assumption is needed.
++				await new Promise<void>((resolve) => setImmediate(resolve));
++				onUpdate?.({ content: [{ type: "text", text: "second" }], details: {} });
++				return { content: [{ type: "text", text: "done" }], details: {} };
++			},
++		};
++		let calls = 0;
++		const agent = new Agent({
++			initialState: { tools: [tool] },
++			streamFn: () => {
++				const stream = new MockAssistantStream();
++				const message =
++					calls++ === 0
++						? createAssistantToolUseMessage([{ type: "toolCall", id: "frames-1", name: "frames", arguments: {} }])
++						: createAssistantMessage("settled");
++				queueMicrotask(() =>
++					stream.push({ type: "done", reason: message.stopReason === "toolUse" ? "toolUse" : "stop", message }),
++				);
++				return stream;
++			},
++		});
++		const events: AgentEvent[] = [];
++		let updates = 0;
++		agent.subscribe((event) => {
++			events.push(event);
++			if (event.type === "tool_execution_update" && updates++ === 0) throw new Error("frame subscriber failed");
++		});
++		await expect(agent.prompt("run frames")).resolves.toBeUndefined();
++		await agent.waitForIdle();
++		expect(updates).toBe(2);
++		const end = events.find((event) => event.type === "tool_execution_end");
++		expect(end).toMatchObject({
++			isError: true,
++			result: { content: [{ type: "text", text: "frame subscriber failed" }] },
++		});
++		expect(events.at(-1)?.type).toBe("agent_end");
++	});
++
+ 	it("should ignore tool updates after the tool execution settles", async () => {
+ 		const toolSchema = Type.Object({});
+ 		let delayedUpdate: AgentToolUpdateCallback<{ status: string }> | undefined;
+diff --git a/packages/coding-agent/AGENTS.md b/packages/coding-agent/AGENTS.md
+index b41ac58..256655e 100644
+--- a/packages/coding-agent/AGENTS.md
++++ b/packages/coding-agent/AGENTS.md
+@@ -63,6 +63,7 @@ Features connect through existing extension and session-event interfaces. Reuse
+ - Preserve the frozen `bin` / `exports` boundary. Do not add argv, TTY, or process entry points, or weaken `check:coding-agent-entry-freeze`.
+ - Reuse `src/theme/` and `config.ts` for theme catalogs and resolution. Renderers consume the active theme; do not add another theme registry.
+ - Session completion, cancellation, recovery, and tool permissions remain consistent across RPC, print, TUI, and SDK. Protocol adaptation and presentation may vary by mode.
++- Every serialized transport filters through `sessionEventDurability` (exported by `src/index.ts`); frames require an explicit live-consumer opt-in. In-process subscribers still receive every event.
+ - Add features through existing extension / feature interfaces. Compatibility wrappers must not introduce independent core execution semantics.
+ 
+ ## Session, tool, and feature constraints
+diff --git a/packages/coding-agent/docs/json.md b/packages/coding-agent/docs/json.md
+index fff0229..2b655ec 100644
+--- a/packages/coding-agent/docs/json.md
++++ b/packages/coding-agent/docs/json.md
+@@ -10,7 +10,9 @@ Outputs all session events as JSON lines to stdout. Useful for integrating step
+ 
+ Wire events use `JsonAgentSessionEvent`. It matches
+ [`AgentSessionEvent`](https://github.com/stepfun-ai/step-harness/blob/main/packages/coding-agent/src/core/agent-session.ts)
+-except that streaming message updates omit cumulative snapshots:
++except that streaming message updates omit cumulative snapshots, oversized tool
++updates may omit arguments, and the two boundary events carry structure instead
++of the messages they close over:
+ 
+ ```typescript
+ type WithoutPartial<T> = T extends { partial: unknown } ? Omit<T, "partial"> : T;
+@@ -20,37 +22,94 @@ type JsonAssistantMessageEvent<T> = T extends { type: "toolcall_start"; partial:
+   : WithoutPartial<T>;
+ 
+ type JsonAgentSessionEvent =
+-  | Exclude<AgentSessionEvent, { type: "message_update" }>
++  | Exclude<
++      AgentSessionEvent,
++      { type: "message_update" | "tool_execution_update" | "turn_end" | "agent_end" }
++    >
++  | (Omit<Extract<AgentSessionEvent, { type: "tool_execution_update" }>, "args"> & { args?: unknown })
+   | {
+       type: "message_update";
+       usage: Usage;
+       assistantMessageEvent: JsonAssistantMessageEvent<AssistantMessageEvent>;
+-    };
++    }
++  | { type: "turn_end"; messageRole: AgentMessage["role"]; toolResultCount: number }
++  | { type: "agent_end"; willRetry: boolean; messageCount: number };
+ ```
+ 
+ `queue_update` emits the full pending steering and follow-up queues whenever they change. `compaction_start` and `compaction_end` cover both manual and automatic compaction.
+ 
+-Other base events come from
+-[`AgentEvent`](https://github.com/stepfun-ai/step-harness/blob/main/packages/agent/src/types.ts):
++Other events are the session loop's own
++[`AgentSessionEvent`](https://github.com/stepfun-ai/step-harness/blob/main/packages/coding-agent/src/core/agent-session.ts),
++passed through unchanged except where the two sections below say otherwise:
+ 
+ ```typescript
+ type AgentEvent =
+-  // Agent lifecycle
+   | { type: "agent_start" }
+-  | { type: "agent_end"; messages: AgentMessage[] }
+-  // Turn lifecycle
++  | { type: "agent_end"; messages: AgentMessage[]; willRetry: boolean }
+   | { type: "turn_start" }
+   | { type: "turn_end"; message: AgentMessage; toolResults: ToolResultMessage[] }
+-  // Message lifecycle
+   | { type: "message_start"; message: AgentMessage }
+   | { type: "message_update"; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }
+   | { type: "message_end"; message: AgentMessage }
+-  // Tool execution
+   | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
+   | { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
+   | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };
+ ```
+ 
++That is the in-process shape. On stdout, `turn_end` and `agent_end` are narrowed
++and the two frame types are omitted — see the two sections below.
++
++## Facts and frames
++
++`--mode json` writes a **record**: frames are excluded, and an event that closes
++over messages reports the boundary instead of repeating them.
++
++- **Frames.** `message_update` and `tool_execution_update` are cumulative
++  snapshots of work in flight, each superseded by its successor (`message_end`,
++  `tool_execution_end`). They are **not written by default**. The test is the
++  successor, not the word "progress": `bash_execution_update` is a delta with no
++  event that restates it, so it stays.
++- **Boundaries that close over messages.** `turn_end` carries the assistant
++  message and its tool results, and `agent_end` carries every message of the run
++  — all of which already travelled as their own `message_start`/`message_end`
++  (a tool result also as `tool_execution_end`). They are written as
++  `{ messageRole, toolResultCount }` and `{ willRetry, messageCount }`: what only
++  the boundary says is where it fell, not what it contained.
++
++`messageCount` is the length of that run's `messages` array, not a checksum: the
++loop can emit more `message_end` events than it lists (a resampled tool-call
++leak, a throwing `shouldStopAfterTurn`), so do not use it to detect a truncated
++run. A message that never got its `message_end` is the reliable signal.
++
++What the record still repeats, deliberately:
++
++- a **user** message is written on both `message_start` and `message_end` — that
++  pair is how a reader frames it;
++- a **tool result** is written on `tool_execution_end` (its execution outcome) and
++  again in its own `message_start`/`message_end` — three copies in total;
++- an **assistant** message's final payload appears once, on `message_end`; its
++  `message_start` carries the empty partial message that streaming builds from.
++
++Collapsing any of those changes event-sequence semantics rather than dropping a
++duplicate, so it is out of scope here.
++
++A consumer therefore reconstructs a run from `message_end` (messages),
++`tool_execution_end` (tool results), and the boundaries for structure. A host
++that renders a live view can opt in to frames with `--include-live-events`. That
++mode is a debugging aid, not a log format: frames are frequent by design, and a
++run redirected to a file will be much larger.
++
++Whether a frame would fit is not the criterion; a written `tool_execution_update`
++is still capped at 256 KiB of serialized bytes (an oversized frame keeps the tail
++of its text plus a `[live output truncated]` marker, clips `toolCallId`/`toolName`,
++and omits `args`/`details`).
++Terminal events are never bounded. Extension handlers and in-process subscribers
++(`session.subscribe`, the TUI, the SDK) always see the original event; only the
++serialized stdout projection is narrowed.
++
++See [tool output retention](tool-output-retention.md#live-events-and-the-persisted-stream)
++for why the two are separated.
++
+ ## Message Types
+ 
+ Base messages from [`packages/providers/src/types.ts`](https://github.com/stepfun-ai/step-harness/blob/main/packages/providers/src/types.ts#L134):
+@@ -80,8 +139,8 @@ Followed by events as they occur:
+ {"type":"message_start","message":{"role":"assistant","content":[],...}}
+ {"type":"message_update","usage":{...},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Hello"}}
+ {"type":"message_end","message":{...}}
+-{"type":"turn_end","message":{...},"toolResults":[]}
+-{"type":"agent_end","messages":[...]}
++{"type":"turn_end","messageRole":"assistant","toolResultCount":0}
++{"type":"agent_end","willRetry":false,"messageCount":2}
+ ```
+ 
+ `message_update` records are delta-only. They omit both the cumulative `message` field and
+diff --git a/packages/coding-agent/docs/rpc.md b/packages/coding-agent/docs/rpc.md
+index 303f08a..76a9a71 100644
+--- a/packages/coding-agent/docs/rpc.md
++++ b/packages/coding-agent/docs/rpc.md
+@@ -861,16 +861,16 @@ Events are streamed to stdout as JSON lines during agent operation. Events do no
+ | Event | Description |
+ |-------|-------------|
+ | `agent_start` | Agent begins processing |
+-| `agent_end` | One low-level agent run completes (may still be followed by retry, compaction, or queued continuations) |
++| `agent_end` | One low-level agent run completes (may still be followed by retry, compaction, or queued continuations); carries `willRetry` and a message count, not the messages |
+ | `agent_settled` | Agent run is fully settled; no automatic retry, compaction retry, or queued continuation remains |
+ | `turn_start` | New turn begins |
+-| `turn_end` | Turn completes (includes assistant message and tool results) |
++| `turn_end` | Turn completes; carries the message role and a tool-result count, not the messages |
+ | `message_start` | Message begins |
+-| `message_update` | Streaming update (text/thinking/toolcall deltas) |
++| `message_update` | **Opt-in frame** (`--include-live-events`): text/thinking/toolcall deltas; see [Facts and frames](#facts-and-frames) |
+ | `message_end` | Message completes |
+ | `bash_execution_update` | Direct RPC bash command output chunk |
+ | `tool_execution_start` | Tool begins execution |
+-| `tool_execution_update` | Tool execution progress (streaming output) |
++| `tool_execution_update` | **Opt-in frame** (`--include-live-events`): tool progress; see [Facts and frames](#facts-and-frames) |
+ | `tool_execution_end` | Tool completes |
+ | `queue_update` | Pending steering/follow-up queue changed |
+ | `compaction_start` | Compaction begins |
+@@ -892,13 +892,23 @@ Emitted when the agent begins processing a prompt.
+ 
+ ### agent_end
+ 
+-Emitted when one low-level agent run completes. Contains all messages generated during this run. If `willRetry` is true, an automatic retry will follow.
++Emitted when one low-level agent run completes. If `willRetry` is true, an automatic retry will follow.
++
++The messages of the run are **not** repeated here: each one already arrived as
++its own `message_start`/`message_end`, and each tool result as `tool_execution_end`.
++What only this event says is that the run ended and whether it will be retried,
++so the record carries `messageCount` instead of the array.
++
++`messageCount` is the length of the run's `messages` array, **not** a checksum: a
++resampled tool-call leak or a throwing `shouldStopAfterTurn` can make the loop
++emit more `message_end` events than it lists. Detect a truncated run by a message
++that never got its `message_end`, not by comparing counts.
+ 
+ ```json
+ {
+   "type": "agent_end",
+-  "messages": [...],
+-  "willRetry": false
++  "willRetry": false,
++  "messageCount": 4
+ }
+ ```
+ 
+@@ -921,11 +931,15 @@ A turn consists of one assistant response plus any resulting tool calls and resu
+ ```json
+ {
+   "type": "turn_end",
+-  "message": {...},
+-  "toolResults": [...]
++  "messageRole": "assistant",
++  "toolResultCount": 2
+ }
+ ```
+ 
++As with `agent_end`, the assistant message and the tool results are not repeated
++— they arrived as `message_end` and `tool_execution_end` — so a turn boundary
++reports where it fell rather than what it contained.
++
+ ### message_start / message_end
+ 
+ Emitted when a message begins and completes. The `message` field contains an `AgentMessage`.
+@@ -1054,6 +1068,20 @@ When complete:
+ 
+ Use `toolCallId` to correlate events. The `partialResult` in `tool_execution_update` contains the accumulated output so far (not just the delta), allowing clients to simply replace their display on each update.
+ 
++### Facts and frames
++
++RPC is a control channel, and its stdout can be redirected to a file as easily as
++`json`'s, so it also writes **facts only** by default: `message_update` and
++`tool_execution_update` are frames, each superseded by its successor, and are
++written only when the caller passes `--include-live-events`. The subagent runner
++does, because it reads its child's pipe frame by frame and renders the result.
++
++If a `tool_execution_update` frame is written, it is capped at 256 KiB of serialized
++bytes. An oversized update keeps only the tail of its text, adds a `[live output truncated]`
++marker, clips `toolCallId`/`toolName`, and omits `args`/`details`; read those from
++`tool_execution_start`/`tool_execution_end`, which are never bounded. The cap
++applies to the stdout projection only, not to in-process extension handlers.
++
+ ### queue_update
+ 
+ Emitted whenever the pending steering or follow-up queue changes.
+@@ -1530,7 +1558,7 @@ import subprocess
+ import json
+ 
+ proc = subprocess.Popen(
+-    ["step", "--mode", "rpc", "--no-session"],
++    ["step", "--mode", "rpc", "--include-live-events", "--no-session"],
+     stdin=subprocess.PIPE,
+     stdout=subprocess.PIPE,
+     text=True
+@@ -1569,7 +1597,7 @@ For a complete example of handling the extension UI protocol, see [`examples/rpc
+ const { spawn } = require("child_process");
+ const { StringDecoder } = require("string_decoder");
+ 
+-const agent = spawn("step", ["--mode", "rpc", "--no-session"]);
++const agent = spawn("step", ["--mode", "rpc", "--include-live-events", "--no-session"]);
+ 
+ function attachJsonlReader(stream, onLine) {
+     const decoder = new StringDecoder("utf8");
+diff --git a/packages/coding-agent/docs/tool-output-retention.md b/packages/coding-agent/docs/tool-output-retention.md
+index d253a8b..6082ac5 100644
+--- a/packages/coding-agent/docs/tool-output-retention.md
++++ b/packages/coding-agent/docs/tool-output-retention.md
+@@ -33,3 +33,78 @@ termination policy remains in force. Small results create no artifact and are un
+ 
+ This bounds final model-facing text, not streaming progress updates or arbitrary
+ typed `details` payloads. No new permission bypass or external upload is added.
++
++## Live events and the persisted stream
++
++A session event is either a **fact** or a **frame**:
++
++- `message_update` and `tool_execution_update` are frames. Each is a cumulative
++  snapshot of in-flight work, and each one's successor (`message_end`,
++  `tool_execution_end`) carries the authoritative value. A reader that skips
++  every frame can still reconstruct the run exactly.
++- Everything else is a fact.
++
++The classification lives in `core/session-event-durability.ts` and is an
++allowlist of frames, so a future event type is a fact unless someone says
++otherwise. `--mode json` and `--mode rpc` write only facts. A host that renders a
++live view — the subagent parent reading a child's pipe, a debugging session —
++passes `--include-live-events`.
++
++That is what keeps a redirected stdout log bounded by the number of facts rather
++than the number of streamed tokens: a harness redirecting `--mode json` to a file
++gets no progress frames at all.
++
++A record also drops the payload a **boundary** only repeats. `turn_end` and
++`agent_end` close over the messages of a turn and a run, and those messages
++already arrived as their own `message_start`/`message_end` (a tool result also as
++`tool_execution_end`), so the projection writes `{ messageRole, toolResultCount }`
++and `{ willRetry, messageCount }` instead of repeating the arrays. Projecting the
++same runs both ways, the two boundaries were **40.2%** of the record for a
++100-task batch (713,553 -> 426,615 bytes) and **51.6%** for a 20-task batch with a
++40,000-character answer (278,463 -> 134,739 bytes).
++
++It is not an exactly-once record. A tool result still travels on
++`tool_execution_end` plus its own `message_start`/`message_end` (3), a user
++message on both of its pair (2), and an assistant message's final payload once
++(1 — its `message_start` is the empty partial). Those are the begin/end pair and
++the execution outcome, so removing them changes sequence semantics rather than
++dropping a duplicate.
++
++The classification and that projection meet in one function,
++`toJsonEvent(event, { includeLiveEvents })` in `modes/json-event.ts`, which returns
++`undefined` for a frame the caller did not opt into. Transports write
++`if (projected)` rather than filtering first, because two decision points drift
++apart; `check:session-event-transports` fails the build when the projection is
++called outside a known transport, when a transport's call does not state the
++option, or when the classification is referenced outside the projection.
++
++Producers still bound what a frame contains, because a frame is a replacement
++snapshot and re-sending accumulated state wastes the consumer's own budget:
++
++- The subagent tool's live projection drops `messages` entirely, keeps a short
++  tail of streamed text and tool output, and clips a `{previous}`-expanded task
++  at both ends.
++- One live roster is capped by bytes; the records that do not fit are counted in
++  `omittedResults` so a renderer can still report the real task count.
++- `agent-core` keeps at most one frame in flight per tool: a frame arriving while
++  another is being delivered replaces it, so a slow consumer cannot make the loop
++  accumulate one pending promise per token.
++
++The terminal tool result is a summary, not a transcript: it carries `activeText`
++(bounded at 50,000 characters), the failure diagnostics, and `sessionId` /
++`sessionFile` for the child's own history. It does not carry `messages`.
++The 128 KiB shared field budget keeps small task, output, and diagnostic floors
++for every record and divides remaining bytes fairly. Floors add O(records × small)
++bytes, so later tasks still render their identity, output, and failure reason.
++
++The JSON/RPC stdout projection also caps an opted-in `tool_execution_update` at
++256 KiB of serialized bytes, including JSON escaping and the envelope. Oversized
++frames keep a text tail with `[live output truncated]`, drop `args`/`details`, and
++clip ids and tool names. Other events, including terminal results, are untouched;
++in-process subscribers do not pass through this wire backstop.
++
++These payload bounds are a **stopgap**, not the target design. They exist because
++progress currently rides the same session-event stream as facts; once it has a
++channel of its own, the roster cap and `omittedResults` can be deleted. See the
++follow-up section of
++`docs/research/2026-10-27-subagent-live-update-amplification/README.md`.
+diff --git a/packages/coding-agent/examples/rpc-extension-ui.ts b/packages/coding-agent/examples/rpc-extension-ui.ts
+index d4bcb91..273ed59 100644
+--- a/packages/coding-agent/examples/rpc-extension-ui.ts
++++ b/packages/coding-agent/examples/rpc-extension-ui.ts
+@@ -259,7 +259,16 @@ async function main() {
+ 
+ 	const agent = spawn(
+ 		"node",
+-		[cliPath, "--mode", "rpc", "--no-session", "--no-extension", "--extension", extensionPath],
++		[
++			cliPath,
++			"--mode",
++			"rpc",
++			"--include-live-events",
++			"--no-session",
++			"--no-extension",
++			"--extension",
++			extensionPath,
++		],
+ 		{ stdio: ["pipe", "pipe", "pipe"] },
+ 	);
+ 
+diff --git a/packages/coding-agent/src/cli/args.ts b/packages/coding-agent/src/cli/args.ts
+index d9d7431..d5cdf5d 100644
+--- a/packages/coding-agent/src/cli/args.ts
++++ b/packages/coding-agent/src/cli/args.ts
+@@ -53,6 +53,13 @@ export interface Args {
+ 	completionCheckAttempts?: number;
+ 	/** One opt-in task self-review; shares the Git follow-up budget when enabled. */
+ 	completionReview?: boolean;
++	/**
++	 * Also emit live progress (`message_update`, `tool_execution_update`) on the
++	 * `json`/`rpc` stdout channel. Off by default: those frames are a cumulative
++	 * snapshot of in-flight work, and a host that redirects the stream to a file
++	 * would keep every one of them.
++	 */
++	includeLiveEvents?: boolean;
+ 	export?: string;
+ 	noSkills?: boolean;
+ 	skills?: string[];
+@@ -405,6 +412,8 @@ export function parseArgs(args: string[]): Args {
+ 				result.models = taken.value.split(",").map((s) => s.trim());
+ 				i = taken.nextIndex;
+ 			}
++		} else if (arg === "--include-live-events") {
++			result.includeLiveEvents = true;
+ 		} else if (arg === "--no-tools" || arg === "-nt") {
+ 			result.noTools = true;
+ 		} else if (arg === "--no-builtin-tools" || arg === "-nbt") {
+@@ -668,6 +677,7 @@ ${chalk.bold("Options:")}
+   --system-prompt <text>         System prompt (default: coding assistant prompt)
+   --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)
+   --mode <mode>                  Output mode: text (default), json, or rpc
++  --include-live-events          Live consumers/debugging only; makes JSON/RPC logs much larger
+ ${stepPermissionOptionsText}
+   --sdk-stdio                    Run the Step Agent SDK length-prefixed stdio host
+   --print, -p                    Non-interactive mode: process prompt and exit
+diff --git a/packages/coding-agent/src/core/session-event-durability.ts b/packages/coding-agent/src/core/session-event-durability.ts
+new file mode 100644
+index 0000000..9ab635c
+--- /dev/null
++++ b/packages/coding-agent/src/core/session-event-durability.ts
+@@ -0,0 +1,54 @@
++/**
++ * Session-event durability.
++ *
++ * A session event has two possible audiences, and they disagree about volume:
++ *
++ * - Hosts that render a live view (the TUI, a web client over SSE) need frequent
++ *   progress. They read it in process, one frame replaces the previous one, and
++ *   dropping an intermediate frame costs nothing.
++ * - Hosts that keep a record (the `json`/`rpc` stdout a harness redirects to a
++ *   file) need one entry per fact. They never replay progress, and every extra
++ *   frame is permanent bytes.
++ *
++ * Treating those as the same stream is what turned a subagent's live progress
++ * into a GB-scale log: progress was written once per streamed delta, and each
++ * entry carried the child's whole transcript. The fix is not a smaller payload
++ * per producer — it is to say which events are worth persisting at all, and to
++ * have every serialized transport agree.
++ * Every serialized transport must filter on this classification, unless its
++ * caller explicitly opts into live frames. In-process subscribers receive both.
++ *
++ * The classification is an allowlist of *ephemeral* types, so an event added
++ * later is durable by default: forgetting to classify a new event cannot
++ * silently opt it into the log.
++ */
++
++import type { AgentSessionEvent } from "./agent-session.ts";
++
++/** Whether an event is a fact to persist or a frame to render. */
++export type SessionEventDurability = "durable" | "ephemeral";
++
++/**
++ * Events whose payload is a cumulative snapshot of in-flight work.
++ *
++ * Each one's successor carries the authoritative value — `message_end` for a
++ * streamed message, `tool_execution_end` for a tool — so a reader that skips
++ * them can still reconstruct the run exactly. This is the same boundary other
++ * harnesses draw between a stream fragment and the replayable value.
++ *
++ * The successor test is what keeps `bash_execution_update` out: it carries a
++ * delta, not a snapshot, and a user-issued `!` command has no message event that
++ * would restate its output. Dropping it would lose the output, not repeat it.
++ */
++const EPHEMERAL_SESSION_EVENT_TYPES: ReadonlySet<AgentSessionEvent["type"]> = new Set([
++	"message_update",
++	"tool_execution_update",
++]);
++
++export function sessionEventDurability(event: Pick<AgentSessionEvent, "type">): SessionEventDurability {
++	return EPHEMERAL_SESSION_EVENT_TYPES.has(event.type) ? "ephemeral" : "durable";
++}
++
++export function isEphemeralSessionEvent(event: Pick<AgentSessionEvent, "type">): boolean {
++	return sessionEventDurability(event) === "ephemeral";
++}
+diff --git a/packages/coding-agent/src/features/step-subagent.ts b/packages/coding-agent/src/features/step-subagent.ts
+index 6c6d74c..83fa394 100644
+--- a/packages/coding-agent/src/features/step-subagent.ts
++++ b/packages/coding-agent/src/features/step-subagent.ts
+@@ -220,6 +220,12 @@ export interface StepSubagentDetails {
+ 	userAgentsDir: string;
+ 	projectAgentsDir: string | null;
+ 	results: StepSubagentResultRecord[];
++	/**
++	 * Tasks left out of a live frame to keep one frame bounded. Only set while
++	 * running with a batch larger than the byte budget; the final result reports
++	 * every task. Renderers add it to `results.length` for the real total.
++	 */
++	omittedResults?: number;
+ 	/** Present for background lanes and useful to a renderer/list command. */
+ 	agentId?: string;
+ 	status?: "running" | "completed" | "failed" | "aborted";
+@@ -752,10 +758,14 @@ export function createStepSubagentExtension(options: StepSubagentExtensionOption
+ 					lane.ctx.ui.setWidget(lanesWidgetKey, undefined);
+ 					return;
+ 				}
++				// Each lane's frame is byte-bounded, so its omitted count must be
++				// summed too: otherwise a two-lane batch under-reports its total.
++				const omitted = batch.reduce((sum, entry) => sum + (entry.details.omittedResults ?? 0), 0);
+ 				const details: StepSubagentDetails = {
+ 					...lane.details,
+ 					mode: "parallel",
+ 					results: batch.flatMap((entry) => entry.details.results),
++					...(omitted > 0 ? { omittedResults: omitted } : {}),
+ 				};
+ 				lanesWidget?.setDetails(details);
+ 				const signature = subagentListSignature(details);
+diff --git a/packages/coding-agent/src/features/subagent/execute.ts b/packages/coding-agent/src/features/subagent/execute.ts
+index 3d1a26f..68669e8 100644
+--- a/packages/coding-agent/src/features/subagent/execute.ts
++++ b/packages/coding-agent/src/features/subagent/execute.ts
+@@ -47,6 +47,17 @@ import {
+ } from "../workflow/budget.ts";
+ import { truncateText } from "./lane-events.ts";
+ import type { StepSubagentLaneRuntime } from "./lane-lifecycle.ts";
++import { finalRoster, liveRoster } from "./projection.ts";
++
++/**
++ * Repaint budget for live frames.
++ *
++ * A frame is a snapshot for a human watching the UI, not a fact: the transport
++ * drops it from the persisted stream unless the host opts in. Recomputing the
++ * roster projection per streamed token costs more than a screen can show, and
++ * 100ms is the cadence the bash tool already uses.
++ */
++const LIVE_FRAME_INTERVAL_MS = 100;
+ 
+ export interface StepSubagentTaskInput {
+ 	agent: string;
+@@ -373,6 +384,8 @@ export async function runPreparedSubagent(
+ 	const chain = mode === "chain" ? tasks : undefined;
+ 
+ 	const records = tasks.map((task) => makeEmptyResult(task.agent, task.task));
++	let lastFrameAt = 0;
++	let pendingFrame: ReturnType<typeof setTimeout> | undefined;
+ 	const execution = laneRuntime ? "background" : "blocking";
+ 	const createdAt = tasks.map(() => Date.now());
+ 	const createdTasks = new Set<number>();
+@@ -396,20 +409,45 @@ export async function runPreparedSubagent(
+ 			duration_ms: Math.max(0, Date.now() - (createdAt[index] ?? Date.now())),
+ 		});
+ 	};
++	/**
++	 * Publish one live frame.
++	 *
++	 * A frame is a replacement snapshot for a human watching the UI. It is
++	 * explicitly *not* a fact the model or a log needs: the transport drops it
++	 * from the persisted stream unless the host asks for live events, and the
++	 * terminal result restates everything worth keeping. That is why the two
++	 * knobs here are latency and repaint cost, not durability.
++	 *
++	 * The window is a repaint budget: recomputing a roster projection per streamed
++	 * token costs more than the UI can show, and 100ms is the cadence the bash
++	 * tool already uses. It is not a log-safety mechanism — nothing here reaches
++	 * a log file by default — so it can be tuned or removed without affecting
++	 * what gets persisted.
++	 */
+ 	const emit = (mode: StepSubagentDetails["mode"]): void => {
+-		onUpdate?.(
++		if (!onUpdate) return;
++		const wait = LIVE_FRAME_INTERVAL_MS - (Date.now() - lastFrameAt);
++		if (wait > 0) {
++			// The newest roster wins; an intermediate frame is stale by definition.
++			pendingFrame ??= setTimeout(() => {
++				pendingFrame = undefined;
++				publishFrame(mode);
++			}, wait);
++			pendingFrame.unref?.();
++			return;
++		}
++		publishFrame(mode);
++	};
++
++	const publishFrame = (mode: StepSubagentDetails["mode"]): void => {
++		if (!onUpdate) return;
++		lastFrameAt = Date.now();
++		const roster = liveRoster(records);
++		const details = buildDetails(mode, discovery, scope, roster.results);
++		onUpdate(
+ 			makeToolResult(
+-				buildDetails(
+-					mode,
+-					discovery,
+-					scope,
+-					records.map((record) => ({
+-						...record,
+-						messages: [...record.messages],
+-						usage: cloneUsage(record.usage),
+-					})),
+-				),
+-				resultDetailsText(buildDetails(mode, discovery, scope, records)),
++				roster.omittedResults === undefined ? details : { ...details, omittedResults: roster.omittedResults },
++				resultDetailsText(details),
+ 			),
+ 		);
+ 	};
+@@ -580,7 +618,12 @@ export async function runPreparedSubagent(
+ 			}
+ 		}
+ 	} else await runOne(tasks[0], 0);
+-	const finalDetails = buildDetails(mode, discovery, scope, records);
++	if (pendingFrame) {
++		clearTimeout(pendingFrame);
++		pendingFrame = undefined;
++		publishFrame(mode);
++	}
++	const finalDetails = buildDetails(mode, discovery, scope, finalRoster(records));
+ 	if (mode === "parallel") {
+ 		const success = records.filter((record) => record.status === "completed").length;
+ 		const summaries = records.map(
+diff --git a/packages/coding-agent/src/features/subagent/helpers.ts b/packages/coding-agent/src/features/subagent/helpers.ts
+index e6f9a2a..e8b7e54 100644
+--- a/packages/coding-agent/src/features/subagent/helpers.ts
++++ b/packages/coding-agent/src/features/subagent/helpers.ts
+@@ -14,10 +14,25 @@ import { mkdtemp, rm } from "node:fs/promises";
+ import os from "node:os";
+ import path from "node:path";
+ import { promisify } from "node:util";
+-import type { StepSubagentUsage, StepWorktreeLease } from "../step-subagent.ts";
++import type { StepSubagentDetails, StepSubagentUsage, StepWorktreeLease } from "../step-subagent.ts";
+ 
+ const execFile = promisify(execFileCallback);
+ 
++/**
++ * Tasks in a call, including any a byte-bounded live frame left out.
++ *
++ * A frame stops adding records once it reaches its budget and reports the rest
++ * as `omittedResults`. Counting `results.length` alone would tell a 600-task
++ * batch it has 174 tasks — and, at the end of a run, that all of them are done.
++ *
++ * This lives in the leaf helpers module because both the renderers and the lane
++ * notifications need it; importing it from a renderer made those two modules
++ * import each other.
++ */
++export function totalResults(details: Pick<StepSubagentDetails, "results" | "omittedResults">): number {
++	return details.results.length + (details.omittedResults ?? 0);
++}
++
+ /** Tool names in agent files may use either Pi's native names or Step's
+  * model-facing aliases. Child Step processes expose the latter. */
+ const TOOL_ALIASES: Readonly<Record<string, string>> = {
+diff --git a/packages/coding-agent/src/features/subagent/lane-events.ts b/packages/coding-agent/src/features/subagent/lane-events.ts
+index 02baef8..bc9eef5 100644
+--- a/packages/coding-agent/src/features/subagent/lane-events.ts
++++ b/packages/coding-agent/src/features/subagent/lane-events.ts
+@@ -6,6 +6,7 @@
+ import type { ExtensionAPI } from "../../core/extensions/types.ts";
+ import { boundToolResultContent } from "../../core/tools/tool-output.ts";
+ import type { BackgroundAgentLane, StepSubagentResultRecord } from "../step-subagent.ts";
++import { totalResults } from "./helpers.ts";
+ 
+ /** Notification detail levels for background lanes. */
+ export type BackgroundLaneSubscribeLevel = "final" | "progress";
+@@ -57,7 +58,7 @@ export function truncateText(value: string, maxChars: number): string {
+ }
+ 
+ /** "2 completed, 1 failed" over a lane's task records. */
+-export function laneTaskCounts(records: readonly StepSubagentResultRecord[]): string {
++export function laneTaskCounts(records: readonly StepSubagentResultRecord[], total = records.length): string {
+ 	const order: Array<[StepSubagentResultRecord["status"], string]> = [
+ 		["completed", "completed"],
+ 		["failed", "failed"],
+@@ -72,6 +73,7 @@ export function laneTaskCounts(records: readonly StepSubagentResultRecord[]): st
+ 			return count > 0 ? `${count} ${label}` : "";
+ 		})
+ 		.filter(Boolean);
++	if (total > records.length) parts.push(`${total - records.length} not shown`);
+ 	return parts.length > 0 ? parts.join(", ") : "no tasks ran";
+ }
+ 
+@@ -84,9 +86,9 @@ function laneHeadline(lane: BackgroundAgentLane, event: BackgroundLaneEvent): st
+ 		case "background_restarted":
+ 			return `Lane ${lane.id} restarted its child process.`;
+ 		case "background_interrupted":
+-			return `Lane ${lane.id} was stopped: ${laneTaskCounts(lane.details.results)}.`;
++			return `Lane ${lane.id} was stopped: ${laneTaskCounts(lane.details.results, totalResults(lane.details))}.`;
+ 		default:
+-			return `Lane ${lane.id} finished: ${laneTaskCounts(lane.details.results)}.`;
++			return `Lane ${lane.id} finished: ${laneTaskCounts(lane.details.results, totalResults(lane.details))}.`;
+ 	}
+ }
+ 
+@@ -114,7 +116,7 @@ export function notifyLaneEvent(
+ 			// The detail is child-model output. Escape the whole body so it cannot
+ 			// forge a `</agent-notification>` close and inject content outside it.
+ 			content:
+-				`<agent-notification lane="${escapeXmlAttr(lane.id)}" tasks="${lane.details.results.length}">` +
++				`<agent-notification lane="${escapeXmlAttr(lane.id)}" tasks="${totalResults(lane.details)}">` +
+ 				`${escapeXmlAttr(body)}</agent-notification>`,
+ 			// Progress is for the parent model; the user already watches the lanes
+ 			// widget, and a transcript entry every 15s per lane buries the session.
+@@ -236,7 +238,9 @@ export async function buildLaneFinalDetail(lane: BackgroundAgentLane, outputDire
+ function laneProgressDetail(lane: BackgroundAgentLane): string {
+ 	const records = lane.details.results;
+ 	const active = records.find((record) => record.status === "running") ?? records.at(-1);
+-	const parts: string[] = [`step ${active ? records.indexOf(active) + 1 : 1}/${Math.max(records.length, 1)}`];
++	const parts: string[] = [
++		`step ${active ? records.indexOf(active) + 1 : 1}/${Math.max(totalResults(lane.details), 1)}`,
++	];
+ 	if (active?.activeTool) parts.push(`tool ${active.activeTool}`);
+ 	if (active) parts.push(`turns ${active.usage.turns}, in:${active.usage.input} out:${active.usage.output}`);
+ 	return parts.join("; ");
+diff --git a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+index c813635..c7e79e4 100644
+--- a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
++++ b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+@@ -9,7 +9,12 @@
+ import { randomBytes, randomUUID } from "node:crypto";
+ import type { AgentToolResult, AgentToolUpdateCallback } from "@step-harness/agent-core";
+ import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+-import type { StepSubagentDetails, StepSubagentRpcSession, SubagentParams } from "../step-subagent.ts";
++import type {
++	StepSubagentDetails,
++	StepSubagentResultRecord,
++	StepSubagentRpcSession,
++	SubagentParams,
++} from "../step-subagent.ts";
+ import type { PreparedSubagentRun, SubagentPreflight } from "./execute.ts";
+ import { SUBAGENT_SESSION_ID_PREFIX } from "./helpers.ts";
+ import {
+@@ -88,6 +93,42 @@ function getLaneSessions(sessionId: string, liveOnly = true): StepSubagentRpcSes
+ 	return sessions;
+ }
+ 
++/**
++ * Keep the lane's roster complete enough to report the real task count.
++ *
++ * A live frame carries only the records that fit its byte budget, and the
++ * omitted count describes that frame, not the roster we hold. Merging recovers
++ * records we once saw but never the ones we have not been sent yet, so the count
++ * is recomputed from the frame's own total instead of being cleared or kept.
++ */
++export function rosterFields(
++	previous: StepSubagentDetails,
++	next: StepSubagentDetails,
++): Pick<StepSubagentDetails, "results" | "omittedResults"> {
++	// Always set the key: the caller spreads the frame under this result, so
++	// omitting it would keep the frame's own count and double-count the records
++	// the merge just recovered.
++	if (next.omittedResults === undefined) return { results: next.results, omittedResults: undefined };
++	const total = next.results.length + next.omittedResults;
++	const merged = mergeResults(previous.results, next.results).slice(0, total);
++	const omitted = Math.max(0, total - merged.length);
++	return { results: merged, omittedResults: omitted === 0 ? undefined : omitted };
++}
++
++/** Overlay a bounded live roster onto the roster the lane already knows. */
++function mergeResults(
++	previous: readonly StepSubagentResultRecord[],
++	next: readonly StepSubagentResultRecord[],
++): StepSubagentResultRecord[] {
++	const length = Math.max(previous.length, next.length);
++	const merged: StepSubagentResultRecord[] = [];
++	for (let index = 0; index < length; index += 1) {
++		const record = next[index] ?? previous[index];
++		if (record) merged.push(record);
++	}
++	return merged;
++}
++
+ function laneStatusFromDetails(details: StepSubagentDetails): BackgroundAgentLane["status"] {
+ 	if (details.results.some((record) => record.status === "running" || record.status === "queued")) {
+ 		return "running";
+@@ -250,6 +291,10 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			if (partial.details) {
+ 				lane.details = {
+ 					...partial.details,
++					// A frame is bounded by bytes, so it may omit the roster's tail.
++					// Keep the lanes already known instead of forgetting them; the
++					// final result replaces this with every task.
++					...rosterFields(lane.details, partial.details),
+ 					agentId: lane.id,
+ 					status: "running",
+ 					startedAt: lane.startedAt,
+diff --git a/packages/coding-agent/src/features/subagent/projection.ts b/packages/coding-agent/src/features/subagent/projection.ts
+new file mode 100644
+index 0000000..1e4126b
+--- /dev/null
++++ b/packages/coding-agent/src/features/subagent/projection.ts
+@@ -0,0 +1,272 @@
++/**
++ * Projections of a subagent record for the two audiences that receive one.
++ *
++ * Both are explicit allowlists rather than a spread of the internal record. The
++ * internal record is the authority (it feeds the model-facing text, the chain's
++ * `{previous}` splice, and the child's own transcript); what leaves this module
++ * is a display projection, and a field a renderer cannot use must not travel.
++ *
++ * Why this exists at all, given that live progress no longer reaches the JSON
++ * log by default: a live frame is a *replacement snapshot*, and re-sending
++ * accumulated state wastes the UI's own budget — projection cost, allocation,
++ * redraw. The rule that keeps it small is the same one that keeps it correct:
++ * send the current state, not the history.
++ *
++ * The byte budgets below are therefore a **repaint budget, not a log bound**.
++ * Once progress has a channel of its own (see the follow-up in
++ * `docs/research/.../README.md`), the roster cap and `omittedResults` exist only
++ * to keep one frame cheap, and can be replaced by whatever that channel needs.
++ */
++
++import type { StepSubagentResultRecord } from "../step-subagent.ts";
++import { cloneUsage } from "./helpers.ts";
++
++/** Live frames are one per repaint; a renderer shows the newest lines only. */
++const LIVE_TEXT_CHARS = 2_000;
++const LIVE_TOOL_OUTPUT_CHARS = 1_000;
++const LIVE_TOOL_ARGS_CHARS = 500;
++/** A chain splices the previous step's whole answer into this field. */
++const LIVE_TASK_CHARS = 600;
++const LIVE_STDERR_CHARS = 2_000;
++const LIVE_ERROR_CHARS = 2_000;
++const LIVE_PROMPT_CHARS = 200;
++const LIVE_CANCELLED_PROMPTS = 20;
++/** Identifiers and paths are machine-read, so they keep both ends. */
++const LIVE_IDENTIFIER_CHARS = 200;
++const LIVE_PATH_CHARS = 500;
++/**
++ * One live roster. `MAX_PARALLEL_TASKS` allows 1000 tasks, and a renderer draws
++ * a handful of rows plus a count, so the tail is reported rather than sent.
++ *
++ * Transitional: this bound only exists because a frame carries a whole roster.
++ */
++const LIVE_DETAILS_BYTES = 48 * 1024;
++
++/** The final result is stored once per call and echoed by several events. */
++const FINAL_TEXT_CHARS = 50_000;
++const FINAL_TASK_CHARS = 2_000;
++const FINAL_STDERR_CHARS = 2_000;
++const FINAL_ERROR_CHARS = 2_000;
++const FINAL_IDENTIFIER_CHARS = 200;
++const FINAL_DETAILS_BYTES = 128 * 1024;
++/** Outside the shared budget: a large batch must still identify every outcome. */
++const FINAL_FIELD_FLOOR_CHARS = 96;
++
++/** Keep the tail of a streamed field within `max` characters, marker included. */
++function tailChars(value: string | undefined, max: number): string | undefined {
++	if (value === undefined) return undefined;
++	if (max <= 0) return "";
++	if (value.length <= max) return value;
++	if (max === 1) return "\u2026";
++	return `\u2026${value.slice(-(max - 1))}`;
++}
++
++/** Keep both ends: the opening instruction and the inserted context. */
++function clipMiddle(value: string, max: number): string {
++	if (max <= 0) return "";
++	if (value.length <= max) return value;
++	if (max === 1) return "\u2026";
++	const half = Math.max(1, Math.floor((max - 1) / 2));
++	return `${value.slice(0, half)}\u2026${value.slice(-half)}`;
++}
++
++function boundedPrompts(prompts: string[] | undefined): string[] | undefined {
++	if (!prompts || prompts.length === 0) return undefined;
++	return prompts.slice(-LIVE_CANCELLED_PROMPTS).map((prompt) => tailChars(prompt, LIVE_PROMPT_CHARS) ?? "");
++}
++
++/** Serialized size, guarding against values JSON cannot represent. */
++function serializedBytes(value: unknown): number {
++	try {
++		return Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
++	} catch {
++		return Number.POSITIVE_INFINITY;
++	}
++}
++
++/** Serialized field budget; rejected values must never escape at full size. */
++interface Budget {
++	remaining: number;
++}
++
++function take(budget: Budget, value: unknown): boolean {
++	if (value === undefined) return true;
++	const size = serializedBytes(value) + 1;
++	if (size > budget.remaining) return false;
++	budget.remaining -= size;
++	return true;
++}
++
++/** A field that does not fit is omitted, never kept at full size. */
++function withinBudget<T>(budget: Budget, value: T): T | undefined {
++	return take(budget, value) ? value : undefined;
++}
++
++/**
++ * One record for a live frame.
++ *
++ * `messages` is empty by construction: a live frame replaces the previous one,
++ * and the transcript only changes at `message_end` — copying it per event
++ * re-sends the same array hundreds of times between two of them.
++ */
++export function liveRecord(record: StepSubagentResultRecord): StepSubagentResultRecord {
++	const prompts = boundedPrompts(record.cancelledPrompts);
++	return {
++		agent: clipMiddle(record.agent, LIVE_IDENTIFIER_CHARS),
++		agentSource: record.agentSource,
++		task: clipMiddle(record.task, LIVE_TASK_CHARS),
++		status: record.status,
++		exitCode: record.exitCode,
++		messages: [],
++		stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
++		usage: cloneUsage(record.usage),
++		...(record.model === undefined ? {} : { model: clipMiddle(record.model, LIVE_IDENTIFIER_CHARS) }),
++		...(record.stopReason === undefined ? {} : { stopReason: clipMiddle(record.stopReason, LIVE_IDENTIFIER_CHARS) }),
++		...(record.errorMessage === undefined ? {} : { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
++		...(record.activeText === undefined ? {} : { activeText: tailChars(record.activeText, LIVE_TEXT_CHARS) }),
++		...(record.activeTool === undefined ? {} : { activeTool: clipMiddle(record.activeTool, LIVE_IDENTIFIER_CHARS) }),
++		...(record.activeToolArgs === undefined
++			? {}
++			: { activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS) }),
++		...(record.activeToolOutput === undefined
++			? {}
++			: { activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS) }),
++		...(record.lastEvent === undefined ? {} : { lastEvent: clipMiddle(record.lastEvent, LIVE_IDENTIFIER_CHARS) }),
++		...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
++		...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
++		...(record.step === undefined ? {} : { step: record.step }),
++		...(record.worktreePath === undefined ? {} : { worktreePath: clipMiddle(record.worktreePath, LIVE_PATH_CHARS) }),
++		...(record.worktreeBranch === undefined
++			? {}
++			: { worktreeBranch: clipMiddle(record.worktreeBranch, LIVE_IDENTIFIER_CHARS) }),
++		...(record.sessionId === undefined ? {} : { sessionId: clipMiddle(record.sessionId, LIVE_IDENTIFIER_CHARS) }),
++		...(record.sessionFile === undefined ? {} : { sessionFile: clipMiddle(record.sessionFile, LIVE_PATH_CHARS) }),
++		...(record.pendingReply === undefined ? {} : { pendingReply: record.pendingReply }),
++		...(prompts === undefined ? {} : { cancelledPrompts: prompts }),
++	};
++}
++
++/**
++ * Bound a live roster by bytes and say how many records were left out.
++ *
++ * `MAX_PARALLEL_TASKS` allows 1000 tasks, so a complete roster costs O(tasks) on
++ * every frame. A renderer draws a handful of rows plus a count, so the tail is
++ * reported rather than silently dropped.
++ */
++export function liveRoster(records: readonly StepSubagentResultRecord[]): {
++	results: StepSubagentResultRecord[];
++	omittedResults?: number;
++} {
++	const budget: Budget = { remaining: LIVE_DETAILS_BYTES };
++	const results: StepSubagentResultRecord[] = [];
++	for (const record of records) {
++		const projected = liveRecord(record);
++		// The first record is always emitted: a roster that reports only a count
++		// is less useful than one slightly over budget, and `liveRecord` bounds
++		// every field it contains.
++		if (results.length > 0 && !take(budget, projected)) break;
++		if (results.length === 0) take(budget, projected);
++		results.push(projected);
++	}
++	const omitted = records.length - results.length;
++	return omitted > 0 ? { results, omittedResults: omitted } : { results };
++}
++
++/**
++ * One record for the final tool result.
++ *
++ * The terminal result is a summary, not a transcript: `messages` is absent, and
++ * the full history stays in the child session behind `sessionId`/`sessionFile`.
++ * `activeText` falls back to the transcript's final assistant text, so a record
++ * always renders even when the runner reported none.
++ */
++export function finalRecord(record: StepSubagentResultRecord, budget: Budget): StepSubagentResultRecord {
++	const text = record.activeText || finalAssistantText(record);
++	const fields = [
++		{ value: record.task || "(unspecified task)", max: FINAL_TASK_CHARS, clip: clipMiddle },
++		{ value: text, max: FINAL_TEXT_CHARS, clip: tailChars },
++		{ value: record.stderr, max: FINAL_STDERR_CHARS, clip: tailChars },
++		{ value: record.errorMessage, max: FINAL_ERROR_CHARS, clip: tailChars },
++	];
++	// Floors are bounded independently of the shared budget. Without them later
++	// records lose their identity, output, and failure reason once a batch fills it.
++	const floors = fields.map(({ value, clip }) => (value ? clip(value, FINAL_FIELD_FLOOR_CHARS) : value));
++	let fieldsLeft = fields.filter(({ value }) => value).length;
++	const projected = fields.map(({ value, max, clip }, index) => {
++		if (!value) return floors[index];
++		const allocation: Budget = { remaining: Math.floor(budget.remaining / fieldsLeft--) };
++		const initial = allocation.remaining;
++		let low = 0;
++		let high = Math.min(value.length, max);
++		// Search serialized bytes, not characters: JSON escapes can cost six bytes.
++		while (low < high) {
++			const middle = Math.ceil((low + high) / 2);
++			if (serializedBytes(clip(value, middle)) + 1 <= allocation.remaining) low = middle;
++			else high = middle - 1;
++		}
++		const expanded = low > FINAL_FIELD_FLOOR_CHARS ? withinBudget(allocation, clip(value, low)) : undefined;
++		budget.remaining -= initial - allocation.remaining;
++		return expanded ?? floors[index];
++	});
++	const [task, activeText, stderr, errorMessage] = projected;
++	const prompts = withinBudget(budget, boundedPrompts(record.cancelledPrompts));
++	return {
++		agent: clipMiddle(record.agent, FINAL_IDENTIFIER_CHARS),
++		agentSource: record.agentSource,
++		task: task ?? "(unspecified task)",
++		status: record.status,
++		exitCode: record.exitCode,
++		messages: [],
++		stderr: stderr ?? "",
++		usage: cloneUsage(record.usage),
++		...(record.model === undefined ? {} : { model: clipMiddle(record.model, FINAL_IDENTIFIER_CHARS) }),
++		...(record.stopReason === undefined ? {} : { stopReason: clipMiddle(record.stopReason, FINAL_IDENTIFIER_CHARS) }),
++		...(errorMessage === undefined ? {} : { errorMessage }),
++		...(activeText === undefined ? {} : { activeText }),
++		...(record.activeTool === undefined ? {} : { activeTool: clipMiddle(record.activeTool, FINAL_IDENTIFIER_CHARS) }),
++		...(record.lastEvent === undefined ? {} : { lastEvent: clipMiddle(record.lastEvent, FINAL_IDENTIFIER_CHARS) }),
++		...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
++		...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
++		...(record.step === undefined ? {} : { step: record.step }),
++		...(record.worktreePath === undefined ? {} : { worktreePath: clipMiddle(record.worktreePath, LIVE_PATH_CHARS) }),
++		...(record.worktreeBranch === undefined
++			? {}
++			: { worktreeBranch: clipMiddle(record.worktreeBranch, FINAL_IDENTIFIER_CHARS) }),
++		...(record.sessionId === undefined ? {} : { sessionId: clipMiddle(record.sessionId, FINAL_IDENTIFIER_CHARS) }),
++		...(record.sessionFile === undefined ? {} : { sessionFile: clipMiddle(record.sessionFile, LIVE_PATH_CHARS) }),
++		...(record.pendingReply === undefined ? {} : { pendingReply: record.pendingReply }),
++		...(prompts === undefined ? {} : { cancelledPrompts: prompts }),
++	};
++}
++
++/**
++ * The whole call's final records, sharing one byte budget.
++ *
++ * Every record keeps small identity, output, and diagnostic floors, even when
++ * those floors alone exceed the shared budget. Remaining bytes are divided
++ * across records still to project; child output cannot starve a later outcome.
++ */
++export function finalRoster(records: readonly StepSubagentResultRecord[]): StepSubagentResultRecord[] {
++	const budget: Budget = { remaining: FINAL_DETAILS_BYTES };
++	return records.map((record, index) => {
++		const allocation: Budget = { remaining: Math.floor(budget.remaining / (records.length - index)) };
++		const initial = allocation.remaining;
++		const result = finalRecord(record, allocation);
++		budget.remaining -= initial - allocation.remaining;
++		return result;
++	});
++}
++
++/** The last assistant text in a record's transcript, if it has one. */
++function finalAssistantText(record: StepSubagentResultRecord): string {
++	for (let index = record.messages.length - 1; index >= 0; index -= 1) {
++		const message = record.messages[index];
++		if (message.role !== "assistant") continue;
++		const text = message.content
++			.filter((part): part is { type: "text"; text: string } => part.type === "text")
++			.map((part) => part.text)
++			.join("\n");
++		if (text) return text;
++	}
++	return "";
++}
+diff --git a/packages/coding-agent/src/features/subagent/rendering.ts b/packages/coding-agent/src/features/subagent/rendering.ts
+index 7a0f85d..a85bfe5 100644
+--- a/packages/coding-agent/src/features/subagent/rendering.ts
++++ b/packages/coding-agent/src/features/subagent/rendering.ts
+@@ -18,6 +18,7 @@ import {
+ 	type StepSubagentResultRecord,
+ 	type StepSubagentUsage,
+ } from "../step-subagent.ts";
++import { totalResults } from "./helpers.ts";
+ import { type AgentNotificationDetails, truncateText } from "./lane-events.ts";
+ 
+ const COLLAPSED_OUTPUT_LINES = 8;
+@@ -181,9 +182,18 @@ export function subagentListSignature(details: StepSubagentDetails): string {
+ 	const rows = details.results
+ 		.slice(0, WIDGET_MAX_ROWS)
+ 		.map((record) => [record.status, record.agent, record.task, record.usage.output].join("\u0000"));
+-	return [details.results.length, ...rows].join("\u0001");
++	return [totalResults(details), ...rows].join("\u0001");
+ }
+ 
++/**
++ * Tasks in the call, including any a byte-bounded live frame left out.
++ *
++ * Defined in the leaf helpers module so the lane notifications can use it
++ * without importing a renderer; re-exported here for the renderers below and
++ * their tests.
++ */
++export { totalResults };
++
+ /**
+  * Live list of a blocking subagent call's lanes, rendered under the editor.
+  *
+@@ -218,12 +228,13 @@ export class SubagentListWidget implements Component {
+ 		const records = this.details.results;
+ 		if (records.length === 0) return [];
+ 		const theme = this.theme;
++		const total = totalResults(this.details);
+ 		const running = records.filter((record) => record.status === "running").length;
+ 		const completed = records.filter((record) => record.status === "completed").length;
+ 		const queued = records.filter((record) => record.status === "queued").length;
+ 		const skipped = records.filter((record) => record.status === "skipped").length;
+ 		const failed = records.length - running - completed - queued - skipped;
+-		const summary = [`${completed}/${records.length} complete`];
++		const summary = [`${completed}/${total} complete`];
+ 		if (running > 0) summary.push(`${running} running`);
+ 		if (queued > 0) summary.push(`${queued} queued`);
+ 		if (failed > 0) summary.push(`${failed} failed`);
+@@ -263,8 +274,8 @@ export class SubagentListWidget implements Component {
+ 			const row = `   ${statusIcon(record.status, theme)} ${theme.fg("accent", name)} ${theme.fg("toolOutput", title)}${" ".repeat(gap)}${theme.fg("dim", metric.padStart(metricWidth))}`;
+ 			lines.push(visibleWidth(row) > width ? truncateToWidth(row, width, "\u2026") : row);
+ 		}
+-		if (records.length > shown.length) {
+-			lines.push(`   ${theme.fg("dim", `... ${records.length - shown.length} more`)}`);
++		if (total > shown.length) {
++			lines.push(`   ${theme.fg("dim", `... ${total - shown.length} more`)}`);
+ 		}
+ 		return lines;
+ 	}
+@@ -280,12 +291,14 @@ export function renderSubagentResult(
+ 		const text = result.content.find((block) => block.type === "text");
+ 		return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
+ 	}
++	const total = totalResults(details);
+ 	const running = details.results.filter((record) => record.status === "running").length;
+ 	const queued = details.results.filter((record) => record.status === "queued").length;
+ 	const completed = details.results.filter((record) => record.status === "completed").length;
++	const omitted = details.omittedResults ? `, ${details.omittedResults} not shown` : "";
+ 	const heading =
+ 		details.mode === "parallel"
+-			? `${completed}/${details.results.length} complete${running > 0 ? `, ${running} running` : ""}${queued > 0 ? `, ${queued} queued` : ""}`
++			? `${completed}/${total} complete${running > 0 ? `, ${running} running` : ""}${queued > 0 ? `, ${queued} queued` : ""}${omitted}`
+ 			: details.mode === "chain"
+ 				? chainHeading(details.results)
+ 				: (details.results[0]?.status ?? "done");
+diff --git a/packages/coding-agent/src/features/subagent/rpc-adapter.ts b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+index 7a56c67..b73ea18 100644
+--- a/packages/coding-agent/src/features/subagent/rpc-adapter.ts
++++ b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+@@ -237,7 +237,10 @@ export async function createSubagentRpcSession(
+ 	sessionId: string,
+ ): Promise<StepSubagentRpcSession> {
+ 	const tempDir = await mkdtemp(path.join(os.tmpdir(), "stepcode-subagent-"));
+-	const args = ["--mode", "rpc", "--session-id", sessionId];
++	// The child's stdout is a pipe this process reads frame by frame, not a log
++	// file: live progress belongs here, and the parent renders it in the lane
++	// list. Serialized transports default to durable events, so ask for them.
++	const args = ["--mode", "rpc", "--session-id", sessionId, "--include-live-events"];
+ 	const model = input.agent.model ?? input.model;
+ 	if (model) args.push("--model", model);
+ 	if (input.thinkingLevel && !input.agent.model) args.push("--thinking", input.thinkingLevel);
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index 3c5f041..b159257 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -318,6 +318,11 @@ export {
+ 	type PromptTemplate,
+ } from "./core/sdk.ts";
+ export { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "./core/session-cwd.ts";
++export {
++	isEphemeralSessionEvent,
++	type SessionEventDurability,
++	sessionEventDurability,
++} from "./core/session-event-durability.ts";
+ export { exportSessionToJsonl } from "./core/session-export.ts";
+ export * from "./core/session-index/index.ts";
+ export type {
+diff --git a/packages/coding-agent/src/main.ts b/packages/coding-agent/src/main.ts
+index b18c056..6a74b83 100644
+--- a/packages/coding-agent/src/main.ts
++++ b/packages/coding-agent/src/main.ts
+@@ -1469,7 +1469,7 @@ async function dispatchAppMode(
+ ): Promise<void> {
+ 	const { appMode, runtimeHost } = prep;
+ 	if (appMode === "rpc") {
+-		await runRpcMode(runtimeHost);
++		await runRpcMode(runtimeHost, { includeLiveEvents: prep.parsed.includeLiveEvents });
+ 	} else if (appMode === "interactive") {
+ 		// The interactive TUI moved to @step-harness/cli (S4-0). coding-agent's own
+ 		// main() no longer dispatches it; product shells construct InteractiveMode
+@@ -1481,6 +1481,7 @@ async function dispatchAppMode(
+ 			completionCheck: prep.parsed.completionCheck,
+ 			completionCheckAttempts: prep.parsed.completionCheckAttempts,
+ 			completionReview: prep.parsed.completionReview,
++			includeLiveEvents: prep.parsed.includeLiveEvents,
+ 			messages: prep.parsed.messages,
+ 			initialMessage: prep.initialMessage,
+ 			initialImages: prep.initialImages,
+diff --git a/packages/coding-agent/src/modes/json-event.ts b/packages/coding-agent/src/modes/json-event.ts
+index 067d887..39c7245 100644
+--- a/packages/coding-agent/src/modes/json-event.ts
++++ b/packages/coding-agent/src/modes/json-event.ts
+@@ -1,5 +1,6 @@
+ import type { Usage } from "@step-harness/providers";
+ import type { AgentSessionEvent } from "../core/agent-session.ts";
++import { isEphemeralSessionEvent } from "../core/session-event-durability.ts";
+ 
+ type WithoutPartial<T> = T extends { partial: unknown } ? Omit<T, "partial"> : T;
+ 
+@@ -14,8 +15,114 @@ type JsonMessageUpdateEvent = {
+ 	assistantMessageEvent: ToJsonAssistantMessageEvent<MessageUpdateEvent["assistantMessageEvent"]>;
+ };
+ 
+-/** Session event shape emitted by the JSON and RPC stdout protocols. */
+-export type JsonAgentSessionEvent = Exclude<AgentSessionEvent, { type: "message_update" }> | JsonMessageUpdateEvent;
++type ToolUpdateEvent = Extract<AgentSessionEvent, { type: "tool_execution_update" }>;
++type JsonToolUpdateEvent = Omit<ToolUpdateEvent, "args"> & { args?: unknown };
++
++type TurnEndEvent = Extract<AgentSessionEvent, { type: "turn_end" }>;
++
++/**
++ * A closed turn, without the messages it closes over.
++ *
++ * `message` and `toolResults` are not lost: each one already travelled as its
++ * own `message_start`/`message_end`, and each tool result also as
++ * `tool_execution_end`. What only this event says is *where the turn boundary
++ * fell*, which the role and the count preserve.
++ */
++type JsonTurnEndEvent = {
++	type: "turn_end";
++	messageRole: TurnEndEvent["message"]["role"];
++	toolResultCount: number;
++};
++
++/** A finished run, without the messages it just re-sent. */
++type JsonAgentEndEvent = {
++	type: "agent_end";
++	willRetry: boolean;
++	/**
++	 * Length of the run's `messages` array — what this event used to carry.
++	 *
++	 * Informational, not a checksum: the loop can emit more `message_end` events
++	 * than it lists here (a resampled tool-call leak, a throwing
++	 * `shouldStopAfterTurn`), so a reader must not use it to detect truncation.
++	 * A missing final message is visible as a message that never got its
++	 * `message_end`.
++	 */
++	messageCount: number;
++};
++
++/**
++ * Session event shape emitted by the JSON and RPC stdout protocols.
++ *
++ * Two kinds of repetition are removed. A frame is never written (its successor
++ * carries the value), and a boundary event (`turn_end`, `agent_end`) is written
++ * as its structure instead of carrying the messages it closes over — those
++ * already travelled as their own `message_start`/`message_end`.
++ *
++ * What remains by design, per payload: a tool result on `tool_execution_end`
++ * plus its own `message_start`/`message_end`, a user message on both of its
++ * pair, and an assistant message's final payload once (its `message_start` is
++ * the empty partial). Those are the begin/end pair and the execution outcome;
++ * removing them would change event-sequence semantics rather than drop a
++ * duplicate, so it is out of scope here.
++ */
++export type JsonAgentSessionEvent =
++	| Exclude<AgentSessionEvent, { type: "message_update" | "tool_execution_update" | "turn_end" | "agent_end" }>
++	| JsonMessageUpdateEvent
++	| JsonToolUpdateEvent
++	| JsonTurnEndEvent
++	| JsonAgentEndEvent;
++
++/** Options for the stdout projection. */
++export interface ToJsonEventOptions {
++	/**
++	 * Include live frames (`message_update`, `tool_execution_update`).
++	 *
++	 * Off by default: a redirected stdout is a record of one run, and a frame is
++	 * a cumulative snapshot of work in flight whose successor already states the
++	 * value. A consumer that renders as it arrives — the subagent parent reading
++	 * a child's pipe, a debugging session — passes this.
++	 */
++	includeLiveEvents?: boolean;
++}
++
++export const MAX_LIVE_UPDATE_BYTES = 256 * 1024;
++const LIVE_TRUNCATION_MARKER = "[live output truncated]";
++const MAX_LIVE_IDENTIFIER_CHARS = 200;
++
++function boundedToolUpdate(event: ToolUpdateEvent): JsonToolUpdateEvent {
++	if (Buffer.byteLength(JSON.stringify(event), "utf8") <= MAX_LIVE_UPDATE_BYTES) return event;
++	const content: unknown = event.partialResult?.content;
++	const text = Array.isArray(content)
++		? content
++				.filter(
++					(part: unknown): part is { type: "text"; text: string } =>
++						part !== null &&
++						typeof part === "object" &&
++						"type" in part &&
++						part.type === "text" &&
++						"text" in part &&
++						typeof part.text === "string",
++				)
++				.map((part) => part.text)
++				.join("\n")
++		: "";
++	// The start/end events own arguments and details. A live stdout frame must
++	// not make a redirected log grow with accumulated state or an oversized id.
++	const candidate = (tail: string): JsonToolUpdateEvent => ({
++		type: "tool_execution_update",
++		toolCallId: event.toolCallId.slice(0, MAX_LIVE_IDENTIFIER_CHARS),
++		toolName: event.toolName.slice(0, MAX_LIVE_IDENTIFIER_CHARS),
++		partialResult: { content: [{ type: "text", text: `${LIVE_TRUNCATION_MARKER}\n${tail}` }] },
++	});
++	let length = Math.min(text.length, MAX_LIVE_UPDATE_BYTES);
++	let result = candidate(length > 0 ? text.slice(-length) : "");
++	while (Buffer.byteLength(JSON.stringify(result), "utf8") > MAX_LIVE_UPDATE_BYTES && length > 0) {
++		length = Math.floor(length / 2);
++		// slice(-0) restores the entire output instead of reaching the floor.
++		result = candidate(length > 0 ? text.slice(-length) : "");
++	}
++	return result;
++}
+ 
+ function toJsonAssistantMessageEvent(
+ 	event: MessageUpdateEvent["assistantMessageEvent"],
+@@ -37,25 +144,55 @@ function toJsonAssistantMessageEvent(
+ 	return deltaEvent;
+ }
+ 
+-/**
+- * Remove cumulative assistant snapshots from streaming wire events.
+- * `message_start` provides the initial message, deltas build it, and
+- * `message_end` provides the final authoritative message. Cumulative usage,
+- * tool-call ids, and tool names remain available because their size is constant.
+- */
+-export function toJsonEvent(event: MessageUpdateEvent): JsonMessageUpdateEvent;
+-export function toJsonEvent(event: AgentSessionEvent): JsonAgentSessionEvent;
+-export function toJsonEvent(event: AgentSessionEvent): JsonAgentSessionEvent {
+-	if (event.type !== "message_update") {
+-		return event;
+-	}
++function toJsonMessageUpdate(event: MessageUpdateEvent): JsonMessageUpdateEvent {
+ 	if (event.message.role !== "assistant") {
+ 		throw new Error("message_update message is not an assistant message");
+ 	}
+-
++	// Cumulative usage, tool-call ids, and tool names survive because their size
++	// is constant; the snapshot itself is what the successor replaces.
+ 	return {
+ 		type: "message_update",
+ 		usage: event.message.usage,
+ 		assistantMessageEvent: toJsonAssistantMessageEvent(event.assistantMessageEvent),
+ 	};
+ }
++
++/**
++ * Project one session event onto the JSON/RPC stdout protocol.
++ *
++ * This is the only place that decides what a serialized transport writes, so a
++ * transport cannot get the policy wrong by filtering at its own call site:
++ *
++ * - frames (`message_update`, `tool_execution_update`) return `undefined`
++ *   unless the caller opts in — see {@link ToJsonEventOptions};
++ * - `turn_end` / `agent_end` keep their structure and drop the messages they
++ *   re-send;
++ * - everything else is a fact and passes through.
++ *
++ * A transport writes the result when it is not `undefined` and does nothing
++ * otherwise. In-process subscribers call `session.subscribe` directly and are
++ * unaffected.
++ */
++export function toJsonEvent(
++	event: MessageUpdateEvent,
++	options?: ToJsonEventOptions,
++): JsonMessageUpdateEvent | undefined;
++export function toJsonEvent(event: AgentSessionEvent, options?: ToJsonEventOptions): JsonAgentSessionEvent | undefined;
++export function toJsonEvent(
++	event: AgentSessionEvent,
++	options: ToJsonEventOptions = {},
++): JsonAgentSessionEvent | undefined {
++	if (isEphemeralSessionEvent(event) && options.includeLiveEvents !== true) return undefined;
++	switch (event.type) {
++		case "tool_execution_update":
++			return boundedToolUpdate(event);
++		case "message_update":
++			return toJsonMessageUpdate(event);
++		case "turn_end":
++			return { type: "turn_end", messageRole: event.message.role, toolResultCount: event.toolResults.length };
++		case "agent_end":
++			return { type: "agent_end", willRetry: event.willRetry, messageCount: event.messages.length };
++		default:
++			return event;
++	}
++}
+diff --git a/packages/coding-agent/src/modes/print-mode.ts b/packages/coding-agent/src/modes/print-mode.ts
+index 457b8a5..25ab266 100644
+--- a/packages/coding-agent/src/modes/print-mode.ts
++++ b/packages/coding-agent/src/modes/print-mode.ts
+@@ -33,6 +33,13 @@ export interface PrintModeOptions extends CompletionCheckOptions {
+ 	initialMessage?: string;
+ 	/** Images to attach to the initial message */
+ 	initialImages?: ImageContent[];
++	/**
++	 * Also write live progress (`message_update`, `tool_execution_update`) to the
++	 * JSON stream. Off by default: a JSON run is a record of facts, and progress
++	 * frames are neither replayable nor bounded by the producer. See
++	 * `core/session-event-durability.ts`.
++	 */
++	includeLiveEvents?: boolean;
+ }
+ 
+ interface TerminatingBlock {
+@@ -105,6 +112,7 @@ function hasFinalAssistantText(message: AgentMessage | undefined): boolean {
+  * Sends prompts to the agent and outputs the result.
+  */
+ export async function runPrintMode(runtimeHost: AgentSessionRuntimeHost, options: PrintModeOptions): Promise<number> {
++	const includeLiveEvents = options.includeLiveEvents === true;
+ 	const { mode, messages = [], initialMessage, initialImages } = options;
+ 	let exitCode = 0;
+ 	let session = runtimeHost.session;
+@@ -178,7 +186,10 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntimeHost, options
+ 			}
+ 			if (event.type === "message_end") assistantFailure ??= getAssistantFailure(event.message);
+ 			if (mode === "json") {
+-				writeRawStdout(`${JSON.stringify(toJsonEvent(event))}\n`);
++				// The projection decides what a record contains; a caller that filters
++				// first would be a second, silently divergent policy.
++				const projected = toJsonEvent(event, { includeLiveEvents });
++				if (projected) writeRawStdout(`${JSON.stringify(projected)}\n`);
+ 			}
+ 		});
+ 		unsubscribeBackpressure =
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-client.ts b/packages/coding-agent/src/modes/rpc/rpc-client.ts
+index 3e333a9..8e4f67b 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-client.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-client.ts
+@@ -36,6 +36,8 @@ export interface RpcClientOptions {
+ 	provider?: string;
+ 	/** Model ID to use */
+ 	model?: string;
++	/** Include live frames for streaming consumers; redirected logs become much larger. */
++	includeLiveEvents?: boolean;
+ 	/** Additional CLI arguments */
+ 	args?: string[];
+ }
+@@ -80,6 +82,7 @@ export class RpcClient {
+ 
+ 		const cliPath = this.options.cliPath ?? "dist/bundle/step.js";
+ 		const args = ["--mode", "rpc"];
++		if (this.options.includeLiveEvents) args.push("--include-live-events");
+ 
+ 		if (this.options.provider) {
+ 			args.push("--provider", this.options.provider);
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index fd9aabc..9801e83 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -51,7 +51,20 @@ export type {
+  * Run in RPC mode.
+  * Listens for JSON commands on stdin, outputs events and responses on stdout.
+  */
+-export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<never> {
++/**
++ * Options for the RPC channel.
++ *
++ * RPC is a control channel, and its stdout is a program's stdin pipe — but a
++ * harness can redirect it to a file just as easily as `json`. It therefore
++ * defaults to durable events like the JSON channel; a caller that renders live
++ * progress (the subagent parent) opts in explicitly.
++ */
++export interface RpcModeOptions {
++	includeLiveEvents?: boolean;
++}
++
++export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options: RpcModeOptions = {}): Promise<never> {
++	const includeLiveEvents = options.includeLiveEvents === true;
+ 	takeOverStdout();
+ 	let session = runtimeHost.session;
+ 	let unsubscribe: (() => void) | undefined;
+@@ -325,7 +338,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+ 		unsubscribeBackpressure?.();
+ 		session = nextSession;
+ 		unsubscribe = session.subscribe((event) => {
+-			output(toJsonEvent(event));
++			// The projection owns the record policy (frames are opt-in); filtering
++			// here as well would let the two decisions drift.
++			const projected = toJsonEvent(event, { includeLiveEvents });
++			if (projected) output(projected);
+ 			if (event.type === "agent_settled") {
+ 				void checkShutdownRequested();
+ 			}
+diff --git a/packages/coding-agent/test/args.test.ts b/packages/coding-agent/test/args.test.ts
+index 0b322a1..671ed23 100644
+--- a/packages/coding-agent/test/args.test.ts
++++ b/packages/coding-agent/test/args.test.ts
+@@ -1,5 +1,15 @@
+-import { describe, expect, test } from "vitest";
+-import { normalizeSessionName, parseArgs } from "../src/cli/args.ts";
++import { describe, expect, test, vi } from "vitest";
++import { normalizeSessionName, parseArgs, printHelp } from "../src/cli/args.ts";
++
++test("help exposes the live-consumer opt-in and its log cost", () => {
++	const log = vi.spyOn(console, "log").mockImplementation(() => {});
++	try {
++		printHelp();
++		expect(log.mock.calls.flat().join("\n")).toMatch(/--include-live-events.*Live consumers\/debugging.*much larger/);
++	} finally {
++		log.mockRestore();
++	}
++});
+ 
+ describe("parseArgs", () => {
+ 	describe("--version flag", () => {
+diff --git a/packages/coding-agent/test/fixtures/streaming-provider.ts b/packages/coding-agent/test/fixtures/streaming-provider.ts
+new file mode 100644
+index 0000000..b22a163
+--- /dev/null
++++ b/packages/coding-agent/test/fixtures/streaming-provider.ts
+@@ -0,0 +1,42 @@
++import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@step-harness/providers";
++import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
++
++/**
++ * Offline provider plus a streaming tool, for the real CLI tests that check what
++ * a `--mode json` run writes to stdout.
++ *
++ * The tool streams several progress frames and then returns. Those frames are
++ * the exact shape that turned a subagent's live progress into a GB-scale log, so
++ * the transport's default (durable events only) is asserted on this stream.
++ */
++export default function streamingProvider(pi: ExtensionAPI): void {
++	const faux = fauxProvider({ provider: "stream-offline" });
++	let turn = 0;
++	faux.setResponses([
++		() => {
++			turn += 1;
++			return fauxAssistantMessage(fauxToolCall("stream_probe", { label: "probe" }), { stopReason: "toolUse" });
++		},
++		() => fauxAssistantMessage(`CLI offline final (turn ${turn})`),
++	]);
++	pi.registerProvider(faux.provider);
++
++	pi.registerTool({
++		name: "stream_probe",
++		label: "Stream probe",
++		description: "Emits progress frames, then returns.",
++		parameters: {
++			type: "object",
++			properties: { label: { type: "string" } },
++			required: ["label"],
++			additionalProperties: false,
++		} as never,
++		execute: async (_toolCallId, _params, _signal, onUpdate) => {
++			for (let index = 0; index < 5; index += 1) {
++				onUpdate?.({ content: [{ type: "text", text: `frame ${index}` }], details: { index } });
++				await new Promise((resolve) => setTimeout(resolve, 5));
++			}
++			return { content: [{ type: "text", text: "probe done" }], details: { index: 5 } };
++		},
++	});
++}
+diff --git a/packages/coding-agent/test/fixtures/subagent-stream-child.mjs b/packages/coding-agent/test/fixtures/subagent-stream-child.mjs
+new file mode 100644
+index 0000000..d8d8616
+--- /dev/null
++++ b/packages/coding-agent/test/fixtures/subagent-stream-child.mjs
+@@ -0,0 +1,146 @@
++// Fake `step --mode rpc` child for the subagent live-channel regression.
++//
++// Speaks the real framing (one JSON object per LF-framed line) and streams what
++// a long child produces: text deltas, persisted messages, tool progress. Only
++// its token stream is synthetic; everything it drives on the parent side is the
++// production rpc adapter, parser, orchestration, agent loop and projections.
++//
++// Like the real CLI, progress frames are written only under
++// `--include-live-events`, so a parent that forgets the flag gets no live view
++// and the regression fails instead of passing on durable events alone.
++const TURNS = Number(process.env.STREAM_TURNS ?? 6);
++const DELTAS = Number(process.env.STREAM_DELTAS ?? 20);
++const TOOL_BYTES = Number(process.env.STREAM_TOOL_BYTES ?? 4_000);
++// A real child streams over seconds; the parent coalesces frames on a 100ms
++// repaint window, so a child that finishes in a few milliseconds publishes only
++// its first and last frame. Tests that assert streamed text must let the child
++// outlive that window.
++const DELAY_MS = Number(process.env.STREAM_DELAY_MS ?? 0);
++// The real CLI writes `message_update`/`tool_execution_update` only when the
++// caller opted in; a fixture that always emitted them would let a parent test
++// pass even if the flag were never passed. Mirror the CLI: no flag, no frames.
++const LIVE = process.argv.includes("--include-live-events");
++/** Appears only in a progress frame, never in a final tool result. */
++const PROGRESS_MARKER = "tool-progress-marker";
++
++let buffer = "";
++/** Frames must reach stdout in order, so handle() calls are serialized. */
++let queue = Promise.resolve();
++process.stdin.setEncoding("utf8");
++process.stdin.on("data", (chunk) => {
++	buffer += chunk;
++	const lines = buffer.split("\n");
++	buffer = lines.pop() ?? "";
++	for (const line of lines) queue = queue.then(() => handle(line.trim()));
++});
++
++function write(value) {
++	process.stdout.write(`${JSON.stringify(value)}\n`);
++}
++
++function assistant(content, stopReason = "stop") {
++	return {
++		role: "assistant",
++		content,
++		api: "anthropic-messages",
++		provider: "step",
++		model: "step-3.8-code-alpha",
++		usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens: 150, cost: {} },
++		stopReason,
++		timestamp: Date.now(),
++	};
++}
++
++function sleep(ms) {
++	return new Promise((resolve) => setTimeout(resolve, ms));
++}
++
++async function handle(line) {
++	if (!line) return;
++	let command;
++	try {
++		command = JSON.parse(line);
++	} catch {
++		return;
++	}
++	if (command.type === "get_state") {
++		write({
++			type: "response",
++			id: command.id,
++			command: "get_state",
++			success: true,
++			data: { sessionFile: "/tmp/stream-child-session.jsonl" },
++		});
++		return;
++	}
++	if (command.type === "abort") {
++		write({ type: "agent_settled" });
++		return;
++	}
++	if (command.type !== "prompt") return;
++
++	write({ type: "response", id: command.id, command: "prompt", success: true });
++	write({ type: "agent_start" });
++
++	const messages = [];
++	for (let turn = 0; turn < TURNS; turn++) {
++		write({ type: "turn_start" });
++		write({ type: "message_start", message: assistant([]) });
++		let text = "";
++		for (let index = 0; index < DELTAS; index++) {
++			const delta = `token-${turn}-${index} `;
++			text += delta;
++			if (LIVE) {
++				write({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta } });
++			}
++			if (DELAY_MS > 0) await sleep(DELAY_MS);
++		}
++		const message = assistant([{ type: "text", text }], "toolUse");
++		messages.push(message);
++		write({ type: "message_end", message });
++
++		const toolCallId = `call_${turn}`;
++		const output = "x".repeat(TOOL_BYTES);
++		write({ type: "tool_execution_start", toolCallId, toolName: "run_command", args: { command: `echo ${turn}` } });
++		if (LIVE) {
++			// A real tool's progress snapshot carries something the final result
++			// does not: a counter, a spinner, a partial line. Marking it that way
++			// lets a parent test prove it read a *frame* rather than the durable
++			// value that `message_end` also provides.
++			write({
++				type: "tool_execution_update",
++				toolCallId,
++				toolName: "run_command",
++				partialResult: {
++					content: [{ type: "text", text: `${output}\nprogress ${PROGRESS_MARKER}` }],
++				},
++			});
++			// A real tool's progress is observable for a while; without pacing the
++			// start/update/end triple lands inside one repaint window and the parent
++			// never publishes a frame mid-tool.
++			if (DELAY_MS > 0) await sleep(DELAY_MS * 3);
++		}
++		const result = {
++			role: "toolResult",
++			toolCallId,
++			toolName: "run_command",
++			content: [{ type: "text", text: output }],
++			isError: false,
++			timestamp: Date.now(),
++		};
++		messages.push(result);
++		write({
++			type: "tool_execution_end",
++			toolCallId,
++			toolName: "run_command",
++			result: { content: [{ type: "text", text: output }] },
++			isError: false,
++		});
++		write({ type: "message_end", message: result });
++		write({ type: "turn_end" });
++	}
++
++	write({ type: "message_end", message: assistant([{ type: "text", text: "child done" }]) });
++	write({ type: "agent_end" });
++	write({ type: "agent_settled" });
++}
+diff --git a/packages/coding-agent/test/json-event-backstop.test.ts b/packages/coding-agent/test/json-event-backstop.test.ts
+new file mode 100644
+index 0000000..6219f1d
+--- /dev/null
++++ b/packages/coding-agent/test/json-event-backstop.test.ts
+@@ -0,0 +1,69 @@
++import { expect, test } from "vitest";
++import type { AgentSessionEvent } from "../src/core/agent-session.ts";
++import { MAX_LIVE_UPDATE_BYTES, toJsonEvent } from "../src/modes/json-event.ts";
++
++function frame(text: string, details: unknown = {}): Extract<AgentSessionEvent, { type: "tool_execution_update" }> {
++	return {
++		type: "tool_execution_update",
++		toolCallId: "call",
++		toolName: "probe",
++		args: { input: "start" },
++		partialResult: { content: [{ type: "text", text }], details },
++	};
++}
++
++test("under-budget tool frames pass through by identity", () => {
++	const event = frame("short");
++	expect(toJsonEvent(event, { includeLiveEvents: true })).toBe(event);
++});
++
++test.each([
++	["ASCII", "r"],
++	["control", "\u0001"],
++	["quotes and backslashes", '"\\'],
++	["CJK", "中"],
++	["lone surrogate", "\ud800"],
++])("bounds serialized bytes for 4 MiB %s text", (_label, character) => {
++	const text = `${character.repeat(4 * 1024 * 1024)}TAIL`;
++	const event = frame(text);
++	const projected = toJsonEvent(event, { includeLiveEvents: true })!;
++	expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThanOrEqual(MAX_LIVE_UPDATE_BYTES);
++	expect(projected).not.toHaveProperty("args");
++	expect(projected).not.toHaveProperty("partialResult.details");
++	expect(projected).toHaveProperty("partialResult.content.0.text", expect.stringContaining("[live output truncated]"));
++	expect(projected).toHaveProperty("partialResult.content.0.text", expect.stringMatching(/TAIL$/));
++	expect(event.partialResult.content[0].text).toBe(text);
++});
++
++test("oversized identifiers cannot prevent reaching the floor", () => {
++	const event = {
++		...frame("x"),
++		toolCallId: "\u0001".repeat(4 * 1024 * 1024),
++		toolName: "中".repeat(4 * 1024 * 1024),
++	};
++	const projected = toJsonEvent(event, { includeLiveEvents: true })!;
++	expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThanOrEqual(MAX_LIVE_UPDATE_BYTES);
++	expect(projected).toHaveProperty("toolCallId", event.toolCallId.slice(0, 200));
++	expect(projected).toHaveProperty("toolName", event.toolName.slice(0, 200));
++});
++
++test("one-character text with oversized details terminates without restoring details", () => {
++	const event = frame("x", { huge: "r".repeat(4 * 1024 * 1024) });
++	const projected = toJsonEvent(event, { includeLiveEvents: true })!;
++	expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThanOrEqual(MAX_LIVE_UPDATE_BYTES);
++	expect(projected).not.toHaveProperty("partialResult.details");
++});
++
++test("terminal tool results are never bounded", () => {
++	const event: AgentSessionEvent = {
++		type: "tool_execution_end",
++		toolCallId: "call",
++		toolName: "probe",
++		result: frame("r".repeat(4 * 1024 * 1024)).partialResult,
++		isError: false,
++	};
++	expect(toJsonEvent(event, { includeLiveEvents: true })).toBe(event);
++	expect(Buffer.byteLength(JSON.stringify(toJsonEvent(event, { includeLiveEvents: true })))).toBeGreaterThan(
++		MAX_LIVE_UPDATE_BYTES,
++	);
++});
+diff --git a/packages/coding-agent/test/json-event-projection.test.ts b/packages/coding-agent/test/json-event-projection.test.ts
+new file mode 100644
+index 0000000..7870353
+--- /dev/null
++++ b/packages/coding-agent/test/json-event-projection.test.ts
+@@ -0,0 +1,233 @@
++import { fauxAssistantMessage, fauxToolCall } from "@step-harness/providers";
++import { Type } from "typebox";
++import { expect, test } from "vitest";
++import type { AgentSessionEvent } from "../src/core/agent-session.ts";
++import { sessionEventDurability } from "../src/core/session-event-durability.ts";
++import { toJsonEvent } from "../src/modes/json-event.ts";
++import { createHarness } from "./suite/harness.ts";
++
++/**
++ * The stdout projection is the only place that decides what a serialized
++ * transport writes. Two properties matter, and they are separate:
++ *
++ *   1. a frame is never written unless the caller opts in;
++ *   2. a boundary event (`turn_end`, `agent_end`) reports where it fell instead
++ *      of re-sending the messages it closes over.
++ *
++ * What the projection deliberately keeps is also pinned here: a message is
++ * written on its `message_start`/`message_end` pair, and a tool result also on
++ * `tool_execution_end`. Those are sequence semantics, not duplicates.
++ */
++
++const assistantMessage = {
++	role: "assistant",
++	content: [{ type: "text", text: "done" }],
++	api: "anthropic-messages",
++	provider: "step",
++	model: "m",
++	usage: {
++		input: 1,
++		output: 1,
++		cacheRead: 0,
++		cacheWrite: 0,
++		totalTokens: 2,
++		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++	},
++	stopReason: "stop",
++	timestamp: 1,
++};
++
++const toolResultMessage = {
++	role: "toolResult",
++	toolCallId: "call_1",
++	toolName: "run_command",
++	content: [{ type: "text", text: "x".repeat(20_000) }],
++	isError: false,
++	timestamp: 2,
++};
++
++const messageEnd = { type: "message_end", message: assistantMessage } as unknown as AgentSessionEvent;
++
++const turnEnd = {
++	type: "turn_end",
++	message: assistantMessage,
++	toolResults: [toolResultMessage],
++} as unknown as AgentSessionEvent;
++
++const agentEnd = {
++	type: "agent_end",
++	messages: [assistantMessage, toolResultMessage],
++	willRetry: false,
++} as unknown as AgentSessionEvent;
++
++test("frames are absent from the record unless the caller opts in", () => {
++	const messageUpdate = {
++		type: "message_update",
++		message: assistantMessage,
++		assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "hi" },
++	} as unknown as AgentSessionEvent;
++	const toolUpdate = {
++		type: "tool_execution_update",
++		toolCallId: "call_1",
++		toolName: "run_command",
++		args: { command: "ls" },
++		partialResult: { content: [{ type: "text", text: "partial" }] },
++	} as unknown as AgentSessionEvent;
++
++	for (const frame of [messageUpdate, toolUpdate]) {
++		expect(toJsonEvent(frame)).toBeUndefined();
++		expect(toJsonEvent(frame, { includeLiveEvents: false })).toBeUndefined();
++		expect(toJsonEvent(frame, { includeLiveEvents: true })).toBeDefined();
++	}
++});
++
++test("a fact is unchanged by the projection", () => {
++	expect(toJsonEvent(messageEnd)).toBe(messageEnd);
++	const start = { type: "turn_start" } as unknown as AgentSessionEvent;
++	expect(toJsonEvent(start)).toBe(start);
++	const settled = { type: "agent_settled" } as unknown as AgentSessionEvent;
++	expect(toJsonEvent(settled)).toBe(settled);
++});
++
++test("turn_end drops the messages it closes over but keeps the boundary", () => {
++	const projected = toJsonEvent(turnEnd);
++	expect(projected).toEqual({ type: "turn_end", messageRole: "assistant", toolResultCount: 1 });
++	// The 20 KB tool result is not re-sent here.
++	expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(200);
++});
++
++test("agent_end drops the messages it re-sends but keeps the retry signal", () => {
++	const projected = toJsonEvent({ ...agentEnd, willRetry: true } as unknown as AgentSessionEvent);
++	expect(projected).toEqual({ type: "agent_end", willRetry: true, messageCount: 2 });
++	expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(200);
++});
++
++test("a boundary with nothing to close over still projects", () => {
++	// An aborted run emits turn_end with no tool results; an empty run emits
++	// agent_end with no messages. Neither may throw or keep a stale payload.
++	expect(
++		toJsonEvent({ type: "turn_end", message: assistantMessage, toolResults: [] } as unknown as AgentSessionEvent),
++	).toEqual({ type: "turn_end", messageRole: "assistant", toolResultCount: 0 });
++	expect(toJsonEvent({ type: "agent_end", messages: [], willRetry: false } as unknown as AgentSessionEvent)).toEqual({
++		type: "agent_end",
++		willRetry: false,
++		messageCount: 0,
++	});
++});
++
++test("every durable type is either passed through or projected", () => {
++	// The type union above must stay exhaustive: a new durable event that is
++	// neither projected nor passed through would surface as a type error, and
++	// this test names the current set so a removal is visible in review.
++	const durableTypes = ["message_end", "tool_execution_end", "turn_end", "agent_end", "agent_settled"] as const;
++	for (const type of durableTypes) {
++		expect(sessionEventDurability({ type } as AgentSessionEvent)).toBe("durable");
++	}
++});
++
++interface WireHit {
++	type: string;
++	bytes: number;
++}
++
++/**
++ * Run one real prompt through a local tool and record every line a writer would
++ * put on stdout, plus which of them carry a given marker.
++ */
++async function collectWire(
++	marker: string,
++	outputChars: number,
++): Promise<{ hits: WireHit[]; totalBytes: number; types: string[] }> {
++	const harness = await createHarness({
++		extensionFactories: [
++			{
++				name: "probe-tool",
++				factory: (pi) => {
++					pi.registerTool({
++						name: "probe",
++						label: "Probe",
++						description: "returns a sized payload",
++						parameters: Type.Object({}),
++						execute: async () => ({
++							content: [{ type: "text", text: `${marker}${"y".repeat(outputChars)}` }],
++							details: { marker },
++						}),
++					});
++				},
++			},
++		],
++	});
++	try {
++		const hits: WireHit[] = [];
++		let totalBytes = 0;
++		const types: string[] = [];
++		harness.session.subscribe((event) => {
++			const projected = toJsonEvent(event);
++			if (!projected) return;
++			const line = JSON.stringify(projected);
++			const bytes = Buffer.byteLength(line, "utf8");
++			totalBytes += bytes;
++			types.push(String(projected.type));
++			if (line.includes(marker)) hits.push({ type: String(projected.type), bytes });
++		});
++		harness.setResponses([
++			fauxAssistantMessage(fauxToolCall("probe", {}), { stopReason: "toolUse" }),
++			fauxAssistantMessage(`${marker}-assistant`),
++		]);
++		await harness.session.prompt("run probe");
++		return { hits, totalBytes, types };
++	} finally {
++		harness.cleanup();
++	}
++}
++
++test("a real run writes no frame and no boundary payload", async () => {
++	const { hits, types } = await collectWire("FACT_MARKER", 40_000);
++
++	// Frames never appear on the default channel.
++	expect(types).not.toContain("message_update");
++	expect(types).not.toContain("tool_execution_update");
++
++	// The boundaries carry structure only, never the 40 KB payload.
++	for (const type of ["turn_end", "agent_end"]) expect(types).toContain(type);
++	expect(hits.map((hit) => hit.type)).not.toContain("turn_end");
++	expect(hits.map((hit) => hit.type)).not.toContain("agent_end");
++
++	// What the projection keeps, pinned so the docs cannot overclaim. A tool
++	// result travels on `tool_execution_end` (its outcome) plus its own
++	// `message_start`/`message_end` pair (framing) — three. The assistant answer
++	// travels once, on `message_end`; its `message_start` is the empty partial
++	// that streaming builds from.
++	expect(hits.filter((hit) => hit.type === "tool_execution_end")).toHaveLength(1);
++	expect(hits.filter((hit) => hit.type === "message_start")).toHaveLength(1);
++	// Two `message_end`s: the tool result, and the assistant's final answer. Both
++	// carry the marker, which is why the multiplier below is measured per added
++	// character rather than per event.
++	expect(hits.filter((hit) => hit.type === "message_end")).toHaveLength(2);
++});
++
++test("a payload is written a fixed number of times, whatever its size", async () => {
++	const smallChars = 1_000;
++	const largeChars = 40_000;
++	const small = await collectWire("SIZE_MARKER", smallChars);
++	const large = await collectWire("SIZE_MARKER", largeChars);
++
++	// Exactly the same event sequence; only the payload inside it grew.
++	expect(large.types).toEqual(small.types);
++
++	// The marginal bytes per added character are the number of copies the
++	// projection keeps — three: `tool_execution_end` plus the tool result's
++	// `message_start`/`message_end` pair. A repeated transcript would make this
++	// grow with the number of events instead of staying constant.
++	const perChar = (large.totalBytes - small.totalBytes) / (largeChars - smallChars);
++	expect(perChar).toBeGreaterThan(2.5);
++	expect(perChar).toBeLessThan(3.5);
++});
++
++test("the record is bounded per line even with a large payload", async () => {
++	const { hits } = await collectWire("BOUND_MARKER", 40_000);
++	for (const hit of hits) expect(hit.bytes).toBeLessThan(1024 * 1024);
++	// The payload is not replicated per event: one tool result, one assistant
++	// message, one execution outcome.
++	expect(hits.length).toBe(4);
++});
+diff --git a/packages/coding-agent/test/json-mode-durability.test.ts b/packages/coding-agent/test/json-mode-durability.test.ts
+new file mode 100644
+index 0000000..99082ae
+--- /dev/null
++++ b/packages/coding-agent/test/json-mode-durability.test.ts
+@@ -0,0 +1,170 @@
++import { spawnSync } from "node:child_process";
++import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { fileURLToPath } from "node:url";
++import { afterEach, expect, test } from "vitest";
++
++/**
++ * The end-to-end guard for the log amplification, on the real CLI.
++ *
++ * `--mode json` is what a harness redirects to `stepcode.jsonl`, so this spawns
++ * the real entry point with an offline provider, has a tool stream progress
++ * frames, and inspects the actual stdout. A JSON run is a record of facts:
++ * progress belongs to live consumers, which opt in explicitly.
++ */
++
++const cli = fileURLToPath(new URL("../../../apps/cli/src/main.ts", import.meta.url));
++const fixture = fileURLToPath(new URL("./fixtures/streaming-provider.ts", import.meta.url));
++
++const roots: string[] = [];
++
++afterEach(() => {
++	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
++});
++
++interface RunResult {
++	stdout: string;
++	stderr: string;
++	status: number | null;
++	events: Array<Record<string, unknown>>;
++}
++
++function runJson(extraFlags: string[] = []): RunResult {
++	const root = mkdtempSync(join(tmpdir(), "step-json-durability-"));
++	roots.push(root);
++	const env: NodeJS.ProcessEnv = {
++		HOME: root,
++		USERPROFILE: root,
++		XDG_CONFIG_HOME: join(root, ".config"),
++		XDG_CACHE_HOME: join(root, ".cache"),
++		STEP_CODING_AGENT_DIR: join(root, "config", "agent"),
++		STEPCODE_STORAGE_ROOT_DIR: join(root, "storage"),
++		STEP_NO_LOCAL_LLM: "1",
++		AWS_EC2_METADATA_DISABLED: "true",
++		NODE_ENV: "test",
++		FORCE_COLOR: "0",
++		TMPDIR: root,
++	};
++	for (const name of ["PATH", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"]) {
++		if (process.env[name] !== undefined) env[name] = process.env[name];
++	}
++	// The provider fixture runs offline; keep MCP from reaching the network.
++	writeFileSync(join(root, "config.toml"), "");
++	const entry = join(root, "entry.mjs");
++	writeFileSync(entry, `await import(${JSON.stringify(cli)});`);
++
++	const result = spawnSync(
++		process.execPath,
++		[
++			"--import",
++			import.meta.resolve("tsx"),
++			entry,
++			"--provider",
++			"stream-offline",
++			"--model",
++			"faux-1",
++			"--api-key",
++			"offline-test-key",
++			"--tools",
++			"stream_probe",
++			"--no-extensions",
++			"--no-skills",
++			"--no-prompt-templates",
++			"--no-context-files",
++			"--no-session",
++			"--no-update-check",
++			// The probe tool is treated as a workspace-mutating tool by the default
++			// policy; this run is offline and has no human to approve it.
++			"--non-interactive-approval",
++			"allow",
++			"--mode",
++			"json",
++			"-e",
++			fixture,
++			...extraFlags,
++			"probe",
++		],
++		{ cwd: root, env, encoding: "utf8", timeout: 60_000, maxBuffer: 16 * 1024 * 1024 },
++	);
++
++	const events: Array<Record<string, unknown>> = [];
++	for (const line of (result.stdout ?? "").split("\n")) {
++		const trimmed = line.trim();
++		if (!trimmed.startsWith("{")) continue;
++		try {
++			const parsed = JSON.parse(trimmed) as unknown;
++			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
++				events.push(parsed as Record<string, unknown>);
++			}
++		} catch {
++			// Not an event line; the assertion below reports what did arrive.
++		}
++	}
++	return { stdout: result.stdout ?? "", stderr: result.stderr ?? "", status: result.status, events };
++}
++
++function typesOf(events: Array<Record<string, unknown>>): string[] {
++	return events.map((event) => String(event.type ?? ""));
++}
++
++// Each case spawns the real CLI through tsx; that startup alone can exceed the
++// default 30s budget on a loaded CI runner.
++const TIMEOUT_MS = 180_000;
++
++test(
++	"a json run writes facts, not live progress",
++	() => {
++		const result = runJson();
++		expect(result.status, result.stderr).toBe(0);
++
++		const types = typesOf(result.events);
++		// The tool really did stream, and the run really did complete.
++		expect(types).toContain("tool_execution_start");
++		expect(types).toContain("tool_execution_end");
++		expect(types).toContain("message_end");
++		// Progress frames are live-only, so the record has none of them.
++		expect(types).not.toContain("tool_execution_update");
++		expect(types).not.toContain("message_update");
++	},
++	TIMEOUT_MS,
++);
++
++test(
++	"turn_end and agent_end keep the boundary, not a second copy of the messages",
++	() => {
++		const result = runJson();
++		expect(result.status, result.stderr).toBe(0);
++
++		const turnEnds = result.events.filter((event) => event.type === "turn_end");
++		const agentEnds = result.events.filter((event) => event.type === "agent_end");
++		expect(turnEnds.length).toBeGreaterThan(0);
++		expect(agentEnds.length).toBeGreaterThan(0);
++		for (const event of turnEnds) {
++			expect(Object.keys(event).sort()).toEqual(["messageRole", "toolResultCount", "type"]);
++		}
++		for (const event of agentEnds) {
++			expect(Object.keys(event).sort()).toEqual(["messageCount", "type", "willRetry"]);
++		}
++		// The assistant answer reaches the record exactly once — on its own
++		// `message_end` — and is not repeated by the turn and run boundaries that
++		// close over it. Before the projection it appeared four times.
++		const answered = result.events.filter((event) => JSON.stringify(event).includes("CLI offline final"));
++		expect(typesOf(answered)).toEqual(["message_end"]);
++	},
++	TIMEOUT_MS,
++);
++
++test(
++	"--include-live-events restores the live frames on the same run",
++	() => {
++		const result = runJson(["--include-live-events"]);
++		expect(result.status, result.stderr).toBe(0);
++
++		const types = typesOf(result.events);
++		expect(types).toContain("tool_execution_update");
++		// Still the same run: durable events are unaffected by the flag.
++		expect(types).toContain("tool_execution_end");
++	},
++	TIMEOUT_MS,
++);
+diff --git a/packages/coding-agent/test/rpc-client-process-exit.test.ts b/packages/coding-agent/test/rpc-client-process-exit.test.ts
+index f023849..48e31aa 100644
+--- a/packages/coding-agent/test/rpc-client-process-exit.test.ts
++++ b/packages/coding-agent/test/rpc-client-process-exit.test.ts
+@@ -21,6 +21,27 @@ afterEach(() => {
+ });
+ 
+ describe("RpcClient child process failures", () => {
++	test.each([false, true])("passes the typed live-frame option (%s) to the child argv", async (includeLiveEvents) => {
++		const client = new RpcClient({
++			includeLiveEvents,
++			cliPath: writeChildScript(`
++import readline from "node:readline";
++readline.createInterface({ input: process.stdin }).on("line", (line) => {
++  const command = JSON.parse(line);
++  process.stdout.write(JSON.stringify({ type: "response", command: command.type, id: command.id, success: true,
++    data: { commands: process.argv.slice(2).map((name) => ({ name })) } }) + "\\n");
++});
++`),
++		});
++		try {
++			await client.start();
++			const commands = await client.getCommands();
++			expect(commands.some((command) => command.name === "--include-live-events")).toBe(includeLiveEvents);
++		} finally {
++			await client.stop();
++		}
++	});
++
+ 	test("rejects an in-flight request when the child process exits", async () => {
+ 		const client = new RpcClient({
+ 			cliPath: writeChildScript(`
+diff --git a/packages/coding-agent/test/rpc-example.ts b/packages/coding-agent/test/rpc-example.ts
+index 4cb16bc..f30c956 100644
+--- a/packages/coding-agent/test/rpc-example.ts
++++ b/packages/coding-agent/test/rpc-example.ts
+@@ -15,6 +15,7 @@ async function main() {
+ 		cliPath: join(__dirname, "../dist/bundle/step.js"),
+ 		provider: "anthropic",
+ 		model: "claude-sonnet-4-20250514",
++		includeLiveEvents: true,
+ 		args: ["--no-session"],
+ 	});
+ 
+diff --git a/packages/coding-agent/test/session-event-durability.test.ts b/packages/coding-agent/test/session-event-durability.test.ts
+new file mode 100644
+index 0000000..444e20c
+--- /dev/null
++++ b/packages/coding-agent/test/session-event-durability.test.ts
+@@ -0,0 +1,54 @@
++import { expect, test } from "vitest";
++import type { AgentSessionEvent } from "../src/core/agent-session.ts";
++import { isEphemeralSessionEvent, sessionEventDurability } from "../src/core/session-event-durability.ts";
++
++/**
++ * The root cause of the subagent log amplification was that a live progress
++ * frame and a fact worth persisting travelled on the same stream, so a host that
++ * redirected the stream to a file kept every frame. The classification below is
++ * what separates them; these tests pin the rule and its allowlist bias.
++ */
++
++const durable: AgentSessionEvent["type"][] = [
++	"agent_start",
++	"agent_end",
++	"agent_settled",
++	"turn_start",
++	"turn_end",
++	"message_start",
++	"message_end",
++	"tool_execution_start",
++	"tool_execution_end",
++	"queue_update",
++	"compaction_start",
++	"compaction_end",
++];
++
++test.each(durable)("%s is durable", (type) => {
++	expect(sessionEventDurability({ type } as AgentSessionEvent)).toBe("durable");
++	expect(isEphemeralSessionEvent({ type } as AgentSessionEvent)).toBe(false);
++});
++
++test.each(["message_update", "tool_execution_update"] as const)("%s is ephemeral", (type) => {
++	expect(sessionEventDurability({ type } as AgentSessionEvent)).toBe("ephemeral");
++	expect(isEphemeralSessionEvent({ type } as AgentSessionEvent)).toBe(true);
++});
++
++test("the rule is an allowlist, so a new event type is durable by default", () => {
++	// Forgetting to classify a future streaming event must not silently opt it
++	// into a persisted log; it must land on the safe side instead.
++	const future = { type: "some_future_streaming_event" } as unknown as AgentSessionEvent;
++	expect(sessionEventDurability(future)).toBe("durable");
++});
++
++test("every ephemeral event has a durable successor carrying its value", () => {
++	// The property that makes dropping these safe: a reader that skips them can
++	// still reconstruct the run from the successor event alone.
++	const successors: Record<string, string> = {
++		message_update: "message_end",
++		tool_execution_update: "tool_execution_end",
++	};
++	for (const successor of Object.values(successors)) {
++		expect(durable).toContain(successor);
++	}
++});
+diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
+index eadf369..42dd7cf 100644
+--- a/packages/coding-agent/test/step-subagent-events.test.ts
++++ b/packages/coding-agent/test/step-subagent-events.test.ts
+@@ -8,10 +8,15 @@ import {
+ 	createStepSubagentExtension,
+ 	escapeXmlAttr,
+ 	routeSubagentRpcLine,
++	type StepSubagentDetails,
++	type StepSubagentResultRecord,
+ 	type StepSubagentRunInput,
+ 	type StepSubagentRunResult,
+ } from "../src/features/step-subagent.ts";
+ import { builtinStepAgents, resolveStepAgent, type StepAgentConfig } from "../src/features/step-subagent-agents.ts";
++import { finalRoster } from "../src/features/subagent/projection.ts";
++import { renderSubagentResult } from "../src/features/subagent/rendering.ts";
++import { getThemeByName } from "../src/theme/theme.ts";
+ 
+ interface SentMessage {
+ 	customType: string;
+@@ -21,6 +26,74 @@ interface SentMessage {
+ 	triggerTurn?: boolean;
+ }
+ 
++test.each([20, 200])("final projection preserves every outcome in a %i-task batch", async (count) => {
++	const { api, tools } = createApi();
++	createStepSubagentExtension({
++		agentDir: "/tmp/step-agent-test",
++		maxParallelTasks: 1000,
++		runner: async (input) => {
++			const index = Number(input.task.split("-")[1]);
++			const failed = count === 200 && index % 3 === 0;
++			return {
++				...textResult(""),
++				messages: [],
++				activeText: `${input.task}\n${"r".repeat(12_000)}`,
++				exitCode: failed ? 1 : 0,
++				errorMessage: failed ? "e".repeat(5000) : undefined,
++			};
++		},
++	})(api);
++	const tool = tools.get("subagent");
++	if (!tool) throw new Error("subagent tool not registered");
++	const result = await tool.execute(
++		"batch",
++		{ tasks: Array.from({ length: count }, (_, index) => ({ agent: "general", task: `task-${index}` })) },
++		undefined,
++		undefined,
++		createContext("/tmp"),
++	);
++	// This tool owns StepSubagentDetails; the registration map erases its generic.
++	const typed = result as AgentToolResult<StepSubagentDetails>;
++	const rows = typed.details?.results ?? [];
++	expect(rows).toHaveLength(count);
++	expect(rows.every((record) => record.task.length > 0)).toBe(true);
++	expect(rows.every((record) => Boolean(record.activeText))).toBe(true);
++	const failures = rows.filter((record) => record.status === "failed");
++	expect(failures).toHaveLength(count === 200 ? 67 : 0);
++	expect(failures.every((record) => Boolean(record.errorMessage || record.stderr))).toBe(true);
++	expect(Buffer.byteLength(JSON.stringify(typed.details))).toBeLessThan(128 * 1024 + count * 1024);
++	const theme = getThemeByName("dark");
++	if (!theme) throw new Error("dark theme missing");
++	const rendered = renderSubagentResult(typed, { expanded: false, isPartial: false }, theme).render(200).join("\n");
++	expect(rendered).not.toContain("(no output)");
++});
++
++test.each(["failed", "aborted"] as const)(
++	"large %s batches retain escaped diagnostics within a size-independent bound",
++	(status) => {
++		const records: StepSubagentResultRecord[] = Array.from({ length: 200 }, () => ({
++			agent: "general",
++			agentSource: "builtin",
++			status,
++			task: "\u0001".repeat(20_000),
++			messages: [],
++			activeText: "\u0001".repeat(20_000),
++			stderr: "\u0001".repeat(20_000),
++			errorMessage: "\u0001".repeat(20_000),
++			exitCode: 1,
++			usage: textResult("").usage,
++		}));
++		const projected = finalRoster(records);
++		expect(
++			projected.every((record) => record.task && record.activeText && record.errorMessage && record.stderr),
++		).toBe(true);
++		const bytes = Buffer.byteLength(JSON.stringify(projected));
++		expect(bytes).toBeLessThan(128 * 1024 + records.length * 3000);
++		const larger = finalRoster(records.map((record) => ({ ...record, activeText: record.activeText?.repeat(10) })));
++		expect(Buffer.byteLength(JSON.stringify(larger))).toBe(bytes);
++	},
++);
++
+ test("RPC forwards 429 retry and recovery signals without treating errors as successes", () => {
+ 	const progress: unknown[] = [];
+ 	const events = [
+@@ -285,6 +358,9 @@ test("a ten-task batch starts eight and queues two on a ten-core host", async ()
+ 			createContext("/workspace"),
+ 		);
+ 		await waitFor(() => calls === 8);
++		// Live frames coalesce on a repaint budget (see execute.ts), so the roster
++		// that reflects the dispatched batch arrives on the next frame.
++		await waitFor(() => counts.some((count) => count.running === 8 && count.queued === 2), 2_000);
+ 		expect(counts).toContainEqual({ running: 8, queued: 2 });
+ 		release();
+ 		await result;
+diff --git a/packages/coding-agent/test/subagent-background-tui.test.ts b/packages/coding-agent/test/subagent-background-tui.test.ts
+index 5609757..a824ebd 100644
+--- a/packages/coding-agent/test/subagent-background-tui.test.ts
++++ b/packages/coding-agent/test/subagent-background-tui.test.ts
+@@ -1,5 +1,5 @@
+ import { visibleWidth } from "@step-harness/pi-tui";
+-import { expect, test } from "vitest";
++import { expect, test, vi } from "vitest";
+ import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
+ import type { CustomMessage } from "../src/core/messages.ts";
+ import {
+@@ -8,7 +8,11 @@ import {
+ 	type StepSubagentRunInput,
+ 	type StepSubagentRunResult,
+ } from "../src/features/step-subagent.ts";
+-import { type AgentNotificationDetails, notifyLaneEvent } from "../src/features/subagent/lane-events.ts";
++import {
++	type AgentNotificationDetails,
++	maybeNotifyLaneProgress,
++	notifyLaneEvent,
++} from "../src/features/subagent/lane-events.ts";
+ import { renderAgentNotification } from "../src/features/subagent/rendering.ts";
+ import type { Theme } from "../src/theme/theme.ts";
+ 
+@@ -140,6 +144,9 @@ test("background lanes share one stable list widget that clears when the batch s
+ 	expect(calls.length).toBe(before);
+ 
+ 	expect(new Set(calls.map((call) => call.key))).toEqual(new Set(["step-agent-lanes"]));
++	// Live frames coalesce on a repaint budget, so the roster showing both lanes
++	// running arrives on the next publish rather than synchronously.
++	await waitFor(() => (calls.at(-1)?.component?.render(100)[0] ?? "").includes("2 running"));
+ 	const widget = calls.at(-1)!.component!;
+ 	const rows = widget.render(100);
+ 	expect(rows[0]).toContain("background agents");
+@@ -195,6 +202,26 @@ test("progress notifications reach the model but stay out of the transcript", ()
+ 	});
+ });
+ 
++test("lane notifications count omitted live records without inventing their statuses", () => {
++	const sent: Array<{ content: string }> = [];
++	const pi = { sendMessage: (message: (typeof sent)[number]) => sent.push(message) } as unknown as ExtensionAPI;
++	const lane = fakeLane("progress");
++	lane.details.omittedResults = 199;
++	lane.details.results[0] = { ...lane.details.results[0], status: "running", usage: runResult("").usage };
++	lane.lastProgressNotifyAt = 0;
++	const now = vi.spyOn(Date, "now").mockReturnValue(20_000);
++	try {
++		maybeNotifyLaneProgress(pi, lane);
++	} finally {
++		now.mockRestore();
++	}
++	expect(sent[0].content).toContain('tasks="200"');
++	expect(sent[0].content).toContain("step 1/200");
++	// Only the visible record's status is known; omitted records are not assumed done.
++	notifyLaneEvent(pi, lane, "background_done");
++	expect(sent[1].content).toContain("1 running, 199 not shown");
++});
++
+ function notification(details?: AgentNotificationDetails): CustomMessage<AgentNotificationDetails> {
+ 	return {
+ 		role: "custom",
+diff --git a/packages/coding-agent/test/subagent-chain-result.test.ts b/packages/coding-agent/test/subagent-chain-result.test.ts
+index 8e9a2a4..1099d33 100644
+--- a/packages/coding-agent/test/subagent-chain-result.test.ts
++++ b/packages/coding-agent/test/subagent-chain-result.test.ts
+@@ -215,7 +215,11 @@ test("parallel mode still aggregates every task", async () => {
+ });
+ 
+ test("chain steps wait as queued, not running, until dispatched", async () => {
+-	const { partialStatuses } = await run(threeSteps, (_input, index) => ({ text: `OUT_${index}` }));
++	// Live frames coalesce on a repaint budget, so a step has to outlive one
++	// window for its running state to be published. Real steps take seconds.
++	const { partialStatuses } = await run(threeSteps, (_input, index) => ({ text: `OUT_${index}` }), {
++		runnerDelayMs: 150,
++	});
+ 
+ 	expect(partialStatuses[0]).toEqual(["queued", "queued", "queued"]);
+ 	expect(partialStatuses).toContainEqual(["running", "queued", "queued"]);
+@@ -236,7 +240,8 @@ test("parallel tasks beyond maxConcurrency wait as queued", async () => {
+ 			],
+ 		} as SubagentParams,
+ 		(input) => ({ text: `OUT_${input.task}` }),
+-		{ maxConcurrency: 1 },
++		// Same reason: the queued lane must survive one repaint window.
++		{ maxConcurrency: 1, runnerDelayMs: 150 },
+ 	);
+ 
+ 	expect(partialStatuses).toContainEqual(["running", "queued"]);
+diff --git a/packages/coding-agent/test/subagent-live-channel.test.ts b/packages/coding-agent/test/subagent-live-channel.test.ts
+new file mode 100644
+index 0000000..348d2ee
+--- /dev/null
++++ b/packages/coding-agent/test/subagent-live-channel.test.ts
+@@ -0,0 +1,167 @@
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { fileURLToPath } from "node:url";
++import { fauxAssistantMessage, fauxToolCall } from "@step-harness/providers";
++import { afterAll, afterEach, expect, test } from "vitest";
++import { createStepSubagentExtension } from "../src/features/step-subagent.ts";
++import { toJsonEvent } from "../src/modes/json-event.ts";
++import { createHarness, type Harness } from "./suite/harness.ts";
++
++/**
++ * Subagent channel split, on the real path.
++ *
++ * A real `--mode rpc` child is spawned through the production rpc adapter,
++ * parsed by the production projection, executed by the production orchestrator,
++ * dispatched by the real Agent Loop, and serialized by `toJsonEvent`. Only the
++ * parent's model (faux) and the child's tokens are test doubles.
++ *
++ * Two properties matter and they pull in opposite directions, which is exactly
++ * why the transport has to distinguish them:
++ *   - the parent must still see live progress (it renders the lane list), and
++ *   - the child's stdout is a pipe, not a log, so it must be asked for them.
++ */
++
++const childPath = fileURLToPath(new URL("./fixtures/subagent-stream-child.mjs", import.meta.url));
++const agentRoot = mkdtempSync(join(tmpdir(), "step-subagent-durability-"));
++const harnesses: Harness[] = [];
++const originalArgv = [...process.argv];
++const originalExecArgv = [...process.execArgv];
++/** The fixture reads these from the environment, so each case must not leak into the next. */
++const CHILD_ENV_KEYS = ["STREAM_TURNS", "STREAM_DELTAS", "STREAM_TOOL_BYTES", "STREAM_DELAY_MS", "STREAM_FINAL_BYTES"];
++const originalChildEnv = Object.fromEntries(CHILD_ENV_KEYS.map((key) => [key, process.env[key]]));
++
++afterEach(() => {
++	process.argv = [...originalArgv];
++	process.execArgv = [...originalExecArgv];
++	for (const key of CHILD_ENV_KEYS) {
++		const value = originalChildEnv[key];
++		if (value === undefined) delete process.env[key];
++		else process.env[key] = value;
++	}
++	while (harnesses.length > 0) harnesses.pop()?.cleanup();
++});
++
++afterAll(() => {
++	rmSync(agentRoot, { recursive: true, force: true });
++});
++
++interface RunStats {
++	updateCount: number;
++	updatesWithMessages: number;
++	/**
++	 * Text that can only have come from a live frame.
++	 *
++	 * The fixture marks its tool progress with a counter the final tool result
++	 * does not contain, so a parent that only read durable events would leave
++	 * this empty even though `activeText`/`activeToolOutput` still got filled
++	 * from `message_end`/`tool_execution_end`.
++	 */
++	liveOnlyTexts: string[];
++	finalHasMessages: boolean;
++	finalTextLength: number;
++	finalActiveTextLength: number;
++}
++
++async function runAgainstRealChild(env: Record<string, string> = {}): Promise<RunStats> {
++	Object.assign(process.env, env, { STEP_CODING_AGENT_DIR: agentRoot });
++	// The default runner spawns `process.argv[1]`; point it at the fake rpc child
++	// and keep the parent's TS loader out of a plain-ESM child process.
++	process.argv[1] = childPath;
++	process.execArgv = process.execArgv.filter((arg) => !/^(?:--import|--loader|--require|-r)$/u.test(arg));
++
++	const harness = await createHarness({
++		extensionFactories: [{ name: "step-subagent", factory: createStepSubagentExtension({ agentDir: agentRoot }) }],
++	});
++	harnesses.push(harness);
++
++	const stats: RunStats = {
++		updateCount: 0,
++		updatesWithMessages: 0,
++		liveOnlyTexts: [],
++		finalHasMessages: false,
++		finalTextLength: 0,
++		finalActiveTextLength: 0,
++	};
++	harness.session.subscribe((event) => {
++		// Serialize every event the way the parent's live pipe does — the subagent
++		// runner passes `--include-live-events` to its child — so a payload that
++		// could not be written is visible here too.
++		const line = JSON.stringify(toJsonEvent(event, { includeLiveEvents: true }));
++		if (Buffer.byteLength(line, "utf8") > 512 * 1024) {
++			throw new Error(`event ${event.type} exceeded the wire budget`);
++		}
++		if (event.type === "tool_execution_update") {
++			stats.updateCount += 1;
++			const results = event.partialResult?.details?.results;
++			for (const record of Array.isArray(results) ? results : []) {
++				const row = record as { activeText?: unknown; activeToolOutput?: unknown };
++				for (const value of [row.activeText, row.activeToolOutput]) {
++					if (typeof value === "string" && value.includes("tool-progress-marker")) {
++						stats.liveOnlyTexts.push(value);
++					}
++				}
++			}
++			if (
++				Array.isArray(results) &&
++				results.some((record) => Array.isArray(record?.messages) && record.messages.length > 0)
++			) {
++				stats.updatesWithMessages += 1;
++			}
++		}
++		if (event.type === "tool_execution_end") {
++			const records: unknown[] = Array.isArray(event.result?.details?.results) ? event.result.details.results : [];
++			const rows = records.filter(
++				(record): record is Record<string, unknown> => typeof record === "object" && record !== null,
++			);
++			stats.finalHasMessages = rows.some((record) => Array.isArray(record.messages) && record.messages.length > 0);
++			stats.finalActiveTextLength = rows.reduce(
++				(sum, record) => sum + (typeof record.activeText === "string" ? record.activeText.length : 0),
++				0,
++			);
++			const content: unknown[] = Array.isArray(event.result?.content) ? event.result.content : [];
++			stats.finalTextLength = content.reduce<number>(
++				(sum, part) =>
++					sum +
++					(part !== null &&
++					typeof part === "object" &&
++					(part as { type?: unknown }).type === "text" &&
++					typeof (part as { text?: unknown }).text === "string"
++						? (part as { text: string }).text.length
++						: 0),
++				0,
++			);
++		}
++	});
++
++	harness.setResponses([
++		fauxAssistantMessage(fauxToolCall("subagent", { agent: "general", task: "inspect" }), { stopReason: "toolUse" }),
++		fauxAssistantMessage("parent done"),
++	]);
++	await harness.session.prompt("delegate");
++	return stats;
++}
++
++test("the parent still sees live-only child progress from a real rpc child", async () => {
++	// 160ms of streaming per turn outlives the parent's 100ms repaint window, so
++	// an intermediate frame is published.
++	const stats = await runAgainstRealChild({ STREAM_TURNS: "2", STREAM_DELTAS: "4", STREAM_DELAY_MS: "40" });
++
++	// `tool-progress-marker` exists only in a `tool_execution_update` payload.
++	// It cannot arrive through a durable event, so this fails if the runner stops
++	// passing `--include-live-events` to its child (see the runner's argv) or if a
++	// transport drops frames — even though `agent_settled` and the final result
++	// keep arriving.
++	expect(stats.liveOnlyTexts.length).toBeGreaterThan(0);
++	// ...and a frame is a replacement snapshot, never the transcript.
++	expect(stats.updatesWithMessages).toBe(0);
++});
++
++test("the final result is a summary and never carries the child transcript", async () => {
++	const stats = await runAgainstRealChild({ STREAM_TURNS: "4", STREAM_DELTAS: "10" });
++
++	expect(stats.finalHasMessages).toBe(false);
++	// The outcome is still readable, and the model-facing text is complete.
++	expect(stats.finalActiveTextLength).toBeGreaterThan(0);
++	expect(stats.finalTextLength).toBeGreaterThan(0);
++});
+diff --git a/packages/coding-agent/test/suite/regressions/7290-json-stream-linear.test.ts b/packages/coding-agent/test/suite/regressions/7290-json-stream-linear.test.ts
+index 21eabde..aea1aa2 100644
+--- a/packages/coding-agent/test/suite/regressions/7290-json-stream-linear.test.ts
++++ b/packages/coding-agent/test/suite/regressions/7290-json-stream-linear.test.ts
+@@ -25,9 +25,11 @@ describe("regression #7290: JSON event streams stay linear", () => {
+ 			expect(update.assistantMessageEvent).toHaveProperty("partial");
+ 		}
+ 
+-		const updates = sessionUpdates.map((event) => toJsonEvent(event));
++		// The delta projection only reaches the wire when a live consumer asks.
++		const updates = sessionUpdates.map((event) => toJsonEvent(event, { includeLiveEvents: true })!);
+ 		expect(updates.length).toBeGreaterThan(0);
+ 		for (const update of updates) {
++			expect(update).toBeDefined();
+ 			expect(update).not.toHaveProperty("message");
+ 			expect(update.assistantMessageEvent).not.toHaveProperty("partial");
+ 		}
+diff --git a/packages/coding-agent/test/suite/regressions/7911-json-stream-usage.test.ts b/packages/coding-agent/test/suite/regressions/7911-json-stream-usage.test.ts
+index d909778..3917a57 100644
+--- a/packages/coding-agent/test/suite/regressions/7911-json-stream-usage.test.ts
++++ b/packages/coding-agent/test/suite/regressions/7911-json-stream-usage.test.ts
+@@ -24,7 +24,7 @@ describe("regression #7911: JSON message updates retain usage", () => {
+ 			throw new Error("Expected an assistant update with populated usage");
+ 		}
+ 
+-		const wireUpdate = toJsonEvent(update);
++		const wireUpdate = toJsonEvent(update, { includeLiveEvents: true })!;
+ 		expect(wireUpdate.usage).toEqual(update.message.usage);
+ 		expect(wireUpdate).not.toHaveProperty("message");
+ 		expect(wireUpdate.assistantMessageEvent).not.toHaveProperty("partial");
+diff --git a/packages/coding-agent/test/suite/regressions/7925-toolcall-start-metadata.test.ts b/packages/coding-agent/test/suite/regressions/7925-toolcall-start-metadata.test.ts
+index 552aaf3..a702035 100644
+--- a/packages/coding-agent/test/suite/regressions/7925-toolcall-start-metadata.test.ts
++++ b/packages/coding-agent/test/suite/regressions/7925-toolcall-start-metadata.test.ts
+@@ -29,7 +29,7 @@ describe("regression #7925: tool-call metadata is available when streaming start
+ 			throw new Error("Expected toolcall_start assistant update");
+ 		}
+ 
+-		expect(toJsonEvent(update)).toEqual({
++		expect(toJsonEvent(update, { includeLiveEvents: true })).toEqual({
+ 			type: "message_update",
+ 			usage: update.message.usage,
+ 			assistantMessageEvent: {
+diff --git a/packages/contracts/src/in-process/session-handle.ts b/packages/contracts/src/in-process/session-handle.ts
+index 75e4900..c8d030b 100644
+--- a/packages/contracts/src/in-process/session-handle.ts
++++ b/packages/contracts/src/in-process/session-handle.ts
+@@ -37,6 +37,8 @@ export interface AgentMessagePreview {
+  * A host-facing projection of the agent loop's AgentEvent union. Record-visibility
+  * entries and telemetry are modeled separately (see session-record.ts and
+  * host-event.ts) so the three concerns never share one over-loaded type.
++ * In-process consumers receive live frames too. A future serialized adapter
++ * must apply the coding product's session-event durability classification.
+  */
+ export type AgentEvent =
+ 	| { readonly type: "agent_start" }
+diff --git a/scripts/check-session-event-transports.mjs b/scripts/check-session-event-transports.mjs
+new file mode 100644
+index 0000000..3325c2c
+--- /dev/null
++++ b/scripts/check-session-event-transports.mjs
+@@ -0,0 +1,269 @@
++#!/usr/bin/env node
++
++// "The wire projection is the only policy" check.
++//
++// A serialized transport (--mode json, --mode rpc) writes session events to a
++// stdout a harness may redirect to a file, so that file has to contain facts and
++// not live frames. The decision lives in `modes/json-event.ts`:
++// `toJsonEvent(event, { includeLiveEvents })` returns `undefined` for a frame
++// whose caller did not opt in, and projects the events that would otherwise
++// re-send a message it already wrote.
++//
++// The incident this guards against (a 4,992 MiB subagent log) started as one
++// transport writing every event, and the first fix put the filter at the call
++// site. Two call sites are tolerable; a third pair is how the filter silently
++// stops being one policy. So:
++//
++//   Rule 1 — one projection. `toJsonEvent` is called only from the transports
++//            that are allowed to serialize session events, plus its own module
++//            and the package barrel.
++//   Rule 2 — no call-site policy. `isEphemeralSessionEvent` /
++//            `sessionEventDurability` may be referenced only by the projection,
++//            its own module, and the barrel. A transport that filters before
++//            calling `toJsonEvent` fails here, because that is the divergence
++//            rule 1 exists to prevent.
++//
++// Rule 2 keeps the classification available to non-transport callers by
++// allowing the barrel: importing it from `@step-harness/coding-agent` in a new
++// host is a deliberate act with a written reason, not a copy-paste in a
++// transport's subscribe callback.
++//
++// This is a "forgot to classify" guard, not a security boundary. It reads text,
++// so it does not stop a namespace import (`import * as p; p.toJsonEvent(...)`),
++// a hand-rolled `JSON.stringify(event)`, a wrapper module outside the scanned
++// roots, or an edit to the transport allowlist above. Those are deliberate acts
++// visible in review; what it does catch is the ordinary mistake — a new transport
++// that never calls the projection, a transport whose call stopped threading the
++// option, and the call-site filter coming back.
++//
++// No new dependency; same node + --self-test convention as the sibling
++// check-*.mjs scripts. Pure classification in analyzeFile(path, text).
++//
++// Run:  node scripts/check-session-event-transports.mjs
++//       node scripts/check-session-event-transports.mjs --self-test
++
++import { existsSync, readFileSync, readdirSync } from "node:fs";
++import { dirname, join, relative, resolve } from "node:path";
++import { fileURLToPath } from "node:url";
++
++const scriptDirectory = dirname(fileURLToPath(import.meta.url));
++const repoRoot = resolve(scriptDirectory, "..");
++
++const PROJECTION = "packages/coding-agent/src/modes/json-event.ts";
++const BARREL = "packages/coding-agent/src/index.ts";
++const DURABILITY = "packages/coding-agent/src/core/session-event-durability.ts";
++
++/** Transports that serialize session events, and the option each must thread. */
++const TRANSPORTS = new Set([
++	"packages/coding-agent/src/modes/print-mode.ts",
++	"packages/coding-agent/src/modes/rpc/rpc-mode.ts",
++]);
++
++const PROJECTION_CALL = "toJsonEvent";
++const POLICY_REFERENCES = ["isEphemeralSessionEvent", "sessionEventDurability"];
++
++// --- pure classification -------------------------------------------------------------
++
++function normalize(p) {
++	return p.replace(/\\/g, "/");
++}
++
++/** Strip comments and string literals so prose cannot trip the rules. */
++function stripNonCode(text) {
++	return text
++		.replace(/\/\*[\s\S]*?\*\//g, " ")
++		.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ")
++		.replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
++		.replace(/'(?:[^'\\\n]|\\.)*'/g, "''");
++}
++
++function namesIdentifier(code, name) {
++	// A bare mention in code: not a property access (`.name`) and not part of a
++	// longer identifier (`xName`, `nameOf`).
++	return new RegExp(`(^|[^.\\w$])${name}\\b(?!\\s*:)`, "m").test(code);
++}
++
++/**
++ * Split an argument list at its own top level (commas not nested in (), [], {}).
++ */
++function splitTopLevelArguments(source) {
++	const parts = [];
++	let depth = 0;
++	let current = "";
++	for (const char of source) {
++		if (char === "(" || char === "[" || char === "{") depth += 1;
++		else if (char === ")" || char === "]" || char === "}") depth -= 1;
++		if (char === "," && depth === 0) {
++			parts.push(current);
++			current = "";
++			continue;
++		}
++		current += char;
++	}
++	if (current.trim().length > 0) parts.push(current);
++	return parts;
++}
++
++/**
++ * Every `toJsonEvent(...)` call, with its own top-level arguments.
++ *
++ * All occurrences are scanned, including nested ones, so
++ * `toJsonEvent(toJsonEvent(event), { ... })` reports the inner call. Whitespace
++ * before `(` is allowed: `toJsonEvent (event)` is still a call.
++ */
++function projectionCalls(code) {
++	const calls = [];
++	const needle = new RegExp(`${PROJECTION_CALL}\\s*\\(`, "g");
++	for (const match of code.matchAll(needle)) {
++		let depth = 1;
++		let cursor = (match.index ?? 0) + match[0].length;
++		while (cursor < code.length && depth > 0) {
++			const char = code[cursor];
++			if (char === "(" || char === "[" || char === "{") depth += 1;
++			else if (char === ")" || char === "]" || char === "}") depth -= 1;
++			cursor += 1;
++		}
++		calls.push(splitTopLevelArguments(code.slice((match.index ?? 0) + match[0].length, cursor - 1)));
++	}
++	return calls;
++}
++
++function isProjectionHome(p) {
++	const n = normalize(p);
++	return n === PROJECTION || n === BARREL;
++}
++
++function analyzeFile(repoRelPath, text) {
++	const n = normalize(repoRelPath);
++	const code = stripNonCode(text);
++	const violations = [];
++
++	if (namesIdentifier(code, PROJECTION_CALL) && !isProjectionHome(n) && !TRANSPORTS.has(n)) {
++		violations.push(
++			`${n}: calls ${PROJECTION_CALL} — serialize session events only from a known transport (${[...TRANSPORTS].join(", ")}); add the new transport there and to this allowlist`,
++		);
++	}
++	if (TRANSPORTS.has(n)) {
++		for (const args of projectionCalls(code)) {
++			// The options object is the policy, and it has to be this call's own
++			// second argument: `toJsonEvent(f(e, { includeLiveEvents: true }))`
++			// contains the text but threads nothing.
++			const options = args[1]?.trim() ?? "";
++			if (args.length < 2 || !options.startsWith("{") || !/includeLiveEvents/.test(options)) {
++				violations.push(
++					`${n}: ${PROJECTION_CALL}(${args.map((arg) => arg.trim()).join(", ").slice(0, 60)}) does not pass \`{ includeLiveEvents }\` as its own second argument — every serialized transport must state whether it opted into live frames`,
++				);
++			}
++		}
++	}
++	for (const policy of POLICY_REFERENCES) {
++		if (!namesIdentifier(code, policy)) continue;
++		if (isProjectionHome(n) || n === DURABILITY) continue;
++		violations.push(
++			`${n}: references ${policy} — the frame/durable decision belongs to ${PROJECTION}; a call-site filter is a second policy that will drift`,
++		);
++	}
++	return violations;
++}
++
++// --- filesystem ----------------------------------------------------------------------
++
++function collectTsFiles(absoluteDir) {
++	const files = [];
++	const walk = (dir) => {
++		if (!existsSync(dir)) return;
++		for (const entry of readdirSync(dir, { withFileTypes: true })) {
++			const full = join(dir, entry.name);
++			if (entry.isDirectory()) {
++				if (entry.name !== "node_modules" && entry.name !== "dist") walk(full);
++			} else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts") && !entry.name.endsWith(".test.ts")) {
++				files.push(full);
++			}
++		}
++	};
++	walk(absoluteDir);
++	return files;
++}
++
++function runReal() {
++	const roots = [join(repoRoot, "packages", "coding-agent", "src"), join(repoRoot, "apps", "cli", "src")];
++	const violations = [];
++	for (const root of roots) {
++		for (const file of collectTsFiles(root)) {
++			const repoRel = relative(repoRoot, file);
++			for (const violation of analyzeFile(repoRel, readFileSync(file, "utf8"))) violations.push(violation);
++		}
++	}
++	if (violations.length > 0) {
++		console.error("session-event-transports check failed:");
++		for (const violation of violations) console.error(`  ${violation}`);
++		process.exit(1);
++	}
++	console.log("session-event-transports check passed.");
++}
++
++// --- self-test -----------------------------------------------------------------------
++
++function runSelfTest() {
++	const failures = [];
++	const expectClean = (path, text) => {
++		if (analyzeFile(path, text).length > 0) failures.push(`expected clean: ${path} — ${analyzeFile(path, text)[0]}`);
++	};
++	const expectViolation = (path, text) => {
++		if (analyzeFile(path, text).length === 0) failures.push(`expected violation: ${path}`);
++	};
++
++	const printMode = "packages/coding-agent/src/modes/print-mode.ts";
++	const rpcMode = "packages/coding-agent/src/modes/rpc/rpc-mode.ts";
++
++	// clean — the projection defines it, the barrel re-exports the classification,
++	// both transports thread the option.
++	expectClean(PROJECTION, `export function ${PROJECTION_CALL}(event) { return isEphemeralSessionEvent(event) ? undefined : event; }`);
++	expectClean(BARREL, `export { ${POLICY_REFERENCES.join(", ")} } from "./core/session-event-durability.ts";`);
++	expectClean(rpcMode, `const projected = ${PROJECTION_CALL}(event, { includeLiveEvents }); if (projected) output(projected);`);
++	expectClean(printMode, `const projected = ${PROJECTION_CALL}(event, { includeLiveEvents });`);
++	// clean — prose in a comment does not count.
++	expectClean("apps/cli/src/modes/json.ts", `// each line is a ${PROJECTION_CALL} result; never calls ${POLICY_REFERENCES[0]}`);
++
++	// violation — rule 1: a new transport, or a module that is not one.
++	expectViolation(
++		"apps/cli/src/modes/stdio.ts",
++		`session.subscribe((event) => write(JSON.stringify(${PROJECTION_CALL}(event))));`,
++	);
++	expectViolation("packages/coding-agent/src/step/stdio-host.ts", `const line = ${PROJECTION_CALL}(event);`);
++
++	// violation — rule 1: a transport that forgets to state the option in the call,
++	// even when an `includeLiveEvents` variable exists elsewhere in the file.
++	expectViolation(printMode, `const includeLiveEvents = false; writeRawStdout(${PROJECTION_CALL}(event));`);
++	expectViolation(rpcMode, `output(${PROJECTION_CALL}(event));`);
++	// violation — the option text is present but not this call's own argument.
++	expectViolation(rpcMode, `output(${PROJECTION_CALL}(build(event, { includeLiveEvents: true })));`);
++	// violation — a nested call hides its own missing option behind the outer one.
++	expectViolation(rpcMode, `output(${PROJECTION_CALL}(${PROJECTION_CALL}(event), { includeLiveEvents: true }));`);
++	// violation — whitespace before the paren is still a call.
++	expectViolation(printMode, `writeRawStdout(${PROJECTION_CALL} (event));`);
++
++	// violation — rule 2: the old call-site filter comes back.
++	expectViolation(rpcMode, `if (!live && ${POLICY_REFERENCES[0]}(event)) return; output(event);`);
++	expectViolation(
++		"apps/cli/src/modes/json.ts",
++		`if (${POLICY_REFERENCES[1]}(event) === "ephemeral") return;`,
++	);
++	// clean — a property of the same name is not a reference to the policy.
++	expectClean(printMode, `const options = { includeLiveEvents: config.${POLICY_REFERENCES[0]} };`);
++	// clean — the option is this call's own second argument, however it is spelled.
++	expectClean(rpcMode, `output(${PROJECTION_CALL}(event, { includeLiveEvents: options.live }));`);
++	expectClean(printMode, `writeRawStdout(${PROJECTION_CALL}(event, { includeLiveEvents }));`);
++	// clean — comments still do not count, including one that names the call.
++	expectClean(printMode, `/* never call ${PROJECTION_CALL}() here */ const x = 1;`);
++
++	if (failures.length > 0) {
++		console.error("session-event-transports self-test FAILED:");
++		for (const failure of failures) console.error(`  ${failure}`);
++		process.exit(1);
++	}
++	console.log("session-event-transports self-test passed.");
++}
++
++if (process.argv.includes("--self-test")) runSelfTest();
++else runReal();
+diff --git a/scripts/guard-self-tests.test.mjs b/scripts/guard-self-tests.test.mjs
+index dbc2d1d..3c8bae8 100644
+--- a/scripts/guard-self-tests.test.mjs
++++ b/scripts/guard-self-tests.test.mjs
+@@ -20,6 +20,7 @@ const guardsWithSelfTest = [
+ 	"check-ts-relative-imports.mjs",
+ 	"check-derived-compat-only.mjs",
+ 	"check-no-provider-dispatch.mjs",
++	"check-session-event-transports.mjs",
+ 	"check-metadata-not-in-dispatch.mjs",
+ 	"check-no-secret-leak.mjs",
+ 	"check-legacy-scope-prefix.mjs",

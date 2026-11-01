@@ -11,6 +11,25 @@ Its patches and reviewed pre/post-image hashes live in `patches/v016/`. Apply wi
 node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v016/step-code-desktop.patch
 ```
 
+The v016 baseline additionally carries two upstream commits that the applier
+installs before the desktop patches, declared under `upstream.commits` in the
+manifest: `7487124e7b27c604535fc8439ccd0d0b81c5c299` (session record of facts,
+upstream PR stepfun-ai/Step-Code#318) and `90a57820c81c6e78e4a3ea5be3f66694ac038611`
+(preserve subagent outcomes and publish live lane state, upstream PR
+stepfun-ai/Step-Code#324). They land as uncommitted worktree edits, so HEAD and
+`manifest.commit` remain the reviewable pin while `sources` and
+`patchedSources` already describe the combined state the desktop patches
+expect. The overlay deliberately skips upstream PR stepfun-ai/Step-Code#323,
+which removes the `enter_plan_mode` tool the Desktop plan-review bridge is
+built on; it is not a dependency of the two carried commits. On the model
+side the overlay fixes chain results and failure diagnostics reaching the
+parent model. On the Desktop side it requires the `--include-live-events`
+spawn flag (transient `message_update` and `tool_execution_update` frames are
+no longer durable) and reads the bounded `activeText` tail per record, because
+child transcripts no longer ride in `details.results`. Any failure during the
+apply unwinds every installed patch in reverse and leaves the checkout as it
+was found.
+
 The 0.6.0 release baseline retains v0.1.5 and `patches/v015/`; both patch sets remain
 replayable. The v016 set copies shared patches rather than modifying historical
 patches. Its final compatibility patch supplies live RPC background-lane state,

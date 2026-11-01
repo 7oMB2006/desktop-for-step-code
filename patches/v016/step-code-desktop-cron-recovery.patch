@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
-index ce12a4056070feac64d5847fd743e57c6ac073d7..ba42caa552e5f00ea6f97b4fbbbdd494234715dc 100644
+index ce12a40..ba42caa 100644
 --- a/packages/coding-agent/src/features/step-cron.ts
 +++ b/packages/coding-agent/src/features/step-cron.ts
 @@ -23,6 +23,15 @@ import type {
@@ -28,7 +28,7 @@ index ce12a4056070feac64d5847fd743e57c6ac073d7..ba42caa552e5f00ea6f97b4fbbbdd494
  				sendMessage: (delivery) => {
  					if (delivery.kind === "missed") {
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index 74939f99c7abbd499e1f38abe7845a200f24bb2e..8debcab4d37ebc3cad874019f696f835d3f6d190 100644
+index 8804399..7c5e2a0 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 @@ -25,6 +25,7 @@ import {
@@ -39,7 +39,7 @@ index 74939f99c7abbd499e1f38abe7845a200f24bb2e..8debcab4d37ebc3cad874019f696f835
  import { getStepPlanMode } from "../../features/step-plan.ts";
  import { getStepMcpStatuses } from "../../step/mcp.ts";
  import { STEPCODE_VERSION } from "../../step/version.ts";
-@@ -512,6 +513,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -528,6 +529,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  					skillCount: session.resourceLoader.getSkills().skills.length,
  				});
  			}
@@ -55,7 +55,7 @@ index 74939f99c7abbd499e1f38abe7845a200f24bb2e..8debcab4d37ebc3cad874019f696f835
  				if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is disabled");
  				if (!["list", "create", "delete"].includes(command.action)) throw new Error("Invalid Cron action");
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
-index 2d7930d2d1cf9193d07d93a5ab3be1341e0d0ddf..b4c1343921d9d5060c6c7346ef2578f243da89ee 100644
+index 2d7930d..b4c1343 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
 @@ -30,6 +30,7 @@ export type RpcCommand =

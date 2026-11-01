@@ -21,48 +21,74 @@ if (integrationPatches.includes(resolvedPatchPath)) {
 	const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8"));
 	const commit = execFileSync("git", ["-C", upstreamDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 	if (commit !== manifest.commit) throw new Error("Unexpected Step Code baseline");
-	for (const [relative, expected] of Object.entries(manifest.sources)) {
-		const hash = execFileSync("git", ["-C", upstreamDir, "hash-object", relative], { encoding: "utf8" }).trim();
-		if (hash !== expected) throw new Error(`Unexpected pinned source: ${relative}`);
-	}
-	const patches = [];
-	const collect = async (entries, label) => {
+	const collect = async (entries, label, sink) => {
 		for (const [name, expected] of Object.entries(entries)) {
 			const bytes = Buffer.from((await readFile(path.join(directory, name), "utf8")).replace(/\r\n/g, "\n"));
 			if (gitBlobHash(bytes) !== expected) throw new Error(`Unexpected ${label}: ${name}`);
-			patches.push({ name, bytes });
+			sink.push({ name, bytes });
 		}
 	};
-	await collect(manifest.patches, "integration patch");
-	await collect(manifest.platforms?.[process.platform]?.patches ?? {}, `${process.platform} integration patch`);
-	// Validate every patch before touching source, including platform additions.
-	// The manifest key order is the apply order, and later patches edit lines that
-	// earlier ones add, so a single combined check is what keeps that sequence
-	// honest. Its error only names a file and line, though, so when it fails, walk
-	// the prefixes to report the patch that actually broke.
-	const combined = Buffer.concat(patches.map((entry) => entry.bytes));
-	const check = (input) => execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], {
-		input, stdio: ["pipe", "pipe", "pipe"],
-	});
-	try {
-		check(combined);
-	} catch {
-		let applied = 0;
-		for (let end = 1; end < patches.length; end += 1) {
-			try {
-				check(Buffer.concat(patches.slice(0, end).map((entry) => entry.bytes)));
-				applied = end;
-			} catch {
-				break;
-			}
+	// Upstream commits ride on top of the pinned checkout as uncommitted worktree
+	// edits, so HEAD and manifest.commit stay the reviewable pin while sources
+	// below already describe the combined state the desktop patches expect.
+	const upstreamEntries = Object.fromEntries((manifest.upstream?.commits ?? [])
+		.map(entry => [entry.patch, entry.hash]));
+	const upstreamPatches = [];
+	await collect(upstreamEntries, "upstream commit patch", upstreamPatches);
+	const patches = [];
+	await collect(manifest.patches, "integration patch", patches);
+	await collect(manifest.platforms?.[process.platform]?.patches ?? {}, `${process.platform} integration patch`, patches);
+	// Everything below mutates the worktree, so any failure unwinds every applied
+	// patch in reverse and leaves the checkout exactly as it was found.
+	const applied = [];
+	const undo = () => {
+		for (const entry of [...applied].reverse()) {
+			execFileSync("git", ["-C", upstreamDir, "apply", "-R", "-"], { input: entry.bytes, stdio: ["pipe", "pipe", "pipe"] });
 		}
-		throw new Error(`Integration patch does not apply: ${patches[applied].name}`);
-	}
-	execFileSync("git", ["-C", upstreamDir, "apply", "-"], { input: combined, stdio: ["pipe", "inherit", "inherit"] });
-	const platform = manifest.platforms?.[process.platform];
-	for (const [relative, expected] of Object.entries({ ...manifest.patchedSources, ...platform?.patchedSources })) {
-		const hash = execFileSync("git", ["-C", upstreamDir, "hash-object", relative], { encoding: "utf8" }).trim();
-		if (hash !== expected) throw new Error(`Unexpected patched source: ${relative}`);
+	};
+	try {
+		for (const entry of upstreamPatches) {
+			execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], { input: entry.bytes, stdio: ["pipe", "pipe", "pipe"] });
+			execFileSync("git", ["-C", upstreamDir, "apply", "-"], { input: entry.bytes, stdio: ["pipe", "pipe", "pipe"] });
+			applied.push(entry);
+		}
+		for (const [relative, expected] of Object.entries(manifest.sources)) {
+			const hash = execFileSync("git", ["-C", upstreamDir, "hash-object", relative], { encoding: "utf8" }).trim();
+			if (hash !== expected) throw new Error(`Unexpected pinned source: ${relative}`);
+		}
+		// Validate every patch before touching source, including platform additions.
+		// The manifest key order is the apply order, and later patches edit lines that
+		// earlier ones add, so a single combined check is what keeps that sequence
+		// honest. Its error only names a file and line, though, so when it fails, walk
+		// the prefixes to report the patch that actually broke.
+		const combined = Buffer.concat(patches.map((entry) => entry.bytes));
+		const check = (input) => execFileSync("git", ["-C", upstreamDir, "apply", "--check", "-"], {
+			input, stdio: ["pipe", "pipe", "pipe"],
+		});
+		try {
+			check(combined);
+		} catch {
+			let prefix = 0;
+			for (let end = 1; end < patches.length; end += 1) {
+				try {
+					check(Buffer.concat(patches.slice(0, end).map((entry) => entry.bytes)));
+					prefix = end;
+				} catch {
+					break;
+				}
+			}
+			throw new Error(`Integration patch does not apply: ${patches[prefix].name}`);
+		}
+		execFileSync("git", ["-C", upstreamDir, "apply", "-"], { input: combined, stdio: ["pipe", "inherit", "inherit"] });
+		applied.push({ name: "combined integration patch", bytes: combined });
+		const platform = manifest.platforms?.[process.platform];
+		for (const [relative, expected] of Object.entries({ ...manifest.patchedSources, ...platform?.patchedSources })) {
+			const hash = execFileSync("git", ["-C", upstreamDir, "hash-object", relative], { encoding: "utf8" }).trim();
+			if (hash !== expected) throw new Error(`Unexpected patched source: ${relative}`);
+		}
+	} catch (error) {
+		undo();
+		throw error;
 	}
 
 } else {

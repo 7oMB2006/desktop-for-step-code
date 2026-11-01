@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
-index ee1712a75e3b90591f9d6d5e4d251cc99b7d7d4f..eccb429170ca3b8a52fd9ef986af2678faabe61e 100644
+index ee1712a..eccb429 100644
 --- a/packages/coding-agent/src/features/step-cron.ts
 +++ b/packages/coding-agent/src/features/step-cron.ts
 @@ -25,10 +25,16 @@ import type { StepTelemetryProperties, StepTelemetryReporter } from "../step/tel
@@ -38,10 +38,10 @@ index ee1712a75e3b90591f9d6d5e4d251cc99b7d7d4f..eccb429170ca3b8a52fd9ef986af2678
  		if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is unavailable");
  		this.refreshDurableNow();
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index a719e43071de58eb2f7a8ee305778cb0f00d2393..7ba2bc71d9882f76e53bb9519045d4d6bf4d145d 100644
+index fc25388..560bf79 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-@@ -518,7 +518,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -534,7 +534,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  					|| !session.extensionRunner.createContext().isProjectTrusted()) {
  					throw new Error("Cron recovery requires an idle trusted project");
  				}
@@ -51,7 +51,7 @@ index a719e43071de58eb2f7a8ee305778cb0f00d2393..7ba2bc71d9882f76e53bb9519045d4d6
  			}
  			case "desktop_cron": {
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
-index 0612f085f122636496f4118f57a9fe347603f4a3..85b661aa8438565857cc18aa6bde23588ce8c61b 100644
+index 0612f08..85b661a 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
 @@ -30,7 +30,7 @@ export type RpcCommand =

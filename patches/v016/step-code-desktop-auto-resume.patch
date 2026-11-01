@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
-index 54acd866d6ad519fd33b0fdb0b7088c2d1357fc6..92e32567799a10ca43b016a12248976fda21e5e1 100644
+index 54acd86..92e3256 100644
 --- a/packages/coding-agent/src/core/agent-session.ts
 +++ b/packages/coding-agent/src/core/agent-session.ts
 @@ -268,6 +268,8 @@ export interface PromptOptions {
@@ -56,7 +56,7 @@ index 54acd866d6ad519fd33b0fdb0b7088c2d1357fc6..92e32567799a10ca43b016a12248976f
  	}
  
 diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
-index 7fc04617577991d1873f6bd97bc9e635238f7489..185ec7e2d054b4f9cb69a92d5858da843673fc88 100644
+index 7fc0461..185ec7e 100644
 --- a/packages/coding-agent/src/core/extensions/types.ts
 +++ b/packages/coding-agent/src/core/extensions/types.ts
 @@ -1460,7 +1460,7 @@ export interface ExtensionAPI {
@@ -87,7 +87,7 @@ index 7fc04617577991d1873f6bd97bc9e635238f7489..185ec7e2d054b4f9cb69a92d5858da84
  
  export type AppendEntryHandler = <T = unknown>(customType: string, data?: T) => void;
 diff --git a/packages/coding-agent/src/features/step.ts b/packages/coding-agent/src/features/step.ts
-index a7536d1a4c96d6e43de08d3860e59a682146cd6e..b61757f3db399d2cb0d2b05a862a4d900270dff6 100644
+index a7536d1..b61757f 100644
 --- a/packages/coding-agent/src/features/step.ts
 +++ b/packages/coding-agent/src/features/step.ts
 @@ -256,7 +256,13 @@ export function createStepExtension(options: StepExtensionOptions = {}): Extensi
@@ -106,7 +106,7 @@ index a7536d1a4c96d6e43de08d3860e59a682146cd6e..b61757f3db399d2cb0d2b05a862a4d90
  					try {
  						notify?.(
 diff --git a/packages/coding-agent/test/step-extension.test.ts b/packages/coding-agent/test/step-extension.test.ts
-index b2d98339279095124e0bf61990b02ad8ac743f7b..1b12e8113bdb177ad14c10712aef39f8143e903f 100644
+index b2d9833..1b12e81 100644
 --- a/packages/coding-agent/test/step-extension.test.ts
 +++ b/packages/coding-agent/test/step-extension.test.ts
 @@ -7,6 +7,7 @@ import type {
@@ -134,7 +134,7 @@ index b2d98339279095124e0bf61990b02ad8ac743f7b..1b12e8113bdb177ad14c10712aef39f8
  				handler("session_shutdown")({}, ctx);
  			} finally {
 diff --git a/packages/coding-agent/test/suite/agent-session-prompt.test.ts b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
-index f992ec82b78ffec0304e6cf7e06b7fcf1c32815d..9dd5ec2137a2d69d847000af1a4a3a111e7ab646 100644
+index f992ec8..9dd5ec2 100644
 --- a/packages/coding-agent/test/suite/agent-session-prompt.test.ts
 +++ b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
 @@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from "vitest";

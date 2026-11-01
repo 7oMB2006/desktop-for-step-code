@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
-index e8c8b01996e2db1ce4da00c0217dd5b1f62a6a7c..ee1712a75e3b90591f9d6d5e4d251cc99b7d7d4f 100644
+index e8c8b01..ee1712a 100644
 --- a/packages/coding-agent/src/features/step-cron.ts
 +++ b/packages/coding-agent/src/features/step-cron.ts
 @@ -45,7 +45,7 @@ const MAX_LOCK_AGE_MS = 60_000;
@@ -158,7 +158,7 @@ index e8c8b01996e2db1ce4da00c0217dd5b1f62a6a7c..ee1712a75e3b90591f9d6d5e4d251cc9
  			runtime.setContext(ctx.cwd);
  		};
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index 8debcab4d37ebc3cad874019f696f835d3f6d190..a719e43071de58eb2f7a8ee305778cb0f00d2393 100644
+index 7c5e2a0..fc25388 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 @@ -25,7 +25,7 @@ import {
@@ -170,7 +170,7 @@ index 8debcab4d37ebc3cad874019f696f835d3f6d190..a719e43071de58eb2f7a8ee305778cb0
  import { getStepPlanMode } from "../../features/step-plan.ts";
  import { getStepMcpStatuses } from "../../step/mcp.ts";
  import { STEPCODE_VERSION } from "../../step/version.ts";
-@@ -523,14 +523,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -539,14 +539,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  			}
  			case "desktop_cron": {
  				if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is disabled");
@@ -187,7 +187,7 @@ index 8debcab4d37ebc3cad874019f696f835d3f6d190..a719e43071de58eb2f7a8ee305778cb0
  				if (!list || !tool) throw new Error("Cron tools are unavailable");
  				let result: unknown;
  				if (command.action !== "list") {
-@@ -539,13 +539,22 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -555,13 +555,22 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  						|| typeof command.recurring !== "boolean" || typeof command.durable !== "boolean")) {
  						throw new Error("Invalid Cron creation parameters");
  					}
@@ -216,7 +216,7 @@ index 8debcab4d37ebc3cad874019f696f835d3f6d190..a719e43071de58eb2f7a8ee305778cb0
  				// Do not turn a committed mutation into a failure because a later list read failed.
  				const jobs = command.action === "list"
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
-index b4c1343921d9d5060c6c7346ef2578f243da89ee..0612f085f122636496f4118f57a9fe347603f4a3 100644
+index b4c1343..0612f08 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
 @@ -31,7 +31,7 @@ export type RpcCommand =

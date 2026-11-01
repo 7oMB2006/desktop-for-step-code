@@ -1,6 +1,6 @@
 diff --git a/packages/coding-agent/docs/session-import.md b/packages/coding-agent/docs/session-import.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..c1ec33543cde4f61a187469474cda92e312fbf77
+index 0000000..c1ec335
 --- /dev/null
 +++ b/packages/coding-agent/docs/session-import.md
 @@ -0,0 +1,96 @@
@@ -102,7 +102,7 @@ index 0000000000000000000000000000000000000000..c1ec33543cde4f61a187469474cda92e
 +scans the **host** machine, not a remote browser device.
 diff --git a/packages/coding-agent/src/core/session-import/parsers.ts b/packages/coding-agent/src/core/session-import/parsers.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..806835c29d1fe9583170019bf0d4d432bec83235
+index 0000000..806835c
 --- /dev/null
 +++ b/packages/coding-agent/src/core/session-import/parsers.ts
 @@ -0,0 +1,408 @@
@@ -516,7 +516,7 @@ index 0000000000000000000000000000000000000000..806835c29d1fe9583170019bf0d4d432
 +}
 diff --git a/packages/coding-agent/src/core/session-import/service.ts b/packages/coding-agent/src/core/session-import/service.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..9ce143eb8dae8ced14f717d55d0ff68cec647ad0
+index 0000000..9ce143e
 --- /dev/null
 +++ b/packages/coding-agent/src/core/session-import/service.ts
 @@ -0,0 +1,676 @@
@@ -1198,7 +1198,7 @@ index 0000000000000000000000000000000000000000..9ce143eb8dae8ced14f717d55d0ff68c
 +}
 diff --git a/packages/coding-agent/src/core/session-import/types.ts b/packages/coding-agent/src/core/session-import/types.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..7b8c7f68a9c3e02fcc2aa73aac4e847486c79ffa
+index 0000000..7b8c7f6
 --- /dev/null
 +++ b/packages/coding-agent/src/core/session-import/types.ts
 @@ -0,0 +1,84 @@
@@ -1287,7 +1287,7 @@ index 0000000000000000000000000000000000000000..7b8c7f68a9c3e02fcc2aa73aac4e8474
 +	);
 +}
 diff --git a/packages/coding-agent/src/core/session-manager.ts b/packages/coding-agent/src/core/session-manager.ts
-index 50a626f0d720b4b00442ef3054b330cb161b0ed0..cdaa288cc271c40e713ec2b412445fa8c2d33a76 100644
+index 50a626f..cdaa288 100644
 --- a/packages/coding-agent/src/core/session-manager.ts
 +++ b/packages/coding-agent/src/core/session-manager.ts
 @@ -27,6 +27,7 @@ import {
@@ -1355,7 +1355,7 @@ index 50a626f0d720b4b00442ef3054b330cb161b0ed0..cdaa288cc271c40e713ec2b412445fa8
  		// hand-edited files can contain messages with null/missing content.
  		if (
 diff --git a/packages/coding-agent/src/core/usage-totals.ts b/packages/coding-agent/src/core/usage-totals.ts
-index 35c533e167a824d8605630c641a3d3dafcf5ce80..4385d8ad5913e7935ee01ec0034660d8a2696cd9 100644
+index 35c533e..4385d8a 100644
 --- a/packages/coding-agent/src/core/usage-totals.ts
 +++ b/packages/coding-agent/src/core/usage-totals.ts
 @@ -1,4 +1,5 @@
@@ -1373,10 +1373,10 @@ index 35c533e167a824d8605630c641a3d3dafcf5ce80..4385d8ad5913e7935ee01ec0034660d8
  	if (entry.type === "message" && message?.role === "assistant")
  		return { raw: message.usage, expected: true, assistant: true };
 diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
-index d4c762cecf7cfeceaace7076fae61cb349b097aa..5415cdee67827970f2abfc939572295dbf61e7fa 100644
+index d746bec..a4512f5 100644
 --- a/packages/coding-agent/src/index.ts
 +++ b/packages/coding-agent/src/index.ts
-@@ -889,3 +889,5 @@ export { loadAllHighlightLanguages } from "./utils/syntax-highlight.ts";
+@@ -901,3 +901,5 @@ export { loadAllHighlightLanguages } from "./utils/syntax-highlight.ts";
  export { stripBom } from "./utils/text.ts";
  export { formatElapsedTime } from "./utils/time.ts";
  export { ensureTool, type ToolStatus } from "./utils/tools-manager.ts";
@@ -1384,7 +1384,7 @@ index d4c762cecf7cfeceaace7076fae61cb349b097aa..5415cdee67827970f2abfc939572295d
 +export type { ImportCandidate, ImportPreview, ImportSelection, ImportResult, ImportJob } from "./core/session-import/types.ts";
 diff --git a/packages/coding-agent/test/session-import.test.ts b/packages/coding-agent/test/session-import.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4ab261b29664b45addde1fde7a2747d6168c39b7
+index 0000000..4ab261b
 --- /dev/null
 +++ b/packages/coding-agent/test/session-import.test.ts
 @@ -0,0 +1,789 @@

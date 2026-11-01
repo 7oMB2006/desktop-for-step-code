@@ -163,7 +163,9 @@ test('real Step runtime streams a local fixture response and restores its persis
     if (e.type === 'extension_ui_request' && e.method === 'confirm') rpc.respond({ id: e.id, confirmed: true });
   }); const admin = new RpcProcess(() => {});
   try {
-    rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'), dir, env);
+    rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/step/dist/bundle/step.js'), dir, env,
+      // Streaming frames are ephemeral now; the desktop spawn supplies this flag.
+      ['--include-live-events']);
     await rpc.request('get_state', {}, 60000);
     await rpc.request('prompt', { message: 'Reply with a short acknowledgement.' });
     const deadline = Date.now() + 20000;

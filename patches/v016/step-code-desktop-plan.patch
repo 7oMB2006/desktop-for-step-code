@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/features/plan-mode-tools.ts b/packages/coding-agent/src/features/plan-mode-tools.ts
-index e7e22b57be93aa936039617d6edfaa783e66b066..d693e7b855e997799bfa6ff472b7bfa1ad0d9179 100644
+index e7e22b5..d693e7b 100644
 --- a/packages/coding-agent/src/features/plan-mode-tools.ts
 +++ b/packages/coding-agent/src/features/plan-mode-tools.ts
 @@ -119,7 +119,11 @@ async function reviewPlanInteractively(
@@ -84,7 +84,7 @@ index e7e22b57be93aa936039617d6edfaa783e66b066..d693e7b855e997799bfa6ff472b7bfa1
  				// behind it, so its extension_ui_request select can be auto-cancelled
  				// to "Stay", leaving the child idle in plan mode forever. Exit plan mode
 diff --git a/packages/coding-agent/src/features/step-plan.ts b/packages/coding-agent/src/features/step-plan.ts
-index 62e01742a0d8f7e0f81c80a88a78af3f5bf7a9cf..0bd077d3a4426e805a50a26278be98719f8496af 100644
+index 62e0174..0bd077d 100644
 --- a/packages/coding-agent/src/features/step-plan.ts
 +++ b/packages/coding-agent/src/features/step-plan.ts
 @@ -211,6 +211,11 @@ export const createStepPlanExtension =
@@ -151,7 +151,7 @@ index 62e01742a0d8f7e0f81c80a88a78af3f5bf7a9cf..0bd077d3a4426e805a50a26278be9871
  
  		const restorePlanState = (ctx: ExtensionContext, startWithPlan = false): void => {
 diff --git a/packages/coding-agent/test/step-plan-extension.test.ts b/packages/coding-agent/test/step-plan-extension.test.ts
-index d584f1885b0b77b96995f3b7744f03607d53782b..d994ea51263ec2a36f37b68df256eb4768334000 100644
+index d584f18..d994ea5 100644
 --- a/packages/coding-agent/test/step-plan-extension.test.ts
 +++ b/packages/coding-agent/test/step-plan-extension.test.ts
 @@ -56,6 +56,117 @@ const PLAN_TOOLS_UNDER_TEST = [

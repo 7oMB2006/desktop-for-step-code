@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
-index 6f881338a5d4ac34a416706a1e72b1f6e181cff3..ce12a4056070feac64d5847fd743e57c6ac073d7 100644
+index 6f88133..ce12a40 100644
 --- a/packages/coding-agent/src/features/step-cron.ts
 +++ b/packages/coding-agent/src/features/step-cron.ts
 @@ -349,6 +349,8 @@ export interface StepCronRuntimeOptions {

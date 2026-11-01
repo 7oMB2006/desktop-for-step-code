@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
-index 185ec7e2d054b4f9cb69a92d5858da843673fc88..f7aa30d22cd536ea1b6f0592d42d25c79eba8902 100644
+index 185ec7e..f7aa30d 100644
 --- a/packages/coding-agent/src/core/extensions/types.ts
 +++ b/packages/coding-agent/src/core/extensions/types.ts
 @@ -1458,10 +1458,7 @@ export interface ExtensionAPI {
@@ -15,7 +15,7 @@ index 185ec7e2d054b4f9cb69a92d5858da843673fc88..f7aa30d22cd536ea1b6f0592d42d25c7
  	/** Append a custom entry to the session for state persistence (not sent to LLM). */
  	appendEntry<T = unknown>(customType: string, data?: T): void;
 diff --git a/packages/coding-agent/src/core/session-manager.ts b/packages/coding-agent/src/core/session-manager.ts
-index cdaa288cc271c40e713ec2b412445fa8c2d33a76..f16947625850f3c0fd7bb2b02f7598a3fa4386b5 100644
+index cdaa288..f169476 100644
 --- a/packages/coding-agent/src/core/session-manager.ts
 +++ b/packages/coding-agent/src/core/session-manager.ts
 @@ -390,7 +390,11 @@ function getSessionContextSettings(path: SessionEntry[]): Pick<SessionContext, "
@@ -115,7 +115,7 @@ index cdaa288cc271c40e713ec2b412445fa8c2d33a76..f16947625850f3c0fd7bb2b02f7598a3
  		}
  		// Session files are parsed without validation; old versions, forks, or
 diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
-index eccb429170ca3b8a52fd9ef986af2678faabe61e..df403ce2a91314780446c09b5ed26ba5d74cef66 100644
+index eccb429..df403ce 100644
 --- a/packages/coding-agent/src/features/step-cron.ts
 +++ b/packages/coding-agent/src/features/step-cron.ts
 @@ -66,8 +66,13 @@ export interface CronJob {
@@ -333,10 +333,10 @@ index eccb429170ca3b8a52fd9ef986af2678faabe61e..df403ce2a91314780446c09b5ed26ba5
  						{ deliverAs: "steer", triggerTurn: true },
  					);
 diff --git a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
-index c813635ce637ac9919591beaaf2b58345b85b569..40de3892a613fab17bb779db3c88ea934e5f93ac 100644
+index 5474c00..8b4f2b4 100644
 --- a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
 +++ b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
-@@ -201,7 +201,21 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+@@ -258,7 +258,21 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
  	};
  
  	/** Finished lanes whose final notification has not been sent yet; never evicted. */
@@ -359,7 +359,7 @@ index c813635ce637ac9919591beaaf2b58345b85b569..40de3892a613fab17bb779db3c88ea93
  
  	/** Forget the oldest finished lanes beyond MAX_RETAINED_FINISHED_LANES. */
  	const evictFinishedLanes = (): void => {
-@@ -216,7 +230,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+@@ -273,7 +287,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
  	};
  
  	const deliverFinal = async (lane: BackgroundAgentLane, generation: number): Promise<void> => {
@@ -367,10 +367,10 @@ index c813635ce637ac9919591beaaf2b58345b85b569..40de3892a613fab17bb779db3c88ea93
 +		pendingFinal.set(lane, generation);
 +		publishDesktopState(lane.ctx);
  		try {
- 			const detail = await buildLaneFinalDetail(lane, host.outputDirectory(lane.ctx));
+ 			await lane.completionWrites;
  			if (!isCurrent(lane, generation)) return;
-@@ -231,8 +246,11 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
- 				detail,
+@@ -300,8 +315,11 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 				view.text,
  			);
  		} finally {
 -			pendingFinal.delete(lane);
@@ -383,15 +383,15 @@ index c813635ce637ac9919591beaaf2b58345b85b569..40de3892a613fab17bb779db3c88ea93
  		}
  	};
  
-@@ -242,6 +260,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+@@ -311,6 +329,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
  		lane.runGeneration = generation;
  		lane.controller = new AbortController();
  		lane.status = "running";
 +		publishDesktopState(lane.ctx);
  		lane.updatedAt = Date.now();
  		lane.lastProgressNotifyAt = Date.now();
- 		const signal = lane.controller.signal;
-@@ -406,7 +425,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 		lane.completionError = undefined;
+@@ -549,7 +568,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
  		lane.status = "aborted";
  		lane.updatedAt = Date.now();
  		// Keep the lane until its interrupted notification is out.
@@ -401,7 +401,7 @@ index c813635ce637ac9919591beaaf2b58345b85b569..40de3892a613fab17bb779db3c88ea93
  		lane.details = { ...lane.details, status: "aborted", updatedAt: lane.updatedAt };
  		updateLaneWidget(lane);
  		// Notify only after the aborted run has actually wound down, with what it
-@@ -425,7 +445,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+@@ -568,7 +588,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
  			)
  			.then(() => {
  				if (isCurrent(lane, generation) && lane.status === "aborted") return deliverFinal(lane, generation);
@@ -411,33 +411,100 @@ index c813635ce637ac9919591beaaf2b58345b85b569..40de3892a613fab17bb779db3c88ea93
  			});
  		return `Stopped lane ${lane.id}; you will get one notification once it has wound down`;
  	};
-@@ -524,7 +545,10 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
- 				sessions.push(session);
- 			}
+@@ -669,6 +690,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
  		}
--		if (runs.length === 0 && sessions.length === 0) return running;
-+		if (runs.length === 0 && sessions.length === 0) {
+ 		if (runs.length === 0 && sessions.length === 0) {
+ 			for (const lane of owned) closedRetention.add(lane);
 +			if (owned[0]) publishDesktopState(owned[0].ctx);
-+			return running;
-+		}
+ 			return running;
+ 		}
  		let timer: ReturnType<typeof setTimeout> | undefined;
- 		const settled = Promise.all([...runs, ...sessions.map((session) => session.exited)]).then(() => true);
- 		const timedOut = new Promise<boolean>((resolve) => {
-@@ -534,6 +558,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
- 		const clean = await Promise.race([settled, timedOut]);
+@@ -681,6 +703,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 		for (const lane of owned) closedRetention.add(lane);
  		if (timer) clearTimeout(timer);
  		if (!clean) for (const session of sessions) session.terminate();
 +		if (owned[0]) publishDesktopState(owned[0].ctx);
  		return running;
  	};
  
+diff --git a/packages/coding-agent/src/features/subagent/projection.ts b/packages/coding-agent/src/features/subagent/projection.ts
+index 1e4126b..1a524ff 100644
+--- a/packages/coding-agent/src/features/subagent/projection.ts
++++ b/packages/coding-agent/src/features/subagent/projection.ts
+@@ -21,6 +21,21 @@
+ import type { StepSubagentResultRecord } from "../step-subagent.ts";
+ import { cloneUsage } from "./helpers.ts";
+ 
++// Child output can carry credentials that neither the parent conversation nor a
++// desktop renderer may display. Renderers filter whole lines, so a truncation
++// boundary that keeps a value but drops its `key =` prefix would evade them;
++// redact before any clipping instead.
++const SENSITIVE_LINE =
++	/(api[-_.]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|secret|password|passwd|credential|cookie|authorization|bearer\s+[A-Za-z0-9._-]|['"]?(?:token|apiKey|api_key)['"]?\s*[:=]|^\s*(?:STEP|PI|AI_AGENT)[A-Z0-9_]*\s*=)/i;
++
++function redactSensitiveText(text: string | undefined): string | undefined {
++	if (text === undefined) return undefined;
++	return text
++		.split("\n")
++		.map((line) => (!line.trim() || !SENSITIVE_LINE.test(line) ? line : "[redacted]"))
++		.join("\n");
++}
++
+ /** Live frames are one per repaint; a renderer shows the newest lines only. */
+ const LIVE_TEXT_CHARS = 2_000;
+ const LIVE_TOOL_OUTPUT_CHARS = 1_000;
+@@ -118,19 +133,23 @@ export function liveRecord(record: StepSubagentResultRecord): StepSubagentResult
+ 		status: record.status,
+ 		exitCode: record.exitCode,
+ 		messages: [],
+-		stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
++		stderr: tailChars(redactSensitiveText(record.stderr), LIVE_STDERR_CHARS) ?? "",
+ 		usage: cloneUsage(record.usage),
+ 		...(record.model === undefined ? {} : { model: clipMiddle(record.model, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.stopReason === undefined ? {} : { stopReason: clipMiddle(record.stopReason, LIVE_IDENTIFIER_CHARS) }),
+-		...(record.errorMessage === undefined ? {} : { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
+-		...(record.activeText === undefined ? {} : { activeText: tailChars(record.activeText, LIVE_TEXT_CHARS) }),
++		...(record.errorMessage === undefined
++			? {}
++			: { errorMessage: tailChars(redactSensitiveText(record.errorMessage), LIVE_ERROR_CHARS) }),
++		...(record.activeText === undefined
++			? {}
++			: { activeText: tailChars(redactSensitiveText(record.activeText), LIVE_TEXT_CHARS) }),
+ 		...(record.activeTool === undefined ? {} : { activeTool: clipMiddle(record.activeTool, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.activeToolArgs === undefined
+ 			? {}
+-			: { activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS) }),
++			: { activeToolArgs: tailChars(redactSensitiveText(record.activeToolArgs), LIVE_TOOL_ARGS_CHARS) }),
+ 		...(record.activeToolOutput === undefined
+ 			? {}
+-			: { activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS) }),
++			: { activeToolOutput: tailChars(redactSensitiveText(record.activeToolOutput), LIVE_TOOL_OUTPUT_CHARS) }),
+ 		...(record.lastEvent === undefined ? {} : { lastEvent: clipMiddle(record.lastEvent, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
+ 		...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
+@@ -181,12 +200,12 @@ export function liveRoster(records: readonly StepSubagentResultRecord[]): {
+  * always renders even when the runner reported none.
+  */
+ export function finalRecord(record: StepSubagentResultRecord, budget: Budget): StepSubagentResultRecord {
+-	const text = record.activeText || finalAssistantText(record);
++	const text = redactSensitiveText(record.activeText || finalAssistantText(record));
+ 	const fields = [
+ 		{ value: record.task || "(unspecified task)", max: FINAL_TASK_CHARS, clip: clipMiddle },
+ 		{ value: text, max: FINAL_TEXT_CHARS, clip: tailChars },
+-		{ value: record.stderr, max: FINAL_STDERR_CHARS, clip: tailChars },
+-		{ value: record.errorMessage, max: FINAL_ERROR_CHARS, clip: tailChars },
++		{ value: redactSensitiveText(record.stderr), max: FINAL_STDERR_CHARS, clip: tailChars },
++		{ value: redactSensitiveText(record.errorMessage), max: FINAL_ERROR_CHARS, clip: tailChars },
+ 	];
+ 	// Floors are bounded independently of the shared budget. Without them later
+ 	// records lose their identity, output, and failure reason once a batch fills it.
 diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
-index 5415cdee67827970f2abfc939572295dbf61e7fa..2f9932826d193532dc24bba967dfa32ab28feb89 100644
+index a4512f5..1455084 100644
 --- a/packages/coding-agent/src/index.ts
 +++ b/packages/coding-agent/src/index.ts
-@@ -319,6 +319,14 @@ export {
- } from "./core/sdk.ts";
- export { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "./core/session-cwd.ts";
+@@ -324,6 +324,14 @@ export {
+ 	sessionEventDurability,
+ } from "./core/session-event-durability.ts";
  export { exportSessionToJsonl } from "./core/session-export.ts";
 +export { SessionImportError, SessionImportService } from "./core/session-import/service.ts";
 +export type {
@@ -450,17 +517,17 @@ index 5415cdee67827970f2abfc939572295dbf61e7fa..2f9932826d193532dc24bba967dfa32a
  export * from "./core/session-index/index.ts";
  export type {
  	SessionFilePersistedEvent,
-@@ -889,5 +897,3 @@ export { loadAllHighlightLanguages } from "./utils/syntax-highlight.ts";
+@@ -901,5 +909,3 @@ export { loadAllHighlightLanguages } from "./utils/syntax-highlight.ts";
  export { stripBom } from "./utils/text.ts";
  export { formatElapsedTime } from "./utils/time.ts";
  export { ensureTool, type ToolStatus } from "./utils/tools-manager.ts";
 -export { SessionImportService, SessionImportError } from "./core/session-import/service.ts";
 -export type { ImportCandidate, ImportPreview, ImportSelection, ImportResult, ImportJob } from "./core/session-import/types.ts";
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index 7ba2bc71d9882f76e53bb9519045d4d6bf4d145d..9ac44d97da310b901682a4a5a0423d76c4ee45f3 100644
+index 560bf79..1332fb8 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-@@ -454,33 +454,74 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -470,33 +470,74 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  			// =================================================================
  
  			case "get_desktop_clm": {
@@ -548,7 +615,7 @@ index 7ba2bc71d9882f76e53bb9519045d4d6bf4d145d..9ac44d97da310b901682a4a5a0423d76
  				});
  			}
  
-@@ -514,8 +555,12 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -530,8 +571,12 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  				});
  			}
  			case "desktop_cron_resume": {
@@ -563,7 +630,7 @@ index 7ba2bc71d9882f76e53bb9519045d4d6bf4d145d..9ac44d97da310b901682a4a5a0423d76
  					throw new Error("Cron recovery requires an idle trusted project");
  				}
  				resumeDesktopCronRecovery(command.before);
-@@ -523,8 +568,12 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -539,8 +584,12 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  			}
  			case "desktop_cron": {
  				if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is disabled");
@@ -578,7 +645,7 @@ index 7ba2bc71d9882f76e53bb9519045d4d6bf4d145d..9ac44d97da310b901682a4a5a0423d76
  					throw new Error("Wait for this session to become idle");
  				}
  				const runner = session.extensionRunner;
-@@ -534,31 +583,63 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -550,31 +599,63 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  				if (!list || !tool) throw new Error("Cron tools are unavailable");
  				let result: unknown;
  				if (command.action !== "list") {
@@ -659,7 +726,7 @@ index 7ba2bc71d9882f76e53bb9519045d4d6bf4d145d..9ac44d97da310b901682a4a5a0423d76
  			}
  			case "get_state": {
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
-index 85b661aa8438565857cc18aa6bde23588ce8c61b..fbf93e00639ac42ef28382c78df7f2229f8e7172 100644
+index 85b661a..fbf93e0 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
 @@ -25,13 +25,23 @@ export type RpcCommand =
@@ -689,7 +756,7 @@ index 85b661aa8438565857cc18aa6bde23588ce8c61b..fbf93e00639ac42ef28382c78df7f222
  	// Model
  	| { id?: string; type: "set_model"; provider: string; modelId: string }
 diff --git a/packages/coding-agent/test/step-cron.test.ts b/packages/coding-agent/test/step-cron.test.ts
-index 4d3d79b237d1f3adaaa8f186bd9394d6cc7f5687..c987e99d4ecad2b0d89c7e67d19b7d521b2ad9f7 100644
+index 4d3d79b..c987e99 100644
 --- a/packages/coding-agent/test/step-cron.test.ts
 +++ b/packages/coding-agent/test/step-cron.test.ts
 @@ -1,5 +1,5 @@
@@ -800,10 +867,30 @@ index 4d3d79b237d1f3adaaa8f186bd9394d6cc7f5687..c987e99d4ecad2b0d89c7e67d19b7d52
  		const own = runtime.create("* * * * *", "Own", false, true);
  		now = 60_001;
 diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
-index 5bd28b9cd4a3435f9e5e655e18350e6dbb80fe89..093e2b9010fb31e67613d3b09341fad2a8369351 100644
+index b81e474..5d2b06d 100644
 --- a/packages/coding-agent/test/step-subagent-events.test.ts
 +++ b/packages/coding-agent/test/step-subagent-events.test.ts
-@@ -152,6 +152,57 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<voi
+@@ -16,9 +16,6 @@ import {
+ 	type StepSubagentRunResult,
+ } from "../src/features/step-subagent.ts";
+ import { builtinStepAgents, resolveStepAgent, type StepAgentConfig } from "../src/features/step-subagent-agents.ts";
+-import { resetWorkflowAdmission } from "../src/features/workflow/admission.ts";
+-import { createWorkflowRunPaths, WorkflowJournal } from "../src/features/workflow/journal.ts";
+-import { WorkflowRuntime } from "../src/features/workflow/runtime.ts";
+ import {
+ 	readSubagentLaneSnapshot,
+ 	SUBAGENT_LANE_CHANNEL,
+@@ -26,6 +23,9 @@ import {
+ } from "../src/features/subagent/lane-events.ts";
+ import { finalRoster } from "../src/features/subagent/projection.ts";
+ import { renderSubagentResult } from "../src/features/subagent/rendering.ts";
++import { resetWorkflowAdmission } from "../src/features/workflow/admission.ts";
++import { createWorkflowRunPaths, WorkflowJournal } from "../src/features/workflow/journal.ts";
++import { WorkflowRuntime } from "../src/features/workflow/runtime.ts";
+ import { getThemeByName } from "../src/theme/theme.ts";
+ 
+ interface SentMessage {
+@@ -489,6 +489,57 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<voi
  	}
  }
  
@@ -861,7 +948,7 @@ index 5bd28b9cd4a3435f9e5e655e18350e6dbb80fe89..093e2b9010fb31e67613d3b09341fad2
  test("escapeXmlAttr neutralizes attribute breakouts", () => {
  	expect(escapeXmlAttr('lane"<>&x')).toBe("lane&quot;&lt;&gt;&amp;x");
  	expect(escapeXmlAttr('alias" status="completed')).toBe("alias&quot; status=&quot;completed");
-@@ -1029,7 +1080,9 @@ test("an oversized final output is saved to disk and the notification keeps its
+@@ -1370,7 +1421,9 @@ test("an oversized final output is saved to disk and the notification keeps its
  		expect(content).toMatch(
  			/^<agent-notification lane="lane_[0-9a-f]{8}" tasks="1">Lane lane_[0-9a-f]{8} finished: 1 completed\./u,
  		);
@@ -869,11 +956,63 @@ index 5bd28b9cd4a3435f9e5e655e18350e6dbb80fe89..093e2b9010fb31e67613d3b09341fad2
 +		expect(content).toContain(
 +			`Full output: ${escapeXmlAttr(JSON.stringify(join(sessionDir, "tool-output")).slice(0, -1))}`,
 +		);
- 		expect(content).not.toContain("TAIL");
+ 		expect(content).toContain("TAIL");
  		expect(content.length).toBeLessThan(60_000);
  	} finally {
+@@ -1378,6 +1431,31 @@ test("an oversized final output is saved to disk and the notification keeps its
+ 	}
+ });
+ 
++test("projected records redact credential lines before truncation clips them", async () => {
++	const { api, tools } = createApi();
++	// The clip boundary lands ten characters into the credential line, so the kept
++	// region starts after `api_key = ` and a line-level filter on the projection
++	// could no longer match it. Redaction must run on the full text instead.
++	const head = "x".repeat(49_980);
++	const activeText = `${head}api_key = super-secret-value\n${"z".repeat(49_980)}`;
++	createStepSubagentExtension({
++		agentDir: "/tmp/step-agent-test",
++		runner: async () => ({ ...textResult(""), messages: [], activeText, exitCode: 0 }),
++	})(api);
++	const tool = tools.get("subagent");
++	if (!tool) throw new Error("subagent tool not registered");
++	const result = await tool.execute(
++		"batch",
++		{ tasks: [{ agent: "general", task: "task-0" }] },
++		undefined,
++		undefined,
++		createContext("/tmp"),
++	);
++	const typed = result as AgentToolResult<StepSubagentDetails>;
++	expect(JSON.stringify(typed.details)).not.toContain("super-secret-value");
++	expect(typed.details?.results[0]?.activeText).toContain("[redacted]");
++});
++
+ test("session shutdown stops this session's lanes silently and leaves another session's lanes running", async () => {
+ 	const gate = deferred();
+ 	const signals: AbortSignal[] = [];
+@@ -1476,12 +1554,16 @@ test("idle keep-alive children are stopped after the TTL and a reply resumes qui
+ 		/**
+ 		 * A finished lane sends its notification only after reading the child's
+ 		 * details from disk, so waiting on 1ms of virtual time is a race against
+-		 * file I/O that a loaded CI runner loses. Advance in steps for a bounded
+-		 * virtual budget instead, and report what did arrive.
++		 * file I/O that a loaded CI runner loses — 500 event-loop turns can elapse
++		 * in far less wall time than a contended disk needs. Bound the loop by
++		 * real wall clock in addition to the virtual step cap, and report what
++		 * did arrive.
+ 		 */
+ 		const settle = async (count: number): Promise<boolean> => {
+-			for (let i = 0; i < 500; i += 1) {
++			const deadline = Date.now() + 10_000;
++			for (let i = 0; i < 3_000; i += 1) {
+ 				if (sent.filter((m) => m.details?.event === "background_done").length >= count) return true;
++				if (Date.now() > deadline) return false;
+ 				await vi.advanceTimersByTimeAsync(10);
+ 			}
+ 			return false;
 diff --git a/packages/coding-agent/test/suite/agent-session-prompt.test.ts b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
-index 9dd5ec2137a2d69d847000af1a4a3a111e7ab646..d79ac01281b1b39f2322466c4fdc412705a1b0da 100644
+index 9dd5ec2..d79ac01 100644
 --- a/packages/coding-agent/test/suite/agent-session-prompt.test.ts
 +++ b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
 @@ -7,8 +7,8 @@ import { Type } from "typebox";
@@ -953,7 +1092,7 @@ index 9dd5ec2137a2d69d847000af1a4a3a111e7ab646..d79ac01281b1b39f2322466c4fdc4127
  	});
  
 diff --git a/scripts/build-coding-agent-bundle.mjs b/scripts/build-coding-agent-bundle.mjs
-index af80dd75c3bf429cc63bd08b5d0fd1c0cc7aa8f9..fac2aeda34008d81d0a01b1fa4d8a0af2ab4b476 100644
+index af80dd7..fac2aed 100644
 --- a/scripts/build-coding-agent-bundle.mjs
 +++ b/scripts/build-coding-agent-bundle.mjs
 @@ -20,7 +20,9 @@ const codingAgentDistDir = join(codingAgentDir, "dist");

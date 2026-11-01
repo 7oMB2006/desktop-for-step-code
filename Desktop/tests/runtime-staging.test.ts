@@ -10,6 +10,15 @@ test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and pat
   const root = resolve('../patches/v016');
   const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
   assert.equal(manifest.commit, '81e79bc4b699148d6823fedde9b5e70d9a80255f');
+  assert.deepEqual(manifest.upstream.commits.map((entry: { sha: string }) => entry.sha), [
+    '7487124e7b27c604535fc8439ccd0d0b81c5c299',
+    '90a57820c81c6e78e4a3ea5be3f66694ac038611',
+  ]);
+  for (const entry of manifest.upstream.commits) {
+    const bytes = Buffer.from((await readFile(join(root, entry.patch), 'utf8')).replace(/\r\n/g, '\n'));
+    const actual = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+    assert.equal(actual, entry.hash, `${entry.patch} changed without a reviewed manifest update`);
+  }
   assert.ok(Object.keys(manifest.sources).every(path => path in manifest.patchedSources));
   assert.deepEqual(Object.keys(manifest.patchedSources).filter(path => !(path in manifest.sources)).sort(), [
     'packages/coding-agent/src/core/session-import/parsers.ts',

@@ -1,8 +1,8 @@
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index 34b9ae980484db028612280f3b57eca48cf478b8..74939f99c7abbd499e1f38abe7845a200f24bb2e 100644
+index 5ccafda..8804399 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-@@ -512,6 +512,37 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+@@ -528,6 +528,37 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  					skillCount: session.resourceLoader.getSkills().skills.length,
  				});
  			}
@@ -41,7 +41,7 @@ index 34b9ae980484db028612280f3b57eca48cf478b8..74939f99c7abbd499e1f38abe7845a20
  				const state: RpcSessionState = {
  					model: session.model,
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
-index 1360fa84f47279465442ade87d4d7e2e85d16a35..2d7930d2d1cf9193d07d93a5ab3be1341e0d0ddf 100644
+index 1360fa8..2d7930d 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
 @@ -30,6 +30,7 @@ export type RpcCommand =

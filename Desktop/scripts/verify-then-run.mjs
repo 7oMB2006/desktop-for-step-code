@@ -251,18 +251,28 @@ try {
     const child = app.process();
     const context = app.context();
     const stopped = Promise.all([once(app, 'close'), once(context, 'close')]);
+    const exited = new Promise(resolve => {
+      if (child.exitCode !== null) resolve();
+      else child.once('exit', resolve);
+    });
     const dispose = releaseExitedFixturePipes(app);
     let timer;
+    let exitedFirst = false;
     try {
       await Promise.race([
         closeDesktopFixture(app),
         // Closure events remain authoritative if the controller's final RPC reply stalls.
         stopped,
+        // A clean process exit is orderly shutdown completing even when the driver
+        // misses its own closure events behind the exiting fixture's pipes.
+        exited.then(() => { exitedFirst = true; }),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('then_run orderly shutdown timed out after 30s')), 30000); }),
       ]);
       assert.equal(child.exitCode, 0, 'The application launcher must exit successfully after orderly shutdown');
-      assert.equal(context.isClosed(), true, 'The browser context must close');
-      assert.equal(app.windows().length, 0, 'Every application window must close');
+      if (!exitedFirst) {
+        assert.equal(context.isClosed(), true, 'The browser context must close');
+        assert.equal(app.windows().length, 0, 'Every application window must close');
+      }
       console.log('then_run fixture: closed');
     } finally { clearTimeout(timer); dispose(); }
   }

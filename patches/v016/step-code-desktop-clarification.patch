@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/features/step-questionnaire.ts b/packages/coding-agent/src/features/step-questionnaire.ts
-index 7301fc9a497581e9e4a88f880c4da12cdc74f8e0..4b32f0d80c75101e85c35d4b3ea5e98e24daca3f 100644
+index 7301fc9..4b32f0d 100644
 --- a/packages/coding-agent/src/features/step-questionnaire.ts
 +++ b/packages/coding-agent/src/features/step-questionnaire.ts
 @@ -521,9 +521,10 @@ async function executeQuestionnaire(

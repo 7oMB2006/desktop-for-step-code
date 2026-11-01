@@ -123,6 +123,8 @@ export type SubagentTask = {
   toolCallId?: string;
   taskIndex?: number;
   backgroundAgentId?: string;
+  output?: string;
+  omitted?: boolean;
 };
 
 export type BackgroundSubagentStates = ReadonlyMap<string, SubagentTask['status']>;
@@ -162,7 +164,7 @@ export function backgroundSubagentStates(messages: Message[]): BackgroundSubagen
 
 /** One subagent call carries a task list in its call args and per-task records in its result details. */
 export function subagentTasks(call: Content | undefined, result: Message | undefined, background?: BackgroundSubagentStates): SubagentTask[] {
-  const details = (result as { details?: { results?: unknown } } | undefined)?.details;
+  const details = (result as { details?: { results?: unknown; omittedResults?: unknown } } | undefined)?.details;
   const records = Array.isArray(details?.results) ? details.results.filter(record => record && typeof record === 'object') : [];
   const tasks: SubagentTask[] = records.map(record => {
     const value = record as Record<string, unknown>;
@@ -172,6 +174,9 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
       task: typeof value.task === 'string' ? value.task : '',
       status: SUBAGENT_STATUSES.includes(value.status as typeof SUBAGENT_STATUSES[number]) ? value.status as SubagentTask['status'] : 'running',
       messages: Array.isArray(value.messages) ? value.messages.filter(message => message && typeof message === 'object') as Message[] : [],
+      // Records no longer carry child transcripts; activeText is the bounded output tail the
+      // runtime keeps for every settled step.
+      output: typeof value.activeText === 'string' ? value.activeText : undefined,
       model: typeof value.model === 'string' ? value.model : undefined,
       turns: typeof usage?.turns === 'number' ? usage.turns : undefined,
     };
@@ -190,8 +195,16 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
   if (!planned.length && (typeof args?.agent === 'string' || typeof args?.task === 'string')) {
     planned.push({ agent: String(args.agent ?? ''), task: String(args.task ?? '') });
   }
-  const entries = tasks.length ? tasks : planned.map((entry, index) => ({ ...entry,
-    status: Array.isArray(args?.chain) && index > 0 ? 'queued' as const : 'running' as const, messages: [] }));
+  // A bounded live roster keeps a task prefix and counts the rest in omittedResults; the
+  // planned dispatch is the full list, so the omitted tail comes back as flagged
+  // placeholders instead of disappearing from the conversation and the summary.
+  const omittedResults = typeof details?.omittedResults === 'number' && details.omittedResults > 0
+    ? Math.floor(details.omittedResults) : 0;
+  const entries = tasks.length
+    ? [...tasks, ...planned.slice(tasks.length, tasks.length + omittedResults).map(entry => ({ ...entry,
+      status: Array.isArray(args?.chain) ? 'queued' as const : 'running' as const, messages: [] as Message[], omitted: true as const }))]
+    : planned.map((entry, index) => ({ ...entry,
+      status: Array.isArray(args?.chain) && index > 0 ? 'queued' as const : 'running' as const, messages: [] }));
   const backgroundAgentId = typeof result?.details?.agentId === 'string' ? result.details.agentId : undefined;
   // A background lane reports through the agentId map. A foreground chain lane has no
   // agentId, but its tool result still carries the lane verdict in details.status, so

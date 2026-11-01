@@ -1,5 +1,56 @@
 # Verification
 
+## Upstream overlay pin: subagent outcomes and session records (2026-11-01)
+
+The v016 baseline carries two upstream commits installed by the applier before
+the desktop patches, declared under `upstream.commits` in the manifest:
+`7487124e7b27c604535fc8439ccd0d0b81c5c299` (session record of facts,
+upstream PR stepfun-ai/Step-Code#318) and
+`90a57820c81c6e78e4a3ea5be3f66694ac038611` (preserve subagent outcomes, upstream
+PR stepfun-ai/Step-Code#324). They land as uncommitted worktree edits, so the
+staging guard still checks HEAD against the pin while `sources` and
+`patchedSources` describe the combined state. Upstream PR
+stepfun-ai/Step-Code#323 is deliberately skipped: it removes the
+`enter_plan_mode` tool the Desktop plan-review bridge is built on, and the two
+carried commits do not depend on it. See the [overlay notes](UPSTREAM_V016.md).
+
+Patch rebase evidence: all 13 desktop patches were rebased onto the combined
+state. 29 of 34 patched sources remain byte-identical to the previous v016
+result; the 5 changed files are exactly the upstream-colliding sources
+(lane-lifecycle, rpc-adapter, index, rpc-mode, step-subagent-events test). A
+fresh pin checkout replayed by the updated applier is byte-identical to the
+reviewed composition, and a tampered preimage rolls every applied patch back in
+reverse, leaving the checkout as it was found.
+
+Upstream suite control: the composed tree with desktop patches and the previous
+v016 state ran the full upstream coding-agent suite on the same Windows machine.
+The deterministic failures are identical to upstream main `90a57820` itself on
+this machine (three json-mode-durability tests plus the oversized-output and
+rpc live-channel tests); every other per-run difference flipped in isolated
+reruns, so the composition adds no new deterministic failure.
+
+Desktop local: typecheck passes. The serial Desktop suite is 807 collected:
+793 pass, 14 platform skips, zero failures, including real-runtime background
+lane, session worker and slash-handler tests against a locally staged overlay
+runtime. The spawn-args assertions pin `--include-live-events`, and a slash
+assertion requires `message_update` streaming frames with that flag set.
+CI policy/runner/diagnostic tests pass with one platform skip (24 pass,
+1 skip).
+
+Staging: staged locally from the composed checkout with Node v24.16.0; the
+runtime manifest records the pin plus both upstream commits. Staging now skips
+rewriting an identical bundled node binary and prefers the distribution's own
+LICENSE before the remote fetch, which keeps restaging idempotent under file
+locking and works without access to the license host.
+
+Non-claims: the Electron acceptance scripts did not run on this machine.
+Behavior-monitoring software denies file writes by node-family processes under
+the repository path and denies Electron processes writes generally, so the
+local suite covers the staged runtime through the node test runner only. No
+installer, packaged app, real-account or real-model run, native macOS
+acceptance or cloud CI result is claimed by this entry; the Windows three-group
+run on the PR head remains the required gate for the full acceptance inventory.
+
 ## v0.1.6 CI base synchronization (2026-10-31)
 
 PR #170's original Windows interface, sessions and runtime groups passed.

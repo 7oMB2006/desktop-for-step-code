@@ -300,7 +300,7 @@ export class SessionRuntimes {
       const startedAt = performance.now();
       worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env, DESKTOP_CRON_SCOPE_DIR: worker.cronScopeDirectory,
         STEPCODE_DESKTOP_BRANCH_SOURCE: branch && branch.kind !== 'open-copy' && sessionPath ? resolve(sessionPath) : undefined,
-      }, ['--append-system-prompt', desktopSystemPolicy(cwd),
+      }, ['--include-live-events', '--append-system-prompt', desktopSystemPolicy(cwd),
         ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);
       await worker.rpc.request('get_state', {}, 60000);
       const processReadyAt = performance.now();

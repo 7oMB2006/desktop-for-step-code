@@ -37,7 +37,9 @@ test('pinned slash handlers support read-only commands, cancellable dialogs and 
   try {
     rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'),
       resolve('runtime/step/dist/bundle/step.js'), workspace,
-      { ...isolatedEnvironment(profile), STEPCODE_FEEDBACK_ENDPOINT: `${origin}/feedback` });
+      { ...isolatedEnvironment(profile), STEPCODE_FEEDBACK_ENDPOINT: `${origin}/feedback` },
+      // Desktop workers spawn with the same flag; without it the runtime only sends durable events.
+      ['--include-live-events']);
     const { commands } = await rpc.request('get_commands');
     const manifest = JSON.parse(await readFile(resolve('runtime/manifest.json'), 'utf8'));
     assert.equal(manifest.commit, '81e79bc4b699148d6823fedde9b5e70d9a80255f');
@@ -69,6 +71,8 @@ test('pinned slash handlers support read-only commands, cancellable dialogs and 
     while (!events.some(event => event.type === 'agent_end') && Date.now() < deadline)
       await new Promise(resolve => setTimeout(resolve, 20));
     assert.ok(events.some(event => event.type === 'agent_end'), 'Init completes a normal isolated model turn');
+    assert.ok(events.some(event => event.type === 'message_update'),
+      'Streaming model frames reach the RPC consumer; the runtime drops them without --include-live-events');
     assert.equal(requests.length, 1);
     assert.match(requests[0].body.messages.map((message: any) => message.content).join('\n'), /AGENTS\.md/);
     assert.ok(!requests.some(request => request.url === '/feedback'));

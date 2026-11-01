@@ -415,7 +415,8 @@ test('idle configuration refresh preserves runtime identity and ignores the reti
   assert.equal(worker.state?.sessionId, 'same-session');
   assert.equal(worker.permissionPreset, 'approve-for-me');
   assert.equal(transports[0].stopped, true);
-  assert.deepEqual(transports[1].startArgs.slice(2, 4), ['--session-id', 'same-session']);
+  const resumeAt = transports[1].startArgs.indexOf('--session-id');
+  assert.deepEqual(transports[1].startArgs.slice(resumeAt, resumeAt + 2), ['--session-id', 'same-session']);
   assert.equal(transports[1].calls.includes('new_session'), false, 'unpersisted empty session is not recreated');
   const revision = worker.revision;
   transports[0].receive({ type: 'desktop_exit' });
@@ -1125,7 +1126,7 @@ test('cancelled or stale branches dispose the new worker and leave the source ac
 test('session workers append shared-workspace rules without replacing project or product instructions', async () => {
   const { pool, transports, open } = fixture();
   const worker = await open();
-  assert.deepEqual(transports[0].startArgs, ['--append-system-prompt', desktopSystemPolicy(worker.cwd)]);
+  assert.deepEqual(transports[0].startArgs, ['--include-live-events', '--append-system-prompt', desktopSystemPolicy(worker.cwd)]);
   assert.ok(desktopSystemPolicy('/Work/中文 project', 'darwin').includes('Platform: darwin'));
   assert.ok(desktopSystemPolicy('/Work/中文 project', 'darwin').includes(JSON.stringify('/Work/中文 project')));
   assert.ok(WORKSPACE_POLICY.includes('Re-read the current file'));

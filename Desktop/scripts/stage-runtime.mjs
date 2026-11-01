@@ -59,11 +59,21 @@ try {
   matchingLicense = previous.node === process.version && previous.nodeSha256 === nodeSha256;
 } catch {}
 await mkdir(join(runtime, 'node'), { recursive: true });
-await cp(process.execPath, join(runtime, 'node', nodeExecutable));
+// Restaging over an identical binary is a pure rewrite; behavior-monitoring security
+// software can deny rewriting a live node.exe while still allowing the first copy.
+const stagedNode = join(runtime, 'node', nodeExecutable);
+const alreadyStaged = await readFile(stagedNode).then(staged => staged.equals(currentNode)).catch(() => false);
+if (!alreadyStaged) await cp(process.execPath, stagedNode);
 if (!matchingLicense) {
-  const licenseResponse = await fetch(`https://raw.githubusercontent.com/nodejs/node/${process.version}/LICENSE`);
-  if (!licenseResponse.ok) throw new Error('Unable to obtain the matching Node distribution license');
-  await writeFile(join(runtime, 'node/LICENSE'), await licenseResponse.text());
+  // The Node distribution ships its own license, which is the exact copy for the
+  // bundled binary; the version-tagged remote file is the fallback for a bare node.
+  const licenseText = await readFile(join(dirname(process.execPath), 'LICENSE'), 'utf8').catch(() => undefined)
+    ?? await (async () => {
+      const licenseResponse = await fetch(`https://raw.githubusercontent.com/nodejs/node/${process.version}/LICENSE`);
+      if (!licenseResponse.ok) throw new Error('Unable to obtain the matching Node distribution license');
+      return licenseResponse.text();
+    })();
+  await writeFile(join(runtime, 'node/LICENSE'), licenseText);
 }
 // A bundle rebuild can rename chunks or remove obsolete exports. Copying over the
 // old dist would retain those files in the packaged runtime. All source guards and
@@ -101,5 +111,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, upstreamCommits: (integrationManifest.upstream?.commits ?? []).map(entry => entry.sha), platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

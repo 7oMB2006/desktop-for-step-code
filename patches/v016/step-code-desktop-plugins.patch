@@ -1,8 +1,8 @@
 diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
-index 5dc318bd8cd224c5df456c1bbe3ecbdfc31ae240..d4c762cecf7cfeceaace7076fae61cb349b097aa 100644
+index c9614e7..d746bec 100644
 --- a/packages/coding-agent/src/index.ts
 +++ b/packages/coding-agent/src/index.ts
-@@ -676,6 +676,19 @@ export {
+@@ -688,6 +688,19 @@ export {
  	type StepToolPermissionMode,
  	stepPermissionStateForPreset,
  } from "./step/permissions.ts";

@@ -12,6 +12,22 @@ a claim that the source build is byte-identical to an official binary.
 images, with two additional Darwin patches. `patches/v015/` and dated 0.6.0
 release records remain unchanged. The applier supports both manifests.
 
+## Upstream Overlay
+
+The applier installs two upstream commits before the desktop patches, declared
+under `upstream.commits`: `7487124e7b27c604535fc8439ccd0d0b81c5c299` (session
+record of facts, upstream PR stepfun-ai/Step-Code#318) and
+`90a57820c81c6e78e4a3ea5be3f66694ac038611` (preserve subagent outcomes and
+publish live lane state, upstream PR stepfun-ai/Step-Code#324). They apply as
+uncommitted worktree edits, so the staging guard still checks HEAD against the
+pin while `sources` and `patchedSources` describe the combined state. Upstream
+PR stepfun-ai/Step-Code#323 is deliberately skipped: it removes the
+`enter_plan_mode` tool that the Desktop plan-review bridge registers against,
+and the two carried commits do not depend on it. The overlay gives the parent
+model complete chain outcomes and failure diagnostics; on the Desktop side it
+requires the `--include-live-events` spawn flag and the bounded `activeText`
+record tail because child transcripts no longer ride in `details.results`.
+
 ## Compatibility
 
 - Preserve Desktop-owned configuration, credentials and sessions. No personal

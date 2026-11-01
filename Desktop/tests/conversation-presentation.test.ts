@@ -198,4 +198,27 @@ test('chain queued and skipped records survive projection and background settlem
   const queued = subagentResult({ agentId: 'lane', results: [{ status: 'completed' }, { status: 'queued' }, { status: 'skipped' }] });
   assert.deepEqual(subagentTasks(call, queued, new Map([['lane', 'failed']])).map(task => task.status), ['completed', 'failed', 'skipped']);
 });
+test('bounded rosters backfill omitted tasks from the planned dispatch', () => {
+  const call = subagentCall({ tasks: [{ agent: 'general', task: 'T0' }, { agent: 'general', task: 'T1' }, { agent: 'general', task: 'T2' }] });
+  const bounded = subagentTasks(call, subagentResult({ results: [
+    { agent: 'general', task: 'T0', status: 'completed', messages: [] },
+    { agent: 'general', task: 'T1', status: 'completed', messages: [] },
+  ], omittedResults: 1 }));
+  assert.deepEqual(bounded.map(task => [task.task, task.status, task.omitted === true]), [
+    ['T0', 'completed', false], ['T1', 'completed', false], ['T2', 'running', true],
+  ]);
+  const chain = subagentCall({ chain: [{ agent: 'general', task: 'A' }, { agent: 'general', task: 'B' }, { agent: 'general', task: 'C' }] });
+  const boundedChain = subagentTasks(chain, subagentResult({ results: [{ agent: 'general', task: 'A', status: 'completed', messages: [] }], omittedResults: 2 }));
+  assert.deepEqual(boundedChain.map(task => [task.task, task.status, task.omitted === true]), [
+    ['A', 'completed', false], ['B', 'queued', true], ['C', 'queued', true],
+  ]);
+  // Lane settlement reaches flagged rows through the same override as visible queued records.
+  const settled = subagentTasks(chain, subagentResult({ agentId: 'lane', status: 'failed', results: [{ agent: 'general', task: 'A', status: 'completed', messages: [] }], omittedResults: 2 }), new Map([['lane', 'failed']]));
+  assert.deepEqual(settled.map(task => [task.task, task.status, task.omitted === true]), [
+    ['A', 'completed', false], ['B', 'failed', true], ['C', 'failed', true],
+  ]);
+  // A count without a planned list cannot invent tasks.
+  const unplanned = subagentTasks(undefined, subagentResult({ results: [{ agent: 'general', task: 'A', status: 'completed', messages: [] }], omittedResults: 3 }));
+  assert.deepEqual(unplanned.map(task => task.task), ['A']);
+});
 

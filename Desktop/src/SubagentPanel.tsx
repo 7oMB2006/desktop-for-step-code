@@ -60,6 +60,9 @@ function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Param
     <p className="subagent-note">{zh
       ? '只读记录。子代理由主会话分发任务后独立执行，此处无法与它对话，也无法追加指令。'
       : 'Read-only record. The subagent runs on its own after the dispatch; you cannot talk to it or send follow-ups here.'}</p>
+    {task.omitted && <p className="subagent-note">{zh
+      ? '这一步超出了单次展示预算，结果未随本次调用返回；完整记录以子代理会话为准。'
+      : 'This step exceeded the per-result display budget and was not returned; the child session holds the full record.'}</p>}
     <div className="subagent-transcript">
       {hasTranscript ? <SubagentTranscript task={task} {...props}/>
         : settled && output.text ? <>
@@ -68,6 +71,9 @@ function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Param
             : `${output.redacted} line(s) that looked like credentials were hidden.`}</p>}
           <div className="lane-text"><Text text={output.text} {...props}/></div>
         </>
+        : task.omitted ? <p className="panel-empty">{zh
+          ? '超出展示预算，过程与产出未随本次结果返回。'
+          : 'Beyond the display budget; no activity or output was returned for this step.'}</p>
         : state === 'running' ? <p className="panel-empty">{zh
           ? task.backgroundAgentId ? '运行中。后台任务未返回过程记录。' : '运行中。过程数据要等这个子代理跑完才随结果一起到达。'
           : task.backgroundAgentId ? 'Running. No activity record returned for this background task.' : 'Running. Its activity arrives with the result once it finishes.'}</p>

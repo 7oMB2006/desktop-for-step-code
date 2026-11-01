@@ -27,7 +27,7 @@
     "step-code-desktop-cron-enhancements.patch": "81ac50aec1c98c1d34f21f081eacfeb772cb1c3c",
     "step-code-desktop-cron-recovery-guard.patch": "daefe2df14564a3f4c4a0080d2aca47915df8af3",
     "step-code-desktop-auto-resume.patch": "edb9ad98930223bea700474c7c87f444d344acdd",
-    "step-code-desktop-v016.patch": "96e87bb69d5badd665efa05df4a9148820d06fcb"
+    "step-code-desktop-v016.patch": "6f5495d9cdf3e52b78a15dadec5233344c7b4dac"
   },
   "sources": {
     "packages/coding-agent/src/core/agent-session.ts": "54acd866d6ad519fd33b0fdb0b7088c2d1357fc6",
@@ -59,7 +59,8 @@
     "packages/coding-agent/test/suite/agent-session-prompt.test.ts": "f992ec82b78ffec0304e6cf7e06b7fcf1c32815d",
     "packages/coding-agent/test/workflow-extension.test.ts": "e191d4f6ff5e3c9a0dcdd27025dfec6983fe429e",
     "packages/coding-agent/test/workflow-runtime.test.ts": "895e8ad40fb759c281dfcdfd70f882a995c25d65",
-    "scripts/build-coding-agent-bundle.mjs": "7f6ba4da2a4caac0b7a5939e5aeb7c7de2b23524"
+    "scripts/build-coding-agent-bundle.mjs": "7f6ba4da2a4caac0b7a5939e5aeb7c7de2b23524",
+    "packages/coding-agent/src/features/subagent/projection.ts": "1e4126bdc7cf3723ed819a7b23107cccc34b7873"
   },
   "patchedSources": {
     "packages/coding-agent/src/core/agent-session.ts": "92e32567799a10ca43b016a12248976fda21e5e1",
@@ -89,13 +90,14 @@
     "packages/coding-agent/test/step-cron.test.ts": "c987e99d4ecad2b0d89c7e67d19b7d521b2ad9f7",
     "packages/coding-agent/test/step-extension.test.ts": "1b12e8113bdb177ad14c10712aef39f8143e903f",
     "packages/coding-agent/test/step-plan-extension.test.ts": "d994ea51263ec2a36f37b68df256eb4768334000",
-    "packages/coding-agent/test/step-subagent-events.test.ts": "e794251cac262a272ee1359d4fd16138294da79f",
+    "packages/coding-agent/test/step-subagent-events.test.ts": "d321fdf12088ad85548a614ad5803c78639ad664",
     "packages/coding-agent/test/step-usage-lifecycle.test.ts": "f0fe0840c8e94073d11e41aa6b65c1caec54e07e",
     "packages/coding-agent/test/subagent-exit-drain.test.ts": "f0932a44b429332a2c3f34351554c4560472124e",
     "packages/coding-agent/test/suite/agent-session-prompt.test.ts": "d79ac01281b1b39f2322466c4fdc412705a1b0da",
     "packages/coding-agent/test/workflow-extension.test.ts": "b6552efac93489ef58d0b7b76035fbca44081399",
     "packages/coding-agent/test/workflow-runtime.test.ts": "5cdec45ed6842072c7f46f084ea7d849dfb970c9",
-    "scripts/build-coding-agent-bundle.mjs": "fac2aeda34008d81d0a01b1fa4d8a0af2ab4b476"
+    "scripts/build-coding-agent-bundle.mjs": "fac2aeda34008d81d0a01b1fa4d8a0af2ab4b476",
+    "packages/coding-agent/src/features/subagent/projection.ts": "1a524ff8500355073dace0fae2cf64e0bd33b909"
   },
   "platforms": {
     "darwin": {

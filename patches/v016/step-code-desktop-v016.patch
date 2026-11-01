@@ -427,6 +427,77 @@ index 5474c00..8b4f2b4 100644
  		return running;
  	};
  
+diff --git a/packages/coding-agent/src/features/subagent/projection.ts b/packages/coding-agent/src/features/subagent/projection.ts
+index 1e4126b..1a524ff 100644
+--- a/packages/coding-agent/src/features/subagent/projection.ts
++++ b/packages/coding-agent/src/features/subagent/projection.ts
+@@ -21,6 +21,21 @@
+ import type { StepSubagentResultRecord } from "../step-subagent.ts";
+ import { cloneUsage } from "./helpers.ts";
+ 
++// Child output can carry credentials that neither the parent conversation nor a
++// desktop renderer may display. Renderers filter whole lines, so a truncation
++// boundary that keeps a value but drops its `key =` prefix would evade them;
++// redact before any clipping instead.
++const SENSITIVE_LINE =
++	/(api[-_.]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|secret|password|passwd|credential|cookie|authorization|bearer\s+[A-Za-z0-9._-]|['"]?(?:token|apiKey|api_key)['"]?\s*[:=]|^\s*(?:STEP|PI|AI_AGENT)[A-Z0-9_]*\s*=)/i;
++
++function redactSensitiveText(text: string | undefined): string | undefined {
++	if (text === undefined) return undefined;
++	return text
++		.split("\n")
++		.map((line) => (!line.trim() || !SENSITIVE_LINE.test(line) ? line : "[redacted]"))
++		.join("\n");
++}
++
+ /** Live frames are one per repaint; a renderer shows the newest lines only. */
+ const LIVE_TEXT_CHARS = 2_000;
+ const LIVE_TOOL_OUTPUT_CHARS = 1_000;
+@@ -118,19 +133,23 @@ export function liveRecord(record: StepSubagentResultRecord): StepSubagentResult
+ 		status: record.status,
+ 		exitCode: record.exitCode,
+ 		messages: [],
+-		stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
++		stderr: tailChars(redactSensitiveText(record.stderr), LIVE_STDERR_CHARS) ?? "",
+ 		usage: cloneUsage(record.usage),
+ 		...(record.model === undefined ? {} : { model: clipMiddle(record.model, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.stopReason === undefined ? {} : { stopReason: clipMiddle(record.stopReason, LIVE_IDENTIFIER_CHARS) }),
+-		...(record.errorMessage === undefined ? {} : { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
+-		...(record.activeText === undefined ? {} : { activeText: tailChars(record.activeText, LIVE_TEXT_CHARS) }),
++		...(record.errorMessage === undefined
++			? {}
++			: { errorMessage: tailChars(redactSensitiveText(record.errorMessage), LIVE_ERROR_CHARS) }),
++		...(record.activeText === undefined
++			? {}
++			: { activeText: tailChars(redactSensitiveText(record.activeText), LIVE_TEXT_CHARS) }),
+ 		...(record.activeTool === undefined ? {} : { activeTool: clipMiddle(record.activeTool, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.activeToolArgs === undefined
+ 			? {}
+-			: { activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS) }),
++			: { activeToolArgs: tailChars(redactSensitiveText(record.activeToolArgs), LIVE_TOOL_ARGS_CHARS) }),
+ 		...(record.activeToolOutput === undefined
+ 			? {}
+-			: { activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS) }),
++			: { activeToolOutput: tailChars(redactSensitiveText(record.activeToolOutput), LIVE_TOOL_OUTPUT_CHARS) }),
+ 		...(record.lastEvent === undefined ? {} : { lastEvent: clipMiddle(record.lastEvent, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
+ 		...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
+@@ -181,12 +200,12 @@ export function liveRoster(records: readonly StepSubagentResultRecord[]): {
+  * always renders even when the runner reported none.
+  */
+ export function finalRecord(record: StepSubagentResultRecord, budget: Budget): StepSubagentResultRecord {
+-	const text = record.activeText || finalAssistantText(record);
++	const text = redactSensitiveText(record.activeText || finalAssistantText(record));
+ 	const fields = [
+ 		{ value: record.task || "(unspecified task)", max: FINAL_TASK_CHARS, clip: clipMiddle },
+ 		{ value: text, max: FINAL_TEXT_CHARS, clip: tailChars },
+-		{ value: record.stderr, max: FINAL_STDERR_CHARS, clip: tailChars },
+-		{ value: record.errorMessage, max: FINAL_ERROR_CHARS, clip: tailChars },
++		{ value: redactSensitiveText(record.stderr), max: FINAL_STDERR_CHARS, clip: tailChars },
++		{ value: redactSensitiveText(record.errorMessage), max: FINAL_ERROR_CHARS, clip: tailChars },
+ 	];
+ 	// Floors are bounded independently of the shared budget. Without them later
+ 	// records lose their identity, output, and failure reason once a batch fills it.
 diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
 index a4512f5..1455084 100644
 --- a/packages/coding-agent/src/index.ts
@@ -796,7 +867,7 @@ index 4d3d79b..c987e99 100644
  		const own = runtime.create("* * * * *", "Own", false, true);
  		now = 60_001;
 diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
-index b81e474..e794251 100644
+index b81e474..d321fdf 100644
 --- a/packages/coding-agent/test/step-subagent-events.test.ts
 +++ b/packages/coding-agent/test/step-subagent-events.test.ts
 @@ -16,9 +16,6 @@ import {
@@ -888,6 +959,38 @@ index b81e474..e794251 100644
  		expect(content).toContain("TAIL");
  		expect(content.length).toBeLessThan(60_000);
  	} finally {
+@@ -1378,6 +1431,31 @@ test("an oversized final output is saved to disk and the notification keeps its
+ 	}
+ });
+ 
++test("projected records redact credential lines before truncation clips them", async () => {
++	const { api, tools } = createApi();
++	// The clip boundary lands ten characters into the credential line, so the kept
++	// region starts after `api_key = ` and a line-level filter on the projection
++	// could no longer match it. Redaction must run on the full text instead.
++	const head = "x".repeat(49_980);
++	const activeText = `${head}api_key = super-secret-value\n${"z".repeat(49_980)}`;
++	createStepSubagentExtension({
++		agentDir: "/tmp/step-agent-test",
++		runner: async () => ({ ...textResult(""), messages: [], activeText, exitCode: 0 }),
++	})(api);
++	const tool = tools.get("subagent");
++	if (!tool) throw new Error("subagent tool not registered");
++	const result = await tool.execute(
++		"batch",
++		{ tasks: [{ agent: "general", task: "task-0" }] },
++		undefined,
++		undefined,
++		createContext("/tmp"),
++	);
++	const typed = result as AgentToolResult<StepSubagentDetails>;
++	expect(JSON.stringify(typed.details)).not.toContain("super-secret-value");
++	expect(typed.details?.results[0]?.activeText).toContain("[redacted]");
++});
++
+ test("session shutdown stops this session's lanes silently and leaves another session's lanes running", async () => {
+ 	const gate = deferred();
+ 	const signals: AbortSignal[] = [];
 diff --git a/packages/coding-agent/test/suite/agent-session-prompt.test.ts b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
 index 9dd5ec2..d79ac01 100644
 --- a/packages/coding-agent/test/suite/agent-session-prompt.test.ts

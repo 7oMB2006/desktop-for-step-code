@@ -867,7 +867,7 @@ index 4d3d79b..c987e99 100644
  		const own = runtime.create("* * * * *", "Own", false, true);
  		now = 60_001;
 diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
-index b81e474..d321fdf 100644
+index b81e474..5d2b06d 100644
 --- a/packages/coding-agent/test/step-subagent-events.test.ts
 +++ b/packages/coding-agent/test/step-subagent-events.test.ts
 @@ -16,9 +16,6 @@ import {
@@ -991,6 +991,26 @@ index b81e474..d321fdf 100644
  test("session shutdown stops this session's lanes silently and leaves another session's lanes running", async () => {
  	const gate = deferred();
  	const signals: AbortSignal[] = [];
+@@ -1476,12 +1554,16 @@ test("idle keep-alive children are stopped after the TTL and a reply resumes qui
+ 		/**
+ 		 * A finished lane sends its notification only after reading the child's
+ 		 * details from disk, so waiting on 1ms of virtual time is a race against
+-		 * file I/O that a loaded CI runner loses. Advance in steps for a bounded
+-		 * virtual budget instead, and report what did arrive.
++		 * file I/O that a loaded CI runner loses — 500 event-loop turns can elapse
++		 * in far less wall time than a contended disk needs. Bound the loop by
++		 * real wall clock in addition to the virtual step cap, and report what
++		 * did arrive.
+ 		 */
+ 		const settle = async (count: number): Promise<boolean> => {
+-			for (let i = 0; i < 500; i += 1) {
++			const deadline = Date.now() + 10_000;
++			for (let i = 0; i < 3_000; i += 1) {
+ 				if (sent.filter((m) => m.details?.event === "background_done").length >= count) return true;
++				if (Date.now() > deadline) return false;
+ 				await vi.advanceTimersByTimeAsync(10);
+ 			}
+ 			return false;
 diff --git a/packages/coding-agent/test/suite/agent-session-prompt.test.ts b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
 index 9dd5ec2..d79ac01 100644
 --- a/packages/coding-agent/test/suite/agent-session-prompt.test.ts

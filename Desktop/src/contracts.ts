@@ -161,6 +161,8 @@ export interface DesktopBridge extends SessionImportBridge {
   workspace(path: string): Promise<Snapshot>;
   command(type: string, args?: Record<string, unknown>, runtimeId?: string): Promise<any>;
   sessions(): Promise<Session[]>;
+  searchSessions(query: import('./fulltext-search').FulltextQuery): Promise<import('./fulltext-search').FulltextResult>;
+  cancelSessionSearch(id: string): Promise<void>;
   switchSession(id: string): Promise<Snapshot>;
   navigateSession(id: string): Promise<Snapshot | null>;
   sessionReading(id: string): Promise<SessionReading | null>;

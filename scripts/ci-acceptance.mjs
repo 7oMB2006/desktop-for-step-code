@@ -31,6 +31,7 @@ export const acceptanceGroups = {
     'verify-sidebar-scrollbar.mjs',
     'verify-sidebar-order.mjs',
     'verify-session-search.mjs',
+    'verify-fulltext-search.mjs',
     'verify-archived-sessions.mjs',
     'verify-auth-vault.mjs',
     'verify-account-settings.mjs',

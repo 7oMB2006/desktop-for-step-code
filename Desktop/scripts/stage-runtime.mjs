@@ -87,6 +87,7 @@ await cp('electron/capability-admin.mjs', join(runtime, 'capability-admin.mjs'))
 await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.mjs'));
 await cp('electron/session-import.mjs', join(runtime, 'session-import.mjs'));
 await cp('electron/session-history.mjs', join(runtime, 'session-history.mjs'));
+await cp('electron/session-search.mjs', join(runtime, 'session-search.mjs'));
 await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));

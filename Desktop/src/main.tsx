@@ -62,6 +62,10 @@ import { playCompletionSound, prepareCompletionSound } from './completion-sound'
 import { sessionReference } from './session-reference';
 import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
 import { filterSessions } from './session-search';
+import { SessionSearchPanel } from './SessionSearchPanel';
+import { ConversationSearchLocation } from './ConversationSearchLocation';
+import type { SearchLocation } from './fulltext-search';
+import { scrollSearchMessage } from './search-location';
 import './session-search.css';
 import { useSidebarReorder } from './use-sidebar-reorder';
 import { useSidebarMotion } from './use-sidebar-motion';
@@ -200,6 +204,12 @@ function App() {
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [fulltextOpen, setFulltextOpen] = useState(false);
+  const [fulltextRequest, setFulltextRequest] = useState<{ id: number; text: string }>();
+  const fulltextAnchor = useRef<HTMLButtonElement>(null);
+  const [fulltextReturnRequest, setFulltextReturnRequest] = useState(0);
+  const [searchLocation, setSearchLocation] = useState<SearchLocation>();
+  const [searchLocateRequest, setSearchLocateRequest] = useState(0);
   const [tab, setTab] = useState('account');
   const [capabilityTarget, setCapabilityTarget] = useState<CapabilityTarget>();
   const [capabilityRevision, setCapabilityRevision] = useState(0);
@@ -393,6 +403,17 @@ function App() {
     if (follow.current && viewport) viewport.scrollTop = viewport.scrollHeight;
     else if (viewport) setAwayFromBottom(viewport.scrollHeight > viewport.clientHeight);
   }, []);
+  const locateSearchMessage = useCallback((target: HTMLElement, match?: DOMRect) => {
+    const viewport = scroll.current;
+    if (!viewport) return;
+    follow.current = false;
+    scrollIntent.current = 'backward';
+    readingRestore.current = undefined;
+    scrollSearchMessage(viewport, target, match);
+    readingRestore.current = { runtimeId: viewId.current,
+      position: captureReadingPosition(viewport, latestData.current.messages, false), expectedTop: viewport.scrollTop };
+    setAwayFromBottom(viewport.scrollHeight > viewport.clientHeight);
+  }, []);
   useEffect(() => {
     setNavigationSlow(false);
     if (!navigationTarget) return;
@@ -402,23 +423,23 @@ function App() {
   useLayoutEffect(followLayout, [navigationTarget, followLayout]);
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
   const bottomTerminalExpanded = terminalDock === 'bottom' && bottomTerminalOpen && expandedRightPanel === 'terminal'
-    && !usageOpen && !scheduledOpen && !details;
-  const visibleRightPanel = usageOpen || scheduledOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+    && !usageOpen && !scheduledOpen && !fulltextOpen && !details;
+  const visibleRightPanel = usageOpen || scheduledOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = bottomTerminalExpanded || expandedRightPanel === visibleRightPanel && !details &&
     (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent');
-  const terminalOpen = !usageOpen && !scheduledOpen && (terminalDock === 'bottom'
+  const terminalOpen = !usageOpen && !scheduledOpen && !fulltextOpen && (terminalDock === 'bottom'
     ? bottomTerminalOpen && (!inspectorExpanded || bottomTerminalExpanded)
     : visibleRightPanel === 'terminal' && !details);
   useEffect(() => {
     if (workflowCatalogRequest && (workflowCatalogRequest.runtimeId !== data.runtimeId
       || workflowCatalogRequest.sessionId !== data.state?.sessionId || navigationTarget || settingsOpen
-      || usageOpen || scheduledOpen || inspectorExpanded || removeProject || requests.length)) {
+      || usageOpen || scheduledOpen || fulltextOpen || inspectorExpanded || removeProject || requests.length)) {
       setWorkflowCatalogRequest(null);
     }
   }, [workflowCatalogRequest, data.runtimeId, data.state?.sessionId, navigationTarget, settingsOpen,
-    usageOpen, scheduledOpen, inspectorExpanded, removeProject, requests.length]);
+    usageOpen, scheduledOpen, fulltextOpen, inspectorExpanded, removeProject, requests.length]);
   useEffect(() => {
     if (bottomTerminalExpanded) return;
     if (!usageOpen && expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
@@ -562,6 +583,8 @@ function App() {
     if (!switching.current && id === viewId.current && (!id || value.runtimeId === id)) installSnapshot(value);
   };
   const applySnapshot = async (action: () => Promise<Snapshot | null>) => {
+    setFulltextOpen(false);
+    setSearchLocation(undefined);
     // A subagent record belongs to the session that spawned it; switching must not leave it open.
     setSelectedSubagent(null);
     setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
@@ -574,6 +597,8 @@ function App() {
     if (succeeded) void run(refresh);
   };
   const navigateSession = async (session: Session, cronRuntimeId?: string) => {
+    setFulltextOpen(false);
+    setSearchLocation(undefined);
     setUsageOpen(false);
     if (!cronRuntimeId) setScheduledOpen(false);
     if (!bridge || switching.current && !navigationPending.current) return false;
@@ -919,6 +944,7 @@ function App() {
     else setSettingsClosing(true);
   };
   const openUsage = () => {
+    setFulltextOpen(false);
     finishSettingsClose();
     setScheduledOpen(false);
     setUsageOpen(true);
@@ -926,8 +952,17 @@ function App() {
   };
   const openScheduled = () => {
     if (!bridge) return;
-    setUsageOpen(false); setDetails(''); setExpandedRightPanel(null);
+    setFulltextOpen(false); setUsageOpen(false); setDetails(''); setExpandedRightPanel(null);
     setScheduledOpen(true); setCompactSidebarOpen(false);
+  };
+  const closeFulltext = () => {
+    setFulltextOpen(false);
+    // Restored tools can schedule focus of their own during this frame.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const anchor = fulltextAnchor.current;
+      const fallback = document.querySelector<HTMLButtonElement>('.window-sidebar-toggle');
+      (anchor?.isConnected && !anchor.closest('[inert]') ? anchor : fallback)?.focus();
+    }));
   };
   useEffect(() => {
     if (!settingsClosing) return;
@@ -1232,9 +1267,9 @@ function App() {
     const label = activity === 'waiting' ? t('等待确认', 'Awaiting approval') : activity === 'failed' || activity === 'interrupted' ? t('任务已终止', 'Task interrupted') : activity === 'completed' ? t('有未读回复', 'Unread reply') : t('正在运行', 'Running');
     return <div key={s.id} data-reorder-id={s.id} data-reorder-kind="session" data-reorder-group={group} data-reorder-title={sessionTitle(s, t('新会话', 'New session'))}
       data-reorder-locked={!s.path || ['running', 'waiting'].includes(activity)}
-      className={`session-row ${!scheduledOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'selected' : ''} ${sessionDrag?.id === s.id ? 'session-dragging' : ''} ${sessionDrag?.target === s.id ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`}
+      className={`session-row ${!scheduledOpen && !fulltextOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'selected' : ''} ${sessionDrag?.id === s.id ? 'session-dragging' : ''} ${sessionDrag?.target === s.id ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`}
       onContextMenu={e => showContext(e, 'session', s.id)}>
-      <button aria-current={!scheduledOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
+      <button aria-current={!scheduledOpen && !fulltextOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
         disabled={!bridge || loading && !navigationTarget} onClick={() => void navigateSession(s)}
         aria-keyshortcuts={!searchingSessions && manualOrder && group !== '__archived__' ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
         onKeyDown={e => {
@@ -1484,6 +1519,12 @@ function App() {
           aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
       <SidebarTaskActions selected={scheduledOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
         onSearchChange={setSessionQuery}
+        fulltextOpen={fulltextOpen}
+        onFulltextSearch={(text, anchor) => {
+          fulltextAnchor.current = anchor;
+          setFulltextRequest(previous => ({ id: (previous?.id ?? 0) + 1, text }));
+          setUsageOpen(false); setScheduledOpen(false); setFulltextOpen(true); setCompactSidebarOpen(false);
+        }}
         onScheduledTasks={() => { if (scheduledOpen) setScheduledOpen(false); else openScheduled(); }}
         onPlugins={() => {
           setCapabilityTarget({ page: 'plugins', tab: 'discover' }); setTab('plugins'); setCompactSidebarOpen(false); void openSettings();
@@ -1515,7 +1556,21 @@ function App() {
       <CronManager bridge={bridge} onOpenHost={async (session, runtimeId) => {
         if (!await navigateSession(session, runtimeId)) throw new Error('Cron host changed; refresh before opening');
       }}/></main>}
-    <main hidden={scheduledOpen} inert={scheduledOpen || settingsOpen || Boolean(removeProject)}
+    {fulltextRequest && bridge && <main hidden={!fulltextOpen} inert={!fulltextOpen || settingsOpen || Boolean(removeProject)}>
+      {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
+        <button onClick={() => { setFulltextOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
+      <SessionSearchPanel active={fulltextOpen} request={fulltextRequest} bridge={bridge} sessions={data.sessions}
+        preferences={data.preferences} returnRequest={fulltextReturnRequest} onClose={closeFulltext} onOpen={async (session, location) => {
+          const pending = navigateSession(session);
+          const sequence = navigationSequence.current;
+          const opened = await pending;
+          if (sequence !== navigationSequence.current) return false;
+          if (!opened && !navigationPending.current) setFulltextOpen(true);
+          if (opened) { setSearchLocation(location); setSearchLocateRequest(value => value + 1); }
+          return opened;
+        }} openImage={openImage}/>
+    </main>}
+    <main hidden={scheduledOpen || fulltextOpen} inert={scheduledOpen || fulltextOpen || settingsOpen || Boolean(removeProject)}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
@@ -1528,12 +1583,20 @@ function App() {
         </>}
         <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
       </div>}
+      <ConversationSearchLocation active={!navigationTarget && !usageOpen && !scheduledOpen && !fulltextOpen}
+        location={searchLocation} requestId={searchLocateRequest} sessionId={data.state?.sessionId}
+        messages={data.messages} root={transcript} language={data.preferences.language}
+        onLocate={locateSearchMessage} onRetry={() => setSearchLocateRequest(value => value + 1)}
+        onReturn={() => {
+          rememberView(); setFulltextReturnRequest(value => value + 1);
+          setFulltextOpen(true); setCompactSidebarOpen(false);
+        }} onDismiss={() => setSearchLocation(undefined)}/>
       {usageOpen && <UsageOverviewPanel language={data.preferences.language} onBack={() => setUsageOpen(false)}/>}
       <div className="main-content" style={usageOpen ? { display: 'none' } : undefined} inert={inspectorExpanded || usageOpen}>
       <WorkflowCatalogPanel key={`${data.runtimeId ?? data.draftId}:${data.state?.sessionId}`}
         open={Boolean(workflowCatalogRequest && workflowCatalogRequest.runtimeId === data.runtimeId
           && workflowCatalogRequest.sessionId === data.state?.sessionId && !navigationTarget && !settingsOpen
-          && !usageOpen && !scheduledOpen && !inspectorExpanded && !removeProject && !requests.length)}
+          && !usageOpen && !scheduledOpen && !fulltextOpen && !inspectorExpanded && !removeProject && !requests.length)}
         requestId={workflowCatalogRequest?.id ?? 0} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
         language={data.preferences.language} bridge={bridge} onClose={() => setWorkflowCatalogRequest(null)}/>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
@@ -1595,6 +1658,7 @@ function App() {
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
             <QuestionContext.Provider value={{ pending: requests.flatMap(request => { const q = questionnaire(request); return q ? [q] : []; }), open: openQuestion }}>
               <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
+                searchTarget={searchLocation && searchLocation.sessionId === data.state?.sessionId ? { ...searchLocation, requestId: searchLocateRequest } : undefined}
                 interfaceSettings={interfaceSettings} interfaceRevision={interfaceRevision} settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
             </QuestionContext.Provider>
             {(busy || data.state?.isCompacting) && <div className="working">
@@ -1718,10 +1782,10 @@ function App() {
     <QuoteAnnotations root={transcript} scope={quoteScope} language={data.preferences.language}
       remove={id => setQuotes(value => value.filter(item => item.id !== id))}
       focusedId={focusedQuoteId}
-      quotes={navigationTarget || settingsOpen || preview || requests.length || scheduledOpen || usageOpen ? [] : quotes}
+      quotes={navigationTarget || settingsOpen || preview || requests.length || scheduledOpen || usageOpen || fulltextOpen ? [] : quotes}
       annotate={(id, annotation) => setQuotes(value => value.map(item => item.id === id ? { ...item, annotation } : item))}/>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
-      enabled={!scheduledOpen && !usageOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
+      enabled={!scheduledOpen && !usageOpen && !fulltextOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
       onError={setError} onQuote={quote => {
         const existing = quotes.find(item => sameQuoteSelection(item, quote));
         if (existing) {
@@ -1822,7 +1886,7 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
-    <nav hidden={scheduledOpen || usageOpen} ref={rightRail} className="right-tool-rail" style={usageOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || Boolean(navigationTarget) || Boolean(removeProject)}
+    <nav hidden={scheduledOpen || usageOpen || fulltextOpen} ref={rightRail} className="right-tool-rail" style={usageOpen || fulltextOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || fulltextOpen || Boolean(navigationTarget) || Boolean(removeProject)}
       onClickCapture={() => { if (bottomTerminalExpanded) setExpandedRightPanel(null); }}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => {

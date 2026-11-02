@@ -1,5 +1,113 @@
 # Verification
 
+## Full-text search PR review and CI repair (2026-11-02)
+
+The first PR #185 run failed on Windows and macOS at the same
+`verify-capabilities.mjs` assertion: the newly disclosed full-text entry adds
+height beneath the anchored search field, while the old assertion expected no
+list displacement. Acceptance now checks exact disclosure-height displacement,
+unchanged trigger/x/width/bottom bounds, no overlap, full collapse restoration,
+inert hidden controls and reduced motion. The runner and final CI gate are not
+weakened or bypassed.
+
+Both P2 review findings are addressed in the readonly and authoritative views:
+choose the matching text block within an entry, and reveal the matching page of
+large text before marking and scrolling. Inner paginated text also scrolls to
+the keyword, including a match crossing the normal page boundary. Explicit
+repeat location reopens the matching page without a new runtime; snapshots
+retain manual paging. Message-only locations without visible query text have
+an explicit fallback instead of claiming keyword location.
+
+Local Windows typecheck/build and all 817 serial unit tests complete: 803 pass,
+14 platform skips, zero failures (`fulltext-review-unit-suite.log`).
+`verify-capabilities.mjs` and expanded `verify-fulltext-search.mjs` pass. The
+latter uses actual indexed second-block/third-page/boundary-spanning hits,
+checks visible highlight ranges in both scroll containers, repeat location,
+runtime identity and unchanged JSONL after normal restoration metadata has
+settled. The pre-navigation readonly immutability assertions remain unchanged.
+The no-visible-keyword UI uses explicit IPC fault injection.
+
+Replacement cloud checks remain pending. This repair has not been repackaged;
+the previously accepted local installer is the preceding feature build.
+
+## Search location handoff preview (2026-11-02)
+
+The search result's explicit Open and locate action now transfers saved entry
+identity and query to the authoritative conversation. A persistent location band
+supports return to results and repeat location without a new runtime. The shared
+DOM marker prefers exact response prose and scrolls to the first rendered
+keyword range, including a match near the end of a multi-screen answer.
+Snapshot-driven highlighting does not reset focus or repeat scrolling.
+Missing current-context targets and conversation-level matches remain explicit.
+
+Typecheck, production build and 40 focused search/navigation/scroll unit tests
+pass. Source Electron session-navigation and quick-search regressions pass.
+The expanded fulltext acceptance passes against the packaged executable,
+including native indexed search, readonly preview, actual conversation
+location/focus, repeat location, same-session runtime identity, result return,
+missing-entry and degraded fallbacks, real light/dark palettes, narrow windows
+and reduced motion. The actual-component browser fixture exposes the same
+handoff with sample data.
+
+Unsigned Windows x64 preview:
+`D:\Desktop For Step Code\Desktop\release\fulltext-search-location-20261102-preview`.
+All 105 build files and 1333 runtime files match the current build/staged source;
+keyless adapter, terminal host and icon also match. Installer update metadata
+and SHA-512 pass. Installer SHA-256:
+`1c1bf83e14db58f1e87970f2a81626eba0963cc9b650efb48b6c6af97f9fd967`.
+The owner accepted the local Windows preview on 2026-11-02. No cloud CI,
+native macOS or clean-machine installation acceptance is claimed. The preceding
+preview is left intact while the owner is running it.
+
+## Desktop full-text search I / II (2026-11-02)
+
+Branch `codex/fulltext-search` starts from main `fb4828b`. Search uses the
+staged v016 pin plus the two overlay commits listed below, through the actual
+management-process service and SQLite worker, not direct renderer database
+access. The adapter and worker are included in the staging/resource paths.
+
+Local Windows typecheck and build pass. The serial Desktop suite collects
+814 tests: 800 pass, 14 platform skips, zero failures
+(`Desktop/test-results/fulltext-unit-suite.log`). Focused tests also exercise
+real SQLite queries, imported records, appends/deletions, explicit roots and
+actual JSONL degradation after deliberately making the database path unusable.
+CI policy/inventory/runner and Windows summary tests pass: 33 pass and one
+platform skip.
+
+`verify-fulltext-search.mjs` passes against source Electron with an isolated
+profile and offline fixture model. It covers body-only native matches, entry
+anchors/highlights, archive/project/time scope, old-branch fallback, draft and
+runtime identity, unchanged JSONL, result scroll/focus restoration, cancellation
+and stale replies, failed navigation, English/Chinese, light/dark and 620px
+windows. Error, partial-index, cap and delayed-reply UI states use IPC fault
+injection; those are not claims of reproducing every upstream failure. An
+already-open browser hides during search; no agent or model call is needed for
+search or reading. `verify-session-search.mjs` also passes, preserving the
+existing quick metadata filter, grouping, ordering, collapse and draft behavior.
+
+The actual-component browser fixture passes 1440px/390px screenshots, message
+anchors/highlights, no horizontal overflow and reduced-motion interaction.
+It remains explicitly sample data, not real-account or filesystem acceptance.
+
+Scope and bounds are recorded in [Session search](SESSION_SEARCH.md). Project
+and archive filters apply after the native bounded batch; short terms use the
+native recent-session window, and degraded hits cannot promise message
+locations. Both TODO entries remain unchecked pending cloud CI; the owner has
+accepted the local Windows preview.
+
+The unsigned Windows x64 preview installer is available under
+`D:\Desktop For Step Code\Desktop\release\fulltext-search-20261102-preview`.
+The packaged executable passes `verify-fulltext-search.mjs` with an isolated
+profile, including the actual packaged SQLite worker. All 105 Desktop build
+files and 1333 runtime files match the local build/staged source; the keyless
+adapter, terminal host and icon also match. Installer update metadata and
+SHA-512 validation pass. Installer SHA-256:
+`c72785abd6041b8c1f09765acd5083db6e48929f3884d051fba584c975ca8c0e`.
+The package uses the existing dependency-free staging pattern to avoid the
+Electron Builder hoisted-dependency collector failure. This is a local preview,
+not a new version or published release. No new cloud CI result, native macOS
+execution, real-account or release readiness is claimed.
+
 ## Upstream overlay pin: subagent outcomes and session records (2026-11-01)
 
 The v016 baseline carries two upstream commits installed by the applier before

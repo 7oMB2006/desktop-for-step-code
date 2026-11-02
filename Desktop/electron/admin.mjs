@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { reconcileStepPageServers, prepareStepPageServers } from './steppage-config.mjs';
 import { readSessionHistory } from './session-history.mjs';
+import { createDesktopSessionSearch } from './session-search.mjs';
 
 // Management lives in a separate process so Step globals never enter Electron.
 const root = dirname(fileURLToPath(import.meta.url));
@@ -15,6 +16,7 @@ const upstream = await import(pathToFileURL(join(root, 'step/dist/bundle/index.j
 const authPath = process.env.STEPCODE_AUTH_PATH;
 const sessions = process.env.STEP_CODING_AGENT_SESSION_DIR;
 const agentDir = process.env.STEP_CODING_AGENT_DIR;
+const sessionSearch = createDesktopSessionSearch(upstream, { storageRoot: process.env.STEPCODE_STORAGE_ROOT_DIR, agentDir, sessions });
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 let login;
 let stepModelCache;
@@ -24,6 +26,8 @@ const safeMcp = servers => Object.fromEntries(Object.entries(servers).map(([name
 }]));
 async function dispatch(message) {
   switch (message.type) {
+    case 'session_search': return sessionSearch.query(message.query);
+    case 'cancel_session_search': sessionSearch.cancel(message.queryId); return null;
     case 'prepare_steppage':
     case 'reconcile_steppage': {
       if (!agentDir || !process.env.STEPCODE_STORAGE_ROOT_DIR || typeof message.bundlePath !== 'string')
@@ -199,7 +203,7 @@ async function dispatch(message) {
     default: throw new Error('Unsupported management request');
   }
 }
-createInterface({ input: process.stdin }).on('line', async line => {
+createInterface({ input: process.stdin }).on('close', () => { void sessionSearch.close(); }).on('line', async line => {
   let request;
   try { request = JSON.parse(line); const data = await dispatch(request); send({ id: request.id, type: 'response', success: true, data }); }
   catch { send({ id: request?.id, type: 'response', success: false, error: `Management operation failed: ${request?.type ?? 'invalid request'}` }); }

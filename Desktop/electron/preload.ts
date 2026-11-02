@@ -123,6 +123,8 @@ const bridge: DesktopBridge = {
   cancelAccountAllowance: () => invoke('cancelAccountAllowance'),
   estimateSettings: () => invoke('estimateSettings'),
   usageOverview: () => invoke('usageOverview'),
+  searchSessions: query => invoke('searchSessions', query),
+  cancelSessionSearch: id => invoke('cancelSessionSearch', id),
   setEstimateRules: (rules, accountRef) => invoke('setEstimateRules', rules, accountRef),
   deleteArchivedSessions: ids => invoke('deleteArchivedSessions', ids),
   login: (profile, key) => invoke('login', profile, key), cancelLogin: () => invoke('cancelLogin'), logout: () => invoke('logout'),

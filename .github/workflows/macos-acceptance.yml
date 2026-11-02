@@ -1,0 +1,112 @@
+name: macOS acceptance group
+
+on:
+  workflow_call:
+    inputs:
+      group:
+        required: true
+        type: string
+      commit:
+        required: true
+        type: string
+      sha256:
+        required: true
+        type: string
+      artifact-id:
+        required: true
+        type: string
+    outputs:
+      group:
+        description: Validated acceptance group
+        value: ${{ jobs.acceptance.outputs.group }}
+      complete:
+        description: Both inventories completed successfully
+        value: ${{ jobs.acceptance.outputs.complete }}
+      receipt-id:
+        description: Artifact holding both validated reports
+        value: ${{ jobs.acceptance.outputs.receipt-id }}
+      commit:
+        description: Tested source commit
+        value: ${{ jobs.acceptance.outputs.commit }}
+      sha256:
+        description: Tested candidate archive hash
+        value: ${{ jobs.acceptance.outputs.sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: Source and package acceptance
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      CI_MACOS_GROUP: ${{ inputs.group }}
+      CI_MACOS_COMMIT: ${{ inputs.commit }}
+      CI_MACOS_CANDIDATE_SHA256: ${{ inputs.sha256 }}
+    outputs:
+      group: ${{ steps.receipt.outputs.group }}
+      complete: ${{ steps.receipt.outputs.complete }}
+      commit: ${{ steps.receipt.outputs.commit }}
+      sha256: ${{ steps.receipt.outputs.sha256 }}
+      receipt-id: ${{ steps.upload.outputs.artifact-id }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-macos
+      - name: Validate group and current source commit
+        run: |
+          node scripts/ci-macos-policy.mjs inputs
+          node scripts/ci-macos.mjs --list
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ inputs.artifact-id }}
+          merge-multiple: true
+          path: candidate
+      - name: Verify and extract this run's candidate
+        run: |
+          node scripts/ci-macos-policy.mjs candidate candidate
+          mkdir -p Desktop/release/mac-arm64
+          ditto -x -k candidate/Desktop.for.Step.Code.macos-arm64.preview.zip Desktop/release/mac-arm64
+      - name: Source Electron acceptance
+        working-directory: Desktop
+        run: node ../scripts/ci-macos.mjs
+      - name: Packaged Electron acceptance
+        working-directory: Desktop
+        env:
+          DESKTOP_VERIFY_EXE: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/MacOS/Desktop for Step Code
+          DESKTOP_MACOS_RESOURCES: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/Resources
+        run: node ../scripts/ci-macos.mjs
+      - name: Packaged native terminal acceptance
+        id: terminal
+        if: inputs.group == 'runtime'
+        working-directory: Desktop
+        env:
+          DESKTOP_VERIFY_EXE: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/MacOS/Desktop for Step Code
+          DESKTOP_MACOS_RESOURCES: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/Resources
+        run: corepack pnpm exec tsx --test tests/macos-terminal.test.ts
+      - name: Validate and seal both reports
+        id: receipt
+        env:
+          CI_MACOS_TERMINAL_RESULT: ${{ steps.terminal.outcome }}
+        run: node scripts/ci-macos-policy.mjs receipt Desktop/test-results
+      - name: Upload completion receipt
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-receipt-${{ inputs.group }}-${{ github.run_attempt }}
+          path: Desktop/test-results/ci-macos-receipt-${{ inputs.group }}.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload fixture diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-fixture-diagnostics-${{ inputs.group }}-${{ github.run_attempt }}
+          path: Desktop/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

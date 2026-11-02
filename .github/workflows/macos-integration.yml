@@ -11,7 +11,8 @@ on:
       - 'scripts/ci-macos*'
       - 'scripts/ci-acceptance.mjs'
       - 'scripts/ci-windows*'
-      - '.github/workflows/macos-integration.yml'
+      - '.github/workflows/macos-*.yml'
+      - '.github/actions/setup-macos/**'
   workflow_dispatch:
 
 permissions:
@@ -23,12 +24,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  macos:
-    name: ARM64 build, tests and packaged acceptance
+  prepare:
+    name: Build and verify one ARM64 candidate
     runs-on: macos-15
     timeout-minutes: 90
     env:
       DESKTOP_MACOS_RELEASE_VERSION: 0.6.0
+    outputs:
+      commit: ${{ steps.candidate.outputs.commit }}
+      sha256: ${{ steps.candidate.outputs.sha256 }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
     defaults:
       run:
         shell: bash
@@ -36,28 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24.15.0
-          architecture: arm64
-      - name: Confirm native toolchain
-        run: |
-          test "$(uname -m)" = arm64
-          corepack enable
-          node -p 'process.platform + "/" + process.arch'
-      - name: Fetch and patch frozen Step Code runtime
-        run: |
-          git init Step-Code
-          git -C Step-Code remote add origin https://github.com/stepfun-ai/Step-Code.git
-          git -C Step-Code fetch --depth 1 --no-tags origin 81e79bc4b699148d6823fedde9b5e70d9a80255f
-          git -C Step-Code checkout --detach FETCH_HEAD
-          test "$(git -C Step-Code rev-parse HEAD)" = 81e79bc4b699148d6823fedde9b5e70d9a80255f
-          node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v016/step-code-desktop.patch
-      - name: Build pinned Step Code
-        working-directory: Step-Code
-        run: |
-          corepack pnpm install --frozen-lockfile
-          corepack pnpm build:offline
+      - uses: ./.github/actions/setup-macos
       - name: Upstream shared runtime integration tests
         working-directory: Step-Code/packages/coding-agent
         run: |
@@ -66,54 +50,38 @@ jobs:
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/subagent-lane-notifications.test.ts test/subagent-background-tui.test.ts test/step-search-web.test.ts test/suite/regressions/plan-mode-prompt-cache-prefix.test.ts test/suite/regressions/6647-compaction-retries-transient-stream-drop.test.ts test/suite/regressions/subagent-lane-progress-backlog.test.ts
-      - name: Install Desktop and test browser
-        working-directory: Desktop
-        run: |
-          corepack pnpm install --frozen-lockfile
-          node node_modules/electron/install.js
-          corepack pnpm exec playwright install chromium ffmpeg
-      - name: Build and stage native runtime
-        working-directory: Desktop
-        run: |
-          corepack pnpm build
-          corepack pnpm stage:runtime
       - name: Typecheck and protocol tests
         working-directory: Desktop
         run: |
           corepack pnpm typecheck
           mkdir -p test-results
           corepack pnpm exec tsx --test --test-concurrency=1 --test-reporter=spec --test-reporter=tap --test-reporter-destination=stdout --test-reporter-destination=test-results/protocol.tap tests/*.test.ts
-      - name: Source Electron acceptance
+      - name: CI runner and motion helper regressions
         working-directory: Desktop
         run: |
-          node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs
+          node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs ../scripts/ci-macos-policy.test.mjs
           node --test scripts/motion-helpers.test.mjs
-          node ../scripts/ci-macos.mjs
       - name: Package unsigned preview and verify resources
         working-directory: Desktop
         run: |
           node scripts/package-macos.mjs
           node scripts/verify-macos-package.mjs
-      - name: Packaged Electron and native terminal acceptance
-        working-directory: Desktop
-        env:
-          DESKTOP_VERIFY_EXE: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/MacOS/Desktop for Step Code
-          DESKTOP_MACOS_RESOURCES: ${{ github.workspace }}/Desktop/release/mac-arm64/Desktop for Step Code.app/Contents/Resources
-        run: |
-          node ../scripts/ci-macos.mjs
-          corepack pnpm exec tsx --test tests/macos-terminal.test.ts
-      - name: Archive tested preview with executable permissions
+      - name: Archive candidate with executable permissions
         working-directory: Desktop
         run: |
-          ditto -c -k --sequesterRsrc --keepParent 'release/mac-arm64/Desktop for Step Code.app' release/Desktop.for.Step.Code.macos-arm64.preview.zip
-          shasum -a 256 release/Desktop.for.Step.Code.macos-arm64.preview.zip > release/SHA256SUMS.txt
           node scripts/prepare-macos-release.mjs
+          cp release/v*/Desktop.for.Step.Code.*.arm64.zip release/Desktop.for.Step.Code.macos-arm64.preview.zip
+          shasum -a 256 release/Desktop.for.Step.Code.macos-arm64.preview.zip > release/SHA256SUMS.txt
           git rev-parse HEAD > release/COMMIT.txt
           cp runtime/manifest.json release/runtime-manifest.json
-      - name: Upload tested preview candidate (not a Release)
+      - name: Bind candidate to this commit
+        id: candidate
+        run: node scripts/ci-macos-policy.mjs candidate Desktop/release
+      - name: Upload unvalidated candidate for this run
+        id: upload
         uses: actions/upload-artifact@v4
         with:
-          name: macos-arm64-preview-${{ github.sha }}
+          name: macos-arm64-unvalidated-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             Desktop/release/*.zip
             Desktop/release/SHA256SUMS.txt
@@ -130,7 +98,77 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-fixture-diagnostics-${{ github.run_attempt }}
+          name: macos-fixture-diagnostics-prepare-${{ github.run_attempt }}
           path: Desktop/test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+  interface:
+    needs: prepare
+    uses: ./.github/workflows/macos-acceptance.yml
+    with:
+      group: interface
+      commit: ${{ needs.prepare.outputs.commit }}
+      sha256: ${{ needs.prepare.outputs.sha256 }}
+      artifact-id: ${{ needs.prepare.outputs.artifact-id }}
+
+  sessions:
+    needs: prepare
+    uses: ./.github/workflows/macos-acceptance.yml
+    with:
+      group: sessions
+      commit: ${{ needs.prepare.outputs.commit }}
+      sha256: ${{ needs.prepare.outputs.sha256 }}
+      artifact-id: ${{ needs.prepare.outputs.artifact-id }}
+
+  runtime:
+    needs: prepare
+    uses: ./.github/workflows/macos-acceptance.yml
+    with:
+      group: runtime
+      commit: ${{ needs.prepare.outputs.commit }}
+      sha256: ${{ needs.prepare.outputs.sha256 }}
+      artifact-id: ${{ needs.prepare.outputs.artifact-id }}
+
+  macos:
+    # Preserve the existing required check name.
+    name: ARM64 build, tests and packaged acceptance
+    if: always()
+    needs: [prepare, interface, sessions, runtime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CI_MACOS_NEEDS: ${{ toJSON(needs) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - name: Require all job outcomes and exact group receipts
+        run: node scripts/ci-macos-policy.mjs outcomes
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.interface.outputs.receipt-id }},${{ needs.sessions.outputs.receipt-id }},${{ needs.runtime.outputs.receipt-id }}
+          merge-multiple: true
+          path: receipts
+      - name: Verify complete source and package inventories
+        run: node scripts/ci-macos-policy.mjs conclude receipts
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact-id }}
+          merge-multiple: true
+          path: candidate
+      - name: Recheck the exact tested archive before promotion
+        env:
+          CI_MACOS_COMMIT: ${{ needs.prepare.outputs.commit }}
+          CI_MACOS_CANDIDATE_SHA256: ${{ needs.prepare.outputs.sha256 }}
+        run: node scripts/ci-macos-policy.mjs candidate candidate
+      - name: Upload fully tested preview candidate (not a Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-preview-${{ github.sha }}-${{ github.run_attempt }}
+          path: candidate/
+          retention-days: 7
+          if-no-files-found: error

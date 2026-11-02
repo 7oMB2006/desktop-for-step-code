@@ -1,0 +1,43 @@
+name: Build native macOS test environment
+description: Freshly build the pinned upstream and Desktop on this runner
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24.15.0
+        architecture: arm64
+    - name: Confirm native toolchain
+      shell: bash
+      run: |
+        test "$(uname -m)" = arm64
+        corepack enable
+        node -p 'process.platform + "/" + process.arch'
+    - name: Fetch and patch frozen Step Code runtime
+      shell: bash
+      run: |
+        git init Step-Code
+        git -C Step-Code remote add origin https://github.com/stepfun-ai/Step-Code.git
+        git -C Step-Code fetch --depth 1 --no-tags origin 81e79bc4b699148d6823fedde9b5e70d9a80255f
+        git -C Step-Code checkout --detach FETCH_HEAD
+        test "$(git -C Step-Code rev-parse HEAD)" = 81e79bc4b699148d6823fedde9b5e70d9a80255f
+        node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v016/step-code-desktop.patch
+    - name: Build pinned Step Code
+      shell: bash
+      working-directory: Step-Code
+      run: |
+        corepack pnpm install --frozen-lockfile
+        corepack pnpm build:offline
+    - name: Install Desktop and test browser
+      shell: bash
+      working-directory: Desktop
+      run: |
+        corepack pnpm install --frozen-lockfile
+        node node_modules/electron/install.js
+        corepack pnpm exec playwright install chromium ffmpeg
+    - name: Build and stage native runtime
+      shell: bash
+      working-directory: Desktop
+      run: |
+        corepack pnpm build
+        corepack pnpm stage:runtime

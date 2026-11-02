@@ -126,12 +126,38 @@ pull requests. The concurrency group includes both `github.workflow` and
 group, while `cancel-in-progress: true` cancels an older run superseded on the
 same ref. GitHub runner availability and account limits can still cause queues.
 
-One native job builds and stages the pinned runtime, runs typecheck and protocol
-tests, then executes the full serial inventory against the source build and
-again against the packaged `.app`. Packaged native terminal checks follow.
-`scripts/ci-acceptance.mjs` defines the current inventory; no separate script
-count is maintained here. The job has a 90-minute timeout and retains the shared
-per-script deadlines and owned-process cancellation rules.
+A preparation job builds and stages the pinned runtime, runs the existing
+upstream, typecheck, protocol and helper tests, packages one fresh `.app`, and
+verifies all package resources against that build. It archives the app with
+`ditto`, preserving executable permissions and symlinks. The preview and
+versioned updater ZIPs are identical copies of this archive.
+
+Three independent callers (`interface`, `sessions`, `runtime`) then each use
+`.github/workflows/macos-acceptance.yml` on a separate native runner. Each freshly
+builds its source environment using `.github/actions/setup-macos`, runs its source
+inventory, and tests the same candidate downloaded by artifact ID from this run.
+The candidate commit and SHA-256 are verified before extraction. This is not a
+cross-run build cache or a separately rebuilt package per group. Packaged native
+terminal tests run in the runtime group. Checks remain serial within each
+runner; a failing group does not cancel its siblings.
+`scripts/ci-acceptance.mjs` remains the assignment list, without coverage changes.
+Preparation retains its 90-minute limit; each group has a 60-minute limit.
+Per-script deadlines and owned-process cancellation rules are unchanged.
+
+The final `ARM64 build, tests and packaged acceptance` check preserves the old
+required-check name and runs even after failures. `scripts/ci-macos-policy.mjs`
+requires exactly preparation plus the three successful groups, distinct artifact
+IDs, matching commit/hash, and both complete reports from every group. Every
+report must contain the exact ordered assigned inventory, successful results
+and no active check. Missing, swapped, duplicate, malformed, partial, failed,
+cancelled or skipped evidence cannot satisfy this gate.
+
+Before acceptance the artifact is explicitly named
+`macos-arm64-unvalidated-<run>-<attempt>`. Only after the gate validates all reports
+is the identical archive rechecked and promoted to
+`macos-arm64-preview-<sha>-<attempt>`. Neither artifact is a published Release.
+Require the final macOS check separately when macOS protection is desired;
+the Windows `CI result` gate is unchanged.
 
 Short animation checks capture product-created CSS transitions at the DOM state
 change, or WAAPI effects when created, before a native action's response can
@@ -142,14 +168,26 @@ checks retain their own immediate-state assertions. Run the browser-backed helpe
 regressions from `Desktop/` with `node --test scripts/motion-helpers.test.mjs`;
 the macOS source acceptance step also runs them after Chromium installation.
 
-The `macos-fixture-diagnostics-<attempt>` artifact contains the source and package
+The `macos-fixture-diagnostics-<group>-<attempt>` artifacts contain the source and package
 JSON reports and captured per-script output. Logs use separate paths under
 `Desktop/test-results/logs/source/<group>/<script>.log` and
 `Desktop/test-results/logs/package/<group>/<script>.log`, so packaged acceptance
-does not overwrite source diagnostics. The workflow uses group `all`; the job
+does not overwrite source diagnostics. Preparation has its own diagnostic artifact; the job
 summary lists artifact-relative log paths. Console stdout and stderr remain
 visible while each script runs, and diagnostic artifacts are retained for seven
 days, including after failures.
+
+Run dependency-free scheduling and gate regressions locally:
+
+```sh
+node --test scripts/ci-macos.test.mjs scripts/ci-macos-policy.test.mjs scripts/ci-windows.test.mjs scripts/ci-policy.test.mjs
+```
+
+The last serial baseline (run `41477155903`) took 47m27s, including about 20.6
+minutes of source and 20.5 minutes of packaged acceptance. Compare cloud elapsed
+time, queue time, group durations, artifact-transfer cost, failures and total
+runner-minutes before claiming a speedup. Parallel acceptance duplicates native
+source preparation and can consume more runner-minutes even with lower wall time.
 
 ## Local Split Validation (2026-10-13)
 

@@ -36,14 +36,36 @@ test('macOS runner executes every group serially using shared deadlines and stop
   await assert.rejects(runGroup('all', { scripts: macosGroupScripts('all'), log() {}, execute() { throw Error('failure'); } }), /verify-electron.mjs failed/);
 });
 test('Mac CI runs the same serial inventory against source and package and stages the shared release version', () => {
-  const workflow = readFileSync(new URL('../.github/workflows/macos-integration.yml', import.meta.url), 'utf8');
-  assert.equal(workflow.split('node ../scripts/ci-macos.mjs').length - 1, 2);
+  const workflow = readFileSync(new URL('../.github/workflows/macos-integration.yml', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+  const acceptance = readFileSync(new URL('../.github/workflows/macos-acceptance.yml', import.meta.url), 'utf8');
+  assert.equal(acceptance.split('node ../scripts/ci-macos.mjs').length - 1, 2);
   assert.match(workflow, /DESKTOP_MACOS_RELEASE_VERSION: 0\.6\.0/);
-  assert.match(workflow, /DESKTOP_VERIFY_EXE:/);
-  assert.match(workflow, /tests\/macos-terminal.test.ts/);
+  assert.match(acceptance, /DESKTOP_VERIFY_EXE:/);
+  assert.match(acceptance, /tests\/macos-terminal.test.ts/);
+  assert.match(acceptance, /if: inputs\.group == 'runtime'/);
   assert.match(workflow, /node --test scripts\/motion-helpers.test.mjs/);
   assert.match(workflow, /^  group: macos-preview-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}$/m);
   assert.match(workflow, /^  cancel-in-progress: true$/m);
+  for (const group of Object.keys(macosAcceptanceGroups)) {
+    assert.match(workflow, new RegExp(`  ${group}:\\n    needs: prepare\\n    uses: ./\\.github/workflows/macos-acceptance.yml\\n    with:\\n      group: ${group}`));
+  }
+  assert.doesNotMatch(workflow, /continue-on-error|strategy:|fail-fast:/);
+  assert.doesNotMatch(acceptance, /continue-on-error|strategy:|fail-fast:/);
+  assert.match(workflow, /needs: \[prepare, interface, sessions, runtime\]/);
+  assert.match(workflow, /name: ARM64 build, tests and packaged acceptance\n    if: always\(\)/);
+  assert.ok(workflow.indexOf('conclude receipts') < workflow.indexOf('Upload fully tested preview'));
+  assert.match(acceptance, /macos-fixture-diagnostics-\$\{\{ inputs.group \}\}-\$\{\{ github.run_attempt \}\}/);
+  assert.match(acceptance, /artifact-ids: \$\{\{ inputs.artifact-id \}\}/);
+  assert.ok(acceptance.indexOf('candidate candidate') < acceptance.indexOf('ditto -x -k'));
+  assert.ok(acceptance.indexOf('Packaged native terminal acceptance') < acceptance.indexOf('Validate and seal both reports'));
+  assert.match(workflow, /cp release\/v\*\/Desktop\.for\.Step\.Code\.\*\.arm64\.zip release\/Desktop\.for\.Step\.Code\.macos-arm64\.preview\.zip/);
+  const setup = readFileSync(new URL('../.github/actions/setup-macos/action.yml', import.meta.url), 'utf8');
+  assert.match(setup, /node-version: 24\.15\.0/);
+  assert.match(setup, /81e79bc4b699148d6823fedde9b5e70d9a80255f/);
+  assert.match(setup, /corepack pnpm stage:runtime/);
+  assert.match(workflow, /'\.github\/actions\/setup-macos\/\*\*'/);
+  assert.match(workflow, /'\.github\/workflows\/macos-\*\.yml'/);
+  assert.equal(Object.values(macosAcceptanceGroups).flat().length, macosGroupScripts('all').length);
 });
 test('Mac listing validates the complete projected inventory without launching Electron', () => {
   const cli = fileURLToPath(new URL('./ci-macos.mjs', import.meta.url));

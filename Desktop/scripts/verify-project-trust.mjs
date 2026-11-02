@@ -103,16 +103,13 @@ try {
   await page.screenshot({ path: 'test-results/project-trust-expanded.png' });
   await drawer().getByRole('button', { name: '信任项目并保存', exact: true }).click();
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).requests.length);
+  // Answering the approval precedes the native admin process's durable save.
+  await page.getByText('项目信任已保存。重启运行时后生效；当前及其他已打开会话未自动重启。', { exact: true }).waitFor({ timeout: 60000 });
   const trustFile = join(root, 'agent/trust.json');
-  let saved;
-  for (let i = 0; i < 100; i++) {
-    try { saved = JSON.parse(await readFile(trustFile, 'utf8')); break; }
-    catch (error) { if (error.code !== 'ENOENT') throw error; await page.waitForTimeout(50); }
-  }
+  const saved = JSON.parse(await readFile(trustFile, 'utf8'));
   assert.deepEqual(saved, { [workspace]: true });
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, before.runtimeId,
     'Saving does not replace the live runtime');
-  await page.getByText('项目信任已保存。重启运行时后生效；当前及其他已打开会话未自动重启。', { exact: true }).waitFor();
   results.push('persistent authorization copy, dark/light/narrow layout, native isolated trust store and no implicit restart');
   const restarted = await page.evaluate(() => window.desktop.restart());
   assert.deepEqual(restarted.messages, before.messages,

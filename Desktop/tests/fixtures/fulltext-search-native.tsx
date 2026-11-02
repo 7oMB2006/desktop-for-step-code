@@ -84,6 +84,7 @@ function Preview() {
         onReturn={() => { setReturnRequest(value => value + 1); setActive(true); }}/>
       <div className="conversation"><div className="messages" ref={transcript}>
         {opened && <ConversationMessages messages={opened.messages} language="zh" busy={false} canEdit={false}
+          searchTarget={locationTarget ? { ...locationTarget, requestId: locateRequest } : undefined}
           openImage={() => {}} edit={async () => {}} branch={() => {}} onError={() => {}} onOpenSubagent={() => {}}/>}
       </div></div>
     </div>

@@ -21,6 +21,10 @@ export interface SearchLocation {
   text: string;
 }
 
+export interface SearchTextTarget extends Pick<SearchLocation, 'entryId' | 'text'> {
+  requestId: number;
+}
+
 export interface FulltextResult {
   id: string;
   hits: FulltextHit[];
@@ -34,6 +38,15 @@ export interface FulltextResult {
 
 export function searchTerms(text: string): string[] {
   return [...new Set(text.trim().toLowerCase().split(/\s+/u).filter(Boolean))];
+}
+
+export function searchPattern(query: string): RegExp | undefined {
+  const terms = searchTerms(query).map(term => term.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'));
+  return terms.length ? new RegExp(terms.join('|'), 'giu') : undefined;
+}
+
+export function searchTextMatch(text: string, query: string): RegExpExecArray | null {
+  return searchPattern(query)?.exec(text) ?? null;
 }
 
 export function snippetParts(text: string): { text: string; matched: boolean }[] {

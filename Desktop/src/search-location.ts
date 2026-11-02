@@ -1,38 +1,62 @@
-import { searchTerms } from './fulltext-search';
+import { searchPattern } from './fulltext-search';
 
-export function searchMessageElement(root: HTMLElement | null, index: number): HTMLElement | null {
-  if (index < 0) return null;
-  return root?.querySelector<HTMLElement>(`.response-text[data-message-index="${index}"]`)
-    ?? root?.querySelector<HTMLElement>(`[data-message-index="${index}"]`) ?? null;
+function* searchableText(target: HTMLElement): Generator<Node> {
+  const walker = target.ownerDocument.createTreeWalker(target, 4);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.parentElement?.closest('button, [inert], [aria-hidden=true], .large-message-controls')) yield node;
+  }
 }
 
-export function markSearchMessage(target: HTMLElement, text: string, name: string): () => void {
+function containsSearchText(target: HTMLElement, query: string): boolean {
+  const expression = searchPattern(query);
+  if (!expression) return false;
+  for (const node of searchableText(target)) {
+    expression.lastIndex = 0;
+    if (expression.test(node.textContent ?? '')) return true;
+  }
+  return false;
+}
+
+export function searchMessageElement(root: HTMLElement | null, index: number, query = ''): HTMLElement | null {
+  if (index < 0) return null;
+  const blocks = [...root?.querySelectorAll<HTMLElement>(`.response-text[data-message-index="${index}"]`) ?? []];
+  const targets = blocks.length ? blocks : [...root?.querySelectorAll<HTMLElement>(`[data-message-index="${index}"]`) ?? []];
+  return targets.find(target => containsSearchText(target, query)) ?? targets[0] ?? null;
+}
+
+export function markSearchMessage(target: HTMLElement, text: string, name: string): { matched: boolean; cleanup: () => void } {
   target.dataset.searchMatch = 'true';
-  const terms = searchTerms(text).map(term => term.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'));
-  if (terms.length && typeof Highlight !== 'undefined' && CSS.highlights) {
-    const expression = new RegExp(terms.join('|'), 'giu');
-    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
-    const ranges: Range[] = [];
-    for (let node = walker.nextNode(); node && ranges.length < 200; node = walker.nextNode()) {
-      if (node.parentElement?.closest('button, [inert], [aria-hidden=true]')) continue;
+  const expression = searchPattern(text);
+  const ranges: Range[] = [];
+  if (expression) {
+    for (const node of searchableText(target)) {
       for (const match of (node.textContent ?? '').matchAll(expression)) {
-        const range = document.createRange();
+        const range = target.ownerDocument.createRange();
         range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
         ranges.push(range);
         if (ranges.length >= 200) break;
       }
+      if (ranges.length >= 200) break;
     }
+  }
+  if (typeof Highlight !== 'undefined' && CSS.highlights) {
     CSS.highlights.set(name, new Highlight(...ranges));
   }
-  return () => {
-    CSS.highlights?.delete(name);
+  return { matched: ranges.length > 0, cleanup: () => {
+    if (typeof CSS !== 'undefined') CSS.highlights?.delete(name);
     delete target.dataset.searchMatch;
-  };
+  } };
 }
 
-export function searchHighlightRect(name: string): DOMRect | undefined {
+export function revealSearchHighlight(name: string): DOMRect | undefined {
   const range = CSS.highlights?.get(name)?.values().next().value;
-  return range instanceof Range ? range.getBoundingClientRect() : undefined;
+  if (!(range instanceof Range)) return;
+  const page = range.startContainer.parentElement?.closest<HTMLElement>('.large-message-text > pre');
+  if (page) {
+    const match = range.getBoundingClientRect(), bounds = page.getBoundingClientRect();
+    page.scrollTo({ top: page.scrollTop + match.top - bounds.top - (page.clientHeight - match.height) / 2, behavior: 'instant' });
+  }
+  return range.getBoundingClientRect();
 }
 
 export function scrollSearchMessage(viewport: HTMLElement, target: HTMLElement, match?: DOMRect) {

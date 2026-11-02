@@ -36,7 +36,13 @@ for (const [id, cwd, directory, days] of [
   for (let turn = 0; turn < (id === 'main' ? 36 : 1); turn++) {
     const message = (role, text, entryId) => {
       entries.push({ type: 'message', id: entryId, parentId, timestamp, message: {
-        role, content: [{ type: 'text', text }], timestamp: Date.parse(timestamp),
+        role, content: [{ type: 'text', text },
+          ...(id === 'main' && role === 'assistant' && turn === 0 ? [{ type: 'text', text: 'laterblockneedle is only in the second text block.' }] : []),
+          ...(id === 'main' && role === 'assistant' && turn === 1 ? [{ type: 'text',
+            text: 'x'.repeat(40_000) + 'pageneedle is on the third page.\n' + 'y'.repeat(8_000) }] : []),
+          ...(id === 'main' && role === 'assistant' && turn === 2 ? [{ type: 'text',
+            text: 'x'.repeat(32_764) + 'boundaryneedle crosses a page boundary.\n' + 'y'.repeat(8_000) }] : []),
+        ], timestamp: Date.parse(timestamp),
         ...(role === 'assistant' ? { api: 'openai-completions', provider: 'fixture', model: 'fixture',
           stopReason: 'stop', usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0,
             totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } : {}),
@@ -316,6 +322,62 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ path: `test-results/fulltext-location-${theme}-${width}.png` });
   }
+  phase = 'multiple text blocks, paginated hits and repeat location after manual paging';
+  // Normal runtime restoration may append metadata; subsequent reading and locating may not.
+  const navigationBaseline = new Map();
+  for (const path of originals.keys()) navigationBaseline.set(path, await readFile(path, 'utf8'));
+  const assertKeywordVisible = async (selector, highlight, text) => {
+    await page.waitForFunction(({ selector, highlight, text }) => {
+      const target = document.querySelector(`${selector} [data-search-match=true]`);
+      const viewport = document.querySelector(selector);
+      const range = CSS.highlights.get(highlight)?.values().next().value;
+      if (!target || !viewport || !(range instanceof Range) || !target.textContent.includes(text)) return false;
+      const match = range.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
+      const page = range.startContainer.parentElement?.closest('.large-message-text > pre')?.getBoundingClientRect();
+      return range.toString().toLowerCase() === text && match.height > 0 &&
+        match.top >= bounds.top && match.bottom <= bounds.bottom &&
+        (!page || match.top >= page.top && match.bottom <= page.bottom);
+    }, { selector, highlight, text });
+  };
+  for (const [text, messageIndex, expectedPage] of [
+    ['laterblockneedle', '1', undefined], ['pageneedle', '3', '3'], ['boundaryneedle', '5', '2'],
+  ]) {
+    await locationBar.getByRole('button', { name: '返回搜索结果', exact: true }).click();
+    await search(text);
+    assert.equal(await hits.count(), 1);
+    await hits.first().click();
+    await assertKeywordVisible('.fulltext-history', 'desktop-search-match', text);
+    assert.equal(await panel.locator('[data-search-match=true]').getAttribute('data-message-index'), messageIndex);
+    if (expectedPage) assert.equal(await panel.locator('[data-search-match=true] .large-message-text').getAttribute('data-page'), expectedPage);
+    await panel.getByRole('button', { name: '打开并定位', exact: true }).click();
+    await assertKeywordVisible('#conversation-scroll', 'desktop-conversation-search-match', text);
+    assert.equal(await liveMatch.getAttribute('data-message-index'), messageIndex);
+    if (expectedPage) {
+      const large = liveMatch.locator('.large-message-text');
+      assert.equal(await large.getAttribute('data-page'), expectedPage);
+      await large.getByRole('button', { name: '上一段', exact: true }).click();
+      assert.notEqual(await large.getAttribute('data-page'), expectedPage);
+      await page.waitForTimeout(600);
+      assert.notEqual(await large.getAttribute('data-page'), expectedPage, 'Snapshots retain manual page selection');
+      await locationBar.getByRole('button', { name: '重新定位', exact: true }).click();
+      await assertKeywordVisible('#conversation-scroll', 'desktop-conversation-search-match', text);
+      assert.equal(await large.getAttribute('data-page'), expectedPage, 'Explicit repeat location reveals the matching page again');
+    }
+    assert.equal((await snapshot()).runtimeId, targetRuntime);
+    await page.screenshot({ path: `test-results/fulltext-location-${text}.png` });
+  }
+  for (const [path, content] of navigationBaseline)
+    assert.equal(await readFile(path, 'utf8') === content, true, 'Same-session preview and location cannot rewrite JSONL');
+  phase = 'message found without a rendered keyword is not reported as a keyword location';
+  await locationBar.getByRole('button', { name: '返回搜索结果', exact: true }).click();
+  await mode('limited');
+  await search('notinvisibleprose');
+  await hits.first().click();
+  await panel.getByText('已找到消息，但当前可见正文没有匹配关键词。', { exact: true }).waitFor();
+  await panel.getByRole('button', { name: '打开并定位', exact: true }).click();
+  await locationBar.getByText('已找到消息，但当前可见正文没有匹配关键词', { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => CSS.highlights.get('desktop-conversation-search-match')?.size), 0);
+  await mode('');
   phase = 'missing authoritative entry and conversation-level fallbacks';
   await locationBar.getByRole('button', { name: '返回搜索结果', exact: true }).click();
   await search('abandonedneedle');

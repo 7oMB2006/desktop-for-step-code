@@ -37,6 +37,7 @@ import { useAnimatedDisclosure } from './useAnimatedDisclosure';
 import { CronMessage } from './CronMessage';
 import { cronMessage } from './cron-message';
 import { AutoResumeMessage } from './AutoResumeMessage';
+import { searchTextMatch, type SearchTextTarget } from './fulltext-search';
 import './auto-resume-message.css';
 
 type Props = {
@@ -55,8 +56,9 @@ type Props = {
   arrivingUser?: Message | null;
   settledStatus?: ReactNode;
   completedStatus?: { responseIndex: number; content: ReactNode };
+  searchTarget?: SearchTextTarget;
 };
-type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls' | 'interfaceSettings'> & { disclosureReset?: string };
+type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls' | 'interfaceSettings' | 'searchTarget'> & { disclosureReset?: string };
 type EditState = { entryId: string; text: string; submitting: boolean };
 
 function CopyButton({ text, getText, language, onError }: { text: string; getText?: () => string } & Pick<Props, 'language' | 'onError'>) {
@@ -106,25 +108,32 @@ function Code({ children, className, language, onError }: Omit<ComponentProps<'c
 export function Text({ text, ...props }: { text: string; streaming?: boolean; commands?: ComposerCommand[] } & BodyProps) {
   return text.length > 32_768 ? <LargeText text={text} {...props}/> : <RevealedText text={text} {...props}/>;
 }
-function LargeText({ text, language, onError }: { text: string } & Pick<BodyProps, 'language' | 'onError'>) {
-  const [page, setPage] = useState(0);
+function LargeText({ text, language, onError, searchTarget }: { text: string } & Pick<BodyProps, 'language' | 'onError' | 'searchTarget'>) {
   const size = 16_384;
+  const match = useMemo(() => searchTarget ? searchTextMatch(text, searchTarget.text) : null, [text, searchTarget?.text]);
+  const request = searchTarget ? JSON.stringify([searchTarget.entryId, searchTarget.text, searchTarget.requestId]) : undefined;
+  const [position, setPosition] = useState<{ request?: string; page: number }>({ page: 0 });
+  // Reveal a search page once; snapshots must not undo subsequent manual paging.
+  if (position.request !== request) setPosition({ request, page: match ? Math.floor(match.index / size) : position.page });
   const pages = Math.ceil(text.length / size);
-  const current = Math.min(page, pages - 1);
+  const current = Math.min(position.page, pages - 1);
   const zh = language === 'zh';
   const boundary = (offset: number) => offset > 0 && /[\uDC00-\uDFFF]/u.test(text[offset] ?? '') ? offset - 1 : offset;
+  const start = boundary(current * size);
+  const end = boundary((current + 1) * size);
+  const matchEnd = match && match.index >= start && match.index < end ? match.index + match[0].length : end;
   return <div className="large-message-text" data-page={current + 1}>
     <div className="large-message-controls">
       <button className="icon-button" type="button" aria-label={zh ? '上一段' : 'Previous section'}
         data-tooltip={zh ? '上一段' : 'Previous section'}
-        disabled={current === 0} onClick={() => setPage(current - 1)}><ArrowLeft size={14}/></button>
+        disabled={current === 0} onClick={() => setPosition({ request, page: current - 1 })}><ArrowLeft size={14}/></button>
       <span>{current + 1} / {pages}</span>
       <button className="icon-button" type="button" aria-label={zh ? '下一段' : 'Next section'}
         data-tooltip={zh ? '下一段' : 'Next section'}
-        disabled={current === pages - 1} onClick={() => setPage(current + 1)}><ArrowRight size={14}/></button>
+        disabled={current === pages - 1} onClick={() => setPosition({ request, page: current + 1 })}><ArrowRight size={14}/></button>
       <CopyButton text={text} language={language} onError={onError}/>
     </div>
-    <pre>{text.slice(boundary(current * size), boundary((current + 1) * size))}</pre>
+    <pre>{text.slice(start, Math.max(end, matchEnd))}</pre>
   </div>;
 }
 function RevealedText({ text, streaming = false, commands, ...props }: { text: string; streaming?: boolean; commands?: ComposerCommand[] } & BodyProps) {
@@ -383,7 +392,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
   </details>;
 }
 
-  function Response({ items, active, historical, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, execution, ...props }: {
+  function Response({ items, active, historical, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, execution, searchTarget, ...props }: {
     items: { message: Message; index: number }[]; active: boolean;
     historical: boolean;
     canBranch: boolean; branch: Props['branch'];
@@ -391,6 +400,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     modelChange?: ModelChange;
     settledStatus?: ReactNode;
     execution?: { plan: ApprovedPlan; state: PlanExecutionState };
+    searchTarget?: SearchTextTarget;
     background: BackgroundSubagentStates;
     onOpenSubagent: (task: SubagentTask) => void;
     onOpenWorkflow?: (id: string) => void;
@@ -454,7 +464,8 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
             <Text text={item.block.thinking ?? ''} streaming={item.key === liveThought} {...props}/>
           </ThinkingDisclosure>
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
-              : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>;
+              : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}
+                searchTarget={searchTarget?.entryId && items.some(entry => entry.index === item.index && entry.message.entryId === searchTarget.entryId) ? searchTarget : undefined}/></div>;
     return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
       <div className="response-content message-body">{presentation.map(item =>
@@ -472,7 +483,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
       {settledStatus}</div> : actions}
   </article></ArtifactContext.Provider>;
 }
-function UserMessage({ message, index, arriving, editState, setEditState, ...props }: {
+function UserMessage({ message, index, arriving, editState, setEditState, searchTarget, ...props }: {
   message: Message; index: number; arriving: boolean;
   editState: EditState | null; setEditState: Dispatch<SetStateAction<EditState | null>>;
 } & Props) {
@@ -534,7 +545,7 @@ function UserMessage({ message, index, arriving, editState, setEditState, ...pro
           onClick={() => void submit()}><Send size={14}/>{zh ? '发送' : 'Send'}</button>
       </div>
     </div> : <>
-    <Body blocks={messageBlocks(message)} {...props}/>
+    <Body blocks={messageBlocks(message)} {...props} searchTarget={searchTarget?.entryId === message.entryId ? searchTarget : undefined}/>
     <footer className={`message-actions user-actions${message.desktopSteered ? ' has-steered-marker' : ''}`}>
       <Timestamp value={message.timestamp} language={props.language}/>
       <CopyButton text={messageText(message)} {...props}/>

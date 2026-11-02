@@ -184,21 +184,33 @@ try {
   await searchInput.waitFor();
   assert.equal(await searchInput.evaluate(input => !input.readOnly && document.activeElement === input), true);
   assert.equal(await page.locator('.sidebar-utility-links').evaluate(element => element.inert), true);
-  await page.locator('.sidebar-search-field').evaluate(async element => {
-    await Promise.all(element.getAnimations().map(animation => animation.finished));
+  await page.locator('.sidebar-task-actions').evaluate(async element => {
+    await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished));
   });
   assert.deepEqual(await page.locator('.sidebar-search-toggle').boundingBox(), anchorBefore, 'Search keeps its original anchor');
-  assert.deepEqual(await page.locator('.workspace-tree').boundingBox(), treeBefore, 'Search does not push the session list');
+  const disclosure = page.locator('.sidebar-fulltext-disclosure');
+  const expandedBox = await disclosure.boundingBox();
+  const treeExpanded = await page.locator('.workspace-tree').boundingBox();
+  assert.ok(expandedBox.height > 0, 'The fulltext entry expands below the anchored search field');
+  assert.equal(await disclosure.evaluate(element => element.inert), false);
+  assert.deepEqual({ x: treeExpanded.x, width: treeExpanded.width }, { x: treeBefore.x, width: treeBefore.width });
+  assert.ok(Math.abs(treeExpanded.y - treeBefore.y - expandedBox.height) < 1, 'Only the fulltext disclosure displaces the list');
+  assert.ok(Math.abs(treeExpanded.y + treeExpanded.height - treeBefore.y - treeBefore.height) < 1, 'The list keeps its bottom edge');
+  assert.ok(expandedBox.y + expandedBox.height <= treeExpanded.y + 1, 'The fulltext entry cannot overlap the list');
   await page.screenshot({ path: 'test-results/capabilities-sidebar-search-light.png' });
   await searchInput.press('Escape');
   assert.equal(await searchButton.evaluate(button => document.activeElement === button), true);
-  await page.locator('.sidebar-search-field').evaluate(async element => {
-    await Promise.all(element.getAnimations().map(animation => animation.finished));
+  await page.locator('.sidebar-task-actions').evaluate(async element => {
+    await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished));
   });
   assert.equal(await page.locator('.sidebar-search-field').evaluate(element => element.inert), true);
+  assert.equal(await disclosure.evaluate(element => element.inert), true);
+  assert.equal((await disclosure.boundingBox()).height, 0, 'Closed fulltext entry reserves no blank space');
+  assert.deepEqual(await page.locator('.workspace-tree').boundingBox(), treeBefore, 'Closing restores the complete list bounds');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await searchButton.click();
   assert.equal(await page.locator('.sidebar-search-field').evaluate(element => element.getAnimations().length), 0);
+  assert.equal(await disclosure.evaluate(element => element.getAnimations().length), 0);
   await page.getByRole('button', { name: '收起搜索', exact: true }).click();
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark', language: 'en' }));

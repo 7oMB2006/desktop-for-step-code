@@ -1,5 +1,35 @@
 # Verification
 
+## Full-text search PR review and CI repair (2026-11-02)
+
+The first PR #185 run failed on Windows and macOS at the same
+`verify-capabilities.mjs` assertion: the newly disclosed full-text entry adds
+height beneath the anchored search field, while the old assertion expected no
+list displacement. Acceptance now checks exact disclosure-height displacement,
+unchanged trigger/x/width/bottom bounds, no overlap, full collapse restoration,
+inert hidden controls and reduced motion. The runner and final CI gate are not
+weakened or bypassed.
+
+Both P2 review findings are addressed in the readonly and authoritative views:
+choose the matching text block within an entry, and reveal the matching page of
+large text before marking and scrolling. Inner paginated text also scrolls to
+the keyword, including a match crossing the normal page boundary. Explicit
+repeat location reopens the matching page without a new runtime; snapshots
+retain manual paging. Message-only locations without visible query text have
+an explicit fallback instead of claiming keyword location.
+
+Local Windows typecheck/build and all 817 serial unit tests complete: 803 pass,
+14 platform skips, zero failures (`fulltext-review-unit-suite.log`).
+`verify-capabilities.mjs` and expanded `verify-fulltext-search.mjs` pass. The
+latter uses actual indexed second-block/third-page/boundary-spanning hits,
+checks visible highlight ranges in both scroll containers, repeat location,
+runtime identity and unchanged JSONL after normal restoration metadata has
+settled. The pre-navigation readonly immutability assertions remain unchanged.
+The no-visible-keyword UI uses explicit IPC fault injection.
+
+Replacement cloud checks remain pending. This repair has not been repackaged;
+the previously accepted local installer is the preceding feature build.
+
 ## Search location handoff preview (2026-11-02)
 
 The search result's explicit Open and locate action now transfers saved entry

@@ -3,7 +3,7 @@ import { AlertCircle, Archive, ArrowLeft, ArrowRight, Folder, LoaderCircle, Mess
 import type { DesktopBridge, Preferences, Session, SessionReading } from './contracts';
 import type { FulltextHit, FulltextResult, SearchLocation } from './fulltext-search';
 import { snippetParts } from './fulltext-search';
-import { markSearchMessage, scrollSearchMessage, searchHighlightRect, searchMessageElement } from './search-location';
+import { markSearchMessage, revealSearchHighlight, scrollSearchMessage, searchMessageElement } from './search-location';
 import { normalizedWorkspaceKey } from './workspace-key';
 import { ScheduledTaskSelect } from './ScheduledTasks';
 import { ConversationMessages } from './ConversationMessages';
@@ -39,6 +39,7 @@ export function SessionSearchPanel({ active, request, returnRequest = 0, bridge,
   const [reading, setReading] = useState<SessionReading | null>();
   const [previewError, setPreviewError] = useState('');
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewMatched, setPreviewMatched] = useState(false);
   const [opening, setOpening] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const back = useRef<HTMLButtonElement>(null);
@@ -130,21 +131,22 @@ export function SessionSearchPanel({ active, request, returnRequest = 0, bridge,
     }
   }, [sessions, selected]);
   useLayoutEffect(() => {
-    if (!active || !selected || !reading) return;
-    const target = searchMessageElement(history.current, matchIndex);
+    if (!active || !selected || !reading) { setPreviewMatched(false); return; }
+    const target = searchMessageElement(history.current, matchIndex, text);
+    const marker = target ? markSearchMessage(target, text, 'desktop-search-match') : undefined;
+    setPreviewMatched(Boolean(marker?.matched));
     if (target) {
-      const cleanup = markSearchMessage(target, text, 'desktop-search-match');
       const tabIndex = target.getAttribute('tabindex');
       target.tabIndex = -1;
-      if (history.current) scrollSearchMessage(history.current, target, searchHighlightRect('desktop-search-match'));
+      if (history.current) scrollSearchMessage(history.current, target, revealSearchHighlight('desktop-search-match'));
       target.focus({ preventScroll: true });
       return () => {
-        cleanup();
+        marker?.cleanup();
         if (tabIndex === null) target.removeAttribute('tabindex');
         else target.setAttribute('tabindex', tabIndex);
       };
     }
-  }, [active, selected, reading, matchIndex]);
+  }, [active, selected, reading, matchIndex, text]);
   const openHit = async (hit: FulltextHit) => {
     const current = ++previewGeneration.current;
     scrollPosition.current = list.current?.scrollTop ?? 0;
@@ -228,10 +230,13 @@ export function SessionSearchPanel({ active, request, returnRequest = 0, bridge,
       {!!reading && (selected.entryId === null || matchIndex < 0) && <div className="fulltext-notice" role="status"><AlertCircle size={14}/>{selected.entryId === null
         ? t('这是会话级匹配，显示当前可见上下文。', 'Conversation-level match. Showing the currently visible context.')
         : t('命中不在当前可见分支，或已被压缩；显示会话当前上下文。', 'The match is outside the visible branch or was compacted. Showing current context.')}</div>}
+      {!!reading && matchIndex >= 0 && !previewMatched && <div className="fulltext-notice" role="status"><AlertCircle size={14}/>
+        {t('已找到消息，但当前可见正文没有匹配关键词。', 'Message found, but the query is not in the visible text.')}</div>}
       <div className="fulltext-history" ref={history}>
         {previewBusy ? <div className="fulltext-empty" role="status"><LoaderCircle className="fulltext-spinner" size={23}/>{t('读取记录…', 'Reading history…')}</div>
           : reading ? <div className="messages"><ConversationMessages messages={reading.messages} modelChanges={reading.modelChanges}
             language={preferences.language} busy={false} canEdit={false} interfaceSettings={interfaceSettings}
+            searchTarget={{ entryId: selected.entryId, text, requestId: request.id }}
             openImage={openImage} edit={cannotMutate} branch={() => void cannotMutate()} onError={setPreviewError}
             onOpenSubagent={() => void cannotMutate()} onOpenWorkflow={() => void cannotMutate()}/></div> : null}
       </div>

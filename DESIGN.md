@@ -43,7 +43,9 @@ focus, except during IME composition. The composite field retains the shared
 four-sided focus outline outside its animated inner clip.
 
 The sidebar's secondary chat-history search opens a dedicated main view using
-the upstream local index. It preserves the existing metadata filter and original
+the upstream local index. Its entry unfolds below the anchored search field,
+displacing the conversation list by exactly its disclosure height; closing
+restores the original list bounds without reserving blank space. It preserves the existing metadata filter and original
 conversation, draft and tool instances. Native bounded batches are grouped by
 conversation, with explicit archive/project/time scope and coverage limitations.
 Opening a hit first reads the saved history without starting a runtime; matching
@@ -56,6 +58,10 @@ retain an explicit return entry. Only Open conversation performs normal navigati
 Message-level hits use Open and locate, carrying saved entry identity and query
 into the authoritative transcript. Scroll to the matching line when rendered,
 retain keyword highlighting and a compact Back to results / Locate again band.
+For messages with several text blocks, choose the block containing the query.
+Paginated text reveals the matching page before marking and scrolling; explicit
+repeat location reveals it again, while ordinary snapshots retain manual paging.
+If only the message can be found, distinguish that from a visible keyword match.
 Returning preserves filters and result scroll/focus. Snapshot refreshes must not
 re-scroll or steal focus; explicit repeat location must not restart a runtime.
 Missing current-context targets stay explicit, never seek a similar array index

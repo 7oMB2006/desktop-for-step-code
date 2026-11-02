@@ -42,6 +42,25 @@ the user explicitly opens a result. Escape dismisses search and restores trigger
 focus, except during IME composition. The composite field retains the shared
 four-sided focus outline outside its animated inner clip.
 
+The sidebar's secondary chat-history search opens a dedicated main view using
+the upstream local index. It preserves the existing metadata filter and original
+conversation, draft and tool instances. Native bounded batches are grouped by
+conversation, with explicit archive/project/time scope and coverage limitations.
+Opening a hit first reads the saved history without starting a runtime; matching
+entry identity scrolls and highlights in the shared transcript component. Missing
+branch/compaction targets retain an explicit current-context fallback. Returning
+restores result scroll and focus. Background indexing refreshes retain results
+without stealing focus; fallback and failed queries remain distinct from no matches.
+Original tool panels are temporarily hidden, not terminated, and pending approvals
+retain an explicit return entry. Only Open conversation performs normal navigation.
+Message-level hits use Open and locate, carrying saved entry identity and query
+into the authoritative transcript. Scroll to the matching line when rendered,
+retain keyword highlighting and a compact Back to results / Locate again band.
+Returning preserves filters and result scroll/focus. Snapshot refreshes must not
+re-scroll or steal focus; explicit repeat location must not restart a runtime.
+Missing current-context targets stay explicit, never seek a similar array index
+or replay another branch. Ordinary navigation clears the search-location band.
+
 Compact process singletons show the original thinking/tool disclosure directly,
 without a second heading or indentation. Stable keyed members retain manual
 expansion, output controls and focus as siblings arrive or leave. Multi-member

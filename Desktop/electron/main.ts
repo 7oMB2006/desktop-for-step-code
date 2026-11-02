@@ -77,6 +77,7 @@ import type { Message, Model, PermissionPreset, Preferences, Session, SessionRea
 import { validateSidebarPreferences } from '../src/sidebar-order';
 import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace, moveSessionToWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
+import { parseFulltextQuery, projectFulltextResult } from './session-search';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
 app.setName('Desktop for Step Code');
@@ -1827,6 +1828,20 @@ async function handle(method: string, args: any[]) {
         .finally(() => { usageOverviewPending = undefined; });
       return usageOverviewPending;
     }
+    case 'searchSessions': {
+      const query = parseFulltextQuery(args[0]);
+      const result = await admin.request('session_search', { query }, 60000);
+      const sessions = cachedSessions();
+      const projected = projectFulltextResult(result, query, sessions, preferences);
+      const known = new Map(sessions.map(session => [session.id, session]));
+      projected.hits = (await Promise.all(projected.hits.map(async hit => {
+        try { await managedSessionFile(join(dataRoot, 'sessions'), known.get(hit.sessionId)!.path!); return hit; }
+        catch { return null; }
+      }))).filter((hit): hit is NonNullable<typeof hit> => hit !== null);
+      return projected;
+    }
+    case 'cancelSessionSearch':
+      return admin.request('cancel_session_search', { queryId: text(args[0], 80) });
     case 'setEstimateRules': {
       if (settingsMutation) throw new Error('Account change in progress');
       return usageEstimates.setRules(args[0], args[1]);

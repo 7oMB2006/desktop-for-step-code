@@ -105,16 +105,20 @@ try {
     await page.waitForFunction(() => document.querySelector('.fulltext-scroll')?.getAttribute('aria-busy') === 'false',
       undefined, { timeout: 60000 });
   };
-  const search = async text => {
-    if (await query.inputValue() === text) await query.press('Enter');
-    else await query.fill(text);
-    await page.waitForFunction(() => document.querySelector('.fulltext-scroll')?.getAttribute('aria-busy') === 'true');
+  const updateSearch = async action => {
+    await Promise.all([
+      page.waitForFunction(() => document.querySelector('.fulltext-scroll')?.getAttribute('aria-busy') === 'true'),
+      action(),
+    ]);
     await ready();
   };
+  const search = text => updateSearch(async () => {
+    if (await query.inputValue() === text) await query.press('Enter');
+    else await query.fill(text);
+  });
   const choose = async (label, value) => {
     await panel.getByRole('button', { name: label, exact: true }).click();
-    await page.getByRole('menuitemradio', { name: value, exact: true }).click();
-    await ready();
+    await updateSearch(() => page.getByRole('menuitemradio', { name: value, exact: true }).click());
   };
   phase = 'native body index and bounded incremental display';
   await hits.first().waitFor({ timeout: 60000 });
@@ -152,8 +156,7 @@ try {
     Math.abs(element.scrollTop - position) < 2, position));
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-search-key')), identity);
   phase = 'imported history, archive, project and time filters';
-  await panel.getByRole('checkbox', { name: '包含归档', exact: true }).check();
-  await ready();
+  await updateSearch(() => panel.getByRole('checkbox', { name: '包含归档', exact: true }).check());
   await panel.getByRole('button', { name: /加载更多/ }).click();
   assert.ok((await hits.allTextContents()).some(text => text.includes('archived')));
   await choose('筛选项目', '另一项目');
@@ -163,7 +166,7 @@ try {
   await choose('筛选时间', '最近 7 天');
   assert.ok(!(await hits.allTextContents()).some(text => text.includes('old')));
   await choose('筛选时间', '不限时间');
-  await panel.getByRole('checkbox', { name: '包含归档', exact: true }).uncheck();
+  await updateSearch(() => panel.getByRole('checkbox', { name: '包含归档', exact: true }).uncheck());
   await search('abandonedneedle');
   await hits.first().click();
   await panel.getByText('命中不在当前可见分支，或已被压缩；显示会话当前上下文。', { exact: true }).waitFor();

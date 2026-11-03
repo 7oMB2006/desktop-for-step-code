@@ -1,5 +1,26 @@
 # Verification
 
+## PR #190 Task Progress Fixture Handshake (2026-11-04)
+
+After the shared rail fix, all Windows groups and the macOS source runtime
+group pass. macOS packaged runtime job `126064844339` then times out at the
+task-progress fixture's full-but-still-running state. Its mock response ends
+on a fixed 2.4-second timer, so a slower native render can miss that state.
+
+The mock now holds the first post-tool answer until the test observes both
+the full task count and an actually full running progress-bar frame, then
+explicitly releases the final model chunk. Existing sound, impact, particles,
+completion, no-replay, next-turn retirement, history and reload assertions
+remain unchanged; no timeout or CI gate is relaxed. The fixture also closes
+its own HTTP connections on failure.
+
+One source run and two consecutive runs of the existing Windows preview
+package pass. Evidence is `ci190-task-progress-handshake.log` under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. This follow-up changes
+only acceptance code and this record; the delivered `bfa74b4` application's
+production sources and package bytes are unchanged. The replacement cloud
+run remains a separate pending gate.
+
 ## BTW PR #190 Shared Rail Acceptance (2026-11-04)
 
 The initial Windows runtime job `126043981644` and macOS runtime job

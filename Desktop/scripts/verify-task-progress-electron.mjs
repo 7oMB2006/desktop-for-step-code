@@ -31,6 +31,7 @@ await writeFile(join(runtimeProfile, 'sessions', 'progress-fixture.jsonl'), [
   { type: 'session_info', id: 'name', parentId: 'a', timestamp, name: '进度条声画验收' },
 ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
 let calls = 0;
+let finishTaskAnswer;
 const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
   id: 'progress', object: 'chat.completion.chunk', model: 'fixture', created: 1,
   choices: [{ index: 0, delta, finish_reason }],
@@ -38,7 +39,8 @@ const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
 const server = createServer(async (request, response) => {
   for await (const _part of request) { /* Consume fixture data without logging it. */ }
   response.writeHead(200, { 'content-type': 'text/event-stream' });
-  if (calls++ === 0) {
+  const call = calls++;
+  if (call === 0) {
     response.end(chunk({ role: 'assistant', tool_calls: [{
       index: 0, id: 'finish-task', type: 'function', function: {
         name: 'task_update', arguments: JSON.stringify({ taskId: '2', status: 'completed' }),
@@ -46,8 +48,10 @@ const server = createServer(async (request, response) => {
     }] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
   } else {
     response.write(chunk({ role: 'assistant', content: '归档已完成，正在汇总结果。' }));
-    const timer = setTimeout(() => response.end(chunk({ content: '本轮任务已完成。' }) + chunk({}, 'stop') + 'data: [DONE]\n\n'), 2400);
-    response.on('close', () => clearTimeout(timer));
+    const finish = () => response.end(chunk({ content: '本轮任务已完成。' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
+    // Hold the first answer until the full-but-still-running state is observed.
+    if (call === 1) finishTaskAnswer = finish;
+    else finish();
   }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -108,7 +112,12 @@ try {
   await board.locator('.sb-task-history').getByRole('button', { name: /已完成任务.*1 项/ }).waitFor();
   assert.equal(await progress.getAttribute('data-phase'), 'running', 'Task completion must wait for round completion');
   assert.equal(await page.evaluate(() => window.progressAudio.length), 0);
+  await page.waitForFunction(() => window.progressFrames.some(frame =>
+    frame.phase === 'running' && Math.abs(frame.full - frame.width) < 1));
   await page.screenshot({ path: 'test-results/task-progress-electron-full-waiting.png' });
+  assert.equal(typeof finishTaskAnswer, 'function');
+  finishTaskAnswer();
+  finishTaskAnswer = undefined;
   await page.waitForFunction(() => window.progressFrames.some(frame => frame.phase === 'settling'));
   await progress.waitFor();
   await page.waitForFunction(() => document.querySelector('.sb-task-progress')?.dataset.phase === 'complete');
@@ -150,5 +159,6 @@ try {
   console.log('Real Electron task progress verified: runtime tasks, round event, sound/impact/sweep, next-turn retirement, history and renderer reload.');
 } finally {
   if (app) await closeDesktopFixture(app);
+  server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
 }

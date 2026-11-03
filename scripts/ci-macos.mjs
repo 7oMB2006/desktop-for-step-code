@@ -118,7 +118,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const destination = join(root, 'Desktop/test-results');
     const logDirectory = join(destination, 'logs', mode, group);
     mkdirSync(destination, { recursive: true });
-    const report = { group, expected: scripts.length, complete: false, active: null, results: [] };
+    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    const report = { group, mode, commit, candidateSha256: process.env.CI_MACOS_CANDIDATE_SHA256 ?? null,
+      expected: scripts.length, complete: false, active: null, results: [] };
     const save = () => writeFileSync(join(destination, `ci-macos-${mode}-${group}.json`), JSON.stringify(report, null, 2) + '\n');
     save();
     try {

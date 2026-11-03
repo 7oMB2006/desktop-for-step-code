@@ -27,7 +27,7 @@ test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and pat
     'packages/coding-agent/test/session-import.test.ts',
   ]);
   assert.deepEqual(Object.keys(manifest.patches).sort(),
-    ['step-code-desktop-auto-resume.patch', 'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch',
+    ['step-code-desktop-auto-resume.patch', 'step-code-desktop-background-agents.patch', 'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch',
       'step-code-desktop-cron-management.patch',
       'step-code-desktop-cron-recovery-guard.patch', 'step-code-desktop-cron-recovery.patch',
       'step-code-desktop-cron-scope.patch', 'step-code-desktop-cron.patch',

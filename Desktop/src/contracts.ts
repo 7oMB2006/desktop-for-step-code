@@ -1,6 +1,7 @@
 import type { WorkflowState } from './workflow-state';
 import type { SessionImportBridge } from './session-import';
 import type { LaunchState } from './launch-state';
+import type { BackgroundAgentClient } from './background-agents';
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
 export interface Content { historical?: boolean }
@@ -37,7 +38,7 @@ export interface ModelChange { id: string; userTimestamp: number; from: Pick<Mod
 export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string; projectTrust?: { cwd: string } }
 export type RuntimeEvent = { type: string; [key: string]: any };
 export interface Preferences { interfaceSettings?: import('./interface-presets').InterfacePreferences; appearance?: import('./appearance').Appearance; theme: import('./theme').ThemePreference; accentColor?: string | null; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; workspaceSessionRedirects?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; collapsedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide'; updateChannel?: UpdateChannel; autoCheckUpdates?: boolean }
-export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
+export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; backgroundCount?: number; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
 export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
@@ -93,7 +94,7 @@ export interface CronCreateInput { runtimeId: string; cron: string; prompt: stri
 export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
-export interface DesktopBridge extends SessionImportBridge {
+export interface DesktopBridge extends SessionImportBridge, BackgroundAgentClient {
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;

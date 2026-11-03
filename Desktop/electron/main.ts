@@ -35,6 +35,7 @@ import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } f
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
+import { normalizeRecentModels, rememberRecentModel } from '../src/recent-models';
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
@@ -97,7 +98,8 @@ let cronHistoryFailed = false;
 const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 'conversation-timing'),
   error => { void crashLog.record('conversation-timing', error); });
 const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model-changes'),
-  worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); });
+  worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); },
+  model => recordRecentModel(model));
 let window: BrowserWindow;
 let startupWindow: StartupWindow | undefined;
 let browser: BrowserTabs | undefined;
@@ -328,6 +330,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
   event: (worker, event) => {
+    if (event.type === 'agent_start' && worker.state?.model) recordRecentModel(worker.state.model);
     try {
       cronHistory.event(worker, event);
       if (['agent_end', 'desktop_exit'].includes(event.type)) emit({ type: 'desktop_cron_changed' });
@@ -518,6 +521,14 @@ async function rememberModel(model: Model) {
     if (preferences.preferredModel === selected) preferences.preferredModel = previous;
     throw error;
   }
+}
+function recordRecentModel(model: Model) {
+  const next = rememberRecentModel(preferences.recentModels, model);
+  if (JSON.stringify(next) === JSON.stringify(preferences.recentModels)) return;
+  preferences.recentModels = next;
+  emit({ type: 'desktop_model_recents', recentModels: next });
+  // History is auxiliary: a failed disk write must not block an applied model or prompt.
+  void savePreferences().catch(error => { void crashLog.record('recent-models', error); });
 }
 let sessionCatalog: Session[] = [];
 // Upstream spawns one real session per subagent so it can resume the child transcript.
@@ -2106,6 +2117,7 @@ else app.whenReady().then(async () => {
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));
   preferences.preferredModel = modelPreference(preferences.preferredModel);
+  preferences.recentModels = normalizeRecentModels(preferences.recentModels);
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.theme = normalizeTheme(preferences.theme);
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;

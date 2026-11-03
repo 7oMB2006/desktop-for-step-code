@@ -1,5 +1,42 @@
 # Verification
 
+## Recent model selection (2026-11-03)
+
+Branch `codex/recent-models` starts from main `7debda7`. The existing fixed-size
+model picker groups up to five recent provider/model identities ahead of the
+remaining available catalog. Search matches model names, IDs and providers in a
+single deduplicated list. Unavailable history is hidden without deleting it;
+display names and capabilities always come from the current catalog.
+
+Only verified runtime model application and actual task start update recent
+history in Desktop preferences. Draft/default selection, pending next-turn
+choices, cancellation, failed or unconfirmed application and passive history
+restoration do not count. Existing default-model memory and next-turn routing
+are unchanged; recent history does not switch accounts or billing modes.
+Storage contains identities only, and persistence failure does not block an
+already applied model or prompt. No personal CLI configuration is read.
+
+Windows typecheck, production build and the full unit suite pass: 808 passed,
+14 platform skips, zero failures. The first full run hit an unchanged terminal
+termination test; its isolated six-test rerun and subsequent full-suite rerun
+pass without changing terminal code or test timeouts.
+`verify-model-switch.mjs` passes against the real staged runtime and a loopback
+provider, including old-model steering, queued new-model dispatch, recent
+history timing, rejected selection, full restart, draft/default independence
+and missing-model protection. `verify-model-effort.mjs` passes the existing
+sampled motion checks and additional recent/search/deduplication, provider
+identity, keyboard, synthetic IME-composition key guards, focus-boundary,
+light/dark narrow-window, English and reduced-motion checks.
+Existing registered acceptance scripts are extended;
+no new CI job or runtime patch is needed.
+The general `verify-electron.mjs` smoke also passes against an isolated profile,
+including real RPC, settings/navigation, themes and renderer Node isolation.
+
+The browser fixture at `tests/fixtures/recent-models.html` uses the production
+components with sample history; fixture history is not a real-account result.
+No installer, native macOS execution, paid-model acceptance, cloud CI or public
+release is claimed.
+
 ## Full-text search PR review and CI repair (2026-11-02)
 
 The first PR #185 run failed on Windows and macOS at the same

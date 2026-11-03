@@ -20,6 +20,7 @@ import { questionnaire, type QuestionDraft } from './questionnaire';
 import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
+import './model-picker-list.css';
 import { applyMessageEvent, applyToolResult } from './message-events';
 import { MessageRevision } from './message-revision';
 import { SessionReadingCache, captureReadingPosition, restoreReadingPosition, type ReadingPosition, type SessionReading } from './session-reading';
@@ -670,6 +671,10 @@ function App() {
     if (!bridge) return;
     prepareCompletionSound();
     const unsubscribe = bridge.onEvent(event => {
+      if (event.type === 'desktop_model_recents') {
+        setData(previous => ({ ...previous, preferences: { ...previous.preferences, recentModels: event.recentModels } }));
+        return;
+      }
       if (event.type === 'desktop_quit_review') { acceptQuitReview(event.state); return; }
       if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') {
@@ -1758,7 +1763,7 @@ function App() {
               onAction={(action, value) => rawCommand('goal_action', { action, value })}/>
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
-            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
+            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} recentModels={data.preferences.recentModels} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
             <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
               disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}

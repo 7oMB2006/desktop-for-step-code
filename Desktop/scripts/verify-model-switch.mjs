@@ -61,17 +61,21 @@ try {
   const fixture = await prepareSessionFixture(page), id = fixture.runtimeId;
   const command = (type, args) => page.evaluate(({ type, args, id }) => window.desktop.command(type, args, id), { type, args, id });
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
+  const recent = async () => (await snapshot()).preferences.recentModels;
+  const a = { provider: 'switch-fixture', id: 'model-a' }, b = { provider: 'switch-fixture', id: 'model-b' };
+  assert.deepEqual(await recent(), [], 'loading a session or its default is not model usage');
   await command('set_thinking_level', { level: 'low' });
   await page.reload();
   const input = page.locator('.composer > .composer-input');
   await input.waitFor(); await input.fill('FIRST: keep the current task on its original model.'); await input.press('Enter');
   await waitRequest(1);
   assert.equal(requests[0].model, 'model-a'); assert.equal(requests[0].reasoning_effort, 'low');
+  assert.deepEqual(await recent(), [a], 'actual execution records the initial model');
   const trigger = page.getByRole('button', { name: '模型与思考强度', exact: true });
   assert.equal(await trigger.isEnabled(), true, 'picker remains available during execution');
   await trigger.click();
   await page.getByRole('button', { name: '选择模型', exact: true }).click();
-  await page.getByRole('option', { name: 'Step-3.5-Pro', exact: true }).click();
+  await page.getByRole('option').filter({ has: page.getByText('Step-3.5-Pro', { exact: true }) }).click();
   await page.getByText('下一轮生效', { exact: true }).waitFor();
   await mkdir('test-results', { recursive: true });
   await page.waitForTimeout(400);
@@ -93,9 +97,11 @@ try {
   let state = await snapshot();
   assert.equal(state.state.model.id, 'model-a'); assert.equal(state.state.thinkingLevel, 'low');
   assert.equal(state.modelChanges.length, 0);
+  assert.deepEqual(await recent(), [a], 'preselecting during a task never records the pending model');
   await command('set_model', { provider: 'switch-fixture', modelId: 'model-a' });
   await command('set_thinking_level', { level: 'low' });
   assert.equal((await snapshot()).modelSelection, undefined, 'choosing back cancels');
+  assert.deepEqual(await recent(), [a], 'cancelled selection does not enter history');
   await command('set_model', { provider: 'switch-fixture', modelId: 'model-b' });
   await command('set_thinking_level', { level: 'high' });
   await page.reload();
@@ -122,6 +128,7 @@ try {
   assert.equal((await snapshot()).modelChanges.length, 0);
   finish(); await waitRequest(3);
   assert.equal(requests[2].model, 'model-b', 'queued new task receives selected model'); assert.equal(requests[2].reasoning_effort, 'high');
+  assert.deepEqual(await recent(), [b, a], 'queued selection enters history only when applied');
   await page.locator('.client-model-change').waitFor();
   assert.equal(await page.locator('.client-model-change').count(), 1);
   assert.equal(await page.locator('.client-model-change strong').innerText(), '模型已切换');
@@ -140,6 +147,8 @@ try {
   assert.equal(state.messages.some(message => JSON.stringify(message).includes('模型已切换')), false);
   finish();
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await assert.rejects(command('set_model', { provider: 'switch-fixture', modelId: 'unavailable' }), /Unknown model/);
+  assert.deepEqual(await recent(), [b, a], 'failed selection preserves recent history');
   await page.reload();
   await page.locator('.client-model-change').waitFor();
   assert.equal(await page.locator('.client-model-change').count(), 1, 'history refresh cannot duplicate');
@@ -166,6 +175,7 @@ try {
   const restarted = await reopened.evaluate(() => window.desktop.snapshot());
   assert.equal(restarted.state.model.id, 'model-b', 'full restart remembers the explicit choice, not first-listed model-a');
   assert.equal(restarted.preferences.preferredModel.id, 'model-b');
+  assert.deepEqual(restarted.preferences.recentModels, [b, a], 'recent model identities survive a full restart');
   await reopened.locator('.session-row > button:first-child').filter({ hasText: 'FIRST:' }).click();
   await reopened.locator('.client-model-change').waitFor();
   // Restored history can paint before its runtime is ready to clone.
@@ -190,9 +200,11 @@ try {
   await reopened.evaluate(() => window.desktop.command('set_model', { provider: 'switch-fixture', modelId: 'model-a' }));
   const savedPreferences = JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8'));
   assert.deepEqual(savedPreferences.preferredModel, { provider: 'switch-fixture', id: 'model-a', name: 'Step-3.5-Flash' });
+  assert.deepEqual(savedPreferences.recentModels, [b, a], 'changing a draft default does not count as applied usage');
   const original = await reopened.evaluate(id => window.desktop.switchSession(id), history.state.sessionId);
   assert.equal(original.state.model.id, 'model-b', 'changing the new-session default does not overwrite an existing conversation');
   assert.equal(original.preferences.preferredModel.id, 'model-a', 'restoring old history must not rewrite the default');
+  assert.deepEqual(original.preferences.recentModels, [b, a], 'passively restoring history does not reorder recent usage');
   assert.equal((await reopened.evaluate(() => window.desktop.beginSession())).state.model.id, 'model-a');
   await reopened.evaluate(() => window.desktop.command('set_model', { provider: 'switch-fixture', modelId: 'model-b' }));
   await closeDesktopFixture(app);

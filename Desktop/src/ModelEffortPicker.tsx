@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { Check, ChevronLeft, SlidersHorizontal, Type, Image, AudioLines, Video, File } from 'lucide-react';
+import { ChevronLeft, SlidersHorizontal, Type, Image, AudioLines, Video, File } from 'lucide-react';
 import type { Model } from './contracts';
 import { ProviderBrand } from './ProviderBrand';
+import { ModelPickerList } from './ModelPickerList';
+import type { RecentModel } from './recent-models';
 
 const DRAG_THRESHOLD = 0.62;
 const THUMB_SIZE = 38;
@@ -71,6 +73,7 @@ function AnimatedEffortLevel({ level, index, color, language }: { level: string;
 interface Props {
   model?: Model;
   models: Model[];
+  recentModels?: RecentModel[];
   level?: string;
   levels: string[];
   language: 'zh' | 'en';
@@ -81,7 +84,7 @@ interface Props {
   onConfigure?: () => void;
 }
 
-export function ModelEffortPicker({ model, models, level, levels, language, disabled, pending, onModel, onEffort, onConfigure }: Props) {
+export function ModelEffortPicker({ model, models, recentModels, level, levels, language, disabled, pending, onModel, onEffort, onConfigure }: Props) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'effort' | 'models' | 'parameters'>('effort');
   const [previewIndex, setPreviewIndex] = useState(0);
@@ -175,6 +178,7 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
       if (!root.current?.contains(event.target as Node)) { setOpen(false); setView('effort'); }
     };
     const onKey = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === 'Escape') { setOpen(false); setView('effort'); trigger.current?.focus(); }
     };
     document.addEventListener('pointerdown', onPointer);
@@ -236,10 +240,8 @@ export function ModelEffortPicker({ model, models, level, levels, language, disa
       </div>
       <div className="model-effort-panel model-effort-models-panel" inert={view !== 'models'} aria-hidden={view !== 'models'}>
         <button type="button" className="model-effort-back" onClick={() => setView('effort')}><ChevronLeft size={16}/>{zh ? '选择模型' : 'Select model'}</button>
-        <div className="model-effort-list" role="listbox" aria-label={zh ? '模型' : 'Models'}>
-          {models.length === 0 && <span className="model-effort-single">{zh ? '暂无可用模型' : 'No models available'}</span>}
-          {models.map(item => <button type="button" role="option" aria-selected={item.provider === model?.provider && item.id === model.id} key={`${item.provider}/${item.id}`} onClick={() => void chooseModel(item)}><span>{item.name || item.id}{item.providerName && <small className="model-provider-name">{item.providerName}</small>}</span>{item.provider === model?.provider && item.id === model.id && <Check size={16}/>}</button>)}
-        </div>
+        <ModelPickerList key={view === 'models' ? 'open' : 'closed'} models={models} recentModels={recentModels}
+          selected={model} language={language} onSelect={chooseModel}/>
       </div>
       <div className="model-effort-panel model-effort-parameters-panel" inert={view !== 'parameters'} aria-hidden={view !== 'parameters'}>
         <button type="button" className="model-effort-back" onClick={() => setView('effort')}><ChevronLeft size={16}/>{zh ? '模型参数' : 'Model parameters'}</button>

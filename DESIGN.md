@@ -197,6 +197,17 @@ unchanged. Reduced motion disables the shared transition at its source.
 
 The composer model/effort picker remains enabled while a task runs. Choices made during execution are scoped to that worker and shown as the next-task selection; the secondary view displays a quiet "Applies next turn" state. They apply before the next fresh task, including Desktop FIFO dispatch, while steering retains the active configuration. A confirmed switch is a noninteractive client timeline note before the new response, with a 14px ArrowRightLeft icon, accent semibold upright label, muted regular monospace old model, gray arrow and ink semibold monospace new model. It has no card, disclosure or tool identity. Observations persist separately from Step history and never become model context.
 
+The existing fixed-size model selector includes a search field and a Recently
+used group, followed by other available models without duplicates. Five recent
+provider/model identities are stored in Desktop preferences only after verified
+runtime application or actual task start; draft defaults, pending/cancelled
+selections and passive history restoration do not count. Unavailable entries are
+hidden, not selected or silently replaced, and labels come from the live catalog.
+Searching matches model names, IDs and providers in one deduplicated result list.
+Keyboard navigation, visible composite-field focus, existing panel motion and
+reduced motion are shared. IME-composition keys do not navigate the list or
+dismiss the picker. Recent history does not set a default or billing route.
+
 Automatic continuation shares that timeline-event styling, with a 14px RotateCcw icon, an accent semibold upright label and a muted interruption reason. It records a requested attempt, never confirmed recovery or a specific network diagnosis. The Windows runtime preserves the original input/start pipeline and model instruction but stores a structured `step-auto-resume` custom message, not a human-authored turn. Rendering and replay require its versioned source metadata; no English-text matching rewrites old history. The note has no user bubble, editing controls, disclosure or activity animation, and its internal instruction is excluded from copied assistant prose.
 
 Session selection uses a latest-target queue in the main process. Preparing cold history does not activate it or clear unread state; only the newest prepared target may commit. The sidebar and title identify the pending target immediately, while an uncached target shows neutral transcript placeholders. Recently viewed histories may appear from a bounded, disposable, inert reading cache during reconnection. That cache never restores runtime controls or approval requests. The composer and session tools stay unavailable until an authoritative identity is installed. Loading indication appears only after a short delay; confirmed content uses a brief cubic fade and respects reduced motion. Reading position uses a persisted message anchor plus relative offset, with scroll-top fallback and user-scroll override. Background task output invalidates cached history rather than presenting cached runtime state as live.

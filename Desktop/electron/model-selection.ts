@@ -22,7 +22,8 @@ export class ModelSelections {
   private loading = new Map<string, Promise<ChangeSet>>();
   private writes: Promise<void> = Promise.resolve();
   constructor(private root: string, private changed: (worker: SessionRuntime) => void,
-    private onError: (error: unknown) => void = () => {}) {}
+    private onError: (error: unknown) => void = () => {},
+    private applied: (model: Model) => void = () => {}) {}
   private file(id: string) { return join(this.root, `${createHash('sha256').update(id).digest('hex')}.json`); }
   async load(id: string): Promise<ChangeSet> {
     if (this.records.has(id)) return this.records.get(id)!;
@@ -75,6 +76,7 @@ export class ModelSelections {
         const actual = await worker.rpc.request('get_state');
         worker.state = actual;
         if (!sameModel(selection.model, actual.model)) throw new Error('Runtime did not apply the selected model');
+        try { this.applied(actual.model!); } catch (error) { this.onError(error); }
         if (previousModel && worker.messages.some(message => message.role === 'assistant' && message.display !== false)) {
           const from = records.awaiting?.from ?? previousModel;
           records.awaiting = sameModel(from, actual.model) ? undefined : { from, to: identity(selection.model) };

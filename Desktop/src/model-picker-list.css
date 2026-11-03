@@ -1,0 +1,16 @@
+.model-picker-search { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 30px; margin: 4px; padding: 0 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); background: var(--surface); }
+.model-picker-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.model-picker-search > svg { flex-shrink: 0; }
+.model-picker-search input { flex: 1; min-width: 0; width: 100%; padding: 5px 0; border: 0; border-radius: 0; outline: none; box-shadow: none; background: transparent; font: inherit; font-size: 12px; color: var(--ink); }
+.model-picker-search input:focus { outline: none; box-shadow: none; }
+.model-picker-search input::-webkit-search-cancel-button { display: none; }
+.model-picker-search .icon-button { width: 22px; height: 22px; min-height: 22px; padding: 3px; flex-shrink: 0; }
+.model-picker-list { padding: 4px; scroll-padding-block: 4px; }
+.model-picker-section { padding: 5px 7px 3px; font-size: 11px; font-weight: 500; color: var(--muted); }
+.model-picker-list > [role=group] + [role=group] { margin-top: 5px; padding-top: 3px; border-top: 1px solid var(--border); }
+.model-picker-list button { gap: 8px; padding: 6px 7px; scroll-margin-block: 4px; }
+.model-picker-list button > svg { flex-shrink: 0; }
+.model-picker-identity { display: flex; align-items: baseline; gap: 7px; flex: 1; min-width: 0; }
+.model-picker-identity > span { min-width: 0; font-size: 12px; }
+.model-picker-identity small { flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-size: 10px; color: var(--muted); }
+.model-picker-empty { margin: 10px 7px; font-size: 12px; color: var(--muted); }

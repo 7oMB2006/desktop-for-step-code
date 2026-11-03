@@ -143,7 +143,7 @@ try {
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await dialog.screenshot({ path: 'test-results/model-provider-custom-light.png' });
   await dialog.getByRole('button', { name: '选择模型' }).click();
-  await dialog.getByRole('option', { name: 'step-5-preview', exact: true }).click();
+  await dialog.getByRole('option').filter({ has: page.getByText('step-5-preview', { exact: true }) }).click();
   await page.waitForTimeout(350);
   await dialog.screenshot({ path: 'test-results/model-provider-step-light.png' });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
@@ -303,7 +303,85 @@ try {
   assert.equal(await dialog.locator('.model-effort-heading-level-current').evaluate(element => getComputedStyle(element).animationName), 'none');
   const rect = await dialog.boundingBox();
   assert.ok(rect && rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= await page.evaluate(() => innerWidth));
+  await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
+  const recentGroup = dialog.getByRole('group', { name: '最近使用', exact: true });
+  const otherGroup = dialog.getByRole('group', { name: '其他模型', exact: true });
+  assert.equal(await recentGroup.getByRole('option').count(), 2);
+  assert.equal(await otherGroup.getByRole('option').count(), 1);
+  assert.equal(await dialog.getByRole('option').count(), 3, 'recent models do not repeat in the other group');
+  const search = dialog.getByRole('searchbox', { name: '搜索模型', exact: true });
+  await search.fill('CUSTOM provider');
+  assert.equal(await dialog.getByRole('option').count(), 1, 'search matches provider terms without recent duplicates');
+  assert.equal(await dialog.getByRole('group', { name: '最近使用', exact: true }).count(), 0);
+  for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+    for (const key of ['ArrowDown', 'Escape']) {
+      await search.dispatchEvent('keydown', { key, ...composition });
+      assert.equal(await dialog.count(), 1, 'IME candidate keys must not dismiss the model picker');
+      assert.equal(await search.evaluate(element => element === document.activeElement), true, 'IME candidate keys must retain search focus');
+      assert.equal(await search.inputValue(), 'CUSTOM provider');
+    }
+  }
+  await search.press('ArrowDown');
+  assert.equal(await dialog.getByRole('option').evaluate(element => element === document.activeElement), true);
+  await search.fill('missing model');
+  await dialog.getByRole('status').filter({ hasText: '没有匹配的模型' }).waitFor();
+  await dialog.getByRole('button', { name: '清空搜索', exact: true }).click();
+  assert.equal(await search.inputValue(), '');
+  assert.equal(await search.evaluate(element => element === document.activeElement), true);
+  await search.press('ArrowDown');
+  const firstOption = dialog.getByRole('option').first();
+  for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+    await firstOption.dispatchEvent('keydown', { key: 'ArrowDown', ...composition });
+    assert.equal(await firstOption.evaluate(element => element === document.activeElement), true, 'Composing keys must not navigate the list');
+  }
+  await page.keyboard.press('End');
+  assert.equal(await dialog.getByRole('option').last().evaluate(element => element === document.activeElement), true);
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await dialog.getByRole('option').first().evaluate(element => element === document.activeElement), true);
+  await search.focus();
+  const focusGeometry = await search.evaluate(input => {
+    const field = input.parentElement.getBoundingClientRect();
+    const panel = input.closest('.model-effort-models-panel').getBoundingClientRect();
+    const style = getComputedStyle(input.parentElement);
+    const extent = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+    return { focused: input === document.activeElement, outlined: style.outlineStyle === 'solid' && parseFloat(style.outlineWidth) > 0,
+      visible: field.left - extent >= panel.left && field.right + extent <= panel.right
+      && field.top - extent >= panel.top && field.bottom + extent <= panel.bottom, extent };
+  });
+  assert.equal(focusGeometry.focused && focusGeometry.outlined, true, 'measure the rendered focus indicator, not the unfocused field');
+  assert.ok(focusGeometry.extent > 0 && focusGeometry.extent <= 4, `Visible outline stays within the 4px gutter: ${JSON.stringify(focusGeometry)}`);
+  assert.equal(focusGeometry.visible, true, 'search focus indicator fits within the animated panel');
+  await page.evaluate(() => window.modelPickerFixture.configure({
+    models: [
+      { provider: 'step', id: 'shared', name: 'A long model name that must not resize its picker', providerName: 'Step' },
+      { provider: 'custom', id: 'shared', name: 'A long model name that must not resize its picker', providerName: 'A long custom provider name' },
+    ],
+    recent: [{ provider: 'missing', id: 'shared' }, { provider: 'custom', id: 'shared' }],
+  }));
+  assert.equal(await recentGroup.getByRole('option').count(), 1, 'unavailable recent model is hidden');
+  assert.equal(await otherGroup.getByRole('option').count(), 1, 'same ID from another provider stays separate');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().at(-1).setSize(380, 620));
+    await search.focus();
+    const overflow = await dialog.evaluate(element => ({
+      width: element.scrollWidth > element.clientWidth,
+      rows: [...element.querySelectorAll('[role=option]')].some(row => row.scrollWidth > row.clientWidth),
+      left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right,
+    }));
+    assert.equal(overflow.width, false);
+    assert.equal(overflow.rows, false);
+    assert.ok(overflow.left >= 0 && overflow.right <= 380, JSON.stringify(overflow));
+    await page.screenshot({ path: `test-results/model-recents-narrow-${theme}.png` });
+  }
+  await page.evaluate(() => window.modelPickerFixture.configure({ language: 'en' }));
+  await page.getByRole('searchbox', { name: 'Search models', exact: true }).waitFor();
+  assert.equal(await page.getByRole('group', { name: 'Recently used', exact: true }).count(), 1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog', { name: 'Model and thinking level' }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Model and thinking level', exact: true }).evaluate(element => element === document.activeElement), true);
   console.log('Fader acceptance passed: no click jump, resisted drag, release commit, wheel and keyboard.');
+  console.log('Model picker passed: recents, provider identity, availability, search, keyboard, IME guards, focus bounds, narrow themes and English.');
 } finally {
   await app.close();
 }

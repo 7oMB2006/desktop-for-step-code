@@ -211,7 +211,7 @@ function Preview() {
         <section key={stage} className="first-run-stage" aria-labelledby="first-run-heading">
           <div className="first-run-heading">
             <h1 ref={title} id="first-run-heading" tabIndex={-1}>{stage === 0 ? t('连接模型服务', 'Connect a model service')
-              : stage === 1 ? t('从哪里开始？', 'Where will you work?') : t('开始阶跃', 'Take the first step')}</h1>
+              : stage === 1 ? t('从哪里开始？', 'Where will you work?') : t('开始阶跃。', 'Take the first step.')}</h1>
             <span className="first-run-step-count">{stage + 1} / 3</span>
           </div>
           {stage === 0 && <>

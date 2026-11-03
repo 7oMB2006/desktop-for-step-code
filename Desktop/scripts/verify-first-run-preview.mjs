@@ -92,7 +92,7 @@ try {
   await heading('从哪里开始？').waitFor();
   await page.getByLabel('独立会话', { exact: true }).check();
   await page.getByRole('button', { name: '继续', exact: true }).click();
-  await heading('开始阶跃').waitFor();
+  await heading('开始阶跃。').waitFor();
   assert.equal(await page.locator('.first-run-billing').innerText(), 'API 按量付费');
   await screenshot('03-review');
   await page.getByRole('button', { name: '开始会话', exact: true }).click();
@@ -196,7 +196,7 @@ try {
   await heading('Where will you work?').waitFor();
   await page.getByLabel('Independent', { exact: true }).check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await heading('Take the first step').waitFor();
+  await heading('Take the first step.').waitFor();
   await page.getByRole('button', { name: 'Access permissions', exact: true }).click();
   await noOverflow();
   await screenshot('08-mobile-permissions');

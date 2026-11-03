@@ -1,5 +1,36 @@
 # Verification
 
+## BTW PR Main Synchronization (2026-11-04)
+
+The feature commit `cd2cafb` is synchronized with main `2febc93` at merge
+`664de94`, preserving PR #187's model favorites and launch acceptance fix.
+Only TODO and verification prose required conflict resolution; both lines'
+receipts are retained. The runtime pin, version and existing preview package
+remain unchanged.
+
+Typecheck and production build pass. The merged serial Desktop suite reports
+834 tests: 820 passed, 14 platform skips, zero failures. Its receipt is
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-main-sync-20261104-unit.log`.
+The CI inventory/runner/policy suite passes 39 tests with one platform skip.
+`verify-btw.mjs` passes against the shared production components, including
+main/side composer style equality, quotes, IME, streaming, responsive layouts,
+complete focus clearance and reduced motion. Fresh dark desktop and light
+320-pixel screenshots were reviewed.
+
+Source `verify-btw-electron.mjs`, `verify-composer-editing.mjs`,
+`verify-chat-quotes.mjs`, `verify-model-effort.mjs` and
+`verify-model-switch.mjs` pass serially. Native tests use isolated profiles
+and loopback providers. This covers the new side/main editor combination,
+reference handoff and the merged favorite/model-selection behavior, not paid
+account billing. Browser and native BTW screenshots total about 1 MiB under
+the same evidence root with the `btw-main-sync-20261104-` prefix.
+The rebuilt Desktop dist is 9.65 MiB; no new package was assembled and no
+existing generated output was deleted.
+
+The latest presentation is still source-only. Cloud CI, native macOS,
+rebuilt-installer and real-account acceptance remain separate, unclaimed
+gates. Per-answer BTW usage is not integrated into Usage totals or estimates.
+
 ## BTW Presentation Refresh (2026-11-03)
 
 Source-only refresh after the selected-reference preview package below.

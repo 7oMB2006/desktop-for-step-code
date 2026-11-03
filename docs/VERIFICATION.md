@@ -1,5 +1,27 @@
 # Verification
 
+## PR #190 Reference Geometry Sampling (2026-11-04)
+
+macOS interface job `126118971520`, run `41693089514`, passes its source
+group but fails the packaged `verify-btw.mjs` reference-position assertion.
+The first input rectangle is sampled during the sidebar's final transform
+frame: x is `633.0022583007812` before opening references and `633` after;
+the width differs by less than `0.0001` pixels.
+
+The fixture now reuses the shared `settleLayout` helper for opening the
+sidebar and before both input-rectangle samples. It waits for fonts, finite
+animations on the element and its ancestors, and rendered layout frames.
+The exact rectangle equality assertion is unchanged: no rounding, positional
+tolerance, fixed wait extension or product motion change was added.
+
+Two consecutive complete runs of `verify-btw.mjs` pass in Edge, including
+reference handoff, exact geometry, streaming, focus, themes, responsive
+layouts and reduced motion. Evidence is `ci190-btw-stable-layout.log` and
+its adjacent screenshot directory under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. This remains an
+acceptance-only change; the delivered Windows preview's application bytes
+are unchanged. Fresh cloud acceptance remains pending.
+
 ## PR #190 Model Switch Reload Readiness (2026-11-04)
 
 macOS packaged sessions job `126102093019`, run `41682022854` attempt 2,

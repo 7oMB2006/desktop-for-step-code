@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { settleLayout } from './settle-layout.mjs';
 
 const output = process.env.DESKTOP_VERIFY_OUTPUT || 'test-results/btw';
 await mkdir(output, { recursive: true });
@@ -17,7 +18,8 @@ try {
   const panel = page.getByRole('complementary', { name: '旁问', exact: true });
   const open = async () => {
     await page.getByRole('button', { name: '旁问', exact: true }).click();
-    await panel.waitFor(); await page.waitForTimeout(260);
+    await panel.waitFor();
+    await settleLayout(panel);
   };
   await page.goto(url);
   const composer = page.locator('main .composer-input');
@@ -178,11 +180,13 @@ try {
   await select('.response-text pre code');
   await toolbar.getByRole('button', { name: '旁问', exact: true }).click();
   assert.equal(await viewQuotes.innerText(), '2 条引用');
+  await settleLayout(panel.locator('.btw-input-row'));
   const composeBox = await panel.locator('.btw-input-row').boundingBox();
   await viewQuotes.click();
   const quotePopover = page.getByRole('dialog', { name: '引用预览', exact: true });
   await quotePopover.waitFor();
   assert.equal(await quotePopover.locator('.composer-quote').count(), 2);
+  await settleLayout(panel.locator('.btw-input-row'));
   assert.deepEqual(await panel.locator('.btw-input-row').boundingBox(), composeBox, 'Opening references does not displace the input');
   await quotePopover.getByRole('button', { name: '查看引用 1 的原文', exact: true }).focus();
   await page.keyboard.press('Escape');

@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { captureWaapi } from './capture-waapi.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-task-progress-'));
 const workspace = join(profile, 'workspace');
@@ -84,7 +85,7 @@ try {
   const progress = board.getByRole('progressbar');
   await progress.waitFor();
   assert.equal(await progress.getAttribute('aria-valuenow'), '1');
-  await page.evaluate(() => {
+  await board.evaluate(boardRoot => {
     window.progressAudio = [];
     window.progressFrames = [];
     HTMLMediaElement.prototype.play = function () {
@@ -92,16 +93,23 @@ try {
       return Promise.resolve();
     };
     window.progressRecording = true;
-    const record = () => {
+    const readFrame = () => {
       const root = document.querySelector('.sb-task-progress');
-      if (root) {
+      if (root && window.progressFrames.length < 2400) {
         const transform = new DOMMatrix(getComputedStyle(root).transform);
         window.progressFrames.push({ phase: root.dataset.phase, y: transform.m42, at: performance.now(),
           width: root.querySelector('.task-progress-fill').getBoundingClientRect().width,
           full: root.getBoundingClientRect().width, dust: root.querySelector('.task-progress-dust').children.length });
       }
+    };
+    const record = () => {
+      readFrame();
       if (window.progressRecording && window.progressFrames.length < 2400) requestAnimationFrame(record);
     };
+    window.progressObserver = new MutationObserver(() => {
+      if (window.progressRecording) readFrame();
+    });
+    window.progressObserver.observe(boardRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-phase'] });
     requestAnimationFrame(record);
   });
   await page.locator('.composer > .composer-input').fill('完成最后一项，然后总结。');
@@ -116,17 +124,36 @@ try {
     frame.phase === 'running' && Math.abs(frame.full - frame.width) < 1));
   await page.screenshot({ path: 'test-results/task-progress-electron-full-waiting.png' });
   assert.equal(typeof finishTaskAnswer, 'function');
-  finishTaskAnswer();
-  finishTaskAnswer = undefined;
+  const impact = await captureWaapi(page, '.sb-task-progress', () => {
+    finishTaskAnswer();
+    finishTaskAnswer = undefined;
+  });
+  let impactEvidence;
+  try {
+    impactEvidence = await impact.evaluate(animation => ({
+      duration: animation.effect.getTiming().duration,
+      frames: [0, .16, .38, .62, .8, 1].map(progress => {
+        animation.currentTime = animation.effect.getTiming().duration * progress;
+        return { progress, y: new DOMMatrix(getComputedStyle(animation.effect.target).transform).m42 };
+      }),
+    }));
+  } finally {
+    await impact.evaluate(animation => { animation.currentTime = 0; animation.play(); });
+    await impact.dispose();
+  }
   await page.waitForFunction(() => window.progressFrames.some(frame => frame.phase === 'settling'));
   await progress.waitFor();
   await page.waitForFunction(() => document.querySelector('.sb-task-progress')?.dataset.phase === 'complete');
   await page.waitForTimeout(700);
-  await page.evaluate(() => { window.progressRecording = false; });
+  await page.evaluate(() => { window.progressRecording = false; window.progressObserver.disconnect(); });
   const evidence = await page.evaluate(() => ({ frames: window.progressFrames, audio: window.progressAudio }));
   assert.equal(evidence.audio.length, 1, 'Real completion event plays one sound');
   assert.equal(evidence.audio[0].phase, 'settling');
-  assert.ok(evidence.frames.some(frame => Math.abs(frame.y) > 1.5));
+  assert.equal(impactEvidence.duration, 360);
+  assert.ok(impactEvidence.frames.some(frame => Math.abs(frame.y) > 1.5));
+  assert.equal(impactEvidence.frames[0].y, 0);
+  assert.equal(impactEvidence.frames.at(-1).y, 0);
+  console.log('Native task impact sample:', JSON.stringify(impactEvidence));
   assert.ok(evidence.frames.some(frame => frame.dust > 0));
   assert.ok(evidence.frames.some(frame => frame.phase === 'running' && Math.abs(frame.full - frame.width) < 1));
   assert.equal(await board.locator('.task-progress-dust i').count(), 0);

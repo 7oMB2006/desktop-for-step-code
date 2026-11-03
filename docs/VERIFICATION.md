@@ -1,5 +1,37 @@
 # Verification
 
+## PR #190 Native Impact Sampling And Undo Diagnostics (2026-11-04)
+
+At `6fb080c`, Windows run `41697711483` passes every group and the final
+gate. macOS run `41697711461` passes preparation, all source groups and
+the complete interface source/package group. Its packaged runtime group
+misses the task impact's brief peak in natural rAF samples. The fixture now
+captures the actual product-created WAAPI effect with the existing helper,
+seeks its real transforms, then resumes playback. The original amplitude
+threshold remains; duration and zero-offset endpoints are also asserted.
+A MutationObserver supplements rAF for transient phase/particle evidence.
+
+The packaged sessions group times out in `verify-turn-undo.mjs`. Artifact
+ZIP timestamps place the last new screenshot after successful real undo,
+before the second-session/peer checks; the source script passes. Its old
+failure path can await app shutdown while an outstanding fixture task
+requires quit confirmation, suppressing the original error until the outer
+deadline. The script now uses the shared orderly fixture shutdown, releases
+its HTTP connections, and logs each phase and any original failure first.
+The test also waits for the renderer's existing ready control around reloads
+and asserts the exact restored runtime/session before submitting edits.
+No product code, assertion, outer deadline or CI gate is removed or relaxed.
+
+Both scripts pass once against source and twice consecutively against the
+delivered Windows preview. Impact samples are `0, -2, 1.4, -0.7, 0.3, 0`
+pixels over the actual 360-ms effect. Evidence is
+`ci190-task-impact-sampling.log` and `ci190-turn-undo-readiness.log` under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. CI policy tests pass
+39 checks with one platform skip; all 15 motion-helper browser regressions
+pass with the matching staged Chromium. The original macOS undo hang is not
+reproduced locally; fresh cloud execution remains required. These are
+acceptance-only changes and do not change the delivered package bytes.
+
 ## PR #190 Reference Geometry Sampling (2026-11-04)
 
 macOS interface job `126118971520`, run `41693089514`, passes its source

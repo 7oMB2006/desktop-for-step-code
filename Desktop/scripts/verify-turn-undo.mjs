@@ -1,5 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture } from './session-fixture.mjs';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -64,8 +65,11 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+let page, phase;
+const checkpoint = value => { phase = value; console.log(`Turn undo: ${value}`); };
 try {
-  const page = await app.firstWindow();
+  checkpoint('launch and prepare live edit');
+  page = await app.firstWindow();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -74,6 +78,7 @@ try {
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.evaluate(() => { HTMLMediaElement.prototype.play = () => Promise.resolve(); });
+  const ready = () => page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   // Real upstream edit emits its persisted patch and agent_end capture hook.
   const live = await prepareSessionFixture(page);
   const livePath = join(live.preferences.workspace, 'live.ts');
@@ -112,6 +117,7 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await chip.evaluate(element => document.activeElement === element), true);
   assert.ok(finishLive);
+  checkpoint('finish live edit and restore file');
   finishLive();
   await chip.waitFor({ state: 'hidden' });
   assert.equal((await page.locator('.composer-context-bar').boundingBox()).height, stripBefore.height);
@@ -130,12 +136,18 @@ try {
   assert.equal(await page.evaluate(() => 'createChangeDemo' in window.desktop), false);
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   async function fixtureSession() {
+    await ready();
     const next = await page.evaluate(() => window.desktop.newIndependentSession());
     await mkdir(join(next.preferences.workspace, 'src'), { recursive: true });
     await writeFile(join(next.preferences.workspace, 'src/retry.ts'), 'export const retryLimit = 1;\n');
     await writeFile(join(next.preferences.workspace, 'src/status.ts'), "export function statusLabel() {\n  return 'idle';\n}\n");
     await page.reload();
+    await ready();
+    const restored = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(restored.runtimeId, next.runtimeId, 'fixture reload restores its own runtime before editing');
+    assert.equal(restored.state.sessionId, next.state.sessionId);
     for (const [text, ids] of [['FIXTURE-RETRY', ['fixture-retry']], ['FIXTURE-STATUS', ['fixture-status-1', 'fixture-status-2']]]) {
+      checkpoint(`edit ${text}`);
       await page.locator('.composer > .composer-input').fill(text);
       await page.locator('.composer > .composer-input').press('Enter');
       await page.waitForFunction(async ({ runtimeId, ids }) => {
@@ -151,10 +163,12 @@ try {
     await writeFile(join(next.preferences.workspace, 'src/retry.ts'), 'export const retryLimit = 5;\n');
     return page.evaluate(() => window.desktop.snapshot());
   }
+  checkpoint('prepare conflicting history');
   await fixtureSession();
   // The fixture changed a file externally; remount to request fresh undo status.
   await page.reload();
   await page.locator('.turn-changes').nth(1).waitFor({ timeout: 60000 });
+  await ready();
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(snapshot.preferences.workspace.startsWith(join(profile, 'workspaces', 'independent')));
   const file = join(snapshot.preferences.workspace, 'src/status.ts');
@@ -162,6 +176,7 @@ try {
   const original = JSON.stringify(snapshot.messages);
   const report = page.locator('.turn-changes').last();
   const history = page.locator('.turn-changes').first();
+  checkpoint('verify history conflict and confirmation');
   await history.getByRole('button', { name: '无法撤销', exact: true }).waitFor();
   await history.getByRole('button', { name: '无法撤销', exact: true }).click();
   await page.getByRole('dialog', { name: '暂时无法撤销', exact: true }).waitFor();
@@ -206,6 +221,7 @@ try {
   assert.equal(await readFile(file, 'utf8'), `${after}// later edit\n`);
   await page.getByRole('button', { name: '关闭', exact: true }).click();
   // Restore only this test-owned file, then perform a real successful undo.
+  checkpoint('restore file and persist successful undo');
   await writeFile(file, after);
   await report.getByRole('button', { name: '无法撤销', exact: true }).click();
   await dialog.waitFor();
@@ -218,10 +234,13 @@ try {
   await page.reload();
   await page.locator('.turn-changes').last().getByRole('button', { name: '已撤销', exact: true }).waitFor();
   // New test sessions are independent; theme/mobile confirmation.
+  checkpoint('prepare second independent session');
   const next = await fixtureSession();
   await page.reload();
   await page.locator('.turn-changes').last().getByRole('button', { name: '撤销', exact: true }).waitFor();
+  await ready();
   assert.notEqual(next.state.sessionId, snapshot.state.sessionId);
+  checkpoint('validate tokens and permission guards');
   await assert.rejects(page.evaluate(({ runtimeId }) =>
     window.desktop.turnUndo(runtimeId, ['fixture-status-1', 'fixture-status-2'], 'undo', 'forged'), { runtimeId: next.runtimeId }), /expired/);
   await assert.rejects(page.evaluate(({ runtimeId }) =>
@@ -229,11 +248,13 @@ try {
   await assert.rejects(page.evaluate(({ runtimeId }) =>
     window.desktop.command('set_permission_preset', { preset: 'read-only' }, runtimeId), { runtimeId: next.runtimeId }), /Unknown permission preset/);
   await page.evaluate(({ runtimeId }) => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, runtimeId), { runtimeId: next.runtimeId });
+  checkpoint('clone same-workspace peer');
   const peer = await page.evaluate(id => window.desktop.cloneSession(id), next.state.sessionId);
   await page.evaluate(id => window.desktop.switchSession(id), next.state.sessionId);
   await page.evaluate(({ runtimeId }) => { void window.desktop.command('prompt', { message: 'KEEP-BUSY' }, runtimeId).catch(() => {}); }, { runtimeId: peer.runtimeId });
   await page.waitForFunction(async runtimeId => (await window.desktop.snapshot()).runtimes.some(runtime =>
     runtime.runtimeId === runtimeId && runtime.status === 'running'), peer.runtimeId);
+  checkpoint('verify busy-peer undo exclusion');
   const prepared = await page.evaluate(({ runtimeId }) =>
     window.desktop.turnUndo(runtimeId, ['fixture-status-1', 'fixture-status-2'], 'prepare'), { runtimeId: next.runtimeId });
   await assert.rejects(page.evaluate(({ runtimeId, token }) =>
@@ -241,6 +262,7 @@ try {
     { runtimeId: next.runtimeId, token: prepared.token }), /Stop tasks/);
   assert.ok((await readFile(join(next.preferences.workspace, 'src/status.ts'), 'utf8')).includes("'Ready'"));
   await page.evaluate(({ runtimeId }) => window.desktop.command('abort', {}, runtimeId), { runtimeId: peer.runtimeId });
+  checkpoint('verify dark narrow and English confirmation');
   await page.reload();
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
   await page.reload();
@@ -262,4 +284,20 @@ try {
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.deepEqual(errors, []);
   console.log('Turn undo passed: real RPC edits/live composer file list/agent_end capture, test-only fixture sessions, removed demo entry, exact button placement, confirmation/cancel/Escape/focus, conflict-before-write, repeated-edit restore, untouched conflicting file/history, persistent undo state, IPC identity/token/automatic-tier explicit approval, same-workspace running-peer exclusion, light/dark/narrow/English. No paid model or real profile used.');
-} finally { await app.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+} catch (error) {
+  console.error(`Turn undo failed at: ${phase}`, error);
+  await page?.screenshot({ path: 'test-results/turn-undo-failure.png', timeout: 5000 }).catch(() => {});
+  throw error;
+} finally {
+  const cleanupTimeout = setTimeout(() => {
+    console.error(`Turn undo cleanup exceeded 15 seconds after: ${phase}`);
+    app.process()?.kill();
+    process.exit(1);
+  }, 15000);
+  try {
+    finishLive?.();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await closeDesktopFixture(app);
+  } finally { clearTimeout(cleanupTimeout); }
+}

@@ -21,6 +21,7 @@ export interface Session { id: string; path: string; cwd: string; workspacePath?
 export interface SessionReading { sessionId: string; version?: string; messages: Message[]; modelChanges?: ModelChange[] }
 export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
 export interface Preferences { preferredModel?: Pick<Model, 'provider' | 'id' | 'name'> }
+export interface Preferences { favoriteModels?: import('./model-favorites').ModelIdentity[] }
 export interface Preferences extends Partial<import('./panel-preferences').PanelPreferences> {}
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export type ComposerAttachment = { kind: 'image'; name: string; content: Content } | { kind: 'file'; id: string; name: string; size: number };
@@ -188,7 +189,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge {
   cancelLogin(): Promise<void>;
   logout(): Promise<void>;
   saveMcp(name: string, config: McpServer | null, secrets?: Record<string, string>): Promise<void>;
-  preferences(patch: Partial<Preferences>): Promise<Preferences>;
+  preferences(patch: Partial<Preferences> & { modelFavorite?: import('./model-favorites').ModelFavoriteChange }): Promise<Preferences>;
   images(): Promise<Content[]>;
   chooseAttachments(): Promise<ComposerAttachment[]>;
   importFile(file: File): Promise<ComposerAttachment>;

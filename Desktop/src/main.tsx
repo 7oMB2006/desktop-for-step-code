@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, CircleHelp, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, ArrowRightLeft, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import { McpIcon } from './McpIcon';
-import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary } from './contracts';
+import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary, Model } from './contracts';
 import { fullAccessRiskPresentation } from './full-access-risk';
 import { pendingPlanReview, planReview } from './plan-review';
 import { conversationEntries } from './conversation-presentation';
@@ -20,6 +20,7 @@ import { questionnaire, type QuestionDraft } from './questionnaire';
 import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
+import './model-picker-list.css';
 import { applyMessageEvent, applyToolResult } from './message-events';
 import { MessageRevision } from './message-revision';
 import { SessionReadingCache, captureReadingPosition, restoreReadingPosition, type ReadingPosition, type SessionReading } from './session-reading';
@@ -1198,6 +1199,10 @@ function App() {
     setData(d => ({ ...d, preferences: p }));
     if (patch.interfaceSettings !== undefined) setInterfaceRevision(value => value + 1);
   });
+  const changeModelFavorite = async (model: Model, favorite: boolean) => {
+    const preferences = await bridge!.preferences({ modelFavorite: { provider: model.provider, id: model.id, favorite } });
+    setData(value => ({ ...value, preferences }));
+  };
   const changeTerminalDock = (next: TerminalDock) => void run(async () => {
     const preferences = await bridge!.preferences({ terminalDock: next });
     setData(value => ({ ...value, preferences }));
@@ -1779,7 +1784,7 @@ function App() {
               onAction={(action, value) => rawCommand('goal_action', { action, value })}/>
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
-            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
+            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
             <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
               disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}

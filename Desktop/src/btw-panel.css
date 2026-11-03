@@ -1,0 +1,48 @@
+.btw-track { --inspector-width: 440px; flex: 0 0 0px; min-width: 0; transition: flex-basis var(--right-panel-duration) var(--right-panel-ease); }
+.btw-track.is-open:not(.is-overlay) { flex-basis: clamp(0px, calc(var(--conversation-width) + 28px + 880px - 100vw + var(--sidebar-track) + 44px), var(--inspector-width)); }
+.btw-track.is-wide:not(.is-overlay) { --inspector-width: max(620px, min(calc((100vw - var(--sidebar-track) - 44px) * .6), calc(100vw - var(--sidebar-track) - 44px - 480px))); }
+.btw-track.is-wide.is-open:not(.is-overlay) { flex-basis: var(--inspector-width); }
+.btw-track.is-replaced { flex-basis: 0 !important; transition: none; }
+.btw-panel { display: flex; flex-direction: column; min-width: 0; overflow: hidden; container-type: inline-size; border-left: 1px solid var(--border); background: var(--bg); color: var(--ink); }
+.app .btw-panel.right-inspector-surface { transition: opacity var(--right-panel-duration) var(--right-panel-ease), transform var(--right-panel-duration) var(--right-panel-ease), width var(--right-panel-duration) var(--right-panel-ease); }
+.btw-panel.is-closing { opacity: 0; transform: translateX(8px); pointer-events: none; }
+.btw-track.is-overlay .btw-panel { box-shadow: -8px 0 20px oklch(0 0 0 / .06); }
+@starting-style { .btw-panel { opacity: 0; transform: translateX(8px); } }
+.btw-session { display: flex; align-items: center; gap: 12px; min-height: 34px; flex-shrink: 0; padding: 8px 20px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.btw-session > span:last-child { white-space: nowrap; }
+.btw-model { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.btw-history { flex: 1; overflow: auto; overscroll-behavior: contain; min-height: 60px; padding: 24px 20px 20px; scroll-padding: 4px; }
+.btw-empty { color: var(--muted); font-size: 13px; margin: 12px 0; }
+.btw-exchange + .btw-exchange { margin-top: 30px; }
+.btw-request.message.user { margin: 0 0 20px 10%; }
+.btw-request .message-body { padding: 9px 12px; }
+.btw-question { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.btw-response.message.assistant { margin: 0; }
+.btw-sent-quotes { margin-bottom: 10px; }
+.btw-sent-quotes blockquote { margin: 0 0 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
+.btw-quote-source { border: 0; background: transparent; padding: 0 4px; margin: 4px 0; min-height: 24px; font-size: 11px; color: var(--ink); }
+.btw-quote-source span { color: var(--muted); }
+.btw-sent-quotes p { margin: 2px 4px 0; max-height: 120px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; color: var(--muted); }
+.btw-response .message-body { font-family: var(--body-font); font-size: var(--body-size, 14px); line-height: var(--body-leading, 1.75); letter-spacing: 0; }
+.btw-answer { overflow-wrap: anywhere; }
+.btw-answer > :first-child { margin-top: 0; }
+.btw-answer > :last-child { margin-bottom: 0; }
+.btw-answer table { overflow-wrap: normal; }
+.btw-outcome { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; min-height: 28px; margin-top: 10px; flex-wrap: wrap; padding: 0; }
+.btw-exchange[data-state="error"] .btw-outcome, .btw-error { color: var(--danger, var(--ink)); }
+.btw-response-footer { display: flex; align-items: center; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; min-height: 30px; margin-top: 7px; }
+.btw-response-footer > .assistant-actions { min-width: 0; height: auto; min-height: 30px; margin: 0; flex-wrap: wrap; }
+.btw-response-footer .message-time, .btw-response-footer .elapsed-total { margin-left: 5px; }
+.btw-response:hover .assistant-actions, .btw-response:focus-within .assistant-actions,
+.btw-response:hover .message-time, .btw-response:focus-within .message-time { opacity: 1; }
+.btw-tokens { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.btw-compose { flex-shrink: 0; border-top: 1px solid var(--border); padding: 12px 16px 16px; }
+.btw-compose > .composer-quotes { margin-bottom: 10px; padding: 4px; }
+.btw-input-row { min-width: 0; }
+.btw-error { font-size: 12px; margin: 4px; }
+@container (max-width: 360px) {
+  .btw-panel .right-panel-width-control { width: 26px; min-width: 26px; height: 26px; min-height: 26px; padding: 0; border: 0; background: transparent; }
+  .btw-panel .right-panel-width-control > span { display: none; }
+}
+.app[data-native-resize] .btw-track, .app[data-native-resize] .btw-panel.right-inspector-surface { transition: none; }
+@media (prefers-reduced-motion: reduce) { .btw-track, .app .btw-panel.right-inspector-surface { transition: none; } }

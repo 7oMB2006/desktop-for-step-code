@@ -19,6 +19,7 @@
 }
 .selection-toolbar {
   position: fixed; z-index: 15; display: flex; align-items: center; gap: 3px;
+  max-width: calc(100vw - 16px); flex-wrap: wrap;
   padding: 4px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg); color: var(--ink); box-shadow: var(--shadow);
   user-select: none; -webkit-app-region: no-drag; animation: selection-enter 120ms ease-out;

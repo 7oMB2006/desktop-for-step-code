@@ -1,5 +1,34 @@
 # Verification
 
+## First-run onboarding preview (2026-11-04)
+
+`Desktop/tests/fixtures/first-run.html` is an isolated design preview, not a
+production first-launch entry point. It reuses the existing menus, permission
+and model selectors, new-session component, product icon and light/dark PNG
+wordmarks. Three steps cover account selection, workspace scope and configuration
+review. The optional brand introduction can be skipped or replayed and respects
+reduced motion; the final workspace has a separate entrance transition.
+
+Account authorization and message sending are simulated in page memory. There
+is no Desktop bridge, provider request, credential persistence or personal CLI
+profile access. Plan does not silently fall back to API billing. The folder
+button uses the browser's read-only directory chooser when supported; only the
+directory name is used, no file contents are read, and no absolute path is
+invented. Manual paths and sample folders remain available. Full Access requires
+confirmation and changes preview state only.
+
+From `Desktop/`, run `node scripts/verify-first-run-preview.mjs`. The script starts
+and closes its own ephemeral Vite server by default. `DESKTOP_PREVIEW_URL` selects
+an existing server, `PLAYWRIGHT_CHANNEL` optionally selects an installed browser,
+and `FIRST_RUN_PREVIEW_OUTPUT` overrides the ignored `test-results/first-run`
+screenshot directory. Coverage includes billing labels, authorization cancellation,
+no-plan/network states, folder selection/cancellation/unavailability, editable
+paths, permission propagation/risk cancellation, animation sampling/skip/replay,
+reduced motion, light/dark assets, keyboard focus and narrow English layouts.
+External requests are blocked and must remain absent. This does not establish
+real sign-in, native Electron directory dialogs, persistence, upgrade behavior,
+first-run detection, model acceptance or release readiness.
+
 ## PR #187 launch acceptance synchronization (2026-11-03)
 
 The favorites head `5ea2f60` passed all Windows checks and the macOS build,

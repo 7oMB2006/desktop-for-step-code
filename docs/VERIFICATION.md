@@ -1,5 +1,29 @@
 # Verification
 
+## PR #190 Model Switch Reload Readiness (2026-11-04)
+
+macOS packaged sessions job `126102093019`, run `41682022854` attempt 2,
+passes its source group but fails at `verify-model-switch.mjs:221` on
+`branchSession` with `Session operation in progress`. After reloading a
+clone, the history event can paint the switch notice while the renderer's
+initial snapshot read still holds the runtime operation guard. The fixture
+already waits for the enabled new-chat control after its first history
+restore, but omitted that readiness condition at the next two reloads.
+
+Both reloads now wait for the existing ready control before branching or
+creating a draft. Additional snapshot assertions verify the exact restored
+runtime and session identities. All clone, branch, model-history, favorites,
+default-selection and unavailable-model recovery checks remain enabled;
+production guards, timeouts and CI policy are unchanged.
+
+One source run and two consecutive runs of the delivered Windows preview
+pass. Evidence is `ci190-model-switch-readiness.log` under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. The CI runner and policy
+suite reports 39 passes and one platform skip. This follow-up changes
+acceptance code and this record only, so the delivered `bfa74b4` application's
+production sources and package bytes remain unchanged. A fresh cloud run
+is still required.
+
 ## PR #190 Task Progress Fixture Handshake (2026-11-04)
 
 After the shared rail fix, all Windows groups and the macOS source runtime

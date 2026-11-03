@@ -1,5 +1,88 @@
 # Verification
 
+## PR #187 launch acceptance synchronization (2026-11-03)
+
+The favorites head `5ea2f60` passed all Windows checks and the macOS build,
+interface and runtime groups. macOS sessions failed in
+`verify-launch-modes.mjs`: after queuing one-shot Ultracode, the main-process
+snapshot had already consumed its armed selection while React still rendered
+the previous composer trigger. The following immediate DOM count asserted
+before that render committed.
+
+The acceptance now waits for that trigger to leave the composer before its
+existing zero-count assertion. Queued-message identity, consumed armed state,
+absence of an active-task pulse before dispatch, and the later dispatched pulse
+checks remain intact. No production code, timeout, CI inventory or gate changes.
+
+The unchanged Windows baseline passes. After the synchronization fix, two
+consecutive source Electron launch acceptances pass against the real staged
+runtime and isolated loopback provider. All 34 focused launch-state and
+pending-message unit tests pass, as does the script syntax check. Replacement
+cloud checks remain pending; these local results do not claim native macOS,
+packaged acceptance or release readiness.
+
+## Model favorites (2026-11-03)
+
+The owner changed the PR #187 direction from automatic recent usage to explicit
+starred favorites after reviewing its Desktop value. The branch remains
+`codex/recent-models`, based on main `7debda7`. No secondary management surface
+is included: the production picker retains its existing fixed dimensions,
+search, thinking controls and panel motion.
+
+An independent star button toggles each provider/model identity. Saved favorites
+precede other available models in stable order without duplicates; no empty
+favorite section is reserved. Search matches names, IDs and providers in one list
+and retains independent star controls. Unavailable favorites stay saved but hidden.
+Current catalog metadata controls labels and capabilities. Explicit favorites
+are stored through the existing typed preferences bridge; no new IPC capability,
+renderer Node access or personal CLI configuration is introduced. Earlier recent
+history is removed, never converted into favorites, and all automatic collection
+hooks are retired.
+
+Favorite operations never select a model, change effort, arm a pending choice,
+change the default or create an inference request. Saving failure remains
+unstarred with a retryable inline error; a failed preference write restores the
+previous in-memory favorite list. Up/Down and Home/End retain the current control
+column; Left/Right move between model and star buttons. Reordering restores star
+focus only if the user has not moved it elsewhere. Search and dismiss handlers
+retain synthetic IME-composition guards.
+
+Typecheck, the focused 19 unit tests and production build pass. The complete
+CI-equivalent serial suite finishes with 823 tests: 809 pass, 14 platform skips
+and no failures. An earlier default-parallel attempt stalled during process
+cleanup and its verified test process tree was stopped; no test or timeout was
+weakened for the serial rerun. `verify-model-switch.mjs`
+passes against the real staged runtime and a loopback provider: explicit stars,
+retired-history migration, no inference or selection side effects, invalid
+mutation rejection, favorites during execution, persistent defaults, full restart,
+steering/FIFO dispatch and missing-model protection. The updated
+`verify-model-effort.mjs` passes star/search independence, deduplication,
+unfavorite, save failure/retry, keyboard focus, IME guards, provider identity,
+availability, existing sampled motion, light/dark narrow-window, English,
+reduced motion, compact density and long-list focus checks. The model rows are
+32px high, preserving the fixed panel while avoiding a redundant scrollbar for
+the three-model fixture. General `verify-electron.mjs` acceptance also passes
+after updating its model-list locator to the labeled multi-action group; its
+visibility and layout assertions remain intact.
+
+The compact-header follow-up merges the back arrow and search into one row,
+returning about one model row to the list without resizing the popover. Keyboard
+return restores focus to the model heading; both controls retain unclipped focus
+indicators. Typecheck, build, expanded model-effort and general Electron
+acceptance were rerun and pass, including narrow light/dark screenshots and
+English labels. The full serial suite and runtime switching checks above predate
+this layout-only follow-up. The interactive preview now has 24 illustrative
+models across providers, including duplicate names and long labels; this is
+fixture data, not a declaration of live provider availability.
+
+The production-component fixture is `tests/fixtures/favorite-models.html`;
+the earlier `recent-models.html` URL remains an alias. Fixture favorites use
+separate browser-local sample storage, not Desktop account data. The replacement
+is approved for the existing PR #187 after owner preview review; its title and
+description are being updated from recent usage to favorites. No package or
+shortcut update is included. Cloud CI for the replacement remains pending; no
+native macOS execution, paid-model acceptance or public release is claimed.
+
 ## Full-text search PR review and CI repair (2026-11-02)
 
 The first PR #185 run failed on Windows and macOS at the same

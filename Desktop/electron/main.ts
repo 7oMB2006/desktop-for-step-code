@@ -35,6 +35,7 @@ import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } f
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
+import { changeFavoriteModel, normalizeFavoriteModels } from '../src/model-favorites';
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
@@ -1946,6 +1947,8 @@ async function handle(method: string, args: any[]) {
       const panelPatch = panelPreferencePatch(patch);
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
       const colorPatch = themePreferencePatch(patch);
+      const favoriteModels = patch.modelFavorite === undefined ? undefined
+        : changeFavoriteModel(preferences.favoriteModels, patch.modelFavorite);
       if (patch.appearance !== undefined) {
         if (!patch.appearance || typeof patch.appearance !== 'object' || Array.isArray(patch.appearance)) throw new Error('Invalid appearance settings');
         preferences.appearance = normalizeAppearance({ ...preferences.appearance, ...patch.appearance });
@@ -1974,7 +1977,12 @@ async function handle(method: string, args: any[]) {
       }
       Object.assign(preferences, sidebarPatch, updatePatch, panelPatch);
       if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
-      await savePreferences();
+      const previousFavorites = preferences.favoriteModels;
+      if (favoriteModels) preferences.favoriteModels = favoriteModels;
+      try { await savePreferences(); } catch (error) {
+        if (favoriteModels && preferences.favoriteModels === favoriteModels) preferences.favoriteModels = previousFavorites;
+        throw error;
+      }
       window.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       updates.setChannel(preferences.updateChannel ?? 'preview');
       tray?.relabel();
@@ -2106,6 +2114,8 @@ else app.whenReady().then(async () => {
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));
   preferences.preferredModel = modelPreference(preferences.preferredModel);
+  preferences.favoriteModels = normalizeFavoriteModels(preferences.favoriteModels);
+  delete (preferences as Preferences & { recentModels?: unknown }).recentModels;
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.theme = normalizeTheme(preferences.theme);
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;

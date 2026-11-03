@@ -1,5 +1,26 @@
 # Verification
 
+## PR #187 launch acceptance synchronization (2026-11-03)
+
+The favorites head `5ea2f60` passed all Windows checks and the macOS build,
+interface and runtime groups. macOS sessions failed in
+`verify-launch-modes.mjs`: after queuing one-shot Ultracode, the main-process
+snapshot had already consumed its armed selection while React still rendered
+the previous composer trigger. The following immediate DOM count asserted
+before that render committed.
+
+The acceptance now waits for that trigger to leave the composer before its
+existing zero-count assertion. Queued-message identity, consumed armed state,
+absence of an active-task pulse before dispatch, and the later dispatched pulse
+checks remain intact. No production code, timeout, CI inventory or gate changes.
+
+The unchanged Windows baseline passes. After the synchronization fix, two
+consecutive source Electron launch acceptances pass against the real staged
+runtime and isolated loopback provider. All 34 focused launch-state and
+pending-message unit tests pass, as does the script syntax check. Replacement
+cloud checks remain pending; these local results do not claim native macOS,
+packaged acceptance or release readiness.
+
 ## Model favorites (2026-11-03)
 
 The owner changed the PR #187 direction from automatic recent usage to explicit

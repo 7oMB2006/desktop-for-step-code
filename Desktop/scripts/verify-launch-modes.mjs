@@ -317,6 +317,8 @@ try {
   snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(snapshot.pendingMessages[0].message, '这一条用编排补充检查。');
   assert.equal(snapshot.launch.ultracodeArmed, false);
+  // The main-process queue can settle before React commits the consumed selection.
+  await page.waitForFunction(() => !document.querySelector('.composer .launch-status-trigger'));
   assert.equal(await page.locator('.composer .launch-status-trigger').count(), 0);
   assert.equal(await page.locator('.working .launch-status-pulse').count(), 0, 'Queued opt-in has not yet entered the active task');
   await page.evaluate(() => window.desktop.command('queue_steer_first'));

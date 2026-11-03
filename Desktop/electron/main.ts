@@ -35,7 +35,7 @@ import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } f
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
-import { normalizeRecentModels, rememberRecentModel } from '../src/recent-models';
+import { changeFavoriteModel, normalizeFavoriteModels } from '../src/model-favorites';
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
@@ -98,8 +98,7 @@ let cronHistoryFailed = false;
 const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 'conversation-timing'),
   error => { void crashLog.record('conversation-timing', error); });
 const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model-changes'),
-  worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); },
-  model => recordRecentModel(model));
+  worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); });
 let window: BrowserWindow;
 let startupWindow: StartupWindow | undefined;
 let browser: BrowserTabs | undefined;
@@ -330,7 +329,6 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
   event: (worker, event) => {
-    if (event.type === 'agent_start' && worker.state?.model) recordRecentModel(worker.state.model);
     try {
       cronHistory.event(worker, event);
       if (['agent_end', 'desktop_exit'].includes(event.type)) emit({ type: 'desktop_cron_changed' });
@@ -521,14 +519,6 @@ async function rememberModel(model: Model) {
     if (preferences.preferredModel === selected) preferences.preferredModel = previous;
     throw error;
   }
-}
-function recordRecentModel(model: Model) {
-  const next = rememberRecentModel(preferences.recentModels, model);
-  if (JSON.stringify(next) === JSON.stringify(preferences.recentModels)) return;
-  preferences.recentModels = next;
-  emit({ type: 'desktop_model_recents', recentModels: next });
-  // History is auxiliary: a failed disk write must not block an applied model or prompt.
-  void savePreferences().catch(error => { void crashLog.record('recent-models', error); });
 }
 let sessionCatalog: Session[] = [];
 // Upstream spawns one real session per subagent so it can resume the child transcript.
@@ -1957,6 +1947,8 @@ async function handle(method: string, args: any[]) {
       const panelPatch = panelPreferencePatch(patch);
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
       const colorPatch = themePreferencePatch(patch);
+      const favoriteModels = patch.modelFavorite === undefined ? undefined
+        : changeFavoriteModel(preferences.favoriteModels, patch.modelFavorite);
       if (patch.appearance !== undefined) {
         if (!patch.appearance || typeof patch.appearance !== 'object' || Array.isArray(patch.appearance)) throw new Error('Invalid appearance settings');
         preferences.appearance = normalizeAppearance({ ...preferences.appearance, ...patch.appearance });
@@ -1985,7 +1977,12 @@ async function handle(method: string, args: any[]) {
       }
       Object.assign(preferences, sidebarPatch, updatePatch, panelPatch);
       if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
-      await savePreferences();
+      const previousFavorites = preferences.favoriteModels;
+      if (favoriteModels) preferences.favoriteModels = favoriteModels;
+      try { await savePreferences(); } catch (error) {
+        if (favoriteModels && preferences.favoriteModels === favoriteModels) preferences.favoriteModels = previousFavorites;
+        throw error;
+      }
       window.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       updates.setChannel(preferences.updateChannel ?? 'preview');
       tray?.relabel();
@@ -2117,7 +2114,8 @@ else app.whenReady().then(async () => {
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));
   preferences.preferredModel = modelPreference(preferences.preferredModel);
-  preferences.recentModels = normalizeRecentModels(preferences.recentModels);
+  preferences.favoriteModels = normalizeFavoriteModels(preferences.favoriteModels);
+  delete (preferences as Preferences & { recentModels?: unknown }).recentModels;
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.theme = normalizeTheme(preferences.theme);
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;

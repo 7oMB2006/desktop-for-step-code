@@ -3,7 +3,7 @@ import { ChevronLeft, SlidersHorizontal, Type, Image, AudioLines, Video, File } 
 import type { Model } from './contracts';
 import { ProviderBrand } from './ProviderBrand';
 import { ModelPickerList } from './ModelPickerList';
-import type { RecentModel } from './recent-models';
+import type { ModelIdentity } from './model-favorites';
 
 const DRAG_THRESHOLD = 0.62;
 const THUMB_SIZE = 38;
@@ -73,7 +73,8 @@ function AnimatedEffortLevel({ level, index, color, language }: { level: string;
 interface Props {
   model?: Model;
   models: Model[];
-  recentModels?: RecentModel[];
+  favoriteModels?: ModelIdentity[];
+  onFavorite?: (model: Model, favorite: boolean) => Promise<unknown>;
   level?: string;
   levels: string[];
   language: 'zh' | 'en';
@@ -84,7 +85,7 @@ interface Props {
   onConfigure?: () => void;
 }
 
-export function ModelEffortPicker({ model, models, recentModels, level, levels, language, disabled, pending, onModel, onEffort, onConfigure }: Props) {
+export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, level, levels, language, disabled, pending, onModel, onEffort, onConfigure }: Props) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'effort' | 'models' | 'parameters'>('effort');
   const [previewIndex, setPreviewIndex] = useState(0);
@@ -239,9 +240,12 @@ export function ModelEffortPicker({ model, models, recentModels, level, levels, 
         </div>
       </div>
       <div className="model-effort-panel model-effort-models-panel" inert={view !== 'models'} aria-hidden={view !== 'models'}>
-        <button type="button" className="model-effort-back" onClick={() => setView('effort')}><ChevronLeft size={16}/>{zh ? '选择模型' : 'Select model'}</button>
-        <ModelPickerList key={view === 'models' ? 'open' : 'closed'} models={models} recentModels={recentModels}
-          selected={model} language={language} onSelect={chooseModel}/>
+        <ModelPickerList key={view === 'models' ? 'open' : 'closed'} models={models} favoriteModels={favoriteModels}
+          selected={model} language={language} onSelect={chooseModel} onFavorite={onFavorite}
+          onBack={() => {
+            setView('effort');
+            requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>('.model-effort-heading')?.focus());
+          }}/>
       </div>
       <div className="model-effort-panel model-effort-parameters-panel" inert={view !== 'parameters'} aria-hidden={view !== 'parameters'}>
         <button type="button" className="model-effort-back" onClick={() => setView('effort')}><ChevronLeft size={16}/>{zh ? '模型参数' : 'Model parameters'}</button>

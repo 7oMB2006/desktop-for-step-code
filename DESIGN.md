@@ -197,16 +197,25 @@ unchanged. Reduced motion disables the shared transition at its source.
 
 The composer model/effort picker remains enabled while a task runs. Choices made during execution are scoped to that worker and shown as the next-task selection; the secondary view displays a quiet "Applies next turn" state. They apply before the next fresh task, including Desktop FIFO dispatch, while steering retains the active configuration. A confirmed switch is a noninteractive client timeline note before the new response, with a 14px ArrowRightLeft icon, accent semibold upright label, muted regular monospace old model, gray arrow and ink semibold monospace new model. It has no card, disclosure or tool identity. Observations persist separately from Step history and never become model context.
 
-The existing fixed-size model selector includes a search field and a Recently
-used group, followed by other available models without duplicates. Five recent
-provider/model identities are stored in Desktop preferences only after verified
-runtime application or actual task start; draft defaults, pending/cancelled
-selections and passive history restoration do not count. Unavailable entries are
-hidden, not selected or silently replaced, and labels come from the live catalog.
-Searching matches model names, IDs and providers in one deduplicated result list.
-Keyboard navigation, visible composite-field focus, existing panel motion and
-reduced motion are shared. IME-composition keys do not navigate the list or
-dismiss the picker. Recent history does not set a default or billing route.
+The existing fixed-size model selector includes search and explicitly starred
+Favorites ahead of other available models, without duplicates. Its back arrow and
+search share one compact header row instead of a separate title; the saved height
+belongs to the internally scrolling model list. Returning restores focus to the
+model heading. No empty favorite
+section is reserved. An independent star button adds or removes a favorite without
+selecting a model or closing the picker; the selected checkmark remains separate.
+Favorites retain their saved order and provider/model identities in Desktop
+preferences. Runtime activity never creates or reorders them, and earlier recent
+history is not converted into favorites. Unavailable favorites are hidden but
+retained, and labels always come from the current catalog. Search matches names,
+IDs and providers in one deduplicated result list, with independent star controls.
+Saving failure is explicit and retryable. Up/Down and Home/End navigate the current
+button column; Left/Right move between selection and star controls. Reordering
+preserves star focus unless the user has moved it elsewhere. Visible focus,
+existing panel motion and reduced motion are shared. IME-composition keys do not
+navigate or dismiss the picker. Favorites do not change default models, next-turn
+choices, account identity or billing routes. A secondary management view remains
+outside this compact-picker change.
 
 Automatic continuation shares that timeline-event styling, with a 14px RotateCcw icon, an accent semibold upright label and a muted interruption reason. It records a requested attempt, never confirmed recovery or a specific network diagnosis. The Windows runtime preserves the original input/start pipeline and model instruction but stores a structured `step-auto-resume` custom message, not a human-authored turn. Rendering and replay require its versioned source metadata; no English-text matching rewrites old history. The note has no user bubble, editing controls, disclosure or activity animation, and its internal instruction is excluded from copied assistant prose.
 

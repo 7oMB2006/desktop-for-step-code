@@ -22,14 +22,13 @@ async function fixture() {
       return {};
     } },
   } as unknown as SessionRuntime;
-  const applied: Model[] = [];
-  const selections = new ModelSelections(root, () => {}, () => {}, model => { applied.push(model); });
+  const selections = new ModelSelections(root, () => {});
   await selections.load('session-a');
   const close = async () => { await selections.flush(); await rm(root, { recursive: true, force: true }); };
-  return { selections, worker, calls, applied, root, close };
+  return { selections, worker, calls, root, close };
 }
 test('running selection and steering never mutate the active model; last choice applies before a new prompt', async () => {
-  const { selections, worker, calls, applied, close } = await fixture();
+  const { selections, worker, calls, close } = await fixture();
   try {
     worker.busy = worker.runActive = true;
     selections.select(worker, b);
@@ -38,13 +37,11 @@ test('running selection and steering never mutate the active model; last choice 
     assert.equal(calls.length, 0);
     assert.equal(worker.state?.model?.id, 'a');
     assert.equal(selections.changes(worker).length, 0);
-    assert.equal(applied.length, 0, 'pending selections and steering never enter recent history');
     worker.busy = worker.runActive = false;
     await selections.prepare(worker, 'next task');
     assert.equal(worker.state?.model?.id, 'b');
     assert.equal(worker.state?.thinkingLevel, 'high');
     assert.equal(worker.pendingModel, undefined);
-    assert.deepEqual(applied.map(model => model.id), ['b'], 'only the verified application enters history');
     assert.equal(selections.changes(worker).length, 0, 'not a fabricated user message');
     assert.equal(selections.delivered(worker, 'system reminder', 1), false);
     assert.equal(selections.delivered(worker, 'next task', 2), true);
@@ -55,7 +52,7 @@ test('running selection and steering never mutate the active model; last choice 
   } finally { await close(); }
 });
 test('selecting back to the original configuration cancels pending changes without RPC or a timeline note', async () => {
-  const { selections, worker, calls, applied, close } = await fixture();
+  const { selections, worker, calls, close } = await fixture();
   try {
     worker.busy = true;
     selections.select(worker, b);
@@ -64,24 +61,22 @@ test('selecting back to the original configuration cancels pending changes witho
     worker.busy = false;
     await selections.prepare(worker, 'next');
     assert.equal(calls.length, 0);
-    assert.equal(applied.length, 0);
     assert.equal(selections.delivered(worker, 'next', 3), false);
   } finally { await close(); }
 });
 test('thinking-only changes do not claim a model switch; unsupported effort fails closed', async () => {
-  const { selections, worker, calls, applied, close } = await fixture();
+  const { selections, worker, calls, close } = await fixture();
   try {
     selections.selectEffort(worker, 'high');
     await selections.prepare(worker, 'task');
     assert.equal(worker.state?.thinkingLevel, 'high');
     assert.equal(calls.some(call => call.type === 'set_model'), false);
-    assert.equal(applied.length, 0);
     assert.throws(() => selections.selectEffort(worker, 'xhigh'), /Unsupported/);
     assert.equal(selections.delivered(worker, 'task', 2), false);
   } finally { await close(); }
 });
 test('failed application keeps the selection for retry, releases its lock and emits no false switch', async () => {
-  const { selections, worker, applied, close } = await fixture();
+  const { selections, worker, close } = await fixture();
   try {
     selections.select(worker, b);
     const request = worker.rpc.request;
@@ -92,22 +87,22 @@ test('failed application keeps the selection for retry, releases its lock and em
     await assert.rejects(selections.prepare(worker, 'task'), /authentication/);
     assert.equal(worker.mutating, false);
     assert.equal(worker.pendingModel?.model.id, 'b');
-    assert.equal(applied.length, 0);
     assert.equal(selections.delivered(worker, 'task', 1), false);
     worker.rpc.request = request;
     await selections.prepare(worker, 'retry');
-    assert.deepEqual(applied.map(model => model.id), ['b']);
     assert.equal(selections.delivered(worker, 'retry', 2), true);
   } finally { await close(); }
 });
-test('unconfirmed model application never enters recent history', async () => {
-  const { selections, worker, applied, close } = await fixture();
+test('unconfirmed model application retains the pending choice for retry', async () => {
+  const { selections, worker, close } = await fixture();
   try {
     selections.select(worker, b);
     const request = worker.rpc.request;
     worker.rpc.request = async (type, args) => type === 'set_model' ? {} : request(type, args);
     await assert.rejects(selections.apply(worker), /did not apply/);
-    assert.equal(applied.length, 0);
+    assert.equal(worker.state?.model?.id, 'a');
+    assert.equal(worker.pendingModel?.model.id, 'b');
+    assert.equal(worker.mutating, false);
   } finally { await close(); }
 });
 test('idle choices collapse before consumption; sidecars survive reopen and contain no prompt text', async () => {

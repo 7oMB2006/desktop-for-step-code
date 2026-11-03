@@ -136,14 +136,14 @@ try {
   assert.match(await dialog.locator('[data-provider-brand="step"]').evaluate(e => getComputedStyle(e).maskImage), /linear-gradient/);
   await dialog.screenshot({ path: 'test-results/model-provider-step-dark.png' });
   await dialog.getByRole('button', { name: '选择模型' }).click();
-  await dialog.getByRole('option', { name: /Custom Model/ }).click();
+  await dialog.locator('.model-picker-select').filter({ hasText: 'Custom Model' }).click();
   await page.waitForTimeout(350);
   assert.equal(await dialog.locator('[data-provider-brand="custom"] svg').count(), 1);
   await dialog.screenshot({ path: 'test-results/model-provider-custom-dark.png' });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await dialog.screenshot({ path: 'test-results/model-provider-custom-light.png' });
   await dialog.getByRole('button', { name: '选择模型' }).click();
-  await dialog.getByRole('option').filter({ has: page.getByText('step-5-preview', { exact: true }) }).click();
+  await dialog.locator('.model-picker-select').filter({ has: page.getByText('step-5-preview', { exact: true }) }).click();
   await page.waitForTimeout(350);
   await dialog.screenshot({ path: 'test-results/model-provider-step-light.png' });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
@@ -183,17 +183,44 @@ try {
     duration: 320, easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
   }, () => dialog.getByRole('button', { name: '选择模型' }).click());
   assert.equal(await dialog.getByRole('slider').count(), 0, 'The covered effort panel must not be accessible');
-  assert.equal(await dialog.getByRole('listbox', { name: '模型' }).count(), 1);
+  assert.equal(await dialog.getByRole('group', { name: '模型', exact: true }).count(), 1);
   const midReveal = modelReveal.frames[2].models.clipPath;
   assert.match(midReveal, /inset\(0px 0px [1-9]/, 'The model panel should reveal from top to bottom');
   await page.screenshot({ path: 'test-results/model-effort-models-transition.png' });
   await settleLayout(dialog);
   assert.equal(await dialog.locator('.model-effort-models-panel').evaluate(element => getComputedStyle(element).clipPath), 'inset(0px)');
+  const modelBack = dialog.getByRole('button', { name: '返回思考强度', exact: true });
+  const toolbarGeometry = await dialog.locator('.model-picker-toolbar').evaluate(toolbar => {
+    const back = toolbar.querySelector('.model-picker-back').getBoundingClientRect();
+    const search = toolbar.querySelector('.model-picker-search').getBoundingClientRect();
+    return { sameRow: Math.abs(back.y + back.height / 2 - search.y - search.height / 2) <= 1,
+      separateControls: back.right <= search.left,
+      height: toolbar.getBoundingClientRect().height,
+      listHeight: toolbar.nextElementSibling.clientHeight };
+  });
+  assert.equal(toolbarGeometry.sameRow && toolbarGeometry.separateControls, true, 'back and search share one row without overlapping');
+  assert.ok(toolbarGeometry.height <= 40 && toolbarGeometry.listHeight >= 190,
+    `the merged header returns space to the fixed-size model list: ${JSON.stringify(toolbarGeometry)}`);
+  await dialog.getByRole('searchbox', { name: '搜索模型', exact: true }).focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await modelBack.evaluate(button => button === document.activeElement), true);
+  const backFocus = await modelBack.evaluate(button => {
+    const control = button.getBoundingClientRect();
+    const clip = button.closest('.model-effort-models-panel').getBoundingClientRect();
+    const style = getComputedStyle(button);
+    const extent = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+    return { outlined: style.outlineStyle === 'solid' && parseFloat(style.outlineWidth) > 0,
+      inside: control.left - extent >= clip.left && control.right + extent <= clip.right
+        && control.top - extent >= clip.top && control.bottom + extent <= clip.bottom };
+  });
+  assert.deepEqual(backFocus, { outlined: true, inside: true }, 'the compact back button retains its complete keyboard focus indicator');
   await page.screenshot({ path: 'test-results/model-effort-models.png' });
-  await dialog.getByRole('button', { name: '选择模型' }).click();
+  await modelBack.press('Enter');
   await settleLayout(dialog);
   assert.equal(await dialog.getByRole('slider').count(), 1);
-  assert.equal(await dialog.getByRole('listbox').count(), 0, 'The hidden model panel must not be accessible');
+  assert.equal(await dialog.getByRole('button', { name: '选择模型', exact: true }).evaluate(button => button === document.activeElement), true,
+    'returning from the model list restores focus to the model heading');
+  assert.equal(await dialog.getByRole('group', { name: '模型', exact: true }).count(), 0, 'The hidden model panel must not be accessible');
   assert.deepEqual(await dialog.boundingBox(), effortBounds, 'Switching views must not move or resize the popover');
   await page.mouse.click(x, box.y + 20);
   assert.equal(await slider.getAttribute('aria-valuenow'), '2', 'Clicking the rail must not jump');
@@ -304,15 +331,35 @@ try {
   const rect = await dialog.boundingBox();
   assert.ok(rect && rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= await page.evaluate(() => innerWidth));
   await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
-  const recentGroup = dialog.getByRole('group', { name: '最近使用', exact: true });
+  const favoriteGroup = dialog.getByRole('group', { name: '已收藏', exact: true });
   const otherGroup = dialog.getByRole('group', { name: '其他模型', exact: true });
-  assert.equal(await recentGroup.getByRole('option').count(), 2);
-  assert.equal(await otherGroup.getByRole('option').count(), 1);
-  assert.equal(await dialog.getByRole('option').count(), 3, 'recent models do not repeat in the other group');
+  const modelButtons = dialog.locator('.model-picker-select');
+  const starFor = name => dialog.locator('.model-picker-row').filter({ has: page.getByText(name, { exact: true }) }).locator('.model-picker-star');
+  assert.equal(await favoriteGroup.count(), 0, 'selecting a model never creates a favorite');
+  assert.equal(await dialog.locator('.model-picker-section').count(), 0, 'no empty favorite heading is reserved');
+  assert.equal(await modelButtons.count(), 3);
+  const callsBeforeFavorites = await page.evaluate(() => ({ models: window.modelCalls, efforts: window.effortCalls }));
+  await starFor('step-4').hover();
+  await page.getByRole('tooltip').filter({ hasText: '收藏模型' }).waitFor();
+  await starFor('step-4').click();
+  await favoriteGroup.waitFor();
+  assert.equal(await starFor('step-4').getAttribute('aria-pressed'), 'true');
+  await page.waitForFunction(() => document.activeElement?.classList.contains('model-picker-star')
+    && document.activeElement.closest('.model-picker-row')?.textContent.includes('step-4'));
+  assert.deepEqual(await dialog.boundingBox(), rect, 'favoriting must not resize the compact picker');
   const search = dialog.getByRole('searchbox', { name: '搜索模型', exact: true });
   await search.fill('CUSTOM provider');
-  assert.equal(await dialog.getByRole('option').count(), 1, 'search matches provider terms without recent duplicates');
-  assert.equal(await dialog.getByRole('group', { name: '最近使用', exact: true }).count(), 0);
+  assert.equal(await modelButtons.count(), 1, 'search matches provider terms without duplicates');
+  assert.equal(await favoriteGroup.count(), 0);
+  await starFor('Custom Model').click();
+  await page.waitForFunction(() => document.querySelector('.model-picker-star')?.getAttribute('aria-pressed') === 'true');
+  assert.equal(await search.inputValue(), 'CUSTOM provider', 'favoriting search results retains the query');
+  assert.equal(await modelButtons.count(), 1);
+  assert.equal(await dialog.count(), 1, 'the independent star button never selects or closes');
+  assert.deepEqual(await page.evaluate(() => ({ models: window.modelCalls, efforts: window.effortCalls })), callsBeforeFavorites,
+    'favorite controls must not invoke model or effort selection');
+  assert.equal(await dialog.locator('.model-picker-star').evaluate(element => getComputedStyle(element).transitionDuration), '0s');
+  await search.focus();
   for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
     for (const key of ['ArrowDown', 'Escape']) {
       await search.dispatchEvent('keydown', { key, ...composition });
@@ -322,22 +369,37 @@ try {
     }
   }
   await search.press('ArrowDown');
-  assert.equal(await dialog.getByRole('option').evaluate(element => element === document.activeElement), true);
+  assert.equal(await modelButtons.evaluate(element => element === document.activeElement), true);
   await search.fill('missing model');
   await dialog.getByRole('status').filter({ hasText: '没有匹配的模型' }).waitFor();
   await dialog.getByRole('button', { name: '清空搜索', exact: true }).click();
   assert.equal(await search.inputValue(), '');
   assert.equal(await search.evaluate(element => element === document.activeElement), true);
+  assert.equal(await favoriteGroup.locator('.model-picker-select').count(), 2);
+  assert.equal(await otherGroup.locator('.model-picker-select').count(), 1);
+  assert.equal(await modelButtons.count(), 3, 'favorites do not repeat in the other group');
+  assert.equal(await dialog.locator('.model-picker-list').evaluate(element => element.scrollHeight <= element.clientHeight), true,
+    'three compact rows and their headings must not create a redundant scrollbar');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    await page.screenshot({ path: `test-results/model-favorites-${theme}.png` });
+  }
   await search.press('ArrowDown');
-  const firstOption = dialog.getByRole('option').first();
+  const firstOption = modelButtons.first();
   for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
     await firstOption.dispatchEvent('keydown', { key: 'ArrowDown', ...composition });
     assert.equal(await firstOption.evaluate(element => element === document.activeElement), true, 'Composing keys must not navigate the list');
   }
   await page.keyboard.press('End');
-  assert.equal(await dialog.getByRole('option').last().evaluate(element => element === document.activeElement), true);
+  assert.equal(await modelButtons.last().evaluate(element => element === document.activeElement), true);
   await page.keyboard.press('ArrowDown');
-  assert.equal(await dialog.getByRole('option').first().evaluate(element => element === document.activeElement), true);
+  assert.equal(await modelButtons.first().evaluate(element => element === document.activeElement), true);
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await starFor('step-4').evaluate(element => element === document.activeElement), true);
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await starFor('Custom Model').evaluate(element => element === document.activeElement), true);
+  await page.keyboard.press('ArrowLeft');
+  assert.equal(await favoriteGroup.locator('.model-picker-select').last().evaluate(element => element === document.activeElement), true);
   await search.focus();
   const focusGeometry = await search.evaluate(input => {
     const field = input.parentElement.getBoundingClientRect();
@@ -351,37 +413,73 @@ try {
   assert.equal(focusGeometry.focused && focusGeometry.outlined, true, 'measure the rendered focus indicator, not the unfocused field');
   assert.ok(focusGeometry.extent > 0 && focusGeometry.extent <= 4, `Visible outline stays within the 4px gutter: ${JSON.stringify(focusGeometry)}`);
   assert.equal(focusGeometry.visible, true, 'search focus indicator fits within the animated panel');
+  await page.evaluate(() => window.modelPickerFixture.configure({ favoriteFailure: true }));
+  await starFor('step-5-preview').click();
+  await dialog.getByRole('alert').filter({ hasText: '收藏未保存' }).waitFor();
+  assert.equal(await starFor('step-5-preview').getAttribute('aria-pressed'), 'false', 'a failed save must not claim a favorite');
+  assert.equal(await modelButtons.count(), 3);
+  await page.evaluate(() => window.modelPickerFixture.configure({ favoriteFailure: false }));
+  await starFor('step-5-preview').click();
+  await page.waitForFunction(() => document.querySelectorAll('.model-picker-star[aria-pressed=true]').length === 3);
+  assert.equal(await dialog.getByRole('alert').count(), 0, 'retry clears the failure');
+  await starFor('step-4').click();
+  await page.waitForFunction(() => document.querySelectorAll('.model-picker-star[aria-pressed=true]').length === 2);
+  assert.equal(await otherGroup.locator('.model-picker-select').count(), 1, 'unfavorite returns a model to the available list exactly once');
+  await page.evaluate(() => window.modelPickerFixture.configure({ favorites: [] }));
+  await favoriteGroup.waitFor({ state: 'hidden' });
+  assert.equal(await dialog.locator('.model-picker-section').count(), 0);
+  assert.equal(await modelButtons.count(), 3);
+  await page.evaluate(() => window.modelPickerFixture.configure({
+    models: Array.from({ length: 24 }, (_, index) => ({ provider: 'fixture', id: String(index), name: `Model ${index}` })),
+    favorites: [{ provider: 'fixture', id: '0' }],
+  }));
+  await search.press('ArrowDown');
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowRight');
+  const lastStarBounds = await dialog.locator('.model-picker-star').last().evaluate(button => {
+    const control = button.getBoundingClientRect();
+    const clip = button.closest('.model-picker-list').getBoundingClientRect();
+    const style = getComputedStyle(button);
+    const extent = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+    return { focused: document.activeElement === button,
+      outlined: style.outlineStyle === 'solid' && parseFloat(style.outlineWidth) > 0,
+      inside: control.left - extent >= clip.left && control.right + extent <= clip.right
+        && control.top - extent >= clip.top && control.bottom + extent <= clip.bottom };
+  });
+  assert.deepEqual(lastStarBounds, { focused: true, outlined: true, inside: true }, 'scrolled last-row star keeps all four focus sides visible');
+  assert.deepEqual(await dialog.boundingBox(), rect, 'a long catalog scrolls internally without growing the compact picker');
   await page.evaluate(() => window.modelPickerFixture.configure({
     models: [
       { provider: 'step', id: 'shared', name: 'A long model name that must not resize its picker', providerName: 'Step' },
       { provider: 'custom', id: 'shared', name: 'A long model name that must not resize its picker', providerName: 'A long custom provider name' },
     ],
-    recent: [{ provider: 'missing', id: 'shared' }, { provider: 'custom', id: 'shared' }],
+    favorites: [{ provider: 'missing', id: 'shared' }, { provider: 'custom', id: 'shared' }],
   }));
-  assert.equal(await recentGroup.getByRole('option').count(), 1, 'unavailable recent model is hidden');
-  assert.equal(await otherGroup.getByRole('option').count(), 1, 'same ID from another provider stays separate');
+  assert.equal(await favoriteGroup.locator('.model-picker-select').count(), 1, 'unavailable favorite is hidden');
+  assert.equal(await otherGroup.locator('.model-picker-select').count(), 1, 'same ID from another provider stays separate');
   for (const theme of ['light', 'dark']) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().at(-1).setSize(380, 620));
     await search.focus();
     const overflow = await dialog.evaluate(element => ({
       width: element.scrollWidth > element.clientWidth,
-      rows: [...element.querySelectorAll('[role=option]')].some(row => row.scrollWidth > row.clientWidth),
+      rows: [...element.querySelectorAll('.model-picker-row')].some(row => row.scrollWidth > row.clientWidth),
       left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right,
     }));
     assert.equal(overflow.width, false);
     assert.equal(overflow.rows, false);
     assert.ok(overflow.left >= 0 && overflow.right <= 380, JSON.stringify(overflow));
-    await page.screenshot({ path: `test-results/model-recents-narrow-${theme}.png` });
+    await page.screenshot({ path: `test-results/model-favorites-narrow-${theme}.png` });
   }
   await page.evaluate(() => window.modelPickerFixture.configure({ language: 'en' }));
   await page.getByRole('searchbox', { name: 'Search models', exact: true }).waitFor();
-  assert.equal(await page.getByRole('group', { name: 'Recently used', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Back to thinking level', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('group', { name: 'Favorites', exact: true }).count(), 1);
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog', { name: 'Model and thinking level' }).count(), 0);
   assert.equal(await page.getByRole('button', { name: 'Model and thinking level', exact: true }).evaluate(element => element === document.activeElement), true);
   console.log('Fader acceptance passed: no click jump, resisted drag, release commit, wheel and keyboard.');
-  console.log('Model picker passed: recents, provider identity, availability, search, keyboard, IME guards, focus bounds, narrow themes and English.');
+  console.log('Model picker passed: explicit favorites, no automatic collection or model selection, search, failed save and retry, provider identity, availability, keyboard focus, IME guards, focus bounds, narrow themes and English.');
 } finally {
   await app.close();
 }

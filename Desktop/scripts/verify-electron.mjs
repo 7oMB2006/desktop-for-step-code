@@ -670,9 +670,9 @@ try {
   await modelPicker.click();
   const effortPanel = page.getByRole('dialog', { name: '模型与思考强度' });
   await effortPanel.getByRole('button', { name: '选择模型' }).click();
-  const modelList = effortPanel.getByRole('listbox', { name: '模型' });
+  const modelList = effortPanel.getByRole('group', { name: '模型', exact: true });
   assert.equal(await modelList.isVisible(), true);
-  await effortPanel.getByRole('button', { name: '选择模型' }).click();
+  await effortPanel.getByRole('button', { name: '返回思考强度', exact: true }).click();
   if (await effortPanel.getByRole('slider').count()) {
     assert.equal(await effortPanel.getByRole('slider').getAttribute('aria-valuetext'), await composerTools.locator('.model-effort-level').textContent());
   }

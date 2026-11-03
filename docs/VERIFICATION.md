@@ -1,5 +1,20 @@
 # Verification
 
+## BTW PR #190 Shared Rail Acceptance (2026-11-04)
+
+The initial Windows runtime job `126043981644` and macOS runtime job
+`126047868400` fail at the same `verify-electron.mjs` exact rail-label
+assertion. The production rail has the intended new side-question entry
+between Context and Changes, but the shared acceptance still expects the
+previous eight entries.
+
+The shared acceptance now requires all nine entries in order, one native
+side-question icon and one `btw-panel` trigger. The existing tooltip placement
+and visibility checks now also cover the new entry; no assertion, timeout or
+CI gate was removed. The complete source `verify-electron.mjs` passes on
+Windows with its real staged runtime and isolated fixture profile.
+Replacement cloud and packaged-executable runs remain separate pending gates.
+
 ## BTW PR Main Synchronization (2026-11-04)
 
 The feature commit `cd2cafb` is synchronized with main `2febc93` at merge

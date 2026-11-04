@@ -1,5 +1,46 @@
 # Verification
 
+## Production First-run Integration (2026-11-04)
+
+The accepted preview is now connected to the real Electron startup path.
+The main process owns a versioned, atomically saved `userData/first-run.json`
+marker, initialized before startup writes runtime files. A fresh profile remains
+pending across interrupted setup, reload and restart. Completion or explicit
+skip persists; retained-data upgrades/reinstalls do not replay the flow. Legacy
+preferences, runtime configuration, credentials, model configuration or session
+history bypass setup without reading credentials for detection. An unreadable or
+future marker is preserved and bypasses optional onboarding rather than blocking
+access to the application. Clearing the entire Desktop profile is a fresh start.
+
+The renderer bootstrap mounts onboarding separately from the normal workspace.
+It reuses actual account login/cancellation, provider configuration/discovery,
+native project selection, and model/thinking/permission selectors through the
+typed preload. Completion hands off a session draft without starting a runtime,
+writing conversation history or sending inference. Full Access does not bypass
+the existing native risk confirmation on first execution. The preview remains
+an independent simulation and shares the production stylesheet.
+
+Local Windows source verification passes:
+
+- Typecheck and production build.
+- Serial Desktop suite: 848 tests, 834 passed and 14 platform skips.
+- CI inventory/policy/runner tests: 30 passed and one platform skip.
+- `verify-first-run.mjs`, registered in the interface CI group: fresh/interrupted,
+  skipped/completed and legacy/future-marker lifecycles; real provider discovery,
+  encrypted persistence, native directory selection/cancellation, draft model and
+  permission handoff, and the first explicit loopback model request.
+- The same native acceptance exercises official regional API login, rejected
+  credentials, browser Plan authorization/cancellation with a loopback transport,
+  no-subscription responses, shared-operation guards and Full Access cancellation
+  without a submitted task. Native system theme changes, light/dark brand assets,
+  390px English focus gutters and reduced motion are covered.
+- The standalone preview regression matrix passes with an installed Edge browser.
+
+All profiles and endpoints in native acceptance are isolated fixtures, including
+the official API/Plan transport. These checks do not establish live account sign-in,
+paid-model behavior, actual installer over-install, native macOS acceptance or
+release readiness. The new PR's cloud results remain separate evidence.
+
 ## PR #189 macOS packaged interaction synchronization (2026-11-04)
 
 The punctuation-only head `192c2f6` passed every Windows group and all three

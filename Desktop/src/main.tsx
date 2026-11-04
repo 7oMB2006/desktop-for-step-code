@@ -84,6 +84,7 @@ import { CapabilitySettings } from './CapabilitySettings';
 import { capabilityCommand, type CapabilityTarget } from './capability-command';
 import { SessionImportSettings } from './SessionImportSettings';
 import { NewSession } from './NewSession';
+import { FirstRun } from './FirstRun';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
 import { AppearanceSettings } from './AppearanceSettings';
 import { InterfaceSettings } from './InterfaceSettings';
@@ -127,10 +128,55 @@ const workspaceKey = (path: string) => normalizedWorkspaceKey(path, window.deskt
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
-function App() {
+function FirstRunShell({ snapshot, onSnapshot }: { snapshot: Snapshot; onSnapshot: (value: Snapshot) => void }) {
+  const [systemDark, setSystemDark] = useState(() => window.desktopTheme?.systemDark ?? false);
+  useEffect(() => {
+    const unsubscribe = bridge!.onEvent(event => {
+      if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
+    });
+    let mounted = true;
+    void bridge!.systemTheme().then(value => { if (mounted) setSystemDark(value.systemDark); }).catch(() => {});
+    window.dispatchEvent(new Event('desktop-shell-ready'));
+    return () => { mounted = false; unsubscribe(); };
+  }, []);
+  useEffect(() => {
+    applyTheme(snapshot.preferences.theme, systemDark, snapshot.preferences.accentColor);
+    applyAppearance(snapshot.preferences.appearance);
+    document.documentElement.lang = snapshot.preferences.language === 'zh' ? 'zh-CN' : 'en';
+  }, [snapshot.preferences, systemDark]);
+  return <div className={`first-run-shell${bridge!.platform === 'darwin' ? ' platform-macos' : ''}`}>
+    <WindowBar language={snapshot.preferences.language} sidebarVisible={false} toggleSidebar={() => {}} menus={[]}/>
+    <FirstRun bridge={bridge!} snapshot={snapshot} onSnapshot={onSnapshot}/>
+    <AppTooltip/>
+  </div>;
+}
+function Bootstrap() {
+  const [snapshot, setSnapshot] = useState<Snapshot>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!bridge) return;
+    let mounted = true;
+    void bridge.snapshot().then(value => { if (mounted) setSnapshot(value); }).catch(() => {
+      if (mounted) { setFailed(true); window.dispatchEvent(new Event('desktop-shell-ready')); }
+    });
+    return () => { mounted = false; };
+  }, []);
+  if (!bridge) return <App/>;
+  if (snapshot) return snapshot.firstRun?.required
+    ? <FirstRunShell snapshot={snapshot} onSnapshot={setSnapshot}/>
+    : <App bootstrap={snapshot}/>;
+  return <div className="first-run-shell">
+    <WindowBar language="zh" sidebarVisible={false} toggleSidebar={() => {}} menus={[]}/>
+    <div className="first-run-bootstrap" role={failed ? 'alert' : 'status'}>
+      {failed ? <><p>无法读取启动设置 / Could not load startup settings</p><button onClick={() => location.reload()}>重新加载 / Reload</button></>
+        : <p>正在启动 / Starting</p>}
+    </div>
+  </div>;
+}
+function App({ bootstrap = initial }: { bootstrap?: Snapshot }) {
   const appUpdate = useAppUpdates(bridge);
   const updateAvailable = appUpdate?.updateAvailable === true;
-  const [data, setData] = useState(initial);
+  const [data, setData] = useState(bootstrap);
   const [quitReview, setQuitReview] = useState<QuitReviewState>({ revision: -1 });
   const acceptQuitReview = (next: QuitReviewState | undefined) => {
     if (next) setQuitReview(previous => next.revision >= previous.revision ? next : previous);
@@ -2027,4 +2073,4 @@ class RenderBoundary extends React.Component<{ children: React.ReactNode }, { fa
     return this.props.children;
   }
 }
-createRoot(document.getElementById('root')!).render(<RenderBoundary><App/></RenderBoundary>);
+createRoot(document.getElementById('root')!).render(<RenderBoundary><Bootstrap/></RenderBoundary>);

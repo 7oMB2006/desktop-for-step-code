@@ -1,4 +1,18 @@
 .first-run-preview { min-height: 100dvh; background: var(--bg); }
+.first-run-production { height: calc(100dvh - var(--window-bar-height)); min-height: 0; overflow: auto; padding: 4px; scroll-padding: 8px; }
+.first-run-production .first-run-main { min-height: 100%; padding-top: 36px; }
+.first-run-production .first-run-error { margin-top: 18px; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
+.first-run-production .first-run-status { margin-top: 16px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.first-run-production .provider-settings { margin-top: 20px; padding: 4px; }
+.first-run-provider { min-width: 0; border: 0; margin: 0; padding: 0; }
+.first-run-production .first-run-footer { padding-bottom: 4px; }
+.first-run-production .first-run-bottom { padding-bottom: 12px; }
+.first-run-production .first-run-language-controls { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 20px; }
+.first-run-shell { height: 100dvh; padding-top: var(--window-bar-height); background: var(--bg); }
+.first-run-production .wordmark-dark { display: none; }
+[data-theme="dark"] .first-run-production .wordmark-light { display: none; }
+[data-theme="dark"] .first-run-production .wordmark-dark { display: block; }
+.first-run-shell .window-sidebar-toggle, .first-run-shell .window-macos-menu { display: none; }
 .first-run-lab { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 24px; border-bottom: 1px solid var(--border); }
 .first-run-preview-label { font-size: 11px; color: var(--muted); }
 .first-run-lab-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
@@ -101,6 +115,7 @@
 .first-run-ready-icon { color: var(--green); display: flex; }
 .first-run-spinner { animation: first-run-spin 1s linear infinite; }
 .first-run-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.first-run-bootstrap { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
 .first-run-workspace { min-height: calc(100dvh - 49px); }
 .first-run-workspace-header { display: flex; gap: 10px; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .first-run-workspace-header > button { margin-left: auto; font-size: 12px; border: 0; color: var(--muted); }

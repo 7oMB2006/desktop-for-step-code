@@ -15,6 +15,14 @@ the focus extent against clipping ancestors, not just the input's border box.
 
 ## Existing Components
 
+First-run setup is a separate bootstrap surface, not a settings dialog layered
+over the conversation. Only a fresh Desktop profile enters it. Reuse the native
+project chooser, provider form, language menu, model/thinking and permission
+pickers; do not create parallel login or tool-approval policies. Review creates
+only a configured draft, and Full Access still requires the normal acknowledgment
+before execution. The optional brand introduction must be skippable and honor
+reduced motion. Completing or skipping setup mounts the normal workspace fresh.
+
 Session navigation separates readable history, editable local drafts and
 execution readiness. A cold preview supports text selection, copying and
 historical disclosures; it never authorizes runtime mutations. Text edits are

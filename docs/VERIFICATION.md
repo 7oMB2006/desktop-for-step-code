@@ -1,5 +1,28 @@
 # Verification
 
+## PR #190 First-run Main Synchronization (2026-11-05)
+
+Merged main `5d35c81` (PR #189 first-run preview) into the BTW branch.
+Only this verification log conflicted; both features' existing records are
+retained. The acceptance inventory keeps the first-run design fixture
+explicitly local-only and preserves both BTW CI scripts. No product behavior,
+runtime pin, package version or acceptance assertion was changed to resolve
+the conflict.
+
+Typecheck, production build and all 44 focused BTW, quote, composer, command
+and runtime-staging tests pass. CI inventory/runner/policy checks pass
+39 tests with one platform skip. `verify-first-run-preview.mjs`,
+`verify-btw.mjs`, `verify-btw-electron.mjs`, `verify-appearance.mjs` and
+`verify-plan-review.mjs` pass serially against the combined source.
+New preview and BTW screenshots are under
+`Desktop/test-results/btw-main-merge-20261105`.
+
+These are local Windows checks with isolated profiles and loopback fixtures,
+not fresh cloud CI, native macOS, installer or real-account acceptance.
+The existing Desktop dist was rebuilt in place (105 files, 9.70 MiB);
+no new package, shortcut change or generated-output deletion was performed.
+The PR remains unmerged.
+
 ## PR #190 Main Conflict Resolution (2026-11-04)
 
 Merged main `a59efb9` (PR #188 background-agent controls) into the BTW
@@ -401,6 +424,59 @@ These are isolated loopback model tests, not real Plan/API-account billing
 acceptance. Cloud CI, native macOS and real-account acceptance are
 not claimed. BTW usage is displayed per answer but is not yet part of local
 Usage totals, cost estimates or main-task performance.
+
+## PR #189 macOS packaged interaction synchronization (2026-11-04)
+
+The punctuation-only head `192c2f6` passed every Windows group and all three
+macOS source groups. macOS packaged acceptance failed in two unchanged scripts:
+`verify-appearance.mjs` immediately cancelled a rapidly reopened accent editor,
+and `verify-plan-review.mjs` sampled a native drag's intermediate height.
+These results do not establish a punctuation regression or a runner outage.
+
+The accent verifier now uses the existing `settleLayout` helper before ordinary
+pointer actions, including after its intentional mid-exit reopen. The native
+closing-transition, retained-instance, fresh-instance and saved-value assertions
+are unchanged. Cancellation must visibly close the disclosure and remove the
+editor. The Plan verifier settles the drawer before measuring its drag origin,
+waits for pointer-down state, and verifies rendered 10/20/35px displacements
+before releasing the pointer. Its original intermediate-height assertion,
+approval safety, stale-snapshot, expiry and restart checks remain intact.
+Both verifiers retain failure diagnostics without changing product code,
+deadlines, CI inventories or gates.
+
+Local Windows source acceptance passes for both updated scripts, including
+appearance at 6x CPU throttling. Typecheck and 30 CI policy/runner tests pass
+with one platform skip. These results do not substitute for native macOS or
+packaged acceptance; replacement cloud checks are pending.
+
+## First-run onboarding preview (2026-11-04)
+
+`Desktop/tests/fixtures/first-run.html` is an isolated design preview, not a
+production first-launch entry point. It reuses the existing menus, permission
+and model selectors, new-session component, product icon and light/dark PNG
+wordmarks. Three steps cover account selection, workspace scope and configuration
+review. The optional brand introduction can be skipped or replayed and respects
+reduced motion; the final workspace has a separate entrance transition.
+
+Account authorization and message sending are simulated in page memory. There
+is no Desktop bridge, provider request, credential persistence or personal CLI
+profile access. Plan does not silently fall back to API billing. The folder
+button uses the browser's read-only directory chooser when supported; only the
+directory name is used, no file contents are read, and no absolute path is
+invented. Manual paths and sample folders remain available. Full Access requires
+confirmation and changes preview state only.
+
+From `Desktop/`, run `node scripts/verify-first-run-preview.mjs`. The script starts
+and closes its own ephemeral Vite server by default. `DESKTOP_PREVIEW_URL` selects
+an existing server, `PLAYWRIGHT_CHANNEL` optionally selects an installed browser,
+and `FIRST_RUN_PREVIEW_OUTPUT` overrides the ignored `test-results/first-run`
+screenshot directory. Coverage includes billing labels, authorization cancellation,
+no-plan/network states, folder selection/cancellation/unavailability, editable
+paths, permission propagation/risk cancellation, animation sampling/skip/replay,
+reduced motion, light/dark assets, keyboard focus and narrow English layouts.
+External requests are blocked and must remain absent. This does not establish
+real sign-in, native Electron directory dialogs, persistence, upgrade behavior,
+first-run detection, model acceptance or release readiness.
 
 ## PR #187 launch acceptance synchronization (2026-11-03)
 

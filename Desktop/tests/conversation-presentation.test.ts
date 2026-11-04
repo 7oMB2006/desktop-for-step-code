@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Content, Message } from '../src/contracts';
-import { conversationEntries, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from '../src/conversation-presentation';
+import { conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from '../src/conversation-presentation';
 
 test('cross-session tools have task-specific labels without claiming cancelled messages were sent', () => {
   assert.equal(toolPresentation('desktop_sessions', undefined, true, 'zh').label, '正在查看会话');
@@ -90,6 +90,138 @@ test('copy text excludes reasoning, tool arguments and images; tool subjects are
   assert.deepEqual(response.content.map(item => item.type), ['text', 'thinking', 'text', 'tool', 'image', 'text']);
   assert.equal(toolSubject({ type: 'toolCall', arguments: { command: 'a\n'.repeat(200) } }).length, 160);
   assert.equal(toolSubject({ type: 'toolCall', arguments: null }), '');
+});
+
+test('trusted historical notification bodies share safe render and copy text while retaining wrappers', () => {
+  // Bypassing the display projection leaks content; filtering the whole wrapper loses its header/footer.
+  const header = '<agent-notification agentId="lane-a" alias="general" event="background_done" status="completed">';
+  const footer = '</agent-notification>';
+  const cases = [
+    { content: `${header}**Start**\r\n\r\napi_key = synthetic-old-key\r\n\r\nEnd${footer}`,
+      want: `${header}**Start**\r\n\r\n[redacted]\r\n\r\nEnd${footer}` },
+    { content: `${header}token&quot; = synthetic-first-line\nEnd${footer}`,
+      want: `${header}[redacted]\nEnd${footer}` },
+    { content: `${header}Start\nBearer&nbsp;synthetic-last-line${footer}`,
+      want: `${header}Start\n[redacted]${footer}` },
+    { content: 'Start\napi_key = synthetic-legacy-key\nEnd', want: 'Start\n[redacted]\nEnd' },
+    { content: `${header}Start &lt;safe&gt;\napi&#95;key = synthetic-encoded\nEnd &amp; safe${footer}`,
+      want: `${header}Start &lt;safe&gt;\n[redacted]\nEnd &amp; safe${footer}` },
+    { content: '<agent-notification agentId="lane-a" alias="token&amp;quot; = synthetic-alias" event="background_done" status="completed">Start\nEnd</agent-notification>',
+      want: '<agent-notification agentId="lane-a" alias="[redacted]" event="background_done" status="completed">Start\nEnd</agent-notification>' },
+  ];
+  for (const { content, want } of cases) {
+    for (const shape of [content, [{ type: 'text', text: content }]]) {
+      const message: Message = { role: 'custom', customType: 'agent-notification', display: true,
+        content: shape, entryId: 'notice', details: { agentId: 'lane-a', event: 'background_done', status: 'completed',
+          detail: 'Start\napi_key = synthetic-detail-key\nEnd' } };
+      const original = structuredClone(message);
+      const presented = responsePresentation(indexed([message]));
+      assert.deepEqual(messageBlocks(message), [{ type: 'text', text: want }]);
+      assert.equal(messageText(message), want);
+      assert.equal(presented.text, want, 'response copy uses the same safe text as render');
+      assert.equal(presented.content[0].type === 'text' && presented.content[0].block.text, want);
+      assert.deepEqual(message, original, 'source history, structured detail and lifecycle must remain unchanged');
+    }
+  }
+});
+
+test('notification-looking prose never grants ordinary messages a redaction identity', () => {
+  const content = '<agent-notification agentId="lane-a">Start\napi_key = synthetic-ordinary-key\nEnd</agent-notification>';
+  for (const message of [user(content), text(content), { role: 'assistant', customType: 'agent-notification', content },
+    { role: 'custom', customType: 'extension-notice', content },
+    { role: 'toolResult', toolName: 'read_file', content },
+    { role: 'assistant', toolName: 'subagent', content }]) {
+    assert.equal(messageText(message), content);
+    const presented = responsePresentation(indexed([message]));
+    assert.equal(message.role === 'toolResult' ? messageText(presented.content.find(item => item.type === 'tool')!.result!)
+      : presented.text, content);
+  }
+});
+
+test('trusted subagent results redact output copies even when orphaned or paginated', () => {
+  // An orphan/paginated Tool still copies the entire output, not only its first visible page.
+  const prefix = 'Start\r\n\r\n' + 'safe output\r\n'.repeat(3500);
+  const raw = `${prefix}api_key = synthetic-late-page-key\r\n\r\nEnd`;
+  const want = `${prefix}[redacted]\r\n\r\nEnd`;
+  for (const toolName of ['subagent', 'agent_send']) {
+    const message: Message = { role: 'toolResult', toolCallId: 's1', toolName, isError: true,
+      desktopToolPending: false, entryId: 'result', content: [{ type: 'text', text: raw },
+        { type: 'image', mimeType: 'image/png', data: 'fixture' }],
+      details: { agentId: 'lane-a', status: 'failed', detail: 'Start\nBearer synthetic-detail\nEnd',
+        results: [{ agent: 'general', task: 'Check', status: 'failed', activeText: raw }] } };
+    const original = structuredClone(message);
+    assert.equal(messageText(message), want, 'direct Tool output is safe before pagination');
+    for (const entries of [indexed([message]), indexed([
+      { role: 'assistant', content: [{ type: 'toolCall', id: 's1', name: toolName, arguments: { task: 'Check' } }] }, message,
+    ])]) {
+      const presented = responsePresentation(entries);
+      const tool = presented.content.find(item => item.type === 'tool')!;
+      assert.ok(tool.result);
+      assert.notEqual(tool.result, message, 'renderer receives an output copy, not the raw history object');
+      assert.equal(messageText(tool.result), want);
+      assert.deepEqual(messageBlocks(tool.result), [{ type: 'text', text: want }, { type: 'image', mimeType: 'image/png', data: 'fixture' }]);
+      assert.equal(tool.result.details?.detail, 'Start\n[redacted]\nEnd');
+      assert.equal(tool.result.toolCallId, 's1');
+      assert.equal(tool.result.toolName, toolName);
+      assert.equal(tool.result.isError, true);
+      assert.equal(tool.result.desktopToolPending, false);
+      assert.equal(tool.result.details?.status, 'failed');
+      assert.equal(presented.text, '', 'tool output does not get added to response prose copy');
+      if (tool.call) assert.deepEqual(tool.call.arguments, { task: 'Check' });
+    }
+    assert.deepEqual(message, original);
+  }
+});
+
+test('trusted subagent calls expose a safe input copy without rewriting authoritative arguments', () => {
+  const arguments_ = {
+    task: 'TASK-BEGIN\napi&#95;key = synthetic-input-task\nTASK-END',
+    chain: [{ agent: 'general', task: 'CHAIN-BEGIN\nBearer&nbsp;synthetic-input-chain\nCHAIN-END' }],
+    prompt: 'PROMPT-BEGIN\nauth_token = synthetic-input-prompt\nPROMPT-END',
+  };
+  const history: Message[] = [{ role: 'assistant', content: [
+    { type: 'toolCall', id: 's1', name: 'subagent', arguments: arguments_ },
+  ] }, { role: 'toolResult', toolCallId: 's1', toolName: 'subagent', content: 'failed', isError: true }];
+  const original = structuredClone(history);
+  const tool = responsePresentation(indexed(history)).content.find(item => item.type === 'tool')!;
+  assert.notEqual(tool.call?.arguments, arguments_);
+  assert.doesNotMatch(JSON.stringify(tool.call?.arguments), /synthetic-input/);
+  assert.match(JSON.stringify(tool.call?.arguments), /TASK-BEGIN/);
+  assert.match(JSON.stringify(tool.call?.arguments), /CHAIN-END/);
+  assert.match(JSON.stringify(tool.call?.arguments), /PROMPT-END/);
+  assert.deepEqual(history, original);
+});
+
+test('paired child results without toolName use the trusted call name without rewriting tool identity', () => {
+  // Looking only at result.toolName leaks old paired results whose identity lives on the call.
+  for (const name of ['subagent', 'agent_send']) {
+    const callBlock: Content = { type: 'toolCall', id: 'old-call', name, arguments: { task: 'Check' } };
+    const result: Message = { role: 'toolResult', toolCallId: 'old-call', isError: false,
+      content: 'Start\napi_key = synthetic-paired-key\nEnd' };
+    const history: Message[] = [{ role: 'assistant', content: [callBlock] }, result];
+    const original = structuredClone(history);
+    const tool = responsePresentation(indexed(history)).content.find(item => item.type === 'tool')!;
+    assert.equal(messageText(tool.result!), 'Start\n[redacted]\nEnd');
+    assert.equal(tool.result!.toolName, undefined, 'do not synthesize a tool name into history identity');
+    assert.equal(tool.result!.toolCallId, 'old-call');
+    assert.equal(tool.call, callBlock, 'the call and its input stay raw');
+    assert.deepEqual(history, original);
+    assert.equal(messageText(result), 'Start\napi_key = synthetic-paired-key\nEnd', 'without call or name, identity cannot be inferred');
+  }
+  const conflicting: Message = { role: 'toolResult', toolCallId: 'old-call', toolName: 'read_file',
+    content: 'api_key = synthetic-unrelated-key' };
+  const tool = responsePresentation(indexed([
+    { role: 'assistant', content: [{ type: 'toolCall', id: 'old-call', name: 'subagent' }] }, conflicting,
+  ])).content.find(item => item.type === 'tool')!;
+  assert.equal(messageText(tool.result!), 'api_key = synthetic-unrelated-key', 'an explicit unrelated identity is not overwritten');
+});
+
+test('typed truncated notification fragments redact without inventing missing wrappers', () => {
+  const message: Message = { role: 'custom', customType: 'agent-notification',
+    content: 'Start\napi_key = synthetic-truncated-key\n\n[output truncated]' };
+  assert.equal(messageText(message), 'Start\n[redacted]\n\n[output truncated]');
+  assert.equal(messageText(text('Start\napi_key = synthetic-untyped-tail\n[output truncated]')),
+    'Start\napi_key = synthetic-untyped-tail\n[output truncated]', 'a truncation marker alone is not notification identity');
 });
 
 test('tool summaries localize built-in names and aliases without exposing arguments', () => {

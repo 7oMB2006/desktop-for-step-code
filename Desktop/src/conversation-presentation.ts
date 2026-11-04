@@ -3,8 +3,9 @@ import { visibleInputBlocks } from './ultracode-input';
 import { isUserMessage } from './user-message';
 import { cronMessage, type CronNotice } from './cron-message';
 import { isAutoResumeMessage } from './auto-resume-message';
+import { subagentDisplayCall, subagentDisplayMessage } from './subagent-redact';
 
-export const messageBlocks = (message: Message): Content[] => visibleInputBlocks(message);
+export const messageBlocks = (message: Message): Content[] => visibleInputBlocks(subagentDisplayMessage(message));
 export const messageText = (message: Message): string => messageBlocks(message)
   .filter(block => block.type === 'text').map(block => block.text ?? '').join('\n\n');
 
@@ -50,16 +51,17 @@ export function responsePresentation(items: IndexedMessage[]) {
     }
     if (message.role === 'toolResult') {
       const call = message.toolCallId ? pending.get(message.toolCallId) : undefined;
+      const result = subagentDisplayMessage(message, call?.call?.name);
       if (call) {
-        call.result = message;
+        call.result = result;
         pending.delete(message.toolCallId!);
-      } else content.push({ type: 'tool', result: message, index, key: `${index}:result` });
+      } else content.push({ type: 'tool', result, index, key: `${index}:result` });
       continue;
     }
     messageBlocks(message).forEach((block, part) => {
       const key = `${index}:${part}`;
       if (block.type === 'toolCall') {
-        const item: Extract<ResponseItem, { type: 'tool' }> = { type: 'tool', call: block, index, key };
+        const item: Extract<ResponseItem, { type: 'tool' }> = { type: 'tool', call: subagentDisplayCall(block), index, key };
         content.push(item);
         if (block.id) pending.set(block.id, item);
       } else if (['thinking', 'text', 'image'].includes(block.type)) {

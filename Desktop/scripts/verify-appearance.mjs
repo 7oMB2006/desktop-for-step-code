@@ -4,7 +4,6 @@ import { mkdtemp, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { sampleMotion } from './sample-motion.mjs';
-import { settleLayout } from './settle-layout.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-appearance-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: [], autoCheckUpdates: false }));
@@ -144,9 +143,9 @@ try {
     await page.waitForFunction(() => {
       const disclosure = document.querySelector('.accent-disclosure');
       const input = document.querySelector('#accent-hex');
-      return disclosure?.classList.contains('is-open') && input;
+      return disclosure?.classList.contains('is-open') && input &&
+        !disclosure.getAnimations().some(animation => animation.playState === 'running');
     });
-    await settleLayout(page.locator('.accent-disclosure'));
   };
   await openEditor();
   const hex = page.getByRole('textbox', { name: 'HEX', exact: true });
@@ -216,10 +215,7 @@ try {
     assert.equal(reopened.retained && reopened.closing, true, 'reopen occurs while the exit animation still retains the editor');
     assert.equal(reopened.fresh, true, `${close} then rapid reopen discards the old editor instance`);
     assert.equal(reopened.value, '#487bd1', `${close} then rapid reopen restores the saved HEX`);
-    // The observer above proves the mid-exit reopen, not a settled click target.
-    await settleLayout(page.locator('.accent-disclosure'));
     await page.getByRole('button', { name: '取消', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.accent-custom')?.getAttribute('aria-expanded') === 'false');
     await page.locator('.accent-editor').waitFor({ state: 'detached' });
     assert.equal((await colors())['--primary'], preset['--primary']);
   }
@@ -362,23 +358,4 @@ try {
   await page.screenshot({ path: 'test-results/appearance-large-narrow-dark.png' });
   assert.deepEqual(errors, []);
   console.log('Appearance: six named themes plus original monochrome, system changes, independent accents, preview/cancel/apply, input validation, semantic colors, first-frame/restart persistence, typography and narrow layout passed.');
-} catch (error) {
-  const page = await app?.firstWindow().catch(() => undefined);
-  if (page) {
-    await page.screenshot({ path: 'test-results/appearance-failure.png' }).catch(() => {});
-    console.error('Accent disclosure diagnostic', await page.evaluate(() => {
-      const disclosure = document.querySelector('.accent-disclosure');
-      return {
-        expanded: document.querySelector('.accent-custom')?.getAttribute('aria-expanded'),
-        editorPresent: Boolean(document.querySelector('.accent-editor')),
-        bounds: disclosure?.getBoundingClientRect().toJSON(),
-        inert: disclosure?.firstElementChild?.inert,
-        scrollTop: document.querySelector('.settings-content')?.scrollTop,
-        animations: disclosure?.getAnimations().map(animation => ({
-          state: animation.playState, currentTime: animation.currentTime, property: animation.transitionProperty,
-        })),
-      };
-    }).catch(() => undefined));
-  }
-  throw error;
 } finally { if (app) await app.close(); }

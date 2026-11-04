@@ -290,6 +290,18 @@ try {
   await page.locator('.new-session').waitFor({ timeout: 60000 });
   assert.equal(await page.locator('.first-run-production').count(), 0, 'completed setup never reappears on an update');
   assert.equal((await snapshot()).sessions.length, 1, 'history remains after relaunch');
+  mark('restored history keeps runtime controls available after renderer reload');
+  await page.evaluate(id => window.desktop.switchSession(id), (await snapshot()).sessions[0].id);
+  await page.reload();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('.permission-trigger');
+    return button && !button.disabled;
+  }, undefined, { timeout: 60000 });
+  assert.equal((await snapshot()).state.model.id, 'first-run-alternative');
+  await page.getByRole('button', { name: '访问权限', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: /请求批准/ }).click();
+  await page.waitForFunction(async () => (await window.desktop.snapshot()).permissionPreset === 'ask');
+  assert.equal(requests.length, 1, 'restoring runtime controls does not send another model request');
   await close();
 
   mark('official API regions, invalid credentials, Plan cancellation and Full Access safety');

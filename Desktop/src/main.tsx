@@ -164,7 +164,7 @@ function Bootstrap() {
   if (!bridge) return <App/>;
   if (snapshot) return snapshot.firstRun?.required
     ? <FirstRunShell snapshot={snapshot} onSnapshot={setSnapshot}/>
-    : <App bootstrap={snapshot}/>;
+    : <App/>;
   return <div className="first-run-shell">
     <WindowBar language="zh" sidebarVisible={false} toggleSidebar={() => {}} menus={[]}/>
     <div className="first-run-bootstrap" role={failed ? 'alert' : 'status'}>
@@ -173,10 +173,10 @@ function Bootstrap() {
     </div>
   </div>;
 }
-function App({ bootstrap = initial }: { bootstrap?: Snapshot }) {
+function App() {
   const appUpdate = useAppUpdates(bridge);
   const updateAvailable = appUpdate?.updateAvailable === true;
-  const [data, setData] = useState(bootstrap);
+  const [data, setData] = useState(initial);
   const [quitReview, setQuitReview] = useState<QuitReviewState>({ revision: -1 });
   const acceptQuitReview = (next: QuitReviewState | undefined) => {
     if (next) setQuitReview(previous => next.revision >= previous.revision ? next : previous);

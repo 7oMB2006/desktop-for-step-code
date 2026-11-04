@@ -12,7 +12,11 @@ history bypass setup without reading credentials for detection. An unreadable or
 future marker is preserved and bypasses optional onboarding rather than blocking
 access to the application. Clearing the entire Desktop profile is a fresh start.
 
-The renderer bootstrap mounts onboarding separately from the normal workspace.
+The renderer bootstrap mounts onboarding separately from the normal workspace
+and preserves the workspace's original snapshot initialization order. Restoring
+an existing runtime before a reload must not leave command/permission controls
+unavailable; the native acceptance explicitly reloads and changes permissions in
+a saved session without sending another model request.
 It reuses actual account login/cancellation, provider configuration/discovery,
 native project selection, and model/thinking/permission selectors through the
 typed preload. Completion hands off a session draft without starting a runtime,
@@ -35,6 +39,9 @@ Local Windows source verification passes:
   without a submitted task. Native system theme changes, light/dark brand assets,
   390px English focus gutters and reduced motion are covered.
 - The standalone preview regression matrix passes with an installed Edge browser.
+- Adjacent native startup, first-frame/system theme, new-session draft, account
+  routing/settings, custom-provider protocols and full permission-tier acceptance
+  pass, including session-only versus remembered Full Access consent.
 
 All profiles and endpoints in native acceptance are isolated fixtures, including
 the official API/Plan transport. These checks do not establish live account sign-in,

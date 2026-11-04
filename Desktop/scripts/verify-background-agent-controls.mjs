@@ -30,10 +30,16 @@ const server = createServer(async (request, response) => {
     })}\n\n`);
     send({ role: 'assistant', content: '' });
     if (task === 'CONTROL-CHILD-A' || task === 'CONTROL-CHILD-B') {
+      if (task === 'CONTROL-CHILD-B') {
+        send({ content: `BACKGROUND-CONTROL-BEGIN\napi_key = ${'x'.repeat(50010)}synthetic-background-control-tail\nBACKGROUND-CONTROL-END` });
+      }
       children.set(task, () => {
-        if (!response.destroyed) response.end(
-          `data: ${JSON.stringify({ id: 'child-result', object: 'chat.completion.chunk', model: body.model, created: 1,
-            choices: [{ index: 0, delta: { content: 'Background child finished.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+        if (!response.destroyed) {
+          const content = task === 'CONTROL-CHILD-B' ? {} : { content: 'Background child finished.' };
+          response.end(
+            `data: ${JSON.stringify({ id: 'child-result', object: 'chat.completion.chunk', model: body.model, created: 1,
+              choices: [{ index: 0, delta: content, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+        }
       });
       return;
     }
@@ -85,6 +91,16 @@ try {
   const first = initial.lanes.find(lane => lane.steps.some(step => step.task === 'CONTROL-CHILD-A'));
   const second = initial.lanes.find(lane => lane.steps.some(step => step.task === 'CONTROL-CHILD-B'));
   assert.ok(first && second);
+  let liveSecond;
+  const outputDeadline = Date.now() + 10000;
+  do {
+    liveSecond = (await query()).lanes.find(lane => lane.id === second.id).steps[0];
+    if (liveSecond.output.includes('BACKGROUND-CONTROL-END')) break;
+    assert.ok(Date.now() < outputDeadline, 'running lane exposes its available safe tail');
+    await new Promise(resolve => setTimeout(resolve, 50));
+  } while (true);
+  assert.equal(liveSecond.output.includes('synthetic-background-control-tail'), false,
+    'runtime and main projections remove an unknown sensitive first-line tail while the lane is live');
   const before = await readFile(snapshot.state.sessionFile, 'utf8');
   const requests = modelRequests;
   await query();
@@ -258,7 +274,9 @@ try {
   children.get('CONTROL-CHILD-B')();
   await page.waitForFunction(id => document.querySelector(`.background-agent-lane[data-lane-id="${id}"]`)
     ?.getAttribute('data-lane-status') === 'completed', second.id);
-  await details.getByText('Background child finished.', { exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.background-agent-inspector')?.textContent.includes('BACKGROUND-CONTROL-END'));
+  assert.equal((await details.innerText()).includes('synthetic-background-control-tail'), false,
+    'completed detail remains safe after the authoritative final message');
   assert.equal(await details.getAttribute('data-lane-id'), second.id, 'Completion updates the selected step in place');
   assert.equal((await query()).lanes.find(lane => lane.id === first.id).status, 'aborted');
   await app.evaluate((_electron, laneId) => {
@@ -270,7 +288,9 @@ try {
   assert.equal(await details.getAttribute('data-lane-id'), second.id);
   await app.evaluate(() => { globalThis.backgroundControlsFixture.mode = ''; });
   await details.getByRole('button', { name: '刷新代理详情', exact: true }).click();
-  await details.getByText('Background child finished.', { exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.background-agent-inspector')?.textContent.includes('BACKGROUND-CONTROL-END'));
+  assert.equal((await details.innerText()).includes('synthetic-background-control-tail'), false,
+    'completed detail remains safe after the authoritative final message');
   await page.reload();
   await page.locator('.right-tool-rail').getByRole('button', { name: '子代理', exact: true }).click();
   await panel.getByRole('button', { name: '后台任务', exact: true }).click();

@@ -644,12 +644,12 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 }
 @media (hover: none) { .user-actions, .assistant-actions, .message-time { opacity: 1; } .user-actions .icon-button { pointer-events: auto; } }
 @media (prefers-reduced-motion: reduce) { .message-time, .user-actions, .disclosure-chevron { transition: none; } }
-.composer-wrap {
+.composer-wrap, .btw-compose {
   position: relative; flex-shrink: 0; width: 100%; max-width: var(--conversation-width);
   padding: 8px var(--conversation-gutter) 8px;
   transition: max-width .32s cubic-bezier(.25, .46, .45, .94);
 }
-.composer-wrap::before {
+.composer-wrap::before, .btw-compose::before {
   content: ''; position: absolute; left: 0; right: 0; top: -72px; height: 72px;
   background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none;
 }

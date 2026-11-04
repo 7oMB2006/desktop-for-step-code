@@ -29,7 +29,11 @@ Main task controls remain independent. Main and side composers reuse
 The compact side composer grows with its
 draft and keeps Send/Stop inside its boundary; its shared focus ring surrounds the
 composite field with the complete four-pixel gutter. Do not add persistent notes
-below the editor. Per-answer reported Tokens remain visible, with the missing
+below the editor. The side composer also reuses the shared context-action row
+and upper gradient veil, without a separate horizontal divider. Its bottom edge
+aligns with the main composer by reserving the measured main footer space,
+including when performance metrics wrap or are hidden; fullscreen uses its own
+normal bottom gutter. Drafts still grow independently. Per-answer reported Tokens remain visible, with the missing
 local-total integration disclosed in their tooltip; opening the panel does not
 imply free requests.
 The message selection toolbar offers Ask in side alongside Quote and Annotate.

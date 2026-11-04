@@ -36,8 +36,7 @@
 .btw-response:hover .assistant-actions, .btw-response:focus-within .assistant-actions,
 .btw-response:hover .message-time, .btw-response:focus-within .message-time { opacity: 1; }
 .btw-tokens { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.btw-compose { flex-shrink: 0; border-top: 1px solid var(--border); padding: 12px 16px 16px; }
-.btw-compose > .composer-quotes { margin-bottom: 10px; padding: 4px; }
+.btw-panel > .btw-compose { max-width: none; padding: 8px 16px var(--btw-composer-bottom, 8px); }
 .btw-input-row { min-width: 0; }
 .btw-error { font-size: 12px; margin: 4px; }
 @container (max-width: 360px) {

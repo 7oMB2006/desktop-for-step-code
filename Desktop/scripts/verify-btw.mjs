@@ -25,6 +25,8 @@ try {
   const composer = page.locator('main .composer-input');
   await composer.fill('KEEP-MAIN-DRAFT');
   await open();
+  assert.equal(await page.locator('.composer-wrap').count(), 1,
+    'Reusing composer styling does not add a second main-composer layout identity');
   assert.equal(await page.locator('.composer-tools [aria-controls="btw-panel"]').count(), 0);
   assert.equal(await page.locator('.right-tool-rail [aria-controls="btw-panel"]').count(), 1);
   assert.equal(await panel.evaluate(el => Math.round(innerWidth - el.getBoundingClientRect().right)), 44,
@@ -38,6 +40,37 @@ try {
     const style = getComputedStyle(el);
     return Object.fromEntries(names.map(name => [name, style[name]]));
   }, properties);
+  const alignedComposers = async () => {
+    await settleLayout(panel.locator('.btw-compose'));
+    const edges = await page.evaluate(() => {
+      const main = document.querySelector('main .composer').getBoundingClientRect();
+      const side = document.querySelector('#btw-panel .composer').getBoundingClientRect();
+      const mainRow = document.querySelector('main .composer-context-bar').getBoundingClientRect();
+      const sideRow = document.querySelector('#btw-panel .composer-context-bar').getBoundingClientRect();
+      return { top: side.top - main.top, bottom: side.bottom - main.bottom, row: sideRow.top - mainRow.top };
+    });
+    for (const [edge, distance] of Object.entries(edges))
+      assert.ok(Math.abs(distance) < 1, `Main and side ${edge} align, not stagger (${distance}px)`);
+  };
+  await alignedComposers();
+  assert.deepEqual(await appearance(panel.locator('.composer-context-bar'), ['display', 'height', 'gap', 'marginBottom']),
+    await appearance(page.locator('main .composer-context-bar'), ['display', 'height', 'gap', 'marginBottom']),
+    'Quotes and running changes use the same context-action row');
+  const veil = element => element.evaluate(el => {
+    const style = getComputedStyle(el, '::before');
+    return { background: style.backgroundImage, top: style.top, height: style.height, pointerEvents: style.pointerEvents };
+  });
+  const mainVeil = await veil(page.locator('main .composer-wrap'));
+  assert.match(mainVeil.background, /^linear-gradient/);
+  assert.deepEqual(await veil(panel.locator('.btw-compose')), mainVeil,
+    'Both transcripts fade into the same shared composer veil');
+  assert.equal(await panel.locator('.btw-compose').evaluate(el => getComputedStyle(el).borderTopWidth), '0px',
+    'There is no separate hard divider across the reference row');
+  await page.getByRole('button', { name: '性能信息', exact: true }).click();
+  await alignedComposers();
+  assert.equal(await page.locator('main .performance-bar').count(), 0);
+  await page.getByRole('button', { name: '性能信息', exact: true }).click();
+  await alignedComposers();
   assert.deepEqual(await appearance(sideEditor, ['fontFamily', 'fontSize', 'lineHeight', 'padding', 'minHeight', 'maxHeight', 'whiteSpace']),
     await appearance(composer, ['fontFamily', 'fontSize', 'lineHeight', 'padding', 'minHeight', 'maxHeight', 'whiteSpace']),
     'Main and side editors share the same sizing, typography and spacing');
@@ -78,8 +111,9 @@ try {
   assert.deepEqual(await typography(answer.locator('.message-body')), await typography(page.locator('main .message.assistant .message-body').first()),
     'Side prose uses the same body typography as the main conversation');
   assert.equal(await panel.locator('.btw-compose footer').count(), 0, 'No permanent explanatory footer is added below the composer');
-  assert.equal(await panel.locator('.btw-compose').evaluate(el => el.getBoundingClientRect().height < 160), true,
-    'An empty side composer leaves the available height to the conversation');
+  assert.ok(Math.abs((await panel.locator('.btw-compose').boundingBox()).height
+    - (await page.locator('main .composer-wrap').boundingBox()).height) < 1,
+    'The side composer reserves only the shared row, field and actual main footer');
   await answer.hover();
   await answer.locator('.message-actions .elapsed-total').waitFor();
   assert.ok(await answer.locator('.message-actions time').getAttribute('dateTime'));
@@ -113,6 +147,19 @@ try {
   await panel.locator('.composer-action-icon[data-mode="stop"]').waitFor();
   await panel.locator('[data-state="running"] .working-indicator .matrix-pulse[data-mode="responding"]').waitFor();
   await panel.locator('[data-state="running"] .btw-outcome .elapsed-label').waitFor();
+  const revealSample = await page.waitForFunction(() => {
+    const span = document.querySelector('#btw-panel .stream-reveal');
+    const animation = span?.getAnimations().find(value => value.animationName === 'stream-text-in');
+    if (!animation) return false;
+    animation.pause(); animation.currentTime = 90;
+    return { opacity: Number(getComputedStyle(span).opacity), text: span.closest('.btw-answer').textContent,
+      duration: animation.effect.getTiming().duration };
+  });
+  const reveal = await revealSample.jsonValue();
+  await revealSample.dispose();
+  assert.equal(reveal.duration, 180, 'Side responses use the main streaming text animation');
+  assert.ok(reveal.opacity > .3 && reveal.opacity < 1, 'New side text really fades in instead of appearing fully opaque');
+  assert.ok(reveal.text.length > 0, 'The reveal never hides the answer');
   await panel.getByRole('button', { name: '停止旁问', exact: true }).click();
   await panel.locator('[data-state="cancelled"]').waitFor();
   await page.getByLabel('旁问内容', { exact: true }).fill('关闭取消');
@@ -165,6 +212,7 @@ try {
   await toolbar.getByRole('button', { name: '旁问', exact: true }).click();
   const viewQuotes = panel.getByRole('button', { name: '查看引用', exact: true });
   await viewQuotes.waitFor();
+  await alignedComposers();
   const sideInput = panel.getByRole('textbox', { name: '旁问内容', exact: true });
   assert.equal(await sideInput.evaluate(el => el.value), '');
   assert.equal(await sideInput.evaluate(el => el === document.activeElement), true);
@@ -249,18 +297,25 @@ try {
       const box = el.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth;
     }), true, 'The selection toolbar fits the viewport with the new side-question action');
     await englishToolbar.getByRole('button', { name: 'Ask in side', exact: true }).click();
-    const pending = dialog.locator('.composer-quotes');
+    const pending = dialog.locator('.composer-context-bar .composer-quotes');
     await pending.waitFor();
     await dialog.getByRole('button', { name: 'View quotes', exact: true }).focus();
     await page.waitForTimeout(280);
-    assert.equal(await pending.evaluate(el => {
-      const clip = el.getBoundingClientRect();
-      return [...el.querySelectorAll('button')].every(control => {
+    assert.equal(await pending.evaluate(el => [...el.querySelectorAll('button')].every(control => {
         const box = control.getBoundingClientRect();
-        return box.left - 4 >= clip.left && box.right + 4 <= clip.right
-          && box.top - 4 >= clip.top && box.bottom + 4 <= clip.bottom;
-      });
-    }), true, 'Pending quote controls reserve their full four-sided focus extent');
+        for (let parent = control.parentElement; parent; parent = parent.parentElement) {
+          const style = getComputedStyle(parent);
+          if (!/(hidden|auto|scroll|clip)/.test(`${style.overflowX} ${style.overflowY}`)) continue;
+          const clip = parent.getBoundingClientRect();
+          if (box.left - 4 < clip.left || box.right + 4 > clip.right
+            || box.top - 4 < clip.top || box.bottom + 4 > clip.bottom) return false;
+        }
+        return box.left >= 4 && box.right + 4 <= innerWidth && box.top >= 4 && box.bottom + 4 <= innerHeight;
+      })), true, 'Pending quote controls reserve their full four-sided focus extent inside every clipping ancestor');
+    await settleLayout(dialog.locator('.btw-compose'));
+    assert.ok(Math.abs((await dialog.locator('.composer').boundingBox()).y
+      - (await page.locator('main .composer').boundingBox()).y) < 1,
+      'Default composer tops align in both themes and narrow layouts, including a wrapped performance strip');
     await page.screenshot({ path: join(output, `${theme}-quotes-${width}.png`) });
     await dialog.getByRole('button', { name: 'View quotes', exact: true }).click();
     const preview = page.getByRole('dialog', { name: 'Quote preview', exact: true });
@@ -364,6 +419,14 @@ try {
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await page.locator('.btw-panel').evaluate(el => getComputedStyle(el).transitionDuration), '0s');
+  await page.goto(`${url}?theme=dark&open=1&state=slow`);
+  await page.getByRole('textbox', { name: '旁问内容', exact: true }).fill('Reduced motion answer');
+  await page.getByRole('textbox', { name: '旁问内容', exact: true }).press('Enter');
+  await page.locator('#btw-panel .btw-answer').waitFor();
+  assert.equal(await page.locator('#btw-panel .btw-answer').evaluate(el =>
+    el.getAnimations({ subtree: true }).some(animation => animation.animationName === 'stream-text-in')), false,
+    'Reduced motion retains visible streamed answers without text animations');
+  await alignedComposers();
   assert.deepEqual(errors, []);
   console.log('BTW: quote toolbar, independent main/side drafts and references, no auto-send, Markdown, deduplication, removal, length guards, verified source identity, session isolation, right rail, widths, streaming, themes, narrow layout and focus passed.');
 } finally { await browser.close(); await server.close(); }

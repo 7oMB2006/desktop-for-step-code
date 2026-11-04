@@ -9,6 +9,9 @@ import { quoteSourceRange } from '../../src/QuoteAnnotations';
 import type { ChatQuote } from '../../src/chat-quotes';
 import { ComposerInput } from '../../src/ComposerInput';
 import { ComposerActionIcon } from '../../src/ComposerActionIcon';
+import { ComposerContextBar } from '../../src/ComposerContextBar';
+import { LiveTurnChanges } from '../../src/LiveTurnChanges';
+import { PerformanceBar } from '../../src/PerformanceBar';
 import { AppTooltip } from '../../src/AppTooltip';
 import { RightPanelHandle } from '../../src/RightPanelHandle';
 import type { RightPanelWidth } from '../../src/RightPanelWidthControl';
@@ -43,6 +46,7 @@ function Preview() {
   const [overlay, setOverlay] = useState(innerWidth - 44 < 1120);
   const [session, setSession] = useState('preview-a');
   const [scenario, setScenario] = useState(params.get('state') || 'normal');
+  const [performanceVisible, setPerformanceVisible] = useState(params.get('performance') !== '0');
   const [draft, setDraft] = useState('');
   const [quotes, setQuotes] = useState<ChatQuote[]>([]);
   const [error, setError] = useState('');
@@ -55,6 +59,11 @@ function Preview() {
     { role: 'assistant', entryId: 'preview-assistant', content: [{ type: 'text', text: language === 'zh'
       ? '正在核对**测试和构建配置**，随后会检查安装与升级。\n\n主任务正在运行。\n\n```ts\nconst release = "preview";\n```'
       : 'Checking **tests and build configuration** before reviewing installation and upgrades.\n\nMain task running.\n\n```ts\nconst release = "preview";\n```' }] },
+  ];
+  const liveMessages: Message[] = [...messages,
+    { role: 'assistant', content: [{ type: 'toolCall', id: 'preview-edit', name: 'edit_file', arguments: { path: 'release.ts' } }] },
+    { role: 'toolResult', toolCallId: 'preview-edit', toolName: 'edit_file', content: 'Updated release check.',
+      details: { patch: '--- release.ts\n+++ release.ts\n@@ -1 +1,2 @@\n-check();\n+await check();\n+await build();\n' } },
   ];
   const reveal = (quote: ChatQuote) => {
     const range = transcript.current && quoteSourceRange(transcript.current, quote);
@@ -128,6 +137,8 @@ function Preview() {
       <select aria-label="Scenario" value={scenario} onChange={event => setScenario(event.target.value)}>
         {['normal', 'slow', 'error', 'truncated', 'rich'].map(value => <option key={value}>{value}</option>)}</select>
       <button onClick={() => { setRequest(undefined); setQuotes([]); close(); setSession(value => value === 'preview-a' ? 'preview-b' : 'preview-a'); }}>Switch session</button>
+      <button aria-pressed={performanceVisible} onClick={() => setPerformanceVisible(value => !value)}>
+        {language === 'zh' ? '性能信息' : 'Performance'}</button>
       <button aria-label="Theme" onClick={() => {
         document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
       }}>{document.documentElement.dataset.theme === 'dark' ? <Sun size={16}/> : <Moon size={16}/>}</button>
@@ -138,10 +149,12 @@ function Preview() {
         onError={setError} branch={() => {}} onOpenSubagent={() => {}}/>
     </div></div>
     {error && <p role="alert">{error}</p>}
+    <div className="composer-wrap"><ComposerContextBar queued={false}>
     <QuotePreview quotes={quotes} language={language} remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}
       clear={() => setQuotes([])} reveal={reveal}
       annotate={(id, annotation) => setQuotes(value => value.map(quote => quote.id === id ? { ...quote, annotation } : quote))}/>
-    <div className="composer-wrap btw-preview-composer"><div className="composer">
+    <LiveTurnChanges messages={liveMessages} busy language={language}/>
+    </ComposerContextBar><div className="composer">
       <ComposerInput label={language === 'zh' ? '消息' : 'Message'} language={language} value={draft} onChange={setDraft} disabled={false} onPaste={() => {}}
         placeholder="/btw ..." onKeyDown={event => {
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -153,7 +166,7 @@ function Preview() {
         <span className="spacer"/><span className="btw-preview-label">Step 3.5 Flash</span>
         <button type="button" className="icon-button composer-action-button" data-action="send"
           aria-label={language === 'zh' ? '发送' : 'Send'} disabled={!draft.trim()} onClick={sendDraft}><ComposerActionIcon stop={false}/></button></div>
-    </div></div></main>
+    </div>{performanceVisible && <PerformanceBar run={null} connected language={language} now={Date.now()}/>}</div></main>
     <BtwPanel key={session} runtimeId="preview-runtime" sessionId={session} language={language} disabled={false}
       modelName="Step 3.5 Flash" bridge={bridge} request={request} open={open} replaced={false}
       overlay={overlay} expanded={expanded} width={width} onWidthChange={chooseWidth}

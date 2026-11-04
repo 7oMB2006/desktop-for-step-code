@@ -9,6 +9,7 @@ import { ElapsedLabel } from './ElapsedLabel';
 import { WorkingIndicator } from './WorkingIndicator';
 import { ComposerInput } from './ComposerInput';
 import { ComposerActionIcon } from './ComposerActionIcon';
+import { ComposerContextBar } from './ComposerContextBar';
 import { composerInput } from './composer-input';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
 import { RightPanelWidthControl, type RightPanelWidth } from './RightPanelWidthControl';
@@ -27,6 +28,7 @@ export function BtwPanel({ runtimeId, sessionId, language, disabled, modelName, 
   const zh = language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const panel = useRef<HTMLElement>(null);
+  const composeArea = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLDivElement>(null);
   const focusInput = () => composer.current && composerInput(composer.current)?.focus({ preventScroll: true });
   const scroll = useRef<HTMLDivElement>(null);
@@ -109,6 +111,21 @@ export function BtwPanel({ runtimeId, sessionId, language, disabled, modelName, 
     return () => clearTimeout(timer);
   }, [open, present]);
   useEffect(() => { if (open) focusInput(); }, [open]);
+  useLayoutEffect(() => {
+    const area = composeArea.current;
+    const mainWrap = panel.current?.closest('.app')?.querySelector<HTMLElement>('main .composer-wrap');
+    const mainField = mainWrap?.querySelector<HTMLElement>('.composer');
+    if (!area || !mainWrap || !mainField || !open || expanded || replaced) return;
+    // Reserve the real main footer, including wrapped or hidden performance metrics.
+    const align = () => {
+      const bottom = mainWrap.getBoundingClientRect().bottom - mainField.getBoundingClientRect().bottom;
+      area.style.setProperty('--btw-composer-bottom', `${Math.max(4, bottom)}px`);
+    };
+    align();
+    const observer = new ResizeObserver(align);
+    observer.observe(mainWrap); observer.observe(mainField);
+    return () => { observer.disconnect(); area.style.removeProperty('--btw-composer-bottom'); };
+  }, [open, expanded, replaced, present]);
   useLayoutEffect(() => {
     if (!focusAfterClear.current) return;
     if (!open) focusAfterClear.current = false;
@@ -213,14 +230,16 @@ export function BtwPanel({ runtimeId, sessionId, language, disabled, modelName, 
           </div>
         </article>)}
       </div>
-      <div className="btw-compose">
+      <div ref={composeArea} className="btw-compose">
         {error && <p className="btw-error" role="alert">{error}</p>}
+        {present && <ComposerContextBar queued={false}>
         <QuotePreview quotes={quotes} language={language} active={open && !replaced}
           clear={() => setQuotes([])} remove={id => {
             setQuotes(value => value.filter(quote => quote.id !== id)); focusInput();
           }}
           annotate={(id, annotation) => setQuotes(value => value.map(quote => quote.id === id ? { ...quote, annotation } : quote))}
           reveal={revealQuote}/>
+        </ComposerContextBar>}
         {present && <div ref={composer} className="composer btw-input-row">
           <ComposerInput label={t('旁问内容', 'Side question text')} language={language} value={draft}
             placeholder={t('问个问题…', 'Ask a question…')} disabled={disabled || acting}

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-btw-electron-'));
 const workspace = join(profile, 'project');
@@ -68,6 +69,12 @@ try {
   await input.fill('KEEP-MAIN-DRAFT');
   await page.getByRole('button', { name: 'Side question', exact: true }).click();
   assert.equal(await input.innerText(), 'KEEP-MAIN-DRAFT');
+  await settleLayout(panel);
+  assert.equal(await page.evaluate(() => {
+    const main = document.querySelector('main .composer').getBoundingClientRect();
+    const side = document.querySelector('#btw-panel .composer').getBoundingClientRect();
+    return Math.abs(main.top - side.top) < 1 && Math.abs(main.bottom - side.bottom) < 1;
+  }), true, 'Real Electron main and side fields share their top and bottom baseline, despite the main performance footer');
   await panel.getByRole('button', { name: 'Close side question', exact: true }).click();
   await send('/btw SIDE-FIRST');
   await panel.locator('[data-state="done"]').waitFor();
@@ -179,7 +186,7 @@ try {
   await panel.getByRole('button', { name: 'Close side question', exact: true }).click();
   await select('.response-text > p');
   await toolbar.getByRole('button', { name: 'Quote', exact: true }).click();
-  const mainQuotes = page.locator('.composer-context-bar .composer-quotes');
+  const mainQuotes = page.locator('main .composer-context-bar .composer-quotes');
   await mainQuotes.getByRole('button', { name: 'View quotes', exact: true }).waitFor();
   const sourceParagraph = page.locator('.response-text > p:has(strong)').first();
   await sourceParagraph.scrollIntoViewIfNeeded();

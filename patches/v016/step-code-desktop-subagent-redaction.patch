@@ -1,0 +1,970 @@
+diff --git a/packages/coding-agent/src/features/step-subagent.ts b/packages/coding-agent/src/features/step-subagent.ts
+index 83fa394..a89807f 100644
+--- a/packages/coding-agent/src/features/step-subagent.ts
++++ b/packages/coding-agent/src/features/step-subagent.ts
+@@ -122,9 +122,12 @@ export interface StepSubagentRunResult {
+ 	errorMessage?: string;
+ 	/** Live projection populated from Pi's JSON event stream. */
+ 	activeText?: string;
++	activeTextPartial?: boolean;
+ 	activeTool?: string;
+ 	activeToolArgs?: string;
++	activeToolArgsPartial?: boolean;
+ 	activeToolOutput?: string;
++	activeToolOutputPartial?: boolean;
+ 	lastEvent?: string;
+ 	startedAt?: number;
+ 	updatedAt?: number;
+@@ -414,6 +417,25 @@ function appendMessage(messages: Message[], message: Message): void {
+ 	if (messages.length > MAX_MESSAGES) messages.splice(0, messages.length - MAX_MESSAGES);
+ }
+ 
++function setLiveText(
++	current: StepSubagentRunResult,
++	field: "activeText" | "activeToolArgs" | "activeToolOutput",
++	value: string | undefined,
++	max: number,
++	append = false,
++): void {
++	const flag = `${field}Partial` as "activeTextPartial" | "activeToolArgsPartial" | "activeToolOutputPartial";
++	if (value === undefined) {
++		current[field] = undefined;
++		current[flag] = false;
++		return;
++	}
++	const text = append ? `${current[field] ?? ""}${value}` : value;
++	const start = Math.max(0, text.length - max);
++	current[field] = text.slice(start);
++	current[flag] = start > 0 ? text[start - 1] !== "\n" && text[start - 1] !== "\r" : append && current[flag] === true;
++}
++
+ export function parseJsonEvent(
+ 	line: string,
+ 	current: StepSubagentRunResult,
+@@ -436,17 +458,17 @@ export function parseJsonEvent(
+ 	// small live projection for the parent renderer while retaining final
+ 	// messages as the authoritative result.
+ 	if (type === "message_start") {
+-		current.activeText = "";
++		setLiveText(current, "activeText", "", 50_000);
+ 		current.activeTool = undefined;
+-		current.activeToolArgs = undefined;
+-		current.activeToolOutput = undefined;
++		setLiveText(current, "activeToolArgs", undefined, 20_000);
++		setLiveText(current, "activeToolOutput", undefined, 20_000);
+ 	} else if (type === "message_update") {
+ 		const update = isRecordValue(candidate.assistantMessageEvent) ? candidate.assistantMessageEvent : undefined;
+ 		const updateType = typeof update?.type === "string" ? update.type : "";
+ 		const delta =
+ 			typeof update?.delta === "string" ? update.delta : typeof update?.text === "string" ? update.text : "";
+ 		if (delta && /(?:text|reasoning|thinking).*delta|delta/u.test(updateType)) {
+-			current.activeText = `${current.activeText ?? ""}${delta}`.slice(-50_000);
++			setLiveText(current, "activeText", delta, 50_000, true);
+ 		}
+ 		if (update && updateType === "toolcall_start") {
+ 			current.activeTool =
+@@ -455,20 +477,20 @@ export function parseJsonEvent(
+ 					: typeof update.name === "string"
+ 						? update.name
+ 						: "tool";
+-			current.activeToolArgs = "";
++			setLiveText(current, "activeToolArgs", "", 20_000);
+ 		} else if (updateType === "toolcall_delta" && delta) {
+-			current.activeToolArgs = `${current.activeToolArgs ?? ""}${delta}`.slice(-20_000);
++			setLiveText(current, "activeToolArgs", delta, 20_000, true);
+ 		}
+ 	} else if (type === "tool_execution_start") {
+ 		current.activeTool = typeof candidate.toolName === "string" ? candidate.toolName : "tool";
+-		current.activeToolArgs = stringifyLiveValue(candidate.args);
+-		current.activeToolOutput = undefined;
++		setLiveText(current, "activeToolArgs", stringifyLiveValue(candidate.args), 20_000);
++		setLiveText(current, "activeToolOutput", undefined, 20_000);
+ 	} else if (type === "tool_execution_update") {
+-		current.activeToolOutput = stringifyLiveValue(candidate.partialResult);
++		setLiveText(current, "activeToolOutput", stringifyLiveValue(candidate.partialResult), 20_000);
+ 	} else if (type === "tool_execution_end") {
+-		current.activeToolOutput = stringifyLiveValue(candidate.result);
++		setLiveText(current, "activeToolOutput", stringifyLiveValue(candidate.result), 20_000);
+ 		current.activeTool = undefined;
+-		current.activeToolArgs = undefined;
++		setLiveText(current, "activeToolArgs", undefined, 20_000);
+ 	}
+ 
+ 	const message = candidate.message;
+@@ -479,9 +501,13 @@ export function parseJsonEvent(
+ 			if (message.model) current.model = message.model;
+ 			current.stopReason = message.stopReason;
+ 			current.errorMessage = message.errorMessage;
+-			current.activeText = assistantText(message) || current.activeText;
++			const text = assistantText(message);
++			if (text) {
++				current.activeText = text;
++				current.activeTextPartial = false;
++			}
+ 			current.activeTool = undefined;
+-			current.activeToolArgs = undefined;
++			setLiveText(current, "activeToolArgs", undefined, 20_000);
+ 		}
+ 	}
+ 	onUpdate?.({
+@@ -493,11 +519,11 @@ export function parseJsonEvent(
+ 
+ function stringifyLiveValue(value: unknown): string | undefined {
+ 	if (value === undefined || value === null) return undefined;
+-	if (typeof value === "string") return value.slice(-20_000);
++	if (typeof value === "string") return value;
+ 	try {
+-		return JSON.stringify(value).slice(-20_000);
++		return JSON.stringify(value);
+ 	} catch {
+-		return String(value).slice(-20_000);
++		return String(value);
+ 	}
+ }
+ 
+diff --git a/packages/coding-agent/src/features/subagent/display-text.ts b/packages/coding-agent/src/features/subagent/display-text.ts
+new file mode 100644
+index 0000000..93444f6
+--- /dev/null
++++ b/packages/coding-agent/src/features/subagent/display-text.ts
+@@ -0,0 +1,19 @@
++const SENSITIVE_LINE =
++	/(api[-_.]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|secret|password|passwd|credential|cookie|authorization|bearer\s+[A-Za-z0-9._-]|['"]?(?:token|apiKey|api_key)['"]?\s*[:=]|^\s*(?:STEP|PI|AI_AGENT)[A-Z0-9_]*\s*=)/i;
++
++export function redactPartialText(text: string | undefined, partial = false): string | undefined {
++	if (text === undefined) return undefined;
++	if (!partial) return redactSensitiveText(text);
++	const boundary = text.search(/[\r\n]/u);
++	return redactSensitiveText(boundary < 0 ? "" : text.slice(boundary + 1));
++}
++
++export function redactSensitiveText(text: string): string;
++export function redactSensitiveText(text: string | undefined): string | undefined;
++export function redactSensitiveText(text: string | undefined): string | undefined {
++	if (text === undefined) return undefined;
++	return text
++		.split(/(\r\n|\n|\r)/u)
++		.map((line, index) => (index % 2 || !line.trim() || !SENSITIVE_LINE.test(line) ? line : "[redacted]"))
++		.join("");
++}
+diff --git a/packages/coding-agent/src/features/subagent/execute.ts b/packages/coding-agent/src/features/subagent/execute.ts
+index 9720e33..c3ac7eb 100644
+--- a/packages/coding-agent/src/features/subagent/execute.ts
++++ b/packages/coding-agent/src/features/subagent/execute.ts
+@@ -46,6 +46,7 @@ import {
+ 	configuredWorkflowConcurrencyLimit,
+ 	type WorkflowSemaphore,
+ } from "../workflow/budget.ts";
++import { redactSensitiveText } from "./display-text.ts";
+ import { truncateText } from "./lane-events.ts";
+ import type { StepSubagentLaneRuntime } from "./lane-lifecycle.ts";
+ import { finalRoster, liveRoster } from "./projection.ts";
+@@ -118,23 +119,26 @@ function makeSkippedResult(record: StepSubagentResultRecord): StepSubagentResult
+  * on success, the stopping step's error otherwise. Earlier step bodies stay in
+  * `details.results` instead of piling into the parent's context.
+  */
+-function chainResultText(records: readonly StepSubagentResultRecord[]): string {
++function chainResultText(
++	records: readonly StepSubagentResultRecord[],
++	answerText: (record: StepSubagentResultRecord) => string = resultText,
++): string {
+ 	const steps = records.map((record, index) => `${index + 1}. ${record.agent}: ${record.status}`).join("\n");
+ 	const stopped = records.findIndex((record) => record.status !== "completed");
+ 	if (stopped === -1) {
+ 		const last = records.at(-1);
+ 		if (!last) return "(no output)";
+-		return `Chain: ${records.length}/${records.length} steps completed\n${steps}\n\n### Final output (step ${records.length}, ${last.agent})\n\n${resultText(last)}`;
++		return `Chain: ${records.length}/${records.length} steps completed\n${steps}\n\n### Final output (step ${records.length}, ${last.agent})\n\n${answerText(last)}`;
+ 	}
+ 	const failed = records[stopped];
+ 	const sections = [
+ 		`Chain stopped at step ${stopped + 1}/${records.length} (${failed.agent}: ${failed.status}); the chain did not complete.\n${steps}`,
+-		`### Error (step ${stopped + 1}, ${failed.agent})\n\n${resultText(failed)}`,
++		`### Error (step ${stopped + 1}, ${failed.agent})\n\n${answerText(failed)}`,
+ 	];
+ 	const previous = stopped > 0 ? records[stopped - 1] : undefined;
+ 	if (previous) {
+ 		sections.push(
+-			`### Last completed output (step ${stopped}, ${previous.agent})\n\n${truncateText(resultText(previous), 50_000)}`,
++			`### Last completed output (step ${stopped}, ${previous.agent})\n\n${truncateText(answerText(previous), 50_000)}`,
+ 		);
+ 	}
+ 	return sections.join("\n\n");
+@@ -656,17 +660,22 @@ export async function runPreparedSubagent(
+ 		publishFrame(mode);
+ 	}
+ 	const finalDetails = buildDetails(mode, discovery, scope, finalRoster(records));
++	const safeOutput = process.env.STEP_CLIENT === "desktop-for-step-code" && !laneRuntime;
++	const answerText = (record: StepSubagentResultRecord): string => {
++		const output = resultText(record);
++		return safeOutput ? redactSensitiveText(output) : output;
++	};
+ 	if (mode === "parallel") {
+ 		const success = records.filter((record) => record.status === "completed").length;
+ 		const summaries = records.map(
+-			(record) => `### ${record.agent} (${record.status})\n\n${truncateText(resultText(record), 50_000)}`,
++			(record) => `### ${record.agent} (${record.status})\n\n${truncateText(answerText(record), 50_000)}`,
+ 		);
+ 		return makeToolResult(
+ 			finalDetails,
+ 			`Parallel: ${success}/${records.length} succeeded\n\n${summaries.join("\n\n---\n\n")}`,
+ 		);
+ 	}
+-	if (mode === "chain") return makeToolResult(finalDetails, chainResultText(records));
++	if (mode === "chain") return makeToolResult(finalDetails, chainResultText(records, answerText));
+ 	const record = records[0];
+-	return makeToolResult(finalDetails, record ? resultText(record) : "(no output)");
++	return makeToolResult(finalDetails, record ? answerText(record) : "(no output)");
+ }
+diff --git a/packages/coding-agent/src/features/subagent/lane-events.ts b/packages/coding-agent/src/features/subagent/lane-events.ts
+index b8f31b3..ee924c3 100644
+--- a/packages/coding-agent/src/features/subagent/lane-events.ts
++++ b/packages/coding-agent/src/features/subagent/lane-events.ts
+@@ -8,6 +8,7 @@ import type { ExtensionAPI } from "../../core/extensions/types.ts";
+ import { retainToolOutputText } from "../../core/tools/tool-output.ts";
+ import { truncateHead, truncateTail } from "../../core/tools/truncate.ts";
+ import type { BackgroundAgentLane, StepSubagentResultRecord } from "../step-subagent.ts";
++import { redactSensitiveText } from "./display-text.ts";
+ import { isRecordValue, totalResults } from "./helpers.ts";
+ import { liveRoster } from "./projection.ts";
+ 
+@@ -267,13 +268,14 @@ export function notifyLaneEvent(
+ 	if (event === "background_progress" && lane.subscribe !== "progress") return;
+ 	const headline = laneHeadline(lane, event);
+ 	const trimmed = detail?.trim();
+-	const body = trimmed ? `${headline}\n${trimmed}` : headline;
++	const safeDetail = process.env.STEP_CLIENT === "desktop-for-step-code" ? redactSensitiveText(trimmed) : trimmed;
++	const body = safeDetail ? `${headline}\n${safeDetail}` : headline;
+ 	const details: AgentNotificationDetails = {
+ 		agentId: lane.id,
+ 		event,
+ 		status: lane.status,
+ 		agents: [...new Set(lane.details.results.map((record) => record.agent))],
+-		detail: trimmed || undefined,
++		detail: safeDetail || undefined,
+ 	};
+ 	pi.sendMessage(
+ 		{
+@@ -330,7 +332,9 @@ export function completedResponseLines(lane: BackgroundAgentLane, output: string
+ 		const response = responses[index];
+ 		const title = `Completed response (${response.agent.slice(0, 200)}, child ${response.sessionId.slice(0, 200)}):\n`;
+ 		if (Buffer.byteLength(title) + 100 > remaining) break;
+-		const body = clipAnswerView(response.output, Math.max(0, remaining - Buffer.byteLength(title) - 100)).text;
++		const answer =
++			process.env.STEP_CLIENT === "desktop-for-step-code" ? redactSensitiveText(response.output) : response.output;
++		const body = clipAnswerView(answer, Math.max(0, remaining - Buffer.byteLength(title) - 100)).text;
+ 		lines.push(title + body);
+ 		remaining -= Buffer.byteLength(title + body);
+ 		shown++;
+@@ -384,7 +388,9 @@ export function laneSummaryLines(lane: BackgroundAgentLane, now = Date.now(), co
+ 	if (cancelled.length > 0) {
+ 		lines.push(`Prompts auto-cancelled because a background lane cannot ask the user:\n${cancelled.join("\n")}`);
+ 	}
+-	return complete ? lines : [clipLaneView(lines.join("\n\n"), 6_000).text];
++	const displayLines =
++		process.env.STEP_CLIENT === "desktop-for-step-code" ? lines.map((line) => redactSensitiveText(line)) : lines;
++	return complete ? displayLines : [clipLaneView(displayLines.join("\n\n"), 6_000).text];
+ }
+ 
+ function clipLaneView(text: string, maxBytes: number): { text: string; clipped: boolean } {
+@@ -416,16 +422,17 @@ function clipAnswerView(text: string, maxBytes: number): { text: string; clipped
+ 
+ function failureReasons(lane: BackgroundAgentLane, output: string): string[] {
+ 	if (lane.status !== "failed") return [];
++	const safeOutput = process.env.STEP_CLIENT === "desktop-for-step-code";
+ 	// The aggregate output can omit why a task failed (multi-task lanes surface
+ 	// only their combined text). Always carry each failed task's cause, unless
+ 	// the output already states it verbatim.
+ 	return lane.details.results
+ 		.map((record, index) => ({ record, index }))
+ 		.filter(({ record }) => record.status === "failed")
+-		.map(({ record, index }) => ({
+-			label: taskLabel(record, index),
+-			cause: record.errorMessage?.trim() || record.stderr?.trim() || "no error detail captured",
+-		}))
++		.map(({ record, index }) => {
++			const cause = record.errorMessage?.trim() || record.stderr?.trim() || "no error detail captured";
++			return { label: taskLabel(record, index), cause: safeOutput ? redactSensitiveText(cause) : cause };
++		})
+ 		.filter(({ cause }) => output.length > 8_000 || !output.includes(cause))
+ 		.map(({ label, cause }) => `- ${label}: ${truncateText(cause, 400)}`);
+ }
+@@ -436,11 +443,14 @@ function failureReasons(lane: BackgroundAgentLane, output: string): string[] {
+  * tool-output retention boundary and replaced by a preview plus its path.
+  */
+ export function laneReportView(lane: BackgroundAgentLane): { text: string; complete: string; clipped: boolean } {
+-	const output = laneOutputText(lane);
++	const rawOutput = laneOutputText(lane);
++	const displayText =
++		process.env.STEP_CLIENT === "desktop-for-step-code" ? redactSensitiveText : (text: string) => text;
++	const output = displayText(rawOutput);
+ 	const current = clipAnswerView(output, 10_000);
+ 	const reasons = failureReasons(lane, current.text);
+ 	const diagnosticText = [
+-		lane.completionError ? `Completed response retention failed: ${lane.completionError}` : "",
++		lane.completionError ? `Completed response retention failed: ${displayText(lane.completionError)}` : "",
+ 		reasons.length > 0 ? `Failure reasons:\n${reasons.join("\n")}` : "",
+ 	]
+ 		.filter(Boolean)
+@@ -448,7 +458,7 @@ export function laneReportView(lane: BackgroundAgentLane): { text: string; compl
+ 	const diagnostics = clipLaneView(diagnosticText, 4_000);
+ 	const summary = laneSummaryLines(lane, Date.now(), true).join("\n\n");
+ 	const metadata = clipLaneView(summary, 6_000);
+-	const history = clipAnswerView(completedResponseLines(lane, output).join("\n\n"), 10_000);
++	const history = clipAnswerView(completedResponseLines(lane, rawOutput).join("\n\n"), 10_000);
+ 	const title = `Current outcome: ${lane.status}`;
+ 	const outputTitle = lane.status === "running" ? "Output of the previous turn" : "Output";
+ 	const text = [
+@@ -466,7 +476,8 @@ export function laneReportView(lane: BackgroundAgentLane): { text: string; compl
+ 		output ? `${outputTitle}:\n${output}` : "",
+ 		summary,
+ 		...(lane.completedResponses ?? []).map(
+-			(response) => `Completed response (${response.agent}, child ${response.sessionId}):\n${response.output}`,
++			(response) =>
++				`Completed response (${response.agent}, child ${response.sessionId}):\n${displayText(response.output)}`,
+ 		),
+ 		lane.completedResponsesOmitted
+ 			? `${lane.completedResponsesOmitted} older answers remain in the parent journal and child transcripts.`
+@@ -488,8 +499,11 @@ export async function buildLaneFinalView(
+ 		return { path, text: `Retained lane diagnostics. Full output: ${JSON.stringify(path)}\n\n${view.text}` };
+ 	} catch (error) {
+ 		// Preserve the bounded current outcome even when its complete snapshot cannot be saved.
++		const message = error instanceof Error ? error.message : String(error);
++		const displayMessage =
++			process.env.STEP_CLIENT === "desktop-for-step-code" ? redactSensitiveText(message) : message;
+ 		return {
+-			text: `${view.text}\n[full output could not be saved: ${truncateText(error instanceof Error ? error.message : String(error), 800)}]`,
++			text: `${view.text}\n[full output could not be saved: ${truncateText(displayMessage, 800)}]`,
+ 		};
+ 	}
+ }
+diff --git a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+index 8b4f2b4..2f157aa 100644
+--- a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
++++ b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+@@ -17,6 +17,7 @@ import type {
+ 	StepSubagentRpcSession,
+ 	SubagentParams,
+ } from "../step-subagent.ts";
++import { redactSensitiveText } from "./display-text.ts";
+ import type { PreparedSubagentRun, SubagentPreflight } from "./execute.ts";
+ import { SUBAGENT_SESSION_ID_PREFIX } from "./helpers.ts";
+ import {
+@@ -385,13 +386,18 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 				lane.completionWrites = (lane.completionWrites ?? Promise.resolve())
+ 					.then(async () => {
+ 						if (closedRetention.has(lane)) return;
+-						const content = await boundToolResultContent(
+-							[{ type: "text", text: response.output }],
+-							outputDirectory,
+-						);
++						const output =
++							process.env.STEP_CLIENT === "desktop-for-step-code"
++								? redactSensitiveText(response.output)
++								: response.output;
++						const content = await boundToolResultContent([{ type: "text", text: output }], outputDirectory);
+ 						if (closedRetention.has(lane)) return;
+ 						const completed: CompletedSubagentResponse = {
+ 							...response,
++							task:
++								process.env.STEP_CLIENT === "desktop-for-step-code"
++									? redactSensitiveText(response.task)
++									: response.task,
+ 							laneId: lane.id,
+ 							outputHash: completedOutputHash(response.output),
+ 							output: content
+diff --git a/packages/coding-agent/src/features/subagent/projection.ts b/packages/coding-agent/src/features/subagent/projection.ts
+index bae44c1..b83ce55 100644
+--- a/packages/coding-agent/src/features/subagent/projection.ts
++++ b/packages/coding-agent/src/features/subagent/projection.ts
+@@ -19,23 +19,10 @@
+  */
+ 
+ import type { StepSubagentResultRecord } from "../step-subagent.ts";
++import { redactPartialText, redactSensitiveText } from "./display-text.ts";
++export { redactSensitiveText } from "./display-text.ts";
+ import { cloneUsage } from "./helpers.ts";
+ 
+-// Child output can carry credentials that neither the parent conversation nor a
+-// desktop renderer may display. Renderers filter whole lines, so a truncation
+-// boundary that keeps a value but drops its `key =` prefix would evade them;
+-// redact before any clipping instead.
+-const SENSITIVE_LINE =
+-	/(api[-_.]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|secret|password|passwd|credential|cookie|authorization|bearer\s+[A-Za-z0-9._-]|['"]?(?:token|apiKey|api_key)['"]?\s*[:=]|^\s*(?:STEP|PI|AI_AGENT)[A-Z0-9_]*\s*=)/i;
+-
+-export function redactSensitiveText(text: string | undefined): string | undefined {
+-	if (text === undefined) return undefined;
+-	return text
+-		.split("\n")
+-		.map((line) => (!line.trim() || !SENSITIVE_LINE.test(line) ? line : "[redacted]"))
+-		.join("\n");
+-}
+-
+ /** Live frames are one per repaint; a renderer shows the newest lines only. */
+ const LIVE_TEXT_CHARS = 2_000;
+ const LIVE_TOOL_OUTPUT_CHARS = 1_000;
+@@ -87,7 +74,9 @@ function clipMiddle(value: string, max: number): string {
+ 
+ function boundedPrompts(prompts: string[] | undefined): string[] | undefined {
+ 	if (!prompts || prompts.length === 0) return undefined;
+-	return prompts.slice(-LIVE_CANCELLED_PROMPTS).map((prompt) => tailChars(prompt, LIVE_PROMPT_CHARS) ?? "");
++	return prompts
++		.slice(-LIVE_CANCELLED_PROMPTS)
++		.map((prompt) => tailChars(redactSensitiveText(prompt), LIVE_PROMPT_CHARS) ?? "");
+ }
+ 
+ /** Serialized size, guarding against values JSON cannot represent. */
+@@ -129,7 +118,7 @@ export function liveRecord(record: StepSubagentResultRecord): StepSubagentResult
+ 	return {
+ 		agent: clipMiddle(record.agent, LIVE_IDENTIFIER_CHARS),
+ 		agentSource: record.agentSource,
+-		task: clipMiddle(record.task, LIVE_TASK_CHARS),
++		task: clipMiddle(redactSensitiveText(record.task), LIVE_TASK_CHARS),
+ 		status: record.status,
+ 		exitCode: record.exitCode,
+ 		messages: [],
+@@ -142,14 +131,24 @@ export function liveRecord(record: StepSubagentResultRecord): StepSubagentResult
+ 			: { errorMessage: tailChars(redactSensitiveText(record.errorMessage), LIVE_ERROR_CHARS) }),
+ 		...(record.activeText === undefined
+ 			? {}
+-			: { activeText: tailChars(redactSensitiveText(record.activeText), LIVE_TEXT_CHARS) }),
++			: { activeText: tailChars(redactPartialText(record.activeText, record.activeTextPartial), LIVE_TEXT_CHARS) }),
+ 		...(record.activeTool === undefined ? {} : { activeTool: clipMiddle(record.activeTool, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.activeToolArgs === undefined
+ 			? {}
+-			: { activeToolArgs: tailChars(redactSensitiveText(record.activeToolArgs), LIVE_TOOL_ARGS_CHARS) }),
++			: {
++					activeToolArgs: tailChars(
++						redactPartialText(record.activeToolArgs, record.activeToolArgsPartial),
++						LIVE_TOOL_ARGS_CHARS,
++					),
++				}),
+ 		...(record.activeToolOutput === undefined
+ 			? {}
+-			: { activeToolOutput: tailChars(redactSensitiveText(record.activeToolOutput), LIVE_TOOL_OUTPUT_CHARS) }),
++			: {
++					activeToolOutput: tailChars(
++						redactPartialText(record.activeToolOutput, record.activeToolOutputPartial),
++						LIVE_TOOL_OUTPUT_CHARS,
++					),
++				}),
+ 		...(record.lastEvent === undefined ? {} : { lastEvent: clipMiddle(record.lastEvent, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
+ 		...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
+@@ -200,9 +199,11 @@ export function liveRoster(records: readonly StepSubagentResultRecord[]): {
+  * always renders even when the runner reported none.
+  */
+ export function finalRecord(record: StepSubagentResultRecord, budget: Budget): StepSubagentResultRecord {
+-	const text = redactSensitiveText(record.activeText || finalAssistantText(record));
++	const text = record.activeText
++		? redactPartialText(record.activeText, record.activeTextPartial)
++		: redactSensitiveText(finalAssistantText(record));
+ 	const fields = [
+-		{ value: record.task || "(unspecified task)", max: FINAL_TASK_CHARS, clip: clipMiddle },
++		{ value: redactSensitiveText(record.task) || "(unspecified task)", max: FINAL_TASK_CHARS, clip: clipMiddle },
+ 		{ value: text, max: FINAL_TEXT_CHARS, clip: tailChars },
+ 		{ value: redactSensitiveText(record.stderr), max: FINAL_STDERR_CHARS, clip: tailChars },
+ 		{ value: redactSensitiveText(record.errorMessage), max: FINAL_ERROR_CHARS, clip: tailChars },
+diff --git a/packages/coding-agent/src/features/subagent/rpc-adapter.ts b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+index 52ad478..830e190 100644
+--- a/packages/coding-agent/src/features/subagent/rpc-adapter.ts
++++ b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+@@ -30,6 +30,7 @@ import {
+ 	type StepSubagentRunResult,
+ } from "../step-subagent.ts";
+ import { WORKFLOW_ACL_ENV } from "../workflow/acl-extension.ts";
++import { redactSensitiveText } from "./display-text.ts";
+ import { liveSubagentSessions } from "./lane-lifecycle.ts";
+ 
+ const MAX_STDERR_CHARS = 32_000;
+@@ -467,7 +468,10 @@ export async function createSubagentRpcSession(
+ 						turn.current.cancelledPrompts ??= [];
+ 						const cancelled = turn.current.cancelledPrompts;
+ 						if (cancelled.length < MAX_CANCELLED_PROMPTS) {
+-							cancelled.push(`${request.method}: ${(request.title ?? "(untitled)").slice(0, 200)}`);
++							const title = request.title ?? "(untitled)";
++							const safeTitle =
++								process.env.STEP_CLIENT === "desktop-for-step-code" ? redactSensitiveText(title) : title;
++							cancelled.push(`${request.method}: ${safeTitle.slice(0, 200)}`);
+ 						}
+ 					}
+ 				}
+diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
+index 5d2b06d..f53a7f6 100644
+--- a/packages/coding-agent/test/step-subagent-events.test.ts
++++ b/packages/coding-agent/test/step-subagent-events.test.ts
+@@ -1,5 +1,5 @@
+ import { mkdtempSync } from "node:fs";
+-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
++import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+ import os, { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import type { AgentToolResult } from "@step-harness/agent-core";
+@@ -9,6 +9,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core
+ import {
+ 	createStepSubagentExtension,
+ 	escapeXmlAttr,
++	parseJsonEvent,
+ 	routeSubagentRpcLine,
+ 	type StepSubagentDetails,
+ 	type StepSubagentResultRecord,
+@@ -16,12 +17,14 @@ import {
+ 	type StepSubagentRunResult,
+ } from "../src/features/step-subagent.ts";
+ import { builtinStepAgents, resolveStepAgent, type StepAgentConfig } from "../src/features/step-subagent-agents.ts";
++import { redactSensitiveText } from "../src/features/subagent/display-text.ts";
+ import {
++	completedOutputHash,
+ 	readSubagentLaneSnapshot,
+ 	SUBAGENT_LANE_CHANNEL,
+ 	SUBAGENT_RESPONSE_ENTRY,
+ } from "../src/features/subagent/lane-events.ts";
+-import { finalRoster } from "../src/features/subagent/projection.ts";
++import { finalRoster, liveRoster } from "../src/features/subagent/projection.ts";
+ import { renderSubagentResult } from "../src/features/subagent/rendering.ts";
+ import { resetWorkflowAdmission } from "../src/features/workflow/admission.ts";
+ import { createWorkflowRunPaths, WorkflowJournal } from "../src/features/workflow/journal.ts";
+@@ -202,6 +205,212 @@ function createApi(): {
+ 	return { api, tools, sent, handlers, entries };
+ }
+ 
++test.each([
++	[undefined, undefined],
++	["", ""],
++	["  \r\n\r\nkept", "  \r\n\r\nkept"],
++	["BEFORE\r\napi_key = SYNTHETIC_HELPER\r\nAFTER", "BEFORE\r\n[redacted]\r\nAFTER"],
++] as const)("display filtering preserves line boundaries for %j", (input, expected) => {
++	expect(redactSensitiveText(input)).toBe(expected);
++	expect(redactSensitiveText(redactSensitiveText(input))).toBe(expected);
++});
++
++test("live RPC tails do not display the unknown remainder of a clipped sensitive line", () => {
++	const current = { ...textResult(""), messages: [], exitCode: -1 };
++	const raw = `api_key = ${"x".repeat(50_010)}SYNTHETIC_CLIPPED_TAIL\nSAFE-END`;
++	parseJsonEvent(
++		JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: raw } }),
++		current,
++		undefined,
++	);
++	const record: StepSubagentResultRecord = {
++		...current,
++		agent: "general",
++		agentSource: "builtin",
++		task: "inspect",
++		status: "running",
++	};
++	expect(current.activeText).toContain("SYNTHETIC_CLIPPED_TAIL");
++	const view = liveRoster([record]).results[0].activeText;
++	expect(view).toContain("SAFE-END");
++	expect(view).not.toContain("SYNTHETIC_CLIPPED_TAIL");
++});
++
++test("live RPC partial-line state survives deltas and resets on authoritative boundaries", () => {
++	const current = { ...textResult(""), messages: [], exitCode: -1 };
++	parseJsonEvent(JSON.stringify({ type: "message_start", message: { role: "assistant" } }), current, undefined);
++	parseJsonEvent(
++		JSON.stringify({
++			type: "message_update",
++			assistantMessageEvent: {
++				type: "text_delta",
++				delta: `api_key = ${"x".repeat(50_010)}SYNTHETIC_DELTA_TAIL`,
++			},
++		}),
++		current,
++		undefined,
++	);
++	expect(current.activeTextPartial).toBe(true);
++	parseJsonEvent(
++		JSON.stringify({
++			type: "message_update",
++			assistantMessageEvent: {
++				type: "text_delta",
++				delta: "\nDELTA-SAFE-END",
++			},
++		}),
++		current,
++		undefined,
++	);
++	const partial = liveRoster([
++		{ ...current, agent: "general", agentSource: "builtin", task: "inspect", status: "running" },
++	]).results[0];
++	expect(partial.activeText).toContain("DELTA-SAFE-END");
++	expect(partial.activeText).not.toContain("SYNTHETIC_DELTA_TAIL");
++
++	parseJsonEvent(JSON.stringify({ type: "message_start", message: { role: "assistant" } }), current, undefined);
++	expect(current.activeText).toBe("");
++	expect(current.activeTextPartial).toBe(false);
++	parseJsonEvent(
++		JSON.stringify({
++			type: "message_update",
++			assistantMessageEvent: {
++				type: "text_delta",
++				delta: "NEXT-TURN",
++			},
++		}),
++		current,
++		undefined,
++	);
++	expect(
++		liveRoster([{ ...current, agent: "general", agentSource: "builtin", task: "inspect", status: "running" }])
++			.results[0].activeText,
++	).toBe("NEXT-TURN");
++
++	const final = textResult("AUTHORITATIVE-END").messages[0];
++	parseJsonEvent(JSON.stringify({ type: "message_end", message: final }), current, undefined);
++	expect(current.activeText).toBe("AUTHORITATIVE-END");
++	expect(current.activeTextPartial).toBe(false);
++});
++
++test("live tool arguments and output drop unknown clipped first lines without leaking partial flags", () => {
++	const current = { ...textResult(""), messages: [], exitCode: -1 };
++	parseJsonEvent(
++		JSON.stringify({
++			type: "message_update",
++			assistantMessageEvent: {
++				type: "toolcall_start",
++				toolName: "fixture",
++			},
++		}),
++		current,
++		undefined,
++	);
++	parseJsonEvent(
++		JSON.stringify({
++			type: "message_update",
++			assistantMessageEvent: {
++				type: "toolcall_delta",
++				delta: `token = ${"x".repeat(20_010)}SYNTHETIC_ARG_TAIL\nARG-SAFE-END`,
++			},
++		}),
++		current,
++		undefined,
++	);
++	parseJsonEvent(
++		JSON.stringify({
++			type: "tool_execution_update",
++			partialResult: `password = ${"y".repeat(20_010)}SYNTHETIC_OUTPUT_TAIL\nOUTPUT-SAFE-END`,
++		}),
++		current,
++		undefined,
++	);
++	const live = liveRoster([
++		{ ...current, agent: "general", agentSource: "builtin", task: "inspect", status: "running" },
++	]).results[0];
++	expect(live.activeToolArgs).toContain("ARG-SAFE-END");
++	expect(live.activeToolArgs).not.toContain("SYNTHETIC_ARG_TAIL");
++	expect(live.activeToolOutput).toContain("OUTPUT-SAFE-END");
++	expect(live.activeToolOutput).not.toContain("SYNTHETIC_OUTPUT_TAIL");
++	expect(live).not.toHaveProperty("activeToolArgsPartial");
++	expect(live).not.toHaveProperty("activeToolOutputPartial");
++
++	parseJsonEvent(JSON.stringify({ type: "tool_execution_end", result: "RESULT-END" }), current, undefined);
++	expect(current.activeToolArgs).toBeUndefined();
++	expect(current.activeToolArgsPartial).toBe(false);
++	expect(current.activeToolOutput).toBe("RESULT-END");
++	expect(current.activeToolOutputPartial).toBe(false);
++});
++
++test("display rosters redact complete task and cancellation lines before clipping", () => {
++	const base = textResult("normal output");
++	const task = `TASK-BEGIN\napi_key = SYNTHETIC_TASK_LINE${"x".repeat(3_000)}\nTASK-END`;
++	const cancelledPrompts = [`input: access_token = ${"x".repeat(500)}SYNTHETIC_CANCELLED_LINE\nPROMPT-END`];
++	const record: StepSubagentResultRecord = {
++		...base,
++		agent: "general",
++		agentSource: "builtin",
++		task,
++		status: "completed",
++		cancelledPrompts,
++	};
++	const before = JSON.stringify(record);
++	for (const rows of [liveRoster([record]).results, finalRoster([record])]) {
++		expect(rows[0].task).toContain("TASK-BEGIN");
++		expect(rows[0].task).toContain("TASK-END");
++		expect(rows[0].cancelledPrompts?.[0]).toContain("PROMPT-END");
++		expect(JSON.stringify(rows)).not.toMatch(/SYNTHETIC_(?:TASK|CANCELLED)_LINE/);
++	}
++	expect(JSON.stringify(record)).toBe(before);
++});
++
++test.each(["desktop-for-step-code", "stepcode"])(
++	"%s keeps completed-answer identity while applying its parent-side output policy",
++	async (client) => {
++		vi.stubEnv("STEP_CLIENT", client);
++		const directory = await mkdtemp(join(tmpdir(), "desktop-lane-redaction-"));
++		try {
++			const { api, tools, sent, entries } = createApi();
++			const raw = `REPORT-BEGIN\napi_key = SYNTHETIC_PARENT_ANSWER\n${"ordinary report line\n".repeat(6_000)}REPORT-END`;
++			const child = textResult(raw);
++			const before = JSON.stringify(child);
++			createStepSubagentExtension({
++				agentDir: "/tmp/step-agent-test",
++				runner: async () => child,
++			})(api);
++			const ctx = createContext("/tmp");
++			(ctx as { sessionManager: unknown }).sessionManager = {
++				getEntries: () => [],
++				getSessionDir: () => directory,
++			};
++			const started = await startLane(
++				tools,
++				{ agent: "general", task: "inspect\napi_key = SYNTHETIC_PARENT_TASK" },
++				ctx,
++			);
++			await waitFor(() => sent.length === 1);
++			expect(entries).toHaveLength(1);
++			const saved = entries[0].data as { output: string; outputHash: string; task: string };
++			expect(saved.task.includes("SYNTHETIC_PARENT_TASK")).toBe(client !== "desktop-for-step-code");
++			const path = JSON.parse(saved.output.match(/Full output: ("[^\n]+")/)![1]) as string;
++			const full = await readFile(path, "utf8");
++			expect(full).toContain("REPORT-BEGIN");
++			expect(full).toContain("REPORT-END");
++			expect(saved.outputHash).toBe(completedOutputHash(raw));
++			expect(full.includes("SYNTHETIC_PARENT_ANSWER")).toBe(client !== "desktop-for-step-code");
++			expect(JSON.stringify(sent).includes("SYNTHETIC_PARENT_ANSWER")).toBe(client !== "desktop-for-step-code");
++			const status = await agentSend(tools, { lane_id: laneIdOf(started), action: "status" });
++			expect(textOf(status)).toContain("REPORT-END");
++			expect(textOf(status).includes("SYNTHETIC_PARENT_ANSWER")).toBe(client !== "desktop-for-step-code");
++			expect(textOf(status).match(/REPORT-END/g)).toHaveLength(1);
++			expect(JSON.stringify(child)).toBe(before);
++		} finally {
++			vi.unstubAllEnvs();
++			await rm(directory, { recursive: true, force: true });
++		}
++	},
++);
++
+ test("background progress is live without a UI or progress-model subscription; stopping retains completed answers", async () => {
+ 	const { api, tools, sent, entries } = createApi();
+ 	const frames: unknown[] = [];
+diff --git a/packages/coding-agent/test/subagent-chain-result.test.ts b/packages/coding-agent/test/subagent-chain-result.test.ts
+index 1099d33..6dd0e06 100644
+--- a/packages/coding-agent/test/subagent-chain-result.test.ts
++++ b/packages/coding-agent/test/subagent-chain-result.test.ts
+@@ -122,6 +122,52 @@ function contentText(result: AgentToolResult<StepSubagentDetails>): string {
+ 	return result.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+ }
+ 
++test.each(["single", "parallel", "chain"])(
++	"Desktop %s output is a safe copy while child inputs remain raw",
++	async (mode) => {
++		vi.stubEnv("STEP_CLIENT", "desktop-for-step-code");
++		const raw = "ANSWER-BEGIN\napi_key = SYNTHETIC_CHILD_ANSWER\nANSWER-END";
++		const params =
++			mode === "single"
++				? { agent: "general", task: "inspect" }
++				: mode === "parallel"
++					? {
++							tasks: [
++								{ agent: "general", task: "first" },
++								{ agent: "general", task: "second" },
++							],
++						}
++					: {
++							chain: [
++								{ agent: "general", task: "first" },
++								{ agent: "general", task: "use {previous}" },
++							],
++						};
++		const { result, tasks } = await run(params as SubagentParams, () => ({ text: raw }));
++		const output = contentText(result);
++		expect(output).toContain("ANSWER-BEGIN");
++		expect(output).toContain("ANSWER-END");
++		expect(output).not.toContain("SYNTHETIC_CHILD_ANSWER");
++		if (mode === "chain") expect(tasks[1]).toBe(`use ${raw}`);
++	},
++);
++
++test.each(["desktop-for-step-code", "stepcode"])(
++	"%s preserves useful failure diagnostics with the correct output policy",
++	async (client) => {
++		vi.stubEnv("STEP_CLIENT", client);
++		const { result } = await run({ agent: "general", task: "inspect" } as SubagentParams, () => ({
++			text: "",
++			exitCode: 1,
++			stopReason: "error",
++			errorMessage: "Provider failed\naccess_token = SYNTHETIC_FAILURE\nRetry unavailable",
++		}));
++		expect(contentText(result)).toContain("Provider failed");
++		expect(contentText(result)).toContain("Retry unavailable");
++		expect(contentText(result).includes("SYNTHETIC_FAILURE")).toBe(client !== "desktop-for-step-code");
++	},
++);
++
+ const threeSteps: SubagentParams = {
+ 	chain: [
+ 		{ agent: "explore", task: "return STEP_1_SOURCE" },
+diff --git a/packages/coding-agent/test/subagent-child-env.test.ts b/packages/coding-agent/test/subagent-child-env.test.ts
+index a01a956..1448e9e 100644
+--- a/packages/coding-agent/test/subagent-child-env.test.ts
++++ b/packages/coding-agent/test/subagent-child-env.test.ts
+@@ -168,6 +168,32 @@ setInterval(() => {}, 1 << 30);
+ 	return file;
+ }
+ 
++test.each(["desktop-for-step-code", "stepcode"])(
++	"%s applies its display policy before clipping a cancelled child dialog",
++	async (client) => {
++		vi.stubEnv("STEP_CLIENT", client);
++		const title = `SYNTHETIC_DIALOG_LINE ${"x".repeat(240)} api_key = synthetic-dialog-value`;
++		const script = await fakeChild(`
++		process.stdout.write(JSON.stringify({ type: "extension_ui_request", id: "dialog", method: "input", title: ${JSON.stringify(title)} }) + "\\n");
++		process.stdout.write(JSON.stringify({ type: "agent_settled" }) + "\\n");
++	`);
++		const originalArgv1 = process.argv[1];
++		let session: Awaited<ReturnType<typeof createSubagentRpcSession>> | undefined;
++		process.argv[1] = script;
++		try {
++			session = await createSubagentRpcSession(runInput(), "dialog-display-policy");
++			const result = await session.runTurn(runInput());
++			expect(result.cancelledPrompts).toHaveLength(1);
++			expect(result.cancelledPrompts![0].includes("SYNTHETIC_DIALOG_LINE")).toBe(client !== "desktop-for-step-code");
++			expect(result.cancelledPrompts![0]).toMatch(/^input: /);
++		} finally {
++			process.argv[1] = originalArgv1;
++			session?.stop();
++			await session?.exited;
++		}
++	},
++);
++
+ test("a child that acks the prompt then goes silent settles instead of stranding the parent", async () => {
+ 	const script = await fakeChild("/* then never speak again */");
+ 	const originalArgv1 = process.argv[1];
+diff --git a/packages/coding-agent/test/subagent-lane-notifications.test.ts b/packages/coding-agent/test/subagent-lane-notifications.test.ts
+index ba7a5d6..ba7442d 100644
+--- a/packages/coding-agent/test/subagent-lane-notifications.test.ts
++++ b/packages/coding-agent/test/subagent-lane-notifications.test.ts
+@@ -1,7 +1,7 @@
+ import { mkdtemp, readFile, rm } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+-import { describe, expect, test } from "vitest";
++import { describe, expect, test, vi } from "vitest";
+ import type { ExtensionAPI } from "../src/core/extensions/types.ts";
+ import type {
+ 	BackgroundAgentLane,
+@@ -10,6 +10,7 @@ import type {
+ } from "../src/features/step-subagent.ts";
+ import {
+ 	buildLaneFinalDetail,
++	buildLaneFinalView,
+ 	completedOutputHash,
+ 	completedResponseLines,
+ 	notifyLaneEvent,
+@@ -64,6 +65,115 @@ function lane(overrides: Partial<BackgroundAgentLane>): BackgroundAgentLane {
+ 	} as unknown as BackgroundAgentLane;
+ }
+ 
++test.each(["background_done", "background_failed", "background_needs_input"] as const)(
++	"Desktop %s shares a safe notification body and structured detail",
++	(event) => {
++		vi.stubEnv("STEP_CLIENT", "desktop-for-step-code");
++		try {
++			const { pi, sent } = fakePi();
++			const target = lane({ status: event === "background_needs_input" ? "running" : "failed" });
++			notifyLaneEvent(pi, target, event, "REPORT-BEGIN\napi_key = SYNTHETIC_NOTIFICATION\nREPORT-END");
++			expect(sent).toHaveLength(1);
++			expect(sent[0].content).toContain("REPORT-BEGIN");
++			expect(sent[0].content).toContain("REPORT-END");
++			expect(JSON.stringify(sent[0])).not.toContain("SYNTHETIC_NOTIFICATION");
++			expect(sent[0].content).toMatch(/^<agent-notification lane="lane_00000001" tasks="0">/);
++		} finally {
++			vi.unstubAllEnvs();
++		}
++	},
++);
++
++test("Desktop retained diagnostics redact original answers before bounding current and historical output", async () => {
++	vi.stubEnv("STEP_CLIENT", "desktop-for-step-code");
++	const directory = await mkdtemp(join(tmpdir(), "desktop-lane-diagnostics-"));
++	try {
++		const raw = `CURRENT-BEGIN\n${"ordinary current line\n".repeat(1_000)}${"x".repeat(30_000)}api_key = SYNTHETIC_CURRENT\nCURRENT-END`;
++		const target = lane({
++			details: {
++				mode: "single",
++				agentScope: "user",
++				userAgentsDir: directory,
++				projectAgentsDir: null,
++				results: [
++					record({
++						status: "failed",
++						errorMessage: "Provider failed\naccess_token = SYNTHETIC_ERROR\nRetry unavailable",
++					}),
++				],
++			},
++			result: {
++				content: [{ type: "text", text: raw }],
++				details: {
++					mode: "single",
++					agentScope: "user",
++					userAgentsDir: directory,
++					projectAgentsDir: null,
++					results: [],
++				},
++			},
++			completedResponses: [
++				{
++					laneId: "lane_00000001",
++					agent: "explore",
++					task: "inspect",
++					taskIndex: 0,
++					sessionId: "subagent-fixture",
++					timestamp: 1,
++					output: "PREVIOUS-BEGIN\npassword = SYNTHETIC_PREVIOUS\nPREVIOUS-END",
++				},
++			],
++		});
++		const before = JSON.stringify(target);
++		const view = await buildLaneFinalView(target, directory);
++		expect(view.text).toContain("CURRENT-BEGIN");
++		expect(view.text).toContain("CURRENT-END");
++		expect(view.text).toContain("Provider failed");
++		expect(view.text).toContain("Retry unavailable");
++		expect(view.text).toContain("PREVIOUS-END");
++		expect(view.text).not.toMatch(/SYNTHETIC_(?:CURRENT|ERROR|PREVIOUS)/);
++		expect(view.path).toBeDefined();
++		const retained = await readFile(view.path!, "utf8");
++		expect(retained).toContain("CURRENT-BEGIN");
++		expect(retained).toContain("CURRENT-END");
++		expect(retained).not.toMatch(/SYNTHETIC_(?:CURRENT|ERROR|PREVIOUS)/);
++		expect(JSON.stringify(target)).toBe(before);
++	} finally {
++		vi.unstubAllEnvs();
++		await rm(directory, { recursive: true, force: true });
++	}
++});
++
++test("Desktop safe history keeps raw answer hashes distinct", () => {
++	vi.stubEnv("STEP_CLIENT", "desktop-for-step-code");
++	try {
++		const previous = "SAME-BEGIN\napi_key = SYNTHETIC_PRIOR\nSAME-END";
++		const current = "SAME-BEGIN\napi_key = SYNTHETIC_CURRENT\nSAME-END";
++		const target = lane({
++			completedResponses: [
++				{
++					laneId: "lane_00000001",
++					agent: "general",
++					task: "inspect",
++					taskIndex: 0,
++					sessionId: "subagent-fixture",
++					timestamp: 1,
++					output: "SAME-BEGIN\n[redacted]\nSAME-END",
++					outputHash: completedOutputHash(previous),
++				},
++			],
++		});
++		expect(completedResponseLines(target, previous)).toEqual([]);
++		const history = completedResponseLines(target, current).join("\n");
++		expect(history).toContain("Completed response");
++		expect(history).toContain("SAME-BEGIN");
++		expect(history).toContain("SAME-END");
++		expect(history).not.toMatch(/SYNTHETIC_(?:PRIOR|CURRENT)/);
++	} finally {
++		vi.unstubAllEnvs();
++	}
++});
++
+ describe("lane failure notifications", () => {
+ 	test("a failed lane always carries each failed task's reason", async () => {
+ 		const { pi, sent } = fakePi();

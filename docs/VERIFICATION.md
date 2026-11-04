@@ -1,5 +1,35 @@
 # Verification
 
+## PR #190 Capability Removal Synchronization (2026-11-05)
+
+Windows interface run `41869558982`, job `126712778842`, fails in
+`verify-capabilities.mjs` waiting for the second plugin-removal confirmation.
+The saved screenshot shows expanded plugin details without a confirmation
+or visible error. The same commit's Windows sessions and runtime groups pass.
+
+The original script passes locally at normal speed and 6x CPU throttling,
+so the missing-confirmation timeout itself was not reproduced. A temporary
+in-memory diagnostic records both uninstall clicks during the native
+240-ms disclosure animation, at approximately 175 and 167 ms. The acceptance
+now waits for the shared `settleLayout` helper after opening the exact plugin
+disclosure and scopes confirmation to that plugin's named group. A failure
+records pending/confirmation/disclosure state without an additional locator
+wait. No product code, timeout, animation or safety assertion is changed.
+
+The updated complete capability acceptance passes at normal speed and 6x
+CPU throttling. Both throttled uninstall clicks now occur with no remaining
+disclosure animation. Typecheck and syntax/whitespace checks pass, as do all
+15 motion-helper tests and 39 CI policy/runner tests (one platform skip).
+The before/after diagnostic logs and probe are ignored local evidence under
+`Desktop/test-results/ci190-capabilities-*`; the original cloud screenshots
+are in `Desktop/test-results/ci190-capabilities-41869558982`.
+
+The same head's macOS run `41869558871` did not acquire a hosted ARM64 runner.
+GitHub reports capacity constraints and no preparation steps executed; the
+dependent gate correctly failed. This is neither a macOS product failure
+nor a passing native acceptance receipt. Replacement current-head cloud
+execution remains required. No package or shortcut was changed.
+
 ## PR #190 First-run Main Synchronization (2026-11-05)
 
 Merged main `5d35c81` (PR #189 first-run preview) into the BTW branch.

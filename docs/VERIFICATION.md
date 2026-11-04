@@ -1,5 +1,29 @@
 # Verification
 
+## PR #189 macOS packaged interaction synchronization (2026-11-04)
+
+The punctuation-only head `192c2f6` passed every Windows group and all three
+macOS source groups. macOS packaged acceptance failed in two unchanged scripts:
+`verify-appearance.mjs` immediately cancelled a rapidly reopened accent editor,
+and `verify-plan-review.mjs` sampled a native drag's intermediate height.
+These results do not establish a punctuation regression or a runner outage.
+
+The accent verifier now uses the existing `settleLayout` helper before ordinary
+pointer actions, including after its intentional mid-exit reopen. The native
+closing-transition, retained-instance, fresh-instance and saved-value assertions
+are unchanged. Cancellation must visibly close the disclosure and remove the
+editor. The Plan verifier settles the drawer before measuring its drag origin,
+waits for pointer-down state, and verifies rendered 10/20/35px displacements
+before releasing the pointer. Its original intermediate-height assertion,
+approval safety, stale-snapshot, expiry and restart checks remain intact.
+Both verifiers retain failure diagnostics without changing product code,
+deadlines, CI inventories or gates.
+
+Local Windows source acceptance passes for both updated scripts, including
+appearance at 6x CPU throttling. Typecheck and 30 CI policy/runner tests pass
+with one platform skip. These results do not substitute for native macOS or
+packaged acceptance; replacement cloud checks are pending.
+
 ## First-run onboarding preview (2026-11-04)
 
 `Desktop/tests/fixtures/first-run.html` is an isolated design preview, not a

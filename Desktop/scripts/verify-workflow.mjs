@@ -168,7 +168,7 @@ try {
   await selectedAgent.scrollIntoViewIfNeeded();
   const scrollBefore = await overviewScroll.evaluate(element => element.scrollTop);
   await selectedAgent.click();
-  await panel.getByRole('button', { name: '代理', exact: true }).waitFor();
+  await panel.getByRole('button', { name: '代理详情', exact: true }).waitFor();
   await panel.locator('.subagent-task').waitFor();
   assert.match(await panel.locator('.subagent-task').innerText(), /主体与合作关系/);
   await page.screenshot({ path: 'test-results/workflow-agent-running-dark.png' });

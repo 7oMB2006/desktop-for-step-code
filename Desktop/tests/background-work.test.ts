@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { backgroundState, hasBackgroundWork } from '../electron/background-work';
+import { backgroundLaneStates, backgroundState, hasBackgroundWork } from '../electron/background-work';
+
+test('native lane identities are bounded and projected without accepting history metadata', () => {
+  assert.deepEqual(backgroundLaneStates(JSON.stringify({ version: 1, parentActive: true,
+    lanes: [{ id: 'lane_12345678', status: 'settling', sessionFile: 'private' }] })),
+  { parentActive: true, lanes: [{ id: 'lane_12345678', status: 'settling' }] });
+  assert.equal(backgroundLaneStates(JSON.stringify({ version: 1,
+    lanes: Array.from({ length: 25 }, (_, index) => ({ id: `lane_${index.toString(16).padStart(8, '0')}`, status: 'running' })) })), undefined);
+  assert.equal(backgroundLaneStates(JSON.stringify({ version: 1,
+    lanes: Array.from({ length: 2 }, () => ({ id: 'lane_12345678', status: 'running' })) })), undefined);
+});
 
 test('only a valid empty native snapshot releases background ownership', () => {
   assert.deepEqual(backgroundState(JSON.stringify({ version: 1, lanes: [] })), { active: false, parentActive: false });

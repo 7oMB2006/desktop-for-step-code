@@ -100,6 +100,8 @@ import { RightPanelHandle } from './RightPanelHandle';
 import type { RightPanelWidth } from './RightPanelWidthControl';
 import type { FilePreviewData, FileTarget } from './contracts';
 import { SubagentPanel } from './SubagentPanel';
+import { backgroundAgentPresentation } from './BackgroundAgentPresentation';
+import type { BackgroundAgentSelection } from './background-agents';
 import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
 import { currentTurnWorkflows, workflowsFromMessages, workflowIsActive } from './workflow-state';
@@ -270,9 +272,12 @@ function App() {
     setDetails(''); setRightPanel('browser');
   }, [rightPanel, details]);
   const [selectedSubagent, setSelectedSubagent] = useState<SubagentTaskKey | null>(null);
-  const [subagentView, setSubagentView] = useState<'overview' | 'agent'>('agent');
+  const [subagentView, setSubagentView] = useState<'overview' | 'agent' | 'background'>('agent');
+  const [selectedBackgroundLane, setSelectedBackgroundLane] = useState<string>();
+  const [selectedBackgroundAgent, setSelectedBackgroundAgent] = useState<BackgroundAgentSelection>();
   const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null);
   const [selectedWorkflowAgent, setSelectedWorkflowAgent] = useState<string | null>(null);
+  useEffect(() => { setSelectedBackgroundAgent(undefined); }, [data.runtimeId, data.state?.sessionId]);
   const workflows = useMemo(() => workflowsFromMessages(data.messages, busy), [data.messages, busy]);
   const turnWorkflows = useMemo(() => currentTurnWorkflows(data.messages, busy), [data.messages, busy]);
   const runningWorkflow = busy ? [...turnWorkflows].reverse().find(flow => workflowIsActive(flow.status)) : undefined;
@@ -287,6 +292,7 @@ function App() {
   const openWorkflow = useCallback((id: string) => {
     const same = rightPanel === 'subagent' && !details && subagentView === 'overview' && selectedWorkflow === id;
     if (selectedWorkflow !== id) setSelectedWorkflowAgent(null);
+    setSelectedBackgroundAgent(undefined);
     setSelectedWorkflow(id); setSubagentView('overview'); setDetails(''); setRightPanel(same ? null : 'subagent');
   }, [rightPanel, details, subagentView, selectedWorkflow]);
   const [repositoryRequest, setRepositoryRequest] = useState<{ runtimeId?: string; sequence: number }>();
@@ -294,14 +300,14 @@ function App() {
   // updating instead of freezing on the status captured when the row was clicked.
   const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent), [data.messages, selectedSubagent]);
   const openSubagent = useCallback((task: SubagentTask) => {
-    const alreadyOpen = rightPanel === 'subagent' && !details && subagentView === 'agent' && !selectedWorkflowAgent
+    const alreadyOpen = rightPanel === 'subagent' && !details && subagentView === 'agent' && !selectedWorkflowAgent && !selectedBackgroundAgent
       && selectedSubagent?.toolCallId === task.toolCallId && selectedSubagent?.taskIndex === task.taskIndex
       && selectedSubagent?.agent === task.agent && selectedSubagent.task === task.task;
     setSelectedSubagent({ agent: task.agent, task: task.task, toolCallId: task.toolCallId, taskIndex: task.taskIndex });
-    setSubagentView('agent'); setSelectedWorkflowAgent(null);
+    setSubagentView('agent'); setSelectedWorkflowAgent(null); setSelectedBackgroundAgent(undefined);
     setDetails('');
     setRightPanel(alreadyOpen ? null : 'subagent');
-  }, [rightPanel, details, selectedSubagent, subagentView, selectedWorkflowAgent]);
+  }, [rightPanel, details, selectedSubagent, subagentView, selectedWorkflowAgent, selectedBackgroundAgent]);
   const [summarySpace, setSummarySpace] = useState(false);
   const appLayout = useRef<HTMLDivElement>(null);
   const rightRail = useRef<HTMLElement>(null);
@@ -594,6 +600,8 @@ function App() {
     setSearchLocation(undefined);
     // A subagent record belongs to the session that spawned it; switching must not leave it open.
     setSelectedSubagent(null);
+    setSelectedBackgroundLane(undefined);
+    setSelectedBackgroundAgent(undefined);
     setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
     if (switching.current) return;
     switching.current = true; setLoading(true);
@@ -619,7 +627,7 @@ function App() {
     readingRestore.current = undefined;
     switching.current = true; setLoading(true);
     setNavigationTarget({ session, reading }); setError(''); setRequests([]);
-    setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); setRightPanel(null); setContextMenu(null);
+    setSelectedSubagent(null); setSelectedBackgroundLane(undefined); setSelectedBackgroundAgent(undefined); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); setRightPanel(null); setContextMenu(null);
     setQueuePreviewOpen(false); setLiveChangesOpen(false);
     if (!reading && !cronRuntimeId && bridge.sessionReading) void bridge.sessionReading(session.id).then(value => {
       const pending = navigationPending.current;
@@ -1485,7 +1493,7 @@ function App() {
           const value = await bridge.moveSessionToProject(sessionMove.session.id, destination);
           readingCache.current.delete(sessionMove.session.id);
           installSnapshot(value); setSessionMove(null);
-          if (activeMove) { setDetails(''); setRightPanel(null); setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); }
+          if (activeMove) { setDetails(''); setRightPanel(null); setSelectedSubagent(null); setSelectedBackgroundLane(undefined); setSelectedBackgroundAgent(undefined); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); }
           setNotice({ id: ++nextNoticeId.current, message: t('会话已移至目标项目', 'Conversation moved to the destination project'), type: 'info' });
           const id = sessionMove.session.id;
           requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`.session-row[data-reorder-id="${CSS.escape(id)}"] > button`)?.focus());
@@ -1922,11 +1930,14 @@ function App() {
     <SubagentPanel open={visibleRightPanel === 'subagent' && !details}
       replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'btw' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'subagent'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'subagent')}
-      overlay={!summarySpace} task={openSubagentTask} language={data.preferences.language}
+      overlay={!summarySpace} task={openSubagentTask} language={data.preferences.language} backgroundPresentation={backgroundAgentPresentation}
+      runtimeId={data.runtimeId} sessionId={data.state?.sessionId} connected={connected}
+      selectedLaneId={selectedBackgroundLane} onBackground={id => { setSelectedBackgroundLane(id); setSelectedBackgroundAgent(undefined); setSubagentView('background'); }}
+      backgroundAgent={selectedBackgroundAgent} onBackgroundAgent={selection => { setSelectedBackgroundAgent(selection); setSubagentView('agent'); }}
       workflows={workflows} workflowId={selectedWorkflow} view={subagentView} agentId={selectedWorkflowAgent}
       onView={view => { if (view === 'overview' && !selectedWorkflow && latestWorkflow) setSelectedWorkflow(latestWorkflow.toolCallId); setSubagentView(view); }}
-      onWorkflow={id => { setSelectedWorkflow(id); setSelectedWorkflowAgent(null); }}
-      onAgent={id => { setSelectedWorkflowAgent(id); setSubagentView('agent'); }}
+      onWorkflow={id => { setSelectedWorkflow(id); setSelectedWorkflowAgent(null); setSelectedBackgroundAgent(undefined); }}
+      onAgent={id => { setSelectedWorkflowAgent(id); setSelectedBackgroundAgent(undefined); setSubagentView('agent'); }}
       openImage={openImage} onClose={closeRightPanel} onError={setError}/>
     <div className={`summary-track ${visibleRightPanel === 'context' && contextWidth === 'wide' ? 'is-context-wide' : ''} ${inspectionOpen && summarySpace && !details ? 'is-docked' : ''} ${visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || details ? 'is-replaced' : ''}`}>
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
@@ -1970,9 +1981,12 @@ function App() {
         }}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>
       <IconButton title={t('文件预览', 'File preview')} data-tooltip-side="left" aria-controls="file-panel" aria-pressed={!details && visibleRightPanel === 'file'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'file' ? null : 'file'); }}><FileText size={18}/></IconButton>
-        <IconButton title={t('子代理', 'Subagents')} data-workflow-running={Boolean(runningWorkflow) || undefined} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent && !latestWorkflow} onClick={() => {
+        <IconButton title={t('子代理', 'Subagents')} data-workflow-running={Boolean(runningWorkflow || data.runtimes?.some(runtime => runtime.runtimeId === data.runtimeId && runtime.backgroundCount)) || undefined} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent && !latestWorkflow && !connected} onClick={() => {
           if (!details && visibleRightPanel === 'subagent') { setRightPanel(null); return; }
-          if (latestWorkflow) { setSelectedWorkflow(latestWorkflow.toolCallId); setSubagentView('overview'); setSelectedWorkflowAgent(null); }
+          setSelectedBackgroundAgent(undefined);
+          if (data.runtimes?.some(runtime => runtime.runtimeId === data.runtimeId && runtime.backgroundCount)) { setSelectedBackgroundLane(undefined); setSubagentView('background'); }
+          else if (latestWorkflow) { setSelectedWorkflow(latestWorkflow.toolCallId); setSubagentView('overview'); setSelectedWorkflowAgent(null); }
+          else { setSelectedBackgroundLane(undefined); setSubagentView('background'); }
           setDetails(''); setRightPanel('subagent');
         }}><Bot size={18}/></IconButton>
       <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-controls="conversation-navigation-panel" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
@@ -2056,7 +2070,7 @@ function App() {
         onChanged={async () => { setSettings(await bridge!.settings()); }}
         onRestart={async () => {
           const next = await bridge!.restart();
-          setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
+          setSelectedSubagent(null); setSelectedBackgroundLane(undefined); setSelectedBackgroundAgent(undefined); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
           installSnapshot(next);
         }}/> : null}
       </>}

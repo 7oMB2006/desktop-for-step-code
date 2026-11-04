@@ -52,6 +52,7 @@ import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
 import { clmSnapshot } from './clm';
+import { BackgroundAgents } from './background-agents';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { readWorkflowCatalog } from './workflow-catalog';
 import { workflowsFromMessages, workflowIsActive } from '../src/workflow-state';
@@ -390,6 +391,8 @@ const pendingMessages = new PendingMessages(worker => {
 }, (worker, error) => emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) }),
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
   (worker, message) => runtimes.preparePrompt(worker, message));
+const backgroundAgents = new BackgroundAgents(runtimes.workers,
+  () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending);
 const launchControls = new LaunchControls(runtimes);
 const cronBindings = new CronBindings(join(app.getPath('userData'), 'cron-bindings'));
 const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
@@ -1165,6 +1168,10 @@ async function handle(method: string, args: any[]) {
       } finally { worker.mutating = false; worker.operations--; runtimes.publish(); }
       return;
     }
+    case 'backgroundAgents':
+      return backgroundAgents.read(text(args[0], 80), text(args[1], 200));
+    case 'stopBackgroundAgent':
+      return backgroundAgents.stop(text(args[0], 80), text(args[1], 200), text(args[2], 40));
     case 'summary': {
       const worker = runtimes.require(text(args[0], 80));
       const sessionId = worker.state?.sessionId;

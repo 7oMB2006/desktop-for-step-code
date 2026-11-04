@@ -42,6 +42,11 @@ Local Windows source verification passes:
 - Adjacent native startup, first-frame/system theme, new-session draft, account
   routing/settings, custom-provider protocols and full permission-tier acceptance
   pass, including session-only versus remembered Full Access consent.
+- Existing desktop, message-order and permission-approval acceptance now explicitly
+  checks fresh-profile onboarding and skips through its real UI before continuing
+  the original assertions. The desktop relaunch case also verifies that existing
+  profiles bypass setup. All three source verifiers pass locally without changing
+  product behavior, deadlines or acceptance gates.
 
 All profiles and endpoints in native acceptance are isolated fixtures, including
 the official API/Plan transport. These checks do not establish live account sign-in,

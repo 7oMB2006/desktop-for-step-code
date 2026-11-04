@@ -59,8 +59,16 @@ from the Background tab.
 Read limits are 24 lanes, 64 steps in total, 32,000 output characters in total
 and 12,000 per step. Native omitted-step counts are preserved. Credential-like
 lines are redacted before clipping, both in the runtime projection and the
-main-process renderer projection. Child transcripts, paths, environments,
-tool arguments and raw usage/cost objects are not exposed by this RPC.
+main-process renderer projection. The main-process service requires the staged
+`desktop-subagent-redaction` capability before list or stop, preventing a
+control-only runtime from supplying output whose identifying prefix was already
+clipped away. If an internal live-output bound starts in
+the middle of a line, that unknown first fragment is omitted before display;
+later complete lines remain available. Encoded credential labels are detected
+in the Electron projection. Task, agent, model, error and output text share the
+same safe display boundary, including list previews, menus, details and
+accessibility labels. Child transcripts, paths, environments, tool arguments
+and raw usage/cost objects are not exposed by this RPC.
 The runtime retains at most its 16 recent finished lanes; older transcript
 records remain in the existing read-only Agent inspector.
 
@@ -78,15 +86,17 @@ are not changed.
 
 ## Local Verification
 
-`background-agents.test.ts` covers projection bounds/redaction, missing data,
-coalescing, stale session/worker/transport replies, transition guards,
-per-lane stop locks and native settlement. The real pinned runtime test adds
+`background-agents.test.ts` covers projection bounds/redaction, encoded free
+text, missing data, coalescing, stale session/worker/transport replies, transition
+guards, per-lane stop locks and native settlement. The real pinned runtime test adds
 two concurrent lanes, read-only/no-model queries, rejected unsupported controls,
 targeted stop while the parent runs, peer completion and filtered native output.
 
 `verify-background-agent-controls.mjs` exercises the actual Electron bridge
 and RPC with an isolated loopback model, plus explicit read/stop fault
-injection. It covers confirmation/cancel, stale rows, no retry, reload, parent
+injection. A live child streams an oversized credential-bearing first line;
+the typed snapshot and rendered detail retain the safe tail without the clipped
+credential fragment. It covers confirmation/cancel, stale rows, no retry, reload, parent
 and peer continuity, actual session navigation with a delayed outgoing read,
 read-only detail navigation, return focus/scroll, live completion, missing
 steps, narrow light/dark focus gutters and reduced motion.

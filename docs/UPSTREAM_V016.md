@@ -8,7 +8,7 @@ The official `0.1.6/manifest.json` identifies version 0.1.6 and artifact hashes,
 but does not provide a source SHA. This is not an official Git release tag or
 a claim that the source build is byte-identical to an official binary.
 
-`patches/v016/manifest.json` pins 14 shared patches and their source pre/post
+`patches/v016/manifest.json` pins 15 shared patches and their source pre/post
 images, with two additional Darwin patches. `patches/v015/` and dated 0.6.0
 release records remain unchanged. The applier supports both manifests.
 
@@ -17,6 +17,30 @@ The final `step-code-desktop-background-agents.patch` adds a narrow current-sess
 It does not upgrade the pin, expose reply, invoke a model or change the
 live-ownership lifecycle. Its bounded output reuses upstream redaction before
 clipping. See [Background controls](BACKGROUND_AGENTS.md).
+
+The following `step-code-desktop-subagent-redaction.patch` completes the
+Desktop output boundary without modifying the native lane registry or control
+RPC. Child transcripts, runner messages, chain `{previous}` values and raw
+answer hashes remain authoritative. Desktop-facing tool content, background
+notifications, parent journal facts and retained diagnostics use filtered
+copies. Live text, tool arguments and tool output track whether an internal
+size bound begins mid-line; display projections omit that unknown first
+fragment rather than exposing a value whose credential label was clipped.
+Cancelled-dialog titles and task descriptions are filtered before their first
+size bound. Ordinary CLI output keeps its existing policy.
+
+Desktop also projects typed historical notifications and subagent tool results
+into safe render/copy copies while preserving source messages and lifecycle
+identity. Trusted `subagent` and `agent_send` tool inputs use recursive safe
+copies only when a string changes; clean calls keep their original object
+identity. The current-runtime Background service refuses list/stop requests
+unless the staged manifest advertises `desktop-subagent-redaction`, so a newer
+Desktop cannot silently consume output from a control-only runtime. XML-looking
+ordinary user or assistant text is not treated as a notification. Existing
+journals and retained files are not rewritten, and completed-answer facts are
+not complete child transcripts.
+The staged runtime advertises `desktop-subagent-redaction`; clients must not
+claim this boundary from a control-only runtime.
 
 ## Upstream Overlay
 
@@ -75,8 +99,9 @@ Desktop treats foreground idleness and background ownership separately:
   transport disposal; these internal payloads are not rendered as status text.
 
 The existing transcript projection continues to update each original lane by
-identity. New lane-management controls, Workflow catalog UI, full-text search
-UI, `/btw`, recent models and Lark UI are not included in this workstream.
+identity. The separate background-controls patch adds bounded list/stop controls;
+Workflow catalog UI, full-text search UI, `/btw`, recent models and Lark UI are
+not included in the original ownership workstream.
 
 ## Acceptance Boundary
 

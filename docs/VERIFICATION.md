@@ -1,5 +1,85 @@
 # Verification
 
+## Desktop subagent output boundary on background controls main (2026-11-04, local uncommitted candidate)
+
+The candidate is rebased on main `5d35c814`, after the native Background view
+and first-run preview. It preserves the owner-reviewed
+`step-code-desktop-background-agents.patch` byte-for-byte and adds a separate
+final `step-code-desktop-subagent-redaction.patch`. The source pin, two upstream
+overlays, preceding 14 Desktop patches, Darwin additions, scheduler policy and
+runtime authority are unchanged. Staging advertises
+`desktop-subagent-redaction` in addition to the existing lifecycle/control
+capabilities.
+
+Test-first migration on the owner baseline found nine remaining runtime safety
+failures and seven historical display/copy failures; three projection cases
+were already green and were not reimplemented. The native control view also
+failed an encoded-free-text projection test, and a real running background
+child exposed an oversized credential value after the live accumulator clipped
+away its key prefix. The migrated candidate filters Desktop-facing copies before
+their first bound, tracks whether live text/tool fields start mid-line and drops
+that unknown first fragment while preserving later complete lines. Child
+transcripts, runner records, chain `{previous}` inputs, lane identities, stop
+arguments and raw answer hashes remain unchanged. Ordinary CLI behavior is
+covered by explicit controls.
+
+Focused runtime coverage passes 112 tests across six files after whole-workspace
+type checking. Temporarily disabling the outbound policy restores the original
+tool/notification/retention failures; replacing the partial-line projection
+with ordinary line filtering makes all three activeText/tool-argument/tool-output
+tail tests fail. Cancelled child dialog titles are filtered before their first
+200-character bound. Runtime and Desktop display helpers preserve CRLF and useful
+text; encoded and deeply encoded credential labels fail closed with bounded
+decoding.
+
+The 15-patch manifest applies from a fresh `81e79bc4b` checkout. The owner tree
+and reviewed safety tree are captured as Git trees; fresh replay equals the
+safety tree byte-for-byte. Existing 14 patch hashes, existing source preimages,
+the upstream overlay and Darwin platform declarations are unchanged. A
+synthetic preimage failure unwinds all applied patches and preserves only the
+injected pre-existing edit. The final offline monorepo build succeeds. Staging
+with Windows Node v24.16.0 records every required patched source hash and the
+new capability.
+
+Three real Electron/loopback acceptances pass against the staged replay. The
+chain verifier retains foreground success/failure/cancellation and drives a real
+detached child whose parent turn ends before release; parent-visible notification,
+authoritative message/detail, chat render and copy output keep ordinary markers
+without the synthetic secret, while notification-looking user prose remains
+unchanged. The production Agent inspector verifies safe task labels without
+rewriting authoritative task identity. The native Background controls verifier
+drives two real lanes, including a running oversized sensitive first line; list
+RPC and rendered details expose the safe tail without the clipped credential
+fragment, then retain targeted stop, peer completion, reload and session-isolation
+assertions.
+
+The runtime manifest advertises `desktop-subagent-redaction`. Main-process
+Background list/stop fails closed before any RPC call when that capability is
+absent; a control-only runtime therefore cannot silently bypass the early-tail
+boundary. Trusted `subagent` and `agent_send` call arguments use safe display
+copies, including sensitive object keys, while clean calls retain the original
+object reference and authoritative history stays unchanged. The guard is
+covered both ways: a real staged control-capable runtime passes its control
+scenario, while a service without the redaction capability rejects list and
+stop before any RPC call.
+
+Desktop type checking, the focused runtime/staging/display suites and 30 CI
+policy/runner tests pass (one platform skip). The complete serial Desktop suite
+collects 847 tests: 832 pass, 14 platform skips and one failure. The failure is
+the unchanged file-URL Git marketplace clone/update test. An isolated direct
+call reproduces Git Bash `sh.exe` failing to create its MSYS named object with
+`NtCreateDirectoryObject ... 0xC0000022` before reading the fixture repository;
+the marketplace implementation is outside this change. The failure remains
+visible and no timeout, assertion or CI inventory is weakened.
+
+Limitations: this is local uncommitted source/fixture evidence, not cloud CI,
+installed-package, native macOS, real-account, paid-model or release-readiness
+evidence. Existing raw journals/retained files are not rewritten; an old fragment
+whose credential label was already lost cannot be reconstructed. A separate
+model review was unavailable due to provider rate limits. Background reply,
+snapshot generation and offline historical-liveness work remains separate; this
+security patch does not complete TODO Background subagents [I] or [II].
+
 ## PR #189 macOS packaged interaction synchronization (2026-11-04)
 
 The punctuation-only head `192c2f6` passed every Windows group and all three

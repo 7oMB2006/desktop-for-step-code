@@ -114,6 +114,8 @@ export const localOnly = [
   'verify-clm-preview.mjs',
   // Mock-data search preview; requires a local Vite server, not runtime integration acceptance.
   'verify-fulltext-search-preview.mjs',
+  // Standalone first-run design preview; no production onboarding integration is shipped.
+  'verify-first-run-preview.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

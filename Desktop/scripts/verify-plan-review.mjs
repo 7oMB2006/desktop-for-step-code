@@ -7,10 +7,12 @@ import { join, resolve, dirname } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const text = value => typeof value === 'string' ? value : value?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
 const requests = [];
 const anchorChecks = [];
+const dragChecks = [];
 const initialProposal = process.env.DESKTOP_VERIFY_PLAN_FILE
   ? await readFile(process.env.DESKTOP_VERIFY_PLAN_FILE, 'utf8')
   : '# Proposal\n\nCreate approved.txt after approval.\n\nValidation: inspect the file.\nEND OF PROPOSAL';
@@ -115,20 +117,34 @@ try {
   assert.equal(await dialog.getAttribute('aria-modal'), 'false');
   await dialog.locator('h1').waitFor();
   assert.equal(await page.locator('.modal-backdrop').count(), 0);
+  await settleLayout(dialog);
   const compactHeight = (await dialog.boundingBox()).height;
   assert.equal(await page.locator('.composer-underlay').evaluate(el => getComputedStyle(el).visibility), 'hidden', 'Drawer covers the entire composer including runtime metrics');
   const grip = dialog.getByRole('button', { name: '调整计划批阅高度', exact: true });
   const gripBounds = await grip.boundingBox();
   await page.mouse.move(gripBounds.x + gripBounds.width / 2, gripBounds.y + gripBounds.height / 2);
   await page.mouse.down();
-  await page.mouse.move(gripBounds.x + gripBounds.width / 2, gripBounds.y + gripBounds.height / 2 - 35, { steps: 4 });
+  await page.waitForFunction(() => document.querySelector('.plan-review-drawer')?.getAttribute('data-dragging') === 'true');
+  for (const distance of [10, 20, 35]) {
+    await page.mouse.move(gripBounds.x + gripBounds.width / 2, gripBounds.y + gripBounds.height / 2 - distance);
+    // Native input dispatch may finish before React commits the pointer update.
+    await page.waitForFunction(({ compactHeight, distance }) => {
+      const drawer = document.querySelector('.plan-review-drawer');
+      return drawer?.getAttribute('data-dragging') === 'true'
+        && Math.abs(drawer.getBoundingClientRect().height - compactHeight - distance) < 1;
+    }, { compactHeight, distance });
+    const height = (await dialog.boundingBox()).height;
+    dragChecks.push({ compactHeight, distance, height });
+    assert.ok(Math.abs(height - compactHeight - distance) < 1, `Dragging follows the ${distance}px pointer displacement`);
+  }
   const dragSize = (await dialog.boundingBox()).height;
   assert.ok(dragSize > compactHeight + 15 && dragSize < compactHeight + 55, 'Dragging changes height continuously rather than switching instantly');
   await page.mouse.up();
-  await page.waitForTimeout(220);
+  await page.waitForFunction(() => document.querySelector('.plan-review-drawer')?.getAttribute('data-dragging') === 'false');
+  await settleLayout(dialog);
   await dialog.getByRole('button', { name: '调整计划批阅高度', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.plan-review-drawer')?.getAttribute('data-size') === 'expanded');
-  await page.waitForTimeout(220);
+  await settleLayout(dialog);
   assert.ok((await dialog.boundingBox()).height > compactHeight * 1.5);
   await dialog.getByRole('button', { name: '稍后批阅', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
@@ -362,8 +378,13 @@ try {
   if (page) {
     await page.screenshot({ path: 'test-results/plan-review-failure.png' }).catch(() => {});
     const snapshot = await page.evaluate(() => window.desktop.snapshot()).catch(() => undefined);
+    const drawer = await page.locator('.plan-review-drawer').evaluate(element => ({
+      height: element.getBoundingClientRect().height, styleHeight: element.style.height,
+      dragging: element.dataset.dragging, size: element.dataset.size,
+      transform: getComputedStyle(element).transform,
+    })).catch(() => undefined);
     console.error('Plan acceptance diagnostic', JSON.stringify({
-      error: String(error), anchorChecks, stage, providerCalls: requests.length, launch: snapshot?.launch, state: snapshot?.state,
+      error: String(error), anchorChecks, dragChecks, drawer, stage, providerCalls: requests.length, launch: snapshot?.launch, state: snapshot?.state,
       pendingRequests: snapshot?.requests?.map(r => ({ id: r.id, method: r.method })),
       lastResult: text(snapshot?.messages?.at(-1)?.content),
     }));

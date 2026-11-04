@@ -42,11 +42,13 @@ Local Windows source verification passes:
 - Adjacent native startup, first-frame/system theme, new-session draft, account
   routing/settings, custom-provider protocols and full permission-tier acceptance
   pass, including session-only versus remembered Full Access consent.
-- Existing desktop, message-order and permission-approval acceptance now explicitly
-  checks fresh-profile onboarding and skips through its real UI before continuing
-  the original assertions. The desktop relaunch case also verifies that existing
-  profiles bypass setup. All three source verifiers pass locally without changing
-  product behavior, deadlines or acceptance gates.
+- Existing desktop, message-order, permission-approval and StepPage registration
+  acceptance explicitly checks fresh-profile onboarding and skips through its real
+  UI before continuing the original assertions. Desktop and StepPage relaunches
+  also verify that existing profiles bypass setup. The StepPage fixture explicitly
+  identifies its four fresh-profile launches instead of seeding configuration to
+  hide onboarding; its registration, disable, migration and idempotence checks
+  remain unchanged. Product behavior, deadlines and acceptance gates are unchanged.
 
 All profiles and endpoints in native acceptance are isolated fixtures, including
 the official API/Plan transport. These checks do not establish live account sign-in,

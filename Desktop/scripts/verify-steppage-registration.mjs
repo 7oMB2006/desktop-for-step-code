@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { skipFirstRunFixture } from './session-fixture.mjs';
 
 const serverName = 'steppage__steppage';
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
@@ -35,7 +36,7 @@ const reportFailure = async (profile) => {
   }
 };
 
-const launchCase = async (profile, bundlePath) => {
+const launchCase = async (profile, bundlePath, { fresh = false } = {}) => {
   phase = `launch ${++launchNumber}`;
   console.log(`StepPage acceptance: ${phase}`);
   const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', DESKTOP_STEPPAGE_BUNDLE: bundlePath };
@@ -49,9 +50,11 @@ const launchCase = async (profile, bundlePath) => {
     });
     phase = `launch ${launchNumber}: window ready`;
     const page = await app.firstWindow();
+    if (fresh) await skipFirstRunFixture(page);
     await page.locator('.app').waitFor();
     phase = `launch ${launchNumber}: runtime snapshot`;
-    await page.evaluate(() => window.desktop.snapshot());
+    const snapshot = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(snapshot.firstRun?.required, false);
     phase = `launch ${launchNumber}: settings`;
     const settings = await page.evaluate(() => window.desktop.settings());
 
@@ -87,7 +90,7 @@ const runCases = async () => {
 {
   const profile = await makeProfile(); profiles.push(profile);
   const bundle = await writeFakeBundle(profile);
-  const mcp = await launchCase(profile, bundle);
+  const mcp = await launchCase(profile, bundle, { fresh: true });
   assert.ok(mcp[serverName], `server ${serverName} must be registered when the bundle exists`);
   assert.equal(mcp[serverName].command, expectedCommand, 'command must be the staged runtime node');
   assert.deepEqual(mcp[serverName].args ?? [], [bundle], 'args must point at the bundle');
@@ -123,7 +126,7 @@ const runCases = async () => {
 // 4. No bundle: nothing registered, builtin behaviour unchanged.
 {
   const profile = await makeProfile(); profiles.push(profile);
-  const mcp = await launchCase(profile, join(profile, 'no-such-bundle.mjs'));
+  const mcp = await launchCase(profile, join(profile, 'no-such-bundle.mjs'), { fresh: true });
   assert.ok(!(serverName in mcp), 'no bundle must mean no registration');
   console.log('case 4 ok: no bundle, no registration');
 }
@@ -148,7 +151,7 @@ const runCases = async () => {
 {
   const profile = await makeProfile(); profiles.push(profile);
   const bundle = await writeFakeBundle(profile);
-  const first = await launchCase(profile, bundle);
+  const first = await launchCase(profile, bundle, { fresh: true });
   assert.equal(first[serverName]?.command, expectedCommand, 'first launch must register the staged node');
   const configPath = join(profile, 'step-runtime', 'config.toml');
   const written = await readFile(configPath, 'utf8');
@@ -185,7 +188,7 @@ const runCases = async () => {
 {
   const profile = await makeProfile(); profiles.push(profile);
   const bundle = await writeFakeBundle(profile);
-  await launchCase(profile, bundle);
+  await launchCase(profile, bundle, { fresh: true });
   const written = await configOf(profile);
   await writeFile(join(profile, 'step-runtime', 'config.toml'),
     written.replace(`[mcp_servers.${serverName}]`, '[mcp_servers.steppage]')

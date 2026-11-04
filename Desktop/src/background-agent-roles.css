@@ -1,0 +1,27 @@
+.agent-role-label { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; vertical-align: middle; }
+.agent-role-label > svg { color: var(--ink); }
+.agent-role-label > code { color: var(--muted); font-size: 10px; font-weight: 400; }
+.agent-role-step { padding-top: 2px; }
+.agent-role-current { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 4px 0 18px; font-size: 11px; color: var(--muted); }
+.agent-role-current strong { color: var(--primary); font-size: 11px; font-weight: 500; }
+.agent-role-output-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 14px; }
+.agent-role-output-head h4 { margin: 0; color: var(--ink); font-size: 12px; }
+.agent-role-output-head small { font-size: 10px; }
+.agent-role-output { padding-bottom: 16px; font-size: 12px; line-height: 1.8; }
+.agent-role-output h3 { font-size: 12px; margin: 18px 0 7px; font-weight: 600; line-height: 1.6; }
+.agent-role-output h3:first-child { margin-top: 0; }
+.agent-role-output p { margin-bottom: 12px; }
+.agent-role-output ul { padding-left: 18px; margin-block: 8px 14px; }
+.agent-role-output li + li { margin-top: 6px; }
+.agent-role-output code { font-size: 11px; overflow-wrap: anywhere; }
+.agent-role-empty, .agent-role-wait { margin: 8px 0 18px; color: var(--muted); font-size: 11px; }
+.agent-role-runtime { border-top: 1px solid var(--border); margin: 4px 0 0; }
+.agent-role-runtime > summary { min-height: 40px; display: flex; align-items: center; gap: 8px; padding: 8px 4px; list-style: none; cursor: pointer; color: var(--muted); font-size: 11px; border-radius: 4px; }
+.agent-role-runtime > summary::-webkit-details-marker { display: none; }
+.agent-role-runtime > summary:hover { background: var(--surface); color: var(--ink); }
+.agent-role-runtime > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.agent-role-model { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.agent-role-disclosure { display: inline-flex; flex-shrink: 0; transition: transform 240ms cubic-bezier(.215,.61,.355,1); }
+.agent-role-runtime[data-expanded="true"] .agent-role-disclosure { transform: rotate(180deg); }
+.agent-role-runtime .background-agent-metrics { padding: 4px; margin: 4px 0 14px; }
+@media (prefers-reduced-motion: reduce) { .agent-role-disclosure { transition: none; } }

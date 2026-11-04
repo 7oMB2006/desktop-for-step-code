@@ -8,9 +8,15 @@ The official `0.1.6/manifest.json` identifies version 0.1.6 and artifact hashes,
 but does not provide a source SHA. This is not an official Git release tag or
 a claim that the source build is byte-identical to an official binary.
 
-`patches/v016/manifest.json` pins 13 shared patches and their source pre/post
+`patches/v016/manifest.json` pins 14 shared patches and their source pre/post
 images, with two additional Darwin patches. `patches/v015/` and dated 0.6.0
 release records remain unchanged. The applier supports both manifests.
+
+The final `step-code-desktop-background-agents.patch` adds a narrow current-session
+`desktop_subagents` list/stop RPC over the existing native `agent_send` tool.
+It does not upgrade the pin, expose reply, invoke a model or change the
+live-ownership lifecycle. Its bounded output reuses upstream redaction before
+clipping. See [Background controls](BACKGROUND_AGENTS.md).
 
 ## Upstream Overlay
 

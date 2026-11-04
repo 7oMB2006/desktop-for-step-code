@@ -32,10 +32,15 @@ was found.
 
 The 0.6.0 release baseline retains v0.1.5 and `patches/v015/`; both patch sets remain
 replayable. The v016 set copies shared patches rather than modifying historical
-patches. Its final compatibility patch supplies live RPC background-lane state,
+patches. Its v016 compatibility patch supplies live RPC background-lane state,
 keeps the host while final notifications settle, and updates the migrated code
 to upstream's formatting and `.ts` import checks. Session import now uses native
 `SessionFilePersistedEvent`; it does not replace the new session-index service.
+
+The subsequent `step-code-desktop-background-agents.patch` adds a bounded,
+redacted `desktop_subagents` list/stop RPC over native `agent_send`, without
+model calls, transcript writes or reply support. It shares the existing live
+ownership and notification handoff, not a second task registry.
 
 Development Windows/macOS builds select the same v016 base.
 The v016 bundle also supplies module-relative CommonJS filename globals so the

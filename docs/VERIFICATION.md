@@ -5546,3 +5546,72 @@ including their orderly shutdown and persisted-history checks.
 The full local interface group could not run because this machine lacks the
 matching Playwright Chromium headless binary. Cloud CI must validate the full
 group; no fresh package or cloud success is claimed by these local checks.
+
+## Background Agent Controls (2026-11-03)
+
+The Subagents inspector adds a Background tab over the native lane registry.
+A narrow current-session `desktop_subagents` list/stop RPC calls the registered
+`agent_send` tool without prompts, model requests or conversation writes.
+The v0.1.6 pin and the two existing upstream overlays are unchanged. The new
+hashed Desktop patch reuses native ownership and settlement; it does not add
+reply support or infer running work from saved messages.
+
+Local Windows source verification passed:
+
+- Typecheck and production build.
+- Complete serial Desktop suite: 830 tests, 816 passed and 14 platform skips.
+- Focused control/lifecycle/staging suite: 89 passed, including three real
+  pinned-runtime cases for background completion, suspension and targeted stop.
+- CI inventory, policy and runner tests: 30 passed and one platform skip.
+- Real Electron background controls, background notification records,
+  subagent status animation and Workflow acceptance.
+- Clean pinned patch replay with pre/post-image hashes and source whitespace
+  validation.
+
+The native cases verify read-only queries with no model calls or JSONL changes,
+session/action/lane rejection, targeted stop while the parent remains active,
+independent peer completion, credential filtering and native settlement.
+Electron uses isolated profiles and a loopback model through the actual preload,
+IPC and RPC. It covers confirmation/cancel, stale records with disabled stopping,
+unconfirmed stop without retry, pending-stop deduplication, parent/peer
+continuity, reload and actual session navigation with a delayed outgoing query.
+Old query results do not enter the newly selected session. Light/dark narrow
+focus gutters and reduced-motion disclosures also pass.
+
+The browser preview reuses the production inspector, with explicit sample data
+and failure/empty/disconnected/slow scenarios. Desktop and 390px layouts were
+checked; the temporary viewport override was reset. Large build/runtime
+artifacts remain isolated under the three `output/background-agent-*-20261103`
+directories on D:, without changing the installed app or desktop shortcut.
+No installer, cloud CI, native macOS or real-account acceptance is claimed.
+
+### Role Views And Sibling Detail Navigation
+
+The role-specific output presentation is shared by production and preview;
+only sample records remain in the fixture directory. Native role names stay
+visible, unknown roles retain a generic layout, and model/token metrics are
+default-collapsed. No structured findings or verification verdicts are inferred
+from output text. Parallel and chained steps retain their native ordinal.
+
+The header detail action is outside the task disclosure and its inert body,
+so a collapsed task can open details without expanding. Multi-step tasks use
+the shared anchored menu to select by lane ID and native step index, including
+same-role agents. Returning restores expansion, list scroll and trigger focus.
+A missing step is never replaced with another agent.
+
+After connecting this production presentation, typecheck, build and the real
+Electron control acceptance passed again. The browser checks passed single and
+parallel collapsed entry points, missing steps, return state, five roles, the
+original layout comparison, loading/error/empty states, reduced motion, 390px
+light/dark and 320px English layouts with four-sided focus gutters. This is
+Windows source/preview verification, not installer, macOS or account acceptance.
+
+### Latest Main Integration
+
+Rebased onto main `2febc93`, preserving PR #187's model favorites and search.
+The complete serial Desktop suite passed with 836 tests: 822 passed and 14
+platform skips, including all three real pinned-runtime background cases.
+CI inventory/policy/runner checks passed 39 tests with one platform skip.
+Typecheck, production build, real Electron background controls and Workflow
+acceptance passed again after integration. These local results do not replace
+the new PR's cloud CI, native macOS or installer acceptance.

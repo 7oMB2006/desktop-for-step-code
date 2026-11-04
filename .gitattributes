@@ -1,3 +1,4 @@
 # Unified-diff context prefixes are syntax, not source indentation.
 patches/*.patch whitespace=-blank-at-eol,-space-before-tab
 patches/v015/*.patch whitespace=-blank-at-eol,-space-before-tab
+patches/v016/*.patch whitespace=-blank-at-eol,-space-before-tab

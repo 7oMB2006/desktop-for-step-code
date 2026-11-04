@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, X } from 'lucide-react';
+import { ArrowUpRight, ChevronRight, X } from 'lucide-react';
 import type { Message } from './contracts';
 import type { SubagentTask } from './conversation-presentation';
 import { responsePresentation } from './conversation-presentation';
@@ -15,6 +15,8 @@ import { WorkflowAgentDetail, WorkflowOverview } from './WorkflowView';
 import { AppMenu } from './AppMenu';
 import { DisclosureChevron } from './DisclosureChevron';
 import { workflowCount, workflowIcon } from './workflow-state';
+import { BackgroundAgentsView, type BackgroundAgentPresentation } from './BackgroundAgentsView';
+import type { BackgroundAgentClient, BackgroundAgentSelection } from './background-agents';
 
 function SubagentTranscript({ task, ...props }: { task: SubagentTask } & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
   // A child call's arguments and result text are new surfaces here, so credentials, cookies and
@@ -37,7 +39,8 @@ function SubagentTranscript({ task, ...props }: { task: SubagentTask } & Pick<Pa
   </>;
 }
 
-function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
+function SubagentContent({ task, onBackground, ...props }: { task: SubagentTask; onBackground?: () => void }
+  & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
   const zh = props.language === 'zh';
   const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'queued' ? 'pending' : task.status === 'skipped' ? 'skipped' : task.status === 'aborted' ? 'stopped' : 'failed';
   const status = task.status === 'aborted' ? zh ? '已终止' : 'Stopped'
@@ -56,6 +59,8 @@ function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Param
       </span>
       {task.model && <span className="subagent-meta">{task.model}{task.turns ? ` · ${zh ? '轮次' : 'turns'} ${task.turns}` : ''}</span>}
     </div>
+    <div className="subagent-execution-kind"><span>{task.backgroundAgentId ? zh ? '后台任务' : 'Background task' : zh ? '前台调用' : 'Foreground call'}</span>
+      {task.backgroundAgentId && onBackground && <button type="button" onClick={onBackground}><ArrowUpRight size={12}/>{zh ? '查看后台详情' : 'Open background details'}</button>}</div>
     <p className="subagent-task">{task.task || (zh ? '无任务描述' : 'No task description')}</p>
     <p className="subagent-note">{zh
       ? '只读记录。子代理由主会话分发任务后独立执行，此处无法与它对话，也无法追加指令。'
@@ -84,10 +89,16 @@ function SubagentContent({ task, ...props }: { task: SubagentTask } & Pick<Param
   </div>;
 }
 
-export function SubagentPanel({ open, replaced, overlay, expanded, task, workflows = [], workflowId, view = 'agent', agentId, onView, onWorkflow, onAgent, ...props }: {
+export function SubagentPanel({ open, replaced, overlay, expanded, task, workflows = [], workflowId, view = 'agent', agentId, onView, onWorkflow, onAgent,
+  runtimeId, sessionId, connected = false, selectedLaneId, onBackground, backgroundClient, backgroundPresentation,
+  backgroundAgent, onBackgroundAgent, ...props }: {
   open: boolean; replaced: boolean; overlay: boolean; expanded: boolean; task: SubagentTask | null;
-  workflows?: WorkflowState[]; workflowId?: string | null; view?: 'overview' | 'agent'; agentId?: string | null;
-  onView?: (view: 'overview' | 'agent') => void; onWorkflow?: (id: string) => void; onAgent?: (id: string) => void;
+  workflows?: WorkflowState[]; workflowId?: string | null; view?: 'overview' | 'agent' | 'background'; agentId?: string | null;
+  onView?: (view: 'overview' | 'agent' | 'background') => void; onWorkflow?: (id: string) => void; onAgent?: (id: string) => void;
+  runtimeId?: string; sessionId?: string; connected?: boolean; selectedLaneId?: string;
+  onBackground?: (laneId: string) => void; backgroundClient?: BackgroundAgentClient;
+  backgroundPresentation?: BackgroundAgentPresentation;
+  backgroundAgent?: BackgroundAgentSelection; onBackgroundAgent?: (selection: BackgroundAgentSelection) => void;
   language: 'zh' | 'en'; onClose: () => void; onToggleExpanded: () => void;
   openImage: (src: string, name: string, anchor: HTMLElement) => void; onError: (message: string) => void;
 }) {
@@ -118,9 +129,13 @@ export function SubagentPanel({ open, replaced, overlay, expanded, task, workflo
         <RightPanelExpandButton expanded={expanded} onToggle={props.onToggleExpanded} language={props.language}/>
         <button type="button" className="icon-button" aria-label={zh ? '关闭面板' : 'Close panel'} onClick={props.onClose}><X size={16}/></button>
       </header>
-      {(flow || workflows.length > 0) && <div className="workflow-tabs" aria-label={zh ? '子代理视图' : 'Subagent view'}>
-        <button type="button" aria-pressed={view === 'overview'} onClick={() => onView?.('overview')}>{zh ? '编排' : 'Orchestration'}</button>
-        <button type="button" aria-pressed={view === 'agent'} disabled={!agent && !task} onClick={() => onView?.('agent')}>{zh ? '代理' : 'Agent'}</button>
+      {(flow || workflows.length > 0 || runtimeId) && <div className="workflow-tabs subagent-view-tabs" aria-label={zh ? '子代理视图' : 'Subagent view'}>
+        <div className="subagent-view-overviews" role="group" aria-label={zh ? '总览与管理' : 'Overview and management'}>
+          <button type="button" aria-pressed={view === 'overview'} onClick={() => onView?.('overview')}>{zh ? '编排' : 'Orchestration'}</button>
+          {runtimeId && <button type="button" aria-pressed={view === 'background'} onClick={() => onView?.('background')}>{zh ? '后台任务' : 'Background tasks'}</button>}
+        </div>
+        <button className="subagent-view-detail" type="button" aria-pressed={view === 'agent'} disabled={!agent && !task && !backgroundAgent}
+          onClick={() => onView?.('agent')}>{zh ? '代理详情' : 'Agent details'}</button>
       </div>}
       {view === 'overview' && workflows.length > 1 && <div className="workflow-run-picker">
         <button ref={menuAnchor} type="button" aria-label={zh ? '选择编排记录' : 'Choose workflow'}
@@ -140,10 +155,16 @@ export function SubagentPanel({ open, replaced, overlay, expanded, task, workflo
         {flow ? <WorkflowOverview flow={flow} selected={agentId ?? undefined} onSelect={agent => onAgent?.(agent.id)} language={props.language}/>
           : <p className="panel-empty">{zh ? '暂无编排记录' : 'No orchestration recorded'}</p>}
       </div>
-      <div className="workflow-pane" hidden={view !== 'agent'}>
+      <div className="workflow-pane" hidden={view !== 'agent' || Boolean(backgroundAgent)}>
         {agent ? <WorkflowAgentDetail agent={agent} language={props.language}/>
-          : task ? <SubagentContent key={`${task.agent}:${task.task}`} task={task} {...props}/>
+          : task ? <SubagentContent key={`${task.agent}:${task.task}`} task={task}
+            onBackground={task.backgroundAgentId && onBackground ? () => onBackground(task.backgroundAgentId!) : undefined} {...props}/>
             : <p className="panel-empty">{zh ? '从编排中选择一个代理' : 'Select an agent from orchestration'}</p>}
+      </div>
+      <div className="workflow-pane" hidden={view !== 'background' && !(view === 'agent' && backgroundAgent)}>
+        <BackgroundAgentsView key={`${runtimeId}:${sessionId}`} open={open && (view === 'background' || view === 'agent' && Boolean(backgroundAgent))} runtimeId={runtimeId}
+          sessionId={sessionId} connected={connected} selectedLaneId={selectedLaneId} client={backgroundClient} presentation={backgroundPresentation}
+          detail={view === 'agent' ? backgroundAgent : undefined} onDetail={onBackgroundAgent} onBack={() => onView?.('background')} {...props}/>
       </div>
     </aside>
   </div>;

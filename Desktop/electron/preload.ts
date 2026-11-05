@@ -34,8 +34,17 @@ new MutationObserver(() => {
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
   capabilityCatalog: () => invoke('capabilityCatalog'),
+  pluginDocument: input => invoke('pluginDocument', input),
+  pluginRepositoryInfo: input => invoke('pluginRepositoryInfo', input),
+  pluginConfiguration: input => invoke('pluginConfiguration', input),
+  pluginSaveConfiguration: input => invoke('pluginSaveConfiguration', input),
+  pluginChoosePath: input => invoke('pluginChoosePath', input),
   capabilityMutate: input => invoke('capabilityMutate', input),
   capabilityImportSkill: () => invoke('capabilityImportSkill'),
+  bvrConfiguration: () => invoke('bvrConfiguration'),
+  bvrSaveConfiguration: input => invoke('bvrSaveConfiguration', input),
+  bvrCheckEnvironment: input => invoke('bvrCheckEnvironment', input),
+  bvrChoosePath: kind => invoke('bvrChoosePath', kind),
   importScan: options => invoke('importScan', options),
   importPreview: id => invoke('importPreview', id),
   importStart: (selections, options) => invoke('importStart', selections, options),

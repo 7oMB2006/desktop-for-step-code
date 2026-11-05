@@ -27,7 +27,8 @@
     "step-code-desktop-cron-enhancements.patch": "81ac50aec1c98c1d34f21f081eacfeb772cb1c3c",
     "step-code-desktop-cron-recovery-guard.patch": "daefe2df14564a3f4c4a0080d2aca47915df8af3",
     "step-code-desktop-auto-resume.patch": "edb9ad98930223bea700474c7c87f444d344acdd",
-    "step-code-desktop-v016.patch": "0ddabcc99129eb2864d992d6e30389f51874162a"
+    "step-code-desktop-v016.patch": "0ddabcc99129eb2864d992d6e30389f51874162a",
+    "step-code-desktop-template-input.patch": "ccc33350f4e7c679fb3eb7c4a8d7f92cbd3fc3a9"
   },
   "sources": {
     "packages/coding-agent/src/core/agent-session.ts": "54acd866d6ad519fd33b0fdb0b7088c2d1357fc6",
@@ -63,7 +64,7 @@
     "packages/coding-agent/src/features/subagent/projection.ts": "1e4126bdc7cf3723ed819a7b23107cccc34b7873"
   },
   "patchedSources": {
-    "packages/coding-agent/src/core/agent-session.ts": "92e32567799a10ca43b016a12248976fda21e5e1",
+    "packages/coding-agent/src/core/agent-session.ts": "7da82915cba850bc91614be564d545c1196f4538",
     "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",
     "packages/coding-agent/src/core/extensions/types.ts": "f7aa30d22cd536ea1b6f0592d42d25c79eba8902",
     "packages/coding-agent/src/core/session-import/parsers.ts": "806835c29d1fe9583170019bf0d4d432bec83235",

@@ -20,6 +20,8 @@ import { SessionNavigation } from './session-navigation';
 import { importedHistoryMessages } from './imported-history';
 import { messagesWithEntryIds } from './session-branching';
 import { SessionCollaboration } from './session-collaboration';
+import { BvrBridge } from './bvr-bridge';
+import { BvrSettings } from './bvr-settings';
 import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
 import { hasScheduledCron } from './cron-state';
@@ -49,6 +51,7 @@ import { isFullAccessRisk } from '../src/full-access-risk';
 import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
+import { submittedInputContent } from '../src/template-input';
 import { clmSnapshot } from './clm';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { readWorkflowCatalog } from './workflow-catalog';
@@ -216,7 +219,11 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
-  environment: () => isolatedEnvironment(dataRoot) });
+  fetchRepository: (url, options) => net.fetch(url instanceof URL ? url.href : url, { ...options, credentials: 'omit' }),
+  environment: () => isolatedEnvironment(dataRoot), validateImage: bytes => {
+    const image = nativeImage.createFromBuffer(bytes), size = image.getSize();
+    return !image.isEmpty() && size.width <= 4096 && size.height <= 4096;
+  } });
 const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-import.mjs'), dataRoot,
   () => emit({ type: 'desktop_sessions_changed' }), async sessionIds => {
     const independent = pathKey(await realpath(independentRoot).catch(() => independentRoot));
@@ -276,6 +283,7 @@ const movedSessionEnvironment = () => ({
   DESKTOP_CRON_SCOPE_DIR: join(app.getPath('userData'), 'cron-bindings'),
 });
 async function persistAuth(next: Record<string, unknown>) {
+  bvrBridge.invalidate();
   try { await vault.save(next); }
   catch (error) {
     await admin.stop();
@@ -295,9 +303,9 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   const queueWorker = runtimes.workers.get(event.runtimeId);
   const modelChanged = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
-    && modelSelections.delivered(queueWorker, event.message.content, event.message.timestamp);
+    && modelSelections.delivered(queueWorker, submittedInputContent(event.message), event.message.timestamp);
   const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
-    && pendingMessages.delivered(queueWorker, event.message.content, event.message.timestamp, false);
+    && pendingMessages.delivered(queueWorker, submittedInputContent(event.message), event.message.timestamp, false);
   if (queueWorker && event.message?.role === 'user') {
     event.message = pendingMessages.decorate(queueWorker, event.message);
     queueWorker.messages = queueWorker.messages.map(message => pendingMessages.decorate(queueWorker, message));
@@ -367,6 +375,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   },
   launch: worker => { usageEstimates.attach(worker); return collaboration.attach(worker); },
   dispose: worker => {
+    bvrBridge.detach(worker);
     conversationTiming.event(worker, { type: 'desktop_exit' });
     usageEstimates.detach(worker);
     collaboration.detach(worker);
@@ -374,6 +383,10 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     else pendingMessages.clear(worker);
   },
 });
+const bvrBridge = new BvrBridge(dataRoot, runtimes, () => appliedAuthData,
+  () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
+  () => preferences.language, (input, init) => net.fetch(input instanceof URL ? input.href : String(input), init));
+const bvrSettings = new BvrSettings(dataRoot, () => bvrBridge.invalidate());
 const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
@@ -1658,6 +1671,7 @@ async function handle(method: string, args: any[]) {
         if (type === 'disable_standing_ultracode') return await launchControls.disableStandingUltracode(worker);
         if (type === 'set_model' || type === 'set_thinking_level') {
           if (type === 'set_model') {
+            bvrBridge.detach(worker);
             const provider = text(data.provider, 200), modelId = text(data.modelId, 300);
             const model = worker.models.find(model => model.provider === provider && model.id === modelId);
             if (!model) throw new Error('Unknown model');
@@ -1898,6 +1912,61 @@ async function handle(method: string, args: any[]) {
       if (settingsMutation) throw new Error('Shared settings operation in progress');
       return capabilityService.catalog();
     }
+    case 'pluginDocument': {
+      if (settingsMutation) throw new Error('capability:busy');
+      try { return await capabilityService.document(args[0]); }
+      catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
+    }
+    case 'pluginRepositoryInfo': {
+      if (settingsMutation) throw new Error('capability:busy');
+      try { return await capabilityService.repositoryInfo(args[0]); }
+      catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
+    }
+    case 'pluginConfiguration':
+    case 'pluginSaveConfiguration': {
+      if (method === 'pluginConfiguration' && settingsMutation) throw new Error('capability:busy');
+      if (method === 'pluginSaveConfiguration') await guardIdle({ stopHost: false });
+      try { return await capabilityService.configuration(args[0], method === 'pluginSaveConfiguration' ? args[0] : undefined); }
+      catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
+    }
+    case 'pluginChoosePath': {
+      if (settingsMutation) throw new Error('capability:busy');
+      const input = args[0];
+      if (!input || typeof input.ref !== 'string' || typeof input.field !== 'string') throw new Error('capability:invalid-input');
+      const config = await capabilityService.configuration(input);
+      const field = config.schema.groups.flatMap(group => group.fields).find(field => field.id === input.field && field.type === 'path');
+      if (!field) throw new Error('capability:invalid-input');
+      const result = await dialog.showOpenDialog(window, { title: field.label,
+        properties: [field.selection === 'file' ? 'openFile' : 'openDirectory'] });
+      if (result.canceled) return null;
+      await capabilityService.configuration(input);
+      return result.filePaths[0] ?? null;
+    }
+    case 'bvrConfiguration':
+    case 'bvrSaveConfiguration':
+    case 'bvrCheckEnvironment': {
+      if (method !== 'bvrSaveConfiguration' && settingsMutation) throw new Error('bvr:busy');
+      if (!(await capabilityService.catalog()).plugins.some(plugin => plugin.id === 'bilibili-video-research'))
+        throw new Error('bvr:not-installed');
+      try {
+        if (method === 'bvrSaveConfiguration') {
+          await guardIdle({ stopHost: false });
+          return await bvrSettings.save(args[0]);
+        }
+        return method === 'bvrCheckEnvironment' ? await bvrSettings.check(args[0]) : await bvrSettings.read();
+      } catch (error) {
+        throw new Error(error instanceof Error && /^bvr:[a-z-]+$/u.test(error.message) ? error.message : 'bvr:storage');
+      }
+    }
+    case 'bvrChoosePath': {
+      const kind = args[0];
+      if (!['runtime', 'cookie', 'download'].includes(kind)) throw new Error('bvr:invalid-input');
+      const selected = await dialog.showOpenDialog(window, {
+        properties: [kind === 'cookie' ? 'openFile' : 'openDirectory'],
+        ...(kind === 'cookie' ? { filters: [{ name: 'Cookie', extensions: ['txt'] }] } : {}),
+      });
+      return selected.canceled ? null : selected.filePaths[0] ?? null;
+    }
     case 'capabilityMutate': {
       await guardIdle({ stopHost: false });
       if (args[0]?.action === 'plugin-remove')
@@ -2053,7 +2122,7 @@ app.on('before-quit', event => {
       }
       await terminals.stopAll();
       await sessionImports.close();
-      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
+      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
       await usageEstimates.flush();
@@ -2079,6 +2148,7 @@ else app.whenReady().then(async () => {
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
   await collaboration.start();
+  await bvrBridge.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;
   // vault.load() also migrates and removes a legacy plaintext auth.json. safeStorage
   // requires the ready state, which whenReady provides.
@@ -2197,7 +2267,7 @@ else app.whenReady().then(async () => {
     if (method === 'quitRespond' || method === 'windowControl') return handle(method, args);
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
-    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill'].includes(method);
+    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration'].includes(method);
     const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage'].includes(method);
     if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
       throw new Error('Shared settings operation in progress');

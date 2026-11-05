@@ -3,6 +3,7 @@ import type { SessionImportBridge } from './session-import';
 import type { LaunchState } from './launch-state';
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
+export interface Message { desktopInput?: { version: 1; text: string } }
 export interface Content { historical?: boolean }
 export interface Snapshot { workspaceIssue?: string }
 export interface RuntimeStartupTiming {
@@ -94,8 +95,17 @@ export interface CronUpdateInput {
 }
 export interface DesktopBridge extends SessionImportBridge {
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
+  pluginDocument(input: { ref: string; path: string }): Promise<import('./capabilities').PluginDocument>;
+  pluginRepositoryInfo(input: { ref: string; refresh: boolean }): Promise<import('./capabilities').PluginStarSnapshot>;
+  pluginConfiguration(input: { ref: string }): Promise<import('./capabilities').PluginConfiguration>;
+  pluginSaveConfiguration(input: import('./capabilities').PluginConfigurationInput): Promise<import('./capabilities').PluginConfiguration>;
+  pluginChoosePath(input: { ref: string; field: string }): Promise<string | null>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;
+  bvrConfiguration(): Promise<import('./bvr-settings').BvrConfiguration>;
+  bvrSaveConfiguration(input: import('./bvr-settings').BvrConfigurationInput): Promise<import('./bvr-settings').BvrConfiguration>;
+  bvrCheckEnvironment(input: import('./bvr-settings').BvrConfigurationInput): Promise<import('./bvr-settings').BvrEnvironmentCheck>;
+  bvrChoosePath(kind: import('./bvr-settings').BvrPathKind): Promise<string | null>;
   stepPageState(): Promise<StepPagePreparation>;
   prepareStepPage(): Promise<StepPagePreparation>;
   cronList(): Promise<CronOverview>;

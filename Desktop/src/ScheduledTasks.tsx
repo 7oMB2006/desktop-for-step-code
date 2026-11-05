@@ -44,8 +44,9 @@ export interface ScheduledTaskView {
 }
 export interface ScheduledTaskCreation { title: string; prompt: string; workspace: string; runtimeId: string; cron: string; recurring: boolean; durable: boolean }
 
-export function SidebarTaskActions({ selected, onNewSession, onScheduledTasks, onPlugins, onSearchChange, disabled = false, language = 'zh' }: {
+export function SidebarTaskActions({ selected, pluginsSelected = false, onNewSession, onScheduledTasks, onPlugins, onSearchChange, disabled = false, language = 'zh' }: {
   selected: boolean;
+  pluginsSelected?: boolean;
   onNewSession: () => void;
   onScheduledTasks: () => void;
   onPlugins?: () => void;
@@ -66,7 +67,7 @@ export function SidebarTaskActions({ selected, onNewSession, onScheduledTasks, o
       <button type="button" className="new-chat" disabled={disabled} onClick={onNewSession}>
         <Plus size={16}/><span>{zh ? '新建会话' : 'New chat'}</span>
       </button>
-      {onPlugins && <button type="button" disabled={disabled} aria-label={zh ? '插件市场' : 'Plugin marketplace'} onClick={onPlugins}>
+      {onPlugins && <button type="button" disabled={disabled} aria-pressed={pluginsSelected} aria-label={zh ? '插件市场' : 'Plugin marketplace'} onClick={onPlugins}>
         <Plug size={16}/><span>{zh ? '插件' : 'Plugins'}</span>
       </button>}
     </div>

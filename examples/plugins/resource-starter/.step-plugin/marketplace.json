@@ -1,0 +1,10 @@
+{
+  "name": "dfsc-example-local",
+  "plugins": [
+    {
+      "name": "dfsc-example",
+      "source": "./plugins/dfsc-example",
+      "description": "Minimal DFSC resource example with one skill and one prompt command."
+    }
+  ]
+}

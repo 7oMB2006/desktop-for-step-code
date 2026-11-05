@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createCapabilitySettings, CapabilityError } from './capability-settings.mjs';
+import { PluginFileError } from './plugin-files.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const upstream = await import(pathToFileURL(join(directory, 'step/dist/bundle/index.js')).href);
@@ -20,7 +21,7 @@ createInterface({ input: process.stdin }).on('line', line => {
       send({ id: request.id, type: 'response', success: true, data });
     } catch (error) {
       send({ id: request?.id, type: 'response', success: false,
-        error: `capability:${error instanceof CapabilityError ? error.code : 'operation-failed'}` });
+        error: `capability:${error instanceof CapabilityError || error instanceof PluginFileError ? error.code : 'operation-failed'}` });
     }
   });
 });

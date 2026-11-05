@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "authors": [{ "name": "DFSC example contributors" }],
+  "maintainers": [{ "name": "DFSC example contributors" }],
+  "license": "MIT",
+  "documentation": {
+    "readme": "docs/GUIDE.md",
+    "changelog": "CHANGELOG.md"
+  },
+  "tutorials": [],
+  "links": []
+}

@@ -1,0 +1,96 @@
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index 92e3256..7da8291 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -134,6 +134,13 @@ import { addUsageToTotals, createUsageTotals, entryUsage } from "./usage-totals.
+ 
+ export { type ParsedSkillBlock, parseSkillBlock } from "../utils/skill-block.ts";
+ 
++function desktopTemplateInput(original: string | undefined, expanded: string) {
++	// Preserve presentation provenance without replacing the model's expanded input.
++	return process.env.STEP_CLIENT === "desktop-for-step-code" && original?.startsWith("/") && original !== expanded
++		? { desktopInput: { version: 1 as const, text: original } }
++		: {};
++}
++
+ /** Session-specific events that extend the core AgentEvent */
+ export type AgentSessionEvent =
+ 	| Exclude<AgentEvent, { type: "agent_end" }>
+@@ -1873,6 +1880,7 @@ export class AgentSession {
+ 				expandedText = this._expandSkillCommand(expandedText);
+ 				expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+ 			}
++			const originalInput = expandedText !== currentText ? text : undefined;
+ 
+ 			// If streaming, queue via steer() or followUp() based on option
+ 			if (this.isStreaming) {
+@@ -1882,9 +1890,9 @@ export class AgentSession {
+ 					);
+ 				}
+ 				if (options.streamingBehavior === "followUp") {
+-					await this._queueFollowUp(expandedText, currentImages);
++					await this._queueFollowUp(expandedText, currentImages, originalInput);
+ 				} else {
+-					await this._queueSteer(expandedText, currentImages);
++					await this._queueSteer(expandedText, currentImages, originalInput);
+ 				}
+ 				preflightResult?.(true);
+ 				return;
+@@ -1938,7 +1946,7 @@ export class AgentSession {
+ 			messages.push(
+ 				options?.customMessage
+ 					? { ...options.customMessage, role: "custom", content: userContent, timestamp: Date.now() }
+-					: { role: "user", content: userContent, timestamp: Date.now() },
++					: { role: "user", content: userContent, timestamp: Date.now(), ...desktopTemplateInput(originalInput, expandedText) },
+ 			);
+ 
+ 			// Inject any pending "nextTurn" messages as context alongside the user message
+@@ -2090,7 +2098,7 @@ export class AgentSession {
+ 		let expandedText = this._expandSkillCommand(text);
+ 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+ 
+-		await this._queueSteer(expandedText, images);
++		await this._queueSteer(expandedText, images, text);
+ 	}
+ 
+ 	/**
+@@ -2110,13 +2118,13 @@ export class AgentSession {
+ 		let expandedText = this._expandSkillCommand(text);
+ 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+ 
+-		await this._queueFollowUp(expandedText, images);
++		await this._queueFollowUp(expandedText, images, text);
+ 	}
+ 
+ 	/**
+ 	 * Internal: Queue a steering message (already expanded, no extension command check).
+ 	 */
+-	private async _queueSteer(text: string, images?: ImageContent[]): Promise<void> {
++	private async _queueSteer(text: string, images?: ImageContent[], originalInput?: string): Promise<void> {
+ 		this._steeringMessages.push(text);
+ 		this._emitQueueUpdate();
+ 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+@@ -2127,13 +2135,14 @@ export class AgentSession {
+ 			role: "user",
+ 			content,
+ 			timestamp: Date.now(),
++			...desktopTemplateInput(originalInput, text),
+ 		});
+ 	}
+ 
+ 	/**
+ 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
+ 	 */
+-	private async _queueFollowUp(text: string, images?: ImageContent[]): Promise<void> {
++	private async _queueFollowUp(text: string, images?: ImageContent[], originalInput?: string): Promise<void> {
+ 		this._followUpMessages.push(text);
+ 		this._emitQueueUpdate();
+ 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+@@ -2144,6 +2153,7 @@ export class AgentSession {
+ 			role: "user",
+ 			content,
+ 			timestamp: Date.now(),
++			...desktopTemplateInput(originalInput, text),
+ 		});
+ 	}
+ 

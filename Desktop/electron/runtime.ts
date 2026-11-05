@@ -54,6 +54,7 @@ export class RpcCommandError extends Error {}
 
 export class RpcProcess {
   private child?: ChildProcessWithoutNullStreams;
+  get pid() { return this.child?.pid; }
   private stopping?: Promise<void>;
   private disconnected = false;
   private stderr = '';

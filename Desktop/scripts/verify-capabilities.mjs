@@ -1,7 +1,9 @@
 import { _electron as electron } from 'playwright';
 import { captureWaapi } from './capture-waapi.mjs';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -33,7 +35,8 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.STEP_API_KEY;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
-const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve(process.env.DESKTOP_VERIFY_MAIN ?? '.')] }),
+  ...(process.env.DESKTOP_VERIFY_CWD ? { cwd: process.env.DESKTOP_VERIFY_CWD } : {}), env, timeout: 60000 });
 const errors = [];
 async function verifyDisclosure(locator, reducedMotion = false) {
   let result;
@@ -97,6 +100,22 @@ async function verifyDisclosure(locator, reducedMotion = false) {
 }
 try {
   const page = await app.firstWindow();
+  const openCategory = async name => {
+    if (!await page.locator('.settings-dialog').isVisible()) {
+      if (await page.locator('.sidebar').evaluate(element => element.inert)) {
+        await page.locator('.window-sidebar-toggle').click();
+        await page.waitForFunction(() => !document.querySelector('.sidebar')?.inert);
+      }
+      await page.locator('.sidebar-bottom > button').click();
+    }
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name, exact: true }).click();
+  };
+  const closeSurface = async () => {
+    if (await page.locator('.settings-dialog').isVisible()) {
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+    } else if (await page.locator('.plugin-center').isVisible()) await page.locator('.plugin-center').getByRole('button', { name: '返回会话', exact: true }).click();
+  };
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -157,10 +176,10 @@ try {
   const searchButton = sidebarActions.getByRole('button', { name: '搜索', exact: true });
   assert.equal(await searchButton.isEnabled(), true);
   await sidebarActions.getByRole('button', { name: '插件市场', exact: true }).click();
-  await page.getByRole('tab', { name: /^发现/ }).waitFor();
-  assert.equal(await page.getByRole('tab', { name: /^发现/ }).getAttribute('aria-selected'), 'true');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+  await page.getByRole('tab', { name: /^已安装/ }).waitFor();
+  assert.equal(await page.getByRole('tab', { name: /^已安装/ }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.locator('.settings-dialog').count(), 0, 'Plugins use the main view');
+  await closeSurface();
   const geometry = await page.locator('.sidebar-task-actions').evaluate(element => {
     const primary = element.querySelector('.sidebar-primary-actions').getBoundingClientRect();
     const primaryButtons = [...element.querySelectorAll('.sidebar-primary-actions > button')].map(button => button.getBoundingClientRect());
@@ -218,39 +237,40 @@ try {
   await page.getByRole('tab', { name: /^市场来源/ }).click();
   await page.getByRole('button', { name: '添加市场', exact: true }).click();
   await page.getByRole('textbox', { name: '市场来源', exact: true }).fill(market);
-  await page.locator('.cap-form').getByRole('button', { name: '添加市场', exact: true }).click();
-  await page.locator('.cap-form').waitFor({ state: 'detached' });
+  await page.locator('.pc-source-form').getByRole('button', { name: '添加', exact: true }).click();
+  await page.locator('.pc-source-form').waitFor({ state: 'detached' });
   await page.getByRole('tab', { name: /^发现/ }).click();
-  await page.locator('.cap-row').filter({ hasText: 'steppage' }).locator('[data-icon-kind="step"]').waitFor();
-  await page.getByRole('textbox', { name: '搜索资源' }).fill('example');
-  await page.waitForFunction(() => document.querySelector('.cap-row .cap-plugin-icon img')?.naturalWidth === 1);
-  await page.getByRole('button', { name: '安装 example', exact: true }).click();
-  await page.getByText('已安装', { exact: true }).waitFor();
+  await page.locator('.pc-plugin-row').filter({ hasText: /steppage/i }).locator('[data-icon-kind="step"]').waitFor();
+  await page.getByRole('textbox', { name: '搜索插件' }).fill('example');
+  await page.waitForFunction(() => document.querySelector('.pc-plugin-row .cap-plugin-icon img')?.naturalWidth === 1);
+  await page.locator('.pc-plugin-row').filter({ hasText: 'Example plugin' }).getByRole('button', { name: '安装', exact: true }).click();
+  await page.getByRole('heading', { name: 'Example plugin', exact: true }).waitFor();
+  await page.getByRole('button', { name: '全部插件', exact: true }).click();
   await page.getByRole('tab', { name: /^已安装/ }).click();
-  const examplePanel = page.locator('.cap-resource').filter({ hasText: 'Example plugin' });
+  const examplePanel = page.locator('.pc-plugin-row').filter({ hasText: 'Example plugin' });
   await examplePanel.locator('.cap-plugin-icon img').waitFor();
-  await page.waitForFunction(() => document.querySelector('.cap-resource .cap-plugin-icon img')?.naturalWidth === 1);
+  await page.waitForFunction(() => document.querySelector('.pc-plugin-row .cap-plugin-icon img')?.naturalWidth === 1);
   await writeFile(join(profile, 'step-runtime', 'plugins', 'example', 'logo.png'), iconPng.subarray(0, 33));
-  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await page.getByRole('button', { name: '刷新插件目录', exact: true }).click();
   await examplePanel.locator('[data-icon-kind="fallback"]').waitFor();
   await writeFile(join(profile, 'step-runtime', 'plugins', 'example', 'logo.png'), iconPng);
-  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await page.getByRole('button', { name: '刷新插件目录', exact: true }).click();
   await examplePanel.locator('.cap-plugin-icon img').waitFor();
-  await verifyDisclosure(page.locator('.cap-resource').filter({ hasText: 'Example plugin' }));
-  const preparation = page.locator('.cap-preparation').filter({ hasText: 'StepPage' });
-  await verifyDisclosure(preparation);
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await verifyDisclosure(preparation, true);
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.getByText('Example plugin', { exact: true }).click();
-  await page.locator('.cap-resource[open]').evaluate(async panel => {
-    await Promise.all(panel.querySelector('.cap-disclosure-body').getAnimations().map(animation => animation.finished));
-  });
+  await page.getByRole('textbox', { name: '搜索插件' }).fill('');
+  await page.locator('.pc-plugin-row').filter({ hasText: /steppage/i }).locator('.pc-card-settings').click();
+  await page.locator('.steppage-settings').waitFor();
+  await page.getByRole('button', { name: '全部插件', exact: true }).click();
+  await page.getByRole('button', { name: '配置 Example plugin', exact: true }).click();
+  await page.getByRole('tab', { name: '能力', exact: true }).click();
+  await page.locator('.pc-capability-row').filter({ hasText: 'example__tools' }).waitFor();
   await page.screenshot({ path: 'test-results/capabilities-plugins-light.png' });
-  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  await openCategory('Skills');
   await page.getByText('review', { exact: true }).waitFor();
   const sessionCommands = page.locator('.cap-preparation').filter({ hasText: '会话命令' });
   await verifyDisclosure(sessionCommands);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await verifyDisclosure(sessionCommands, true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await sessionCommands.locator('summary').focus();
   await sessionCommands.locator('summary').press('Enter');
   await page.waitForFunction(() => document.querySelector('.cap-preparation > summary')?.getAttribute('aria-expanded') === 'true');
@@ -355,32 +375,33 @@ try {
   await page.getByRole('button', { name: '确认移除', exact: true }).click();
   await toggle.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '插件', exact: true }).click();
-  await page.getByText('Example plugin', { exact: true }).click();
+  if (!await page.getByRole('heading', { name: 'Example plugin', exact: true }).isVisible())
+    await page.getByRole('button', { name: '配置 Example plugin', exact: true }).click();
   await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-  await page.getByRole('button', { name: '确认移除', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: '插件仍被会话占用' }).waitFor();
   assert.ok((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'));
   assert.match(await readFile(join(profile, 'step-runtime', 'plugins', 'example', 'step.plugin.json'), 'utf8'), /Example plugin/);
   assert.match(await readFile(join(profile, 'step-runtime', 'plugins', 'example', 'skills', 'review', 'SKILL.md'), 'utf8'), /Review fixture/);
-  await page.getByRole('button', { name: 'MCP', exact: true }).click();
+  await openCategory('MCP');
   await page.getByRole('switch', { name: '启用 example__tools', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[aria-label="启用 example__tools"]')?.getAttribute('aria-checked') === 'false');
   await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
   await page.getByText(/会话中已停用/).waitFor();
   await page.getByRole('button', { name: '插件', exact: true }).click();
-  await page.getByText('Example plugin', { exact: true }).click();
+  if (!await page.getByRole('heading', { name: 'Example plugin', exact: true }).isVisible())
+    await page.getByRole('button', { name: '配置 Example plugin', exact: true }).click();
   await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-  await page.getByRole('button', { name: '确认移除', exact: true }).click();
-  await page.getByText('Example plugin', { exact: true }).waitFor({ state: 'detached' });
+  await page.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
+  await page.getByRole('heading', { name: 'Example plugin', exact: true }).waitFor({ state: 'detached' });
   assert.equal((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'), false);
   const messagesBefore = (await page.evaluate(() => window.desktop.snapshot())).messages.length;
   for (const [command, heading] of [['/plugin browse', '插件'], ['/mcp', 'MCP'], ['/skills', 'Skills']]) {
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+    await closeSurface();
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(command);
     await page.getByRole('textbox', { name: '消息', exact: true }).press('Escape');
     await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
-    await page.locator('.cap-heading').getByRole('heading', { name: heading, exact: true }).waitFor();
+    await page.locator(heading === '插件' ? '.pc-page-header' : '.cap-heading').getByRole('heading', { name: heading, exact: true }).waitFor();
   }
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
@@ -388,17 +409,95 @@ try {
   await composer.fill('/plugin install filter-only-for-plugins');
   await composer.press('Escape');
   await composer.press('Enter');
-  const resourceSearch = page.getByRole('textbox', { name: '搜索资源', exact: true });
-  await resourceSearch.waitFor();
-  assert.equal(await resourceSearch.inputValue(), 'filter-only-for-plugins');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+  const pluginSearch = page.getByRole('textbox', { name: '搜索插件', exact: true });
+  await pluginSearch.waitFor();
+  assert.equal(await pluginSearch.inputValue(), 'filter-only-for-plugins');
+  await closeSurface();
   await composer.fill('/mcp');
   await page.getByRole('option', { name: 'MCP 查看与管理服务器', exact: true }).click();
   await page.locator('.cap-heading').getByRole('heading', { name: 'MCP', exact: true }).waitFor();
+  const resourceSearch = page.getByRole('textbox', { name: '搜索资源', exact: true });
   assert.equal(await resourceSearch.inputValue(), '', 'Plugin command filters cannot leak into MCP action navigation');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).messages.length, messagesBefore, 'Management commands are local navigation, not model prompts');
   assert.match(await readFile(join(market, 'example', 'step.plugin.json'), 'utf8'), /Example plugin/);
+  await closeSurface();
+  await page.evaluate(async source => {
+    await window.desktop.capabilityMutate({ action: 'marketplace-add', source });
+    const catalog = await window.desktop.capabilityCatalog();
+    const plugin = catalog.available.find(plugin => plugin.name === 'dfsc-example');
+    await window.desktop.capabilityMutate({ action: 'plugin-install', name: plugin.name,
+      marketplace: plugin.marketplace, ref: plugin.package.ref });
+  }, resolve('../examples/plugins/resource-starter'));
+  await openCategory('插件');
+  await page.getByRole('textbox', { name: '搜索插件', exact: true }).fill('');
+  await page.getByRole('tab', { name: /^已安装/ }).click();
+  await page.getByRole('button', { name: '刷新插件目录', exact: true }).click();
+  await page.getByRole('button', { name: '查看 DFSC Example 使用说明', exact: true }).click();
+  await page.getByRole('heading', { name: 'DFSC Example', exact: true, level: 1 }).waitFor();
+  const installedImage = page.getByRole('img', { name: 'Installed resource capabilities', exact: true });
+  await installedImage.waitFor();
+  await installedImage.evaluate(image => image.decode());
+  await page.getByRole('tab', { name: '能力', exact: true }).click();
+  await page.locator('.pc-capability-row').getByText('dfsc-example', { exact: true }).waitFor();
+  await page.setViewportSize({ width: 1280, height: 860 });
+  const starterScreenshot = process.env.DESKTOP_STARTER_SCREENSHOT ?? 'test-results/plugin-resource-starter.png';
+  await page.screenshot({ path: starterScreenshot });
+  await page.getByRole('button', { name: '全部插件', exact: true }).click();
+  await closeSurface();
+  const configMarket = join(profile, 'config-market');
+  await cp(resolve('../examples/plugins/config-starter'), configMarket, { recursive: true });
+  const configPackage = join(configMarket, 'plugins/dfsc-config-example');
+  const configSchema = JSON.parse(await readFile(join(configPackage, 'dfsc.settings.json'), 'utf8'));
+  configSchema.groups[0].fields.push({ id: 'key', type: 'secret', label: 'Local secret' });
+  await writeFile(join(configPackage, 'dfsc.settings.json'), JSON.stringify(configSchema));
+  const configManifest = JSON.parse(await readFile(join(configPackage, 'step.plugin.json'), 'utf8'));
+  configManifest.mcpServers.notes.command = process.execPath;
+  await writeFile(join(configPackage, 'step.plugin.json'), JSON.stringify(configManifest));
+  await page.evaluate(async source => {
+    await window.desktop.capabilityMutate({ action: 'marketplace-add', source });
+    const catalog = await window.desktop.capabilityCatalog();
+    const plugin = catalog.available.find(plugin => plugin.name === 'dfsc-config-example');
+    await window.desktop.capabilityMutate({ action: 'plugin-install', name: plugin.name,
+      marketplace: plugin.marketplace, ref: plugin.package.ref });
+  }, configMarket);
+  await openCategory('插件');
+  await page.getByRole('textbox', { name: '搜索插件', exact: true }).fill('');
+  await page.getByRole('tab', { name: /^已安装/ }).click();
+  await page.getByRole('button', { name: '刷新插件目录', exact: true }).click();
+  await page.getByRole('button', { name: '配置 DFSC Configuration Example', exact: true }).click();
+  await page.getByLabel('Prefix', { exact: true }).fill('Electron ');
+  await page.getByLabel('Uppercase text', { exact: true }).check();
+  await page.getByLabel('Local secret', { exact: true }).fill('isolated-ui-secret');
+  await page.getByRole('tab', { name: '使用说明', exact: true }).click();
+  await page.getByRole('button', { name: 'the consumer contract', exact: true }).click();
+  await page.getByRole('heading', { name: 'json-file-v1', exact: true }).waitFor();
+  await page.getByRole('tab', { name: '配置', exact: true }).click();
+  assert.equal(await page.getByLabel('Prefix', { exact: true }).inputValue(), 'Electron ');
+  await page.getByRole('button', { name: '保存配置', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.pc-generic-form input[type=password]')?.value === '');
+  const actual = await page.evaluate(async () => {
+    const plugin = (await window.desktop.capabilityCatalog()).plugins.find(plugin => plugin.id === 'dfsc-config-example');
+    return window.desktop.pluginConfiguration({ ref: plugin.package.ref });
+  });
+  assert.equal(actual.configured, true); assert.equal(actual.hasSecret.key, true);
+  assert.doesNotMatch(JSON.stringify(actual), /isolated-ui-secret/);
+  const installedScript = join(profile, 'step-runtime/plugins/dfsc-config-example/server/stdio.mjs');
+  const consumer = execFileSync(process.execPath, [installedScript], { encoding: 'utf8', input: [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'format_note', arguments: { text: 'hello' } } },
+  ].map(value => JSON.stringify(value)).join('\n') + '\n', timeout: 15000 });
+  assert.match(consumer, /Electron HELLO/); assert.doesNotMatch(consumer, /isolated-ui-secret/);
+  await page.getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.pc-detail-footer button:last-child')?.disabled);
+  const connected = await page.evaluate(async () => {
+    const snapshot = await window.desktop.snapshot();
+    return window.desktop.summary(snapshot.runtimeId);
+  });
+  assert.ok(connected.mcp.some(server => server.name === 'dfsc-config-example__notes' && server.status === 'connected'));
+  assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
+  await page.screenshot({ path: 'test-results/plugin-skeleton-electron.png' });
+  await closeSurface();
+  await openCategory('MCP');
   const savedSettings = await page.evaluate(() => window.desktop.settings());
   await app.evaluate(({ ipcMain }, settings) => {
     globalThis.refreshFixture = {
@@ -442,21 +541,26 @@ try {
   await refreshButton.click();
   await page.getByRole('switch', { name: '启用 refresh-mcp', exact: true }).waitFor();
   for (const [category, tab] of [['MCP'], ['插件', '发现'], ['插件', '市场来源'], ['Skills']]) {
-    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: category, exact: true }).click();
+    await openCategory(category);
+    if (category === '插件') await page.getByRole('textbox', { name: '搜索插件', exact: true }).fill('');
     if (tab) await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
-    await page.waitForFunction(() => !document.querySelector('.cap-heading [aria-label="刷新"]')?.disabled);
+    const currentRefresh = page.getByRole('button', { name: category === '插件' ? '刷新插件目录' : '刷新', exact: true });
+    await currentRefresh.waitFor();
+    const refreshElement = await currentRefresh.elementHandle();
+    await page.waitForFunction(button => !button.disabled, refreshElement);
     await app.evaluate(() => { globalThis.holdCatalog = true; });
-    await refreshButton.click();
-    await page.waitForFunction(() => document.querySelector('.cap-heading [aria-label="刷新"]')?.disabled);
-    const controls = page.locator('.cap-heading button, .cap-row button, .cap-footer button');
-    assert.ok(await controls.count() > 1, 'The loaded rows remain visible during refresh');
+    await currentRefresh.click();
+    await page.waitForFunction(button => button.disabled, refreshElement);
+    const controls = category === '插件' ? page.locator('.plugin-center > .pc-page-header button[aria-label="刷新插件目录"], .pc-card-state button, .pc-sources button')
+      : page.locator('.cap-heading button, .cap-row button, .cap-footer button');
+    assert.ok(await controls.count() > 1, `${category}/${tab ?? ''}: loaded rows remain visible during refresh`);
     assert.equal(await controls.evaluateAll(buttons => buttons.every(button => button.disabled)), true,
       `${category}/${tab ?? ''}: mutations and restart are disabled during refresh`);
     assert.equal(await app.evaluate(() => globalThis.refreshMutations), 0);
     await app.evaluate(() => globalThis.releaseCatalog(false));
-    await page.waitForFunction(() => !document.querySelector('.cap-heading [aria-label="刷新"]')?.disabled);
+    await page.waitForFunction(button => !button.disabled, refreshElement);
   }
-  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: 'MCP', exact: true }).click();
+  await openCategory('MCP');
   const refreshToggle = page.getByRole('switch', { name: '启用 refresh-mcp', exact: true });
   await refreshToggle.waitFor();
   await page.waitForFunction(() => !document.querySelector('[aria-label="启用 refresh-mcp"]')?.disabled);
@@ -476,5 +580,5 @@ try {
   console.error('Visible errors:', await page.locator('[role="alert"]').allTextContents());
   throw error;
 } finally {
-  await app.close();
+  await closeDesktopFixture(app);
 }

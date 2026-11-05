@@ -31,7 +31,7 @@ test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and pat
       'step-code-desktop-cron-management.patch',
       'step-code-desktop-cron-recovery-guard.patch', 'step-code-desktop-cron-recovery.patch',
       'step-code-desktop-cron-scope.patch', 'step-code-desktop-cron.patch',
-      'step-code-desktop-plan.patch', 'step-code-desktop-plugins.patch', 'step-code-desktop-v016.patch',
+      'step-code-desktop-plan.patch', 'step-code-desktop-plugins.patch', 'step-code-desktop-template-input.patch', 'step-code-desktop-v016.patch',
       'step-code-desktop.patch', 'step-code-session-import.patch']);
   assert.equal(manifest.sources['packages/coding-agent/src/features/step-cron.ts'], '6f881338a5d4ac34a416706a1e72b1f6e181cff3');
   assert.notEqual(manifest.patchedSources['packages/coding-agent/src/features/step-cron.ts'],

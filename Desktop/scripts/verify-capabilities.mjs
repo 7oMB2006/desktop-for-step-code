@@ -156,6 +156,7 @@ try {
   await page.reload();
   const sidebarActions = page.getByRole('group', { name: '快捷入口', exact: true });
   const searchButton = sidebarActions.getByRole('button', { name: '搜索', exact: true });
+  await sidebarActions.locator('.sidebar-search-toggle:enabled').waitFor();
   assert.equal(await searchButton.isEnabled(), true);
   await sidebarActions.getByRole('button', { name: '插件市场', exact: true }).click();
   await page.getByRole('tab', { name: /^发现/ }).waitFor();

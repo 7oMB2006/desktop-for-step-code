@@ -5,7 +5,7 @@ import { BtwPanel, type BtwOpenRequest } from '../../src/BtwPanel';
 import { ConversationMessages } from '../../src/ConversationMessages';
 import { SelectionToolbar } from '../../src/SelectionToolbar';
 import { QuotePreview } from '../../src/QuotePreview';
-import { quoteSourceRange } from '../../src/QuoteAnnotations';
+import { QuoteAnnotations, quoteSourceRange } from '../../src/QuoteAnnotations';
 import type { ChatQuote } from '../../src/chat-quotes';
 import { ComposerInput } from '../../src/ComposerInput';
 import { ComposerActionIcon } from '../../src/ComposerActionIcon';
@@ -109,8 +109,9 @@ function Preview() {
       const chunks = answer.match(/[\s\S]{1,12}/g)!;
       let index = 0;
       const timer = setInterval(() => {
-        if (scenarioRef.current === 'error') {
-          clearInterval(timer); active.delete(input.requestId); emit(input, { kind: 'error' }); return;
+        if (scenarioRef.current === 'error' || scenarioRef.current === 'unsupported-tools') {
+          clearInterval(timer); active.delete(input.requestId);
+          emit(input, { kind: 'error', ...(scenarioRef.current === 'unsupported-tools' ? { reason: 'tools_unavailable' } : {}) }); return;
         }
         if (index < chunks.length) emit(input, { kind: 'delta', text: chunks[index++] });
         else {
@@ -135,7 +136,7 @@ function Preview() {
     <header ref={header}><img src="/StepCode.svg" alt="" width={25} height={25}/><strong>Step Code</strong>
       <small>{language === 'zh' ? '旁问预览 · 模拟数据' : 'Side question preview · Mock data'}</small>
       <select aria-label="Scenario" value={scenario} onChange={event => setScenario(event.target.value)}>
-        {['normal', 'slow', 'error', 'truncated', 'rich'].map(value => <option key={value}>{value}</option>)}</select>
+        {['normal', 'slow', 'error', 'unsupported-tools', 'truncated', 'rich'].map(value => <option key={value}>{value}</option>)}</select>
       <button onClick={() => { setRequest(undefined); setQuotes([]); close(); setSession(value => value === 'preview-a' ? 'preview-b' : 'preview-a'); }}>Switch session</button>
       <button aria-pressed={performanceVisible} onClick={() => setPerformanceVisible(value => !value)}>
         {language === 'zh' ? '性能信息' : 'Performance'}</button>
@@ -174,6 +175,9 @@ function Preview() {
     <SelectionToolbar root={transcript} scope={session} language={language} enabled={!expanded} onError={setError}
       onQuote={quote => { setQuotes(value => [...value, quote]); return true; }}
       onBtw={quote => { setRequest({ id: ++sequence.current, question: '', quote }); setOpen(true); return true; }}/>
+    <QuoteAnnotations root={transcript} quotes={quotes} language={language} scope={session}
+      annotate={(id, annotation) => setQuotes(value => value.map(quote => quote.id === id ? { ...quote, annotation } : quote))}
+      remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}/>
     {open && <RightPanelHandle panel="btw" language={language} value={expanded ? 'fullscreen' : width}
       standard={440} wide onChange={chooseWidth} onClose={close} onBlocked={() => {}}/>}
     <nav className="right-tool-rail" aria-label={language === 'zh' ? '右侧工具' : 'Right tools'}>

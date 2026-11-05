@@ -88,6 +88,7 @@ export class BtwRequests {
       typeof raw.model[key] === 'string' && raw.model[key].length <= 300))
       event.model = { id: raw.model.id, provider: raw.model.provider, name: raw.model.name };
     event.usage = btwUsage(raw.usage);
+    if (raw.kind === 'error' && raw.reason === 'tools_unavailable') event.reason = raw.reason;
     if (raw.truncated === true) event.truncated = true;
     this.emit(event);
     if (['done', 'error', 'cancelled'].includes(raw.kind)) this.finish(pending);

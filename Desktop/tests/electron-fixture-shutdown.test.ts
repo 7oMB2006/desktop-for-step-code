@@ -4,7 +4,55 @@ import { PassThrough } from 'node:stream';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 
-const { closeDesktopFixture, releaseExitedFixturePipes } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
+const { closeDesktopFixture, closeDesktopFixtureAndWait, releaseExitedFixturePipes } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
+
+test('launcher exit cannot complete shutdown before the driver close settles', async () => {
+  const { child, page, dispose } = fixture();
+  dispose();
+  let release!: () => void;
+  const driverClose = new Promise<void>(resolve => { release = resolve; });
+  let settled = false;
+  const closing = closeDesktopFixtureAndWait({ process: () => child, windows: () => [page],
+    close: async () => { child.exitCode = 0; child.emit('exit', 0); await driverClose; page.closed = true; page.emit('close'); } }, 1000)
+    .then(() => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false, 'a successful launcher exit does not abandon the controller close promise');
+  release();
+  await closing;
+  assert.equal(settled, true);
+  assert.equal(child.listenerCount('exit'), 0);
+  assert.equal(page.listenerCount('close'), 0);
+});
+
+test('driver close errors remain failures even after a successful launcher exit', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  await assert.rejects(closeDesktopFixtureAndWait({ process: () => child, windows: () => [],
+    close: async () => { child.exitCode = 0; child.emit('exit', 0); throw new Error('Driver close failed'); } }, 1000), /Driver close failed/);
+  assert.equal(child.listenerCount('exit'), 0);
+});
+
+test('driver closure alone cannot complete shutdown before the launcher exits', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  let settled = false;
+  const closing = closeDesktopFixtureAndWait({ process: () => child, windows: () => [], close: async () => {} }, 1000)
+    .then(() => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  child.exitCode = 0; child.emit('exit', 0);
+  await closing;
+  assert.equal(child.listenerCount('exit'), 0);
+});
+
+test('a stalled driver close keeps the bounded shutdown failure', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  let release!: () => void;
+  const stalled = new Promise<void>(resolve => { release = resolve; });
+  await assert.rejects(closeDesktopFixtureAndWait({ process: () => child, windows: () => [], close: () => stalled }, 20), /shutdown timed out/);
+  assert.equal(child.listenerCount('exit'), 1, 'only the in-flight close helper pipe guard remains, not the wait listener');
+  release();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(child.listenerCount('exit'), 0);
+});
 
 test('orderly fixture shutdown answers existing and changed quit reviews without forcing application exit', async () => {
   const replies: [string, boolean][] = [];

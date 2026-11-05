@@ -20,6 +20,16 @@ with Node 24.16.0. The upstream pin and overlays are unchanged. Replacement
 Windows and native macOS source/package checks remain required; this local
 record is not a cloud success, package, real-account or release claim.
 
+At `2bce3bf`, Windows runtime and sessions pass. The replacement macOS runtime
+job `127198503188` stops earlier at the project-trust drawer, before reaching
+task-progress acceptance. Its menu-selection fixture now requires the exact
+inserted `/trust ` value, editable composer and closed command menu before
+Enter. This retains the real menu/composer/IPC flow and all approval/save/
+no-model assertions. Failure diagnostics capture a screenshot and safe control/
+request state so a remaining failure cannot be mistaken for this timing gap.
+The original failed job has no such diagnostic, so the exact missing stage
+is not claimed as reproduced locally. Native cloud acceptance remains pending.
+
 ## BTW Message Actions And Tool Boundary (2026-11-05)
 
 Follow-up to merged main `3158d8d` (PR #190). Side questions now reuse

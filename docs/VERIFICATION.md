@@ -1,5 +1,64 @@
 # Verification
 
+## PR #193 main synchronization and acceptance corrections (2026-11-05)
+
+Merged main `d0a1009b` (#190 BTW and #192 production first-run) into the original
+PR ancestry without rewriting its five commits. Four conflicts retain both
+capabilities, both added source entries, both verification records and all patch
+hashes. The 16 shared patches apply in the original 14-patch order followed by
+BTW and subagent redaction. The combined Windows replay tree is
+`7cb4ae24e5e8cf0655a0e5057a81b9cc15f6129a`; all 43 source postimages match.
+Node 24.16.0 staging advertises both `desktop-btw` and
+`desktop-subagent-redaction`. The two Darwin additions apply and match all
+44 combined postimages on Windows; this is not native macOS execution.
+The upstream workspace check and complete offline build pass.
+
+The first runtime test command named a nonexistent roster file and actually
+ran five suites, not six: 107 tests passed. A corrected six-file run executes
+111 tests, with 110 passes and one source-CLI invocation timeout. The same
+invocation still times out when isolated with Node 24.16.0 and the allowed D:
+fixture directory; an earlier isolated attempt was blocked by EPERM in the
+system temporary directory. These failures are retained, not skipped or
+converted into a six-suite success claim. The display/output boundary tests
+pass; source CLI launch requires replacement cloud evidence.
+
+The BTW Electron verifier originally classified requests using the final
+message only. Two unchanged runs fail the main-stream isolation assertion.
+An original-flow diagnostic shows RUN-MAIN before a trailing working-context
+reminder; the fixture misclassifies that request and ends it itself. It now
+selects the latest explicit user scenario, waits for the actual held provider
+request, and checks that side cancellation neither destroys nor ends the main
+stream. Two consecutive complete native Electron BTW runs pass. No product
+BTW behavior, cancellation assertion or outer deadline changes.
+
+The then_run verifier could leave its Playwright close promise unawaited when
+launcher exit won the shutdown race. Its new bounded close helper requires both
+controller closure and process exit within the existing 30 seconds. Successful
+exit, closed context and zero windows are always required; close rejection and
+timeout remain failures. Twelve lifecycle unit tests pass, including delayed
+controller closure, exit ordering, close failure and stalled close. A real local
+then_run attempt fails earlier in Bash initialization with `0xC0000142`, then
+completes both controller and launcher shutdown. The requested full native
+three-run verification was therefore not completed. This fixes a demonstrated
+lifecycle gap, but the exact CI-held pipe has not been captured and the original
+cloud hang is not yet proven resolved. Failure diagnostics expose resource
+kinds and closure state, never environment or credential values. No forced
+successful exit or increased CI timeout is introduced.
+
+Desktop type checking, production build and 76 focused security/BTW/first-run
+checks pass. The three subagent security Electron verifiers pass, as do
+production first-run, chat quotes, message order, capability management and
+general Electron acceptance. The production BTW component verifier passes with
+installed Edge; the initial default-browser attempt failed because local
+Playwright Chromium was not installed. CI policy checks pass 30 tests with one
+platform skip. The final serial Desktop suite collects 876 tests: 861 pass,
+14 platform skips and one file-URL Git marketplace clone failure, matching the
+previously recorded local marketplace failure. The complete suite is not green;
+no failure is skipped or hidden. Replacement current-head Windows/macOS checks
+remain required. None of these local fixtures proves installed
+package, live account, paid-model or release readiness. No package, shortcut,
+original dirty worktree or personal Step Code checkout was changed.
+
 ## PR #193 sensitive input-key correction (2026-11-05)
 
 The original PR head `4620846` recursively filtered string values but did not

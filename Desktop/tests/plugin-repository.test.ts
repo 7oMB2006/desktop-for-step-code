@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PluginRepositoryInfo } from '../electron/plugin-repository.mjs';
 
 test('repository information is opt-in, deduplicated, bounded and cached across service restart', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'dfsc-stars-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-stars-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   let calls = 0, now = Date.now();
   const fetch: typeof globalThis.fetch = async (url, options) => {
@@ -29,7 +29,7 @@ test('repository information is opt-in, deduplicated, bounded and cached across 
   assert.equal((await new PluginRepositoryInfo(root, { fetch, now: () => now }).snapshot('https://github.com/owner/repo')).count, 0);
 });
 test('failed repository queries retain their retry cooldown across a service restart', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'dfsc-stars-retry-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-stars-retry-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   let calls = 0;
   const fetch: typeof globalThis.fetch = async () => { calls++; throw new Error('offline'); };
@@ -39,7 +39,7 @@ test('failed repository queries retain their retry cooldown across a service res
   assert.equal(calls, 1);
 });
 test('failed, limited, malformed, oversized and redirected requests preserve old snapshots, never invent zero', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'dfsc-stars-errors-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-stars-errors-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   let now = Date.now(), response = () => new Response('{"stargazers_count":7}');
   const service = new PluginRepositoryInfo(root, { now: () => now, fetch: async () => response() });
@@ -64,7 +64,7 @@ test('failed, limited, malformed, oversized and redirected requests preserve old
     await assert.rejects(service.refresh(repository), /invalid-input/);
 });
 test('a timed-out repository query releases its slot and preserves the last real snapshot', { timeout: 15000 }, async t => {
-  const root = await mkdtemp(join(tmpdir(), 'dfsc-stars-timeout-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-stars-timeout-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   let now = Date.now(), timeout = false, aborted = false;
   const service = new PluginRepositoryInfo(root, { now: () => now, fetch: async (_url, options) => {
@@ -86,7 +86,7 @@ test('a timed-out repository query releases its slot and preserves the last real
   } finally { clearTimeout(keepAlive); }
 });
 test('repository query concurrency never exceeds two', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'dfsc-stars-concurrency-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-stars-concurrency-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   let active = 0, maximum = 0;
   const service = new PluginRepositoryInfo(root, { fetch: async () => {

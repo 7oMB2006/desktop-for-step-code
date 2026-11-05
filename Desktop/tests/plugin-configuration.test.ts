@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, cp, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, cp, writeFile, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,7 @@ import type { PluginConfigurationInput } from '../src/capabilities';
 const helpers = await import(pathToFileURL(resolve('electron/plugin-files.mjs')).href);
 const source = resolve('../examples/plugins/config-starter/plugins/dfsc-config-example');
 async function fixture(t: test.TestContext, groups?: unknown[]) {
-  const root = await mkdtemp(join(tmpdir(), 'dfsc-config-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-config-')));
   t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
   const directory = join(root, 'plugins', 'example');
   await mkdir(join(root, 'plugins'), { recursive: true }); await cp(source, directory, { recursive: true });

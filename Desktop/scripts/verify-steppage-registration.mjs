@@ -9,7 +9,7 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -67,7 +67,7 @@ const launchCase = async (profile, bundlePath) => {
 };
 
 const makeProfile = async () => {
-  const profile = await mkdtemp(join(tmpdir(), 'steppage-reg-'));
+  const profile = await realpath(await mkdtemp(join(tmpdir(), 'steppage-reg-')));
   await mkdir(join(profile, 'step-runtime'), { recursive: true });
   return profile;
 };

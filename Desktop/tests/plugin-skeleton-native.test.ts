@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';
-import { cp, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CapabilityService } from '../electron/capability-service';
@@ -10,7 +10,7 @@ import { isolatedEnvironment } from '../electron/runtime';
 import type { RuntimeEvent } from '../src/contracts';
 
 async function fixture() {
-  const folder = await mkdtemp(join(tmpdir(), 'dfsc-skeleton-native-')), root = join(folder, 'profile');
+  const folder = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-skeleton-native-'))), root = join(folder, 'profile');
   await mkdir(join(root, 'agent'), { recursive: true });
   const runtime = join(folder, 'runtime'), cached = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
   await mkdir(runtime);

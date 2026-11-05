@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,7 +10,7 @@ import type { CapabilityCatalog } from '../src/capabilities';
 const files = await import(pathToFileURL(resolve('electron/plugin-files.mjs')).href);
 const icon = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jCj0AAAAASUVORK5CYII=', 'base64');
 async function fixture(t: test.TestContext) {
-  const root = await mkdtemp(join(tmpdir(), 'dfsc-plugin-library-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-plugin-library-')));
   t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
   const directory = join(root, 'plugins', 'example');
   await mkdir(join(directory, 'docs'), { recursive: true });
@@ -34,6 +34,23 @@ test('versioned metadata bounds lists and derives tutorial platform from URL', (
     { schemaVersion: 1, documentation: { readme: '../secret.md' } },
     { schemaVersion: 1, links: [{ title: 'A', url: 'https://user:password@example.com' }] }])
     assert.throws(() => parsePresentation(value));
+});
+test('trusted temporary profiles canonicalize parent aliases without authorizing aliased file access', async t => {
+  const { root } = await fixture(t);
+  const physical = join(root, 'physical-temp'), alias = join(root, 'temp-alias');
+  await mkdir(physical);
+  try { await symlink(physical, alias, process.platform === 'win32' ? 'junction' : 'dir'); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') { t.skip('Directory links unavailable'); return; }
+    throw error;
+  }
+  const created = await mkdtemp(join(alias, 'profile-')), canonical = await realpath(created);
+  assert.notEqual(created, canonical);
+  await writeFile(join(canonical, 'README.md'), 'Owned profile');
+  assert.equal((await files.plainFile(canonical, 'README.md')).toString(), 'Owned profile');
+  await files.writePrivateData(canonical, 'desktop-plugins/example.json', { owned: true });
+  await assert.rejects(files.plainFile(created, 'README.md'), /invalid-path/);
+  await assert.rejects(files.writePrivateData(created, 'desktop-plugins/rejected.json', { owned: false }), /invalid-path/);
 });
 test('catalog returns opaque stable references, not private package paths or document bodies', async t => {
   const { library, root, catalog } = await fixture(t);

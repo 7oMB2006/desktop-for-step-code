@@ -3,12 +3,12 @@ import { captureWaapi } from './capture-waapi.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const profile = await mkdtemp(join(tmpdir(), 'desktop-capability-ui-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-capability-ui-')));
 const market = join(profile, 'fixture-market');
 const iconPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jCj0AAAAASUVORK5CYII=', 'base64');
 await mkdir(join(market, '.step-plugin'), { recursive: true });

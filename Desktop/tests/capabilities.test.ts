@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -12,7 +12,7 @@ import type { CapabilityMutation } from '../src/capabilities';
 const runtime = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
 const iconPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jCj0AAAAASUVORK5CYII=', 'base64');
 async function fixture(t: test.TestContext) {
-  const folder = await mkdtemp(join(tmpdir(), 'desktop-capabilities-'));
+  const folder = await realpath(await mkdtemp(join(tmpdir(), 'desktop-capabilities-')));
   const root = join(folder, 'desktop');
   await mkdir(join(root, 'agent'), { recursive: true });
   const service = new CapabilityService({

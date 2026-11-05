@@ -39,6 +39,17 @@ Merged full-text Electron acceptance also passes native IPC, read-only anchors,
 filters, cancellation/races, focus return, draft/runtime/JSONL isolation and
 theme/narrow checks.
 
+The initial Windows/macOS cloud protocol runs exposed aliased temporary roots
+(Windows short names and macOS `/var` versus `/private/var`). Test fixtures now
+canonicalize their newly created, owned roots before deriving child paths.
+Production canonical-root, ancestor and junction/race guards are unchanged.
+A local aliased-TEMP reproduction fails before the fixture fix and passes all
+49 focused tests afterwards, including a regression that still rejects aliased
+plugin reads and private writes. Isolated capability-management and all eight
+StepPage registration Electron cases also pass under the aliased temporary
+directory. These are targeted follow-up results, not a new full-suite or cloud-CI
+verdict.
+
 The new production build is
 `D:/DFSC-Preview-QA/plugin-skeleton-pr-20261105-app/`.
 Actual isolated Electron acceptance repeats native discovery, install,

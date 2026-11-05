@@ -25,7 +25,7 @@ failing-first regressions:
   settings lifecycle changes. Late success/failure cannot replace newer drafts,
   including animated close and reduced motion.
 
-Current-source local verification passes typecheck, production build, the five
+Pre-onboarding source verification passes typecheck, production build, the five
 real background/BTW/template RPC cases, 39 CI policy/runner checks with one
 platform skip, both production PluginCenter/input-MCP browser verifiers and
 isolated Electron capability-management acceptance. The standalone text plugin
@@ -62,6 +62,21 @@ also asserts that Plan authorization blocks both plugin configuration saves.
 The seeded plugin-management profile explicitly checks existing-profile bypass.
 The post-merge isolated build is
 `D:/DFSC-Preview-QA/plugin-skeleton-pr-20261105-onboarding-app/`.
+The complete post-merge aliased-TEMP rerun passes 943 tests: 929 passed, 14
+platform skips, no failures/cancellations
+(`plugin-skeleton-pr-20261105-full-unit-merged.log`).
+
+The second cloud run passes both platforms' protocol suites. Native acceptance
+then identifies two legacy fixture mismatches: the full Electron script still
+uses aliased temporary roots, and the fixed-settings script expects Plugins to
+remain inside the settings modal. Only the Electron, settings-dialog and summary
+runtime fixtures require further root canonicalization; independent review
+confirms this bounded allowlist. The aliased-TEMP Electron failure is reproduced
+before the fix and the complete script passes afterwards, including its fresh
+profile branch. Settings acceptance now explicitly checks PluginCenter
+navigation, retained draft/runtime/messages and the restored settings bounds.
+Summary acceptance waits for a configurable real MCP switch and rejects read
+errors. All three native scripts pass locally; cloud results remain separate.
 
 The pre-onboarding production build is
 `D:/DFSC-Preview-QA/plugin-skeleton-pr-20261105-app/`.

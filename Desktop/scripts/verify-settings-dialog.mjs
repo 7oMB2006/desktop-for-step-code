@@ -1,11 +1,11 @@
 import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const profile = await mkdtemp(join(tmpdir(), 'desktop-settings-dialog-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-settings-dialog-')));
 await mkdir('test-results', { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
@@ -31,6 +31,7 @@ try {
     window.setSize(1440, 960);
   });
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Unsent settings fixture');
+  const draft = await page.evaluate(() => window.desktop.snapshot());
   await page.locator('.sidebar-bottom > button').click();
   await page.locator('.account-settings').waitFor();
   const dialog = page.locator('.settings-dialog');
@@ -54,7 +55,7 @@ try {
     const bounds = element.getBoundingClientRect();
     return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)?.classList.contains('settings-backdrop');
   }), true, 'The entire titlebar is behind the settings backdrop');
-  for (const title of ['账户', '供应商', '插件', 'MCP', 'Skills', '通用', '外观', '版本更新', '已归档']) {
+  for (const title of ['账户', '供应商', 'MCP', 'Skills', '通用', '外观', '版本更新', '已归档']) {
     await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: title, exact: true }).click();
     const bounds = await dialog.boundingBox();
     assert.deepEqual(bounds, baseline, `${title}: same outer bounds across all categories`);
@@ -62,6 +63,21 @@ try {
     assert.equal(await page.locator('.settings-content').evaluate(element => element.scrollWidth > element.clientWidth), false);
     assert.equal(await page.getByRole('button', { name: title, exact: true }).getAttribute('aria-current'), 'page');
   }
+  await navigation.getByRole('button', { name: '插件', exact: true }).click();
+  const plugins = page.locator('.plugin-center');
+  await plugins.waitFor();
+  await dialog.waitFor({ state: 'detached' });
+  await plugins.getByRole('button', { name: '返回会话', exact: true }).click();
+  await plugins.waitFor({ state: 'hidden' });
+  assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).innerText(), 'Unsent settings fixture');
+  const returned = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(returned.draftId, draft.draftId, 'Plugin navigation retains the current draft');
+  assert.equal(returned.runtimeId, draft.runtimeId, 'Plugin navigation does not start or replace a worker');
+  assert.equal(returned.messages.length, draft.messages.length);
+  await page.locator('.sidebar-bottom > button').click();
+  await dialog.waitFor();
+  await settleLayout(page.locator('.settings-backdrop'));
+  assert.deepEqual(await dialog.boundingBox(), baseline, 'Returning from Plugins preserves the settings shell');
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await capture('settings-fixed-appearance-light');
   await page.getByRole('button', { name: '账户', exact: true }).click();

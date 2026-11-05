@@ -154,10 +154,14 @@ export function projectBackgroundSubagentStates(
   activity: BackgroundLaneActivity | undefined,
 ): BackgroundSubagentStates {
   const projected = new Map<string, SubagentDisplayStatus>(historical);
-  const live = new Map(activity?.status === 'known' ? activity.lanes.map(lane => [lane.id, lane.status]) : []);
+  // Only validated current ownership may revise history. An unavailable registry
+  // means "not observed yet", so history-derived running persists until a live
+  // event or a successful read says otherwise; it never invents a terminal state.
+  if (activity?.status !== 'known') return projected;
+  const live = new Map(activity.lanes.map(lane => [lane.id, lane.status]));
   for (const [id, status] of projected) {
     if (live.has(id)) projected.set(id, 'running');
-    else if ((status === 'running' || status === 'queued') && activity) projected.set(id, 'unknown');
+    else if (status === 'running' || status === 'queued') projected.set(id, 'unknown');
   }
   return projected;
 }

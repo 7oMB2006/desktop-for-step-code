@@ -85,10 +85,13 @@ supplies a bounded current lane roster from validated live status events, or a
 separate read-only observation when unresolved history is loaded. Observations
 never modify live ownership. Transport/session changes and newer lifecycle
 events invalidate them; failed or unavailable reads do not become empty rosters.
-A known empty roster marks unresolved historical running/queued records as
-unknown outcomes, not completed/failed/stopped tasks. Unavailable current state
-is labelled unconfirmed instead. Chat, selected Agent records and summary share
-that projection, while previously returned terminal results remain intact.
+Only a validated current roster revises the display: a known empty roster marks
+unresolved historical running/queued records as unknown outcomes, never
+completed/failed/stopped tasks. When the current roster is unavailable the
+history-derived status persists unchanged, because "not observed yet" cannot
+claim that a lane stopped; it also never fabricates a terminal result. Chat,
+selected Agent records and summary share that projection, while previously
+returned terminal results and completed multi-step steps remain intact.
 
 Moving a conversation checks the source and prepared destination host against
 live ownership, the native current registry, and existing task/queue/Cron guards.

@@ -22,9 +22,12 @@ retaining the old object-shaped history. Current lane activity is projected
 separately: native live status events remain the sole process-ownership source,
 while registry observations are display-only and invalidate on transport,
 session, generation or structured lifecycle changes. A stale observation cannot
-release a newer running/settling owner. Unknown registry state fails closed for
-relocation; old unresolved transcript status alone no longer owns the host.
-No child transcript is loaded to invent a missing final outcome.
+release a newer running/settling owner. Only a validated current roster revises
+the display; an unavailable registry means "not observed yet", so the
+history-derived running status persists instead of being downgraded, and
+unknown registry state still fails closed for relocation. Old unresolved
+transcript status alone no longer owns the host. No child transcript is loaded
+to invent a missing final outcome.
 
 The five native RPC scenarios pass, including actual follow-up execution and
 suspend/reopen. Pre-existing journal entries retain their exact bytes. Native
@@ -52,6 +55,19 @@ transport after the normal task/queue checks, while the prepared destination
 always verifies its live registry. This distinction has a red/green regression.
 Structured notifications and subagent control results also invalidate prior
 display observations; the cache does not own or release a process.
+
+First cloud execution of the previous head exposed a display-semantics
+regression: the projection downgraded history-derived running/queued records to
+unknown whenever the current roster was unavailable, but the native lifecycle
+and the existing background acceptance both require that stale/unavailable
+current state keeps the history-derived status until a validated roster says
+otherwise (a mocked main process never observes, so the downgrade became
+permanent). `verify-background-subagents.mjs` and `verify-hidden-messages.mjs`
+timed out waiting for `running` after reload on Windows sessions/runtime. The
+fix restricts the downgrade to a validated known roster, with the reversed unit
+assertion added first. Movement still fails closed on unavailable registries;
+this is display-only. Both scripts were reproduced locally against the same
+mirror and re-run after the fix.
 
 Final local candidate verification: typecheck and production build pass; the
 complete serial Desktop suite collects 894 tests, with 879 passes, 14 platform

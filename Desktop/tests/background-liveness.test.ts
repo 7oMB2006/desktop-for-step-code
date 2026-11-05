@@ -29,13 +29,15 @@ test('agent_send detail parsing is bounded and rejects malformed rows without re
   assert.deepEqual(messages, before);
 });
 
-test('live lane projection keeps known final outcomes and marks stale running history unknown', () => {
+test('only known current ownership downgrades stale running history; unavailable keeps it', () => {
   const historical = new Map([['lane-a', 'running'], ['lane-b', 'completed'], ['lane-c', 'failed']] as const);
   assert.deepEqual([...projectBackgroundSubagentStates(historical, { status: 'known', lanes: [] })],
     [['lane-a', 'unknown'], ['lane-b', 'completed'], ['lane-c', 'failed']]);
   assert.deepEqual([...projectBackgroundSubagentStates(historical, { status: 'known', lanes: [{ id: 'lane-a', status: 'settling' }] })],
     [['lane-a', 'running'], ['lane-b', 'completed'], ['lane-c', 'failed']]);
-  assert.equal(projectBackgroundSubagentStates(historical, { status: 'unavailable' }).get('lane-a'), 'unknown');
+  assert.deepEqual([...projectBackgroundSubagentStates(historical, { status: 'unavailable' })],
+    [['lane-a', 'running'], ['lane-b', 'completed'], ['lane-c', 'failed']],
+    'unavailable current state cannot claim a lane stopped; history-derived running persists');
 });
 
 test('selected Agent records and summary share unknown outcomes without altering completed chain steps', () => {
@@ -53,8 +55,12 @@ test('selected Agent records and summary share unknown outcomes without altering
   assert.equal(task?.status, 'unknown');
   assert.equal(task?.statusDetail, 'inactive');
   assert.deepEqual(summaryAgents(history, false, activity).map(agent => agent.status), ['completed', 'unknown']);
-  assert.equal(findSubagentTask(history, { agent: 'general', task: 'Finish', toolCallId: 'call-a', taskIndex: 1 },
-    { status: 'unavailable' })?.statusDetail, 'unavailable');
+  const unconfirmed = findSubagentTask(history, { agent: 'general', task: 'Finish', toolCallId: 'call-a', taskIndex: 1 },
+    { status: 'unavailable' });
+  assert.equal(unconfirmed?.status, 'running', 'unavailable current state keeps the history-derived status');
+  assert.equal(unconfirmed?.statusDetail, undefined);
+  assert.deepEqual(summaryAgents(history, false, { status: 'unavailable' }).map(agent => agent.status),
+    ['completed', 'running'], 'summary does not invent unknown outcomes without current knowledge');
   assert.deepEqual(history, before);
 });
 

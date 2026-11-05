@@ -4,7 +4,9 @@ import type { DesktopBridge } from './contracts';
 import { appendBtwQuote, applyBtwEvent, btwPrompt, MAX_BTW_PROMPT_LENGTH, trimBtwHistory, type BtwEvent, type BtwExchange } from './btw';
 import type { ChatQuote } from './chat-quotes';
 import { QuotePreview } from './QuotePreview';
-import { MessageActions, Text } from './ConversationMessages';
+import { MessageActions, UserMessageActions, Text } from './ConversationMessages';
+import { SelectionToolbar } from './SelectionToolbar';
+import { QuoteAnnotations, quoteSourceRange } from './QuoteAnnotations';
 import { ElapsedLabel } from './ElapsedLabel';
 import { WorkingIndicator } from './WorkingIndicator';
 import { ComposerInput } from './ComposerInput';
@@ -163,8 +165,27 @@ export function BtwPanel({ runtimeId, sessionId, language, disabled, modelName, 
     catch { if (mounted.current) setError(t('清空失败，请重试。', 'Could not clear. Please retry.')); }
     finally { if (mounted.current) setActing(false); }
   };
+  const addQuote = (quote: ChatQuote) => {
+    const next = appendBtwQuote(quotes, { ...quote, origin: 'btw' }, draft, language);
+    if (next.error) {
+      setError(next.error === 'count' ? t('最多添加 8 段引用。', 'Maximum 8 quotes.')
+        : t('旁问与引用合计不能超过 8000 字符，请选择较短的片段。', 'Question and quotes exceed 8,000 characters. Select a shorter excerpt.'));
+      return false;
+    }
+    setQuotes(next.quotes); setError('');
+    return true;
+  };
   const revealQuote = (quote: ChatQuote) => {
-    if (!onRevealQuote?.(quote)) setError(t('当前上下文中找不到这段原文，引用内容仍保留。', 'Source is not in the current context. The quoted text is still available.'));
+    if (quote.origin === 'btw') {
+      const range = scroll.current && quoteSourceRange(scroll.current, quote);
+      if (range) {
+        follow.current = false;
+        range.startContainer.parentElement?.scrollIntoView({ block: 'center' });
+        setError('');
+        return;
+      }
+    } else if (onRevealQuote?.(quote)) { setError(''); return; }
+    setError(t('当前上下文中找不到这段原文，引用内容仍保留。', 'Source is not in the current context. The quoted text is still available.'));
   };
   const handleEscape = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing) return;
@@ -189,11 +210,12 @@ export function BtwPanel({ runtimeId, sessionId, language, disabled, modelName, 
           data-tooltip={t('关闭旁问', 'Close side question')} onClick={onClose}><X size={17}/></button>
       </header>
       <div className="btw-session"><span className="btw-model" title={displayedModel}>{displayedModel}</span>
-        <span>{running ? t('正在回答', 'Answering') : t('临时旁问', 'Temporary side questions')}</span></div>
-      <div ref={scroll} className="btw-history" role="log" aria-label={t('临时旁问记录', 'Temporary side questions')}
+        <span data-tooltip={t('只读取当前会话快照回答，不联网、不操作文件，也不写回主会话。', 'Answers from the current conversation snapshot. No web, file operations, or writes to the main conversation.')}>
+          {running ? t('正在回答 · 无工具', 'Answering · No tools') : t('仅回答 · 无工具', 'Answer only · No tools')}</span></div>
+      <div ref={scroll} className="btw-history" data-quote-viewport role="log" aria-label={t('临时旁问记录', 'Temporary side questions')}
         onScroll={event => { const el = event.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 36; }}>
         {!items.length && <p className="btw-empty">{t('就当前任务问个问题', 'Ask about the current task')}</p>}
-        {items.map(item => <article key={item.requestId} className="btw-exchange" data-state={item.state}>
+        {items.map((item, index) => <article key={item.requestId} className="btw-exchange" data-state={item.state}>
           {!!item.quotes?.length && <div className="btw-sent-quotes">{item.quotes.map((quote, index) =>
             <blockquote key={quote.id}>
               <button type="button" className="btw-quote-source" onClick={() => revealQuote(quote)}
@@ -201,9 +223,16 @@ export function BtwPanel({ runtimeId, sessionId, language, disabled, modelName, 
                 data-tooltip={t('查看原文', 'Show source')}>{t(`引用 ${index + 1}`, `Quote ${index + 1}`)}
                 <span> · {quote.role === 'assistant' ? t('助手', 'Assistant') : t('用户', 'User')}</span></button>
               <p>{quote.text}</p>
+              {quote.annotation && <div className="sent-quote-annotation">
+                <span>{t('批注', 'Annotation')}</span>{quote.annotation}</div>}
             </blockquote>)}</div>}
-          <div className="btw-request message user"><div className="message-body"><p className="btw-question">{item.question}</p></div></div>
-          <div className={`btw-response message assistant${item.state === 'running' ? ' response-active' : ''}`}>
+          <div className="btw-request message user" data-message-index={index * 2} data-message-entry-id={`btw-${item.requestId}-user`}>
+            <div className="message-body"><p className="btw-question">{item.question}</p></div>
+            <UserMessageActions text={item.question} timestamp={item.startedAt} language={language} onError={setError}
+              copyLabel={t('复制旁问问题', 'Copy side question')}/>
+          </div>
+          <div className={`btw-response message assistant${item.state === 'running' ? ' response-active' : ''}`}
+            data-message-index={index * 2 + 1} data-message-entry-id={`btw-${item.requestId}-assistant`}>
             {item.answer && <div className="response-content message-body"><div className="btw-answer response-text">
               <Text text={item.answer} language={language} streaming={item.state === 'running'} openImage={openImage} onError={setError}/>
             </div></div>}
@@ -213,7 +242,10 @@ export function BtwPanel({ runtimeId, sessionId, language, disabled, modelName, 
             </div> : <>
               {(item.state !== 'done' || item.truncated) && <div className="btw-outcome" role="status">
                 {item.state === 'cancelled' ? <Square size={12}/> : <CircleAlert size={14}/>}
-                <span>{item.state === 'error' ? t('回答失败，请重试', 'Answer failed. Please retry')
+                <span>{item.state === 'error' ? item.reason === 'tools_unavailable'
+                  ? t('旁问无法调用工具，这次未执行任何操作。需要联网或操作文件时，请在主会话中提问。',
+                    'Side questions cannot use tools. No action was executed. Use the main conversation for web or file operations.')
+                  : t('回答失败，请重试', 'Answer failed. Please retry')
                   : item.state === 'cancelled' ? t('已停止', 'Stopped')
                   : t('已达到回答长度上限', 'Response length limit reached')}</span>
               </div>}
@@ -257,6 +289,13 @@ export function BtwPanel({ runtimeId, sessionId, language, disabled, modelName, 
             onClick={() => void (running ? cancel() : ask(draft))}><ComposerActionIcon stop={running}/></button></div>
         </div>}
       </div>
+      {open && !replaced && <>
+        <SelectionToolbar root={scroll} scope={scopeId} language={language} enabled={!disabled}
+          onQuote={addQuote} focusComposer={focusInput} onError={setError}/>
+        <QuoteAnnotations root={scroll} quotes={quotes.filter(quote => quote.origin === 'btw')} language={language} scope={scopeId}
+          annotate={(id, annotation) => setQuotes(value => value.map(quote => quote.id === id ? { ...quote, annotation } : quote))}
+          remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}/>
+      </>}
     </aside>
   </div>;
 }

@@ -1,5 +1,71 @@
 # Verification
 
+## PR #196 Native CI Synchronization (2026-11-05)
+
+Run `41975811560` fails macOS source capability acceptance immediately after
+reload while its search button is still disabled, and task-progress acceptance
+times out before the full-but-running checkpoint. Capability acceptance now
+waits for the existing enabled control before retaining its original assertion.
+The task fixture routes by the explicit user scenario and acknowledged tool
+result instead of global request ordinal; it asserts exactly one task update,
+one held post-tool answer and one next-turn request. Its failure path captures
+phase/count/stream state without logging provider payloads. No production
+behavior, animation assertion, deadline or CI inventory is relaxed.
+
+Main `495d974` is merged without rewriting history. Both native BTW stream
+isolation checks and unsupported-tool scenarios are retained, alongside both
+runtime capabilities and all subagent redaction postimages. The complete
+combined patch set applies on a new pinned checkout, builds offline and stages
+with Node 24.16.0. The upstream pin and overlays are unchanged. Replacement
+Windows and native macOS source/package checks remain required; this local
+record is not a cloud success, package, real-account or release claim.
+
+At `2bce3bf`, Windows runtime and sessions pass. The replacement macOS runtime
+job `127198503188` stops earlier at the project-trust drawer, before reaching
+task-progress acceptance. Its menu-selection fixture now requires the exact
+inserted `/trust ` value, editable composer and closed command menu before
+Enter. This retains the real menu/composer/IPC flow and all approval/save/
+no-model assertions. Failure diagnostics capture a screenshot and safe control/
+request state so a remaining failure cannot be mistaken for this timing gap.
+The original failed job has no such diagnostic, so the exact missing stage
+is not claimed as reproduced locally. Native cloud acceptance remains pending.
+
+## BTW Message Actions And Tool Boundary (2026-11-05)
+
+Follow-up to merged main `3158d8d` (PR #190). Side questions now reuse
+the shared user timestamp/copy footer without an unsupported edit action.
+Inside BTW, the existing selection toolbar offers Quote, Annotate and Copy
+without recursive side questions. Source identity, composer focus and
+annotation ranges remain isolated from the main transcript; closing BTW
+removes only its own floating markers/highlights.
+
+The upstream pin and applied upstream commits are unchanged. A fresh
+isolated checkout replayed the complete reviewed patch set, then rebuilt
+and staged the runtime with Node v24.16.0. The side-only reminder is also
+applied at system level. Structured tool invocations and bare leading
+tool-protocol text produce an allowlisted unsupported-tools error, never
+execute tools, and do not enter side followup history. Fenced and quoted
+protocol examples remain ordinary answers. This is conservative detection,
+not a claim to recognize every malformed provider response.
+
+Typecheck, production build and all 849 serial tests pass: 835 passed,
+14 platform skips, no failures. The focused staging/native runtime tests
+also pass after the final patch metadata/hash update. Native runtime tests
+use only an isolated loopback provider and verify tool rejection, legitimate
+examples, followup isolation, no retry/tool loop and main/side cancellation.
+The BTW browser acceptance covers shared message actions, side-local
+selection/annotations, independent main/side highlights, hidden-panel
+cleanup, source navigation, focus and light/dark 1600/1100/390/320 layouts
+plus reduced motion. The native BTW and main chat-quote acceptances pass,
+including real clipboard operations, stable entry identity after index
+changes, independently retained drafts/references and no main JSONL writes.
+
+The serial test log and BTW screenshots are in
+`Desktop/test-results/btw/`; the patch replay/build workspace is
+`D:\Desktop Runtime Builds\btw-boundaries-20261105\isolated`.
+No installer, installed application, desktop shortcut, real-account request,
+cloud check or native macOS acceptance was changed or claimed by this pass.
+
 ## PR #193 main synchronization and acceptance corrections (2026-11-05)
 
 Merged main `d0a1009b` (#190 BTW and #192 production first-run) into the original

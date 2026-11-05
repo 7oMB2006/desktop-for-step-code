@@ -56,6 +56,12 @@ try {
   await input().fill('/tru');
   await page.getByRole('option').filter({ hasText: '项目信任' }).waitFor();
   await page.getByRole('option').filter({ hasText: '项目信任' }).click();
+  await page.waitForFunction(() => {
+    const input = document.querySelector('.composer > .composer-input');
+    return input?.value === '/trust ' && input.getAttribute('contenteditable') === 'true'
+      && input.getAttribute('aria-expanded') === 'false';
+  });
+  assert.equal(await input().evaluate(element => element.value), '/trust ', 'Menu selection inserts the complete command before submission');
   await input().press('Enter');
   const drawer = () => page.getByRole('dialog', { name: '信任此项目？', exact: true });
   await drawer().waitFor({ timeout: 60000 });
@@ -119,6 +125,24 @@ try {
   results.push('explicit restart keeps empty history and trust management never calls a model');
   await writeFile('test-results/project-trust.json', JSON.stringify({ profile, results, modelCalls }, null, 2));
   console.log(`Project trust Electron acceptance passed (${results.length} cases).`);
+} catch (error) {
+  const page = app && await app.firstWindow().catch(() => undefined);
+  await page?.screenshot({ path: 'test-results/project-trust-failure.png' }).catch(() => {});
+  console.error('Project trust diagnostic:', {
+    modelCalls, completedCases: results.length,
+    state: await page?.evaluate(async () => {
+      const input = document.querySelector('.composer > .composer-input');
+      const snapshot = await window.desktop.snapshot();
+      return {
+        commandReady: input?.value.trim() === '/trust',
+        menuOpen: input?.getAttribute('aria-expanded'),
+        editable: input?.getAttribute('contenteditable'),
+        status: snapshot.status, hasRuntime: Boolean(snapshot.runtimeId),
+        requests: snapshot.requests?.map(request => ({ method: request.method, projectTrust: Boolean(request.projectTrust) })),
+      };
+    }).catch(() => undefined),
+  });
+  throw error;
 } finally {
   if (app) {
     await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });

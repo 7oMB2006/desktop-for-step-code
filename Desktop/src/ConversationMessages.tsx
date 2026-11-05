@@ -288,6 +288,17 @@ export function MessageActions({ text, language, onError, timing, timestamp, cop
   </footer>;
 }
 
+export function UserMessageActions({ text, language, onError, timestamp, copyLabel, steered, children }: {
+  text: string; language: 'zh' | 'en'; onError: Props['onError']; timestamp?: number;
+  copyLabel?: string; steered?: boolean; children?: ReactNode;
+}) {
+  return <footer className={`message-actions user-actions${steered ? ' has-steered-marker' : ''}`}>
+    <Timestamp value={timestamp} language={language}/>
+    <CopyButton text={text} language={language} onError={onError} label={copyLabel}/>
+    {children}
+  </footer>;
+}
+
 function ToolText({ text, ...props }: { text: string } & Pick<BodyProps, 'language' | 'onError'>) {
   return text.length > 32_768 ? <LargeText text={text} {...props}/> : <pre>{text}</pre>;
 }
@@ -558,15 +569,14 @@ function UserMessage({ message, index, arriving, editState, setEditState, search
       </div>
     </div> : <>
     <Body blocks={messageBlocks(message)} {...props} searchTarget={searchTarget?.entryId === message.entryId ? searchTarget : undefined}/>
-    <footer className={`message-actions user-actions${message.desktopSteered ? ' has-steered-marker' : ''}`}>
-      <Timestamp value={message.timestamp} language={props.language}/>
-      <CopyButton text={messageText(message)} {...props}/>
+    <UserMessageActions text={messageText(message)} language={props.language} onError={props.onError}
+      timestamp={message.timestamp} steered={message.desktopSteered}>
       <button ref={pencil} type="button" className="icon-button" aria-label={props.language === 'zh' ? '编辑并重做' : 'Edit and retry'}
         data-tooltip={props.language === 'zh' ? '编辑并重做' : 'Edit and retry'}
         disabled={!props.canEdit || !message.entryId || (!messageText(message) && !messageBlocks(message).some(block => block.type === 'image'))}
         onClick={() => setEditState({ entryId: message.entryId!, text: messageText(message), submitting: false })}><Pencil size={15}/></button>
       {message.desktopSteered && <em className="message-steered">{zh ? '已插队引导' : 'Steered'}</em>}
-    </footer></>}
+    </UserMessageActions></>}
   </article>;
 }
 export function ConversationMessages(props: Props) {

@@ -89,6 +89,27 @@ test('cancel is exact-owner, idempotent, and retains host on unconfirmed cancell
   } finally { controller.dispose(worker); }
 });
 
+test('unsupported tools use only an allowlisted reason and discard invalid response markup', async () => {
+  const { controller, worker, events } = fixture();
+  try {
+    await controller.ask(input);
+    controller.event(worker, { ...input, kind: 'error', reason: 'tools_unavailable', error: 'PRIVATE-PROVIDER-ERROR' });
+    assert.equal(events.at(-1)?.reason, 'tools_unavailable');
+    assert.ok(!JSON.stringify(events).includes('PRIVATE-PROVIDER'));
+    await controller.ask(input);
+    controller.event(worker, { ...input, kind: 'error', reason: 'PRIVATE-PROVIDER-ERROR' });
+    assert.equal(events.at(-1)?.reason, undefined);
+    const exchange: BtwExchange = { requestId: input.requestId, question: 'Find it', answer: '<tool_call>...',
+      state: 'running', startedAt: 1000 };
+    const rejected = applyBtwEvent(exchange, { ...input, type: 'desktop_btw', kind: 'error', reason: 'tools_unavailable' }, 2000);
+    assert.equal(rejected.state, 'error');
+    assert.equal(rejected.reason, 'tools_unavailable');
+    assert.equal(rejected.answer, '');
+    assert.equal(rejected.endedAt, 2000);
+    assert.equal(applyBtwEvent(rejected, { ...input, type: 'desktop_btw', kind: 'done', text: 'Late answer' }), rejected);
+  } finally { controller.dispose(worker); }
+});
+
 test('ambiguous ask acknowledgement is cancelled before releasing ownership; disposal is terminal', async () => {
   const { controller, worker, events, respond } = fixture();
   respond(async () => { throw new Error('timeout with SECRET'); });
@@ -183,6 +204,16 @@ test('side quotes deduplicate without modifying the main quote array and enforce
   assert.equal(appendBtwQuote([], full, '??', 'en').error, 'length');
   assert.equal(appendBtwQuote([], { ...quote, markdown: 'x'.repeat(20000) }, '', 'en').error, 'length');
   assert.deepEqual(main, [quote]);
+});
+
+test('quote identity separates main and side sources, roles, and stable entries after history shifts', () => {
+  const side: ChatQuote = { ...quote, origin: 'btw', entryId: 'btw-answer-1' };
+  const main = [quote];
+  assert.equal(appendBtwQuote(main, side, '', 'en').quotes?.length, 2);
+  assert.equal(appendBtwQuote([side], { ...side, messageIndex: 999 }, '', 'en').quotes?.length, 1,
+    'Retained entries deduplicate even when earlier exchanges are trimmed');
+  assert.equal(appendBtwQuote([side], { ...side, entryId: 'btw-answer-2' }, '', 'en').quotes?.length, 2);
+  assert.equal(appendBtwQuote([side], { ...side, role: 'user' }, '', 'en').quotes?.length, 2);
 });
 
 test('quoted side exchanges retain the same complete prompt-size history budget as native followups', () => {

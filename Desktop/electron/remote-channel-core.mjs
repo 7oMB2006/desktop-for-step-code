@@ -144,8 +144,10 @@ export class RemoteConnection {
       actions.push(...choices.options.map(option => ({ tag: 'button', text: { tag: 'plain_text', content: option },
         value: { token: choices.token, option } })));
     } else if (value.title.startsWith('Working')) {
-      const token = randomUUID();
-      for (const [id, item] of this.tokens) if (item.stop) this.tokens.delete(id);
+      // The visible button must remain valid while its streaming update is in flight.
+      const existing = [...this.tokens].find(([, item]) => item.stop && item.bindingId === bound.id && item.runId === value.key);
+      const token = existing?.[0] ?? randomUUID();
+      for (const [id, item] of this.tokens) if (item.stop && id !== token) this.tokens.delete(id);
       this.tokens.set(token, { bindingId: bound.id, runId: value.key, stop: true, expiresAt: this.now() + 600000, options: ['stop'] });
       actions.push({ tag: 'button', text: { tag: 'plain_text', content: 'Stop / 停止' }, value: { token, option: 'stop' } });
     } else {

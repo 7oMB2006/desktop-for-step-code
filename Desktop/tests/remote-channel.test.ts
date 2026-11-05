@@ -11,6 +11,7 @@ function fixture() {
   const events: any[] = [], cards: any[] = [], updates: any[] = [];
   let socketOptions: any, handlers: any, closed = 0, restClosed = 0, holdAuthorization = false;
   let release!: () => void, failSend = false, holdReady = false, now = Date.now();
+  let updateGate: Promise<void> | undefined;
   class Gate {
     private seen = new Set<string>();
     accept(raw: any, now: number) {
@@ -32,7 +33,10 @@ function fixture() {
     LarkApi: class {
       async getBotIdentity() { return { openId: 'bot', name: 'Fixture' }; }
       async sendCard(chat: string, card: unknown) { cards.push({ chat, card }); if (failSend) throw new Error('PRIVATE-SECRET'); return 'card-id'; }
-      async updateCard(id: string, card: unknown) { updates.push({ id, card }); }
+      async updateCard(id: string, card: unknown) {
+        updates.push({ id, card });
+        const gate = updateGate; updateGate = undefined; await gate;
+      }
       async close() { restClosed++; }
     },
     EventDispatcher: class { register(value: unknown) { handlers = value; return this; } },
@@ -58,6 +62,11 @@ function fixture() {
     inbound: (value: unknown) => handlers['im.message.receive_v1'](value),
     socket: () => socketOptions, closed: () => closed, restClosed: () => restClosed,
     hold: () => { holdAuthorization = true; }, release: () => release(), failSend: () => { failSend = true; },
+    holdUpdate: () => {
+      let resolve!: () => void, reject!: (error: Error) => void;
+      updateGate = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+      return { resolve, reject };
+    },
     holdReady: () => { holdReady = true; }, advance: (ms: number) => { now += ms; } };
 }
 
@@ -143,20 +152,71 @@ test('expired verification codes and card tokens do not bind or answer', async t
   f.advance(600001); f.callback({ token: 'token', option: 'yes' });
   assert.equal(f.events.filter(event => event.kind === 'decision').length, 0);
 });
-test('streaming updates one card; completion invalidates its stop action', async t => {
+test('streaming updates one card and retains the same single-use stop action', async t => {
   const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
   const card = { bindingId: 'binding', key: 'run', title: 'Working', text: 'one' };
   await f.connection.command('card', card);
   const stop = f.cards[0].card.elements[1].actions[0].value;
   await f.connection.command('card', { ...card, text: 'two' });
-  f.callback(stop);
-  assert.equal(f.events.filter(event => event.kind === 'stop').length, 0);
   const latest = f.updates[0].card.elements[1].actions[0].value;
+  assert.deepEqual(latest, stop);
   f.callback(latest); f.callback(latest);
   assert.equal(f.events.filter(event => event.kind === 'stop').length, 1);
   await f.connection.command('card', { ...card, title: 'Completed' });
   assert.equal(f.cards.length, 1); assert.equal(f.updates.length, 2);
   f.callback(latest); assert.equal(f.events.filter(event => event.kind === 'stop').length, 1);
+});
+test('the displayed stop action remains valid during a delayed streaming card update', async t => {
+  const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
+  const card = { bindingId: 'binding', key: 'run', title: 'Working', text: 'one' };
+  await f.connection.command('card', card);
+  const stop = f.cards[0].card.elements[1].actions[0].value;
+  const gate = f.holdUpdate(), pending = f.connection.command('card', { ...card, text: 'two' });
+  assert.deepEqual(f.updates[0].card.elements[1].actions[0].value, stop);
+  f.callback(stop); f.callback(stop);
+  assert.deepEqual(f.events.filter(event => event.kind === 'stop'), [
+    { type: 'remote_channel', kind: 'stop', bindingId: 'binding', runId: 'run' },
+  ]);
+  gate.resolve(); await pending;
+  f.callback(stop);
+  assert.equal(f.events.filter(event => event.kind === 'stop').length, 1);
+});
+test('failed streaming updates leave the displayed stop action usable', async t => {
+  const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
+  const card = { bindingId: 'binding', key: 'run', title: 'Working', text: 'one' };
+  await f.connection.command('card', card);
+  const stop = f.cards[0].card.elements[1].actions[0].value;
+  const gate = f.holdUpdate(), pending = f.connection.command('card', { ...card, text: 'two' });
+  gate.reject(new Error('PRIVATE-SECRET'));
+  await assert.rejects(pending, /^Error: Card delivery failed$/);
+  f.callback(stop); f.callback(stop);
+  assert.equal(f.events.filter(event => event.kind === 'stop').length, 1);
+});
+test('completion revokes the unclicked stop action even if its final card update fails', async t => {
+  const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
+  const card = { bindingId: 'binding', key: 'run', title: 'Working', text: 'one' };
+  await f.connection.command('card', card);
+  const stop = f.cards[0].card.elements[1].actions[0].value;
+  const gate = f.holdUpdate(), pending = f.connection.command('card', { ...card, title: 'Completed' });
+  f.callback(stop);
+  gate.reject(new Error('unavailable'));
+  await assert.rejects(pending, /^Error: Card delivery failed$/);
+  f.callback(stop);
+  assert.equal(f.events.filter(event => event.kind === 'stop').length, 0);
+});
+test('a later run and unbinding revoke the previous run stop actions', async t => {
+  const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
+  const card = { bindingId: 'binding', key: 'first', title: 'Working', text: 'one' };
+  await f.connection.command('card', card);
+  const old = f.cards[0].card.elements[1].actions[0].value;
+  await f.connection.command('card', { ...card, key: 'second' });
+  const current = f.cards[1].card.elements[1].actions[0].value;
+  assert.notEqual(current.token, old.token);
+  f.callback(old);
+  assert.equal(f.events.filter(event => event.kind === 'stop').length, 0);
+  f.connection.command('unbind', { bindingId: 'binding' });
+  f.callback(current);
+  assert.equal(f.events.filter(event => event.kind === 'stop').length, 0);
 });
 test('old disarm and unbind commands do not clear a newer challenge', async t => {
   const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.arm();

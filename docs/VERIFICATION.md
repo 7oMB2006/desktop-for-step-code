@@ -1,5 +1,31 @@
 # Verification
 
+## PR #194 Stop Capability And Main Integration (2026-11-05)
+
+The first Remote head passed all three Windows groups and macOS sessions/runtime
+source/package acceptance. macOS interface failed in `verify-sidebar-order.mjs`
+while waiting for two pinned projects to reorder. Its final gate correctly
+remained failed.
+
+Streaming Working-card revisions now retain their current run-scoped, single-use
+Stop capability. A delayed or failed card update no longer invalidates the
+button that is still displayed. Completion, the next run, unbinding and expiry
+still revoke the old capability. Four added regression cases cover in-flight
+updates, failed delivery, failed final delivery and run/binding invalidation.
+All 101 focused Remote/helper/session-runtime tests pass.
+
+Latest main was merged without dropping either Remote or BTW runtime ownership,
+preload methods, typed contracts or CI registrations. BTW-only events remain
+outside Remote projection. Typecheck and production build pass. The sidebar
+verifier now uses shared rendered-layout settling and requires the intended
+workspace insertion marker before releasing the pointer. Final order assertions
+and deadlines are unchanged; failure screenshots and geometry are retained.
+The complete Windows source sidebar acceptance passes after this change.
+
+Replacement cloud checks and the new Windows preview package are still pending.
+No real Feishu authorization, external user-content delivery, real callback or
+paid-model acceptance is established here.
+
 ## PR #190 Capability Removal Synchronization (2026-11-05)
 
 Windows interface run `41869558982`, job `126712778842`, fails in

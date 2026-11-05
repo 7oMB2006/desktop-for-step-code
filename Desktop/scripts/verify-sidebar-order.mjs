@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, writeFile, utimes, rename, stat } f
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
+import { settleLayout } from './settle-layout.mjs';
 
 // Windows runner TEMP can use an 8.3 alias; match the main process's canonical paths.
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-desktop-sidebar-')));
@@ -68,20 +69,21 @@ const settle = locator => locator.evaluate(async element => {
     .map(animation => animation.finished.catch(() => {})));
 });
 async function drag(page, from, to, after = false, cancel = false) {
-  await page.evaluate(async () => {
-    await new Promise(requestAnimationFrame);
-    await Promise.all(document.querySelector('.workspace-tree').getAnimations({ subtree: true })
-      .filter(animation => animation.effect?.getTiming().iterations !== Infinity)
-      .map(animation => animation.finished.catch(() => {})));
-  });
+  await settleLayout(page.locator('.workspace-tree'));
   await from.hover({ position: { x: 65, y: 17 } });
   await page.mouse.down();
-  await page.waitForTimeout(340);
   await page.locator('.session-drag-preview').waitFor();
+  await settleLayout(page.locator('.workspace-tree'));
   // Re-resolve the target after the hold; native/package layout can settle meanwhile.
   const target = await to.boundingBox();
   assert.ok(target, 'the drag destination is visible');
   await to.hover({ position: { x: 65, y: after ? target.height - 8 : 8 } });
+  if (await to.getAttribute('data-reorder-kind') === 'workspace') {
+    await page.waitForFunction(({ id, after }) =>
+      [...document.querySelectorAll('[data-reorder-kind="workspace"]')].some(row =>
+        row.dataset.reorderId === id && row.classList.contains(after ? 'drop-after' : 'drop-before')),
+    { id: await to.getAttribute('data-reorder-id'), after });
+  }
   if (cancel) await page.keyboard.press('Escape');
   else await page.screenshot({ path: 'test-results/sidebar-dragging.png' });
   await page.mouse.up();
@@ -395,6 +397,15 @@ try {
   console.log('Sidebar: reorder, pins, sorting, missing-path repair, retained session identity/history, warning layering, removal/cancel, hover controls, reload and reduced motion passed.');
 } catch (error) {
   console.error(`Sidebar acceptance failed during ${phase}`);
+  const page = await app?.firstWindow().catch(() => undefined);
+  if (page) {
+    await page.screenshot({ path: 'test-results/sidebar-order-failure.png' }).catch(() => {});
+    console.error('Sidebar drag diagnostic', await page.evaluate(() =>
+      [...document.querySelectorAll('[data-reorder-id]')].map(row => ({
+        id: row.dataset.reorderId, group: row.dataset.reorderGroup, classes: row.className,
+        bounds: row.getBoundingClientRect().toJSON(),
+      }))).catch(() => undefined));
+  }
   throw error;
 } finally {
   closing = true;

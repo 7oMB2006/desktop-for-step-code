@@ -41,6 +41,15 @@ BTW native Electron verifiers also pass against the rebuilt current-main
 runtime. These remain loopback/source evidence, not native macOS, packaged,
 real-account or release acceptance.
 
+The first macOS cloud run of the previous head failed only the reopen test's
+frozen-snapshot assertion: after a graceful posix shutdown the runtime records
+the interrupted lane's terminal outcome, so the reopened history reads `failed`
+instead of the frozen `running` that Windows keeps. Both are recorded facts, and
+the test now accepts either while asserting the product invariants that matter:
+the projected status is never running/queued after a known-empty roster, the
+known-empty downgrade still applies to a frozen running snapshot, the journal
+prefix is preserved, and no model call is made.
+
 The earlier existing session-move verifier fails before reaching this regression
 on both the previous candidate and unchanged main (dialog-close timeout on one
 run; a missing fixture-generated file on the control run). Those failures are

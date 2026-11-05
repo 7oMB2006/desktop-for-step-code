@@ -47,6 +47,44 @@ are documented in `docs/PLUGIN_AUTHORING.md`. `examples/plugins` separates a
 native-installable resource starter from a host-owned React field template;
 neither declares a third-party frontend SDK.
 
+BTW is an independent temporary right-rail panel, not another Context tab
+or a saved conversation. Its bubble-question right-rail icon and standalone
+`/btw [question]` open the same surface; the composer has no duplicate entry.
+Reuse the shared standard/wide/fullscreen width control, side handle, cubic
+motion and instant reduced-motion fallback. Escape restores fullscreen before
+closing the panel; close returns focus to its rail icon. Hiding or switching
+right tools cancels only its side request; temporary records remain for
+reopening until explicit clear or conversation change.
+Main task controls remain independent. Main and side composers reuse
+`ComposerInput`, the `.composer`/`.composer-tools` surface and
+`ComposerActionIcon`, not a separate textarea or copied button treatment.
+The compact side composer grows with its
+draft and keeps Send/Stop inside its boundary; its shared focus ring surrounds the
+composite field with the complete four-pixel gutter. Do not add persistent notes
+below the editor. The side composer also reuses the shared context-action row
+and upper gradient veil, without a separate horizontal divider. Its bottom edge
+aligns with the main composer by reserving the measured main footer space,
+including when performance metrics wrap or are hidden; fullscreen uses its own
+normal bottom gutter. Drafts still grow independently. Per-answer reported Tokens remain visible, with the missing
+local-total integration disclosed in their tooltip; opening the panel does not
+imply free requests.
+The message selection toolbar offers Ask in side alongside Quote and Annotate.
+It opens BTW with the shared compact quote-count entry and focuses its editor,
+without submitting a request or moving the main draft/references. Pending
+side references expand in the existing anchored quote popover without moving
+the editor. Escape dismisses that popover before the parent panel, and closing
+the panel hides the popover without discarding pending references.
+Side references can be removed or traced to verified source text; sent
+references appear with their question. Plain text is for display, Markdown
+for the request and source identity for navigation. Combined question/reference
+limits reject visibly without discarding user input. Closing keeps pending
+side drafts/references; changing conversations clears them.
+Side questions use the main conversation's user-message and Markdown typography.
+Live responses reuse the existing responding indicator; settled responses reuse
+the shared copy/elapsed/time footer without unsupported branch controls. Failed,
+cancelled and length-limited outcomes remain explicit. Timings are local request
+observations, not provider-side telemetry or main-task completion signals.
+
 Session navigation separates readable history, editable local drafts and
 execution readiness. A cold preview supports text selection, copying and
 historical disclosures; it never authorizes runtime mutations. Text edits are
@@ -73,6 +111,31 @@ Search never selects a conversation, discards a draft or launches a runtime unti
 the user explicitly opens a result. Escape dismisses search and restores trigger
 focus, except during IME composition. The composite field retains the shared
 four-sided focus outline outside its animated inner clip.
+
+The sidebar's secondary chat-history search opens a dedicated main view using
+the upstream local index. Its entry unfolds below the anchored search field,
+displacing the conversation list by exactly its disclosure height; closing
+restores the original list bounds without reserving blank space. It preserves the existing metadata filter and original
+conversation, draft and tool instances. Native bounded batches are grouped by
+conversation, with explicit archive/project/time scope and coverage limitations.
+Opening a hit first reads the saved history without starting a runtime; matching
+entry identity scrolls and highlights in the shared transcript component. Missing
+branch/compaction targets retain an explicit current-context fallback. Returning
+restores result scroll and focus. Background indexing refreshes retain results
+without stealing focus; fallback and failed queries remain distinct from no matches.
+Original tool panels are temporarily hidden, not terminated, and pending approvals
+retain an explicit return entry. Only Open conversation performs normal navigation.
+Message-level hits use Open and locate, carrying saved entry identity and query
+into the authoritative transcript. Scroll to the matching line when rendered,
+retain keyword highlighting and a compact Back to results / Locate again band.
+For messages with several text blocks, choose the block containing the query.
+Paginated text reveals the matching page before marking and scrolling; explicit
+repeat location reveals it again, while ordinary snapshots retain manual paging.
+If only the message can be found, distinguish that from a visible keyword match.
+Returning preserves filters and result scroll/focus. Snapshot refreshes must not
+re-scroll or steal focus; explicit repeat location must not restart a runtime.
+Missing current-context targets stay explicit, never seek a similar array index
+or replay another branch. Ordinary navigation clears the search-location band.
 
 Compact process singletons show the original thinking/tool disclosure directly,
 without a second heading or indentation. Stable keyed members retain manual
@@ -203,6 +266,26 @@ Discrete stops, release-only drag submission, wheel and keyboard selection remai
 unchanged. Reduced motion disables the shared transition at its source.
 
 The composer model/effort picker remains enabled while a task runs. Choices made during execution are scoped to that worker and shown as the next-task selection; the secondary view displays a quiet "Applies next turn" state. They apply before the next fresh task, including Desktop FIFO dispatch, while steering retains the active configuration. A confirmed switch is a noninteractive client timeline note before the new response, with a 14px ArrowRightLeft icon, accent semibold upright label, muted regular monospace old model, gray arrow and ink semibold monospace new model. It has no card, disclosure or tool identity. Observations persist separately from Step history and never become model context.
+
+The existing fixed-size model selector includes search and explicitly starred
+Favorites ahead of other available models, without duplicates. Its back arrow and
+search share one compact header row instead of a separate title; the saved height
+belongs to the internally scrolling model list. Returning restores focus to the
+model heading. No empty favorite
+section is reserved. An independent star button adds or removes a favorite without
+selecting a model or closing the picker; the selected checkmark remains separate.
+Favorites retain their saved order and provider/model identities in Desktop
+preferences. Runtime activity never creates or reorders them, and earlier recent
+history is not converted into favorites. Unavailable favorites are hidden but
+retained, and labels always come from the current catalog. Search matches names,
+IDs and providers in one deduplicated result list, with independent star controls.
+Saving failure is explicit and retryable. Up/Down and Home/End navigate the current
+button column; Left/Right move between selection and star controls. Reordering
+preserves star focus unless the user has moved it elsewhere. Visible focus,
+existing panel motion and reduced motion are shared. IME-composition keys do not
+navigate or dismiss the picker. Favorites do not change default models, next-turn
+choices, account identity or billing routes. A secondary management view remains
+outside this compact-picker change.
 
 Automatic continuation shares that timeline-event styling, with a 14px RotateCcw icon, an accent semibold upright label and a muted interruption reason. It records a requested attempt, never confirmed recovery or a specific network diagnosis. The Windows runtime preserves the original input/start pipeline and model instruction but stores a structured `step-auto-resume` custom message, not a human-authored turn. Rendering and replay require its versioned source metadata; no English-text matching rewrites old history. The note has no user bubble, editing controls, disclosure or activity animation, and its internal instruction is excluded from copied assistant prose.
 

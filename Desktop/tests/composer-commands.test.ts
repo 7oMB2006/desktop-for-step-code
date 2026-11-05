@@ -6,14 +6,14 @@ test('Desktop discovers the pinned core CLM commands absent from upstream get_co
   const original = [{ name: 'goal', source: 'extension' }, { name: 'daily', source: 'prompt' },
     { name: 'skill:review', source: 'skill' }, { name: '_desktop_retry', source: 'extension' }];
   const result = desktopCommands(original);
-  assert.deepEqual(result.map(command => command.name), ['goal', 'daily', 'skill:review', 'status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact']);
+  assert.deepEqual(result.map(command => command.name), ['goal', 'daily', 'skill:review', 'status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact', 'btw']);
   assert.ok(result.filter(command => command.name.startsWith('clm')).every(command => command.source === 'core'));
   assert.equal(original.length, 4, 'Catalog projection does not mutate the runtime reply');
 });
 
 test('Core CLM handlers take precedence over same-name catalog entries without duplicates', () => {
   const result = desktopCommands([{ name: 'clm', source: 'prompt' }, { name: 'clm-compact', source: 'extension' }]);
-  assert.deepEqual(result.map(command => command.name), ['status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact']);
+  assert.deepEqual(result.map(command => command.name), ['status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact', 'btw']);
   assert.ok(result.filter(command => command.name.startsWith('clm')).every(command => command.source === 'core'));
   assert.deepEqual(desktopCommands(result), result, 'Repeated projection remains idempotent');
   result[0].description = 'changed';
@@ -43,11 +43,12 @@ test('only complete supported standalone commands select a Desktop action', () =
     [' /status \n', 'status', ''], ['/usage', 'usage', ''],
     ['/usage overview', 'usage', 'overview'], ['/usage account', 'usage', 'account'],
     ['/cron', 'cron', ''], ['/clm', 'clm', ''], ['/workflows', 'workflows', ''], ['/compact keep protocol\nand tests', 'compact', 'keep protocol\nand tests'],
+    ['/btw', 'btw', ''], ['/btw explain the tradeoff\nbriefly', 'btw', 'explain the tradeoff\nbriefly'],
   ]) assert.deepEqual(desktopCommand(message), { name, args });
   for (const message of ['explain /usage', 'explain /workflows', '/workflows extra', '/workflow', '/cron list', '/cron delete job', '/usage other', '/status extra', '/compactness', '/clm on', '/clm diff', '/clm-compact']) {
     assert.equal(desktopCommand(message), undefined, message);
   }
-  for (const message of ['/usage', '/cron', '/compact keep notes', '/status', '/clm', '/workflows']) {
+  for (const message of ['/usage', '/cron', '/compact keep notes', '/status', '/clm', '/workflows', '/btw question']) {
     assert.equal(desktopCommand(message, 1), undefined);
     assert.equal(desktopCommand(message, 0, 1), undefined);
   }

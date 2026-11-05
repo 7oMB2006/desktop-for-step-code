@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
+const cacheDir = await mkdtemp(join(tmpdir(), 'dfsc-plugin-center-vite-'));
 const server = process.env.DESKTOP_PREVIEW_URL ? undefined : await createServer({
+  cacheDir,
   server: { host: '127.0.0.1', port: 0 }, logLevel: 'warn',
 });
 await server?.listen();
@@ -25,6 +29,42 @@ function focusClips(element) {
   return clips;
 }
 try {
+  const race = await browser.newPage({ viewport: { width: 1440, height: 980 } });
+  try {
+    await race.goto(`${base}/tests/fixtures/plugin-center-live.html`);
+    await race.getByRole('tab', { name: /^已安装/ }).waitFor();
+    await race.locator('.cap-preparation > summary').click();
+    await race.evaluate(() => window.pluginCenterTest.holdPreparationRefresh());
+    await race.getByRole('button', { name: '安装并准备', exact: true }).click();
+    await race.waitForFunction(() => window.pluginCenterTest.counts().preparationRefreshes === 1);
+    await race.getByRole('button', { name: '配置 Bilibili Video Research', exact: true }).click();
+    const runtime = race.getByLabel('BVR 运行目录', { exact: true });
+    await runtime.fill('D:\\Unsaved\\BVR');
+    await race.getByRole('tab', { name: '使用说明', exact: true }).click();
+    const before = await race.evaluate(() => window.pluginCenterTest.counts().catalogReads);
+    await race.evaluate(() => window.pluginCenterTest.releasePreparationRefresh());
+    await race.waitForFunction(before => window.pluginCenterTest.counts().catalogReads > before, before);
+    await race.waitForTimeout(100);
+    assert.equal(await race.getByRole('heading', { name: 'Bilibili Video Research', exact: true, level: 2 }).count(), 1,
+      'Late StepPage completion must not navigate away from the current plugin');
+    assert.equal(await race.getByRole('tab', { name: '使用说明', exact: true }).getAttribute('aria-selected'), 'true',
+      'Late StepPage completion must not change the current detail tab');
+    await race.getByRole('tab', { name: '配置', exact: true }).click();
+    assert.equal(await runtime.inputValue(), 'D:\\Unsaved\\BVR', 'Late StepPage completion preserves the current form instance and draft');
+    assert.equal(await race.locator('dialog[open]').count(), 0);
+    await race.getByRole('button', { name: '全部插件', exact: true }).click();
+    await race.getByRole('dialog').waitFor();
+    await race.getByRole('button', { name: '取消', exact: true }).click();
+    assert.equal(await runtime.inputValue(), 'D:\\Unsaved\\BVR', 'Discard protection remains active');
+    await race.getByRole('button', { name: '全部插件', exact: true }).click();
+    await race.getByRole('button', { name: '确认', exact: true }).click();
+    await race.getByRole('button', { name: '配置 StepPage', exact: true }).click();
+    assert.match(await race.locator('.pc-save-state').innerText(), /已保存.*重启/);
+    assert.deepEqual(await race.evaluate(() => {
+      const { saves, restarts } = window.pluginCenterTest.counts(); return { saves, restarts };
+    }), { saves: 0, restarts: 0 }, 'Preparation refresh must not save the unrelated draft or restart automatically');
+    console.log('Late StepPage preparation preserves navigation and the BVR draft while refreshing the catalog.');
+  } finally { await race.close(); }
   const page = await browser.newPage({ viewport: { width: 1440, height: 980 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -204,7 +244,7 @@ try {
   await page.getByRole('button', { name: 'the consumer contract', exact: true }).click();
   await page.getByRole('heading', { name: 'json-file-v1', exact: true }).waitFor();
   await page.getByRole('button', { name: '返回上一页', exact: true }).click();
-  await page.getByRole('heading', { name: 'DFSC Configuration Example', exact: true, level: 1 }).waitFor();
+  await page.getByRole('heading', { name: 'DFSC Configuration Example', exact: true, level: 2 }).waitFor();
   await page.getByRole('tab', { name: '配置', exact: true }).click();
   assert.equal(await page.getByLabel('Prefix', { exact: true }).inputValue(), 'Review ');
   await page.locator('.pc-generic-form .cap-disclosure > summary').click();
@@ -256,4 +296,4 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log('Production PluginCenter browser acceptance passed.');
-} finally { await browser.close(); await server?.close(); }
+} finally { await browser.close(); await server?.close(); await rm(cacheDir, { recursive: true, force: true }); }

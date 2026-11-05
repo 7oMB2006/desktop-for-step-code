@@ -37,6 +37,7 @@ import { useAnimatedDisclosure } from './useAnimatedDisclosure';
 import { CronMessage } from './CronMessage';
 import { cronMessage } from './cron-message';
 import { AutoResumeMessage } from './AutoResumeMessage';
+import { searchTextMatch, type SearchTextTarget } from './fulltext-search';
 import './auto-resume-message.css';
 
 type Props = {
@@ -55,11 +56,12 @@ type Props = {
   arrivingUser?: Message | null;
   settledStatus?: ReactNode;
   completedStatus?: { responseIndex: number; content: ReactNode };
+  searchTarget?: SearchTextTarget;
 };
-type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls' | 'interfaceSettings'> & { disclosureReset?: string };
+type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls' | 'interfaceSettings' | 'searchTarget'> & { disclosureReset?: string };
 type EditState = { entryId: string; text: string; submitting: boolean };
 
-function CopyButton({ text, getText, language, onError }: { text: string; getText?: () => string } & Pick<Props, 'language' | 'onError'>) {
+function CopyButton({ text, getText, language, onError, label }: { text: string; getText?: () => string; label?: string } & Pick<Props, 'language' | 'onError'>) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -76,7 +78,8 @@ function CopyButton({ text, getText, language, onError }: { text: string; getTex
       onError(String(error instanceof Error ? error.message : error));
     }
   };
-  return <button type="button" className="icon-button" aria-label={language === 'zh' ? '复制' : 'Copy'}
+  return <button type="button" className="icon-button" aria-label={label ?? (language === 'zh' ? '复制' : 'Copy')}
+    data-tooltip={label ?? (language === 'zh' ? '复制' : 'Copy')}
     disabled={!text} onClick={() => void copy()}>{copied ? <Check size={15}/> : <Copy size={15}/>}</button>;
 }
 
@@ -106,25 +109,32 @@ function Code({ children, className, language, onError }: Omit<ComponentProps<'c
 export function Text({ text, ...props }: { text: string; streaming?: boolean; commands?: ComposerCommand[] } & BodyProps) {
   return text.length > 32_768 ? <LargeText text={text} {...props}/> : <RevealedText text={text} {...props}/>;
 }
-function LargeText({ text, language, onError }: { text: string } & Pick<BodyProps, 'language' | 'onError'>) {
-  const [page, setPage] = useState(0);
+function LargeText({ text, language, onError, searchTarget }: { text: string } & Pick<BodyProps, 'language' | 'onError' | 'searchTarget'>) {
   const size = 16_384;
+  const match = useMemo(() => searchTarget ? searchTextMatch(text, searchTarget.text) : null, [text, searchTarget?.text]);
+  const request = searchTarget ? JSON.stringify([searchTarget.entryId, searchTarget.text, searchTarget.requestId]) : undefined;
+  const [position, setPosition] = useState<{ request?: string; page: number }>({ page: 0 });
+  // Reveal a search page once; snapshots must not undo subsequent manual paging.
+  if (position.request !== request) setPosition({ request, page: match ? Math.floor(match.index / size) : position.page });
   const pages = Math.ceil(text.length / size);
-  const current = Math.min(page, pages - 1);
+  const current = Math.min(position.page, pages - 1);
   const zh = language === 'zh';
   const boundary = (offset: number) => offset > 0 && /[\uDC00-\uDFFF]/u.test(text[offset] ?? '') ? offset - 1 : offset;
+  const start = boundary(current * size);
+  const end = boundary((current + 1) * size);
+  const matchEnd = match && match.index >= start && match.index < end ? match.index + match[0].length : end;
   return <div className="large-message-text" data-page={current + 1}>
     <div className="large-message-controls">
       <button className="icon-button" type="button" aria-label={zh ? '上一段' : 'Previous section'}
         data-tooltip={zh ? '上一段' : 'Previous section'}
-        disabled={current === 0} onClick={() => setPage(current - 1)}><ArrowLeft size={14}/></button>
+        disabled={current === 0} onClick={() => setPosition({ request, page: current - 1 })}><ArrowLeft size={14}/></button>
       <span>{current + 1} / {pages}</span>
       <button className="icon-button" type="button" aria-label={zh ? '下一段' : 'Next section'}
         data-tooltip={zh ? '下一段' : 'Next section'}
-        disabled={current === pages - 1} onClick={() => setPage(current + 1)}><ArrowRight size={14}/></button>
+        disabled={current === pages - 1} onClick={() => setPosition({ request, page: current + 1 })}><ArrowRight size={14}/></button>
       <CopyButton text={text} language={language} onError={onError}/>
     </div>
-    <pre>{text.slice(boundary(current * size), boundary((current + 1) * size))}</pre>
+    <pre>{text.slice(start, Math.max(end, matchEnd))}</pre>
   </div>;
 }
 function RevealedText({ text, streaming = false, commands, ...props }: { text: string; streaming?: boolean; commands?: ComposerCommand[] } & BodyProps) {
@@ -265,6 +275,18 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
   </details>;
 }
 
+export function MessageActions({ text, language, onError, timing, timestamp, copyLabel, children }: {
+  text: string; language: 'zh' | 'en'; onError: Props['onError'];
+  timing?: ComponentProps<typeof ElapsedLabel>['timing']; timestamp?: number; copyLabel?: string; children?: ReactNode;
+}) {
+  return <footer className="message-actions assistant-actions">
+    <CopyButton text={text} language={language} onError={onError} label={copyLabel}/>
+    {children}
+    <ElapsedLabel timing={timing} total language={language}/>
+    <Timestamp value={timestamp} language={language}/>
+  </footer>;
+}
+
 function ToolText({ text, ...props }: { text: string } & Pick<BodyProps, 'language' | 'onError'>) {
   return text.length > 32_768 ? <LargeText text={text} {...props}/> : <pre>{text}</pre>;
 }
@@ -383,7 +405,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
   </details>;
 }
 
-  function Response({ items, active, historical, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, execution, ...props }: {
+  function Response({ items, active, historical, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, execution, searchTarget, ...props }: {
     items: { message: Message; index: number }[]; active: boolean;
     historical: boolean;
     canBranch: boolean; branch: Props['branch'];
@@ -391,6 +413,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     modelChange?: ModelChange;
     settledStatus?: ReactNode;
     execution?: { plan: ApprovedPlan; state: PlanExecutionState };
+    searchTarget?: SearchTextTarget;
     background: BackgroundSubagentStates;
     onOpenSubagent: (task: SubagentTask) => void;
     onOpenWorkflow?: (id: string) => void;
@@ -414,16 +437,13 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     const finalProse = finalItem?.type === 'text' ? finalItem.block.text ?? '' : '';
     const zh = props.language === 'zh';
     const stamp = [...items].reverse().find(item => item.message.timestamp)?.message.timestamp;
-    const actions = !active && content.length > 0 && <footer className="message-actions assistant-actions">
-      <CopyButton text={text} {...props}/>
+    const actions = !active && content.length > 0 && <MessageActions text={text} language={props.language} onError={props.onError}
+      timing={[...items].reverse().find(item => item.message.desktopTiming)?.message.desktopTiming?.run} timestamp={stamp}>
       <button type="button" className="icon-button branch-action" aria-label={zh ? '从这里分支' : 'Branch from here'}
         data-tooltip={zh ? '从这里分支' : 'Branch from here'}
         disabled={!canBranch || !items.at(-1)?.message.entryId}
         onClick={() => branch(items.at(-1)!.message)}><GitBranch size={15}/></button>
-      <ElapsedLabel timing={[...items].reverse().find(item => item.message.desktopTiming)?.message.desktopTiming?.run}
-        total language={props.language}/>
-      <Timestamp value={stamp} language={props.language}/>
-    </footer>;
+    </MessageActions>;
     const renderItem = (item: ResponseItem, onExpandedChange?: (expanded: boolean) => void): ReactNode => item.type === 'auto-resume'
       ? <AutoResumeMessage key={item.key} index={item.index} language={props.language}/>
       : item.type === 'cron'
@@ -454,7 +474,8 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
             <Text text={item.block.thinking ?? ''} streaming={item.key === liveThought} {...props}/>
           </ThinkingDisclosure>
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
-              : <div className="response-text" key={item.key} data-message-index={item.index}><Text text={item.block.text ?? ''} streaming={active} {...props}/></div>;
+              : <div className="response-text" key={item.key} data-message-index={item.index} data-message-entry-id={items.find(entry => entry.index === item.index)?.message.entryId}><Text text={item.block.text ?? ''} streaming={active} {...props}
+                searchTarget={searchTarget?.entryId && items.some(entry => entry.index === item.index && entry.message.entryId === searchTarget.entryId) ? searchTarget : undefined}/></div>;
     return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
       <div className="response-content message-body">{presentation.map(item =>
@@ -472,7 +493,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
       {settledStatus}</div> : actions}
   </article></ArtifactContext.Provider>;
 }
-function UserMessage({ message, index, arriving, editState, setEditState, ...props }: {
+function UserMessage({ message, index, arriving, editState, setEditState, searchTarget, ...props }: {
   message: Message; index: number; arriving: boolean;
   editState: EditState | null; setEditState: Dispatch<SetStateAction<EditState | null>>;
 } & Props) {
@@ -514,7 +535,7 @@ function UserMessage({ message, index, arriving, editState, setEditState, ...pro
     );
     return () => animation.cancel();
   }, [arriving]);
-  return <article ref={article} className="message user" data-message-index={index}>
+  return <article ref={article} className="message user" data-message-index={index} data-message-entry-id={message.entryId}>
     {editing ? <div className="user-message-editor">
       <div className="user-edit-input">
       <textarea ref={input} id={inputId} aria-label={zh ? '编辑消息' : 'Edit message'} value={text} disabled={submitting}
@@ -534,7 +555,7 @@ function UserMessage({ message, index, arriving, editState, setEditState, ...pro
           onClick={() => void submit()}><Send size={14}/>{zh ? '发送' : 'Send'}</button>
       </div>
     </div> : <>
-    <Body blocks={messageBlocks(message)} {...props}/>
+    <Body blocks={messageBlocks(message)} {...props} searchTarget={searchTarget?.entryId === message.entryId ? searchTarget : undefined}/>
     <footer className={`message-actions user-actions${message.desktopSteered ? ' has-steered-marker' : ''}`}>
       <Timestamp value={message.timestamp} language={props.language}/>
       <CopyButton text={messageText(message)} {...props}/>

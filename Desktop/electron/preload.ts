@@ -33,6 +33,9 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  btwAsk: input => invoke('btwAsk', input),
+  btwCancel: input => invoke('btwCancel', input),
+  btwClear: input => invoke('btwClear', input),
   capabilityCatalog: () => invoke('capabilityCatalog'),
   pluginDocument: input => invoke('pluginDocument', input),
   pluginRepositoryInfo: input => invoke('pluginRepositoryInfo', input),
@@ -106,6 +109,8 @@ const bridge: DesktopBridge = {
   reviewMenu: (runtimeId, kind, selected, position) => invoke('reviewMenu', runtimeId, kind, selected, position),
   repositoryDiff: (runtimeId, base) => invoke('repositoryDiff', runtimeId, base),
   summary: runtimeId => invoke('summary', runtimeId),
+  backgroundAgents: (runtimeId, sessionId) => invoke('backgroundAgents', runtimeId, sessionId),
+  stopBackgroundAgent: (runtimeId, sessionId, laneId) => invoke('stopBackgroundAgent', runtimeId, sessionId, laneId),
   workflows: (runtimeId, sessionId) => invoke('workflows', runtimeId, sessionId),
   clm: (runtimeId, entryId) => invoke('clm', runtimeId, entryId),
   clmAction: (runtimeId, sessionId, action, guidance) => invoke('clmAction', runtimeId, sessionId, action, guidance),
@@ -132,6 +137,8 @@ const bridge: DesktopBridge = {
   cancelAccountAllowance: () => invoke('cancelAccountAllowance'),
   estimateSettings: () => invoke('estimateSettings'),
   usageOverview: () => invoke('usageOverview'),
+  searchSessions: query => invoke('searchSessions', query),
+  cancelSessionSearch: id => invoke('cancelSessionSearch', id),
   setEstimateRules: (rules, accountRef) => invoke('setEstimateRules', rules, accountRef),
   deleteArchivedSessions: ids => invoke('deleteArchivedSessions', ids),
   login: (profile, key) => invoke('login', profile, key), cancelLogin: () => invoke('cancelLogin'), logout: () => invoke('logout'),

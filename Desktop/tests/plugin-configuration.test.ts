@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, cp, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, cp, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -128,4 +128,65 @@ test('schema changes do not migrate an existing revision or expose its saved sec
   await assert.rejects(store.read({ ...descriptor, fingerprint }), /stale-configuration|configuration-schema-changed/);
   const { ConfigurationReader } = await import(pathToFileURL(join(directory, 'server/configuration.mjs')).href);
   await assert.rejects(new ConfigurationReader(pathToFileURL(`${directory}/`)).current(), /restart/);
+});
+test('oversized UTF-8 configuration snapshots preserve the committed revision and secrets', async t => {
+  const groups = Array.from({ length: 4 }, (_, group) => ({ id: `group${group}`, title: `Group ${group}`,
+    fields: Array.from({ length: 16 }, (_, index) => {
+      const number = group * 16 + index;
+      return { id: `field${number}`, label: `Field ${number}`, type: number === 63 ? 'secret' : 'text', maxLength: 8192 };
+    }),
+  }));
+  const { root, directory, descriptor, store } = await fixture(t, groups);
+  const initial = await store.read(descriptor);
+  const input: PluginConfigurationInput = { ref: descriptor.ref, revision: initial.revision, values: { field0: 'Original' },
+    secrets: { field63: { action: 'replace', value: 'original-private-key' } } };
+  const saved = await store.save(descriptor, input);
+  const bindingPath = join(root, 'desktop-plugins/bindings/example.json');
+  const settingsPath = join(root, 'desktop-plugins/settings', descriptor.instance!);
+  const binding = await readFile(bindingPath), snapshots = await readdir(settingsPath);
+  const { ConfigurationReader } = await import(pathToFileURL(join(directory, 'server/configuration.mjs')).href);
+  const reader = new ConfigurationReader(pathToFileURL(`${directory}/`));
+  for (const value of ['x'.repeat(4096), '\u4e2d'.repeat(1366), '\u0001'.repeat(700)]) {
+    const values = Object.fromEntries(Array.from({ length: 63 }, (_, index) => [`field${index}`, value]));
+    await assert.rejects(store.save(descriptor, { ...input, revision: saved.revision, values,
+      secrets: { field63: { action: 'replace', value } } }), /too-large/);
+    assert.ok((await readFile(bindingPath)).equals(binding));
+    assert.deepEqual(await readdir(settingsPath), snapshots, 'rejected payload must not create an orphan snapshot');
+    const current = await store.read(descriptor), consumed = await reader.current();
+    assert.equal(current.revision, saved.revision);
+    assert.equal(current.values.field0, 'Original');
+    assert.equal(current.hasSecret.field63, true);
+    assert.equal(consumed.secrets.field63, 'original-private-key');
+  }
+  const next = await store.save(descriptor, { ...input, revision: saved.revision,
+    values: { field0: 'After rejection' }, secrets: { field63: { action: 'keep' } } });
+  assert.equal(next.configured, true);
+  assert.equal((await store.read(descriptor)).revision, next.revision);
+  assert.equal((await new ConfigurationReader(pathToFileURL(`${directory}/`)).current()).secrets.field63, 'original-private-key');
+});
+test('configuration snapshot byte limits include the final newline and accept the exact boundary', async t => {
+  const groups = Array.from({ length: 4 }, (_, group) => ({ id: `group${group}`, title: `Group ${group}`,
+    fields: Array.from({ length: 16 }, (_, index) => ({ id: `field${group * 16 + index}`,
+      label: `Field ${group * 16 + index}`, type: 'text', maxLength: 8192 })),
+  }));
+  const { root, directory, descriptor, store } = await fixture(t, groups);
+  const initial = await store.read(descriptor);
+  const values = Object.fromEntries(groups.flatMap(group => group.fields).map(field => [field.id, '']));
+  const first = await store.save(descriptor, { ref: descriptor.ref, revision: initial.revision, values, secrets: {} });
+  const settingsPath = join(root, 'desktop-plugins/settings', descriptor.instance!);
+  let remaining = 256 * 1024 - (await readFile(join(settingsPath, `${first.revision}.json`))).length;
+  for (const key of Object.keys(values)) {
+    const length = Math.min(8192, remaining);
+    values[key] = 'x'.repeat(length);
+    remaining -= length;
+  }
+  assert.equal(remaining, 0);
+  const exact = await store.save(descriptor, { ref: descriptor.ref, revision: first.revision, values, secrets: {} });
+  assert.equal((await readFile(join(settingsPath, `${exact.revision}.json`))).length, 256 * 1024);
+  assert.equal((await store.read(descriptor)).revision, exact.revision);
+  const { ConfigurationReader } = await import(pathToFileURL(join(directory, 'server/configuration.mjs')).href);
+  assert.equal((await new ConfigurationReader(pathToFileURL(`${directory}/`)).current()).revision, exact.revision);
+  await assert.rejects(store.save(descriptor, { ref: descriptor.ref, revision: exact.revision,
+    values: { ...values, field63: 'x' }, secrets: {} }), /too-large/);
+  assert.equal((await store.read(descriptor)).revision, exact.revision);
 });

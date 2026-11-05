@@ -89,7 +89,6 @@ export class CapabilityService {
           throw new Error('capability:stale');
         expected = { expectedFingerprint: descriptor.fingerprint, expectedSource: descriptor.source };
       }
-      if (input.action === 'plugin-remove') await this.configurations.revoke(input.id);
       if (input.action.startsWith('marketplace-') || ['plugin-install', 'plugin-remove'].includes(input.action)) this.library.invalidate();
       return this.request('mutate', { input: { ...input, ...expected } });
     });

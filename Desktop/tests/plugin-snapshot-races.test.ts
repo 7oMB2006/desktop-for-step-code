@@ -452,14 +452,58 @@ async function interruptedOperations() {
   const fixture = await installationFixture();
   await fixture.install();
   const original = JSON.parse(fixture.fs.bytes(receiptPath)).installations[0];
+  const bindingPath = join(root, 'desktop-plugins/bindings/example.json');
+  fixture.fs.json(bindingPath, { version: 1, instance: original.instance, id: original.id, revoked: false });
   const manifest = fixture.fs.bytes(join(fixture.target, 'step.plugin.json'));
   await assert.rejects(fixture.remove(), error => error.code === 'EACCES');
   const receipts = JSON.parse(fixture.fs.bytes(receiptPath));
   assert.equal(receipts.installations.length, 1, 'failed uninstall must retain its provenance');
   assert.equal(receipts.installations[0].instance, original.instance);
   assert.equal(receipts.installations[0].state, 'removing', 'failed removal cannot remain authorized');
+  const binding = JSON.parse(fixture.fs.bytes(bindingPath));
+  assert.equal(binding.revoked, true, 'actual uninstall failure must revoke the selected binding');
+  assert.equal(binding.instance, original.instance);
+  assert.equal(binding.id, original.id);
   assert.ok(fixture.fs.bytes(join(fixture.target, 'step.plugin.json')).equals(manifest));
   fixture.fs.assertClosed();
+}
+
+async function removalPreflight() {
+  const receiptPath = join(root, 'desktop-plugins/installations.json');
+  const bindingPath = join(root, 'desktop-plugins/bindings/example.json');
+  for (const scenario of ['foreign-binding', 'foreign-receipt', 'replaced-receipt']) {
+    const fixture = await installationFixture();
+    await fixture.install();
+    const receipts = JSON.parse(fixture.fs.bytes(receiptPath)), selected = receipts.installations[0];
+    fixture.fs.json(bindingPath, { version: 1, instance: selected.instance, id: selected.id, revoked: false });
+    let expectedCode = 'stale', replacement;
+    if (scenario === 'foreign-binding') {
+      fixture.fs.json(bindingPath, { version: 1, instance: '00000000-0000-4000-8000-000000000000',
+        id: selected.id, revoked: false });
+      expectedCode = 'stale-configuration';
+    } else if (scenario === 'foreign-receipt') {
+      receipts.installations[0].id = 'unrelated-id';
+      fixture.fs.json(receiptPath, receipts);
+    } else {
+      replacement = { ...selected, instance: '00000000-0000-4000-8000-000000000000' };
+      let fired = false;
+      fixture.fs.hooks.beforeRead = target => {
+        if (target !== bindingPath || fired) return;
+        fired = true;
+        fixture.fs.json(receiptPath, { version: 1, installations: [replacement] });
+      };
+    }
+    const before = fixture.fs.bytes(bindingPath);
+    const receiptBefore = fixture.fs.bytes(receiptPath);
+    await assert.rejects(fixture.remove(), error => error.code === expectedCode);
+    assert.ok(fixture.fs.bytes(bindingPath).equals(before), scenario + ' must not revoke another instance');
+    if (replacement) {
+      assert.deepEqual(JSON.parse(fixture.fs.bytes(receiptPath)).installations, [replacement],
+        'preflight must not restore a superseded receipt');
+    } else assert.ok(fixture.fs.bytes(receiptPath).equals(receiptBefore));
+    assert.ok(fixture.fs.nodes.has(fixture.target), 'preflight rejection must not delete the package');
+    fixture.fs.assertClosed();
+  }
 }
 
 async function writeJunctionRace() {
@@ -500,7 +544,7 @@ async function writeJunctionRace() {
 }
 
 const scenarios = { install: installRace, payload: payloadRace, revocation: revocationRace, junction: junctionRace,
-  interrupted: interruptedOperations, writeJunction: writeJunctionRace };
+  interrupted: interruptedOperations, removal: removalPreflight, writeJunction: writeJunctionRace };
 assert.ok(Object.hasOwn(scenarios, scenario), 'unknown regression scenario');
 await scenarios[scenario]();
 `;
@@ -522,4 +566,5 @@ test('configuration values and secrets cannot change under an unchanged committe
 test('current rejects binding revocation, receipt removal and payload changes during fingerprinting', () => verify('revocation'));
 test('host and reference readers reject parent junction swaps before open and after canonical recheck', () => verify('junction'));
 test('interrupted publication and failed uninstall retain incomplete, unauthorized receipts', () => verify('interrupted'));
+test('uninstall preflight rejects foreign bindings, mismatched receipts and replaced installation instances', () => verify('removal'));
 test('private writes reject parent substitution before secrets and erase failed snapshots through the open handle', () => verify('writeJunction'));

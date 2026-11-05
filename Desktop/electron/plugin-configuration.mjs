@@ -4,6 +4,7 @@ const identifier = value => typeof value === 'string' && /^[a-z][a-z0-9_-]{0,47}
   && !['constructor', 'prototype', '__proto__'].includes(value);
 const label = value => typeof value === 'string' && value.trim() && value.length <= 160 && !/[\u0000-\u001f]/u.test(value);
 const fail = () => { throw new PluginFileError('invalid-configuration'); };
+const snapshotLimit = 256 * 1024;
 export function parseConfigurationSchema(value) {
   if (!object(value) || value.schemaVersion !== 1 || value.consumer?.kind !== 'json-file-v1'
     || !identifier(value.consumer.server) || !Array.isArray(value.groups) || value.groups.length > 8) fail();
@@ -86,7 +87,7 @@ export class PluginConfigurationStore {
       || binding.fingerprint !== receipt.fingerprint || !/^[a-f0-9]{64}$/u.test(binding.revision)))
       throw new PluginFileError('stale-configuration');
     if (bound && binding.schemaHash !== schemaHash) throw new PluginFileError('configuration-schema-changed');
-    const data = bound ? await plainFile(this.root, `desktop-plugins/settings/${receipt.instance}/${binding.revision}.json`, 256 * 1024) : undefined;
+    const data = bound ? await plainFile(this.root, `desktop-plugins/settings/${receipt.instance}/${binding.revision}.json`, snapshotLimit) : undefined;
     const saved = data ? JSON.parse(data.toString('utf8')) : undefined;
     if (saved && (!object(saved) || saved.version !== 1 || saved.instance !== receipt.instance
       || saved.id !== receipt.id || !object(saved.values) || !object(saved.secrets) || typeof saved.revision !== 'string')) fail();
@@ -135,13 +136,15 @@ export class PluginConfigurationStore {
     }
     const revision = digest(JSON.stringify([schemaHash, saved?.revision, values, secrets, Date.now(), Math.random()]));
     const data = { version: 1, instance: receipt.instance, id: receipt.id, schemaHash, revision, values, secrets };
+    const content = JSON.stringify(data);
+    if (Buffer.byteLength(content, 'utf8') + 1 > snapshotLimit) throw new PluginFileError('too-large');
     await writePrivateData(this.root, `desktop-plugins/settings/${receipt.instance}/${revision}.json`, data);
     const rechecked = await this.context(descriptor);
     if (rechecked.saved?.revision !== saved?.revision) throw new PluginFileError('stale-configuration');
     // The binding is a commit marker: an interrupted save cannot authorize an unmatched snapshot.
     await writePrivateData(this.root, `desktop-plugins/bindings/${receipt.folder}.json`, {
       version: 1, instance: receipt.instance, id: receipt.id, fingerprint: receipt.fingerprint, schemaHash, revision,
-      contentHash: digest(JSON.stringify(data)),
+      contentHash: digest(content),
     });
     return this.project({ ...context, saved: data, committed: true });
   }

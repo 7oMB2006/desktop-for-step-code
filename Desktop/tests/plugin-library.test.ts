@@ -99,6 +99,17 @@ test('installation receipts retain only host-owned identity and interrupted stat
   await writeFile(join(root, 'desktop-plugins/installations.json'), '{"version":99,"installations":[]}');
   await assert.rejects(files.readReceipts(root), /storage/);
 });
+test('installed scans normalize and validate native IDs before conflict comparisons', async t => {
+  const { root, directory } = await fixture(t);
+  for (const value of [' same-id ', '\tsame-id\n', 'Same.ID_1', 'a'.repeat(81)]) {
+    await writeFile(join(directory, 'step.plugin.json'), JSON.stringify({ id: value }));
+    assert.deepEqual(await files.scanInstalled(root), [{ folder: 'example', id: value.trim() }]);
+  }
+  for (const value of ['', ' ', '../outside', 'two ids', 'bad/id']) {
+    await writeFile(join(directory, 'step.plugin.json'), JSON.stringify({ id: value }));
+    assert.deepEqual(await files.scanInstalled(root), []);
+  }
+});
 test('document images reject missing, oversized, invalid and excessive resources without remote fetches', async t => {
   const { root, directory, catalog } = await fixture(t);
   const oversized = Buffer.alloc(1024 * 1024 + 1);

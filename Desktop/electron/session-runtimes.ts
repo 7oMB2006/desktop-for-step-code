@@ -16,7 +16,7 @@ import { isFullAccessRisk } from '../src/full-access-risk';
 import { questionnaire } from '../src/questionnaire';
 import { cronState, hasScheduledCron, type CronState } from './cron-state';
 import { restoreSelectedModel, UnavailableModelError } from './model-preference';
-import { backgroundState, hasBackgroundWork } from './background-work';
+import { backgroundLaneStates, backgroundState, hasBackgroundWork, type BackgroundLaneState } from './background-work';
 
 export interface WorkerTransport {
   readonly pid?: number;
@@ -55,6 +55,8 @@ export interface SessionRuntime {
   stopping?: boolean;
   cron?: CronState;
   backgroundActive?: boolean;
+  btwActive?: boolean;
+  backgroundLanes?: BackgroundLaneState[];
   cronScopeDirectory?: string;
   startupTiming?: RuntimeStartupTiming;
 }
@@ -102,7 +104,7 @@ export class SessionRuntimes {
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
-  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || hasBackgroundWork(worker) || worker.queued
+  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || hasBackgroundWork(worker) || worker.btwActive || worker.queued
     || worker.status === 'connected' && (worker.launch?.goal?.status === 'active' || hasScheduledCron(worker.cron))); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
   async preparePrompt(worker: SessionRuntime, message: string) { await this.hooks.beforePrompt?.(worker, message); }
@@ -110,6 +112,7 @@ export class SessionRuntimes {
     return [...this.workers.values()].filter(worker => worker.state?.sessionId).map(worker => ({
       runtimeId: worker.id, sessionId: worker.state!.sessionId!, cwd: worker.cwd,
       firstMessage: firstUserText(worker.messages), name: worker.state?.sessionName,
+      backgroundCount: worker.status === 'connected' ? worker.backgroundLanes?.length : undefined,
       status: worker.status === 'disconnected' ? 'failed' as const : worker.pendingUI.size ? 'waiting' as const : this.isBusy(worker) || hasBackgroundWork(worker) ? 'running' as const : worker.failed ? 'failed' as const : worker.interrupted || taskOutcome(worker.messages) === 'interrupted' ? 'interrupted' as const : this.unreadSessionIds.has(worker.state!.sessionId!) ? 'completed' as const : 'idle' as const,
     }));
   }
@@ -162,6 +165,7 @@ export class SessionRuntimes {
     worker.status = 'connecting';
     worker.cron = undefined;
     worker.backgroundActive = false;
+    worker.backgroundLanes = undefined;
     // A transport-local Full Access grant must not survive process replacement.
     if (existing?.permissionPreset === 'full-access') worker.permissionPreset = undefined;
     worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false };
@@ -226,6 +230,7 @@ export class SessionRuntimes {
         worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
         worker.cron = undefined;
         worker.backgroundActive = false;
+        worker.backgroundLanes = undefined;
         this.hooks.dispose?.(worker);
         if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
         for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
@@ -234,12 +239,14 @@ export class SessionRuntimes {
         if (event.method === 'setStatus' && event.statusKey === 'desktop-subagents') {
           const background = backgroundState(event.statusText);
           worker.backgroundActive = background.active;
+          worker.backgroundLanes = backgroundLaneStates(event.statusText)?.lanes;
           // The native wake-up can run CLM before emitting agent_start.
           if (background.parentActive) {
             worker.busy = true;
             if (worker.state) worker.state = { ...worker.state, isStreaming: true };
           }
           this.publish();
+          this.emit({ type: 'desktop_background_changed', runtimeId: worker.id, sessionId: worker.state?.sessionId });
           return;
         }
         // Only Desktop's explicit confirmation can carry project-trust UI metadata.
@@ -470,6 +477,7 @@ export class SessionRuntimes {
   }
   async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean } = {}) {
     const assertHost = () => {
+      if (worker.btwActive) throw new Error('Finish or cancel the side question first');
       if (hasBackgroundWork(worker)) throw new Error('Stop background agents before changing this session runtime');
       if (options.stopHost && hasScheduledCron(worker.cron)) throw new Error('Delete scheduled Cron jobs before restarting or changing this runtime; Cron state must be available');
     };
@@ -575,6 +583,7 @@ export class SessionRuntimes {
       worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
       worker.cron = undefined;
       worker.backgroundActive = false;
+      worker.backgroundLanes = undefined;
       worker.failed = true;
       if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
       this.workers.set(worker.id, worker);

@@ -1,6 +1,7 @@
 export type ChatQuote = {
   id: string;
   messageIndex: number;
+  entryId?: string;
   role: 'assistant' | 'user';
   text: string;
   markdown: string;

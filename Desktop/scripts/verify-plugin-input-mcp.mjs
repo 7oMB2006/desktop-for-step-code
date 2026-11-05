@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
 const output = resolve(process.env.DESKTOP_PREVIEW_OUTPUT ?? 'test-results/plugin-input-mcp');
 await mkdir(output, { recursive: true });
-const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'warn' });
+const cacheDir = await mkdtemp(join(tmpdir(), 'dfsc-plugin-input-mcp-vite-'));
+const server = await createServer({ cacheDir, server: { host: '127.0.0.1', port: 0 }, logLevel: 'warn' });
 await server.listen();
 const address = server.httpServer.address();
 let browser;
@@ -128,4 +130,4 @@ try {
   assert.deepEqual(errors, []);
   console.log('Production transcript and summary MCP passed: source input, copy/edit/reload, exact server ownership, idle/save/restart/failure states, themes, narrow layouts and reduced motion.');
   console.log(output);
-} finally { await browser?.close(); await server.close(); }
+} finally { await browser?.close(); await server.close(); await rm(cacheDir, { recursive: true, force: true }); }

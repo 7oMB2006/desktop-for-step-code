@@ -12,6 +12,7 @@ import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
 import { hasBackgroundWork } from './background-work';
+import { BtwRequests } from './btw';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
@@ -37,6 +38,7 @@ import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } f
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
+import { changeFavoriteModel, normalizeFavoriteModels } from '../src/model-favorites';
 import { AuthVault } from './auth-vault';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
@@ -53,6 +55,7 @@ import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
 import { submittedInputContent } from '../src/template-input';
 import { clmSnapshot } from './clm';
+import { BackgroundAgents } from './background-agents';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { readWorkflowCatalog } from './workflow-catalog';
 import { workflowsFromMessages, workflowIsActive } from '../src/workflow-state';
@@ -80,6 +83,7 @@ import type { Message, Model, PermissionPreset, Preferences, Session, SessionRea
 import { validateSidebarPreferences } from '../src/sidebar-order';
 import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace, moveSessionToWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
+import { parseFulltextQuery, projectFulltextResult } from './session-search';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
 
 app.setName('Desktop for Step Code');
@@ -302,6 +306,10 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
 }
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   const queueWorker = runtimes.workers.get(event.runtimeId);
+  if (event.type === 'desktop_btw') {
+    if (queueWorker) btw.event(queueWorker, event);
+    return;
+  }
   const modelChanged = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
     && modelSelections.delivered(queueWorker, submittedInputContent(event.message), event.message.timestamp);
   const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
@@ -376,6 +384,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   launch: worker => { usageEstimates.attach(worker); return collaboration.attach(worker); },
   dispose: worker => {
     bvrBridge.detach(worker);
+    btw.dispose(worker);
     conversationTiming.event(worker, { type: 'desktop_exit' });
     usageEstimates.detach(worker);
     collaboration.detach(worker);
@@ -387,6 +396,7 @@ const bvrBridge = new BvrBridge(dataRoot, runtimes, () => appliedAuthData,
   () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
   () => preferences.language, (input, init) => net.fetch(input instanceof URL ? input.href : String(input), init));
 const bvrSettings = new BvrSettings(dataRoot, () => bvrBridge.invalidate());
+const btw = new BtwRequests(runtimes, emit);
 const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
@@ -394,6 +404,8 @@ const pendingMessages = new PendingMessages(worker => {
 }, (worker, error) => emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) }),
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
   (worker, message) => runtimes.preparePrompt(worker, message));
+const backgroundAgents = new BackgroundAgents(runtimes.workers,
+  () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending);
 const launchControls = new LaunchControls(runtimes);
 const cronBindings = new CronBindings(join(app.getPath('userData'), 'cron-bindings'));
 const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
@@ -1169,6 +1181,10 @@ async function handle(method: string, args: any[]) {
       } finally { worker.mutating = false; worker.operations--; runtimes.publish(); }
       return;
     }
+    case 'backgroundAgents':
+      return backgroundAgents.read(text(args[0], 80), text(args[1], 200));
+    case 'stopBackgroundAgent':
+      return backgroundAgents.stop(text(args[0], 80), text(args[1], 200), text(args[2], 40));
     case 'summary': {
       const worker = runtimes.require(text(args[0], 80));
       const sessionId = worker.state?.sessionId;
@@ -1829,6 +1845,12 @@ async function handle(method: string, args: any[]) {
         if (type === 'set_model' || type === 'set_thinking_level') void pendingMessages.drain(worker);
       }
     }
+    case 'btwAsk':
+      if (transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending)
+        throw new Error('Wait for account and workspace changes to finish');
+      return btw.ask(args[0]);
+    case 'btwCancel': return btw.cancel(args[0]);
+    case 'btwClear': return btw.clear(args[0]);
     case 'accountAllowance':
       if (args[0] !== undefined && typeof args[0] !== 'boolean') throw new Error('Invalid allowance refresh');
       return accountAllowance.query(args[0] === true);
@@ -1841,6 +1863,20 @@ async function handle(method: string, args: any[]) {
         .finally(() => { usageOverviewPending = undefined; });
       return usageOverviewPending;
     }
+    case 'searchSessions': {
+      const query = parseFulltextQuery(args[0]);
+      const result = await admin.request('session_search', { query }, 60000);
+      const sessions = cachedSessions();
+      const projected = projectFulltextResult(result, query, sessions, preferences);
+      const known = new Map(sessions.map(session => [session.id, session]));
+      projected.hits = (await Promise.all(projected.hits.map(async hit => {
+        try { await managedSessionFile(join(dataRoot, 'sessions'), known.get(hit.sessionId)!.path!); return hit; }
+        catch { return null; }
+      }))).filter((hit): hit is NonNullable<typeof hit> => hit !== null);
+      return projected;
+    }
+    case 'cancelSessionSearch':
+      return admin.request('cancel_session_search', { queryId: text(args[0], 80) });
     case 'setEstimateRules': {
       if (settingsMutation) throw new Error('Account change in progress');
       return usageEstimates.setRules(args[0], args[1]);
@@ -2000,6 +2036,8 @@ async function handle(method: string, args: any[]) {
       const panelPatch = panelPreferencePatch(patch);
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
       const colorPatch = themePreferencePatch(patch);
+      const favoriteModels = patch.modelFavorite === undefined ? undefined
+        : changeFavoriteModel(preferences.favoriteModels, patch.modelFavorite);
       if (patch.appearance !== undefined) {
         if (!patch.appearance || typeof patch.appearance !== 'object' || Array.isArray(patch.appearance)) throw new Error('Invalid appearance settings');
         preferences.appearance = normalizeAppearance({ ...preferences.appearance, ...patch.appearance });
@@ -2028,7 +2066,12 @@ async function handle(method: string, args: any[]) {
       }
       Object.assign(preferences, sidebarPatch, updatePatch, panelPatch);
       if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
-      await savePreferences();
+      const previousFavorites = preferences.favoriteModels;
+      if (favoriteModels) preferences.favoriteModels = favoriteModels;
+      try { await savePreferences(); } catch (error) {
+        if (favoriteModels && preferences.favoriteModels === favoriteModels) preferences.favoriteModels = previousFavorites;
+        throw error;
+      }
       window.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       updates.setChannel(preferences.updateChannel ?? 'preview');
       tray?.relabel();
@@ -2161,6 +2204,8 @@ else app.whenReady().then(async () => {
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));
   preferences.preferredModel = modelPreference(preferences.preferredModel);
+  preferences.favoriteModels = normalizeFavoriteModels(preferences.favoriteModels);
+  delete (preferences as Preferences & { recentModels?: unknown }).recentModels;
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   preferences.theme = normalizeTheme(preferences.theme);
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;

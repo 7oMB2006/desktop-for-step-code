@@ -86,11 +86,10 @@ index 92e3256..7da8291 100644
  		this._followUpMessages.push(text);
  		this._emitQueueUpdate();
  		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
-@@ -2144,6 +2153,7 @@ export class AgentSession {
+@@ -2144,5 +2153,6 @@ export class AgentSession {
  			role: "user",
  			content,
  			timestamp: Date.now(),
 +			...desktopTemplateInput(originalInput, text),
  		});
  	}
- 

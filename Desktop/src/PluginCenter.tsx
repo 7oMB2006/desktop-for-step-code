@@ -170,8 +170,6 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     const next = await bridge.capabilityCatalog();
     if (!alive.current) return;
     setCatalog(next);
-    const plugin = next.plugins.find(plugin => plugin.id === 'steppage');
-    if (plugin) { setSelected(`i:${plugin.id}`); setDetailTab('config'); }
   };
   const servers = (plugin: CapabilityPlugin) => catalog?.mcp.filter(server => server.pluginId === plugin.id) ?? [];
   const toggle = (plugin: CapabilityPlugin) => {

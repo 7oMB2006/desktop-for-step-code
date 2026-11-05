@@ -4,11 +4,12 @@ import { Check, PencilLine, Pin, Trash2, X } from 'lucide-react';
 import { MAX_ANNOTATION_LENGTH, type ChatQuote } from './chat-quotes';
 
 // Reconstruct only verified selections. Never attach a note to a guessed occurrence.
-function sourceRange(root: HTMLElement, quote: ChatQuote) {
+export function quoteSourceRange(root: HTMLElement, quote: ChatQuote) {
   const message = root.querySelector(`[data-message-index="${quote.messageIndex}"]`)?.closest('.message');
   const blocks = message?.querySelectorAll('.response-text, .user > .message-body');
   const block = blocks?.[quote.blockIndex ?? 0];
   if (!block) return null;
+  if (quote.entryId && block.closest<HTMLElement>('[data-message-entry-id]')?.dataset.messageEntryId !== quote.entryId) return null;
   const text = block.textContent ?? '';
   let startOffset = quote.startOffset;
   let endOffset = quote.endOffset;
@@ -88,7 +89,7 @@ export function QuoteAnnotations({ root, quotes: allQuotes, language, scope, ann
       const next: Marker[] = [];
       quotes.forEach((item, index) => {
         if (!item.annotation?.trim() && active !== item.id) return;
-        const range = sourceRange(host, item);
+        const range = quoteSourceRange(host, item);
         if (!range) return;
         ranges.push(range);
         rangesRef.current.set(item.id, range);

@@ -24,10 +24,12 @@ test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and pat
     'packages/coding-agent/src/core/session-import/parsers.ts',
     'packages/coding-agent/src/core/session-import/service.ts',
     'packages/coding-agent/src/core/session-import/types.ts',
+    'packages/coding-agent/src/modes/rpc/desktop-btw.ts',
     'packages/coding-agent/test/session-import.test.ts',
   ]);
   assert.deepEqual(Object.keys(manifest.patches).sort(),
-    ['step-code-desktop-auto-resume.patch', 'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch',
+    ['step-code-desktop-auto-resume.patch', 'step-code-desktop-background-agents.patch', 'step-code-desktop-btw.patch',
+      'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch',
       'step-code-desktop-cron-management.patch',
       'step-code-desktop-cron-recovery-guard.patch', 'step-code-desktop-cron-recovery.patch',
       'step-code-desktop-cron-scope.patch', 'step-code-desktop-cron.patch',
@@ -65,6 +67,8 @@ test('Darwin additions retain the complete shared integration and pin their own 
   }
   const stage = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
   assert.match(stage, /integrationManifest\.patchedSources, \.\.\.platformManifest\?\.patchedSources/);
+  assert.match(stage, /'desktop-background-control'/);
+  assert.match(stage, /'desktop-btw'/);
   assert.ok(!stage.includes('3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8'));
 });
 
@@ -99,7 +103,7 @@ test('staging rejects the wrong upstream before touching runtime through every s
 // A pin bump moves four things together: the guard, the patch, the apply script and the
 // instructions. The first three are coupled by the guard itself; this couples the fourth so a
 // stale build instruction fails in CI instead of on a contributor's machine.
-test('every documented pin matches the staging guard', { skip: !['win32', 'darwin'].includes(process.platform) }, async () => {
+test('every documented pin matches the staging guard', async () => {
   const guard = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
   const manifest = JSON.parse(await readFile(resolve('../patches/v016/manifest.json'), 'utf8'));
   const pin = manifest.commit;
@@ -113,7 +117,12 @@ test('every documented pin matches the staging guard', { skip: !['win32', 'darwi
   }
   // The workflow already fails when the two drift, because the applier checks the pinned
   // pre-image hashes, but that error blames the upstream source. Checking here names the cause.
-  const workflowPath = process.platform === 'win32' ? '../.github/workflows/windows-integration.yml' : '../.github/workflows/macos-integration.yml';
-  const workflow = await readFile(resolve(workflowPath), 'utf8');
-  assert.ok(workflow.includes(pin!), `${workflowPath} still pins an older Step Code revision`);
+  for (const buildPath of ['../.github/workflows/windows-integration.yml', '../.github/actions/setup-macos/action.yml']) {
+    const build = await readFile(resolve(buildPath), 'utf8');
+    assert.ok(build.includes(pin!), `${buildPath} still pins an older Step Code revision`);
+  }
+  for (const workflowPath of ['../.github/workflows/macos-integration.yml', '../.github/workflows/macos-acceptance.yml']) {
+    const workflow = await readFile(resolve(workflowPath), 'utf8');
+    assert.match(workflow, /uses: \.\/\.github\/actions\/setup-macos/, `${workflowPath} must use the checked native build action`);
+  }
 });

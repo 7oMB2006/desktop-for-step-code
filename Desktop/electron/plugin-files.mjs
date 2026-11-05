@@ -85,7 +85,8 @@ export async function scanInstalled(root) {
       if (item.isSymbolicLink()) throw new PluginFileError('invalid-path');
       try {
         const manifest = JSON.parse((await plainFile(join(directory, item.name), 'step.plugin.json', 512 * 1024)).toString('utf8'));
-        if (typeof manifest.id === 'string') entries.push({ folder: item.name, id: manifest.id });
+        const id = typeof manifest.id === 'string' ? manifest.id.trim() : '';
+        if (/^[a-z0-9][a-z0-9._-]*$/iu.test(id)) entries.push({ folder: item.name, id });
       } catch (error) { if (error instanceof PluginFileError) throw error; }
     }
   } catch (error) { if (error.code !== 'ENOENT') throw error; }

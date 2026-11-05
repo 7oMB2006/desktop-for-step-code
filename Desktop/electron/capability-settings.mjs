@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, realpath, readdir, rename, rm, cp, writeFile, open } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { installationReceipt, object, optionalFile, packageFingerprint, plainFile, readReceipts, scanInstalled,
-  sourceIdentity, writePrivateJson, writeReceipts } from './plugin-files.mjs';
+  sourceIdentity, writePrivateData, writePrivateJson, writeReceipts } from './plugin-files.mjs';
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -436,15 +436,33 @@ export function createCapabilitySettings(upstream, options) {
       }
       case 'plugin-remove': {
         const id = text(input.id, 128);
-        if ((await scanInstalled(root)).filter(item => item.id === id).length > 1)
-          throw new CapabilityError('plugin-conflict');
+        const targets = (await scanInstalled(root)).filter(item => item.id === id);
+        if (targets.length > 1) throw new CapabilityError('plugin-conflict');
         const plugin = (await installed()).plugins.find(item => item.id === id);
         if (!plugin) throw new CapabilityError('not-found');
         await plainPath(plugin.rootPath, pluginsDir);
+        const folder = basename(plugin.rootPath);
+        if (targets.length && targets[0].folder !== folder) throw new CapabilityError('stale');
         const receipts = await readReceipts(root);
-        const receipt = receipts.installations.find(item => item.folder === basename(plugin.rootPath));
-        if (receipt) { receipt.state = 'removing'; await writeReceipts(root, receipts); }
-        await upstream.uninstallPlugin(pluginsDir, basename(plugin.rootPath));
+        // Bind revocation to the unique on-disk installation, not every receipt with this runtime ID.
+        const receipt = receipts.installations.find(item => item.folder === folder);
+        if (receipt && receipt.id !== id) throw new CapabilityError('stale');
+        if (receipt) {
+          const path = `desktop-plugins/bindings/${receipt.folder}.json`;
+          const bytes = await optionalFile(root, path, 65536);
+          if (bytes) {
+            const binding = JSON.parse(bytes.toString('utf8'));
+            if (!object(binding) || binding.version !== 1 || !binding.revoked
+              && (binding.instance !== receipt.instance || binding.id !== receipt.id))
+              throw new CapabilityError('stale-configuration');
+          }
+          if (JSON.stringify(await readReceipts(root)) !== JSON.stringify(receipts)) throw new CapabilityError('stale');
+          receipt.state = 'removing';
+          await writeReceipts(root, receipts);
+          await writePrivateData(root, path, { version: 1, instance: receipt.instance, id: receipt.id, revoked: true });
+        }
+        // Keep the removing receipt and revocation if native deletion fails.
+        await upstream.uninstallPlugin(pluginsDir, folder);
         receipts.installations = receipts.installations.filter(item => item !== receipt);
         await writeReceipts(root, receipts);
         break;

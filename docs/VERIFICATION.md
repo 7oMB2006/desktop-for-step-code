@@ -1,5 +1,64 @@
 # Verification
 
+## Plugin Center PR Integration (2026-11-05)
+
+The plugin-center/authoring branch integrates main `3158d8d`, retaining full-text
+search, BTW, background controls and model selection. A fresh pinned upstream
+checkout applies the complete hashed patch chain, including background/BTW and
+template-input, without changing pin `81e79bc4`. It builds and stages with Node
+24.16.0 in an isolated QA directory; shared runtime/node_modules junctions and
+the owner's daily profile, shortcut and existing manual window are untouched.
+
+Two independent reviewers reproduced five P2 defects, now fixed with
+failing-first regressions:
+
+- Match native ID normalization before duplicate detection.
+- Bound the complete serialized UTF-8 configuration snapshot, including its
+  newline, before writing; reject oversized input without changing the committed
+  revision or secrets. Exact-boundary, multibyte and escaped input are covered.
+- Complete uninstall identity/source/race preflight before revocation, then
+  revoke only the selected installation. Rejected preflight preserves the saved
+  configuration; failed native deletion remains revoked and incomplete.
+- Refresh StepPage's catalog without asynchronously taking over another plugin's
+  configuration or discarding its unsaved draft.
+- Invalidate named MCP reads when the editor target, settings category or
+  settings lifecycle changes. Late success/failure cannot replace newer drafts,
+  including animated close and reduced motion.
+
+Current-source local verification passes typecheck, production build, the five
+real background/BTW/template RPC cases, 39 CI policy/runner checks with one
+platform skip, both production PluginCenter/input-MCP browser verifiers and
+isolated Electron capability-management acceptance. The standalone text plugin
+passes 13 tests; both draft-07 schemas and five example manifests validate.
+The complete serial Desktop rerun passes 930 tests: 916 passed, 14 platform
+skips, no failures/cancellations. It uses the isolated Node/runtime, an explicit
+production TSX config and physical test fixtures so runtime probes import the
+same new bundle as the managed process, not the shared older runtime. The final
+log is `plugin-skeleton-pr-20261105-full-unit-final.log`.
+Merged full-text Electron acceptance also passes native IPC, read-only anchors,
+filters, cancellation/races, focus return, draft/runtime/JSONL isolation and
+theme/narrow checks.
+
+The new production build is
+`D:/DFSC-Preview-QA/plugin-skeleton-pr-20261105-app/`.
+Actual isolated Electron acceptance repeats native discovery, install,
+documentation, configuration, MCP initialization/tool calls, explicit restart,
+service disable and uninstall/revocation for the independent text plugin.
+BVR's independent main/ASR configuration and native MCP initialization also pass.
+Browser/native checks include light/dark, narrow layouts, visible focus,
+draft preservation and reduced motion. No real model or paid-account request
+is made. Evidence/logs use the `plugin-skeleton-pr-20261105-*` QA paths.
+
+This is source/PR validation, not an installer, native macOS or cloud-CI verdict.
+No merge, release, public plugin repository, community registry/lock update or
+market submission is included. Rebuildable QA artifacts are inventoried without
+following junctions; deletion remains subject to owner authorization.
+The inventory excludes linked targets: the current app is about 6.1 MiB, its
+isolated runtime/toolchain/test mirror 207.7 MiB and clean upstream build 52 MiB.
+Browser, text-plugin and BVR evidence use about 29.6 MiB combined. The older
+6 MiB pre-integration source build is not current acceptance and is retained
+pending authorized cleanup.
+
 ## Independent Text Workbench Example (2026-11-05, Local Only)
 
 `examples/community/text-workbench/` is an independent source directory and local
@@ -366,6 +425,705 @@ acceptance are represented. Plan ASR retains the existing BVR dedicated-model
 route on the selected Plan endpoint; real-account ASR availability and billing
 have not been retested in this integration. Abort cannot undo a request already
 accepted by a provider.
+
+## PR #190 Capability Removal Synchronization (2026-11-05)
+
+Windows interface run `41869558982`, job `126712778842`, fails in
+`verify-capabilities.mjs` waiting for the second plugin-removal confirmation.
+The saved screenshot shows expanded plugin details without a confirmation
+or visible error. The same commit's Windows sessions and runtime groups pass.
+
+The original script passes locally at normal speed and 6x CPU throttling,
+so the missing-confirmation timeout itself was not reproduced. A temporary
+in-memory diagnostic records both uninstall clicks during the native
+240-ms disclosure animation, at approximately 175 and 167 ms. The acceptance
+now waits for the shared `settleLayout` helper after opening the exact plugin
+disclosure and scopes confirmation to that plugin's named group. A failure
+records pending/confirmation/disclosure state without an additional locator
+wait. No product code, timeout, animation or safety assertion is changed.
+
+The updated complete capability acceptance passes at normal speed and 6x
+CPU throttling. Both throttled uninstall clicks now occur with no remaining
+disclosure animation. Typecheck and syntax/whitespace checks pass, as do all
+15 motion-helper tests and 39 CI policy/runner tests (one platform skip).
+The before/after diagnostic logs and probe are ignored local evidence under
+`Desktop/test-results/ci190-capabilities-*`; the original cloud screenshots
+are in `Desktop/test-results/ci190-capabilities-41869558982`.
+
+The same head's macOS run `41869558871` did not acquire a hosted ARM64 runner.
+GitHub reports capacity constraints and no preparation steps executed; the
+dependent gate correctly failed. This is neither a macOS product failure
+nor a passing native acceptance receipt. Replacement current-head cloud
+execution remains required. No package or shortcut was changed.
+
+## PR #190 First-run Main Synchronization (2026-11-05)
+
+Merged main `5d35c81` (PR #189 first-run preview) into the BTW branch.
+Only this verification log conflicted; both features' existing records are
+retained. The acceptance inventory keeps the first-run design fixture
+explicitly local-only and preserves both BTW CI scripts. No product behavior,
+runtime pin, package version or acceptance assertion was changed to resolve
+the conflict.
+
+Typecheck, production build and all 44 focused BTW, quote, composer, command
+and runtime-staging tests pass. CI inventory/runner/policy checks pass
+39 tests with one platform skip. `verify-first-run-preview.mjs`,
+`verify-btw.mjs`, `verify-btw-electron.mjs`, `verify-appearance.mjs` and
+`verify-plan-review.mjs` pass serially against the combined source.
+New preview and BTW screenshots are under
+`Desktop/test-results/btw-main-merge-20261105`.
+
+These are local Windows checks with isolated profiles and loopback fixtures,
+not fresh cloud CI, native macOS, installer or real-account acceptance.
+The existing Desktop dist was rebuilt in place (105 files, 9.70 MiB);
+no new package, shortcut change or generated-output deletion was performed.
+The PR remains unmerged.
+
+## PR #190 Main Conflict Resolution (2026-11-04)
+
+Merged main `a59efb9` (PR #188 background-agent controls) into the BTW
+branch without replacing either feature's runtime fields, preload contracts,
+acceptance registration or TODO records. The manifest applies the background
+controls patch before the BTW patch and pins newly calculated combined
+`rpc-mode.ts` / `rpc-types.ts` hashes; neither upstream pin nor app version
+changes.
+
+Replayed all 15 shared patches from the fixed upstream checkout in an isolated
+clone. The official Windows applier passed every pre-image, patch and result
+guard. The macOS additions also applied and matched every combined source
+hash; this is patch verification on Windows, not native macOS acceptance.
+The combined upstream workspace built offline, and runtime staging with
+Node 24.16.0 matched all manifest sources and advertised both RPC features.
+
+An initial test run used the old staged runtime and rejected
+`desktop_subagents` as unknown. After rebuilding and restaging the combined
+runtime, the complete serial Desktop suite passed: 847 tests, 833 passed,
+14 platform skips, no failures. Typecheck, Desktop production build and
+`git diff --check` passed. CI inventory/runner/policy checks passed
+39 tests with one platform skip. `verify-btw.mjs`,
+`verify-btw-electron.mjs`, `verify-background-agent-controls.mjs` and
+`verify-workflow.mjs` passed serially against the combined source build.
+Logs and BTW UI evidence are under
+`Desktop/test-results/btw-main-merge-20261104`.
+
+No installer, desktop shortcut or running installed application was changed.
+Current-head Windows/macOS cloud checks remain separate from these local
+results; the PR is not merged by this work.
+
+## PR #190 Native Impact Sampling And Undo Diagnostics (2026-11-04)
+
+At `6fb080c`, Windows run `41697711483` passes every group and the final
+gate. macOS run `41697711461` passes preparation, all source groups and
+the complete interface source/package group. Its packaged runtime group
+misses the task impact's brief peak in natural rAF samples. The fixture now
+captures the actual product-created WAAPI effect with the existing helper,
+seeks its real transforms, then resumes playback. The original amplitude
+threshold remains; duration and zero-offset endpoints are also asserted.
+A MutationObserver supplements rAF for transient phase/particle evidence.
+
+The packaged sessions group times out in `verify-turn-undo.mjs`. Artifact
+ZIP timestamps place the last new screenshot after successful real undo,
+before the second-session/peer checks; the source script passes. Its old
+failure path can await app shutdown while an outstanding fixture task
+requires quit confirmation, suppressing the original error until the outer
+deadline. The script now uses the shared orderly fixture shutdown, releases
+its HTTP connections, and logs each phase and any original failure first.
+The test also waits for the renderer's existing ready control around reloads
+and asserts the exact restored runtime/session before submitting edits.
+No product code, assertion, outer deadline or CI gate is removed or relaxed.
+
+Both scripts pass once against source and twice consecutively against the
+delivered Windows preview. Impact samples are `0, -2, 1.4, -0.7, 0.3, 0`
+pixels over the actual 360-ms effect. Evidence is
+`ci190-task-impact-sampling.log` and `ci190-turn-undo-readiness.log` under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. CI policy tests pass
+39 checks with one platform skip; all 15 motion-helper browser regressions
+pass with the matching staged Chromium. The original macOS undo hang is not
+reproduced locally; fresh cloud execution remains required. These are
+acceptance-only changes and do not change the delivered package bytes.
+
+## PR #190 Reference Geometry Sampling (2026-11-04)
+
+macOS interface job `126118971520`, run `41693089514`, passes its source
+group but fails the packaged `verify-btw.mjs` reference-position assertion.
+The first input rectangle is sampled during the sidebar's final transform
+frame: x is `633.0022583007812` before opening references and `633` after;
+the width differs by less than `0.0001` pixels.
+
+The fixture now reuses the shared `settleLayout` helper for opening the
+sidebar and before both input-rectangle samples. It waits for fonts, finite
+animations on the element and its ancestors, and rendered layout frames.
+The exact rectangle equality assertion is unchanged: no rounding, positional
+tolerance, fixed wait extension or product motion change was added.
+
+Two consecutive complete runs of `verify-btw.mjs` pass in Edge, including
+reference handoff, exact geometry, streaming, focus, themes, responsive
+layouts and reduced motion. Evidence is `ci190-btw-stable-layout.log` and
+its adjacent screenshot directory under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. This remains an
+acceptance-only change; the delivered Windows preview's application bytes
+are unchanged. Fresh cloud acceptance remains pending.
+
+## PR #190 Model Switch Reload Readiness (2026-11-04)
+
+macOS packaged sessions job `126102093019`, run `41682022854` attempt 2,
+passes its source group but fails at `verify-model-switch.mjs:221` on
+`branchSession` with `Session operation in progress`. After reloading a
+clone, the history event can paint the switch notice while the renderer's
+initial snapshot read still holds the runtime operation guard. The fixture
+already waits for the enabled new-chat control after its first history
+restore, but omitted that readiness condition at the next two reloads.
+
+Both reloads now wait for the existing ready control before branching or
+creating a draft. Additional snapshot assertions verify the exact restored
+runtime and session identities. All clone, branch, model-history, favorites,
+default-selection and unavailable-model recovery checks remain enabled;
+production guards, timeouts and CI policy are unchanged.
+
+One source run and two consecutive runs of the delivered Windows preview
+pass. Evidence is `ci190-model-switch-readiness.log` under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. The CI runner and policy
+suite reports 39 passes and one platform skip. This follow-up changes
+acceptance code and this record only, so the delivered `bfa74b4` application's
+production sources and package bytes remain unchanged. A fresh cloud run
+is still required.
+
+## PR #190 Task Progress Fixture Handshake (2026-11-04)
+
+After the shared rail fix, all Windows groups and the macOS source runtime
+group pass. macOS packaged runtime job `126064844339` then times out at the
+task-progress fixture's full-but-still-running state. Its mock response ends
+on a fixed 2.4-second timer, so a slower native render can miss that state.
+
+The mock now holds the first post-tool answer until the test observes both
+the full task count and an actually full running progress-bar frame, then
+explicitly releases the final model chunk. Existing sound, impact, particles,
+completion, no-replay, next-turn retirement, history and reload assertions
+remain unchanged; no timeout or CI gate is relaxed. The fixture also closes
+its own HTTP connections on failure.
+
+One source run and two consecutive runs of the existing Windows preview
+package pass. Evidence is `ci190-task-progress-handshake.log` under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. This follow-up changes
+only acceptance code and this record; the delivered `bfa74b4` application's
+production sources and package bytes are unchanged. The replacement cloud
+run remains a separate pending gate.
+
+## BTW PR #190 Shared Rail Acceptance (2026-11-04)
+
+The initial Windows runtime job `126043981644` and macOS runtime job
+`126047868400` fail at the same `verify-electron.mjs` exact rail-label
+assertion. The production rail has the intended new side-question entry
+between Context and Changes, but the shared acceptance still expects the
+previous eight entries.
+
+The shared acceptance now requires all nine entries in order, one native
+side-question icon and one `btw-panel` trigger. The existing tooltip placement
+and visibility checks now also cover the new entry; no assertion, timeout or
+CI gate was removed. The complete source `verify-electron.mjs` passes on
+Windows with its real staged runtime and isolated fixture profile.
+Replacement cloud and packaged-executable runs remain separate pending gates.
+
+## BTW PR Main Synchronization (2026-11-04)
+
+The feature commit `cd2cafb` is synchronized with main `2febc93` at merge
+`664de94`, preserving PR #187's model favorites and launch acceptance fix.
+Only TODO and verification prose required conflict resolution; both lines'
+receipts are retained. The runtime pin, version and existing preview package
+remain unchanged.
+
+Typecheck and production build pass. The merged serial Desktop suite reports
+834 tests: 820 passed, 14 platform skips, zero failures. Its receipt is
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-main-sync-20261104-unit.log`.
+The CI inventory/runner/policy suite passes 39 tests with one platform skip.
+`verify-btw.mjs` passes against the shared production components, including
+main/side composer style equality, quotes, IME, streaming, responsive layouts,
+complete focus clearance and reduced motion. Fresh dark desktop and light
+320-pixel screenshots were reviewed.
+
+Source `verify-btw-electron.mjs`, `verify-composer-editing.mjs`,
+`verify-chat-quotes.mjs`, `verify-model-effort.mjs` and
+`verify-model-switch.mjs` pass serially. Native tests use isolated profiles
+and loopback providers. This covers the new side/main editor combination,
+reference handoff and the merged favorite/model-selection behavior, not paid
+account billing. Browser and native BTW screenshots total about 1 MiB under
+the same evidence root with the `btw-main-sync-20261104-` prefix.
+The rebuilt Desktop dist is 9.65 MiB; no new package was assembled and no
+existing generated output was deleted.
+
+The latest presentation is still source-only. Cloud CI, native macOS,
+rebuilt-installer and real-account acceptance remain separate, unclaimed
+gates. Per-answer BTW usage is not integrated into Usage totals or estimates.
+
+## BTW Presentation Refresh (2026-11-03)
+
+Source-only refresh after the selected-reference preview package below.
+The existing `btw-quotes-20261103-preview` executable and desktop shortcut
+do **not** include this newer presentation. No installer, version, runtime
+pin, remote branch or release was updated in this pass.
+
+Pending references now reuse the compact quote-count entry and anchored
+popover. After a follow-up correction, the side editor reuses the actual
+`ComposerInput`, `.composer`/`.composer-tools` styles and
+`ComposerActionIcon`, not a separate textarea with similar styling.
+The shared composite field has content-driven growth/shrinkage and a
+complete four-sided focus gutter.
+There are no persistent notes below the editor. Responses reuse the main
+conversation's body typography, live responding indicator and shared
+copy/elapsed/timestamp footer. Cancelled, failed and length-limited outcomes
+remain explicit; elapsed time is a local observation, not provider telemetry.
+
+Typecheck and production build pass. The preceding serial Desktop suite reports
+828 tests: 814 passed, 14 skipped, no failures. The focused native BTW,
+quote and command set passes all 29 tests, including terminal timing and
+late-event guards. The full-suite receipt is
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-composer-refresh-unit.log`.
+
+`verify-btw.mjs` passes in Edge at 1600/1100/390/320 pixels, light/dark,
+including multiline growth and single-line shrinkage, reference preservation,
+quote popover positioning, complete composite-field focus, shared response
+footer and reduced motion. Escape dismisses the open quote popover before
+the parent panel, including when focus remains on its trigger.
+`verify-btw-electron.mjs` and the existing `verify-chat-quotes.mjs` also
+pass through the real source renderer/preload/main/native path.
+
+Chinese finished-answer screenshots with the footer exposed were reviewed
+at desktop and narrow widths; the focused 320-pixel reduced-motion state
+and shared reference popover were also checked. Browser evidence is under
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-composer-refresh`;
+native evidence is in the adjacent `btw-composer-refresh-electron` directory.
+
+The shared-composer follow-up passes typecheck/build and all 38 focused BTW,
+composer, quote and command tests. The updated fixture compares main/side
+computed editor, shell, toolbar and action-button styles. It also checks
+Shift+Enter, select-all deletion, IME Enter, oversized-draft retention and
+request rejection, plus the existing isolation, focus and responsive coverage.
+Source `verify-btw-electron.mjs`, `verify-composer-editing.mjs` and
+`verify-chat-quotes.mjs` pass serially. The main editor's native editing,
+selection deletion, undo/redo and busy-state behavior remain intact.
+Main and side focus indicators match with complete clearance in light/dark
+at 1600/1100/390/320 pixels; Chinese screenshots were reviewed. Follow-up
+evidence is in `btw-shared-composer` and `btw-shared-composer-electron` under
+the same evidence root. No new full-suite or packaged-executable run is
+claimed for this follow-up.
+
+Cloud CI, native macOS, real-account billing and acceptance of a rebuilt
+installer remain separate, unclaimed gates. No generated output was deleted.
+
+## BTW References Windows Preview Package (2026-11-03)
+
+Unsigned local Windows x64 preview, still version `0.6.0`:
+`D:\Desktop For Step Code\Desktop\release\btw-quotes-20261103-preview`.
+This rebuild includes the selected-reference integration described below.
+It packages the uncommitted `codex/btw` worktree based on `7debda7`, not the
+newer main branch, a merged feature or a public release.
+
+Desktop typecheck/build and a fresh native runtime rebuild/stage pass.
+The focused native BTW, quote, command and staging set passes all 32 tests
+after staging. The unchanged complete source-suite receipt remains below.
+All 105 Desktop build files, 1336 runtime files and 26 terminal-module files
+match the packaged resources. The runtime still pins
+`81e79bc4b699148d6823fedde9b5e70d9a80255f`, its two existing overlays,
+Node `v24.16.0` and the reviewed `desktop-btw` compatibility patch.
+The package contains no extra application dependencies in asar.
+Installer metadata and SHA-512 validation pass. Installer SHA-256:
+`fa20e435769ddbaca0e5d838aa539dd232177d55b2f74d21a0804acd84a1ac15`.
+Actual Authenticode status is `NotSigned`.
+
+The new packaged executable passes `verify-btw-electron.mjs`,
+`verify-chat-quotes.mjs`, `verify-command-dispatch.mjs` and
+`verify-terminal-panel.mjs` serially with isolated profiles and a loopback
+provider. Native drag selection, explicit reference submission, received
+Markdown/code fences, independent main draft/references, source navigation,
+no automatic request, no reference reattachment and unchanged main JSONL
+are verified through the packaged renderer/preload/main/native path.
+Existing main-task concurrency, cancellation, model/session isolation,
+640-pixel layout and terminal motion checks remain enabled.
+Packaged BTW screenshots are under
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-quotes-package`;
+the quoted and narrow screenshots were visually reviewed.
+
+The primary desktop shortcut now targets this preview's unpacked executable;
+its previous contents are backed up in the package's
+`acceptance\previous-desktop-shortcut.lnk`. The old preview process was left
+running and its files were not removed. Exit that instance from the tray
+before using the updated shortcut. User acceptance, cloud CI, native macOS,
+installation lifecycle and real-account billing are separate, unclaimed gates.
+
+Post-build artifact inventory: the new preview output is 638.1 MiB; its
+assembly copy is 9.6 MiB under the same D-drive build root. Staged runtime,
+Desktop dist and terminal runtime are 117.0, 9.6 and 63.0 MiB respectively;
+the shared evidence tree is 161.1 MiB. The old preview is still in use.
+No generated output or earlier package was deleted without authorization.
+
+## BTW Selected References (2026-11-03)
+
+Initial source-only addition after the older Windows preview package below.
+The old `btw-20261103-preview` installer does **not** contain this integration.
+The later rebuilt package and shortcut update are recorded above; the source
+pass itself did not update an installer, runtime pin, version, remote branch
+or public release.
+
+Typecheck and production build pass. The serial Desktop suite reports 827
+tests: 813 passed, 14 skipped, no failures. The focused BTW/quote/command set
+also passes all 27 tests, including Markdown serialization, deduplication,
+8,000-character combined-prompt bounds and formatted-reference history budgets.
+
+`verify-btw.mjs` passes in Edge with the real message, selection toolbar and
+quote components: selection-to-BTW handoff, no auto-send, independent main/side
+drafts and references, deduplication/removal, close/reopen retention, session
+clearing, verified source identity and explicit missing-source behavior.
+Oversized submissions preserve draft/references without calling the provider.
+Light/dark and 320/390/1100/1600-pixel checks include toolbar bounds,
+four-sided reference-control/textarea focus extent, rich text and reduced
+motion. Pending-reference screenshots were visually reviewed.
+
+`verify-btw-electron.mjs` passes the actual renderer/preload/main/native path,
+including native mouse-drag selection followed by Ask in side. The loopback
+provider receives the expected selected Markdown and code fences, while the
+main draft/references and saved JSONL remain unchanged. Selection alone makes
+no model request; later questions do not reattach earlier pending references.
+The existing concurrency, cancellation, applied-model, session and layout
+checks remain enabled and pass.
+
+`verify-chat-quotes.mjs` passes its existing native-drag and complete quote
+regressions. It now waits for authoritative navigation completion before
+selecting, rather than dragging across the temporary preview's replacement.
+The same early-drag failure was reproduced against the previous package.
+`verify-quote-annotations-fixture.mjs` also passes Chinese/English,
+light/dark, desktop/narrow, highlight, edit and send checks. The local
+annotation run used installed Edge through a launch wrapper because the
+script's default Playwright Chromium is not installed; assertions are unchanged.
+
+New browser/native evidence is under
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-quotes` and
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-quotes-electron`.
+The full test receipt is `evidence\btw-quotes-unit.log` in the same build root.
+Cloud CI, native macOS and real-account billing remain separate, unclaimed
+gates. The later rebuilt installer's focused checks are recorded above.
+
+## BTW Windows Preview Package (2026-11-03)
+
+Unsigned local Windows x64 preview, version unchanged at `0.6.0`:
+`D:\Desktop For Step Code\Desktop\release\btw-20261103-preview`.
+This packages the uncommitted `codex/btw` worktree based on `7debda7`;
+it is not a public release or a claim that the feature has merged.
+Desktop and the native runtime were rebuilt before packaging. The runtime
+keeps pin `81e79bc4b699148d6823fedde9b5e70d9a80255f`, its two overlays
+and Node `v24.16.0`, with the reviewed `desktop-btw` compatibility patch.
+
+All 105 Desktop build files, 1336 runtime files and 26 packaged terminal-module
+files match their build/staged sources. The packaged Node matches its manifest
+hash; Desktop helpers, file-opening resources, adapters, icons and queue helpers
+also match. The asar roots contain only `dist` and `package.json`.
+Installer metadata and SHA-512 validation pass. Installer SHA-256:
+`04592a891372d77b3cedf30ca84c11e4c27d9953d72a4a17bc8541989bdd1009`.
+Actual Authenticode status is `NotSigned`.
+
+The packaged executable passes `verify-btw-electron.mjs`,
+`verify-command-dispatch.mjs` and `verify-terminal-panel.mjs` serially with
+isolated profiles. BTW acceptance includes real IPC/native streaming, applied
+model changes, main-task concurrency, cancellation, tool/session switching,
+temporary-history isolation and the 640-pixel layout. These use a loopback
+provider, not a paid account. Screenshots are under
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-package`.
+Cloud CI, native macOS, real-account billing and installation lifecycle
+acceptance remain unclaimed. User acceptance is pending.
+
+## BTW Local Integration (2026-11-03)
+
+The dedicated `codex/btw` worktree is based on main `7debda7`.
+The v016 source pin and two existing upstream overlays are unchanged.
+Clean shared patch replay and all reviewed postimages pass; replaying the
+Darwin additions with the applier's LF normalization also matches every
+Darwin-specific postimage. This is not native macOS execution.
+
+Windows staged runtime build, Desktop typecheck/build, and the full local
+824-test suite pass: 810 passed, 14 platform skips, zero failures.
+The new deterministic native RPC coverage verifies applied model/auth routing,
+streaming, temporary followups, clear, provider failure, session/scope isolation,
+main-task concurrency and cancellation without main JSONL writes.
+The native RPC rerun also confirms that stopping the main task leaves an
+independent side request active until it is explicitly cancelled.
+Main-process tests cover ownership, cancellation ambiguity, allowlisting,
+runtime/configuration protection, quit review and bounded history.
+
+`verify-btw.mjs` passes with the actual component in Edge: streaming, copy,
+clear, cancellation, close/reopen, slash entry, preserved main drafts, late
+results, light/dark, 320/390/1100/1600-pixel layouts, four-sided focus extent and
+reduced motion. The right-rail migration additionally verifies a single rail-only
+entry, standard/wide/fullscreen modes, docked space reservation, the shared side
+handle, Escape restore before close, narrow headers and clear-focus restoration.
+Code blocks and wide tables reuse the main-message Markdown
+styles; narrow tables scroll horizontally rather than squeezing their headers.
+`verify-btw-electron.mjs` passes the real renderer/preload/main/native route,
+including side cancellation while the main model response remains running,
+unchanged main queue/launch/draft state and no saved side-question content.
+The right-rail rerun also verifies tool switching during streaming cancels only
+the side request while retaining temporary records, with fullscreen Escape
+restoring the sidebar before dismissal. After applying a model change, the
+header shows that model and the next request uses its ID rather than a previous
+answer's model. Leaving during streaming and returning releases the old request,
+discards old followup history, accepts a fresh question and never replays a slash.
+The supported 640-pixel desktop layout fits the window and composer toolbar;
+leaving and returning clears temporary answers without replaying an old slash.
+Existing command-dispatch and composer-menu Electron regressions also pass.
+The final focused ownership/native/command/staging rerun passes all 18 tests;
+typecheck and the production build also pass.
+Both new scripts are registered in the shared acceptance inventory; its
+40 policy/runner/receipt tests pass with one platform skip.
+
+Rebuildable runtime, build outputs and screenshots are under
+`D:\Desktop Runtime Builds\btw-20261103`. The source-only pass did not produce
+an installer; the later Windows preview package is recorded above.
+These are isolated loopback model tests, not real Plan/API-account billing
+acceptance. Cloud CI, native macOS and real-account acceptance are
+not claimed. BTW usage is displayed per answer but is not yet part of local
+Usage totals, cost estimates or main-task performance.
+
+## PR #189 macOS packaged interaction synchronization (2026-11-04)
+
+The punctuation-only head `192c2f6` passed every Windows group and all three
+macOS source groups. macOS packaged acceptance failed in two unchanged scripts:
+`verify-appearance.mjs` immediately cancelled a rapidly reopened accent editor,
+and `verify-plan-review.mjs` sampled a native drag's intermediate height.
+These results do not establish a punctuation regression or a runner outage.
+
+The accent verifier now uses the existing `settleLayout` helper before ordinary
+pointer actions, including after its intentional mid-exit reopen. The native
+closing-transition, retained-instance, fresh-instance and saved-value assertions
+are unchanged. Cancellation must visibly close the disclosure and remove the
+editor. The Plan verifier settles the drawer before measuring its drag origin,
+waits for pointer-down state, and verifies rendered 10/20/35px displacements
+before releasing the pointer. Its original intermediate-height assertion,
+approval safety, stale-snapshot, expiry and restart checks remain intact.
+Both verifiers retain failure diagnostics without changing product code,
+deadlines, CI inventories or gates.
+
+Local Windows source acceptance passes for both updated scripts, including
+appearance at 6x CPU throttling. Typecheck and 30 CI policy/runner tests pass
+with one platform skip. These results do not substitute for native macOS or
+packaged acceptance; replacement cloud checks are pending.
+
+## First-run onboarding preview (2026-11-04)
+
+`Desktop/tests/fixtures/first-run.html` is an isolated design preview, not a
+production first-launch entry point. It reuses the existing menus, permission
+and model selectors, new-session component, product icon and light/dark PNG
+wordmarks. Three steps cover account selection, workspace scope and configuration
+review. The optional brand introduction can be skipped or replayed and respects
+reduced motion; the final workspace has a separate entrance transition.
+
+Account authorization and message sending are simulated in page memory. There
+is no Desktop bridge, provider request, credential persistence or personal CLI
+profile access. Plan does not silently fall back to API billing. The folder
+button uses the browser's read-only directory chooser when supported; only the
+directory name is used, no file contents are read, and no absolute path is
+invented. Manual paths and sample folders remain available. Full Access requires
+confirmation and changes preview state only.
+
+From `Desktop/`, run `node scripts/verify-first-run-preview.mjs`. The script starts
+and closes its own ephemeral Vite server by default. `DESKTOP_PREVIEW_URL` selects
+an existing server, `PLAYWRIGHT_CHANNEL` optionally selects an installed browser,
+and `FIRST_RUN_PREVIEW_OUTPUT` overrides the ignored `test-results/first-run`
+screenshot directory. Coverage includes billing labels, authorization cancellation,
+no-plan/network states, folder selection/cancellation/unavailability, editable
+paths, permission propagation/risk cancellation, animation sampling/skip/replay,
+reduced motion, light/dark assets, keyboard focus and narrow English layouts.
+External requests are blocked and must remain absent. This does not establish
+real sign-in, native Electron directory dialogs, persistence, upgrade behavior,
+first-run detection, model acceptance or release readiness.
+
+## PR #187 launch acceptance synchronization (2026-11-03)
+
+The favorites head `5ea2f60` passed all Windows checks and the macOS build,
+interface and runtime groups. macOS sessions failed in
+`verify-launch-modes.mjs`: after queuing one-shot Ultracode, the main-process
+snapshot had already consumed its armed selection while React still rendered
+the previous composer trigger. The following immediate DOM count asserted
+before that render committed.
+
+The acceptance now waits for that trigger to leave the composer before its
+existing zero-count assertion. Queued-message identity, consumed armed state,
+absence of an active-task pulse before dispatch, and the later dispatched pulse
+checks remain intact. No production code, timeout, CI inventory or gate changes.
+
+The unchanged Windows baseline passes. After the synchronization fix, two
+consecutive source Electron launch acceptances pass against the real staged
+runtime and isolated loopback provider. All 34 focused launch-state and
+pending-message unit tests pass, as does the script syntax check. Replacement
+cloud checks remain pending; these local results do not claim native macOS,
+packaged acceptance or release readiness.
+
+## Model favorites (2026-11-03)
+
+The owner changed the PR #187 direction from automatic recent usage to explicit
+starred favorites after reviewing its Desktop value. The branch remains
+`codex/recent-models`, based on main `7debda7`. No secondary management surface
+is included: the production picker retains its existing fixed dimensions,
+search, thinking controls and panel motion.
+
+An independent star button toggles each provider/model identity. Saved favorites
+precede other available models in stable order without duplicates; no empty
+favorite section is reserved. Search matches names, IDs and providers in one list
+and retains independent star controls. Unavailable favorites stay saved but hidden.
+Current catalog metadata controls labels and capabilities. Explicit favorites
+are stored through the existing typed preferences bridge; no new IPC capability,
+renderer Node access or personal CLI configuration is introduced. Earlier recent
+history is removed, never converted into favorites, and all automatic collection
+hooks are retired.
+
+Favorite operations never select a model, change effort, arm a pending choice,
+change the default or create an inference request. Saving failure remains
+unstarred with a retryable inline error; a failed preference write restores the
+previous in-memory favorite list. Up/Down and Home/End retain the current control
+column; Left/Right move between model and star buttons. Reordering restores star
+focus only if the user has not moved it elsewhere. Search and dismiss handlers
+retain synthetic IME-composition guards.
+
+Typecheck, the focused 19 unit tests and production build pass. The complete
+CI-equivalent serial suite finishes with 823 tests: 809 pass, 14 platform skips
+and no failures. An earlier default-parallel attempt stalled during process
+cleanup and its verified test process tree was stopped; no test or timeout was
+weakened for the serial rerun. `verify-model-switch.mjs`
+passes against the real staged runtime and a loopback provider: explicit stars,
+retired-history migration, no inference or selection side effects, invalid
+mutation rejection, favorites during execution, persistent defaults, full restart,
+steering/FIFO dispatch and missing-model protection. The updated
+`verify-model-effort.mjs` passes star/search independence, deduplication,
+unfavorite, save failure/retry, keyboard focus, IME guards, provider identity,
+availability, existing sampled motion, light/dark narrow-window, English,
+reduced motion, compact density and long-list focus checks. The model rows are
+32px high, preserving the fixed panel while avoiding a redundant scrollbar for
+the three-model fixture. General `verify-electron.mjs` acceptance also passes
+after updating its model-list locator to the labeled multi-action group; its
+visibility and layout assertions remain intact.
+
+The compact-header follow-up merges the back arrow and search into one row,
+returning about one model row to the list without resizing the popover. Keyboard
+return restores focus to the model heading; both controls retain unclipped focus
+indicators. Typecheck, build, expanded model-effort and general Electron
+acceptance were rerun and pass, including narrow light/dark screenshots and
+English labels. The full serial suite and runtime switching checks above predate
+this layout-only follow-up. The interactive preview now has 24 illustrative
+models across providers, including duplicate names and long labels; this is
+fixture data, not a declaration of live provider availability.
+
+The production-component fixture is `tests/fixtures/favorite-models.html`;
+the earlier `recent-models.html` URL remains an alias. Fixture favorites use
+separate browser-local sample storage, not Desktop account data. The replacement
+is approved for the existing PR #187 after owner preview review; its title and
+description are being updated from recent usage to favorites. No package or
+shortcut update is included. Cloud CI for the replacement remains pending; no
+native macOS execution, paid-model acceptance or public release is claimed.
+
+## Full-text search PR review and CI repair (2026-11-02)
+
+The first PR #185 run failed on Windows and macOS at the same
+`verify-capabilities.mjs` assertion: the newly disclosed full-text entry adds
+height beneath the anchored search field, while the old assertion expected no
+list displacement. Acceptance now checks exact disclosure-height displacement,
+unchanged trigger/x/width/bottom bounds, no overlap, full collapse restoration,
+inert hidden controls and reduced motion. The runner and final CI gate are not
+weakened or bypassed.
+
+Both P2 review findings are addressed in the readonly and authoritative views:
+choose the matching text block within an entry, and reveal the matching page of
+large text before marking and scrolling. Inner paginated text also scrolls to
+the keyword, including a match crossing the normal page boundary. Explicit
+repeat location reopens the matching page without a new runtime; snapshots
+retain manual paging. Message-only locations without visible query text have
+an explicit fallback instead of claiming keyword location.
+
+Local Windows typecheck/build and all 817 serial unit tests complete: 803 pass,
+14 platform skips, zero failures (`fulltext-review-unit-suite.log`).
+`verify-capabilities.mjs` and expanded `verify-fulltext-search.mjs` pass. The
+latter uses actual indexed second-block/third-page/boundary-spanning hits,
+checks visible highlight ranges in both scroll containers, repeat location,
+runtime identity and unchanged JSONL after normal restoration metadata has
+settled. The pre-navigation readonly immutability assertions remain unchanged.
+The no-visible-keyword UI uses explicit IPC fault injection.
+
+Replacement cloud checks remain pending. This repair has not been repackaged;
+the previously accepted local installer is the preceding feature build.
+
+## Search location handoff preview (2026-11-02)
+
+The search result's explicit Open and locate action now transfers saved entry
+identity and query to the authoritative conversation. A persistent location band
+supports return to results and repeat location without a new runtime. The shared
+DOM marker prefers exact response prose and scrolls to the first rendered
+keyword range, including a match near the end of a multi-screen answer.
+Snapshot-driven highlighting does not reset focus or repeat scrolling.
+Missing current-context targets and conversation-level matches remain explicit.
+
+Typecheck, production build and 40 focused search/navigation/scroll unit tests
+pass. Source Electron session-navigation and quick-search regressions pass.
+The expanded fulltext acceptance passes against the packaged executable,
+including native indexed search, readonly preview, actual conversation
+location/focus, repeat location, same-session runtime identity, result return,
+missing-entry and degraded fallbacks, real light/dark palettes, narrow windows
+and reduced motion. The actual-component browser fixture exposes the same
+handoff with sample data.
+
+Unsigned Windows x64 preview:
+`D:\Desktop For Step Code\Desktop\release\fulltext-search-location-20261102-preview`.
+All 105 build files and 1333 runtime files match the current build/staged source;
+keyless adapter, terminal host and icon also match. Installer update metadata
+and SHA-512 pass. Installer SHA-256:
+`1c1bf83e14db58f1e87970f2a81626eba0963cc9b650efb48b6c6af97f9fd967`.
+The owner accepted the local Windows preview on 2026-11-02. No cloud CI,
+native macOS or clean-machine installation acceptance is claimed. The preceding
+preview is left intact while the owner is running it.
+
+## Desktop full-text search I / II (2026-11-02)
+
+Branch `codex/fulltext-search` starts from main `fb4828b`. Search uses the
+staged v016 pin plus the two overlay commits listed below, through the actual
+management-process service and SQLite worker, not direct renderer database
+access. The adapter and worker are included in the staging/resource paths.
+
+Local Windows typecheck and build pass. The serial Desktop suite collects
+814 tests: 800 pass, 14 platform skips, zero failures
+(`Desktop/test-results/fulltext-unit-suite.log`). Focused tests also exercise
+real SQLite queries, imported records, appends/deletions, explicit roots and
+actual JSONL degradation after deliberately making the database path unusable.
+CI policy/inventory/runner and Windows summary tests pass: 33 pass and one
+platform skip.
+
+`verify-fulltext-search.mjs` passes against source Electron with an isolated
+profile and offline fixture model. It covers body-only native matches, entry
+anchors/highlights, archive/project/time scope, old-branch fallback, draft and
+runtime identity, unchanged JSONL, result scroll/focus restoration, cancellation
+and stale replies, failed navigation, English/Chinese, light/dark and 620px
+windows. Error, partial-index, cap and delayed-reply UI states use IPC fault
+injection; those are not claims of reproducing every upstream failure. An
+already-open browser hides during search; no agent or model call is needed for
+search or reading. `verify-session-search.mjs` also passes, preserving the
+existing quick metadata filter, grouping, ordering, collapse and draft behavior.
+
+The actual-component browser fixture passes 1440px/390px screenshots, message
+anchors/highlights, no horizontal overflow and reduced-motion interaction.
+It remains explicitly sample data, not real-account or filesystem acceptance.
+
+Scope and bounds are recorded in [Session search](SESSION_SEARCH.md). Project
+and archive filters apply after the native bounded batch; short terms use the
+native recent-session window, and degraded hits cannot promise message
+locations. Both TODO entries remain unchecked pending cloud CI; the owner has
+accepted the local Windows preview.
+
+The unsigned Windows x64 preview installer is available under
+`D:\Desktop For Step Code\Desktop\release\fulltext-search-20261102-preview`.
+The packaged executable passes `verify-fulltext-search.mjs` with an isolated
+profile, including the actual packaged SQLite worker. All 105 Desktop build
+files and 1333 runtime files match the local build/staged source; the keyless
+adapter, terminal host and icon also match. Installer update metadata and
+SHA-512 validation pass. Installer SHA-256:
+`c72785abd6041b8c1f09765acd5083db6e48929f3884d051fba584c975ca8c0e`.
+The package uses the existing dependency-free staging pattern to avoid the
+Electron Builder hoisted-dependency collector failure. This is a local preview,
+not a new version or published release. No new cloud CI result, native macOS
+execution, real-account or release readiness is claimed.
 
 ## Upstream overlay pin: subagent outcomes and session records (2026-11-01)
 
@@ -5722,3 +6480,72 @@ including their orderly shutdown and persisted-history checks.
 The full local interface group could not run because this machine lacks the
 matching Playwright Chromium headless binary. Cloud CI must validate the full
 group; no fresh package or cloud success is claimed by these local checks.
+
+## Background Agent Controls (2026-11-03)
+
+The Subagents inspector adds a Background tab over the native lane registry.
+A narrow current-session `desktop_subagents` list/stop RPC calls the registered
+`agent_send` tool without prompts, model requests or conversation writes.
+The v0.1.6 pin and the two existing upstream overlays are unchanged. The new
+hashed Desktop patch reuses native ownership and settlement; it does not add
+reply support or infer running work from saved messages.
+
+Local Windows source verification passed:
+
+- Typecheck and production build.
+- Complete serial Desktop suite: 830 tests, 816 passed and 14 platform skips.
+- Focused control/lifecycle/staging suite: 89 passed, including three real
+  pinned-runtime cases for background completion, suspension and targeted stop.
+- CI inventory, policy and runner tests: 30 passed and one platform skip.
+- Real Electron background controls, background notification records,
+  subagent status animation and Workflow acceptance.
+- Clean pinned patch replay with pre/post-image hashes and source whitespace
+  validation.
+
+The native cases verify read-only queries with no model calls or JSONL changes,
+session/action/lane rejection, targeted stop while the parent remains active,
+independent peer completion, credential filtering and native settlement.
+Electron uses isolated profiles and a loopback model through the actual preload,
+IPC and RPC. It covers confirmation/cancel, stale records with disabled stopping,
+unconfirmed stop without retry, pending-stop deduplication, parent/peer
+continuity, reload and actual session navigation with a delayed outgoing query.
+Old query results do not enter the newly selected session. Light/dark narrow
+focus gutters and reduced-motion disclosures also pass.
+
+The browser preview reuses the production inspector, with explicit sample data
+and failure/empty/disconnected/slow scenarios. Desktop and 390px layouts were
+checked; the temporary viewport override was reset. Large build/runtime
+artifacts remain isolated under the three `output/background-agent-*-20261103`
+directories on D:, without changing the installed app or desktop shortcut.
+No installer, cloud CI, native macOS or real-account acceptance is claimed.
+
+### Role Views And Sibling Detail Navigation
+
+The role-specific output presentation is shared by production and preview;
+only sample records remain in the fixture directory. Native role names stay
+visible, unknown roles retain a generic layout, and model/token metrics are
+default-collapsed. No structured findings or verification verdicts are inferred
+from output text. Parallel and chained steps retain their native ordinal.
+
+The header detail action is outside the task disclosure and its inert body,
+so a collapsed task can open details without expanding. Multi-step tasks use
+the shared anchored menu to select by lane ID and native step index, including
+same-role agents. Returning restores expansion, list scroll and trigger focus.
+A missing step is never replaced with another agent.
+
+After connecting this production presentation, typecheck, build and the real
+Electron control acceptance passed again. The browser checks passed single and
+parallel collapsed entry points, missing steps, return state, five roles, the
+original layout comparison, loading/error/empty states, reduced motion, 390px
+light/dark and 320px English layouts with four-sided focus gutters. This is
+Windows source/preview verification, not installer, macOS or account acceptance.
+
+### Latest Main Integration
+
+Rebased onto main `2febc93`, preserving PR #187's model favorites and search.
+The complete serial Desktop suite passed with 836 tests: 822 passed and 14
+platform skips, including all three real pinned-runtime background cases.
+CI inventory/policy/runner checks passed 39 tests with one platform skip.
+Typecheck, production build, real Electron background controls and Workflow
+acceptance passed again after integration. These local results do not replace
+the new PR's cloud CI, native macOS or installer acceptance.

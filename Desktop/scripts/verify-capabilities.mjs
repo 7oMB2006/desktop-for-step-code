@@ -1,6 +1,7 @@
 import { _electron as electron } from 'playwright';
 import { captureWaapi } from './capture-waapi.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import assert from 'node:assert/strict';
 import { cp, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
@@ -203,21 +204,33 @@ try {
   await searchInput.waitFor();
   assert.equal(await searchInput.evaluate(input => !input.readOnly && document.activeElement === input), true);
   assert.equal(await page.locator('.sidebar-utility-links').evaluate(element => element.inert), true);
-  await page.locator('.sidebar-search-field').evaluate(async element => {
-    await Promise.all(element.getAnimations().map(animation => animation.finished));
+  await page.locator('.sidebar-task-actions').evaluate(async element => {
+    await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished));
   });
   assert.deepEqual(await page.locator('.sidebar-search-toggle').boundingBox(), anchorBefore, 'Search keeps its original anchor');
-  assert.deepEqual(await page.locator('.workspace-tree').boundingBox(), treeBefore, 'Search does not push the session list');
+  const disclosure = page.locator('.sidebar-fulltext-disclosure');
+  const expandedBox = await disclosure.boundingBox();
+  const treeExpanded = await page.locator('.workspace-tree').boundingBox();
+  assert.ok(expandedBox.height > 0, 'The fulltext entry expands below the anchored search field');
+  assert.equal(await disclosure.evaluate(element => element.inert), false);
+  assert.deepEqual({ x: treeExpanded.x, width: treeExpanded.width }, { x: treeBefore.x, width: treeBefore.width });
+  assert.ok(Math.abs(treeExpanded.y - treeBefore.y - expandedBox.height) < 1, 'Only the fulltext disclosure displaces the list');
+  assert.ok(Math.abs(treeExpanded.y + treeExpanded.height - treeBefore.y - treeBefore.height) < 1, 'The list keeps its bottom edge');
+  assert.ok(expandedBox.y + expandedBox.height <= treeExpanded.y + 1, 'The fulltext entry cannot overlap the list');
   await page.screenshot({ path: 'test-results/capabilities-sidebar-search-light.png' });
   await searchInput.press('Escape');
   assert.equal(await searchButton.evaluate(button => document.activeElement === button), true);
-  await page.locator('.sidebar-search-field').evaluate(async element => {
-    await Promise.all(element.getAnimations().map(animation => animation.finished));
+  await page.locator('.sidebar-task-actions').evaluate(async element => {
+    await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished));
   });
   assert.equal(await page.locator('.sidebar-search-field').evaluate(element => element.inert), true);
+  assert.equal(await disclosure.evaluate(element => element.inert), true);
+  assert.equal((await disclosure.boundingBox()).height, 0, 'Closed fulltext entry reserves no blank space');
+  assert.deepEqual(await page.locator('.workspace-tree').boundingBox(), treeBefore, 'Closing restores the complete list bounds');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await searchButton.click();
   assert.equal(await page.locator('.sidebar-search-field').evaluate(element => element.getAnimations().length), 0);
+  assert.equal(await disclosure.evaluate(element => element.getAnimations().length), 0);
   await page.getByRole('button', { name: '收起搜索', exact: true }).click();
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark', language: 'en' }));
@@ -248,6 +261,15 @@ try {
   await page.getByRole('button', { name: '全部插件', exact: true }).click();
   await page.getByRole('tab', { name: /^已安装/ }).click();
   const examplePanel = page.locator('.pc-plugin-row').filter({ hasText: 'Example plugin' });
+  const removeExamplePlugin = async () => {
+    if (!await page.getByRole('heading', { name: 'Example plugin', exact: true }).isVisible())
+      await page.getByRole('button', { name: '配置 Example plugin', exact: true }).click();
+    await settleLayout(page.locator('.pc-detail'));
+    await page.getByRole('button', { name: '卸载插件', exact: true }).click();
+    const confirmation = page.getByRole('dialog', { name: '卸载 Example plugin？', exact: true });
+    await confirmation.waitFor();
+    await confirmation.getByRole('button', { name: '确认', exact: true }).click();
+  };
   await examplePanel.locator('.cap-plugin-icon img').waitFor();
   await page.waitForFunction(() => document.querySelector('.pc-plugin-row .cap-plugin-icon img')?.naturalWidth === 1);
   await writeFile(join(profile, 'step-runtime', 'plugins', 'example', 'logo.png'), iconPng.subarray(0, 33));
@@ -375,10 +397,7 @@ try {
   await page.getByRole('button', { name: '确认移除', exact: true }).click();
   await toggle.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '插件', exact: true }).click();
-  if (!await page.getByRole('heading', { name: 'Example plugin', exact: true }).isVisible())
-    await page.getByRole('button', { name: '配置 Example plugin', exact: true }).click();
-  await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
+  await removeExamplePlugin();
   await page.getByRole('alert').filter({ hasText: '插件仍被会话占用' }).waitFor();
   assert.ok((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'));
   assert.match(await readFile(join(profile, 'step-runtime', 'plugins', 'example', 'step.plugin.json'), 'utf8'), /Example plugin/);
@@ -389,10 +408,7 @@ try {
   await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
   await page.getByText(/会话中已停用/).waitFor();
   await page.getByRole('button', { name: '插件', exact: true }).click();
-  if (!await page.getByRole('heading', { name: 'Example plugin', exact: true }).isVisible())
-    await page.getByRole('button', { name: '配置 Example plugin', exact: true }).click();
-  await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
+  await removeExamplePlugin();
   await page.getByRole('heading', { name: 'Example plugin', exact: true }).waitFor({ state: 'detached' });
   assert.equal((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'), false);
   const messagesBefore = (await page.evaluate(() => window.desktop.snapshot())).messages.length;
@@ -578,6 +594,21 @@ try {
   const page = await app.firstWindow();
   await page.screenshot({ path: 'test-results/capabilities-failure.png' }).catch(() => {});
   console.error('Visible errors:', await page.locator('[role="alert"]').allTextContents());
+  console.error('Capability removal diagnostic:', await page.evaluate(() => {
+    const section = document.querySelector('.capability-settings');
+    return section ? {
+      pending: Boolean(section.querySelector('.cap-pending')),
+      restartDisabled: section.querySelector('.cap-footer button')?.disabled,
+      confirmations: [...section.querySelectorAll('.cap-confirm')].map(element => element.getAttribute('aria-label')),
+      plugins: [...section.querySelectorAll('.cap-resource')].map(panel => ({
+        expanded: panel.dataset.expanded, open: panel.open,
+        inert: panel.querySelector('.cap-disclosure-body')?.inert,
+        animations: panel.querySelector('.cap-disclosure-body')?.getAnimations().map(animation => ({
+          state: animation.playState, time: animation.currentTime,
+        })),
+      })),
+    } : undefined;
+  }).catch(() => undefined));
   throw error;
 } finally {
   await closeDesktopFixture(app);

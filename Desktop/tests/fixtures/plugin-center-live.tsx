@@ -124,12 +124,13 @@ for (const plugin of catalog.plugins) {
 let configuration: BvrConfiguration = { revision: 'fixture-1', configured: true, mode: 'dfsc', runtimeDirectory: 'D:\\Tools\\BVR',
   apiBase: 'https://api.stepfun.com/v1', model: 'step-3.7-flash', hasApiKey: false, asrApiBase: 'https://api.stepfun.com/v1',
   asrModel: 'stepaudio-2.5-asr', hasAsrApiKey: false, cookieFile: '', proxy: '', downloadDirectory: '', preferCaptions: true };
-let saves = 0, restarts = 0;
+let saves = 0, restarts = 0, catalogReads = 0, preparationRefreshes = 0;
+let preparationRefresh: Promise<void> | undefined, releasePreparationRefresh: (() => void) | undefined;
 let exampleConfiguration: PluginConfiguration = { ref: 'fixture-config', revision: 'example-1', configured: false,
   schema: JSON.parse(exampleSchema), values: { prefix: 'Note: ', uppercase: false, limit: 160 }, hasSecret: {} };
 let exampleFailure = false;
 const bridge: PluginCenterBridge = {
-  platform: 'win32', capabilityCatalog: async () => structuredClone(catalog),
+  platform: 'win32', capabilityCatalog: async () => { catalogReads++; return structuredClone(catalog); },
   pluginRepositoryInfo: async input => catalog.plugins.find(plugin => plugin.package?.ref === input.ref)?.package?.stars ?? { status: 'unknown' },
   pluginConfiguration: async input => {
     if (input.ref !== 'fixture-config') throw new Error('capability:not-found');
@@ -166,7 +167,10 @@ const bridge: PluginCenterBridge = {
   capabilityImportSkill: async () => null, saveMcp: async () => {},
   summary: async () => ({ sessionId: 'fixture-session', tasks: [], subagents: [], workflows: [], skillCount: 0, mcp: [], commands: [] }),
   stepPageState: async () => ({ status: 'missing', installed: false }),
-  prepareStepPage: async () => ({ status: 'ready', installed: true }),
+  prepareStepPage: async () => {
+    catalog.plugins.push({ id: 'steppage', name: 'StepPage', warnings: [], mcpServers: [] });
+    return { status: 'ready', installed: true };
+  },
   bvrConfiguration: async () => structuredClone(configuration),
   bvrChoosePath: async kind => kind === 'runtime' ? 'D:\\Chosen\\BVR' : kind === 'cookie' ? 'D:\\BVR\\cookies.txt' : 'D:\\BVR\\downloads',
   bvrCheckEnvironment: async () => ({ node: '24.15.0', dependencies: true, independentConnections: true }),
@@ -180,7 +184,10 @@ const bridge: PluginCenterBridge = {
     return structuredClone(configuration);
   },
 };
-Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone(configuration), counts: () => ({ saves, restarts }),
+Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone(configuration),
+  counts: () => ({ saves, restarts, catalogReads, preparationRefreshes }),
+  holdPreparationRefresh: () => { preparationRefresh = new Promise(resolve => { releasePreparationRefresh = resolve; }); },
+  releasePreparationRefresh: () => { releasePreparationRefresh?.(); preparationRefresh = undefined; },
   exampleConfiguration: () => structuredClone(exampleConfiguration),
   exampleFailure: () => { exampleFailure = true; },
   exampleStale: () => { exampleConfiguration.revision = 'changed-elsewhere'; },
@@ -208,7 +215,8 @@ function Fixture() {
     <aside className="sidebar"><SidebarTaskActions selected={false} pluginsSelected={active} onNewSession={() => setActive(false)}
       onScheduledTasks={() => setActive(false)} onPlugins={() => setActive(value => !value)}/></aside>
     <main><PluginCenter bridge={bridge} active={active} language="zh" busy={false} runtimeId="fixture-runtime" settings={{ mcp: {} }}
-      onChanged={async () => {}} onRestart={async () => { restarts++; }} onManageMcp={() => {}} onBack={() => setActive(false)}/>
+      onChanged={async () => { if (preparationRefresh) { preparationRefreshes++; await preparationRefresh; } }}
+      onRestart={async () => { restarts++; }} onManageMcp={() => {}} onBack={() => setActive(false)}/>
       <section hidden={active}><textarea aria-label="会话草稿" value={message} onChange={event => setMessage(event.target.value)}/></section>
     </main>
   </div>;

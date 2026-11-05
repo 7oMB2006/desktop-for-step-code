@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUpRight, CalendarClock, Clock3, Folder, Info, Pause, Pencil, Play, Plug, Plus, RotateCw, Save, Search, ShieldCheck, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUpRight, CalendarClock, Clock3, Folder, Info, Pause, Pencil, Play, Plug, Plus, RotateCw, Save, Search, ShieldCheck, TextSearch, Trash2, X } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
 import { AppMenu, type AppMenuItem } from './AppMenu';
 import type { CronAssociation, CronAutomaticRecovery, CronHistoryEntry, CronHost, CronRecoveryPreview, Session } from './contracts';
@@ -44,13 +44,15 @@ export interface ScheduledTaskView {
 }
 export interface ScheduledTaskCreation { title: string; prompt: string; workspace: string; runtimeId: string; cron: string; recurring: boolean; durable: boolean }
 
-export function SidebarTaskActions({ selected, pluginsSelected = false, onNewSession, onScheduledTasks, onPlugins, onSearchChange, disabled = false, language = 'zh' }: {
+export function SidebarTaskActions({ selected, pluginsSelected = false, onNewSession, onScheduledTasks, onPlugins, onSearchChange, onFulltextSearch, fulltextOpen = false, disabled = false, language = 'zh' }: {
   selected: boolean;
   pluginsSelected?: boolean;
   onNewSession: () => void;
   onScheduledTasks: () => void;
   onPlugins?: () => void;
   onSearchChange?: (query: string) => void;
+  onFulltextSearch?: (query: string, trigger: HTMLButtonElement) => void;
+  fulltextOpen?: boolean;
   disabled?: boolean;
   language?: 'zh' | 'en';
 }) {
@@ -99,6 +101,12 @@ export function SidebarTaskActions({ selected, pluginsSelected = false, onNewSes
         </button>
       </>}
     </div>
+    {onFulltextSearch && <div className="sidebar-fulltext-disclosure" data-open={searchOpen} aria-hidden={!searchOpen} inert={!searchOpen}><div>
+      <button type="button" className="sidebar-fulltext-entry" disabled={disabled}
+        aria-pressed={fulltextOpen} onClick={event => onFulltextSearch(query, event.currentTarget)}>
+        <TextSearch size={16}/><span>{zh ? '搜索聊天记录' : 'Search chat history'}</span><ArrowRight size={14}/>
+      </button>
+    </div></div>}
   </div>;
 }
 

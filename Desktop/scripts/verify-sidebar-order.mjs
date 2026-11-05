@@ -74,13 +74,14 @@ async function drag(page, from, to, after = false, cancel = false) {
       .filter(animation => animation.effect?.getTiming().iterations !== Infinity)
       .map(animation => animation.finished.catch(() => {})));
   });
-  const source = await from.boundingBox();
-  const target = await to.boundingBox();
-  await page.mouse.move(source.x + 65, source.y + 17);
+  await from.hover({ position: { x: 65, y: 17 } });
   await page.mouse.down();
   await page.waitForTimeout(340);
   await page.locator('.session-drag-preview').waitFor();
-  await page.mouse.move(target.x + 65, target.y + (after ? target.height - 3 : 3), { steps: 8 });
+  // Re-resolve the target after the hold; native/package layout can settle meanwhile.
+  const target = await to.boundingBox();
+  assert.ok(target, 'the drag destination is visible');
+  await to.hover({ position: { x: 65, y: after ? target.height - 8 : 8 } });
   if (cancel) await page.keyboard.press('Escape');
   else await page.screenshot({ path: 'test-results/sidebar-dragging.png' });
   await page.mouse.up();

@@ -88,6 +88,83 @@ test('raw marketplace duplicates and legacy installations remain unambiguous', {
     await assert.rejects(service.mutate({ action: 'plugin-remove', id: legacy.id }), /plugin-conflict/);
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });
+test('native normalized IDs block a second installation and restrict existing conflicting copies', { timeout: 90000 }, async () => {
+  const { folder, service, market, root } = await fixture();
+  try {
+    const source = join(market, 'plugins/dfsc-config-example'), manifestPath = join(source, 'step.plugin.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    await writeFile(manifestPath, JSON.stringify({ ...manifest, id: ' dfsc-config-example ' }));
+    const other = join(market, 'plugins/other-folder');
+    await cp(source, other, { recursive: true });
+    await writeFile(join(other, 'step.plugin.json'), JSON.stringify(manifest));
+    await writeFile(join(market, '.step-plugin/marketplace.json'), JSON.stringify({ name: 'normalized-ids', plugins: [
+      { name: 'first-folder', source: './plugins/dfsc-config-example' },
+      { name: 'other-folder', source: './plugins/other-folder' },
+    ] }));
+    await service.mutate({ action: 'marketplace-add', source: market });
+    await service.mutate({ action: 'plugin-install', name: 'first-folder', marketplace: 'normalized-ids' });
+    const before = await readFile(join(root, 'desktop-plugins/installations.json'));
+    const candidate = (await service.catalog()).available.find(item => item.name === 'other-folder')!;
+    await assert.rejects(service.mutate({ action: 'plugin-install', name: candidate.name,
+      marketplace: candidate.marketplace, ref: candidate.package!.ref }), /already-exists/);
+    assert.ok((await readFile(join(root, 'desktop-plugins/installations.json'))).equals(before));
+    await assert.rejects(readFile(join(root, 'plugins/other-folder/step.plugin.json')), { code: 'ENOENT' });
+    await cp(other, join(root, 'plugins/external-copy'), { recursive: true });
+    const catalog = await service.catalog(), plugin = catalog.plugins[0];
+    assert.equal(plugin.package?.provenance, 'conflict');
+    assert.ok(catalog.warnings.some(warning => warning.includes('Conflicting installed plugin ID')));
+    await assert.rejects(service.configuration({ ref: plugin.package!.ref }), /invalid-configuration/);
+    await assert.rejects(service.mutate({ action: 'plugin-toggle', id: plugin.id, enabled: false }), /plugin-conflict/);
+    await assert.rejects(service.mutate({ action: 'plugin-remove', id: plugin.id }), /plugin-conflict/);
+    assert.ok((await readFile(join(root, 'desktop-plugins/installations.json'))).equals(before));
+  } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
+});
+test('rejected uninstall preserves configuration and successful uninstall revokes only the selected instance', { timeout: 90000 }, async () => {
+  const { folder, service, market, root } = await fixture();
+  try {
+    const schemaPath = join(market, 'plugins/dfsc-config-example/dfsc.settings.json');
+    const schema = JSON.parse(await readFile(schemaPath, 'utf8'));
+    schema.groups[0].fields.push({ id: 'key', label: 'Key', type: 'secret' });
+    await writeFile(schemaPath, JSON.stringify(schema));
+    await service.mutate({ action: 'marketplace-add', source: market });
+    await service.mutate({ action: 'plugin-install', name: 'dfsc-config-example', marketplace: 'dfsc-config-example-local' });
+    const plugin = (await service.catalog()).plugins[0], ref = plugin.package!.ref;
+    const initial = await service.configuration({ ref });
+    const saved = await service.configuration({ ref }, { ref, revision: initial.revision,
+      values: { ...initial.values, prefix: 'Preserved ' }, secrets: { key: { action: 'replace', value: 'fixture-private-key' } } });
+    const receiptPath = join(root, 'desktop-plugins/installations.json');
+    const bindingPath = join(root, 'desktop-plugins/bindings/dfsc-config-example.json');
+    const receiptBytes = await readFile(receiptPath), bindingBytes = await readFile(bindingPath);
+    const duplicate = join(root, 'plugins/duplicate');
+    await cp(join(root, 'plugins/dfsc-config-example'), duplicate, { recursive: true });
+    await assert.rejects(service.mutate({ action: 'plugin-remove', id: plugin.id }), /plugin-conflict/);
+    assert.ok((await readFile(bindingPath)).equals(bindingBytes), 'preflight rejection must not revoke configuration');
+    assert.ok((await readFile(receiptPath)).equals(receiptBytes));
+    await rm(duplicate, { recursive: true });
+    const restored = (await service.catalog()).plugins[0].package!.ref;
+    const current = await service.configuration({ ref: restored });
+    assert.equal(current.configured, true);
+    assert.equal(current.revision, saved.revision);
+    assert.equal(current.values.prefix, 'Preserved ');
+    const kept = await service.configuration({ ref: restored }, { ref: restored, revision: current.revision,
+      values: current.values, secrets: { key: { action: 'keep' } } });
+    assert.equal(kept.hasSecret.key, true);
+    const receipts = JSON.parse(receiptBytes.toString('utf8')), selected = receipts.installations[0];
+    const other = { ...selected, folder: 'unpublished-copy', instance: '00000000-0000-4000-8000-000000000000', state: 'pending' };
+    receipts.installations.push(other);
+    await writeFile(receiptPath, JSON.stringify(receipts));
+    const otherBinding = join(root, 'desktop-plugins/bindings/unpublished-copy.json');
+    const otherBytes = JSON.stringify({ version: 1, instance: other.instance, id: other.id, revoked: false });
+    await writeFile(otherBinding, otherBytes);
+    await service.mutate({ action: 'plugin-remove', id: plugin.id });
+    const revoked = JSON.parse(await readFile(bindingPath, 'utf8'));
+    assert.equal(revoked.revoked, true);
+    assert.equal(revoked.instance, selected.instance);
+    assert.equal(revoked.id, selected.id);
+    assert.equal(await readFile(otherBinding, 'utf8'), otherBytes);
+    assert.deepEqual(JSON.parse(await readFile(receiptPath, 'utf8')).installations, [other]);
+  } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
+});
 test('native catalog reports interrupted installation and removal without granting a configuration identity', { timeout: 90000 }, async () => {
   const { folder, service, market, root } = await fixture();
   try {

@@ -93,6 +93,18 @@ test('failed application keeps the selection for retry, releases its lock and em
     assert.equal(selections.delivered(worker, 'retry', 2), true);
   } finally { await close(); }
 });
+test('unconfirmed model application retains the pending choice for retry', async () => {
+  const { selections, worker, close } = await fixture();
+  try {
+    selections.select(worker, b);
+    const request = worker.rpc.request;
+    worker.rpc.request = async (type, args) => type === 'set_model' ? {} : request(type, args);
+    await assert.rejects(selections.apply(worker), /did not apply/);
+    assert.equal(worker.state?.model?.id, 'a');
+    assert.equal(worker.pendingModel?.model.id, 'b');
+    assert.equal(worker.mutating, false);
+  } finally { await close(); }
+});
 test('idle choices collapse before consumption; sidecars survive reopen and contain no prompt text', async () => {
   const { selections, worker, root, close } = await fixture();
   try {

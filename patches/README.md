@@ -2,6 +2,12 @@
 
 Repository: https://github.com/stepfun-ai/Step-Code
 
+The v016 set also includes `step-code-desktop-btw.patch`: a model-only,
+streaming `desktop_btw` RPC with scoped cancellation and transient history.
+It reuses native model/auth routing, adds no agent tools and does not write to
+the main session. It does not change the pin or historical v015 patches.
+See [BTW boundaries](../docs/BTW.md), including the separate usage-total limit.
+
 Development pinned commit: `81e79bc4b699148d6823fedde9b5e70d9a80255f`
 (v0.1.6 announcement source baseline, not an official release tag). The public
 0.1.6 manifest has no source SHA; binary/source identity is not asserted.
@@ -32,10 +38,15 @@ was found.
 
 The 0.6.0 release baseline retains v0.1.5 and `patches/v015/`; both patch sets remain
 replayable. The v016 set copies shared patches rather than modifying historical
-patches. Its final compatibility patch supplies live RPC background-lane state,
+patches. Its v016 compatibility patch supplies live RPC background-lane state,
 keeps the host while final notifications settle, and updates the migrated code
 to upstream's formatting and `.ts` import checks. Session import now uses native
 `SessionFilePersistedEvent`; it does not replace the new session-index service.
+
+The subsequent `step-code-desktop-background-agents.patch` adds a bounded,
+redacted `desktop_subagents` list/stop RPC over native `agent_send`, without
+model calls, transcript writes or reply support. It shares the existing live
+ownership and notification handoff, not a second task registry.
 
 Development Windows/macOS builds select the same v016 base.
 The v016 bundle also supplies module-relative CommonJS filename globals so the

@@ -1,0 +1,199 @@
+diff --git a/packages/coding-agent/src/features/step-subagent.ts b/packages/coding-agent/src/features/step-subagent.ts
+index a89807f..5d51a2d 100644
+--- a/packages/coding-agent/src/features/step-subagent.ts
++++ b/packages/coding-agent/src/features/step-subagent.ts
+@@ -989,6 +989,13 @@ export function createStepSubagentExtension(options: StepSubagentExtensionOption
+ 				if (params.action === "reply") {
+ 					const prompt = params.prompt?.trim();
+ 					if (!prompt) return controlResult('agent_send: prompt is required for action:"reply"');
++					if (_id.startsWith("desktop-background-reply:")) {
++						let delivery: "queued" | "started" | undefined;
++						const text = lifecycle.replyToLane(lane, prompt, false, (value) => {
++							delivery = value;
++						});
++						return { ...controlResult(text, [lane.details]), delivery };
++					}
+ 					return controlResult(lifecycle.replyToLane(lane, prompt, params.interrupt === true), [lane.details]);
+ 				}
+ 				return controlResult(lifecycle.stopLane(lane), [lane.details]);
+diff --git a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+index 2f157aa..218ba85 100644
+--- a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
++++ b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+@@ -210,7 +210,12 @@ export interface LaneLifecycle {
+ 		turnTimeoutMs: number,
+ 	) => BackgroundAgentLane | string;
+ 	stopLane: (lane: BackgroundAgentLane) => string;
+-	replyToLane: (lane: BackgroundAgentLane, prompt: string, interrupt: boolean) => string;
++	replyToLane: (
++		lane: BackgroundAgentLane,
++		prompt: string,
++		interrupt: boolean,
++		onDelivery?: (delivery: "queued" | "started") => void,
++	) => string;
+ 	laneStatus: (lane: BackgroundAgentLane) => string;
+ 	/**
+ 	 * Stop every lane this session owns, wait up to LANE_SHUTDOWN_WAIT_MS for
+@@ -610,7 +615,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 	});
+ 
+ 	/** Shared "reply" verb: deliver a prompt into a single-agent lane's ongoing transcript. */
+-	const replyToLane = (lane: BackgroundAgentLane, prompt: string, interrupt: boolean): string => {
++	const replyToLane: LaneLifecycle["replyToLane"] = (lane, prompt, interrupt, onDelivery) => {
++		if (onDelivery && pendingFinal.has(lane)) return "Wait for the background lane to settle";
+ 		if (lane.details.mode !== "single") {
+ 			return `agent_send: reply only works for single-agent lanes; lane ${lane.id} ran in ${lane.details.mode} mode. Start a new subagent call with the follow-up task instead.`;
+ 		}
+@@ -623,6 +629,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			);
+ 			if (delivered) {
+ 				lane.updatedAt = Date.now();
++				onDelivery?.("queued");
+ 				return interrupt
+ 					? `Steered lane ${lane.id}; the prompt interrupts its current turn`
+ 					: `Queued follow-up for lane ${lane.id}; it runs when the current turn completes`;
+@@ -633,11 +640,13 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			// fall back to queue/restart semantics.
+ 			if (!interrupt) {
+ 				lane.queuedPrompts.push(prompt);
++				onDelivery?.("queued");
+ 				return `Queued follow-up for lane ${lane.id}`;
+ 			}
+ 			lane.controller.abort();
+ 			lane.queuedPrompts.length = 0;
+ 			startLane(lane, { params: followUpParams(lane, prompt) });
++			onDelivery?.("started");
+ 			return `Interrupted lane ${lane.id} and started the follow-up`;
+ 		}
+ 		const running = [...lanes.values()].filter((entry) => entry.status === "running").length;
+@@ -645,6 +654,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			return `agent_send: this session already has ${running} running background lanes (limit ${MAX_RUNNING_LANES}); wait for one to finish before replying to lane ${lane.id}.`;
+ 		}
+ 		startLane(lane, { params: followUpParams(lane, prompt) });
++		onDelivery?.("started");
+ 		return `Started follow-up for lane ${lane.id}; its transcript continues from the previous turns. You will be notified when it finishes.`;
+ 	};
+ 
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index 918ba9c..f7ded8c 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -95,6 +95,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 		return { id, type: "response", command, success: false, error: message };
+ 	};
+ 	const btw = new DesktopBtw(() => session, output);
++	// Retain receipts for this live registry, including uncertain outcomes. Never
++	// evict a request and silently deliver it again after a lost acknowledgment.
++	let replyOwner: object | undefined;
++	let replySessionId: string | undefined;
++	const backgroundReplies = new Map<string, { digest: string; promise: Promise<RpcResponse> }>();
+ 
+ 	// Pending extension UI requests waiting for response
+ 	const pendingExtensionRequests = new Map<
+@@ -555,10 +560,20 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			case "desktop_subagents": {
+ 				if (typeof command.sessionId !== "string" || !command.sessionId || command.sessionId !== session.sessionId)
+ 					throw new Error("Session changed");
+-				if (!["list", "stop"].includes(command.action)) throw new Error("Invalid background agent action");
+-				if (command.action === "stop" && !/^lane_[0-9a-f]{8}$/.test(command.laneId ?? ""))
++				if (!["list", "stop", "reply"].includes(command.action)) throw new Error("Invalid background agent action");
++				if (command.action !== "list" && !/^lane_[0-9a-f]{8}$/.test(command.laneId ?? ""))
+ 					throw new Error("Invalid background lane id");
++				if (
++					command.action === "reply" &&
++					(typeof command.requestId !== "string" ||
++						!/^[a-zA-Z0-9_-]{24,80}$/.test(command.requestId) ||
++						typeof command.prompt !== "string" ||
++						!command.prompt.trim() ||
++						command.prompt.length > 8000)
++				)
++					throw new Error("Invalid background reply");
+ 				const runner = session.extensionRunner;
++				const owner = session;
+ 				const tool = runner.getToolDefinition("agent_send");
+ 				if (!tool) throw new Error("Background agent controls are unavailable");
+ 				const ctx = runner.createContext();
+@@ -569,6 +584,58 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 				const object = (value: unknown): Record<string, unknown> =>
+ 					value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+ 				const all = Array.isArray(result.details) ? result.details.map(object) : [];
++				if (command.action === "reply") {
++					if (session !== owner || command.sessionId !== session.sessionId || runner !== session.extensionRunner)
++						throw new Error("Session changed");
++					if (replyOwner !== runner || replySessionId !== session.sessionId) {
++						backgroundReplies.clear();
++						replyOwner = runner;
++						replySessionId = session.sessionId;
++					}
++					const requestId = command.requestId!;
++					const digest = await crypto.subtle.digest(
++						"SHA-256",
++						new TextEncoder().encode(JSON.stringify([command.laneId, command.prompt])),
++					);
++					const fingerprint = Buffer.from(digest).toString("hex");
++					if (session !== owner || command.sessionId !== session.sessionId || runner !== session.extensionRunner)
++						throw new Error("Session changed");
++					const previous = backgroundReplies.get(requestId);
++					if (previous) {
++						if (previous.digest !== fingerprint) throw new Error("Background reply identity was reused");
++						// The response envelope belongs to this RPC call, not the first attempt.
++						return { ...(await previous.promise), id };
++					}
++					const lane = all.find((entry) => entry.agentId === command.laneId);
++					if (!lane || lane.mode !== "single") throw new Error("Single background lane is unavailable");
++					if (backgroundReplies.size >= 512) throw new Error("Background reply receipt limit reached");
++					const promise = (async () => {
++						const sent = object(
++							await tool.execute(
++								`desktop-background-reply:${requestId}`,
++								{ action: "reply", lane_id: command.laneId, prompt: command.prompt, interrupt: false },
++								new AbortController().signal,
++								undefined,
++								ctx,
++							),
++						);
++						if (
++							session !== owner ||
++							command.sessionId !== session.sessionId ||
++							runner !== session.extensionRunner ||
++							!["queued", "started"].includes(String(sent.delivery))
++						)
++							throw new Error("Background reply was not confirmed");
++						return success(id, "desktop_subagents", {
++							sessionId: command.sessionId,
++							laneId: command.laneId,
++							requestId,
++							delivery: sent.delivery,
++						});
++					})();
++					backgroundReplies.set(requestId, { digest: fingerprint, promise });
++					return await promise;
++				}
+ 				if (command.action === "stop") {
+ 					const lane = all.find((entry) => entry.agentId === command.laneId);
+ 					if (!lane || lane.status !== "running") throw new Error("Background lane is no longer running");
+@@ -613,7 +680,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 						}),
+ 					};
+ 				});
+-				return success(id, "desktop_subagents", { sessionId: session.sessionId, lanes });
++				return success(id, "desktop_subagents", { sessionId: session.sessionId, lanes, replyAvailable: true });
+ 			}
+ 			case "get_desktop_summary": {
+ 				const entries = session.sessionManager.getBranch();
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 0956dbd..253187f 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -36,8 +36,10 @@ export type RpcCommand =
+ 			id?: string;
+ 			type: "desktop_subagents";
+ 			sessionId: string;
+-			action: "list" | "stop";
++			action: "list" | "stop" | "reply";
+ 			laneId?: string;
++			requestId?: string;
++			prompt?: string;
+ 	  }
+ 	| { id?: string; type: "desktop_cron_resume"; before?: number }
+ 	| {

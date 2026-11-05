@@ -29,7 +29,7 @@ test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and pat
     'packages/coding-agent/test/session-import.test.ts',
   ]);
   assert.deepEqual(Object.keys(manifest.patches).sort(),
-    ['step-code-desktop-auto-resume.patch', 'step-code-desktop-background-agents.patch', 'step-code-desktop-btw.patch',
+    ['step-code-desktop-auto-resume.patch', 'step-code-desktop-background-agents.patch', 'step-code-desktop-background-reply.patch', 'step-code-desktop-btw.patch',
       'step-code-desktop-clarification.patch', 'step-code-desktop-cron-enhancements.patch',
       'step-code-desktop-cron-management.patch',
       'step-code-desktop-cron-recovery-guard.patch', 'step-code-desktop-cron-recovery.patch',
@@ -71,6 +71,7 @@ test('Darwin additions retain the complete shared integration and pin their own 
   const stage = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
   assert.match(stage, /integrationManifest\.patchedSources, \.\.\.platformManifest\?\.patchedSources/);
   assert.match(stage, /'desktop-background-control'/);
+  assert.match(stage, /'desktop-background-reply'/);
   assert.match(stage, /'desktop-btw'/);
   assert.ok(!stage.includes('3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8'));
 });

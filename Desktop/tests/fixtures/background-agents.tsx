@@ -48,7 +48,9 @@ function Preview() {
   const records = useRef<BackgroundAgentLane[]>([]);
   const zh = language === 'zh';
   useLayoutEffect(() => {
-    setBackgroundAgent(undefined); setView('background');
+    const inspect = params.get('view') === 'reply' && sessionId === 'session-a';
+    setBackgroundAgent(inspect ? { laneId: presentation === 'original' ? 'lane_12345678' : roles[0].id, stepIndex: 0 } : undefined);
+    setView(inspect ? 'agent' : 'background');
   }, [generation, presentation, sessionId]);
   useLayoutEffect(() => {
     const element = toolbar.current;
@@ -63,7 +65,8 @@ function Preview() {
       async backgroundAgents(_runtimeId, owner) {
         if (scenario === 'slow') await new Promise(resolve => setTimeout(resolve, 2000));
         if (scenario === 'error') throw new Error('Fixture unavailable');
-        return { sessionId: owner, lanes: scenario === 'empty' || owner !== 'session-a' ? [] : structuredClone(records.current) };
+        return { sessionId: owner, replyAvailable: true,
+          lanes: scenario === 'empty' || owner !== 'session-a' ? [] : structuredClone(records.current) };
       },
       async stopBackgroundAgent(_runtimeId, _owner, id) {
         if (scenario === 'stop-error') throw new Error('Fixture stop unconfirmed');
@@ -72,6 +75,18 @@ function Preview() {
         await new Promise(resolve => setTimeout(resolve, 700));
         lane.settling = false; lane.status = 'aborted'; lane.updatedAt = Date.now();
         lane.steps = lane.steps.map(step => ({ ...step, status: step.status === 'completed' ? 'completed' : 'aborted' }));
+      },
+      async replyBackgroundAgent(request) {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        if (scenario === 'reply-error') throw new Error('Fixture delivery unconfirmed');
+        const lane = records.current.find(lane => lane.id === request.laneId);
+        if (!lane || lane.mode !== 'single' || lane.settling) throw new Error('Fixture lane unavailable');
+        const delivery = lane.status === 'running' ? 'queued' as const : 'started' as const;
+        if (delivery === 'started') {
+          lane.status = 'running';
+          lane.steps = lane.steps.map(step => ({ ...step, status: 'running', task: request.prompt }));
+        }
+        return { sessionId: request.sessionId, laneId: lane.id, requestId: request.requestId, delivery };
       },
     };
   }, [scenario, generation, presentation, roles]);
@@ -88,7 +103,7 @@ function Preview() {
         <button aria-pressed={presentation === 'original'} onClick={() => setPresentation('original')}>{zh ? '原版' : 'Original'}</button>
       </div>
       <select aria-label="Scenario" value={scenario} onChange={event => setScenario(event.target.value)}>
-        {['normal', 'empty', 'slow', 'error', 'stop-error', 'disconnected'].map(value => <option key={value}>{value}</option>)}
+        {['normal', 'empty', 'slow', 'error', 'stop-error', 'reply-error', 'disconnected'].map(value => <option key={value}>{value}</option>)}
       </select>
       <button className="icon-button" aria-label={zh ? '重置演示' : 'Reset preview'} data-tooltip={zh ? '重置演示' : 'Reset preview'}
         onClick={() => setGeneration(value => value + 1)}><RotateCcw size={15}/></button>

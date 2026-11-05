@@ -201,6 +201,8 @@ try {
   await app.evaluate(() => { globalThis.backgroundControlsFixture.mode = 'read-error'; });
   await panel.getByRole('button', { name: '刷新代理详情', exact: true }).click();
   await details.getByText('当前显示上次记录，不代表实时运行状态。', { exact: true }).waitFor();
+  assert.equal(await details.getByRole('textbox', { name: '追加任务内容', exact: true }).getAttribute('aria-disabled'), 'true');
+  assert.equal(await details.getByRole('button', { name: '发送追加任务', exact: true }).isDisabled(), true);
   await details.getByRole('button', { name: '返回后台任务', exact: true }).click();
   await panel.getByText(/无法刷新后台任务/).waitFor();
   await panel.getByText('2 条上次记录', { exact: true }).waitFor();
@@ -285,6 +287,7 @@ try {
   await details.getByRole('button', { name: '刷新代理详情', exact: true }).click();
   await details.getByText('这个代理步骤已不在当前运行时快照中，未替换为其他代理。', { exact: true }).waitFor();
   assert.equal(await details.locator('.background-agent-step').count(), 0, 'A missing native step never falls back to a foreground record');
+  assert.equal(await details.locator('.background-agent-follow-up').count(), 0, 'A missing step cannot send follow-ups');
   assert.equal(await details.getAttribute('data-lane-id'), second.id);
   await app.evaluate(() => { globalThis.backgroundControlsFixture.mode = ''; });
   await details.getByRole('button', { name: '刷新代理详情', exact: true }).click();

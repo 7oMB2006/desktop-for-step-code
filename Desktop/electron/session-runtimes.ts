@@ -57,6 +57,7 @@ export interface SessionRuntime {
   backgroundLanes?: BackgroundLaneState[];
   cronScopeDirectory?: string;
   startupTiming?: RuntimeStartupTiming;
+  remoteAttached?: boolean;
 }
 export function firstUserText(messages: Message[]) {
   const message = messages.find(isUserMessage);
@@ -135,7 +136,7 @@ export class SessionRuntimes {
       const candidates = [...this.workers.values()].filter(worker =>
         workspaceKey(worker.cwd) === key && worker.status === 'connected' && worker.state?.sessionId &&
         !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !hasBackgroundWork(worker) && !worker.mutating &&
-        !worker.failed && !worker.interrupted);
+        !worker.failed && !worker.interrupted && !worker.remoteAttached);
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
         await this.hooks.initializeModel?.(empty, false);
@@ -475,6 +476,7 @@ export class SessionRuntimes {
   }
   async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean } = {}) {
     const assertHost = () => {
+      if (worker.remoteAttached) throw new Error('Unbind Remote before changing this session runtime');
       if (hasBackgroundWork(worker)) throw new Error('Stop background agents before changing this session runtime');
       if (options.stopHost && hasScheduledCron(worker.cron)) throw new Error('Delete scheduled Cron jobs before restarting or changing this runtime; Cron state must be available');
     };
@@ -643,7 +645,7 @@ export class SessionRuntimes {
   }
   async recycle(retain: (worker: SessionRuntime) => boolean = () => false) {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
-      !retain(worker) && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
+      !retain(worker) && !worker.remoteAttached && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
       !hasBackgroundWork(worker) &&
       worker.launch?.goal?.status !== 'active' &&
       !hasScheduledCron(worker.cron) &&

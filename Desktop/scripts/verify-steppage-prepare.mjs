@@ -55,7 +55,7 @@ try {
   });
   assert.equal(cronHost.tasks.length, 1);
   // Exercise the actual settings entry rather than installing through a fixture hook.
-  await page.locator('.sidebar-bottom button').filter({ hasText: /设置|Settings/ }).click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click();
   await page.locator('.cap-preparation > summary').click();
   const setup = page.getByRole('button', { name: /安装并准备|Install and prepare/ });
@@ -90,7 +90,7 @@ try {
   await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
   await page.reload();
   await page.locator('.app').waitFor();
-  await page.locator('.sidebar-bottom button').filter({ hasText: 'Settings' }).click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: /^Plugins$/ }).click();
   await page.locator('.cap-preparation > summary').click();
   await page.getByRole('status').filter({ hasText: 'Files ready' }).waitFor();

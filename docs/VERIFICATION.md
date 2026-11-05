@@ -53,6 +53,53 @@ External requests are blocked and must remain absent. This does not establish
 real sign-in, native Electron directory dialogs, persistence, upgrade behavior,
 first-run detection, model acceptance or release readiness.
 
+## Desktop-hosted Feishu Remote MVP (2026-11-05)
+
+The Remote design preview is now wired into the real Desktop main process and
+typed preload bridge. Scope and manual acceptance are in [REMOTE.md](REMOTE.md).
+This is a Desktop-hosted, single-private-chat/single-session channel, not the
+planned independent Web service. This work changed neither the upstream pin nor
+the upstream sources.
+The staged adapter reuses the unchanged pinned `lark-adapter` and locked SDK
+1.76.0, with the helper and dependency license notices included in runtime
+resources. No new Desktop dependency or lockfile change is required.
+
+Typecheck, production build and the 97 focused manager/helper/session-runtime
+tests pass. The final complete serial suite finishes with 864 tests: 850 pass,
+14 platform skips and zero failures (`Desktop/test-results/remote-unit-suite.log`).
+The expanded source Electron Remote acceptance passes using an
+isolated profile, loopback model provider and injected fake channel helper;
+the real staged SDK exports, upstream inbound gate and helper protocol are also
+smoke-tested without authorization or network calls. It covers explicit binding,
+cross-session routing, duplicate rejection, slash-command rejection, real native
+permission confirmations and first-response-wins, callback probes, stopping,
+unbind/disconnect, actual helper exit and draft preservation. Light/dark
+420px screenshots and ancestor-clipping checks verify the production session
+selector's complete focus outline; reduced motion is checked separately.
+Actionable approvals contain the exact recovered, redacted tool parameters;
+unrecoverable or oversized details remain local. Changed displayed parameters
+invalidate an existing card. Length-truncated responses finish Interrupted,
+not Working or Completed.
+
+The sidebar Settings locator was migrated to its stable `.sidebar-settings`
+class after the footer became icon-only. Existing update-indicator assertions
+remain intact. General Electron, fixed Settings dialog and application-update
+acceptance pass, as do all 15 CI policy/inventory/runner tests. The fixture
+preview verifier also passed after sharing the production stylesheet/icon.
+These are local Windows source results, not a cloud CI result.
+
+Rebuildable output inventory: `Desktop/dist` is approximately 9.8 MiB and the
+staged `Desktop/runtime/remote` adapter/notices approximately 6.0 MiB.
+Remote production and preview screenshots total approximately 1.9 MiB. No new
+installer was created and no existing packages or unrelated artifacts were
+deleted.
+
+Real Feishu authorization, platform callback configuration, actual SDK
+reconnection, paid-model behavior, installer contents/native execution, macOS
+acceptance and cloud CI have not been exercised. No credentials or user
+conversation content were sent to a real bot, and no installer, commit, push,
+PR or release is included in this goal.
+
 ## PR #187 launch acceptance synchronization (2026-11-03)
 
 The favorites head `5ea2f60` passed all Windows checks and the macOS build,

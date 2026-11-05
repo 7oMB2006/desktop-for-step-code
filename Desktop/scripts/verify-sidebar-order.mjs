@@ -127,7 +127,7 @@ try {
   await page.locator('.sidebar').screenshot({ path: 'test-results/sidebar-order-light-detail.png' });
 
   mark('sorting settings');
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   const sort = page.getByLabel('会话排序', { exact: true });
   assert.equal(await sort.inputValue(), 'manual');
@@ -148,7 +148,7 @@ try {
   await waitOrder(page, [key(projects[0]), key(projects[1]), key(projects[2])]);
   await drag(page, project(page, 1).locator('.workspace-toggle'), project(page, 0));
   await waitOrder(page, [key(projects[1]), key(projects[0]), key(projects[2])]);
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await sort.selectOption('manual');
   await page.waitForFunction(() => document.querySelector('[data-reorder-id="sidebar-2"]').parentElement.firstElementChild.dataset.reorderId === 'sidebar-2');

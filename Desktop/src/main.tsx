@@ -1,5 +1,7 @@
 import { normalizedWorkspaceKey } from './workspace-key';
 import { UsageOverviewPanel } from './UsageOverviewPanel';
+import { RemoteAccessPanel } from './RemoteAccessPanel';
+import { Smartphone } from 'lucide-react';
 import { BarChart3, Plug } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -207,6 +209,7 @@ function App() {
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [remoteOpen, setRemoteOpen] = useState(false);
   const [fulltextOpen, setFulltextOpen] = useState(false);
   const [fulltextRequest, setFulltextRequest] = useState<{ id: number; text: string }>();
   const fulltextAnchor = useRef<HTMLButtonElement>(null);
@@ -430,23 +433,23 @@ function App() {
   useLayoutEffect(followLayout, [navigationTarget, followLayout]);
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
   const bottomTerminalExpanded = terminalDock === 'bottom' && bottomTerminalOpen && expandedRightPanel === 'terminal'
-    && !usageOpen && !scheduledOpen && !fulltextOpen && !details;
-  const visibleRightPanel = usageOpen || scheduledOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+    && !usageOpen && !remoteOpen && !scheduledOpen && !fulltextOpen && !details;
+  const visibleRightPanel = usageOpen || remoteOpen || scheduledOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = bottomTerminalExpanded || expandedRightPanel === visibleRightPanel && !details &&
     (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent');
-  const terminalOpen = !usageOpen && !scheduledOpen && !fulltextOpen && (terminalDock === 'bottom'
+  const terminalOpen = !usageOpen && !remoteOpen && !scheduledOpen && !fulltextOpen && (terminalDock === 'bottom'
     ? bottomTerminalOpen && (!inspectorExpanded || bottomTerminalExpanded)
     : visibleRightPanel === 'terminal' && !details);
   useEffect(() => {
     if (workflowCatalogRequest && (workflowCatalogRequest.runtimeId !== data.runtimeId
       || workflowCatalogRequest.sessionId !== data.state?.sessionId || navigationTarget || settingsOpen
-      || usageOpen || scheduledOpen || fulltextOpen || inspectorExpanded || removeProject || requests.length)) {
+      || usageOpen || remoteOpen || scheduledOpen || fulltextOpen || inspectorExpanded || removeProject || requests.length)) {
       setWorkflowCatalogRequest(null);
     }
   }, [workflowCatalogRequest, data.runtimeId, data.state?.sessionId, navigationTarget, settingsOpen,
-    usageOpen, scheduledOpen, fulltextOpen, inspectorExpanded, removeProject, requests.length]);
+    usageOpen, remoteOpen, scheduledOpen, fulltextOpen, inspectorExpanded, removeProject, requests.length]);
   useEffect(() => {
     if (bottomTerminalExpanded) return;
     if (!usageOpen && expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
@@ -606,6 +609,7 @@ function App() {
     if (succeeded) void run(refresh);
   };
   const navigateSession = async (session: Session, cronRuntimeId?: string) => {
+    setRemoteOpen(false);
     setFulltextOpen(false);
     setSearchLocation(undefined);
     setUsageOpen(false);
@@ -953,6 +957,7 @@ function App() {
     else setSettingsClosing(true);
   };
   const openUsage = () => {
+    setRemoteOpen(false);
     setFulltextOpen(false);
     finishSettingsClose();
     setScheduledOpen(false);
@@ -961,8 +966,13 @@ function App() {
   };
   const openScheduled = () => {
     if (!bridge) return;
+    setRemoteOpen(false);
     setFulltextOpen(false); setUsageOpen(false); setDetails(''); setExpandedRightPanel(null);
     setScheduledOpen(true); setCompactSidebarOpen(false);
+  };
+  const openRemote = () => {
+    finishSettingsClose(); setFulltextOpen(false); setUsageOpen(false); setScheduledOpen(false);
+    setDetails(''); setExpandedRightPanel(null); setCompactSidebarOpen(false); setRemoteOpen(true);
   };
   const closeFulltext = () => {
     setFulltextOpen(false);
@@ -1319,13 +1329,14 @@ function App() {
   const toggleWorkspace = (key: string) => { void run(() => setWorkspaceExpanded(key)); };
   const independentExpanded = searchingSessions || !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, _sessions: typeof data.sessions) => {
+    setRemoteOpen(false);
     setUsageOpen(false);
     setScheduledOpen(false);
     await run(() => setWorkspaceExpanded(workspaceKey(path), true));
     await applySnapshot(() => bridge!.beginSession(path));
   };
-  const newSession = () => { setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace)); };
-  const openProject = () => { setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.chooseSessionProject()); };
+  const newSession = () => { setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace)); };
+  const openProject = () => { setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.chooseSessionProject()); };
   const repairProject = async (path: string) => {
     if (loading) return;
     setLoading(true);
@@ -1536,7 +1547,7 @@ function App() {
         onFulltextSearch={(text, anchor) => {
           fulltextAnchor.current = anchor;
           setFulltextRequest(previous => ({ id: (previous?.id ?? 0) + 1, text }));
-          setUsageOpen(false); setScheduledOpen(false); setFulltextOpen(true); setCompactSidebarOpen(false);
+          setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false); setFulltextOpen(true); setCompactSidebarOpen(false);
         }}
         onScheduledTasks={() => { if (scheduledOpen) setScheduledOpen(false); else openScheduled(); }}
         onPlugins={() => {
@@ -1560,7 +1571,13 @@ function App() {
         {[...workspaceGroups].filter(([key]) => !pinnedWorkspaces.has(key)).map(renderWorkspace)}
         {!searchingSessions && !workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void openProject()}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
       </nav>
-      <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
+      <div className="sidebar-bottom"><div className="sidebar-remote-utilities">
+        <button className="icon-button sidebar-settings" aria-label={updateAvailable ? t('设置，有更新', 'Settings, update available') : t('设置', 'Settings')}
+          data-tooltip={t('设置', 'Settings')} onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{updateAvailable && <i className="update-dot update-indicator"/>}</button>
+        <button className="icon-button remote-entry" aria-label={t('远程访问', 'Remote access')} data-tooltip={t('远程访问', 'Remote access')} disabled={!bridge}
+          aria-pressed={remoteOpen} onClick={() => remoteOpen ? setRemoteOpen(false) : openRemote()}><Smartphone size={17}/></button>
+      </div><div className="connection remote-footer-status"><span><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</span>
+        <small>{appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</small></div></div>
     </aside>
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
     {scheduledOpen && bridge && <main inert={settingsOpen || Boolean(removeProject)}>
@@ -1583,7 +1600,12 @@ function App() {
           return opened;
         }} openImage={openImage}/>
     </main>}
-    <main hidden={scheduledOpen || fulltextOpen} inert={scheduledOpen || fulltextOpen || settingsOpen || Boolean(removeProject)}
+    {remoteOpen && bridge && <main inert={settingsOpen || Boolean(removeProject)}>
+      {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
+        <button onClick={() => { setRemoteOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
+      <RemoteAccessPanel bridge={bridge} language={data.preferences.language} onBack={() => setRemoteOpen(false)}/>
+    </main>}
+    <main hidden={scheduledOpen || fulltextOpen || remoteOpen} inert={scheduledOpen || fulltextOpen || remoteOpen || settingsOpen || Boolean(removeProject)}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
@@ -1596,7 +1618,7 @@ function App() {
         </>}
         <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
       </div>}
-      <ConversationSearchLocation active={!navigationTarget && !usageOpen && !scheduledOpen && !fulltextOpen}
+      <ConversationSearchLocation active={!navigationTarget && !usageOpen && !remoteOpen && !scheduledOpen && !fulltextOpen}
         location={searchLocation} requestId={searchLocateRequest} sessionId={data.state?.sessionId}
         messages={data.messages} root={transcript} language={data.preferences.language}
         onLocate={locateSearchMessage} onRetry={() => setSearchLocateRequest(value => value + 1)}
@@ -1609,7 +1631,7 @@ function App() {
       <WorkflowCatalogPanel key={`${data.runtimeId ?? data.draftId}:${data.state?.sessionId}`}
         open={Boolean(workflowCatalogRequest && workflowCatalogRequest.runtimeId === data.runtimeId
           && workflowCatalogRequest.sessionId === data.state?.sessionId && !navigationTarget && !settingsOpen
-          && !usageOpen && !scheduledOpen && !fulltextOpen && !inspectorExpanded && !removeProject && !requests.length)}
+          && !usageOpen && !remoteOpen && !scheduledOpen && !fulltextOpen && !inspectorExpanded && !removeProject && !requests.length)}
         requestId={workflowCatalogRequest?.id ?? 0} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
         language={data.preferences.language} bridge={bridge} onClose={() => setWorkflowCatalogRequest(null)}/>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
@@ -1795,10 +1817,10 @@ function App() {
     <QuoteAnnotations root={transcript} scope={quoteScope} language={data.preferences.language}
       remove={id => setQuotes(value => value.filter(item => item.id !== id))}
       focusedId={focusedQuoteId}
-      quotes={navigationTarget || settingsOpen || preview || requests.length || scheduledOpen || usageOpen || fulltextOpen ? [] : quotes}
+      quotes={navigationTarget || settingsOpen || preview || requests.length || scheduledOpen || usageOpen || remoteOpen || fulltextOpen ? [] : quotes}
       annotate={(id, annotation) => setQuotes(value => value.map(item => item.id === id ? { ...item, annotation } : item))}/>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
-      enabled={!scheduledOpen && !usageOpen && !fulltextOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
+      enabled={!scheduledOpen && !usageOpen && !remoteOpen && !fulltextOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
       onError={setError} onQuote={quote => {
         const existing = quotes.find(item => sameQuoteSelection(item, quote));
         if (existing) {
@@ -1816,7 +1838,7 @@ function App() {
         handleScrollIntent('backward');
         setQuotes(value => [...value, quote]); return true;
       }}/>
-    {details && !usageOpen && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
+    {details && !usageOpen && !remoteOpen && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
     <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || Boolean(details)}
       overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { handleScrollIntent('backward'); scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
@@ -1902,7 +1924,7 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
-    <nav hidden={scheduledOpen || usageOpen || fulltextOpen} ref={rightRail} className="right-tool-rail" style={usageOpen || fulltextOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || fulltextOpen || Boolean(navigationTarget) || Boolean(removeProject)}
+    <nav hidden={scheduledOpen || usageOpen || remoteOpen || fulltextOpen} ref={rightRail} className="right-tool-rail" style={usageOpen || remoteOpen || fulltextOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || remoteOpen || fulltextOpen || Boolean(navigationTarget) || Boolean(removeProject)}
       onClickCapture={() => { if (bottomTerminalExpanded) setExpandedRightPanel(null); }}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => {

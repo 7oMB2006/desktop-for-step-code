@@ -458,7 +458,7 @@ try {
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await sendNotice('warning-again', 'warning', mcpMessage);
   assert.equal(await toast.count(), 0);
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: 'MCP', exact: true }).click();
   await page.getByRole('region', { name: '本次窗口的 MCP 警告' }).locator('.resource-row').filter({ hasText: 'example_mcp' }).getByText('出现 2 次').waitFor();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -1030,7 +1030,7 @@ try {
   assert.deepEqual(await page.evaluate(() => { window.__stopSessionSwitchEvents(); return window.__sessionSwitchEvents; }), []);
   console.log(`Same-workspace round trip: ${Date.now() - sameWorkspaceSwitchStarted} ms without a runtime restart.`);
   await page.screenshot({ path: 'test-results/workspace-tree.png' });
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: 'MCP', exact: true }).click();
   await page.getByRole('button', { name: '添加 MCP', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'MCP', exact: true });
@@ -1191,7 +1191,7 @@ try {
     for (const offset of offsets) assert.ok(offset < 2, `display formula must center in the reading column (offset ${offset}px)`);
   };
   for (const theme of ['light', 'dark']) {
-    await page.locator('.sidebar-bottom > button').click();
+    await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
     await page.getByRole('button', { name: theme === 'dark' ? '暗' : '亮', exact: true }).click();
     await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -1299,7 +1299,7 @@ try {
   await presentationResponse.scrollIntoViewIfNeeded();
   await content.locator('.tool-group-trigger').click();
   for (const theme of ['light', 'dark']) {
-    await page.locator('.sidebar-bottom > button').click();
+    await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
     await page.getByRole('button', { name: theme === 'dark' ? '暗' : '亮', exact: true }).click();
     await page.getByRole('button', { name: 'Close', exact: true }).click();

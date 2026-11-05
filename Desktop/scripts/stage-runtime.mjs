@@ -4,6 +4,7 @@ import { resolve, dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { assertStagingNodeVersion } from './staging-node-version.mjs';
+import { buildRemoteAdapter } from './build-remote-adapter.mjs';
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
 if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
@@ -92,6 +93,7 @@ await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));
+await buildRemoteAdapter(upstream, runtime);
 const require = createRequire(join(source, 'package.json'));
 async function resolvePackageDirectory(name) {
   let directory = dirname(require.resolve(name));

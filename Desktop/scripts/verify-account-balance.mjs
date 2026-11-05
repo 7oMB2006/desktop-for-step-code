@@ -52,7 +52,7 @@ for (const profileId of ['platform_cn', 'platform_oversea']) {
     }, profileId);
     mark('initial balance');
     await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
-    await page.locator('.sidebar-bottom > button').click();
+    await page.locator('.sidebar-settings').click();
     const balance = page.getByRole('region', { name: 'API 账户余额' });
     await balance.getByText('1,899.80', { exact: true }).waitFor();
     await balance.getByText('接口未标注币种，以官网为准', { exact: true }).waitFor();

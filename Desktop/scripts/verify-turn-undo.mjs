@@ -124,7 +124,7 @@ try {
   await page.getByRole('button', { name: '已撤销', exact: true }).waitFor();
   assert.equal(await readFile(livePath, 'utf8'), 'const value = 1;\n');
   // Test-only fixtures use actual RPC tools, never a production demo API.
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   assert.equal(await page.getByRole('button', { name: '创建变更与撤销示例', exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => 'createChangeDemo' in window.desktop), false);

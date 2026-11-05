@@ -31,7 +31,7 @@ try {
     window.setSize(1440, 960);
   });
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Unsent settings fixture');
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.locator('.account-settings').waitFor();
   const dialog = page.locator('.settings-dialog');
   assert.equal(await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: 'MCP', exact: true }).locator('svg.lucide-mcp').count(), 1);
@@ -98,7 +98,7 @@ try {
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.window-bar').evaluate(element => element.inert), false);
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Unsent settings fixture');
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await dialog.waitFor();
   await settleLayout(page.locator('.settings-backdrop'));
   assert.equal(await page.locator('.settings-backdrop.is-closing').count(), 0, 'Reopening resets exit state');

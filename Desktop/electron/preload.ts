@@ -33,6 +33,8 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  remoteState: () => invoke('remoteState'),
+  remoteAction: action => invoke('remoteAction', action),
   capabilityCatalog: () => invoke('capabilityCatalog'),
   capabilityMutate: input => invoke('capabilityMutate', input),
   capabilityImportSkill: () => invoke('capabilityImportSkill'),

@@ -103,7 +103,7 @@ const launch = async () => {
   await page.waitForFunction(() => document.querySelector('.composer .composer-input') && !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer .composer-input').disabled);
 };
 const settings = async () => {
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '供应商', exact: true }).click();
   await page.getByRole('heading', { name: '自定义供应商', exact: true }).waitFor();
 };

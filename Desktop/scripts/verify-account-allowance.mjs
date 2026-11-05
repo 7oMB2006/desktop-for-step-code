@@ -56,7 +56,7 @@ try {
   });
   mark('initial account and quota');
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   const allowance = page.getByRole('region', { name: '套餐与额度' });
   await allowance.getByText('官方套餐示例', { exact: true }).waitFor();
   assert.equal(await allowance.getByRole('meter').count(), 2);

@@ -1,0 +1,273 @@
+import { _electron as electron } from 'playwright';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { prepareSessionFixture } from './session-fixture.mjs';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+
+const executablePath = process.env.DESKTOP_VERIFY_EXE;
+const resources = executablePath ? (process.platform === 'darwin' ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
+const runtime = join(resources, 'runtime');
+const output = resolve('test-results/remote-access');
+await mkdir(output, { recursive: true });
+const adapter = createRequire(import.meta.url)(join(runtime, 'remote/lark-adapter.cjs'));
+for (const name of ['LarkRegistration', 'LarkApi', 'LarkInboundGate', 'WSClient', 'EventDispatcher'])
+  assert.equal(typeof adapter[name], 'function', `Packaged adapter exports ${name}`);
+assert.ok((await readFile(join(runtime, 'remote/FEISHU-SDK-LICENSE'), 'utf8')).length > 100);
+const gate = new adapter.LarkInboundGate('bot');
+const gateMessage = { sender: { sender_id: { open_id: 'human' } }, message: { chat_type: 'p2p', message_type: 'text',
+  message_id: 'one', chat_id: 'chat', create_time: Date.now(), content: '{"text":"fixture"}' } };
+assert.equal(gate.accept(gateMessage).action, 'accept');
+assert.equal(gate.accept(gateMessage).action, 'ignore');
+gate.close();
+// Load the real staged helper without initiating any authorization or network.
+const helper = spawn(join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'), [join(runtime, 'remote-channel.mjs')], { windowsHide: true, stdio: 'pipe' });
+let stdout = '', stderr = '';
+helper.stdout.on('data', chunk => { stdout += chunk; });
+helper.stderr.on('data', chunk => { stderr += chunk; });
+const helperClosed = new Promise((yes, no) => { helper.on('exit', code => code === 0 ? yes() : no(new Error(`Helper exit ${code}`))); helper.on('error', no); });
+helper.stdin.write('{"id":"smoke","type":"unsupported"}\n');
+const until = Date.now() + 10000;
+while (!stdout.includes('"smoke"')) {
+  if (Date.now() > until) { helper.kill(); throw new Error('Staged Remote helper did not respond'); }
+  await new Promise(resolve => setTimeout(resolve, 20));
+}
+assert.deepEqual(JSON.parse(stdout.trim()), { type: 'response', id: 'smoke', success: false, error: 'Remote operation unavailable' });
+helper.stdin.end(); await helperClosed; assert.equal(stderr, '');
+
+const profile = await mkdtemp(join(tmpdir(), 'step-remote-'));
+const root = join(profile, 'step-runtime');
+await mkdir(root, { recursive: true });
+const fixtureHelper = join(profile, 'remote-fixture.mjs');
+await writeFile(fixtureHelper, `
+import { createInterface } from 'node:readline';
+let bindingId;
+const write = value => process.stdout.write(JSON.stringify(value)+'\\n');
+const event = (kind, fields={}) => write({type:'remote_channel',kind,bindingId,...fields});
+createInterface({input:process.stdin}).on('line', line => {
+  const value=JSON.parse(line);
+  if(value.type==='fixture-event'){event(value.kind,value.fields);return;}
+  if(value.type==='connect') event('authorization',{url:'https://open.feishu.cn/page/cli?user_code=fixture-only',expiresAt:Date.now()+300000});
+  if(value.type==='arm') event('candidate',{armId:value.armId,candidateId:'fixture-candidate'});
+  if(value.type==='bind') bindingId=value.bindingId;
+  if(value.type==='card') write({type:'remote_fixture_record',card:value});
+  if(value.type==='unbind') bindingId=undefined;
+  write({type:'response',id:value.id,success:true});
+});
+`);
+const received = [], failures = [];
+let held;
+const server = createServer(async (request, response) => {
+  try {
+    let raw = '';
+    for await (const chunk of request) { raw += chunk; assert.ok(raw.length < 8 * 1024 * 1024); }
+    const body = JSON.parse(raw);
+    const text = message => typeof message.content === 'string' ? message.content : message.content?.filter(block => block.type === 'text').map(block => block.text).join('\n');
+    const task = text(body.messages.findLast(message => message.role === 'user'));
+    received.push(task);
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    const send = (delta, finish_reason = null) => response.write(`data: ${JSON.stringify({ id: 'remote-fixture', object: 'chat.completion.chunk',
+      model: body.model, created: 1, choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
+    send({ role: 'assistant', content: '' });
+    if (task === 'REMOTE-HOLD') { held = response; return; }
+    const toolDone = body.messages.some(message => message.role === 'tool' && message.tool_call_id === 'remote-call-12345678');
+    if (task === 'REMOTE-APPROVAL' && !toolDone) send({ tool_calls: [{ index: 0, id: 'remote-call-12345678', type: 'function',
+      function: { name: 'run_command', arguments: '{"command":"echo remote-approved"}' } }] }, 'tool_calls');
+    else send({ content: 'REMOTE-FIXTURE-ANSWER' }, 'stop');
+    response.end('data: [DONE]\n\n');
+  } catch (error) { failures.push(error.message); response.destroy(); }
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspaces: [] }));
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
+  baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-only',
+  models: [{ id: 'fixture', name: 'Remote fixture', contextWindow: 100000, maxTokens: 2048 }],
+} } }));
+const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', REMOTE_FIXTURE_SECRET: 'MUST-NOT-INHERIT' };
+delete env.ELECTRON_RUN_AS_NODE;
+let app;
+try {
+  app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+  const page = await app.firstWindow(), errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1400, 950);
+  });
+  const owner = await prepareSessionFixture(page);
+  // Inject a deterministic child only in the test process, never via a product env flag.
+  await app.evaluate(({ shell }, path) => {
+    const cp = process.getBuiltinModule('node:child_process'), original = cp.spawn;
+    const fixture = globalThis.remoteHarness = { cards: [], opened: [], child: undefined, env: undefined };
+    shell.openExternal = async url => { fixture.opened.push(url); };
+    cp.spawn = (command, args, options) => {
+      if (!args?.[0]?.endsWith('remote-channel.mjs')) return original(command, args, options);
+      fixture.env = options.env;
+      const child = fixture.child = original(command, [path], options);
+      let buffer = '';
+      child.stdout.on('data', chunk => {
+        buffer += chunk;
+        for (;;) {
+          const end = buffer.indexOf('\n'); if (end < 0) break;
+          const value = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1);
+          if (value.type === 'remote_fixture_record') fixture.cards.push(value.card);
+        }
+      });
+      return child;
+    };
+  }, fixtureHelper);
+  const inject = (kind, fields = {}) => app.evaluate((_, value) =>
+    globalThis.remoteHarness.child.stdin.write(JSON.stringify({ type: 'fixture-event', ...value }) + '\n'), { kind, fields });
+  const cards = () => app.evaluate(() => globalThis.remoteHarness.cards);
+  const waitCard = async predicate => {
+    const deadline = Date.now() + 45000;
+    while (Date.now() < deadline) {
+      assert.deepEqual(failures, []);
+      const found = (await cards()).findLast(predicate);
+      if (found) return found;
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    throw new Error('Expected Remote card not received');
+  };
+  const button = name => page.getByRole('button', { name, exact: true });
+  const state = () => page.evaluate(() => window.desktop.remoteState());
+  const screenshot = async name => {
+    await page.locator('.remote-access-view,.remote-channel-detail,.remote-setup-stage').evaluateAll(elements =>
+      Promise.all(elements.flatMap(element => element.getAnimations().map(animation => animation.finished.catch(() => {})))));
+    await page.screenshot({ path: join(output, `${name}.png`) });
+  };
+  const checkFocus = async locator => {
+    await page.locator('.remote-channel-detail,.remote-setup-stage').evaluateAll(elements =>
+      Promise.all(elements.flatMap(element => element.getAnimations().map(animation => animation.finished.catch(() => {})))));
+    await page.keyboard.press('Tab');
+    await locator.scrollIntoViewIfNeeded();
+    await locator.focus();
+    const issues = await locator.evaluate(element => {
+      const bounds = element.getBoundingClientRect(), style = getComputedStyle(element);
+      const gutter = parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset));
+      const issues = [];
+      if (style.outlineStyle === 'none' || gutter < 4) issues.push('Missing shared focus indicator');
+      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        const clip = getComputedStyle(ancestor), rect = ancestor.getBoundingClientRect();
+        if (/(auto|scroll|hidden|clip)/.test(clip.overflowX)
+          && (bounds.left - gutter < rect.left - 1 || bounds.right + gutter > rect.right + 1)) issues.push(`Horizontal clip: ${ancestor.className}`);
+        if (/(auto|scroll|hidden|clip)/.test(clip.overflowY)
+          && (bounds.top - gutter < rect.top - 1 || bounds.bottom + gutter > rect.bottom + 1)) issues.push(`Vertical clip: ${ancestor.className}`);
+      }
+      return issues;
+    });
+    assert.deepEqual(issues, [], 'Production focus outline must be visible on all four sides');
+  };
+  await page.locator('.composer > .composer-input').fill('Draft stays local');
+  await button('远程访问').click();
+  const panel = page.locator('.remote-live');
+  await panel.getByRole('button', { name: /管理配置/ }).click();
+  await button('连接飞书').click();
+  await button('打开飞书授权').waitFor();
+  assert.equal((await state()).status, 'pairing');
+  assert.doesNotMatch(JSON.stringify(await state()), /user_code|isolated-only|MUST-NOT-INHERIT/);
+  await button('打开飞书授权').click();
+  assert.equal((await app.evaluate(() => globalThis.remoteHarness.opened)).length, 1);
+  assert.equal((await app.evaluate(() => globalThis.remoteHarness.env)).REMOTE_FIXTURE_SECRET, undefined);
+  await inject('connected', { botName: 'Isolated Feishu', callbackUrl: 'https://open.feishu.cn/page/launcher?clientID=fixture' });
+  await page.waitForFunction(async () => (await window.desktop.remoteState()).status === 'connected');
+  await button('继续').click();
+  await button('生成验证码').click();
+  await panel.locator('.remote-binding-code code').waitFor();
+  await button('目标会话').click();
+  const targetName = (await state()).sessions.find(session => session.runtimeId === owner.runtimeId).name;
+  await page.getByRole('menuitemradio', { name: targetName, exact: true }).click();
+  await button('确认并绑定').click();
+  await panel.locator('.remote-binding strong').waitFor();
+  assert.equal((await state()).binding.runtimeId, owner.runtimeId);
+  await button('继续').click();
+  await button('发送验证卡片').click();
+  const probe = await waitCard(card => card.key === 'probe');
+  await inject('decision', { token: probe.actions.token, option: 'Verify / 验证' });
+  await page.waitForFunction(async () => (await window.desktop.remoteState()).approvalReady);
+  await screenshot('01-readiness-dark');
+  await button('返回会话').click();
+  assert.equal(await page.locator('.composer > .composer-input').innerText(), 'Draft stays local');
+  const other = await page.evaluate(() => window.desktop.newIndependentSession());
+  assert.notEqual(other.runtimeId, owner.runtimeId);
+  await page.reload();
+  await button('远程访问').waitFor();
+  await inject('input', { id: 'remote-one', text: 'REMOTE-ONE' });
+  await inject('input', { id: 'remote-one', text: 'REMOTE-ONE' });
+  await waitCard(card => card.title.startsWith('Completed') && card.text.includes('REMOTE-FIXTURE-ANSWER'));
+  assert.equal(received.filter(task => task === 'REMOTE-ONE').length, 1);
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, other.runtimeId);
+  const before = received.length;
+  await inject('input', { id: 'slash', text: '/permissions full-access' });
+  await waitCard(card => card.title.startsWith('Not accepted'));
+  assert.equal(received.length, before);
+  await inject('input', { id: 'approval', text: 'REMOTE-APPROVAL' });
+  const approval = await waitCard(card => card.actions?.options.includes('Deny / 拒绝'));
+  assert.match(approval.text, /echo remote-approved/, 'The card must show the actual tool command, not just the native summary');
+  assert.ok(approval.text.length <= 5000, 'Actionable details must fit without clipping');
+  await inject('decision', { token: approval.actions.token, option: 'Deny / 拒绝' });
+  await inject('decision', { token: approval.actions.token, option: 'Allow once / 允许一次' });
+  await page.waitForFunction(async runtimeId => !(await window.desktop.snapshot()).runtimes.find(item => item.runtimeId === runtimeId)?.status.match(/running|waiting/), owner.runtimeId);
+  const previousRuns = new Set((await cards()).map(card => card.key));
+  await inject('input', { id: 'hold', text: 'REMOTE-HOLD' });
+  const running = await waitCard(card => card.title.startsWith('Working') && !previousRuns.has(card.key));
+  const holdDeadline = Date.now() + 10000;
+  while (!received.includes('REMOTE-HOLD')) {
+    assert.ok(Date.now() < holdDeadline, 'The held model request must actually start before stopping');
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  await inject('stop', { runId: running.key });
+  await waitCard(card => card.key === running.key && card.title.startsWith('Interrupted'));
+  await button('远程访问').click();
+  await page.getByRole('tab', { name: '已授权连接', exact: true }).click();
+  await button('解除绑定').click();
+  await button('确认').click();
+  await panel.getByRole('heading', { name: '暂无已授权连接' }).waitFor();
+  assert.equal((await state()).binding, undefined);
+  await page.getByRole('tab', { name: '运行状态', exact: true }).click();
+  await button('断开连接').click(); await button('确认').click();
+  assert.equal((await state()).status, 'idle');
+  await app.evaluate(async () => {
+    const child = globalThis.remoteHarness.child;
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Disconnect did not terminate the isolated helper')), 5000);
+      child.once('exit', () => { clearTimeout(timer); resolve(); });
+    });
+  });
+  await assert.rejects(page.evaluate(() => window.desktop.remoteAction({ type: 'prompt', message: 'not allowed' })));
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]; window.setMinimumSize(320, 600); window.setSize(420, 850);
+  });
+  await page.getByRole('tab', { name: '接入渠道', exact: true }).click();
+  await panel.getByRole('button', { name: /管理配置/ }).click();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    await screenshot(`02-connection-narrow-${theme}`);
+  }
+  await button('连接飞书').click();
+  await inject('connected', { botName: 'Isolated Feishu', callbackUrl: 'https://open.feishu.cn/page/launcher?clientID=fixture' });
+  await button('继续').click();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await checkFocus(button('目标会话'));
+    await screenshot(`03-binding-focus-narrow-${theme}`);
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await panel.locator('.remote-setup-stage').evaluate(element => getComputedStyle(element).animationName), 'none');
+  await page.evaluate(() => window.desktop.remoteAction({ type: 'disconnect' }));
+  assert.deepEqual(errors, []);
+  assert.deepEqual(failures, []);
+  console.log('Remote acceptance passed: staged SDK/helper, narrow IPC, binding, cross-session routing, dedup, approvals, callback probe, stop, disconnect and UI.');
+} finally {
+  held?.destroy();
+  if (app) await closeDesktopFixture(app);
+  server.closeAllConnections();
+  await new Promise(resolve => server.close(resolve));
+}

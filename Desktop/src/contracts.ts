@@ -2,6 +2,7 @@ import type { WorkflowState } from './workflow-state';
 import type { SessionImportBridge } from './session-import';
 import type { LaunchState } from './launch-state';
 import type { BackgroundAgentClient } from './background-agents';
+import type { RemoteBridge } from './remote';
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
 export interface Content { historical?: boolean }
@@ -94,7 +95,7 @@ export interface CronCreateInput { runtimeId: string; cron: string; prompt: stri
 export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
-export interface DesktopBridge extends SessionImportBridge, BackgroundAgentClient {
+export interface DesktopBridge extends SessionImportBridge, BackgroundAgentClient, RemoteBridge {
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;

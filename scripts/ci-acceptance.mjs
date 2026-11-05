@@ -90,6 +90,7 @@ export const acceptanceGroups = {
     'verify-usage-overview-runtime.mjs',
     'verify-background-subagents.mjs',
     'verify-background-agent-controls.mjs',
+    'verify-remote-access.mjs',
     'verify-custom-providers.mjs',
     'verify-crash-log.mjs',
     'verify-steppage-registration.mjs',
@@ -116,6 +117,8 @@ export const localOnly = [
   'verify-fulltext-search-preview.mjs',
   // Standalone first-run design preview; no production onboarding integration is shipped.
   'verify-first-run-preview.mjs',
+  // Isolated Remote UI only; this check starts its own Vite server and uses no real channels.
+  'verify-remote-access-preview.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

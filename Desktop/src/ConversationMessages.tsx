@@ -7,6 +7,7 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Bot, Brain, Check, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, ModelChange, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
+import { redactSensitiveText } from './subagent-redact';
 import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
 import type { BackgroundSubagentStates, ResponseItem, SubagentTask } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
@@ -358,7 +359,8 @@ function SubagentTaskRow({ task, onOpen, language }: {
 }) {
   const zh = language === 'zh';
   const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'queued' ? 'pending' : task.status === 'skipped' ? 'skipped' : task.status === 'aborted' ? 'stopped' : 'failed';
-  const summary = task.task.replace(/\s+/gu, ' ').trim();
+  const summary = redactSensitiveText(task.task).replace(/\s+/gu, ' ').trim();
+  const agent = redactSensitiveText(task.agent);
   const label = zh ? (state === 'pending' ? '待执行' : state === 'skipped' ? '已跳过' : state === 'running' ? '进行中' : state === 'done' ? '已完成' : task.status === 'aborted' ? '已终止' : '已失败')
     : (state === 'pending' ? 'Pending' : state === 'skipped' ? 'Skipped' : state === 'running' ? 'Running' : state === 'done' ? 'Completed' : task.status === 'aborted' ? 'Stopped' : 'Failed');
   return <button type="button" className="lane-row" data-tool-state={state} data-lane-agent={task.agent}
@@ -366,7 +368,7 @@ function SubagentTaskRow({ task, onOpen, language }: {
     onClick={() => onOpen(task)}>
     <Bot size={14}/>
     <SubagentStatusIcon state={state} language={language}/>
-    <span className="lane-type">{task.agent || (zh ? '子代理' : 'Subagent')}</span>
+    <span className="lane-type">{agent || (zh ? '子代理' : 'Subagent')}</span>
     <span className="lane-chevron"><DisclosureChevron/></span>
     <span className="lane-summary-text">{summary.slice(0, 80) || (zh ? '无任务描述' : 'No task')}</span>
   </button>;

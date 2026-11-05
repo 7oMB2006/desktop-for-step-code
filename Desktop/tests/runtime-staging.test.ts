@@ -24,6 +24,7 @@ test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and pat
     'packages/coding-agent/src/core/session-import/parsers.ts',
     'packages/coding-agent/src/core/session-import/service.ts',
     'packages/coding-agent/src/core/session-import/types.ts',
+    'packages/coding-agent/src/features/subagent/display-text.ts',
     'packages/coding-agent/src/modes/rpc/desktop-btw.ts',
     'packages/coding-agent/test/session-import.test.ts',
   ]);
@@ -33,12 +34,14 @@ test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and pat
       'step-code-desktop-cron-management.patch',
       'step-code-desktop-cron-recovery-guard.patch', 'step-code-desktop-cron-recovery.patch',
       'step-code-desktop-cron-scope.patch', 'step-code-desktop-cron.patch',
-      'step-code-desktop-plan.patch', 'step-code-desktop-plugins.patch', 'step-code-desktop-v016.patch',
+      'step-code-desktop-plan.patch', 'step-code-desktop-plugins.patch', 'step-code-desktop-subagent-redaction.patch', 'step-code-desktop-v016.patch',
       'step-code-desktop.patch', 'step-code-session-import.patch']);
   assert.equal(manifest.sources['packages/coding-agent/src/features/step-cron.ts'], '6f881338a5d4ac34a416706a1e72b1f6e181cff3');
   assert.notEqual(manifest.patchedSources['packages/coding-agent/src/features/step-cron.ts'],
     manifest.sources['packages/coding-agent/src/features/step-cron.ts']);
   assert.ok(manifest.sources['packages/coding-agent/src/features/subagent/lane-lifecycle.ts']);
+  assert.ok(await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8').then(text => text.includes("'desktop-subagent-redaction'")),
+    'staged runtime advertises the required subagent redaction boundary');
   for (const [name, hash] of Object.entries(manifest.patches)) {
     const bytes = Buffer.from((await readFile(join(root, name), 'utf8')).replace(/\r\n/g, '\n'));
     const actual = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');

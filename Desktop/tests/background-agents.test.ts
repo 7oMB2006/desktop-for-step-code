@@ -14,7 +14,7 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-async function fixture() {
+async function fixture(options: { safeOutput?: boolean } = {}) {
   const calls: { type: string; args?: Record<string, unknown> }[] = [];
   let handle = async (_args?: Record<string, unknown>): Promise<any> => raw();
   const rpc: WorkerTransport = {
@@ -32,7 +32,7 @@ async function fixture() {
   const worker = await pool.open('node', 'step', 'workspace', {});
   calls.length = 0;
   let blocked = false;
-  const service = new BackgroundAgents(pool.workers, () => blocked);
+  const service = new BackgroundAgents(pool.workers, () => blocked, options.safeOutput ?? true);
   return { calls, rpc, pool, worker, service, handle: (next: typeof handle) => { handle = next; },
     block: () => { blocked = true; } };
 }
@@ -57,6 +57,26 @@ test('background projection allowlists fields, keeps missing usage unknown and r
   assert.doesNotMatch(JSON.stringify(result), /private-|hidden|transcript|sessionFile|environment/);
 });
 
+test('background projection redacts encoded free text before rendering or accessibility projection', () => {
+  const source: any = raw();
+  Object.assign(source.lanes[0].results[0], {
+    agent: 'token&amp;quot; = synthetic-agent',
+    task: 'TASK-BEGIN\r\napi&#95;key = synthetic-task\r\nTASK-END',
+    model: 'Bearer&nbsp;synthetic-model',
+    activeTool: 'authorization&amp;colon; Bearer synthetic-tool',
+    errorMessage: 'ERROR-BEGIN\nsecret&#61;synthetic-error\nERROR-END',
+    activeText: 'OUTPUT-BEGIN\napi&#95;key = synthetic-output\nOUTPUT-END',
+  });
+  const step = backgroundAgentsSnapshot(source, 'session-a').lanes[0].steps[0];
+  assert.equal(step.agent, '[redacted]');
+  assert.equal(step.task, 'TASK-BEGIN\r\n[redacted]\r\nTASK-END');
+  assert.equal(step.model, '[redacted]');
+  assert.equal(step.activeTool, '[redacted]');
+  assert.equal(step.error, 'ERROR-BEGIN\n[redacted]\nERROR-END');
+  assert.equal(step.output, 'OUTPUT-BEGIN\n[redacted]\nOUTPUT-END');
+  assert.doesNotMatch(JSON.stringify(step), /synthetic-/);
+});
+
 test('background snapshots enforce identities, timestamps, roster and output bounds', () => {
   const source: any = raw();
   source.lanes = Array.from({ length: 30 }, (_, index) => ({
@@ -79,6 +99,13 @@ test('background snapshots enforce identities, timestamps, roster and output bou
     assert.throws(() => backgroundAgentsSnapshot({ sessionId: 'session-a', lanes: [{ ...raw().lanes[0], ...patch }] }, 'session-a'));
   }
   assert.throws(() => backgroundAgentsSnapshot({ sessionId: 'session-a', lanes: [raw().lanes[0], raw().lanes[0]] }, 'session-a'));
+});
+
+test('background controls fail closed without the runtime redaction capability', async () => {
+  const f = await fixture({ safeOutput: false });
+  assert.throws(() => f.service.read(f.worker.id, 'session-a'), /output safety/i);
+  await assert.rejects(f.service.stop(f.worker.id, 'session-a', laneId), /output safety/i);
+  assert.equal(f.calls.length, 0, 'an unsafe runtime is never queried for child output or control');
 });
 
 test('reads coalesce only within the same host, retain it and release the operation on failure', async () => {

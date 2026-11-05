@@ -53,8 +53,10 @@ export function backgroundAgentsSnapshot(value: unknown, sessionId: string, sett
 export class BackgroundAgents {
   private stopping = new Set<string>();
   private reading = new Map<SessionRuntime, { sessionId: string; rpc: SessionRuntime['rpc']; promise: Promise<BackgroundAgentSnapshot> }>();
-  constructor(private workers: ReadonlyMap<string, SessionRuntime>, private blocked: () => boolean = () => false) {}
+  constructor(private workers: ReadonlyMap<string, SessionRuntime>, private blocked: () => boolean = () => false,
+    private safeOutput = false) {}
   private require(runtimeId: string, sessionId: string) {
+    if (!this.safeOutput) throw new Error('Background agent output safety is unavailable');
     const worker = this.workers.get(runtimeId);
     if (!sessionId || worker?.status !== 'connected' || worker.state?.sessionId !== sessionId || this.blocked()
       || worker.mutating || worker.stopping) throw new Error('Session is not ready');

@@ -154,6 +154,23 @@ try {
   await review.click({ position: { x: 10, y: 15 } });
   await page.locator('#subagent-panel').waitFor({ state: 'detached' });
 
+  const labelSentinel = 'synthetic-subagent-label-sentinel';
+  const labelTask = `LABEL-BEGIN\napi_key = ${labelSentinel}\nLABEL-END`;
+  tasks[0] = { ...tasks[0], task: labelTask };
+  await update('running');
+  await page.waitForFunction(() => document.querySelector('.lane-row[data-lane-agent="review"]')?.textContent.includes('LABEL-BEGIN'));
+  assert.equal((await review.innerText()).includes(labelSentinel), false, 'planned row task labels never display credential lines');
+  assert.equal((await review.getAttribute('aria-label')).includes(labelSentinel), false, 'task label accessibility text uses the same safe copy');
+  await review.dispatchEvent('click');
+  const labelPanel = page.locator('#subagent-panel[aria-hidden="false"]');
+  await labelPanel.waitFor();
+  assert.equal((await labelPanel.innerText()).includes(labelSentinel), false, 'selected panel task labels use a safe copy');
+  assert.equal(await page.evaluate(() => window.desktop.snapshot().then(value => value.messages.find(message => message.toolName === 'subagent').details.results[0].task)), labelTask,
+    'display filtering never rewrites task identity in authoritative history');
+  await review.dispatchEvent('click');
+  await page.locator('#subagent-panel').waitFor({ state: 'detached' });
+  tasks[0] = { ...tasks[0], task };
+  await update('running');
   await page.evaluate(async () => { await window.desktop.preferences({ theme: 'light' }); });
   await app.evaluate(() => { globalThis.subagentStatusFixture.preferences.theme = 'light'; });
   await page.reload();

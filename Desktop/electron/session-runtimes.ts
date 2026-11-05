@@ -54,6 +54,7 @@ export interface SessionRuntime {
   stopping?: boolean;
   cron?: CronState;
   backgroundActive?: boolean;
+  btwActive?: boolean;
   backgroundLanes?: BackgroundLaneState[];
   cronScopeDirectory?: string;
   startupTiming?: RuntimeStartupTiming;
@@ -103,7 +104,7 @@ export class SessionRuntimes {
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
-  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || hasBackgroundWork(worker) || worker.queued
+  get running() { return [...this.workers.values()].some(worker => this.isBusy(worker) || hasBackgroundWork(worker) || worker.btwActive || worker.queued
     || worker.status === 'connected' && (worker.launch?.goal?.status === 'active' || hasScheduledCron(worker.cron))); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
   async preparePrompt(worker: SessionRuntime, message: string) { await this.hooks.beforePrompt?.(worker, message); }
@@ -477,6 +478,7 @@ export class SessionRuntimes {
   async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean } = {}) {
     const assertHost = () => {
       if (worker.remoteAttached) throw new Error('Unbind Remote before changing this session runtime');
+      if (worker.btwActive) throw new Error('Finish or cancel the side question first');
       if (hasBackgroundWork(worker)) throw new Error('Stop background agents before changing this session runtime');
       if (options.stopHost && hasScheduledCron(worker.cron)) throw new Error('Delete scheduled Cron jobs before restarting or changing this runtime; Cron state must be available');
     };

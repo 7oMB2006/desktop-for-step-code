@@ -1,5 +1,460 @@
 # Verification
 
+## PR #190 Capability Removal Synchronization (2026-11-05)
+
+Windows interface run `41869558982`, job `126712778842`, fails in
+`verify-capabilities.mjs` waiting for the second plugin-removal confirmation.
+The saved screenshot shows expanded plugin details without a confirmation
+or visible error. The same commit's Windows sessions and runtime groups pass.
+
+The original script passes locally at normal speed and 6x CPU throttling,
+so the missing-confirmation timeout itself was not reproduced. A temporary
+in-memory diagnostic records both uninstall clicks during the native
+240-ms disclosure animation, at approximately 175 and 167 ms. The acceptance
+now waits for the shared `settleLayout` helper after opening the exact plugin
+disclosure and scopes confirmation to that plugin's named group. A failure
+records pending/confirmation/disclosure state without an additional locator
+wait. No product code, timeout, animation or safety assertion is changed.
+
+The updated complete capability acceptance passes at normal speed and 6x
+CPU throttling. Both throttled uninstall clicks now occur with no remaining
+disclosure animation. Typecheck and syntax/whitespace checks pass, as do all
+15 motion-helper tests and 39 CI policy/runner tests (one platform skip).
+The before/after diagnostic logs and probe are ignored local evidence under
+`Desktop/test-results/ci190-capabilities-*`; the original cloud screenshots
+are in `Desktop/test-results/ci190-capabilities-41869558982`.
+
+The same head's macOS run `41869558871` did not acquire a hosted ARM64 runner.
+GitHub reports capacity constraints and no preparation steps executed; the
+dependent gate correctly failed. This is neither a macOS product failure
+nor a passing native acceptance receipt. Replacement current-head cloud
+execution remains required. No package or shortcut was changed.
+
+## PR #190 First-run Main Synchronization (2026-11-05)
+
+Merged main `5d35c81` (PR #189 first-run preview) into the BTW branch.
+Only this verification log conflicted; both features' existing records are
+retained. The acceptance inventory keeps the first-run design fixture
+explicitly local-only and preserves both BTW CI scripts. No product behavior,
+runtime pin, package version or acceptance assertion was changed to resolve
+the conflict.
+
+Typecheck, production build and all 44 focused BTW, quote, composer, command
+and runtime-staging tests pass. CI inventory/runner/policy checks pass
+39 tests with one platform skip. `verify-first-run-preview.mjs`,
+`verify-btw.mjs`, `verify-btw-electron.mjs`, `verify-appearance.mjs` and
+`verify-plan-review.mjs` pass serially against the combined source.
+New preview and BTW screenshots are under
+`Desktop/test-results/btw-main-merge-20261105`.
+
+These are local Windows checks with isolated profiles and loopback fixtures,
+not fresh cloud CI, native macOS, installer or real-account acceptance.
+The existing Desktop dist was rebuilt in place (105 files, 9.70 MiB);
+no new package, shortcut change or generated-output deletion was performed.
+The PR remains unmerged.
+
+## PR #190 Main Conflict Resolution (2026-11-04)
+
+Merged main `a59efb9` (PR #188 background-agent controls) into the BTW
+branch without replacing either feature's runtime fields, preload contracts,
+acceptance registration or TODO records. The manifest applies the background
+controls patch before the BTW patch and pins newly calculated combined
+`rpc-mode.ts` / `rpc-types.ts` hashes; neither upstream pin nor app version
+changes.
+
+Replayed all 15 shared patches from the fixed upstream checkout in an isolated
+clone. The official Windows applier passed every pre-image, patch and result
+guard. The macOS additions also applied and matched every combined source
+hash; this is patch verification on Windows, not native macOS acceptance.
+The combined upstream workspace built offline, and runtime staging with
+Node 24.16.0 matched all manifest sources and advertised both RPC features.
+
+An initial test run used the old staged runtime and rejected
+`desktop_subagents` as unknown. After rebuilding and restaging the combined
+runtime, the complete serial Desktop suite passed: 847 tests, 833 passed,
+14 platform skips, no failures. Typecheck, Desktop production build and
+`git diff --check` passed. CI inventory/runner/policy checks passed
+39 tests with one platform skip. `verify-btw.mjs`,
+`verify-btw-electron.mjs`, `verify-background-agent-controls.mjs` and
+`verify-workflow.mjs` passed serially against the combined source build.
+Logs and BTW UI evidence are under
+`Desktop/test-results/btw-main-merge-20261104`.
+
+No installer, desktop shortcut or running installed application was changed.
+Current-head Windows/macOS cloud checks remain separate from these local
+results; the PR is not merged by this work.
+
+## PR #190 Native Impact Sampling And Undo Diagnostics (2026-11-04)
+
+At `6fb080c`, Windows run `41697711483` passes every group and the final
+gate. macOS run `41697711461` passes preparation, all source groups and
+the complete interface source/package group. Its packaged runtime group
+misses the task impact's brief peak in natural rAF samples. The fixture now
+captures the actual product-created WAAPI effect with the existing helper,
+seeks its real transforms, then resumes playback. The original amplitude
+threshold remains; duration and zero-offset endpoints are also asserted.
+A MutationObserver supplements rAF for transient phase/particle evidence.
+
+The packaged sessions group times out in `verify-turn-undo.mjs`. Artifact
+ZIP timestamps place the last new screenshot after successful real undo,
+before the second-session/peer checks; the source script passes. Its old
+failure path can await app shutdown while an outstanding fixture task
+requires quit confirmation, suppressing the original error until the outer
+deadline. The script now uses the shared orderly fixture shutdown, releases
+its HTTP connections, and logs each phase and any original failure first.
+The test also waits for the renderer's existing ready control around reloads
+and asserts the exact restored runtime/session before submitting edits.
+No product code, assertion, outer deadline or CI gate is removed or relaxed.
+
+Both scripts pass once against source and twice consecutively against the
+delivered Windows preview. Impact samples are `0, -2, 1.4, -0.7, 0.3, 0`
+pixels over the actual 360-ms effect. Evidence is
+`ci190-task-impact-sampling.log` and `ci190-turn-undo-readiness.log` under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. CI policy tests pass
+39 checks with one platform skip; all 15 motion-helper browser regressions
+pass with the matching staged Chromium. The original macOS undo hang is not
+reproduced locally; fresh cloud execution remains required. These are
+acceptance-only changes and do not change the delivered package bytes.
+
+## PR #190 Reference Geometry Sampling (2026-11-04)
+
+macOS interface job `126118971520`, run `41693089514`, passes its source
+group but fails the packaged `verify-btw.mjs` reference-position assertion.
+The first input rectangle is sampled during the sidebar's final transform
+frame: x is `633.0022583007812` before opening references and `633` after;
+the width differs by less than `0.0001` pixels.
+
+The fixture now reuses the shared `settleLayout` helper for opening the
+sidebar and before both input-rectangle samples. It waits for fonts, finite
+animations on the element and its ancestors, and rendered layout frames.
+The exact rectangle equality assertion is unchanged: no rounding, positional
+tolerance, fixed wait extension or product motion change was added.
+
+Two consecutive complete runs of `verify-btw.mjs` pass in Edge, including
+reference handoff, exact geometry, streaming, focus, themes, responsive
+layouts and reduced motion. Evidence is `ci190-btw-stable-layout.log` and
+its adjacent screenshot directory under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. This remains an
+acceptance-only change; the delivered Windows preview's application bytes
+are unchanged. Fresh cloud acceptance remains pending.
+
+## PR #190 Model Switch Reload Readiness (2026-11-04)
+
+macOS packaged sessions job `126102093019`, run `41682022854` attempt 2,
+passes its source group but fails at `verify-model-switch.mjs:221` on
+`branchSession` with `Session operation in progress`. After reloading a
+clone, the history event can paint the switch notice while the renderer's
+initial snapshot read still holds the runtime operation guard. The fixture
+already waits for the enabled new-chat control after its first history
+restore, but omitted that readiness condition at the next two reloads.
+
+Both reloads now wait for the existing ready control before branching or
+creating a draft. Additional snapshot assertions verify the exact restored
+runtime and session identities. All clone, branch, model-history, favorites,
+default-selection and unavailable-model recovery checks remain enabled;
+production guards, timeouts and CI policy are unchanged.
+
+One source run and two consecutive runs of the delivered Windows preview
+pass. Evidence is `ci190-model-switch-readiness.log` under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. The CI runner and policy
+suite reports 39 passes and one platform skip. This follow-up changes
+acceptance code and this record only, so the delivered `bfa74b4` application's
+production sources and package bytes remain unchanged. A fresh cloud run
+is still required.
+
+## PR #190 Task Progress Fixture Handshake (2026-11-04)
+
+After the shared rail fix, all Windows groups and the macOS source runtime
+group pass. macOS packaged runtime job `126064844339` then times out at the
+task-progress fixture's full-but-still-running state. Its mock response ends
+on a fixed 2.4-second timer, so a slower native render can miss that state.
+
+The mock now holds the first post-tool answer until the test observes both
+the full task count and an actually full running progress-bar frame, then
+explicitly releases the final model chunk. Existing sound, impact, particles,
+completion, no-replay, next-turn retirement, history and reload assertions
+remain unchanged; no timeout or CI gate is relaxed. The fixture also closes
+its own HTTP connections on failure.
+
+One source run and two consecutive runs of the existing Windows preview
+package pass. Evidence is `ci190-task-progress-handshake.log` under
+`D:\Desktop Runtime Builds\btw-20261103\evidence`. This follow-up changes
+only acceptance code and this record; the delivered `bfa74b4` application's
+production sources and package bytes are unchanged. The replacement cloud
+run remains a separate pending gate.
+
+## BTW PR #190 Shared Rail Acceptance (2026-11-04)
+
+The initial Windows runtime job `126043981644` and macOS runtime job
+`126047868400` fail at the same `verify-electron.mjs` exact rail-label
+assertion. The production rail has the intended new side-question entry
+between Context and Changes, but the shared acceptance still expects the
+previous eight entries.
+
+The shared acceptance now requires all nine entries in order, one native
+side-question icon and one `btw-panel` trigger. The existing tooltip placement
+and visibility checks now also cover the new entry; no assertion, timeout or
+CI gate was removed. The complete source `verify-electron.mjs` passes on
+Windows with its real staged runtime and isolated fixture profile.
+Replacement cloud and packaged-executable runs remain separate pending gates.
+
+## BTW PR Main Synchronization (2026-11-04)
+
+The feature commit `cd2cafb` is synchronized with main `2febc93` at merge
+`664de94`, preserving PR #187's model favorites and launch acceptance fix.
+Only TODO and verification prose required conflict resolution; both lines'
+receipts are retained. The runtime pin, version and existing preview package
+remain unchanged.
+
+Typecheck and production build pass. The merged serial Desktop suite reports
+834 tests: 820 passed, 14 platform skips, zero failures. Its receipt is
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-main-sync-20261104-unit.log`.
+The CI inventory/runner/policy suite passes 39 tests with one platform skip.
+`verify-btw.mjs` passes against the shared production components, including
+main/side composer style equality, quotes, IME, streaming, responsive layouts,
+complete focus clearance and reduced motion. Fresh dark desktop and light
+320-pixel screenshots were reviewed.
+
+Source `verify-btw-electron.mjs`, `verify-composer-editing.mjs`,
+`verify-chat-quotes.mjs`, `verify-model-effort.mjs` and
+`verify-model-switch.mjs` pass serially. Native tests use isolated profiles
+and loopback providers. This covers the new side/main editor combination,
+reference handoff and the merged favorite/model-selection behavior, not paid
+account billing. Browser and native BTW screenshots total about 1 MiB under
+the same evidence root with the `btw-main-sync-20261104-` prefix.
+The rebuilt Desktop dist is 9.65 MiB; no new package was assembled and no
+existing generated output was deleted.
+
+The latest presentation is still source-only. Cloud CI, native macOS,
+rebuilt-installer and real-account acceptance remain separate, unclaimed
+gates. Per-answer BTW usage is not integrated into Usage totals or estimates.
+
+## BTW Presentation Refresh (2026-11-03)
+
+Source-only refresh after the selected-reference preview package below.
+The existing `btw-quotes-20261103-preview` executable and desktop shortcut
+do **not** include this newer presentation. No installer, version, runtime
+pin, remote branch or release was updated in this pass.
+
+Pending references now reuse the compact quote-count entry and anchored
+popover. After a follow-up correction, the side editor reuses the actual
+`ComposerInput`, `.composer`/`.composer-tools` styles and
+`ComposerActionIcon`, not a separate textarea with similar styling.
+The shared composite field has content-driven growth/shrinkage and a
+complete four-sided focus gutter.
+There are no persistent notes below the editor. Responses reuse the main
+conversation's body typography, live responding indicator and shared
+copy/elapsed/timestamp footer. Cancelled, failed and length-limited outcomes
+remain explicit; elapsed time is a local observation, not provider telemetry.
+
+Typecheck and production build pass. The preceding serial Desktop suite reports
+828 tests: 814 passed, 14 skipped, no failures. The focused native BTW,
+quote and command set passes all 29 tests, including terminal timing and
+late-event guards. The full-suite receipt is
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-composer-refresh-unit.log`.
+
+`verify-btw.mjs` passes in Edge at 1600/1100/390/320 pixels, light/dark,
+including multiline growth and single-line shrinkage, reference preservation,
+quote popover positioning, complete composite-field focus, shared response
+footer and reduced motion. Escape dismisses the open quote popover before
+the parent panel, including when focus remains on its trigger.
+`verify-btw-electron.mjs` and the existing `verify-chat-quotes.mjs` also
+pass through the real source renderer/preload/main/native path.
+
+Chinese finished-answer screenshots with the footer exposed were reviewed
+at desktop and narrow widths; the focused 320-pixel reduced-motion state
+and shared reference popover were also checked. Browser evidence is under
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-composer-refresh`;
+native evidence is in the adjacent `btw-composer-refresh-electron` directory.
+
+The shared-composer follow-up passes typecheck/build and all 38 focused BTW,
+composer, quote and command tests. The updated fixture compares main/side
+computed editor, shell, toolbar and action-button styles. It also checks
+Shift+Enter, select-all deletion, IME Enter, oversized-draft retention and
+request rejection, plus the existing isolation, focus and responsive coverage.
+Source `verify-btw-electron.mjs`, `verify-composer-editing.mjs` and
+`verify-chat-quotes.mjs` pass serially. The main editor's native editing,
+selection deletion, undo/redo and busy-state behavior remain intact.
+Main and side focus indicators match with complete clearance in light/dark
+at 1600/1100/390/320 pixels; Chinese screenshots were reviewed. Follow-up
+evidence is in `btw-shared-composer` and `btw-shared-composer-electron` under
+the same evidence root. No new full-suite or packaged-executable run is
+claimed for this follow-up.
+
+Cloud CI, native macOS, real-account billing and acceptance of a rebuilt
+installer remain separate, unclaimed gates. No generated output was deleted.
+
+## BTW References Windows Preview Package (2026-11-03)
+
+Unsigned local Windows x64 preview, still version `0.6.0`:
+`D:\Desktop For Step Code\Desktop\release\btw-quotes-20261103-preview`.
+This rebuild includes the selected-reference integration described below.
+It packages the uncommitted `codex/btw` worktree based on `7debda7`, not the
+newer main branch, a merged feature or a public release.
+
+Desktop typecheck/build and a fresh native runtime rebuild/stage pass.
+The focused native BTW, quote, command and staging set passes all 32 tests
+after staging. The unchanged complete source-suite receipt remains below.
+All 105 Desktop build files, 1336 runtime files and 26 terminal-module files
+match the packaged resources. The runtime still pins
+`81e79bc4b699148d6823fedde9b5e70d9a80255f`, its two existing overlays,
+Node `v24.16.0` and the reviewed `desktop-btw` compatibility patch.
+The package contains no extra application dependencies in asar.
+Installer metadata and SHA-512 validation pass. Installer SHA-256:
+`fa20e435769ddbaca0e5d838aa539dd232177d55b2f74d21a0804acd84a1ac15`.
+Actual Authenticode status is `NotSigned`.
+
+The new packaged executable passes `verify-btw-electron.mjs`,
+`verify-chat-quotes.mjs`, `verify-command-dispatch.mjs` and
+`verify-terminal-panel.mjs` serially with isolated profiles and a loopback
+provider. Native drag selection, explicit reference submission, received
+Markdown/code fences, independent main draft/references, source navigation,
+no automatic request, no reference reattachment and unchanged main JSONL
+are verified through the packaged renderer/preload/main/native path.
+Existing main-task concurrency, cancellation, model/session isolation,
+640-pixel layout and terminal motion checks remain enabled.
+Packaged BTW screenshots are under
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-quotes-package`;
+the quoted and narrow screenshots were visually reviewed.
+
+The primary desktop shortcut now targets this preview's unpacked executable;
+its previous contents are backed up in the package's
+`acceptance\previous-desktop-shortcut.lnk`. The old preview process was left
+running and its files were not removed. Exit that instance from the tray
+before using the updated shortcut. User acceptance, cloud CI, native macOS,
+installation lifecycle and real-account billing are separate, unclaimed gates.
+
+Post-build artifact inventory: the new preview output is 638.1 MiB; its
+assembly copy is 9.6 MiB under the same D-drive build root. Staged runtime,
+Desktop dist and terminal runtime are 117.0, 9.6 and 63.0 MiB respectively;
+the shared evidence tree is 161.1 MiB. The old preview is still in use.
+No generated output or earlier package was deleted without authorization.
+
+## BTW Selected References (2026-11-03)
+
+Initial source-only addition after the older Windows preview package below.
+The old `btw-20261103-preview` installer does **not** contain this integration.
+The later rebuilt package and shortcut update are recorded above; the source
+pass itself did not update an installer, runtime pin, version, remote branch
+or public release.
+
+Typecheck and production build pass. The serial Desktop suite reports 827
+tests: 813 passed, 14 skipped, no failures. The focused BTW/quote/command set
+also passes all 27 tests, including Markdown serialization, deduplication,
+8,000-character combined-prompt bounds and formatted-reference history budgets.
+
+`verify-btw.mjs` passes in Edge with the real message, selection toolbar and
+quote components: selection-to-BTW handoff, no auto-send, independent main/side
+drafts and references, deduplication/removal, close/reopen retention, session
+clearing, verified source identity and explicit missing-source behavior.
+Oversized submissions preserve draft/references without calling the provider.
+Light/dark and 320/390/1100/1600-pixel checks include toolbar bounds,
+four-sided reference-control/textarea focus extent, rich text and reduced
+motion. Pending-reference screenshots were visually reviewed.
+
+`verify-btw-electron.mjs` passes the actual renderer/preload/main/native path,
+including native mouse-drag selection followed by Ask in side. The loopback
+provider receives the expected selected Markdown and code fences, while the
+main draft/references and saved JSONL remain unchanged. Selection alone makes
+no model request; later questions do not reattach earlier pending references.
+The existing concurrency, cancellation, applied-model, session and layout
+checks remain enabled and pass.
+
+`verify-chat-quotes.mjs` passes its existing native-drag and complete quote
+regressions. It now waits for authoritative navigation completion before
+selecting, rather than dragging across the temporary preview's replacement.
+The same early-drag failure was reproduced against the previous package.
+`verify-quote-annotations-fixture.mjs` also passes Chinese/English,
+light/dark, desktop/narrow, highlight, edit and send checks. The local
+annotation run used installed Edge through a launch wrapper because the
+script's default Playwright Chromium is not installed; assertions are unchanged.
+
+New browser/native evidence is under
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-quotes` and
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-quotes-electron`.
+The full test receipt is `evidence\btw-quotes-unit.log` in the same build root.
+Cloud CI, native macOS and real-account billing remain separate, unclaimed
+gates. The later rebuilt installer's focused checks are recorded above.
+
+## BTW Windows Preview Package (2026-11-03)
+
+Unsigned local Windows x64 preview, version unchanged at `0.6.0`:
+`D:\Desktop For Step Code\Desktop\release\btw-20261103-preview`.
+This packages the uncommitted `codex/btw` worktree based on `7debda7`;
+it is not a public release or a claim that the feature has merged.
+Desktop and the native runtime were rebuilt before packaging. The runtime
+keeps pin `81e79bc4b699148d6823fedde9b5e70d9a80255f`, its two overlays
+and Node `v24.16.0`, with the reviewed `desktop-btw` compatibility patch.
+
+All 105 Desktop build files, 1336 runtime files and 26 packaged terminal-module
+files match their build/staged sources. The packaged Node matches its manifest
+hash; Desktop helpers, file-opening resources, adapters, icons and queue helpers
+also match. The asar roots contain only `dist` and `package.json`.
+Installer metadata and SHA-512 validation pass. Installer SHA-256:
+`04592a891372d77b3cedf30ca84c11e4c27d9953d72a4a17bc8541989bdd1009`.
+Actual Authenticode status is `NotSigned`.
+
+The packaged executable passes `verify-btw-electron.mjs`,
+`verify-command-dispatch.mjs` and `verify-terminal-panel.mjs` serially with
+isolated profiles. BTW acceptance includes real IPC/native streaming, applied
+model changes, main-task concurrency, cancellation, tool/session switching,
+temporary-history isolation and the 640-pixel layout. These use a loopback
+provider, not a paid account. Screenshots are under
+`D:\Desktop Runtime Builds\btw-20261103\evidence\btw-package`.
+Cloud CI, native macOS, real-account billing and installation lifecycle
+acceptance remain unclaimed. User acceptance is pending.
+
+## BTW Local Integration (2026-11-03)
+
+The dedicated `codex/btw` worktree is based on main `7debda7`.
+The v016 source pin and two existing upstream overlays are unchanged.
+Clean shared patch replay and all reviewed postimages pass; replaying the
+Darwin additions with the applier's LF normalization also matches every
+Darwin-specific postimage. This is not native macOS execution.
+
+Windows staged runtime build, Desktop typecheck/build, and the full local
+824-test suite pass: 810 passed, 14 platform skips, zero failures.
+The new deterministic native RPC coverage verifies applied model/auth routing,
+streaming, temporary followups, clear, provider failure, session/scope isolation,
+main-task concurrency and cancellation without main JSONL writes.
+The native RPC rerun also confirms that stopping the main task leaves an
+independent side request active until it is explicitly cancelled.
+Main-process tests cover ownership, cancellation ambiguity, allowlisting,
+runtime/configuration protection, quit review and bounded history.
+
+`verify-btw.mjs` passes with the actual component in Edge: streaming, copy,
+clear, cancellation, close/reopen, slash entry, preserved main drafts, late
+results, light/dark, 320/390/1100/1600-pixel layouts, four-sided focus extent and
+reduced motion. The right-rail migration additionally verifies a single rail-only
+entry, standard/wide/fullscreen modes, docked space reservation, the shared side
+handle, Escape restore before close, narrow headers and clear-focus restoration.
+Code blocks and wide tables reuse the main-message Markdown
+styles; narrow tables scroll horizontally rather than squeezing their headers.
+`verify-btw-electron.mjs` passes the real renderer/preload/main/native route,
+including side cancellation while the main model response remains running,
+unchanged main queue/launch/draft state and no saved side-question content.
+The right-rail rerun also verifies tool switching during streaming cancels only
+the side request while retaining temporary records, with fullscreen Escape
+restoring the sidebar before dismissal. After applying a model change, the
+header shows that model and the next request uses its ID rather than a previous
+answer's model. Leaving during streaming and returning releases the old request,
+discards old followup history, accepts a fresh question and never replays a slash.
+The supported 640-pixel desktop layout fits the window and composer toolbar;
+leaving and returning clears temporary answers without replaying an old slash.
+Existing command-dispatch and composer-menu Electron regressions also pass.
+The final focused ownership/native/command/staging rerun passes all 18 tests;
+typecheck and the production build also pass.
+Both new scripts are registered in the shared acceptance inventory; its
+40 policy/runner/receipt tests pass with one platform skip.
+
+Rebuildable runtime, build outputs and screenshots are under
+`D:\Desktop Runtime Builds\btw-20261103`. The source-only pass did not produce
+an installer; the later Windows preview package is recorded above.
+These are isolated loopback model tests, not real Plan/API-account billing
+acceptance. Cloud CI, native macOS and real-account acceptance are
+not claimed. BTW usage is displayed per answer but is not yet part of local
+Usage totals, cost estimates or main-task performance.
+
 ## PR #189 macOS packaged interaction synchronization (2026-11-04)
 
 The punctuation-only head `192c2f6` passed every Windows group and all three

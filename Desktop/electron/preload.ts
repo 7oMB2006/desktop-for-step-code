@@ -35,6 +35,9 @@ const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('deskt
 const bridge: DesktopBridge = {
   remoteState: () => invoke('remoteState'),
   remoteAction: action => invoke('remoteAction', action),
+  btwAsk: input => invoke('btwAsk', input),
+  btwCancel: input => invoke('btwCancel', input),
+  btwClear: input => invoke('btwClear', input),
   capabilityCatalog: () => invoke('capabilityCatalog'),
   capabilityMutate: input => invoke('capabilityMutate', input),
   capabilityImportSkill: () => invoke('capabilityImportSkill'),

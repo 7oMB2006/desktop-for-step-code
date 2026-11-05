@@ -28,7 +28,8 @@
     "step-code-desktop-cron-recovery-guard.patch": "daefe2df14564a3f4c4a0080d2aca47915df8af3",
     "step-code-desktop-auto-resume.patch": "edb9ad98930223bea700474c7c87f444d344acdd",
     "step-code-desktop-v016.patch": "0ddabcc99129eb2864d992d6e30389f51874162a",
-    "step-code-desktop-background-agents.patch": "11516b7fa7933c8a5007954176817ca8b499aed4"
+    "step-code-desktop-background-agents.patch": "11516b7fa7933c8a5007954176817ca8b499aed4",
+    "step-code-desktop-btw.patch": "ac8e6c3ccc29e4d1ba03516ef698f6859be94d05"
   },
   "sources": {
     "packages/coding-agent/src/core/agent-session.ts": "54acd866d6ad519fd33b0fdb0b7088c2d1357fc6",
@@ -81,8 +82,9 @@
     "packages/coding-agent/src/features/subagent/lane-lifecycle.ts": "8b4f2b4f1bd313a8e9ec321495141089d0d0dfb7",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "52ad4780eb9592645bfb0ff47d479bab901af6d9",
     "packages/coding-agent/src/index.ts": "1455084feb0a19ed89c3035462c923f25ba35f6c",
-    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "1fba4b99ab2c194663811ec5de82ac7256f00d2f",
-    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "f461fe122ded27af97523721c1f483190c13ea15",
+    "packages/coding-agent/src/modes/rpc/desktop-btw.ts": "a28d4586ca1ced935771784b5e1df30fa56886df",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "918ba9c9452a1801f0723ca67e81b10a457ea9fe",
+    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "0956dbd3ee40759a50bf27ca3bf4befc9c0553d2",
     "packages/coding-agent/src/step/mcp.ts": "569b7203dfa2ce28955ac1c2c93b0a9fd317d484",
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",

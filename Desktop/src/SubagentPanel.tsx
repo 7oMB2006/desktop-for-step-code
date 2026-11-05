@@ -6,7 +6,7 @@ import { responsePresentation } from './conversation-presentation';
 import { CronMessage } from './CronMessage';
 import { AutoResumeMessage } from './AutoResumeMessage';
 import { Tool, Text } from './ConversationMessages';
-import { redactSubagentMessages, redactSensitiveLines } from './subagent-redact';
+import { redactSubagentMessages, redactSensitiveLines, redactSensitiveText } from './subagent-redact';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import './subagent-panel.css';
@@ -50,18 +50,21 @@ function SubagentContent({ task, onBackground, ...props }: { task: SubagentTask;
   // Records keep a bounded output tail instead of a child transcript, so settled steps still show
   // what the child produced even when no transcript rode along.
   const output = useMemo(() => redactSensitiveLines(task.output ?? ''), [task.output]);
+  const agent = redactSensitiveText(task.agent);
+  const description = redactSensitiveText(task.task);
+  const model = task.model ? redactSensitiveText(task.model) : undefined;
   const settled = state === 'done' || state === 'failed' || state === 'stopped';
   return <div className="subagent-body">
     <div className="subagent-head">
-      <span className="lane-type">{task.agent || (zh ? '子代理' : 'Subagent')}</span>
+      <span className="lane-type">{agent || (zh ? '子代理' : 'Subagent')}</span>
       <span className="subagent-status" data-lane-state={task.status} role="img" aria-label={status}>
         <SubagentStatusIcon state={state} language={props.language}/>
       </span>
-      {task.model && <span className="subagent-meta">{task.model}{task.turns ? ` · ${zh ? '轮次' : 'turns'} ${task.turns}` : ''}</span>}
+      {model && <span className="subagent-meta">{model}{task.turns ? ` · ${zh ? '轮次' : 'turns'} ${task.turns}` : ''}</span>}
     </div>
     <div className="subagent-execution-kind"><span>{task.backgroundAgentId ? zh ? '后台任务' : 'Background task' : zh ? '前台调用' : 'Foreground call'}</span>
       {task.backgroundAgentId && onBackground && <button type="button" onClick={onBackground}><ArrowUpRight size={12}/>{zh ? '查看后台详情' : 'Open background details'}</button>}</div>
-    <p className="subagent-task">{task.task || (zh ? '无任务描述' : 'No task description')}</p>
+    <p className="subagent-task">{description || (zh ? '无任务描述' : 'No task description')}</p>
     <p className="subagent-note">{zh
       ? '只读记录。子代理由主会话分发任务后独立执行，此处无法与它对话，也无法追加指令。'
       : 'Read-only record. The subagent runs on its own after the dispatch; you cannot talk to it or send follow-ups here.'}</p>

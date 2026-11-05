@@ -3,11 +3,10 @@ import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
-import { once } from 'node:events';
 import { access, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { closeDesktopFixture, releaseExitedFixturePipes } from './close-desktop-fixture.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 assert.ok(['win32', 'darwin'].includes(process.platform), 'This acceptance exercises native Bash and the pinned runtime');
 await mkdir('test-results', { recursive: true });
@@ -250,31 +249,18 @@ try {
     console.log('then_run fixture: orderly shutdown');
     const child = app.process();
     const context = app.context();
-    const stopped = Promise.all([once(app, 'close'), once(context, 'close')]);
-    const exited = new Promise(resolve => {
-      if (child.exitCode !== null) resolve();
-      else child.once('exit', resolve);
-    });
-    const dispose = releaseExitedFixturePipes(app);
-    let timer;
-    let exitedFirst = false;
     try {
-      await Promise.race([
-        closeDesktopFixture(app),
-        // Closure events remain authoritative if the controller's final RPC reply stalls.
-        stopped,
-        // A clean process exit is orderly shutdown completing even when the driver
-        // misses its own closure events behind the exiting fixture's pipes.
-        exited.then(() => { exitedFirst = true; }),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('then_run orderly shutdown timed out after 30s')), 30000); }),
-      ]);
+      await closeDesktopFixtureAndWait(app);
       assert.equal(child.exitCode, 0, 'The application launcher must exit successfully after orderly shutdown');
-      if (!exitedFirst) {
-        assert.equal(context.isClosed(), true, 'The browser context must close');
-        assert.equal(app.windows().length, 0, 'Every application window must close');
-      }
-      console.log('then_run fixture: closed');
-    } finally { clearTimeout(timer); dispose(); }
+      assert.equal(context.isClosed(), true, 'The browser context must close');
+      assert.equal(app.windows().length, 0, 'Every application window must close');
+      console.log('then_run fixture: driver and launcher closed');
+    } catch (error) {
+      console.error('then_run shutdown resources:', JSON.stringify({ exitCode: child.exitCode,
+        resources: process.getActiveResourcesInfo(), contextClosed: context.isClosed(),
+        windows: app.windows().length }));
+      throw error;
+    }
   }
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));

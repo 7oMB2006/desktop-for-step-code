@@ -1,5 +1,41 @@
 # Verification
 
+## Plugin Center Latest Main Follow-Up (2026-11-05)
+
+PR #195 integrates main `495d974`, including PR #193's subagent redaction,
+without changing pin `81e79bc4` or either upstream overlay. The combined manifest
+retains both template-input provenance and subagent redaction, with the
+template-aware AgentSession postimage. Independent read-only review found no
+additional merge defect in the four manual conflict resolutions or the
+auto-merged main-process configuration guards.
+
+A fresh pinned checkout replays all 17 shared patches and validates all 43
+postimages. A separate physical QA mirror builds the production application and
+stages the newly compiled runtime with Node 24.16.0; no build writes through the
+workspace runtime/node_modules junctions. Typecheck, 62 focused staging,
+background, conversation, subagent and shutdown tests pass. CI inventory,
+policy and runner tests pass 39 checks with one platform skip. Both production
+PluginCenter/input-MCP browser verifiers pass using the installed Edge.
+
+The merged build passes real isolated Electron first-run lifecycle, capability
+management, background controls, chained-runtime notification safety, BTW and
+subagent status acceptance. Capability management initially failed at uninstall;
+the unchanged full verifier passes on rerun. The initial serial unit run left
+owned background-runtime processes alive after its assertions; those processes
+were manually terminated, so that run is not counted as a clean full-suite
+pass. No product fix for either transient observation is claimed. A separate,
+unassisted serial rerun and fresh Windows/macOS cloud results are tracked in
+PR #195 rather than inferred from the previous head's green checks.
+
+The live production-component preview remains available on loopback port 5297
+with a mocked bridge. It does not exercise the daily app, real credentials or
+billing. New generated artifacts are isolated below
+`D:/DFSC-Preview-QA/plugin-main-sync-20261105-*`: the physical application/runtime
+mirror is about 201.6 MiB, clean replay 17 MiB and browser evidence 2.3 MiB,
+excluding linked dependency targets. These were inventoried, not deleted.
+No installer, shortcut change, daily-profile replacement, PR merge, release or
+marketplace submission is included in this synchronization.
+
 ## Plugin Center PR Integration (2026-11-05)
 
 The plugin-center/authoring branch initially integrates main `3158d8d`, retaining
@@ -464,6 +500,165 @@ acceptance are represented. Plan ASR retains the existing BVR dedicated-model
 route on the selected Plan endpoint; real-account ASR availability and billing
 have not been retested in this integration. Abort cannot undo a request already
 accepted by a provider.
+## PR #193 main synchronization and acceptance corrections (2026-11-05)
+
+Merged main `d0a1009b` (#190 BTW and #192 production first-run) into the original
+PR ancestry without rewriting its five commits. Four conflicts retain both
+capabilities, both added source entries, both verification records and all patch
+hashes. The 16 shared patches apply in the original 14-patch order followed by
+BTW and subagent redaction. The combined Windows replay tree is
+`7cb4ae24e5e8cf0655a0e5057a81b9cc15f6129a`; all 43 source postimages match.
+Node 24.16.0 staging advertises both `desktop-btw` and
+`desktop-subagent-redaction`. The two Darwin additions apply and match all
+44 combined postimages on Windows; this is not native macOS execution.
+The upstream workspace check and complete offline build pass.
+
+The first runtime test command named a nonexistent roster file and actually
+ran five suites, not six: 107 tests passed. A corrected six-file run executes
+111 tests, with 110 passes and one source-CLI invocation timeout. The same
+invocation still times out when isolated with Node 24.16.0 and the allowed D:
+fixture directory; an earlier isolated attempt was blocked by EPERM in the
+system temporary directory. These failures are retained, not skipped or
+converted into a six-suite success claim. The display/output boundary tests
+pass; source CLI launch requires replacement cloud evidence.
+
+The BTW Electron verifier originally classified requests using the final
+message only. Two unchanged runs fail the main-stream isolation assertion.
+An original-flow diagnostic shows RUN-MAIN before a trailing working-context
+reminder; the fixture misclassifies that request and ends it itself. It now
+selects the latest explicit user scenario, waits for the actual held provider
+request, and checks that side cancellation neither destroys nor ends the main
+stream. Two consecutive complete native Electron BTW runs pass. No product
+BTW behavior, cancellation assertion or outer deadline changes.
+
+The then_run verifier could leave its Playwright close promise unawaited when
+launcher exit won the shutdown race. Its new bounded close helper requires both
+controller closure and process exit within the existing 30 seconds. Successful
+exit, closed context and zero windows are always required; close rejection and
+timeout remain failures. Twelve lifecycle unit tests pass, including delayed
+controller closure, exit ordering, close failure and stalled close. A real local
+then_run attempt fails earlier in Bash initialization with `0xC0000142`, then
+completes both controller and launcher shutdown. The requested full native
+three-run verification was therefore not completed. This fixes a demonstrated
+lifecycle gap, but the exact CI-held pipe has not been captured and the original
+cloud hang is not yet proven resolved. Failure diagnostics expose resource
+kinds and closure state, never environment or credential values. No forced
+successful exit or increased CI timeout is introduced.
+
+Desktop type checking, production build and 76 focused security/BTW/first-run
+checks pass. The three subagent security Electron verifiers pass, as do
+production first-run, chat quotes, message order, capability management and
+general Electron acceptance. The production BTW component verifier passes with
+installed Edge; the initial default-browser attempt failed because local
+Playwright Chromium was not installed. CI policy checks pass 30 tests with one
+platform skip. The final serial Desktop suite collects 876 tests: 861 pass,
+14 platform skips and one file-URL Git marketplace clone failure, matching the
+previously recorded local marketplace failure. The complete suite is not green;
+no failure is skipped or hidden. Replacement current-head Windows/macOS checks
+remain required. None of these local fixtures proves installed
+package, live account, paid-model or release readiness. No package, shortcut,
+original dirty worktree or personal Step Code checkout was changed.
+
+## PR #193 sensitive input-key correction (2026-11-05)
+
+The original PR head `4620846` recursively filtered string values but did not
+inspect object keys. Its statement that sensitive object keys were covered was
+incorrect: `{api_key: "synthetic-key-only-value"}` remained unchanged and visible.
+A new test first fails against that implementation, then passes after values
+beneath sensitive keys are replaced in the display copy. Coverage includes both
+trusted subagent tools, top-level and nested keys, encoded keys, arrays, normal
+text preservation, unchanged authoritative history and clean-call reference
+identity. This corrects a missing implementation, not a newly discovered runtime
+patch requirement. The runtime safety patch itself is unchanged.
+
+The original serial Desktop result below remains evidence for the old
+`5d35c814` baseline only. Windows run `41858346184` attempt 2 passed, but attempt
+3 at the same PR head again printed both then_run success messages and hung
+until its 300-second outer deadline. One passing rerun did not establish a
+runner-only cause. The repeated exit hang remains under investigation; neither
+forced successful exit nor extended acceptance deadlines are used.
+
+## Desktop subagent output boundary on background controls main (2026-11-04, local uncommitted candidate)
+
+The candidate is rebased on main `5d35c814`, after the native Background view
+and first-run preview. It preserves the owner-reviewed
+`step-code-desktop-background-agents.patch` byte-for-byte and adds a separate
+final `step-code-desktop-subagent-redaction.patch`. The source pin, two upstream
+overlays, preceding 14 Desktop patches, Darwin additions, scheduler policy and
+runtime authority are unchanged. Staging advertises
+`desktop-subagent-redaction` in addition to the existing lifecycle/control
+capabilities.
+
+Test-first migration on the owner baseline found nine remaining runtime safety
+failures and seven historical display/copy failures; three projection cases
+were already green and were not reimplemented. The native control view also
+failed an encoded-free-text projection test, and a real running background
+child exposed an oversized credential value after the live accumulator clipped
+away its key prefix. The migrated candidate filters Desktop-facing copies before
+their first bound, tracks whether live text/tool fields start mid-line and drops
+that unknown first fragment while preserving later complete lines. Child
+transcripts, runner records, chain `{previous}` inputs, lane identities, stop
+arguments and raw answer hashes remain unchanged. Ordinary CLI behavior is
+covered by explicit controls.
+
+Focused runtime coverage passes 112 tests across six files after whole-workspace
+type checking. Temporarily disabling the outbound policy restores the original
+tool/notification/retention failures; replacing the partial-line projection
+with ordinary line filtering makes all three activeText/tool-argument/tool-output
+tail tests fail. Cancelled child dialog titles are filtered before their first
+200-character bound. Runtime and Desktop display helpers preserve CRLF and useful
+text; encoded and deeply encoded credential labels fail closed with bounded
+decoding.
+
+The 15-patch manifest applies from a fresh `81e79bc4b` checkout. The owner tree
+and reviewed safety tree are captured as Git trees; fresh replay equals the
+safety tree byte-for-byte. Existing 14 patch hashes, existing source preimages,
+the upstream overlay and Darwin platform declarations are unchanged. A
+synthetic preimage failure unwinds all applied patches and preserves only the
+injected pre-existing edit. The final offline monorepo build succeeds. Staging
+with Windows Node v24.16.0 records every required patched source hash and the
+new capability.
+
+Three real Electron/loopback acceptances pass against the staged replay. The
+chain verifier retains foreground success/failure/cancellation and drives a real
+detached child whose parent turn ends before release; parent-visible notification,
+authoritative message/detail, chat render and copy output keep ordinary markers
+without the synthetic secret, while notification-looking user prose remains
+unchanged. The production Agent inspector verifies safe task labels without
+rewriting authoritative task identity. The native Background controls verifier
+drives two real lanes, including a running oversized sensitive first line; list
+RPC and rendered details expose the safe tail without the clipped credential
+fragment, then retain targeted stop, peer completion, reload and session-isolation
+assertions.
+
+The runtime manifest advertises `desktop-subagent-redaction`. Main-process
+Background list/stop fails closed before any RPC call when that capability is
+absent; a control-only runtime therefore cannot silently bypass the early-tail
+boundary. Trusted `subagent` and `agent_send` call arguments use safe display
+copies for credential-bearing strings, while clean calls retain the original
+object reference and authoritative history stays unchanged. Sensitive object
+keys were not filtered in the original PR head; the correction is recorded above.
+The guard is
+covered both ways: a real staged control-capable runtime passes its control
+scenario, while a service without the redaction capability rejects list and
+stop before any RPC call.
+
+Desktop type checking, the focused runtime/staging/display suites and 30 CI
+policy/runner tests pass (one platform skip). The complete serial Desktop suite
+collects 847 tests: 832 pass, 14 platform skips and one failure. The failure is
+the unchanged file-URL Git marketplace clone/update test. An isolated direct
+call reproduces Git Bash `sh.exe` failing to create its MSYS named object with
+`NtCreateDirectoryObject ... 0xC0000022` before reading the fixture repository;
+the marketplace implementation is outside this change. The failure remains
+visible and no timeout, assertion or CI inventory is weakened.
+
+Limitations: this is local uncommitted source/fixture evidence, not cloud CI,
+installed-package, native macOS, real-account, paid-model or release-readiness
+evidence. Existing raw journals/retained files are not rewritten; an old fragment
+whose credential label was already lost cannot be reconstructed. A separate
+model review was unavailable due to provider rate limits. Background reply,
+snapshot generation and offline historical-liveness work remains separate; this
+security patch does not complete TODO Background subagents [I] or [II].
 
 ## Production First-run Integration (2026-11-04)
 

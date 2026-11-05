@@ -14,6 +14,48 @@ test('credential-bearing lines are hidden from a subagent transcript, ordinary t
   assert.equal(redactSensitiveLines(undefined as unknown as string).text, undefined);
 });
 
+test('encoded credential lines are redacted without rewriting safe Markdown or CRLF', () => {
+  // Removing entity/escaped-quote recognition would leak token assignments and Bearer values.
+  for (const line of [
+    'token\\" = synthetic-escaped-token',
+    'token&quot; = synthetic-quoted-token',
+    'token&#34; = synthetic-numeric-token',
+    'token&#x22; = synthetic-hex-token',
+    'token&amp;quot; = synthetic-nested-token',
+    'Bearer&nbsp;synthetic-bearer',
+    'Bearer&#32;synthetic-numeric-bearer',
+    'api&#95;key = synthetic-entity-key',
+    '&#83;TEP_SERVICE_URL = synthetic-env',
+  ]) {
+    const original = `**Start**\r\n\r\n${line}\r\n\r\nEnd &amp; safe`;
+    assert.deepEqual(redactSensitiveLines(original), {
+      text: '**Start**\r\n\r\n[redacted]\r\n\r\nEnd &amp; safe', redacted: 1,
+    }, line);
+  }
+  assert.deepEqual(redactSensitiveLines('**Start**\r\n\r\nEnd &amp; safe'), {
+    text: '**Start**\r\n\r\nEnd &amp; safe', redacted: 0,
+  });
+});
+
+test('deeply encoded child output fails closed instead of requiring unbounded decoding', () => {
+  const deepEntity = '&' + 'amp;'.repeat(16) + '#95;';
+  const original = `BEGIN\napi${deepEntity}key = synthetic-deep-encoded\nEND`;
+  assert.equal(redactSensitiveLines(original).text, 'BEGIN\n[redacted]\nEND');
+  assert.equal(redactSensitiveLines(`BEGIN\n${deepEntity}\nEND`).text, 'BEGIN\n[redacted]\nEND');
+  const safe = 'ordinary &amp; text';
+  assert.equal(redactSensitiveLines(safe).text, safe);
+});
+
+test('nested typed notifications retain XML boundaries when redacted before panel presentation', () => {
+  const content = '<agent-notification agentId="lane-a" event="background_done" status="completed">token&quot; = synthetic-panel-key\r\n\r\nEnd</agent-notification>';
+  const history = [{ role: 'custom', customType: 'agent-notification', content }];
+  const original = structuredClone(history);
+  const { messages, redacted } = redactSubagentMessages(history);
+  assert.equal(messages[0].content, '<agent-notification agentId="lane-a" event="background_done" status="completed">[redacted]\r\n\r\nEnd</agent-notification>');
+  assert.equal(redacted, 1);
+  assert.deepEqual(history, original);
+});
+
 test('tool arguments are dropped wholesale when a secret appears inside them', () => {
   const { messages, redacted } = redactSubagentMessages([{
     role: 'assistant',

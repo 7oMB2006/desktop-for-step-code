@@ -23,6 +23,8 @@ await writeFile(join(sessions, 'btw-fixture.jsonl'), [
 await writeFile(join(runtimeProfile, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
 const requests = [];
 let heldMain;
+let mainRequested;
+const mainRequest = new Promise(resolve => { mainRequested = resolve; });
 const chunk = (response, text, done = false) => {
   response.write(`data: ${JSON.stringify({ id: 'btw', object: 'chat.completion.chunk', model: 'fixture',
     choices: [{ index: 0, delta: { content: text }, finish_reason: done ? 'stop' : null }],
@@ -33,10 +35,12 @@ const chunk = (response, text, done = false) => {
 const server = createServer(async (request, response) => {
   let body = ''; for await (const part of request) body += part;
   const parsed = JSON.parse(body); requests.push(parsed);
-  const last = JSON.stringify(parsed.messages.at(-1)?.content);
+  const scenario = [...parsed.messages].reverse().filter(message => message.role === 'user')
+    .map(message => JSON.stringify(message.content))
+    .find(content => /RUN-MAIN|HOLD-SIDE|SIDE-FIRST|AFTER-SESSION-SWITCH|WHY-THIS-REFERENCE|NEXT-QUOTED-QUESTION|SIDE-QUESTION-AFTER-REFERENCE/.test(content)) ?? '';
   response.writeHead(200, { 'content-type': 'text/event-stream' });
-  if (last.includes('RUN-MAIN')) { heldMain = response; chunk(response, 'Main running.'); }
-  else if (last.includes('HOLD-SIDE')) chunk(response, 'Partial side answer.');
+  if (scenario.includes('RUN-MAIN')) { heldMain = response; chunk(response, 'Main running.'); mainRequested(); }
+  else if (scenario.includes('HOLD-SIDE')) chunk(response, 'Partial side answer.');
   else { chunk(response, 'SIDE-ANSWER '); setTimeout(() => { if (!response.destroyed) chunk(response, 'isolated.', true); }, 100); }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -88,12 +92,21 @@ try {
   await panel.getByRole('button', { name: 'Close side question', exact: true }).click();
   await send('RUN-MAIN');
   await page.waitForFunction(() => document.querySelector('.composer-action-button')?.getAttribute('data-action') === 'stop');
+  let mainTimer;
+  try {
+    await Promise.race([mainRequest, new Promise((_, reject) => {
+      mainTimer = setTimeout(() => reject(new Error('The held main provider request did not arrive')), 10000);
+    })]);
+  } finally { clearTimeout(mainTimer); }
+  assert.ok(heldMain && !heldMain.writableEnded, 'The fixture holds the actual main request, not a trailing context reminder');
   await send('/btw HOLD-SIDE');
   await panel.getByText('Partial side answer.', { exact: true }).waitFor();
   await panel.getByRole('button', { name: 'Stop side question', exact: true }).click();
   await panel.locator('[data-state="cancelled"]').waitFor();
   const still = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(still.state.isStreaming, true, 'Stopping a side question does not abort the main task');
+  assert.equal(heldMain.destroyed, false, 'Side cancellation does not close the main provider stream');
+  assert.equal(heldMain.writableEnded, false, 'The main response stays held until explicitly released');
   assert.ok(!JSON.stringify(still.messages).includes('HOLD-SIDE'));
   chunk(heldMain, ' Main complete.', true);
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);

@@ -9,6 +9,7 @@ import { isolatedEnvironment } from '../electron/runtime';
 import { quitReasons } from '../electron/quit-review';
 import type { RuntimeEvent } from '../src/contracts';
 import { BackgroundAgents } from '../electron/background-agents';
+import { backgroundSubagentStates, projectBackgroundSubagentStates } from '../src/conversation-presentation';
 
 for (const outcome of ['complete', 'suspend', 'control'] as const) {
 test(`pinned RPC background lane survives parent end and navigation: ${outcome}`, { timeout: 60000 }, async () => {
@@ -189,3 +190,252 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
   }
 });
 }
+
+test('legal agent_send reply resumes a lane: real tool array, derived running, completed after release', { timeout: 60000 }, async () => {
+  const profile = await mkdtemp(join(tmpdir(), 'desktop-background-runtime-'));
+  const workspace = join(profile, 'workspace');
+  await mkdir(workspace);
+  let releaseChild!: () => void;
+  const childGate = new Promise<void>(resolve => { releaseChild = resolve; });
+  let releaseReply!: () => void;
+  const replyGate = new Promise<void>(resolve => { releaseReply = resolve; });
+  let childRequested = false, replyRequested = false, laneId = '', modelRequests = 0;
+  const failures: unknown[] = [];
+  const text = (message: any) => typeof message?.content === 'string' ? message.content
+    : message?.content?.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('\n') ?? '';
+  const server = createServer(async (req, res) => {
+    try {
+      assert.equal(req.headers.authorization, 'Bearer isolated-background-fixture');
+      let raw = '';
+      for await (const chunk of req) raw += chunk;
+      const body = JSON.parse(raw);
+      modelRequests++;
+      const task = text(body.messages.findLast((message: any) => message.role === 'user'));
+      const toolReturned = body.messages.some((message: any) => message.role === 'tool');
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const send = (delta: unknown, finish_reason: string | null = null) => res.write(`data: ${JSON.stringify({
+        id: 'background-fixture', object: 'chat.completion.chunk', created: 1, model: body.model,
+        choices: [{ index: 0, delta, finish_reason }],
+      })}\n\n`);
+      send({ role: 'assistant', content: '' });
+      if (task === 'BACKGROUND-CHILD') {
+        childRequested = true;
+        await childGate;
+        if (res.destroyed) return;
+        send({ content: 'BACKGROUND-CHILD-DONE' }, 'stop');
+      } else if (task === 'BACKGROUND-REPLY') {
+        replyRequested = true;
+        await replyGate;
+        if (res.destroyed) return;
+        send({ content: 'REPLY-DONE' }, 'stop');
+      } else if (task === 'BACKGROUND-PARENT' && !toolReturned) {
+        assert.ok(body.tools.some((tool: any) => tool.function?.name === 'subagent'));
+        send({ tool_calls: [{ index: 0, id: 'background-call', type: 'function',
+          function: { name: 'subagent', arguments: JSON.stringify({
+            agent: 'general', task: 'BACKGROUND-CHILD', run_in_background: true,
+          }) } }] }, 'tool_calls');
+      } else if (task === 'BACKGROUND-FOLLOWUP' && !body.messages.some((message: any) =>
+        message.role === 'tool' && message.tool_call_id === 'reply-call')) {
+        send({ tool_calls: [{ index: 0, id: 'reply-call', type: 'function', function: { name: 'agent_send',
+          arguments: JSON.stringify({ lane_id: laneId, action: 'reply', prompt: 'BACKGROUND-REPLY' }) } }] }, 'tool_calls');
+      } else {
+        send({ content: task.includes('agent-notification') ? 'BACKGROUND-ACKNOWLEDGED' : 'PARENT-IDLE' }, 'stop');
+      }
+      res.end('data: [DONE]\n\n');
+    } catch (error) { failures.push(error); if (!res.headersSent) res.writeHead(500); res.end(); }
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`;
+  await writeFile(join(profile, 'config.toml'),
+    'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
+  await writeFile(join(profile, 'models.json'), JSON.stringify({ providers: { fixture: {
+    api: 'openai-completions', baseUrl: origin, apiKey: 'isolated-background-fixture',
+    models: [{ id: 'fixture', name: 'Background fixture', contextWindow: 100000, maxTokens: 2048 }],
+  } } }));
+  const pool = new SessionRuntimes(() => {}, undefined, { idleLimit: () => 0 });
+  const node = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
+  const entry = resolve('runtime/step/dist/bundle/step.js');
+  const env = isolatedEnvironment(profile);
+  const waitFor = async (predicate: () => boolean) => {
+    const until = Date.now() + 25000;
+    while (!predicate()) {
+      assert.deepEqual(failures, []);
+      for (const worker of pool.workers.values()) for (const request of worker.pendingUI.values()) {
+        assert.equal(request.method, 'confirm');
+        assert.match(request.title ?? '', /subagent/i);
+        pool.respondToRequest(worker, { id: request.id, confirmed: true });
+      }
+      if (Date.now() > until) throw new Error(`Background fixture timed out: child=${childRequested}, reply=${replyRequested}`);
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  };
+  try {
+    const host = await pool.open(node, entry, workspace, env);
+    await host.rpc.request('prompt', { message: 'BACKGROUND-PARENT' });
+    await waitFor(() => childRequested && host.backgroundActive === true && !pool.isBusy(host) && text(host.messages.at(-1)) === 'PARENT-IDLE');
+    releaseChild();
+    await waitFor(() => !host.backgroundActive && !pool.isBusy(host)
+      && host.messages.some(message => text(message).includes('BACKGROUND-ACKNOWLEDGED')));
+    assert.deepEqual(failures, []);
+    laneId = host.messages.find(message => message.role === 'toolResult' && message.toolName === 'subagent')!.details!.agentId as string;
+    assert.match(laneId, /^lane_[0-9a-f]{8}$/);
+    assert.equal(backgroundSubagentStates(host.messages).get(laneId), 'completed');
+    await host.rpc.request('prompt', { message: 'BACKGROUND-FOLLOWUP' });
+    await waitFor(() => replyRequested && host.backgroundActive === true && !pool.isBusy(host));
+    const native = await host.rpc.request('desktop_subagents', { sessionId: host.state!.sessionId, action: 'list' });
+    const reply = host.messages.filter(message => message.role === 'toolResult' && message.toolName === 'agent_send').at(-1)!;
+    assert.equal(Array.isArray(reply.details), true, 'agent_send reply returns a real lane array');
+    assert.deepEqual((reply.details as unknown as { agentId: string; status: string }[]).map(row => ({ id: row.agentId, status: row.status })),
+      [{ id: laneId, status: 'running' }]);
+    assert.equal(native.lanes.length, 1);
+    assert.equal(native.lanes.find((lane: any) => lane.agentId === laneId)?.status, 'running');
+    assert.equal(backgroundSubagentStates(host.messages).get(laneId), 'running');
+    assert.equal(pool.running, true);
+    assert.equal(quitReasons(pool, false).runningTasks, 1);
+    let guardRejected = false;
+    try { await pool.assertBackgroundIdle(host); } catch { guardRejected = true; }
+    assert.equal(guardRejected, true, 'assertBackgroundIdle rejects a genuinely active lane');
+    releaseReply();
+    await waitFor(() => !host.backgroundActive && !pool.isBusy(host)
+      && backgroundSubagentStates(host.messages).get(laneId) === 'completed');
+    assert.deepEqual(failures, []);
+    await pool.assertAllIdle();
+    assert.equal(quitReasons(pool, false).runningTasks, 0);
+  } finally {
+    releaseReply();
+    releaseChild();
+    await pool.stopAll();
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+test('suspended background lane stays gone on reopen: native lanes empty, known-empty cache, unknown projection, untouched JSONL', { timeout: 60000 }, async () => {
+  const profile = await mkdtemp(join(tmpdir(), 'desktop-background-runtime-'));
+  const workspace = join(profile, 'workspace');
+  await mkdir(workspace);
+  let releaseChild!: () => void;
+  const childGate = new Promise<void>(resolve => { releaseChild = resolve; });
+  let childRequested = false, modelRequests = 0;
+  const failures: unknown[] = [];
+  const text = (message: any) => typeof message?.content === 'string' ? message.content
+    : message?.content?.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('\n') ?? '';
+  const server = createServer(async (req, res) => {
+    try {
+      assert.equal(req.headers.authorization, 'Bearer isolated-background-fixture');
+      let raw = '';
+      for await (const chunk of req) raw += chunk;
+      const body = JSON.parse(raw);
+      modelRequests++;
+      const task = text(body.messages.findLast((message: any) => message.role === 'user'));
+      const toolReturned = body.messages.some((message: any) => message.role === 'tool');
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const send = (delta: unknown, finish_reason: string | null = null) => res.write(`data: ${JSON.stringify({
+        id: 'background-fixture', object: 'chat.completion.chunk', created: 1, model: body.model,
+        choices: [{ index: 0, delta, finish_reason }],
+      })}\n\n`);
+      send({ role: 'assistant', content: '' });
+      if (task === 'BACKGROUND-CHILD') {
+        childRequested = true;
+        await childGate;
+        if (res.destroyed) return;
+        send({ content: 'BACKGROUND-CHILD-DONE' }, 'stop');
+      } else if (task === 'BACKGROUND-PARENT' && !toolReturned) {
+        assert.ok(body.tools.some((tool: any) => tool.function?.name === 'subagent'));
+        send({ tool_calls: [{ index: 0, id: 'background-call', type: 'function',
+          function: { name: 'subagent', arguments: JSON.stringify({
+            agent: 'general', task: 'BACKGROUND-CHILD', run_in_background: true,
+          }) } }] }, 'tool_calls');
+      } else {
+        send({ content: task.includes('agent-notification') ? 'BACKGROUND-ACKNOWLEDGED' : 'PARENT-IDLE' }, 'stop');
+      }
+      res.end('data: [DONE]\n\n');
+    } catch (error) { failures.push(error); if (!res.headersSent) res.writeHead(500); res.end(); }
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`;
+  await writeFile(join(profile, 'config.toml'),
+    'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
+  await writeFile(join(profile, 'models.json'), JSON.stringify({ providers: { fixture: {
+    api: 'openai-completions', baseUrl: origin, apiKey: 'isolated-background-fixture',
+    models: [{ id: 'fixture', name: 'Background fixture', contextWindow: 100000, maxTokens: 2048 }],
+  } } }));
+  const events: RuntimeEvent[] = [];
+  const pool = new SessionRuntimes(event => { events.push(event); }, undefined, { idleLimit: () => 0 });
+  const node = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
+  const entry = resolve('runtime/step/dist/bundle/step.js');
+  const env = isolatedEnvironment(profile);
+  const waitFor = async (predicate: () => boolean) => {
+    const until = Date.now() + 25000;
+    while (!predicate()) {
+      assert.deepEqual(failures, []);
+      for (const worker of pool.workers.values()) for (const request of worker.pendingUI.values()) {
+        assert.equal(request.method, 'confirm');
+        assert.match(request.title ?? '', /subagent/i);
+        pool.respondToRequest(worker, { id: request.id, confirmed: true });
+      }
+      if (Date.now() > until) throw new Error(`Background fixture timed out: child=${childRequested}`);
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  };
+  try {
+    const host = await pool.open(node, entry, workspace, env);
+    await host.rpc.request('prompt', { message: 'BACKGROUND-PARENT' });
+    await waitFor(() => childRequested && host.backgroundActive === true && !pool.isBusy(host) && text(host.messages.at(-1)) === 'PARENT-IDLE');
+    assert.equal(pool.running, true);
+    assert.equal(quitReasons(pool, false).runningTasks, 1);
+    await assert.rejects(pool.assertAllIdle(), /background/i);
+    assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+    const other = await pool.open(node, entry, workspace, env);
+    host.touched = 0;
+    await pool.recycle();
+    assert.equal(pool.workers.has(host.id), true);
+    assert.equal(pool.activeId, other.id);
+    await pool.suspend([host]);
+    assert.equal(host.status, 'disconnected');
+    assert.equal(host.backgroundActive, false);
+    assert.equal(pool.running, false);
+    assert.equal(quitReasons(pool, false).runningTasks, 0);
+    assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+    assert.equal(pool.activeId, other.id);
+    const sessionId = host.state!.sessionId!;
+    const savedPath = host.state!.sessionFile!;
+    const laneId = host.messages.find(message => message.role === 'toolResult' && message.toolName === 'subagent')!.details!.agentId as string;
+    assert.match(laneId, /^lane_[0-9a-f]{8}$/);
+    const beforeFile = await readFile(savedPath, 'utf8');
+    const reopened = await pool.prepare(node, entry, workspace, env, savedPath);
+    await waitFor(() => reopened.status === 'connected' && reopened.state?.sessionId === sessionId);
+    assert.equal(reopened.state!.sessionId, sessionId, 'Reopen restores the same saved session');
+    assert.equal(reopened.backgroundActive, false);
+    const reopenedFile = await readFile(savedPath, 'utf8');
+    assert.ok(reopenedFile.startsWith(beforeFile), 'Reopen preserves every pre-existing journal entry byte-for-byte');
+    const additions = reopenedFile.slice(beforeFile.length).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+    assert.ok(additions.every(entry => entry.type === 'custom' && ['step.activity', 'step.activity_capabilities'].includes(entry.customType)),
+      'Only native resource-discovery records may be appended during this fixture reopening');
+    await pool.assertBackgroundIdle(reopened);
+    const requests = modelRequests;
+    const loadedMessages = await reopened.rpc.request('get_messages');
+    const native = await reopened.rpc.request('desktop_subagents', { sessionId, action: 'list' });
+    assert.equal(native.lanes.length, 0, 'The authoritative native query reports no live lanes');
+    await pool.assertBackgroundIdle(reopened);
+    await pool.readBackground(reopened);
+    const activity = pool.summaries().find(runtime => runtime.runtimeId === reopened.id)!.background;
+    assert.deepEqual(activity, { status: 'known', lanes: [] }, 'The desktop display cache knows the lane set is empty');
+    const historical = backgroundSubagentStates(reopened.messages);
+    assert.equal(historical.get(laneId), 'running', 'Reopened history keeps the frozen dispatch snapshot');
+    const projected = projectBackgroundSubagentStates(historical, activity);
+    assert.equal(projected.get(laneId), 'unknown', 'Known-empty ownership downgrades stale running history to unknown');
+    assert.equal([...projected.values()].some(status => status === 'running' || status === 'queued'), false,
+      'No projected lane still claims to run after reopen');
+    assert.deepEqual(await reopened.rpc.request('get_messages'), loadedMessages, 'Lane reads never append messages');
+    assert.equal(modelRequests, requests, 'Lane reads never invoke the model');
+    assert.equal(await readFile(savedPath, 'utf8'), reopenedFile, 'Lane reads never rewrite or append to the reopened JSONL');
+    await pool.assertAllIdle();
+    assert.equal(quitReasons(pool, false).runningTasks, 0);
+  } finally {
+    releaseChild();
+    await pool.stopAll();
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});

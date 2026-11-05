@@ -15,6 +15,28 @@ export function releaseExitedFixturePipes(app) {
   };
 }
 
+// Both the launcher and controller must finish; an exit event cannot abandon app.close().
+export async function closeDesktopFixtureAndWait(app, timeout = 30000) {
+  const child = app.process();
+  let onExit;
+  const exited = new Promise(resolve => {
+    if (child.exitCode !== null) resolve();
+    else { onExit = resolve; child.once('exit', onExit); }
+  });
+  let timer;
+  try {
+    await Promise.race([
+      Promise.all([closeDesktopFixture(app), exited]),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Fixture shutdown timed out after ${timeout}ms`)), timeout);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    if (onExit) child.off('exit', onExit);
+  }
+}
+
 // Isolated fixtures must still exercise orderly shutdown and flush their saved state.
 export async function closeDesktopFixture(app) {
   const pages = app.windows();

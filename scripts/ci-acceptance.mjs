@@ -4,6 +4,7 @@ export const windowsGroups = ['interface', 'sessions', 'runtime'];
 export const acceptanceGroups = {
   interface: [
     'verify-startup.mjs',
+    'verify-first-run.mjs',
     'verify-app-updates.mjs',
     'verify-update-installer.mjs',
     'verify-native-update-download.mjs',
@@ -117,7 +118,7 @@ export const localOnly = [
   'verify-clm-preview.mjs',
   // Mock-data search preview; requires a local Vite server, not runtime integration acceptance.
   'verify-fulltext-search-preview.mjs',
-  // Standalone first-run design preview; no production onboarding integration is shipped.
+  // Standalone visual fixture; production startup coverage is in verify-first-run.
   'verify-first-run-preview.mjs',
   // Isolated Remote UI only; this check starts its own Vite server and uses no real channels.
   'verify-remote-access-preview.mjs',

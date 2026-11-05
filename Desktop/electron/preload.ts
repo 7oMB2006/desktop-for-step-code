@@ -35,6 +35,7 @@ const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('deskt
 const bridge: DesktopBridge = {
   remoteState: () => invoke('remoteState'),
   remoteAction: action => invoke('remoteAction', action),
+  finishFirstRun: outcome => invoke('finishFirstRun', outcome),
   btwAsk: input => invoke('btwAsk', input),
   btwCancel: input => invoke('btwCancel', input),
   btwClear: input => invoke('btwClear', input),

@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import assert from 'node:assert/strict';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, skipFirstRunFixture } from './session-fixture.mjs';
 const profile = await mkdtemp(join(tmpdir(), 'step-desktop-electron-'));
 const workspace = join(profile, '中文项目 with spaces'); await mkdir(workspace);
 const secondWorkspace = join(profile, 'Second project'); await mkdir(secondWorkspace);
@@ -1579,7 +1579,7 @@ try {
   throw error;
 } finally { await app.close(); }
 
-// Both repeat launch and a brand-new profile open a proposal, not a worker.
+// Existing profiles bypass onboarding; fresh profiles can skip into a draft.
 const cleanProfile = await mkdtemp(join(tmpdir(), 'step-desktop-first-run-'));
 for (const userData of [profile, cleanProfile]) {
   const relaunched = await electron.launch({ ...launchOptions, env: { ...env, DESKTOP_TEST_USER_DATA: userData } });
@@ -1589,8 +1589,11 @@ for (const userData of [profile, cleanProfile]) {
       const window = BrowserWindow.getAllWindows()[0];
       window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
     });
+    if (userData === cleanProfile) await skipFirstRunFixture(page);
     await page.waitForFunction(() => { const input = document.querySelector('.composer > .composer-input'); return input && !input.disabled; }, { timeout: 60000 });
+    assert.equal(await page.locator('.first-run-production').count(), 0);
     const home = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(home.firstRun?.required, false);
     assert.equal(home.independent, !home.preferences.workspace);
     assert.equal(home.status, 'ready');
     assert.ok(home.draftId);

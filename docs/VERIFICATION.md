@@ -1,5 +1,14 @@
 # Verification
 
+## PR #194 First-run Main Synchronization (2026-11-05)
+
+Main advanced to `d0a1009` (PR #192 production first-run onboarding) while the
+Remote preview was being verified. The follow-up merge preserves Remote and
+first-run bridge methods and contracts, both verification records, the
+independent bootstrap and all acceptance registrations. The runtime pin and
+patch manifest are unchanged. Validation and a refreshed combined package
+remain pending; the earlier `1b28642` preview is not relabeled as this build.
+
 ## PR #194 Native Sidebar Drag Target (2026-11-05)
 
 At `1b28642`, all three Windows cloud groups pass, as do macOS source/package
@@ -60,6 +69,61 @@ The complete Windows source sidebar acceptance passes after this change.
 Replacement cloud checks and the new Windows preview package are still pending.
 No real Feishu authorization, external user-content delivery, real callback or
 paid-model acceptance is established here.
+
+## Production First-run Integration (2026-11-04)
+
+The accepted preview is now connected to the real Electron startup path.
+The main process owns a versioned, atomically saved `userData/first-run.json`
+marker, initialized before startup writes runtime files. A fresh profile remains
+pending across interrupted setup, reload and restart. Completion or explicit
+skip persists; retained-data upgrades/reinstalls do not replay the flow. Legacy
+preferences, runtime configuration, credentials, model configuration or session
+history bypass setup without reading credentials for detection. An unreadable or
+future marker is preserved and bypasses optional onboarding rather than blocking
+access to the application. Clearing the entire Desktop profile is a fresh start.
+
+The renderer bootstrap mounts onboarding separately from the normal workspace
+and preserves the workspace's original snapshot initialization order. Restoring
+an existing runtime before a reload must not leave command/permission controls
+unavailable; the native acceptance explicitly reloads and changes permissions in
+a saved session without sending another model request.
+It reuses actual account login/cancellation, provider configuration/discovery,
+native project selection, and model/thinking/permission selectors through the
+typed preload. Completion hands off a session draft without starting a runtime,
+writing conversation history or sending inference. Full Access does not bypass
+the existing native risk confirmation on first execution. The preview remains
+an independent simulation and shares the production stylesheet.
+
+Local Windows source verification passes:
+
+- Typecheck and production build.
+- Serial Desktop suite: 848 tests, 834 passed and 14 platform skips.
+- CI inventory/policy/runner tests: 30 passed and one platform skip.
+- `verify-first-run.mjs`, registered in the interface CI group: fresh/interrupted,
+  skipped/completed and legacy/future-marker lifecycles; real provider discovery,
+  encrypted persistence, native directory selection/cancellation, draft model and
+  permission handoff, and the first explicit loopback model request.
+- The same native acceptance exercises official regional API login, rejected
+  credentials, browser Plan authorization/cancellation with a loopback transport,
+  no-subscription responses, shared-operation guards and Full Access cancellation
+  without a submitted task. Native system theme changes, light/dark brand assets,
+  390px English focus gutters and reduced motion are covered.
+- The standalone preview regression matrix passes with an installed Edge browser.
+- Adjacent native startup, first-frame/system theme, new-session draft, account
+  routing/settings, custom-provider protocols and full permission-tier acceptance
+  pass, including session-only versus remembered Full Access consent.
+- Existing desktop, message-order, permission-approval and StepPage registration
+  acceptance explicitly checks fresh-profile onboarding and skips through its real
+  UI before continuing the original assertions. Desktop and StepPage relaunches
+  also verify that existing profiles bypass setup. The StepPage fixture explicitly
+  identifies its four fresh-profile launches instead of seeding configuration to
+  hide onboarding; its registration, disable, migration and idempotence checks
+  remain unchanged. Product behavior, deadlines and acceptance gates are unchanged.
+
+All profiles and endpoints in native acceptance are isolated fixtures, including
+the official API/Plan transport. These checks do not establish live account sign-in,
+paid-model behavior, actual installer over-install, native macOS acceptance or
+release readiness. The new PR's cloud results remain separate evidence.
 
 ## PR #190 Capability Removal Synchronization (2026-11-05)
 

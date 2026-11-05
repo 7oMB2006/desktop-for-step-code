@@ -1,5 +1,43 @@
 # Verification
 
+## PR #197 Confirmed Non-delivery Retry (2026-11-06)
+
+The P2 review finding is reproduced against the previous staged runtime:
+finish one child, occupy all eight running-lane slots, reject its follow-up,
+free a slot, and retry the same request identity. The original cached rejection
+still prevents delivery. Native capacity and final-settlement refusals now
+explicitly return `not_sent`. Only that confirmed non-delivery clears the
+attempt's promise; the request digest remains reserved. A subsequent manual
+attempt can succeed, concurrent attempts share one promise, and success remains
+deduplicated. Missing metadata, thrown failures and lost acknowledgments still
+retain their uncertain/successful receipt. No automatic retry is added.
+
+The new native capacity regression passes after rebuilding/restaging. All five
+pinned-runtime scenarios and 29 background service/presentation tests pass.
+Three new RPC receipt tests cover confirmed refusal, missing metadata and a
+thrown result; a native lifecycle regression captures a refusal during the real
+settlement handoff. All 84 selected upstream tests pass, as do the upstream
+workspace type check, Desktop type check/build, four staging tests, and the
+40 CI policy/runner/summary tests (39 passes, one platform skip). Both real
+Electron background controls and replies verifiers pass, including delivery
+once after a deliberately lost acknowledgment.
+
+The complete serial Desktop run passes: 890 tests, 876 passes, 14 platform
+skips, zero failures in 242.8 seconds. Its log is
+`Desktop/test-results/background-replies/review-serial-tests.log`.
+The unchanged pin and 17 shared patches replay with all 44 Windows postimages;
+Darwin additions also replay with matching combined postimages. The new RPC
+tests are explicitly registered in both upstream integration workflows.
+
+An additional run of upstream `subagent-live-channel.test.ts` fails both cases
+in its Windows temporary-directory cleanup (`EPERM`), including isolated reruns
+with Node 24.15.0 and 24.16.0. This extra test is outside the existing integration
+inventory; its cleanup cause is not fixed or claimed as passing here.
+No installer is generated. The reused staged runtime (0.11 GiB) and Desktop
+build (0.01 GiB) remain needed for verification; no historical package is
+created or deleted. These are local results, not replacement cloud/native
+macOS, real-account, installer or merge acceptance.
+
 ## Background Agent Follow-ups (2026-11-05, Local Candidate)
 
 Based on main `7c349b7`, this candidate adds explicit single-agent

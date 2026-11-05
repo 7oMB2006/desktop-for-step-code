@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/features/step-subagent.ts b/packages/coding-agent/src/features/step-subagent.ts
-index a89807f..5d51a2d 100644
+index a89807f..a92f52e 100644
 --- a/packages/coding-agent/src/features/step-subagent.ts
 +++ b/packages/coding-agent/src/features/step-subagent.ts
 @@ -989,6 +989,13 @@ export function createStepSubagentExtension(options: StepSubagentExtensionOption
@@ -7,7 +7,7 @@ index a89807f..5d51a2d 100644
  					const prompt = params.prompt?.trim();
  					if (!prompt) return controlResult('agent_send: prompt is required for action:"reply"');
 +					if (_id.startsWith("desktop-background-reply:")) {
-+						let delivery: "queued" | "started" | undefined;
++						let delivery: "queued" | "started" | "not_sent" | undefined;
 +						const text = lifecycle.replyToLane(lane, prompt, false, (value) => {
 +							delivery = value;
 +						});
@@ -17,7 +17,7 @@ index a89807f..5d51a2d 100644
  				}
  				return controlResult(lifecycle.stopLane(lane), [lane.details]);
 diff --git a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
-index 2f157aa..218ba85 100644
+index 2f157aa..7649e1f 100644
 --- a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
 +++ b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
 @@ -210,7 +210,12 @@ export interface LaneLifecycle {
@@ -29,22 +29,27 @@ index 2f157aa..218ba85 100644
 +		lane: BackgroundAgentLane,
 +		prompt: string,
 +		interrupt: boolean,
-+		onDelivery?: (delivery: "queued" | "started") => void,
++		onDelivery?: (delivery: "queued" | "started" | "not_sent") => void,
 +	) => string;
  	laneStatus: (lane: BackgroundAgentLane) => string;
  	/**
  	 * Stop every lane this session owns, wait up to LANE_SHUTDOWN_WAIT_MS for
-@@ -610,7 +615,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+@@ -610,8 +615,13 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
  	});
  
  	/** Shared "reply" verb: deliver a prompt into a single-agent lane's ongoing transcript. */
 -	const replyToLane = (lane: BackgroundAgentLane, prompt: string, interrupt: boolean): string => {
 +	const replyToLane: LaneLifecycle["replyToLane"] = (lane, prompt, interrupt, onDelivery) => {
-+		if (onDelivery && pendingFinal.has(lane)) return "Wait for the background lane to settle";
++		if (onDelivery && pendingFinal.has(lane)) {
++			onDelivery("not_sent");
++			return "Wait for the background lane to settle";
++		}
  		if (lane.details.mode !== "single") {
++			onDelivery?.("not_sent");
  			return `agent_send: reply only works for single-agent lanes; lane ${lane.id} ran in ${lane.details.mode} mode. Start a new subagent call with the follow-up task instead.`;
  		}
-@@ -623,6 +629,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 		const live = getLiveSubagentSession(lane.sessionId);
+@@ -623,6 +633,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
  			);
  			if (delivered) {
  				lane.updatedAt = Date.now();
@@ -52,7 +57,7 @@ index 2f157aa..218ba85 100644
  				return interrupt
  					? `Steered lane ${lane.id}; the prompt interrupts its current turn`
  					: `Queued follow-up for lane ${lane.id}; it runs when the current turn completes`;
-@@ -633,11 +640,13 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+@@ -633,18 +644,22 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
  			// fall back to queue/restart semantics.
  			if (!interrupt) {
  				lane.queuedPrompts.push(prompt);
@@ -66,7 +71,8 @@ index 2f157aa..218ba85 100644
  			return `Interrupted lane ${lane.id} and started the follow-up`;
  		}
  		const running = [...lanes.values()].filter((entry) => entry.status === "running").length;
-@@ -645,6 +654,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 		if (running >= MAX_RUNNING_LANES) {
++			onDelivery?.("not_sent");
  			return `agent_send: this session already has ${running} running background lanes (limit ${MAX_RUNNING_LANES}); wait for one to finish before replying to lane ${lane.id}.`;
  		}
  		startLane(lane, { params: followUpParams(lane, prompt) });
@@ -75,7 +81,7 @@ index 2f157aa..218ba85 100644
  	};
  
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index 918ba9c..f7ded8c 100644
+index 918ba9c..f8c2721 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 @@ -95,6 +95,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
@@ -86,7 +92,7 @@ index 918ba9c..f7ded8c 100644
 +	// evict a request and silently deliver it again after a lost acknowledgment.
 +	let replyOwner: object | undefined;
 +	let replySessionId: string | undefined;
-+	const backgroundReplies = new Map<string, { digest: string; promise: Promise<RpcResponse> }>();
++	const backgroundReplies = new Map<string, { digest: string; promise?: Promise<RpcResponse> }>();
  
  	// Pending extension UI requests waiting for response
  	const pendingExtensionRequests = new Map<
@@ -113,7 +119,7 @@ index 918ba9c..f7ded8c 100644
  				const tool = runner.getToolDefinition("agent_send");
  				if (!tool) throw new Error("Background agent controls are unavailable");
  				const ctx = runner.createContext();
-@@ -569,6 +584,58 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+@@ -569,6 +584,67 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  				const object = (value: unknown): Record<string, unknown> =>
  					value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
  				const all = Array.isArray(result.details) ? result.details.map(object) : [];
@@ -137,11 +143,12 @@ index 918ba9c..f7ded8c 100644
 +					if (previous) {
 +						if (previous.digest !== fingerprint) throw new Error("Background reply identity was reused");
 +						// The response envelope belongs to this RPC call, not the first attempt.
-+						return { ...(await previous.promise), id };
++						if (previous.promise) return { ...(await previous.promise), id };
 +					}
 +					const lane = all.find((entry) => entry.agentId === command.laneId);
 +					if (!lane || lane.mode !== "single") throw new Error("Single background lane is unavailable");
-+					if (backgroundReplies.size >= 512) throw new Error("Background reply receipt limit reached");
++					if (!previous && backgroundReplies.size >= 512) throw new Error("Background reply receipt limit reached");
++					const receipt = previous ?? { digest: fingerprint, promise: undefined };
 +					const promise = (async () => {
 +						const sent = object(
 +							await tool.execute(
@@ -155,9 +162,16 @@ index 918ba9c..f7ded8c 100644
 +						if (
 +							session !== owner ||
 +							command.sessionId !== session.sessionId ||
-+							runner !== session.extensionRunner ||
-+							!["queued", "started"].includes(String(sent.delivery))
++							runner !== session.extensionRunner
 +						)
++							throw new Error("Background reply was not confirmed");
++						if (sent.delivery === "not_sent") {
++							// Keep the identity, but allow a fresh manual attempt only after native
++							// code confirms no delivery. Throws/missing receipts remain deduplicated.
++							receipt.promise = undefined;
++							throw new Error("Background reply was not delivered; wait for the lane to settle or a slot to free, then retry");
++						}
++						if (!["queued", "started"].includes(String(sent.delivery)))
 +							throw new Error("Background reply was not confirmed");
 +						return success(id, "desktop_subagents", {
 +							sessionId: command.sessionId,
@@ -166,13 +180,14 @@ index 918ba9c..f7ded8c 100644
 +							delivery: sent.delivery,
 +						});
 +					})();
-+					backgroundReplies.set(requestId, { digest: fingerprint, promise });
++					receipt.promise = promise;
++					backgroundReplies.set(requestId, receipt);
 +					return await promise;
 +				}
  				if (command.action === "stop") {
  					const lane = all.find((entry) => entry.agentId === command.laneId);
  					if (!lane || lane.status !== "running") throw new Error("Background lane is no longer running");
-@@ -613,7 +680,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+@@ -613,7 +689,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  						}),
  					};
  				});
@@ -197,3 +212,211 @@ index 0956dbd..253187f 100644
  	  }
  	| { id?: string; type: "desktop_cron_resume"; before?: number }
  	| {
+diff --git a/packages/coding-agent/test/desktop-background-replies.test.ts b/packages/coding-agent/test/desktop-background-replies.test.ts
+new file mode 100644
+index 0000000..ea7fa10
+--- /dev/null
++++ b/packages/coding-agent/test/desktop-background-replies.test.ts
+@@ -0,0 +1,135 @@
++import { Type } from "typebox";
++import { expect, test, vi } from "vitest";
++import type { AgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
++import { runRpcMode } from "../src/modes/rpc/rpc-mode.ts";
++import { createHarness } from "./suite/harness.ts";
++
++const io = vi.hoisted(() => ({
++	lines: [] as string[],
++	handler: undefined as ((line: string) => void) | undefined,
++}));
++vi.mock("../src/core/output-guard.js", () => ({
++	flushRawStdout: vi.fn(async () => {}),
++	takeOverStdout: vi.fn(),
++	waitForRawStdoutBackpressure: vi.fn(async () => {}),
++	writeRawStdout: (line: string) => io.lines.push(line),
++}));
++vi.mock("../src/theme/theme.js", () => ({ theme: {} }));
++vi.mock("../src/modes/rpc/jsonl.js", () => ({
++	attachJsonlLineReader: vi.fn((_stream: unknown, handler: (line: string) => void) => {
++		io.handler = handler;
++		return () => {};
++	}),
++	serializeJsonLine: (value: unknown) => `${JSON.stringify(value)}\n`,
++}));
++
++for (const outcome of ["not_sent", "missing", "throw"] as const) {
++	test(`background RPC retries only confirmed non-delivery: ${outcome}`, async () => {
++		io.lines = [];
++		io.handler = undefined;
++		type Listener = Parameters<typeof process.on>[1];
++		const signals: NodeJS.Signals[] = process.platform === "win32" ? ["SIGTERM"] : ["SIGTERM", "SIGHUP"];
++		const beforeSignals = new Map(signals.map((signal) => [signal, process.listeners(signal)]));
++		const beforeEnd = process.stdin.listeners("end");
++		let attempts = 0;
++		let release!: () => void;
++		const gate = new Promise<void>((resolve) => {
++			release = resolve;
++		});
++		const harness = await createHarness({
++			extensionFactories: [
++				(pi) => {
++					pi.registerTool({
++						name: "agent_send",
++						label: "Agent send",
++						description: "Isolated reply receipt fixture",
++						parameters: Type.Object({ action: Type.String() }),
++						async execute(_id, params) {
++							if (params.action === "status")
++								return {
++									content: [],
++									details: [{ agentId: "lane_12345678", mode: "single", status: "completed" }],
++								};
++							attempts++;
++							if (attempts === 1) {
++								if (outcome === "throw") throw new Error("Injected uncertain result");
++								return {
++									content: [],
++									details: undefined,
++									...(outcome === "not_sent" ? { delivery: "not_sent" } : {}),
++								};
++							}
++							await gate;
++							return { content: [], details: undefined, delivery: "started" };
++						},
++					});
++				},
++			],
++		});
++		try {
++			void runRpcMode({
++				session: harness.session,
++				setRebindSession() {},
++				async dispose() {},
++			} as unknown as AgentSessionRuntime);
++			await vi.waitFor(() => expect(io.handler).toBeDefined());
++			const command = {
++				type: "desktop_subagents",
++				sessionId: harness.session.sessionId,
++				action: "reply",
++				laneId: "lane_12345678",
++				requestId: "12345678-1234-1234-1234-123456789abc",
++				prompt: "Continue",
++			};
++			const send = (id: string, patch = {}) => io.handler!(JSON.stringify({ ...command, ...patch, id }));
++			const response = async (id: string) => {
++				let result: Record<string, any> | undefined;
++				await vi.waitFor(() => {
++					result = io.lines
++						.flatMap((line) => line.trim().split("\n"))
++						.map((line) => JSON.parse(line))
++						.find((entry) => entry.id === id && entry.type === "response");
++					expect(result).toBeDefined();
++				});
++				return result!;
++			};
++			send("initial");
++			expect(await response("initial")).toMatchObject({ success: false });
++			expect(attempts).toBe(1);
++			send("changed", { prompt: "Different" });
++			expect(await response("changed")).toMatchObject({
++				success: false,
++				error: "Background reply identity was reused",
++			});
++			expect(attempts).toBe(1);
++			send("retry-a");
++			send("retry-b");
++			if (outcome === "not_sent") {
++				await vi.waitFor(() => expect(attempts).toBe(2));
++				release();
++				for (const id of ["retry-a", "retry-b"])
++					expect(await response(id)).toMatchObject({
++						id,
++						success: true,
++						data: { delivery: "started" },
++					});
++				send("acknowledged");
++				expect(await response("acknowledged")).toMatchObject({ success: true, data: { delivery: "started" } });
++				expect(attempts).toBe(2);
++			} else {
++				for (const id of ["retry-a", "retry-b"]) expect(await response(id)).toMatchObject({ id, success: false });
++				expect(attempts).toBe(1);
++			}
++		} finally {
++			release();
++			harness.cleanup();
++			for (const listener of process.stdin.listeners("end")) {
++				if (!beforeEnd.includes(listener)) process.stdin.off("end", listener as Listener);
++			}
++			for (const [signal, before] of beforeSignals)
++				for (const listener of process.listeners(signal)) {
++					if (!before.includes(listener)) process.off(signal, listener as Listener);
++				}
++		}
++	});
++}
+diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
+index f53a7f6..1f11649 100644
+--- a/packages/coding-agent/test/step-subagent-events.test.ts
++++ b/packages/coding-agent/test/step-subagent-events.test.ts
+@@ -749,6 +749,62 @@ test("Desktop RPC owns background lanes through final delivery and clears them o
+ 	expect(snapshots.at(-1)).toEqual({ version: 1, parentActive: false, lanes: [] });
+ });
+ 
++test("Desktop reply during final settlement explicitly confirms non-delivery", async () => {
++	const { api, tools, sent, handlers } = createApi();
++	const ctx = createContext("/workspace");
++	ctx.mode = "rpc";
++	let refused: Promise<unknown> | undefined;
++	let calls = 0;
++	const gate = deferred();
++	ctx.ui.setStatus = (key, value) => {
++		if (key !== "desktop-subagents" || !value || refused) return;
++		const lane = JSON.parse(value).lanes.find((entry: { status: string }) => entry.status === "settling");
++		if (lane)
++			refused = tools
++				.get("agent_send")!
++				.execute(
++					"desktop-background-reply:settling",
++					{ lane_id: lane.id, action: "reply", prompt: "supplement" },
++					undefined,
++					undefined,
++					ctx,
++				);
++	};
++	createStepSubagentExtension({
++		agentDir: "/tmp/step-agent-test",
++		runner: async () => {
++			calls++;
++			await gate.promise;
++			return textResult("done");
++		},
++	})(api);
++	try {
++		const start = await tools
++			.get("subagent")!
++			.execute("start", { agent: "general", task: "inspect", run_in_background: true }, undefined, undefined, ctx);
++		gate.resolve();
++		await waitFor(() => sent.length === 1);
++		expect(refused).toBeDefined();
++		expect(await refused).toMatchObject({ delivery: "not_sent" });
++		expect(calls).toBe(1);
++		const retry = await tools
++			.get("agent_send")!
++			.execute(
++				"desktop-background-reply:settling",
++				{ lane_id: laneIdOf(start), action: "reply", prompt: "supplement" },
++				undefined,
++				undefined,
++				ctx,
++			);
++		expect(retry).toMatchObject({ delivery: "started" });
++		await waitFor(() => sent.length === 2);
++		expect(calls).toBe(2);
++	} finally {
++		gate.resolve();
++		for (const handler of handlers.get("session_shutdown") ?? []) await handler({ reason: "quit" }, ctx);
++	}
++});
++
+ test("escapeXmlAttr neutralizes attribute breakouts", () => {
+ 	expect(escapeXmlAttr('lane"<>&x')).toBe("lane&quot;&lt;&gt;&amp;x");
+ 	expect(escapeXmlAttr('alias" status="completed')).toBe("alias&quot; status=&quot;completed");

@@ -26,6 +26,7 @@ test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and pat
     'packages/coding-agent/src/core/session-import/types.ts',
     'packages/coding-agent/src/features/subagent/display-text.ts',
     'packages/coding-agent/src/modes/rpc/desktop-btw.ts',
+    'packages/coding-agent/test/desktop-background-replies.test.ts',
     'packages/coding-agent/test/session-import.test.ts',
   ]);
   assert.deepEqual(Object.keys(manifest.patches).sort(),

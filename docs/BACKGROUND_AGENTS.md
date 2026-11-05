@@ -109,8 +109,12 @@ Shift+Enter inserts a line, and IME composition never submits. Empty and
 over-8,000-character inputs cannot send. Unconfirmed delivery retains the text
 and its request identity, with no automatic retry. Resubmitting unchanged text
 reuses that identity; editing creates a new request. The runtime retains a
-prompt digest and delivery promise per request for this live registry, rejects
-reuse with another lane/text, and bounds the receipt set at 512 without silent
+prompt digest and delivery promise per request for this live registry. A native
+confirmed non-delivery (capacity or final-settlement refusal) releases only the
+attempt's promise so unchanged text can be retried manually once the condition
+clears. Throws or missing delivery metadata remain uncertain and retain their
+promise; neither case retries automatically. The digest still rejects identity
+reuse with another lane/text, and the receipt set is bounded at 512 without silent
 eviction. This is live-runtime deduplication, not durable exactly-once delivery
 across application restarts. Restarted history is not sendable.
 
@@ -121,6 +125,11 @@ text, missing data, coalescing, stale session/worker/transport replies, transiti
 guards, per-lane stop locks and native settlement. The real pinned runtime test adds
 two concurrent lanes, read-only/no-model queries, rejected unsupported controls,
 targeted stop while the parent runs, peer completion and filtered native output.
+The native capacity regression also fills all eight running-lane slots, verifies
+that a refused request delivers nothing, frees a slot, and resubmits unchanged
+text with concurrent retries delivering once. Runtime RPC tests distinguish
+confirmed refusal from thrown/missing receipts; the lifecycle test captures a
+real final-settlement refusal before a successful continuation.
 
 `verify-background-agent-controls.mjs` exercises the actual Electron bridge
 and RPC with an isolated loopback model, plus explicit read/stop fault

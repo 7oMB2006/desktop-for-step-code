@@ -10,8 +10,8 @@ import { quitReasons } from '../electron/quit-review';
 import type { RuntimeEvent } from '../src/contracts';
 import { BackgroundAgents } from '../electron/background-agents';
 
-for (const outcome of ['complete', 'suspend', 'control', 'reply'] as const) {
-test(`pinned RPC background lane survives parent end and navigation: ${outcome}`, { timeout: 60000 }, async () => {
+for (const outcome of ['complete', 'suspend', 'control', 'reply', 'retry'] as const) {
+test(`pinned RPC background lane survives parent end and navigation: ${outcome}`, { timeout: outcome === 'retry' ? 90000 : 60000 }, async () => {
   const profile = await mkdtemp(join(tmpdir(), 'desktop-background-runtime-'));
   const workspace = join(profile, 'workspace');
   await mkdir(workspace);
@@ -25,6 +25,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
   const followUps: string[] = [];
   let releaseReply!: () => void;
   const replyGate = new Promise<void>(resolve => { releaseReply = resolve; });
+  const slots = new Map<string, () => void>();
   const failures: unknown[] = [];
   const text = (message: any) => typeof message?.content === 'string' ? message.content
     : message?.content?.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('\n') ?? '';
@@ -53,7 +54,11 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
         await otherGate;
         if (res.destroyed) return;
         send({ content: `cookie=${'private-value'.repeat(3000)}\nBACKGROUND-OTHER-DONE` }, 'stop');
-      } else if (task === 'BACKGROUND-FOLLOW-UP' || task === 'BACKGROUND-CONTINUE') {
+      } else if (/^BACKGROUND-SLOT-[0-7]$/.test(task)) {
+        await new Promise<void>(resolve => { slots.set(task, resolve); });
+        if (res.destroyed) return;
+        send({ content: `${task}-DONE` }, 'stop');
+      } else if (['BACKGROUND-FOLLOW-UP', 'BACKGROUND-CONTINUE', 'BACKGROUND-RETRY'].includes(task)) {
         followUps.push(task);
         assert.ok(body.messages.some((message: any) => text(message).includes('BACKGROUND-CHILD-DONE')),
           'follow-up retains the original child context');
@@ -86,6 +91,14 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
           function: { name: 'subagent', arguments: JSON.stringify({ tasks: [
             { agent: 'general', task: 'PARALLEL-ONE' }, { agent: 'general', task: 'PARALLEL-TWO' },
           ], run_in_background: true }) } }] }, 'tool_calls');
+      } else if (task === 'BACKGROUND-CAPACITY' && !body.messages.some((message: any) =>
+        message.role === 'tool' && message.tool_call_id === 'background-slot-0')) {
+        send({ tool_calls: Array.from({ length: 8 }, (_, index) => ({
+          index, id: `background-slot-${index}`, type: 'function',
+          function: { name: 'subagent', arguments: JSON.stringify({
+            agent: 'general', task: `BACKGROUND-SLOT-${index}`, run_in_background: true,
+          }) },
+        })) }, 'tool_calls');
       } else {
         send({ content: task.includes('agent-notification') ? 'BACKGROUND-ACKNOWLEDGED' : 'PARENT-IDLE' }, 'stop');
       }
@@ -131,6 +144,37 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
     assert.equal(quitReasons(pool, false).runningTasks, 1);
     await assert.rejects(pool.assertAllIdle(), /background/i);
     assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+    if (outcome === 'retry') {
+      const sessionId = host.state!.sessionId!;
+      const controls = new BackgroundAgents(pool.workers, undefined, true, true);
+      releaseChild();
+      await waitFor(() => !host.backgroundActive && !pool.isBusy(host));
+      const first = (await controls.read(host.id, sessionId)).lanes[0];
+      assert.equal(first.status, 'completed');
+      await host.rpc.request('prompt', { message: 'BACKGROUND-CAPACITY' });
+      await waitFor(() => slots.size === 8 && !pool.isBusy(host));
+      const request = { sessionId, action: 'reply', laneId: first.id,
+        requestId: '45678901-1234-1234-1234-123456789abc', prompt: 'BACKGROUND-RETRY' };
+      const reply = (patch = {}) => host.rpc.request('desktop_subagents', { ...request, ...patch });
+      await assert.rejects(reply(), /Background reply/);
+      await assert.rejects(reply({ prompt: 'DIFFERENT-TEXT' }), /identity was reused/);
+      assert.deepEqual(followUps, [], 'capacity refusal never delivers the task');
+      slots.get('BACKGROUND-SLOT-0')!();
+      await waitFor(() => host.backgroundLanes?.length === 7 && !pool.isBusy(host));
+      const receipts = await Promise.all([reply(), reply()]);
+      assert.deepEqual(receipts.map(receipt => receipt.delivery), ['started', 'started'],
+        'unchanged manual retry succeeds after capacity frees, concurrent attempts share one delivery');
+      await waitFor(() => followUps.length === 1 && host.backgroundLanes?.length === 7 && !pool.isBusy(host));
+      assert.deepEqual(followUps, ['BACKGROUND-RETRY']);
+      assert.equal((await reply()).delivery, 'started', 'successful retry retains its receipt');
+      assert.deepEqual(followUps, ['BACKGROUND-RETRY']);
+      await assert.rejects(reply({ prompt: 'DIFFERENT-TEXT' }), /identity was reused/);
+      for (const release of slots.values()) release();
+      await waitFor(() => !host.backgroundActive && !pool.isBusy(host));
+      await pool.assertAllIdle();
+      assert.deepEqual(failures, []);
+      return;
+    }
     if (outcome === 'control' || outcome === 'reply') {
       const sessionId = host.state!.sessionId!;
       const controls = new BackgroundAgents(pool.workers, undefined, true, true);
@@ -244,6 +288,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
   } finally {
     releaseChild();
     releaseOther(); releaseParent(); releaseReply();
+    for (const release of slots.values()) release();
     await pool.stopAll();
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));

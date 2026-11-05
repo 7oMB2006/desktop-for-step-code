@@ -12,6 +12,7 @@ const coreCommands: ComposerCommand[] = [
 const localCommands: ComposerCommand[] = [
   { name: 'trust', source: 'desktop', description: 'Approve project trust for future runtime launches' },
   { name: 'compact', source: 'desktop', description: 'Compact the current conversation with optional retention instructions' },
+  { name: 'btw', source: 'desktop', description: 'Ask a temporary side question without interrupting the main task' },
 ];
 
 export function isStatusCommand(message: string, attachments = 0, quotes = 0): boolean {
@@ -20,7 +21,7 @@ export function isStatusCommand(message: string, attachments = 0, quotes = 0): b
 
 export function desktopCommand(message: string, attachments = 0, quotes = 0) {
   if (attachments || quotes) return;
-  const match = /^\/(status|usage|cron|compact|clm|workflows)(?:\s+([\s\S]*))?$/.exec(message.trim());
+  const match = /^\/(status|usage|cron|compact|clm|workflows|btw)(?:\s+([\s\S]*))?$/.exec(message.trim());
   if (!match) return;
   const name = match[1], args = match[2]?.trim() ?? '';
   if ((name === 'status' || name === 'cron' || name === 'clm' || name === 'workflows') && args) return;

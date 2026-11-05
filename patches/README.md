@@ -2,6 +2,12 @@
 
 Repository: https://github.com/stepfun-ai/Step-Code
 
+The v016 set also includes `step-code-desktop-btw.patch`: a model-only,
+streaming `desktop_btw` RPC with scoped cancellation and transient history.
+It reuses native model/auth routing, adds no agent tools and does not write to
+the main session. It does not change the pin or historical v015 patches.
+See [BTW boundaries](../docs/BTW.md), including the separate usage-total limit.
+
 Development pinned commit: `81e79bc4b699148d6823fedde9b5e70d9a80255f`
 (v0.1.6 announcement source baseline, not an official release tag). The public
 0.1.6 manifest has no source SHA; binary/source identity is not asserted.

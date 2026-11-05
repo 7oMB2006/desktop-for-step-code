@@ -9,7 +9,7 @@ export type RightPanelWidth = 'standard' | 'wide' | 'fullscreen';
 export function RightPanelWidthControl({ value, language, panel, onChange, onError }: {
   value: RightPanelWidth;
   language: 'zh' | 'en';
-  panel: 'browser' | 'terminal' | 'file' | 'context' | 'review';
+  panel: 'browser' | 'terminal' | 'file' | 'context' | 'review' | 'btw';
   onChange: (value: RightPanelWidth) => void;
   onError?: (message: string) => void;
 }) {
@@ -18,8 +18,9 @@ export function RightPanelWidthControl({ value, language, panel, onChange, onErr
   const zh = language === 'zh';
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const title = panel === 'browser' ? (zh ? '浏览器宽度' : 'Browser width') : panel === 'terminal' ? (zh ? '终端宽度' : 'Terminal width')
-    : panel === 'context' ? (zh ? '上下文宽度' : 'Context width') : panel === 'review' ? (zh ? '变更宽度' : 'Changes width') : (zh ? '文件预览宽度' : 'File preview width');
-  const localMenu = panel === 'file' || panel === 'context' || panel === 'review';
+    : panel === 'context' ? (zh ? '上下文宽度' : 'Context width') : panel === 'review' ? (zh ? '变更宽度' : 'Changes width')
+      : panel === 'btw' ? (zh ? '旁问宽度' : 'Side question width') : (zh ? '文件预览宽度' : 'File preview width');
+  const localMenu = panel === 'file' || panel === 'context' || panel === 'review' || panel === 'btw';
   const label = value === 'fullscreen' ? (zh ? '全屏' : 'Fullscreen')
     : value === 'wide' ? (zh ? '宽幅' : 'Wide') : (zh ? '标准' : 'Standard');
   const choose = async () => {
@@ -39,7 +40,7 @@ export function RightPanelWidthControl({ value, language, panel, onChange, onErr
     }
   };
   return <><button ref={trigger} type="button" className={`right-panel-width-control${zh ? ' is-zh' : ''}`}
-    aria-label={title} aria-haspopup="menu" aria-expanded={menuOpen} data-width={value} onClick={() => void choose()}>
+    aria-label={title} data-tooltip={title} aria-haspopup="menu" aria-expanded={menuOpen} data-width={value} onClick={() => void choose()}>
     <Columns2 className="right-panel-width-icon" size={14} aria-hidden="true"/>
     <span>{label}</span>
     <span className="right-panel-width-chevron"><DisclosureChevron/></span>

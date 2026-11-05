@@ -47,6 +47,7 @@ retains a selectable slash, so selecting transcript text does not remove it.
 | `/cron` | Open the existing scheduled-task manager | Electron fixture verifies no prompt submission |
 | `/cron list`, `/cron status`, `/cron delete <id>` | Retain upstream parameter handling | Real runtime read-only list tested; this audit does not create or delete live jobs |
 | `/status` | Open the existing right-panel Status view | Existing dedicated Desktop mapping retained |
+| `/btw [question]` | Open the independent temporary right-rail side-question panel; arguments submit there | Dedicated structured RPC, not a main prompt; streaming, independent cancellation and transient history. Shared width modes and handle. [Boundaries](BTW.md) |
 | Model, permissions and MCP actions | Open their existing Desktop controls | Existing discovery acceptance retained |
 | `/compact [instructions]` | Call the `compact` RPC with `customInstructions` | Fixture covers success, failure retaining the draft, and busy rejection; actual model summarization is separate acceptance |
 | `/todos` | Upstream task-list notification | Empty list tested against the real bundle; a right-panel shortcut remains future work |
@@ -69,6 +70,9 @@ attachments or quoted messages. Usage arguments other than `overview` or
 In particular, upstream Usage refresh flags are not yet Desktop aliases.
 Compact requires a connected, existing, idle session and is never queued as
 ordinary prose while a task is running.
+BTW requires a connected existing conversation, can run beside the main task,
+and never consumes launch choices or the main send queue. Its usage is shown
+separately and is not yet included in local Usage totals or cost estimates.
 
 ## Desktop Adaptation Backlog
 

@@ -1,4 +1,5 @@
 .composer > .composer-input { display: block; width: 100%; min-height: 58px; max-height: 180px; padding: 14px 16px 8px; overflow-y: auto; scrollbar-gutter: stable; outline: none; border: 0; background: transparent; color: var(--ink); font-family: var(--body-font); font-size: var(--body-size); line-height: var(--body-leading); letter-spacing: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.composer:has(> .composer-input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
 .composer-input .composer-text { margin: 0; padding: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .composer-input[data-empty="true"]::before { content: attr(data-placeholder); position: absolute; color: var(--muted); pointer-events: none; }
 .composer-input[aria-disabled="true"] { opacity: .45; }

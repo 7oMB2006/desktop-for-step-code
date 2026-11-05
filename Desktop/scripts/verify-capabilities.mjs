@@ -1,5 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { captureWaapi } from './capture-waapi.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -240,6 +241,19 @@ try {
   await page.getByText('已安装', { exact: true }).waitFor();
   await page.getByRole('tab', { name: /^已安装/ }).click();
   const examplePanel = page.locator('.cap-resource').filter({ hasText: 'Example plugin' });
+  const openExamplePlugin = async () => {
+    await examplePanel.locator(':scope > summary').click();
+    await examplePanel.locator(':scope > summary[aria-expanded="true"]').waitFor();
+    // The button can be stationary while its animated ancestor is still clipped.
+    await settleLayout(examplePanel);
+  };
+  const removeExamplePlugin = async () => {
+    await openExamplePlugin();
+    await examplePanel.getByRole('button', { name: '卸载插件', exact: true }).click();
+    const confirmation = page.getByRole('group', { name: '移除插件 Example plugin？', exact: true });
+    await confirmation.waitFor();
+    await confirmation.getByRole('button', { name: '确认移除', exact: true }).click();
+  };
   await examplePanel.locator('.cap-plugin-icon img').waitFor();
   await page.waitForFunction(() => document.querySelector('.cap-resource .cap-plugin-icon img')?.naturalWidth === 1);
   await writeFile(join(profile, 'step-runtime', 'plugins', 'example', 'logo.png'), iconPng.subarray(0, 33));
@@ -254,10 +268,7 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await verifyDisclosure(preparation, true);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.getByText('Example plugin', { exact: true }).click();
-  await page.locator('.cap-resource[open]').evaluate(async panel => {
-    await Promise.all(panel.querySelector('.cap-disclosure-body').getAnimations().map(animation => animation.finished));
-  });
+  await openExamplePlugin();
   await page.screenshot({ path: 'test-results/capabilities-plugins-light.png' });
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
   await page.getByText('review', { exact: true }).waitFor();
@@ -367,9 +378,7 @@ try {
   await page.getByRole('button', { name: '确认移除', exact: true }).click();
   await toggle.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '插件', exact: true }).click();
-  await page.getByText('Example plugin', { exact: true }).click();
-  await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-  await page.getByRole('button', { name: '确认移除', exact: true }).click();
+  await removeExamplePlugin();
   await page.getByRole('alert').filter({ hasText: '插件仍被会话占用' }).waitFor();
   assert.ok((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'));
   assert.match(await readFile(join(profile, 'step-runtime', 'plugins', 'example', 'step.plugin.json'), 'utf8'), /Example plugin/);
@@ -380,9 +389,7 @@ try {
   await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
   await page.getByText(/会话中已停用/).waitFor();
   await page.getByRole('button', { name: '插件', exact: true }).click();
-  await page.getByText('Example plugin', { exact: true }).click();
-  await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-  await page.getByRole('button', { name: '确认移除', exact: true }).click();
+  await removeExamplePlugin();
   await page.getByText('Example plugin', { exact: true }).waitFor({ state: 'detached' });
   assert.equal((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'), false);
   const messagesBefore = (await page.evaluate(() => window.desktop.snapshot())).messages.length;
@@ -486,6 +493,21 @@ try {
   const page = await app.firstWindow();
   await page.screenshot({ path: 'test-results/capabilities-failure.png' }).catch(() => {});
   console.error('Visible errors:', await page.locator('[role="alert"]').allTextContents());
+  console.error('Capability removal diagnostic:', await page.evaluate(() => {
+    const section = document.querySelector('.capability-settings');
+    return section ? {
+      pending: Boolean(section.querySelector('.cap-pending')),
+      restartDisabled: section.querySelector('.cap-footer button')?.disabled,
+      confirmations: [...section.querySelectorAll('.cap-confirm')].map(element => element.getAttribute('aria-label')),
+      plugins: [...section.querySelectorAll('.cap-resource')].map(panel => ({
+        expanded: panel.dataset.expanded, open: panel.open,
+        inert: panel.querySelector('.cap-disclosure-body')?.inert,
+        animations: panel.querySelector('.cap-disclosure-body')?.getAnimations().map(animation => ({
+          state: animation.playState, time: animation.currentTime,
+        })),
+      })),
+    } : undefined;
+  }).catch(() => undefined));
   throw error;
 } finally {
   await app.close();

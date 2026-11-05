@@ -15,6 +15,7 @@ type Props = {
   onBtw?: (quote: ChatQuote) => boolean;
   btwDisabled?: boolean;
   onError: (message: string) => void;
+  focusComposer?: () => void;
 };
 
 function closest(node: Node, selector: string) {
@@ -59,7 +60,7 @@ function capture(root: HTMLElement): Selected | null {
   };
 }
 
-export function SelectionToolbar({ root, scope, language, enabled, onQuote, onBtw, btwDisabled, onError }: Props) {
+export function SelectionToolbar({ root, scope, language, enabled, onQuote, onBtw, btwDisabled, onError, focusComposer }: Props) {
   const [selected, setSelected] = useState<Selected | null>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -113,7 +114,7 @@ export function SelectionToolbar({ root, scope, language, enabled, onQuote, onBt
   useLayoutEffect(() => {
     if (!selected) { setPosition(null); return; }
     const place = () => {
-      const viewport = root.current?.closest('.conversation')?.getBoundingClientRect();
+      const viewport = root.current?.closest('[data-quote-viewport], .conversation')?.getBoundingClientRect();
       const box = menu.current?.getBoundingClientRect();
       if (!viewport || !box || !selected.range.startContainer.isConnected) { setPosition(null); return; }
       const rects = [...selected.range.getClientRects()].filter(rect =>
@@ -145,7 +146,8 @@ export function SelectionToolbar({ root, scope, language, enabled, onQuote, onBt
     setSelected(null);
     setAnnotating(false); setAnnotation('');
     window.getSelection()?.removeAllRanges();
-    document.querySelector<HTMLElement>('.composer > .composer-input')?.focus({ preventScroll: true });
+    if (focusComposer) focusComposer();
+    else document.querySelector<HTMLElement>('.composer > .composer-input')?.focus({ preventScroll: true });
   };
   const copy = async () => {
     if (!selected) return;

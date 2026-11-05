@@ -35,7 +35,9 @@ const server = createServer(async (request, response) => {
   const parsed = JSON.parse(body); requests.push(parsed);
   const last = JSON.stringify(parsed.messages.at(-1)?.content);
   response.writeHead(200, { 'content-type': 'text/event-stream' });
-  if (last.includes('RUN-MAIN')) { heldMain = response; chunk(response, 'Main running.'); }
+  if (last.includes('RAW-SIDE-TOOL')) chunk(response,
+    '<tool_call> <function=search_web>\n<parameter=query>NO-SIDE-EXECUTION</parameter>\n</function></tool_call>', true);
+  else if (last.includes('RUN-MAIN')) { heldMain = response; chunk(response, 'Main running.'); }
   else if (last.includes('HOLD-SIDE')) chunk(response, 'Partial side answer.');
   else { chunk(response, 'SIDE-ANSWER '); setTimeout(() => { if (!response.destroyed) chunk(response, 'isolated.', true); }, 100); }
 });
@@ -243,9 +245,58 @@ try {
   await viewQuotes.click();
   await quotePreview.getByRole('button', { name: 'Remove quote 1', exact: true }).click();
   assert.equal(await sideInput.evaluate(el => el === document.activeElement), true);
+  const sideQuestion = panel.locator('.btw-request').first();
+  await sideQuestion.hover();
+  assert.ok(await sideQuestion.locator('.user-actions time').getAttribute('dateTime'));
+  assert.equal(await sideQuestion.locator('.user-actions button').count(), 1);
+  await sideQuestion.getByRole('button', { name: 'Copy side question', exact: true }).click();
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), 'AFTER-SESSION-SWITCH');
+  await sideInput.fill('KEEP-LOCAL-SIDE-DRAFT');
+  const beforeLocalSelection = requests.length;
+  await select('#btw-panel .btw-question');
+  assert.equal(await toolbar.getByRole('button', { name: 'Ask in side', exact: true }).count(), 0);
+  await toolbar.getByRole('button', { name: 'Copy selection', exact: true }).click();
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), 'AFTER-SESSION-SWITCH');
+  await toolbar.getByRole('button', { name: 'Quote', exact: true }).click();
+  assert.equal(await sideInput.evaluate(el => el === document.activeElement), true);
+  assert.equal(await sideInput.evaluate(el => el.value), 'KEEP-LOCAL-SIDE-DRAFT');
+  assert.equal(await input.innerText(), 'KEEP-MAIN-REFERENCE-DRAFT');
+  assert.equal(await mainQuotes.locator('.quote-chip').count(), 1);
+  assert.equal(requests.length, beforeLocalSelection, 'Local quoting never sends automatically');
+  await select('#btw-panel .btw-answer > p');
+  await toolbar.getByRole('button', { name: 'Annotate', exact: true }).click();
+  await toolbar.getByRole('textbox', { name: 'Selection annotation', exact: true }).fill('SIDE-ANNOTATION');
+  await toolbar.getByRole('button', { name: 'Add annotation', exact: true }).click();
+  await page.waitForFunction(() => [...(CSS.highlights.get('quote-annotation-marks') ?? [])].some(range =>
+    range.startContainer.parentElement.closest('#btw-panel')));
+  await sideQuestion.evaluate(el => el.dataset.messageIndex = '999');
+  await viewQuotes.click();
+  await quotePreview.getByRole('button', { name: 'Show source of quote 1', exact: true }).click();
+  assert.equal(await panel.getByRole('alert').count(), 0, 'Stable entry identity survives a shifted history index');
+  await sideInput.fill('EXPLAIN-LOCAL-SELECTION');
+  await sideInput.press('Enter');
+  await panel.locator('[data-state="done"]').nth(4).waitFor();
+  const localPrompt = JSON.stringify(requests.at(-1).messages.at(-1).content);
+  assert.match(localPrompt, /from an earlier user message/);
+  assert.match(localPrompt, /AFTER-SESSION-SWITCH/);
+  assert.match(localPrompt, /SIDE-ANNOTATION/);
+  assert.ok(!localPrompt.includes('btw-') && !localPrompt.includes('entryId'), 'No local quote identities cross to the model');
+  await panel.locator('.sent-quote-annotation').filter({ hasText: 'SIDE-ANNOTATION' }).waitFor();
+  await sideInput.fill('RAW-SIDE-TOOL');
+  await sideInput.press('Enter');
+  await panel.getByRole('status').filter({ hasText: 'No action was executed' }).waitFor();
+  assert.equal(await panel.locator('[data-state="error"] .btw-answer').count(), 0);
+  await sideInput.fill('AFTER-REJECTED-TOOLS');
+  await sideInput.press('Enter');
+  await panel.locator('[data-state="done"]').nth(5).waitFor();
+  assert.ok(!JSON.stringify(requests.at(-1).messages).includes('RAW-SIDE-TOOL'),
+    'Rejected invocation does not contaminate followup context');
+  assert.equal(await input.innerText(), 'KEEP-MAIN-REFERENCE-DRAFT');
+  assert.equal(await mainQuotes.locator('.quote-chip').count(), 1);
+  await page.screenshot({ path: join(output, 'electron-local-quotes.png') });
   assert.equal(await readFile(final.state.sessionFile, 'utf8'), finalHistory);
   assert.deepEqual(errors, []);
-  console.log('BTW Electron: real IPC/native route, quote toolbar, Markdown references, independent drafts, no auto-send or quote reattachment, applied model changes, slash, main concurrency, cancellation, followup isolation, minimum layout and no history writes passed.');
+  console.log('BTW Electron: user timestamps/native clipboard, local quotes and annotations, no recursive side questions, tool rejection/history isolation, real IPC/native route, independent drafts, no auto-send, applied model changes, concurrency, cancellation, minimum layout and no history writes passed.');
 } finally {
   if (app) await closeDesktopFixture(app);
   server.closeAllConnections(); await new Promise(resolve => server.close(() => resolve()));

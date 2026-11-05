@@ -47,11 +47,19 @@ references appear with their question. Plain text is for display, Markdown
 for the request and source identity for navigation. Combined question/reference
 limits reject visibly without discarding user input. Closing keeps pending
 side drafts/references; changing conversations clears them.
+Selections inside BTW reuse Quote, Annotate and Copy, without Ask in side.
+They attach only to the side composer and retain a stable source entry across
+history trimming. Main and side annotation ranges coexist without overwriting
+each other; hiding the panel removes only its floating markers/highlights.
 Side questions use the main conversation's user-message and Markdown typography.
+Sent side questions reuse the user timestamp/copy footer without edit/retry.
 Live responses reuse the existing responding indicator; settled responses reuse
 the shared copy/elapsed/time footer without unsupported branch controls. Failed,
 cancelled and length-limited outcomes remain explicit. Timings are local request
 observations, not provider-side telemetry or main-task completion signals.
+The model row identifies the answer-only/no-tools boundary. Tool invocations
+are explicit unsuccessful outcomes, not executed operations or successful
+answers; the user is directed to the main conversation for executable work.
 
 Session navigation separates readable history, editable local drafts and
 execution readiness. A cold preview supports text selection, copying and

@@ -1,5 +1,41 @@
 # Verification
 
+## BTW Message Actions And Tool Boundary (2026-11-05)
+
+Follow-up to merged main `3158d8d` (PR #190). Side questions now reuse
+the shared user timestamp/copy footer without an unsupported edit action.
+Inside BTW, the existing selection toolbar offers Quote, Annotate and Copy
+without recursive side questions. Source identity, composer focus and
+annotation ranges remain isolated from the main transcript; closing BTW
+removes only its own floating markers/highlights.
+
+The upstream pin and applied upstream commits are unchanged. A fresh
+isolated checkout replayed the complete reviewed patch set, then rebuilt
+and staged the runtime with Node v24.16.0. The side-only reminder is also
+applied at system level. Structured tool invocations and bare leading
+tool-protocol text produce an allowlisted unsupported-tools error, never
+execute tools, and do not enter side followup history. Fenced and quoted
+protocol examples remain ordinary answers. This is conservative detection,
+not a claim to recognize every malformed provider response.
+
+Typecheck, production build and all 849 serial tests pass: 835 passed,
+14 platform skips, no failures. The focused staging/native runtime tests
+also pass after the final patch metadata/hash update. Native runtime tests
+use only an isolated loopback provider and verify tool rejection, legitimate
+examples, followup isolation, no retry/tool loop and main/side cancellation.
+The BTW browser acceptance covers shared message actions, side-local
+selection/annotations, independent main/side highlights, hidden-panel
+cleanup, source navigation, focus and light/dark 1600/1100/390/320 layouts
+plus reduced motion. The native BTW and main chat-quote acceptances pass,
+including real clipboard operations, stable entry identity after index
+changes, independently retained drafts/references and no main JSONL writes.
+
+The serial test log and BTW screenshots are in
+`Desktop/test-results/btw/`; the patch replay/build workspace is
+`D:\Desktop Runtime Builds\btw-boundaries-20261105\isolated`.
+No installer, installed application, desktop shortcut, real-account request,
+cloud check or native macOS acceptance was changed or claimed by this pass.
+
 ## PR #190 Capability Removal Synchronization (2026-11-05)
 
 Windows interface run `41869558982`, job `126712778842`, fails in

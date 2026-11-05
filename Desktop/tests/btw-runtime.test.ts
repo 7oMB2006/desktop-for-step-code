@@ -27,6 +27,24 @@ test('native side questions stream on the applied route, remain transient, and c
       response.end(JSON.stringify({ error: { message: 'PRIVATE-PROVIDER-ERROR-SECRET' } })); return;
     }
     response.writeHead(200, { 'content-type': 'text/event-stream' });
+    if (question.includes('RAW-TOOL-PROTOCOL')) {
+      chunk(response, '<tool_call> <function=search_web>\n<parameter=query>NO-EXECUTION</parameter>\n</function></tool_call>', true);
+      return;
+    }
+    if (question.includes('STRUCTURED-TOOL-PROTOCOL')) {
+      response.write(`data: ${JSON.stringify({ id: 'btw-tool', object: 'chat.completion.chunk', model: 'fixture',
+        choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'btw-invalid-tool', type: 'function',
+          function: { name: 'search_web', arguments: '{"query":"NO-EXECUTION"}' } }] }, finish_reason: 'tool_calls' }],
+      })}\n\n`);
+      response.end('data: [DONE]\n\n');
+      return;
+    }
+    if (question.includes('QUOTED-TOOL-EXAMPLE') || question.includes('FENCED-TOOL-EXAMPLE')) {
+      const markup = '<tool_call> <function=search_web>\n<parameter=query>example</parameter>\n</function></tool_call>';
+      chunk(response, question.includes('FENCED-TOOL-EXAMPLE') ? `\`\`\`xml\n${markup}\n\`\`\``
+        : '> <tool_call> <function=search_web>\n\nThis is a quoted example, not a tool request.', true);
+      return;
+    }
     if (question.includes('HOLD-MAIN')) { held = response; chunk(response, 'Main continues.'); return; }
     if (question.includes('HOLD-SIDE')) { chunk(response, 'Partial side answer.'); return; }
     chunk(response, 'Independent ');
@@ -118,6 +136,27 @@ test('native side questions stream on the applied route, remain transient, and c
     await wait(() => terminal('request-6'), 'Provider failure maps to stable error');
     assert.equal(terminal('request-6').kind, 'error');
     assert.ok(!JSON.stringify(events.filter(event => event.type === 'desktop_btw')).includes('PRIVATE-PROVIDER'));
+    for (const question of ['RAW-TOOL-PROTOCOL', 'STRUCTURED-TOOL-PROTOCOL']) {
+      const count: number = requests.length;
+      await ask(question, question);
+      await wait(() => terminal(question), 'Unsupported tool invocation is rejected');
+      assert.equal(terminal(question).kind, 'error');
+      assert.equal(terminal(question).reason, 'tools_unavailable');
+      assert.equal(requests.length, count + 1, 'No automatic retry or tool execution loop');
+      const system = JSON.stringify(requests.at(-1)?.body.messages.filter((message: any) => message.role === 'system'));
+      assert.match(system, /Tools are unavailable/);
+      await ask(`after-${question}`, `AFTER-INVALID-${count}`);
+      await wait(() => terminal(`after-${question}`), 'Followup after rejected tool output');
+      assert.equal(terminal(`after-${question}`).kind, 'done');
+      assert.ok(!JSON.stringify(requests.at(-1)?.body.messages).includes(question), 'Invalid exchange never enters side history');
+    }
+    for (const question of ['QUOTED-TOOL-EXAMPLE', 'FENCED-TOOL-EXAMPLE']) {
+      await ask(question, question);
+      await wait(() => terminal(question), 'Legitimate tool documentation finishes');
+      assert.equal(terminal(question).kind, 'done');
+      assert.match(terminal(question).text, /<tool_call>/);
+    }
+    assert.ok(!events.some(event => ['tool_execution_start', 'tool_execution_end'].includes(event.type)));
     await ask('request-7', 'NEW-UI-SCOPE', 'scope-2');
     await wait(() => terminal('request-7'), 'New UI scope finishes');
     assert.ok(!JSON.stringify(requests.at(-1)?.body.messages).includes('SIDE-FOLLOWUP'));

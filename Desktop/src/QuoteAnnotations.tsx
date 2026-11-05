@@ -5,7 +5,10 @@ import { MAX_ANNOTATION_LENGTH, type ChatQuote } from './chat-quotes';
 
 // Reconstruct only verified selections. Never attach a note to a guessed occurrence.
 export function quoteSourceRange(root: HTMLElement, quote: ChatQuote) {
-  const message = root.querySelector(`[data-message-index="${quote.messageIndex}"]`)?.closest('.message');
+  const source = quote.entryId
+    ? [...root.querySelectorAll<HTMLElement>('[data-message-entry-id]')].find(element => element.dataset.messageEntryId === quote.entryId)
+    : root.querySelector(`[data-message-index="${quote.messageIndex}"]`);
+  const message = source?.closest('.message');
   const blocks = message?.querySelectorAll('.response-text, .user > .message-body');
   const block = blocks?.[quote.blockIndex ?? 0];
   if (!block) return null;
@@ -49,6 +52,18 @@ export function quoteSourceRange(root: HTMLElement, quote: ChatQuote) {
 
 type Marker = { id: string; index: number; left: number; top: number };
 
+// CSS Highlight names are document-wide; each transcript owns only its ranges.
+const annotationRanges = new Map<string, { marks: Range[]; focus: Range[] }>();
+function refreshHighlights() {
+  if (!('highlights' in CSS)) return;
+  for (const [key, name] of [['marks', 'quote-annotation-marks'], ['focus', 'quote-annotation-focus']] as const) {
+    const highlight = new Highlight(...[...annotationRanges.values()].flatMap(value => value[key]));
+    highlight.priority = key === 'focus' ? 1 : 0;
+    if (highlight.size) CSS.highlights.set(name, highlight);
+    else CSS.highlights.delete(name);
+  }
+}
+
 export function QuoteAnnotations({ root, quotes: allQuotes, language, scope, annotate, remove, focusedId }: {
   root: RefObject<HTMLDivElement | null>; quotes: ChatQuote[]; language: 'zh' | 'en'; scope: string;
   annotate: (id: string, text: string) => void;
@@ -81,7 +96,7 @@ export function QuoteAnnotations({ root, quotes: allQuotes, language, scope, ann
     const update = () => {
       frame = 0;
       const host = root.current;
-      const viewport = host?.closest('.conversation')?.getBoundingClientRect();
+      const viewport = host?.closest('[data-quote-viewport], .conversation')?.getBoundingClientRect();
       if (!host || !viewport) { setMarkers([]); return; }
       const ranges: Range[] = [];
       const focused: Range[] = [];
@@ -106,12 +121,8 @@ export function QuoteAnnotations({ root, quotes: allQuotes, language, scope, ann
         if (top < viewport.top) return;
         next.push({ id: item.id, index, left, top });
       });
-      if ('highlights' in CSS) {
-        CSS.highlights.set('quote-annotation-marks', new Highlight(...ranges));
-        const highlight = new Highlight(...focused);
-        highlight.priority = 1;
-        CSS.highlights.set('quote-annotation-focus', highlight);
-      }
+      annotationRanges.set(id, { marks: ranges, focus: focused });
+      refreshHighlights();
       setMarkers(current => JSON.stringify(current) === JSON.stringify(next) ? current : next);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
@@ -129,10 +140,8 @@ export function QuoteAnnotations({ root, quotes: allQuotes, language, scope, ann
       resize.disconnect(); mutation.disconnect();
       document.removeEventListener('scroll', schedule, true);
       window.removeEventListener('resize', schedule);
-      if ('highlights' in CSS) {
-        CSS.highlights.delete('quote-annotation-marks');
-        CSS.highlights.delete('quote-annotation-focus');
-      }
+      annotationRanges.delete(id);
+      refreshHighlights();
     };
   }, [root, quotes, scope, active, focusedId]);
   useEffect(() => {
@@ -141,7 +150,7 @@ export function QuoteAnnotations({ root, quotes: allQuotes, language, scope, ann
     let pending: string | null = null;
     const cancelClose = () => { clearTimeout(closeTimer); closeTimer = undefined; };
     const hit = (x: number, y: number) => {
-      const viewport = root.current?.closest('.conversation')?.getBoundingClientRect();
+      const viewport = root.current?.closest('[data-quote-viewport], .conversation')?.getBoundingClientRect();
       if (!viewport || x < viewport.left || x > viewport.right || y < viewport.top || y > viewport.bottom) return null;
       return [...rangesRef.current.entries()]
         .filter(([, range]) => [...range.getClientRects()].some(rect => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom))
@@ -208,7 +217,7 @@ export function QuoteAnnotations({ root, quotes: allQuotes, language, scope, ann
     if (!element.matches(':popover-open')) element.showPopover();
     const place = () => {
       const box = element.getBoundingClientRect();
-      const viewport = root.current?.closest('.conversation')?.getBoundingClientRect();
+      const viewport = root.current?.closest('[data-quote-viewport], .conversation')?.getBoundingClientRect();
       const visible = [...(rangesRef.current.get(quote.id)?.getClientRects() ?? [])].filter(rect =>
         rect.width > 0 && rect.height > 0 && (!viewport || (rect.bottom > viewport.top && rect.top < viewport.bottom)));
       const text = visible.length ? {

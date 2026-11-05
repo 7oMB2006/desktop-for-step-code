@@ -32,6 +32,18 @@ cannot run in Desktop's headless RPC mode. Selected text narrows what the user
 is asking about; it does not replace the rest of the available main context.
 Unlike a delegated child agent, BTW cannot inspect fresh files, run commands
 or carry out an executable task. It can explain information already in context.
+The model row labels this answer-only/no-tools boundary, with a tooltip for
+the snapshot and no-main-write semantics.
+
+Desktop reinforces the side-only reminder in the system prompt as well as
+the current question. A structured tool invocation or bare leading
+`<tool_call><function=...>`-style envelope is an unsupported-tools error.
+No tool is executed, no automatic retry/fallback occurs, and the failed
+exchange never enters future side history. The renderer replaces that invalid
+stream with an explicit "no action was executed" outcome, not a successful
+answer. Detection is deliberately conservative: fenced code, blockquotes
+and prose explaining a tool protocol remain ordinary answer text. It is not
+a universal detector for every provider's malformed output.
 
 Source basis: pinned upstream
 `packages/coding-agent/src/step/slash-commands.ts` and
@@ -45,6 +57,19 @@ Selecting user or assistant prose/code exposes **Ask in side** beside the
 existing Quote and Annotate actions. It opens the same right panel, attaches
 the selected excerpt and focuses the side-question editor. It does not send
 anything until the user enters a question and explicitly submits.
+
+Inside BTW, the same toolbar provides Quote, Annotate and Copy only; there
+is no recursive Ask in side action. Both user questions and assistant prose
+can be selected. These references and annotations go to the side composer,
+not the main draft. Source navigation stays within the originating
+transcript and verifies stable entry identity even after history indices
+shift. Main and side inline annotation highlights coexist; hiding BTW
+removes only its own markers and highlights. Submitted side annotations
+remain visible alongside their quoted text.
+
+Each sent side question uses the shared user-message timestamp/copy footer.
+Its timestamp is the local send time, not the answer's completion time.
+Editing/retrying a previous question is not implemented or advertised.
 
 Pending references reuse the main composer's compact count entry and anchored
 quote popover, including removal and source navigation. Opening references

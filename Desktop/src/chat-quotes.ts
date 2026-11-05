@@ -2,6 +2,7 @@ export type ChatQuote = {
   id: string;
   messageIndex: number;
   entryId?: string;
+  origin?: 'btw';
   role: 'assistant' | 'user';
   text: string;
   markdown: string;
@@ -18,7 +19,8 @@ export const MAX_PROMPT_LENGTH = 100000;
 export const MAX_ANNOTATION_LENGTH = 4000;
 
 export function sameQuoteSelection(a: ChatQuote, b: ChatQuote) {
-  return a.messageIndex === b.messageIndex && a.text === b.text
+  return a.origin === b.origin && a.role === b.role
+    && (a.entryId || b.entryId ? a.entryId === b.entryId : a.messageIndex === b.messageIndex) && a.text === b.text
     && (a.annotation !== undefined) === (b.annotation !== undefined)
     && (a.annotation === undefined || ((a.blockIndex ?? 0) === (b.blockIndex ?? 0)
       && a.startOffset === b.startOffset && a.endOffset === b.endOffset));

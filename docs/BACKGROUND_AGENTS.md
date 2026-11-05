@@ -72,6 +72,31 @@ and raw usage/cost objects are not exposed by this RPC.
 The runtime retains at most its 16 recent finished lanes; older transcript
 records remain in the existing read-only Agent inspector.
 
+## Historical State And Current Activity
+
+Native `agent_send` tool results carry an array of lane snapshots; the transcript
+projection consumes those validated rows in message order, retaining support for
+older object-shaped details. A follow-up may reopen the same lane without
+changing its original dispatch identity. Unknown lane IDs and malformed rows do
+not acquire that identity, and tool-result prose is never parsed as a status.
+
+Historical dispatch records do not own a process. The runtime-summary bridge
+supplies a bounded current lane roster from validated live status events, or a
+separate read-only observation when unresolved history is loaded. Observations
+never modify live ownership. Transport/session changes and newer lifecycle
+events invalidate them; failed or unavailable reads do not become empty rosters.
+A known empty roster marks unresolved historical running/queued records as
+unknown outcomes, not completed/failed/stopped tasks. Unavailable current state
+is labelled unconfirmed instead. Chat, selected Agent records and summary share
+that projection, while previously returned terminal results remain intact.
+
+Moving a conversation checks the source and prepared destination host against
+live ownership, the native current registry, and existing task/queue/Cron guards.
+Unresolved old history alone does not prevent moving an idle conversation.
+Current running/settling ownership, failed registry verification and unsupported
+runtime capabilities still block movement. Nothing resumes a child, rewrites its
+saved outcome, or adds a reply UI as a fallback.
+
 ## Stop Semantics
 
 Stopping requires an inline confirmation. It stops the selected native lane,
@@ -101,6 +126,14 @@ and peer continuity, actual session navigation with a delayed outgoing read,
 read-only detail navigation, return focus/scroll, live completion, missing
 steps, narrow light/dark focus gutters and reduced motion.
 It is registered in the shared Windows/macOS runtime acceptance inventory.
+
+`verify-background-history-liveness.mjs` exercises a real saved conversation,
+current-registry reads, unknown chat/Agent/summary presentation, relocation
+without changing the historical dispatch, and refusal to relocate a real running
+child. The runtime tests also cover a native `agent_send` follow-up and stopping
+then reopening the same saved session. Native startup may append resource
+discovery entries; pre-existing journal entries are preserved byte-for-byte and
+subsequent registry observations do not append or rewrite them.
 
 `tests/fixtures/background-agents.html` uses the production inspector with
 sample data. It is a visual preview, not real-account acceptance. Native macOS,

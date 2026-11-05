@@ -1,5 +1,79 @@
 # Verification
 
+## Background transcript state and live activity (2026-11-05, local uncommitted candidate)
+
+The candidate starts from main `7c349b73`, including #196's BTW boundary update.
+It does not import the open background-reply PR #197 or modify any of the 16
+runtime patches, their pin, overlays, source postimages, or capability IDs.
+The current patch chain is replayed from a fresh pinned checkout and built
+completely offline. Node 24.16.0 staging matches all 43 Windows postimages.
+
+Two isolated native RPC probes first demonstrate the defects: a retained lane
+restarted by native `agent_send reply` has a real array-shaped running result
+while the old transcript projection remains completed; after suspending an
+active child and reopening its saved session, the native registry is empty and
+the host idle while old history still reports running and blocks relocation.
+The native lifecycle forbids progress after a terminal event in the same turn,
+but a legal reply can reuse the lane ID for another turn. Therefore the fix does
+not impose a permanent terminal-state lock or infer lifecycle from result prose.
+
+Desktop now consumes validated, bounded array-shaped control results while
+retaining the old object-shaped history. Current lane activity is projected
+separately: native live status events remain the sole process-ownership source,
+while registry observations are display-only and invalidate on transport,
+session, generation or structured lifecycle changes. A stale observation cannot
+release a newer running/settling owner. Unknown registry state fails closed for
+relocation; old unresolved transcript status alone no longer owns the host.
+No child transcript is loaded to invent a missing final outcome.
+
+The five native RPC scenarios pass, including actual follow-up execution and
+suspend/reopen. Pre-existing journal entries retain their exact bytes. Native
+reopening appends resource-discovery records in this environment, so tests check
+that bounded allowed initialization separately; subsequent lane observations
+leave the reopened file unchanged. The dedicated Electron verifier passes
+unknown chat/Agent/summary presentation, actual relocation with zero model
+requests, unchanged historical running status, and refusal to relocate a real
+running child. Existing subagent status, background controls, chain/safety and
+BTW native Electron verifiers also pass against the rebuilt current-main
+runtime. These remain loopback/source evidence, not native macOS, packaged,
+real-account or release acceptance.
+
+The earlier existing session-move verifier fails before reaching this regression
+on both the previous candidate and unchanged main (dialog-close timeout on one
+run; a missing fixture-generated file on the control run). Those failures are
+not called product regressions or proven flaky. Its final historical-only
+blocking assertions are updated to the demonstrated current-registry contract,
+with existing active-task, queue, approval, Cron and directory checks retained.
+Complete current-input results and remaining verification failures are
+recorded below; no deadline or assertion is relaxed for an environmental
+failure. The final review identified disconnected source-host
+compatibility: an explicitly disconnected source skips querying its dead
+transport after the normal task/queue checks, while the prepared destination
+always verifies its live registry. This distinction has a red/green regression.
+Structured notifications and subagent control results also invalidate prior
+display observations; the cache does not own or release a process.
+
+Final local candidate verification: typecheck and production build pass; the
+complete serial Desktop suite collects 894 tests, with 879 passes, 14 platform
+skips and one file-URL Git marketplace clone failure. It remains the same local
+marketplace failure recorded during #193, not a passing full-suite result.
+The complete session-move acceptance again stops earlier at its missing
+fixture-generated `moved-cwd.txt`, before reaching the changed historical-lane
+assertions. An original-flow diagnostic confirms that the `run_command` was
+issued once, returned `isError: true`, and reported Bash
+`NtCreateDirectoryObject(...): 0xC0000022` with exit code `3221225794`.
+The missing file is a consequence of that native initialization failure, not
+successful command execution or a demonstrated relocation regression. The
+original command/file assertions are retained; no runtime failure is converted
+into success. The focused native RPC and new liveness Electron verifiers pass.
+CI inventory/policy/runner checks pass 30 tests with one platform skip. All
+831 candidate inputs match the isolated validation mirror byte-for-byte.
+Independent bounded read-only reviews find no confirmed blocker after the
+message-invalidation and disconnected-source regressions are added; they do not
+replace cloud execution. The original 16 patch manifest and all 43 staged
+source postimages remain unchanged. No commit, push, PR, package, shortcut or
+personal-profile change is made by this local verification.
+
 ## PR #196 Native CI Synchronization (2026-11-05)
 
 Run `41975811560` fails macOS source capability acceptance immediately after

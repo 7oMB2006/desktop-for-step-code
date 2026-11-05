@@ -125,6 +125,7 @@ try {
   });
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
   const draft = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(draft.firstRun?.required, false, 'The seeded existing profile bypasses onboarding');
   assert.ok(draft.draftId && !draft.runtimeId, 'Management navigation starts from a draft without a runtime');
   const schedules = page.getByRole('button', { name: '定时任务', exact: true });
   const message = page.getByRole('textbox', { name: '消息', exact: true });

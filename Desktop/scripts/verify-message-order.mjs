@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, skipFirstRunFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,6 +19,7 @@ try {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
+  await skipFirstRunFixture(page);
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await prepareSessionFixture(page);
   const saved = await page.evaluate(() => window.desktop.snapshot());

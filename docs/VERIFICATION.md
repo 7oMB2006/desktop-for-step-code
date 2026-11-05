@@ -2,8 +2,8 @@
 
 ## Plugin Center PR Integration (2026-11-05)
 
-The plugin-center/authoring branch integrates main `3158d8d`, retaining full-text
-search, BTW, background controls and model selection. A fresh pinned upstream
+The plugin-center/authoring branch initially integrates main `3158d8d`, retaining
+full-text search, BTW, background controls and model selection. A fresh pinned upstream
 checkout applies the complete hashed patch chain, including background/BTW and
 template-input, without changing pin `81e79bc4`. It builds and stages with Node
 24.16.0 in an isolated QA directory; shared runtime/node_modules junctions and
@@ -47,10 +47,23 @@ A local aliased-TEMP reproduction fails before the fixture fix and passes all
 49 focused tests afterwards, including a regression that still rejects aliased
 plugin reads and private writes. Isolated capability-management and all eight
 StepPage registration Electron cases also pass under the aliased temporary
-directory. These are targeted follow-up results, not a new full-suite or cloud-CI
-verdict.
+directory. A complete aliased-TEMP serial rerun then passes 931 tests: 917 passed,
+14 platform skips, no failures/cancellations. Its log is
+`plugin-skeleton-pr-20261105-full-unit-alias.log`. These follow-up results precede
+the subsequent first-run integration merge; they are not a cloud-CI verdict.
 
-The new production build is
+Main subsequently advances to `d0a1009` with first-run onboarding. The merge
+preserves both typed bridges, the fresh Bootstrap/App handoff, the two plugin
+configuration mutation guards and `finishFirstRun` serialization. Independent
+read-only review finds no further integration defect. Post-merge typecheck,
+production build, 21 focused tests, real first-run lifecycle and all eight
+StepPage registration cases pass under aliased TEMP. First-run acceptance now
+also asserts that Plan authorization blocks both plugin configuration saves.
+The seeded plugin-management profile explicitly checks existing-profile bypass.
+The post-merge isolated build is
+`D:/DFSC-Preview-QA/plugin-skeleton-pr-20261105-onboarding-app/`.
+
+The pre-onboarding production build is
 `D:/DFSC-Preview-QA/plugin-skeleton-pr-20261105-app/`.
 Actual isolated Electron acceptance repeats native discovery, install,
 documentation, configuration, MCP initialization/tool calls, explicit restart,
@@ -436,6 +449,61 @@ acceptance are represented. Plan ASR retains the existing BVR dedicated-model
 route on the selected Plan endpoint; real-account ASR availability and billing
 have not been retested in this integration. Abort cannot undo a request already
 accepted by a provider.
+
+## Production First-run Integration (2026-11-04)
+
+The accepted preview is now connected to the real Electron startup path.
+The main process owns a versioned, atomically saved `userData/first-run.json`
+marker, initialized before startup writes runtime files. A fresh profile remains
+pending across interrupted setup, reload and restart. Completion or explicit
+skip persists; retained-data upgrades/reinstalls do not replay the flow. Legacy
+preferences, runtime configuration, credentials, model configuration or session
+history bypass setup without reading credentials for detection. An unreadable or
+future marker is preserved and bypasses optional onboarding rather than blocking
+access to the application. Clearing the entire Desktop profile is a fresh start.
+
+The renderer bootstrap mounts onboarding separately from the normal workspace
+and preserves the workspace's original snapshot initialization order. Restoring
+an existing runtime before a reload must not leave command/permission controls
+unavailable; the native acceptance explicitly reloads and changes permissions in
+a saved session without sending another model request.
+It reuses actual account login/cancellation, provider configuration/discovery,
+native project selection, and model/thinking/permission selectors through the
+typed preload. Completion hands off a session draft without starting a runtime,
+writing conversation history or sending inference. Full Access does not bypass
+the existing native risk confirmation on first execution. The preview remains
+an independent simulation and shares the production stylesheet.
+
+Local Windows source verification passes:
+
+- Typecheck and production build.
+- Serial Desktop suite: 848 tests, 834 passed and 14 platform skips.
+- CI inventory/policy/runner tests: 30 passed and one platform skip.
+- `verify-first-run.mjs`, registered in the interface CI group: fresh/interrupted,
+  skipped/completed and legacy/future-marker lifecycles; real provider discovery,
+  encrypted persistence, native directory selection/cancellation, draft model and
+  permission handoff, and the first explicit loopback model request.
+- The same native acceptance exercises official regional API login, rejected
+  credentials, browser Plan authorization/cancellation with a loopback transport,
+  no-subscription responses, shared-operation guards and Full Access cancellation
+  without a submitted task. Native system theme changes, light/dark brand assets,
+  390px English focus gutters and reduced motion are covered.
+- The standalone preview regression matrix passes with an installed Edge browser.
+- Adjacent native startup, first-frame/system theme, new-session draft, account
+  routing/settings, custom-provider protocols and full permission-tier acceptance
+  pass, including session-only versus remembered Full Access consent.
+- Existing desktop, message-order, permission-approval and StepPage registration
+  acceptance explicitly checks fresh-profile onboarding and skips through its real
+  UI before continuing the original assertions. Desktop and StepPage relaunches
+  also verify that existing profiles bypass setup. The StepPage fixture explicitly
+  identifies its four fresh-profile launches instead of seeding configuration to
+  hide onboarding; its registration, disable, migration and idempotence checks
+  remain unchanged. Product behavior, deadlines and acceptance gates are unchanged.
+
+All profiles and endpoints in native acceptance are isolated fixtures, including
+the official API/Plan transport. These checks do not establish live account sign-in,
+paid-model behavior, actual installer over-install, native macOS acceptance or
+release readiness. The new PR's cloud results remain separate evidence.
 
 ## PR #190 Capability Removal Synchronization (2026-11-05)
 

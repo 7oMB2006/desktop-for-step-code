@@ -75,6 +75,7 @@ import { DesktopTray } from './desktop-tray';
 import { QuitReview, quitReasons, needsQuitReview } from './quit-review';
 import { quitConfirmation } from '../src/quit-confirmation';
 import { StartupWindow } from './startup-window';
+import { FirstRun } from './first-run';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
 import { backgroundSubagentStates, conversationEntries } from '../src/conversation-presentation';
@@ -221,6 +222,7 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
   return matches.find(match => match.same)?.workspace;
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
+const firstRun = new FirstRun(app.getPath('userData'));
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
   fetchRepository: (url, options) => net.fetch(url instanceof URL ? url.href : url, { ...options, credentials: 'omit' }),
@@ -589,6 +591,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
   return {
+    firstRun: { required: firstRun.required },
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
     workspaceIssue: unavailableWorkspace,
@@ -1258,6 +1261,15 @@ async function handle(method: string, args: any[]) {
       await startup;
       if (!startupError) await maintainUpdateCache();
       if (startupError) { emit({ type: 'desktop_error', message: startupError }); startupError = undefined; }
+      return snapshot();
+    }
+    case 'finishFirstRun': {
+      await startup;
+      if (args[0] !== 'completed' && args[0] !== 'skipped') throw new Error('Invalid first-run outcome');
+      if (args[0] === 'completed' && (!sessionDraft?.model || !sessionDraft.models?.some(
+        model => model.id === sessionDraft!.model!.id && model.provider === sessionDraft!.model!.provider)))
+        throw new Error('Choose an available model before completing setup');
+      await firstRun.finish(args[0]);
       return snapshot();
     }
     case 'sessions': return listSessions();
@@ -2188,6 +2200,8 @@ if (!app.requestSingleInstanceLock()) { quitting = true; app.quit(); }
 else app.whenReady().then(async () => {
   if (!backgroundAcceptance || process.env.DESKTOP_TEST_STARTUP_WINDOW === '1')
     startupWindow = new StartupWindow(backgroundAcceptance, !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined);
+  // Detect older profiles before startup creates runtime configuration or preferences.
+  await firstRun.initialize();
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
   await collaboration.start();
@@ -2313,13 +2327,13 @@ else app.whenReady().then(async () => {
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
     const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration'].includes(method);
-    const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage'].includes(method);
+    const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
     if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
       throw new Error('Shared settings operation in progress');
     if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
       'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
-    if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
     if (!updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
       await applyProviderSettings();
     }

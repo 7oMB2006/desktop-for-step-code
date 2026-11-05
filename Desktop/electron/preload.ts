@@ -33,6 +33,7 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  finishFirstRun: outcome => invoke('finishFirstRun', outcome),
   btwAsk: input => invoke('btwAsk', input),
   btwCancel: input => invoke('btwCancel', input),
   btwClear: input => invoke('btwClear', input),

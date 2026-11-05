@@ -8,6 +8,7 @@ export interface Message { desktopImported?: boolean }
 export interface Message { desktopInput?: { version: 1; text: string } }
 export interface Content { historical?: boolean }
 export interface Snapshot { workspaceIssue?: string }
+export interface Snapshot { firstRun?: { required: boolean } }
 export interface RuntimeStartupTiming {
   processReadyMs: number;
   sessionRestoreMs: number;
@@ -97,6 +98,7 @@ export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
 export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient {
+  finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   pluginDocument(input: { ref: string; path: string }): Promise<import('./capabilities').PluginDocument>;
   pluginRepositoryInfo(input: { ref: string; refresh: boolean }): Promise<import('./capabilities').PluginStarSnapshot>;

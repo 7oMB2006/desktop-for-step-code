@@ -15,7 +15,7 @@ const formats: { id: ProviderApi; label: string }[] = [
 ];
 const blank = (): ProviderInfo => ({ id: '', name: '', baseUrl: '', api: 'openai-completions', enabled: true, keyless: false, hasKey: false, models: [] });
 const model = (): ProviderModel => ({ id: '', name: '', reasoning: false, vision: false, contextWindow: 128000, maxTokens: 16384 });
-export function ProviderSettings({ providers, language, pending, onSave, onDelete, onDiscover, onTest, onCancelTest, onCopyDiagnostic, activeModel }: {
+export function ProviderSettings({ providers, language, pending, onSave, onDelete, onDiscover, onTest, onCancelTest, onCopyDiagnostic, activeModel, onBusyChange }: {
   providers: ProviderInfo[]; language: string; pending?: boolean;
   onSave: (provider: CustomProvider, key?: string) => Promise<ProviderInfo[]>;
   onDelete: (id: string) => Promise<ProviderInfo[]>;
@@ -24,6 +24,7 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
   onCancelTest: () => Promise<void>;
   onCopyDiagnostic: (text: string) => Promise<void>;
   activeModel?: Model;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const t = (zh: string, en: string) => language === 'en' ? en : zh;
   const [draft, setDraft] = useState<ProviderInfo | undefined>(() => providers[0]);
@@ -58,6 +59,7 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
     return () => { lifecycle.current.mounted = false; if (lifecycle.current.testing) void cancelTest.current().catch(() => {}); };
   }, []);
   const blocked = saving || discovering || testing;
+  useEffect(() => { onBusyChange?.(blocked); return () => onBusyChange?.(false); }, [blocked, onBusyChange]);
   useEffect(() => {
     if (dirty || blocked) return;
     const current = providers.find(provider => provider.id === draft?.id);

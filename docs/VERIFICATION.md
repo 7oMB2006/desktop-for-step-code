@@ -6404,3 +6404,47 @@ CI inventory/policy/runner checks passed 39 tests with one platform skip.
 Typecheck, production build, real Electron background controls and Workflow
 acceptance passed again after integration. These local results do not replace
 the new PR's cloud CI, native macOS or installer acceptance.
+
+## Completion Self-Review (2026-11-05)
+
+The existing task-options menu adds a default-off, one-shot completion
+self-review for the next ordinary main task. A hashed Desktop RPC patch reuses
+the native same-session feedback without enabling CLI-only flags, upgrading the
+pin, requiring a Git commit or creating an independent reviewer.
+Plan, Goal, Ultracode, Cron, BTW and child-agent automatic tasks are excluded.
+Queued tasks retain their own choice; rejected direct submissions do not
+consume it. Cancellation, errors, terminating denials and approval handoff
+block automatic continuation. New input skips a still-pending review but queues
+behind an already-started review.
+
+Local Windows source verification uses isolated profiles and loopback model
+providers through the real typed preload, IPC and pinned RPC. Native tests cover
+default-off behavior, exactly one extra prompt with a real tool continuation,
+the same model/credential route, exact once-only token totals, persisted
+structured provenance, queued input, cancellation and mutation guards.
+Fault injection covers each history-write phase: a failed store still emits one
+failed terminal event and releases task ownership, without a completion claim.
+Error, cancellation and handoff reasons cannot be masked by an earlier input
+skip or a later successful response.
+
+Electron verifies the production menu, one-shot consumption, automatic input
+without a fake human bubble, uninterrupted ownership across both native runs,
+one final completion event and light/dark/narrow/reduced-motion presentation.
+An ended review cannot label a later Plan. The existing launch-mode Electron
+acceptance also passes for Plan, Goal, Ultracode, draft options and queue steering.
+The original completion sound uses that final event; total task timing spans
+both runs. Review endings remain neutral, not "verification passed."
+The 24 focused controller/RPC, projection, queue and timing tests pass.
+The final complete serial Desktop suite passes 896 tests: 882 passed and 14
+platform skips, with no failures. The local log is
+`Desktop/test-results/completion-review/desktop-suite-final.log`.
+Desktop typecheck and production build, runtime build/typecheck using
+`tsconfig.build.json`, and clean patch replay with all 44 postimage hashes pass.
+CI policy, inventory and platform runners pass 30 tests with one platform skip;
+the new native verifier is assigned to the shared sessions group.
+
+The active staged runtime and replay evidence are isolated under
+`D:\Desktop Runtime Builds\completion-review-20261105`; the installed application
+and existing installer are unchanged. This is local source acceptance, not
+real-account/billing, native macOS, current cloud CI or installer acceptance.
+See [the implementation contract](COMPLETION_REVIEW.md).

@@ -17,6 +17,7 @@ import { questionnaire } from '../src/questionnaire';
 import { cronState, hasScheduledCron, type CronState } from './cron-state';
 import { restoreSelectedModel, UnavailableModelError } from './model-preference';
 import { backgroundLaneStates, backgroundState, hasBackgroundWork, type BackgroundLaneState } from './background-work';
+import { completionReview, reviewActive } from '../src/completion-review';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -167,15 +168,41 @@ export class SessionRuntimes {
     worker.backgroundLanes = undefined;
     // A transport-local Full Access grant must not survive process replacement.
     if (existing?.permissionPreset === 'full-access') worker.permissionPreset = undefined;
-    worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false };
+    worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false,
+      ...(existing ? { reviewArmed: false, review: undefined } : {}) };
     let runGeneration = 0;
     let notifiedGeneration = 0;
     const transport = this.create(event => {
       if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected') return;
+      if (event.type === 'agent_end' && reviewActive(worker.launch?.review)) event = { ...event, desktopReviewPending: true };
+      if (event.type === 'agent_start' && worker.runActive && reviewActive(worker.launch?.review))
+        event = { ...event, desktopReviewContinuation: true };
       event = this.hooks.event?.(worker, event) ?? event;
       worker.revision++;
+      if (event.type === 'desktop_completion_review') {
+        const review = completionReview(event.review);
+        if (!review || review.sessionId !== worker.state?.sessionId) return;
+        worker.launch = { ...worker.launch ?? emptyLaunch(), review };
+        if (reviewActive(review)) {
+          worker.busy = true;
+          if (worker.state) worker.state = { ...worker.state, isStreaming: true };
+        } else {
+          worker.busy = false; worker.runActive = false; worker.touched = Date.now();
+          if (worker.state) worker.state = { ...worker.state, isStreaming: false };
+          if (review.status === 'failed') worker.failed = true;
+          if (review.status === 'cancelled') worker.interrupted = true;
+          if (event.completed && !worker.failed && !worker.interrupted && !worker.queued && !hasBackgroundWork(worker)
+            && notifiedGeneration !== runGeneration && runGeneration > 0) {
+            notifiedGeneration = runGeneration;
+            if (worker.id !== this.activeId) this.unreadSessionIds.add(review.sessionId);
+            this.emit({ type: 'desktop_task_completed', runtimeId: worker.id, sessionId: review.sessionId });
+          }
+        }
+        this.publishLaunch(worker);
+      }
+      const reviewing = reviewActive(worker.launch?.review);
       if (event.type === 'agent_start') { if (!worker.runActive) runGeneration++; worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
-      if (event.type === 'agent_settled' && !worker.runActive) {
+      if (event.type === 'agent_settled' && !worker.runActive && !reviewing) {
         worker.busy = false;
         if (worker.state) worker.state = { ...worker.state, isStreaming: false };
       }
@@ -189,7 +216,7 @@ export class SessionRuntimes {
       }
       if (['compaction_start', 'auto_compaction_start', 'auto_clm_start'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: true };
       if (['compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: false };
-      if (event.type === 'agent_end') {
+      if (event.type === 'agent_end' && !reviewing) {
         const completedGeneration = runGeneration;
         const completed = worker.runActive && !worker.failed && !worker.interrupted && taskOutcome(worker.messages) === 'completed';
         worker.runActive = false; worker.busy = false; worker.touched = Date.now();
@@ -223,7 +250,7 @@ export class SessionRuntimes {
           }
         }
       }
-      if (['message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
+      if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
       if (event.type === 'message_end' && event.message?.stopReason === 'error') worker.failed = true;
       if (event.type === 'desktop_exit') {
         worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
@@ -298,7 +325,7 @@ export class SessionRuntimes {
         || event.type === 'extension_ui_request' && (event.method === 'setStatus' && ['step-goal', 'plan-mode'].includes(event.statusKey)
           || event.method === 'notify' && /^(?:Goal|Plan mode|Ultraloop)/.test(event.message ?? ''))))
         void this.readLaunch(worker).catch(() => {});
-      if (['agent_start', 'agent_end', 'agent_settled', 'desktop_exit', 'extension_ui_request', 'compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_compaction_end', 'auto_clm_start', 'auto_clm_end'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
+      if (['desktop_completion_review', 'agent_start', 'agent_end', 'agent_settled', 'desktop_exit', 'extension_ui_request', 'compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_compaction_end', 'auto_clm_start', 'auto_clm_end'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
     });
     worker.rpc = transport;
     this.workers.set(worker.id, worker);
@@ -401,7 +428,7 @@ export class SessionRuntimes {
         worker.messages = decorated;
         worker.leafId = history.leafId ?? undefined;
       }
-      worker.busy = Boolean(state.isStreaming);
+      worker.busy = Boolean(state.isStreaming) || reviewActive(worker.launch?.review);
     }
     worker.models = models;
     if (this.statsVersions.get(worker) === statsVersion) worker.stats = stats;

@@ -1,6 +1,7 @@
 import type { Message } from './contracts';
 import { conversationEntries } from './conversation-presentation';
 import { cronMessage } from './cron-message';
+import type { CompletionReview } from './completion-review';
 
 export interface GoalState {
   id: string; sessionId: string; objective: string;
@@ -10,11 +11,12 @@ export interface GoalState {
   ultracode?: boolean;
   completion?: { userEntryId: string; userTimestamp?: number };
 }
-export interface LaunchState { plan: boolean; planArmed?: boolean; ultracode: boolean; ultracodeArmed?: boolean; ultracodeTurn?: boolean; goalArmed: boolean; goal?: GoalState }
-export type LaunchMode = 'plan' | 'goal' | 'ultracode';
+export interface LaunchState { plan: boolean; planArmed?: boolean; ultracode: boolean; ultracodeArmed?: boolean; ultracodeTurn?: boolean; goalArmed: boolean; goal?: GoalState; reviewArmed?: boolean; review?: CompletionReview }
+export type LaunchMode = 'plan' | 'goal' | 'ultracode' | 'review';
 export const emptyLaunch = (): LaunchState => ({ plan: false, ultracode: false, goalArmed: false });
 export function draftLaunchChanges(current = emptyLaunch(), draft = emptyLaunch()): { mode: LaunchMode; enabled: boolean }[] {
   const changes: { mode: LaunchMode; enabled: boolean }[] = [];
+  if (!draft.reviewArmed && current.reviewArmed) changes.push({ mode: 'review', enabled: false });
   // Disarm an old Goal before applying the draft's mutually exclusive Plan choice.
   if (!draft.goalArmed && (current.goalArmed || current.goal?.status === 'active'))
     changes.push({ mode: 'goal', enabled: false });
@@ -23,6 +25,7 @@ export function draftLaunchChanges(current = emptyLaunch(), draft = emptyLaunch(
   if (draft.ultracodeArmed || current.ultracodeArmed)
     changes.push({ mode: 'ultracode', enabled: Boolean(draft.ultracodeArmed) });
   if (draft.goalArmed) changes.push({ mode: 'goal', enabled: true });
+  if (draft.reviewArmed) changes.push({ mode: 'review', enabled: true });
   return changes;
 }
 export const goalStatuses = ['active', 'paused', 'blocked', 'usage_limited', 'budget_limited', 'complete'] as const;

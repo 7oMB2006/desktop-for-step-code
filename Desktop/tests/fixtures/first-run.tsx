@@ -13,7 +13,7 @@ import type { Model, PermissionPreset } from '../../src/contracts';
 import '../../src/style.css';
 import '../../src/layout.css';
 import '../../src/model-picker-list.css';
-import './first-run.css';
+import '../../src/first-run.css';
 
 type Kind = 'plan' | 'api' | 'custom';
 type Region = 'cn' | 'global';

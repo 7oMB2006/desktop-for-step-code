@@ -7,6 +7,7 @@ export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?:
 export interface Message { desktopImported?: boolean }
 export interface Content { historical?: boolean }
 export interface Snapshot { workspaceIssue?: string }
+export interface Snapshot { firstRun?: { required: boolean } }
 export interface RuntimeStartupTiming {
   processReadyMs: number;
   sessionRestoreMs: number;
@@ -96,6 +97,7 @@ export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
 export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient {
+  finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;

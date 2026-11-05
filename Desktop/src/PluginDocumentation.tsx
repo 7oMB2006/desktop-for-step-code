@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, ArrowUpRight, BookOpen, Play, Star } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, BookOpen, Globe, Play, Star } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { PluginDocument, PluginPackage, PluginStarSnapshot } from './capabilities';
@@ -24,6 +24,15 @@ export function pluginDocumentUrl(value: string | undefined) {
 }
 
 export function PluginStars({ value, language }: { value?: PluginPresentation['stars'] | PluginStarSnapshot; language: string }) {
+  if (value && 'status' in value && value.count === undefined) {
+    const pending = value.status === 'unknown';
+    const label = pending ? language === 'zh' ? '正在查询 GitHub 星标' : 'Checking GitHub stars'
+      : value.status === 'limited' ? language === 'zh' ? 'GitHub 星标查询受限' : 'GitHub star lookup rate limited'
+        : language === 'zh' ? 'GitHub 星标暂不可用' : 'GitHub stars unavailable';
+    return <span className="pc-stars" data-status={value.status} aria-label={label} title={label} aria-busy={pending}>
+      <Star size={13} aria-hidden="true"/><span>{pending ? '...' : '-'}</span>
+    </span>;
+  }
   if (!value || typeof value.count !== 'number' || !Number.isSafeInteger(value.count) || value.count < 0 || !value.checkedAt) return null;
   const label = language === 'zh' ? `GitHub Stars：${value.count}，查询于 ${value.checkedAt}`
     : `${value.count} GitHub stars, checked ${value.checkedAt}`;
@@ -71,7 +80,7 @@ export function PluginDocumentation({ presentation, description, version, langua
   });
   const links = (presentation?.links ?? []).flatMap(item => {
     const url = pluginDocumentUrl(item.url);
-    return url ? [{ ...item, url }] : [];
+    return url ? [{ ...item, url, host: new URL(url).host }] : [];
   });
   return <div className="pc-documentation">
     {tutorials.length > 0 && <section className="pc-tutorials" aria-label={t('视频教程', 'Video tutorials')}>
@@ -82,12 +91,16 @@ export function PluginDocumentation({ presentation, description, version, langua
         <span className="pc-tutorial-open">{t('观看视频', 'Watch video')}<ArrowUpRight size={15} aria-hidden="true"/></span>
       </a>)}
     </section>}
+    {links.length > 0 && <nav className="pc-document-links" aria-label={t('相关链接', 'Related links')}>
+      {links.map(item => <a className="pc-document-link" key={item.url} href={item.url} target="_blank" rel="noopener noreferrer">
+        <span className="pc-document-link-icon"><Globe size={19} aria-hidden="true"/></span>
+        <span className="pc-document-link-copy"><strong>{item.title}</strong><span>{item.host}</span></span>
+        <ArrowUpRight size={17} aria-hidden="true"/>
+      </a>)}
+    </nav>}
     <div className="pc-document-heading"><span><BookOpen size={14} aria-hidden="true"/>{t('使用说明', 'Guide')}</span>
       {(presentation?.readme || fileName) && <span>{version ? `v${version} · ` : ''}{fileName ?? 'README.md'}</span>}</div>
     {reader ?? (presentation?.readme ? <PluginMarkdown text={presentation.readme}/> : <p className="pc-body-copy">{description}</p>)}
-    {links.length > 0 && <nav className="pc-document-links" aria-label={t('相关链接', 'Related links')}>
-      {links.map(item => <a key={item.url} href={item.url} target="_blank" rel="noopener noreferrer">{item.title}<ArrowUpRight size={13} aria-hidden="true"/></a>)}
-    </nav>}
     {(presentation?.author || presentation?.maintainer || presentation?.license) && <dl className="pc-document-credits">
       {presentation.author && <div><dt>{t('项目作者', 'Project author')}</dt><dd>{presentation.author}</dd></div>}
       {presentation.maintainer && <div><dt>{t('DFSC 适配维护', 'DFSC adaptation')}</dt><dd>{presentation.maintainer}</dd></div>}

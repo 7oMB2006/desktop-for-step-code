@@ -29,6 +29,45 @@ function focusClips(element) {
   return clips;
 }
 try {
+  const metadata = await browser.newPage({ viewport: { width: 1440, height: 980 } });
+  try {
+    await metadata.goto(`${base}/tests/fixtures/plugin-center-live.html?repositories=held`);
+    await metadata.getByRole('tab', { name: /^已安装/ }).waitFor();
+    await metadata.waitForFunction(() => window.pluginCenterTest.counts().repositoryReads === 2);
+    const cards = metadata.locator('.pc-plugin-row');
+    assert.match(await cards.nth(0).locator('.pc-card-meta').innerText(), /匹配市场 · bvr-local-preview/);
+    assert.match(await cards.nth(1).locator('.pc-card-meta').innerText(), /市场 · builtin/);
+    assert.match(await cards.nth(2).locator('.pc-card-meta').innerText(), /来源未确认/);
+    assert.match(await cards.nth(3).locator('.pc-card-meta').innerText(), /市场 · fixture-community/);
+    assert.match(await cards.nth(1).locator('.pc-card-description').innerText(), /浏览器自动化/);
+    assert.equal(await cards.nth(0).locator('.pc-stars').getAttribute('aria-busy'), 'true');
+    assert.equal(await cards.nth(0).locator('.pc-stars > span').innerText(), '...');
+    await metadata.getByRole('button', { name: '查看 Bilibili Video Research 使用说明', exact: true }).click();
+    await metadata.locator('.pc-document-markdown table').waitFor();
+    assert.equal(await metadata.locator('.pc-repository .pc-stars').getAttribute('aria-busy'), 'true',
+      'A slow public repository lookup must not block opening and reading a plugin');
+    await metadata.evaluate(() => window.pluginCenterTest.releaseRepositories());
+    await metadata.waitForFunction(() => document.querySelector('.pc-repository .pc-stars > span')?.textContent === '18');
+    await metadata.evaluate(() => window.pluginCenterTest.language('en'));
+    await metadata.getByRole('tab', { name: 'Guide', exact: true }).waitFor();
+    await metadata.getByRole('heading', { name: 'Video research', exact: true }).waitFor();
+    assert.equal(await metadata.locator('.pc-plugin-summary > p').innerText(), 'Research public videos using transcripts, audio and frames.');
+    assert.match(await metadata.locator('.pc-plugin-title').innerText(), /Matching marketplace · bvr-local-preview/);
+    assert.equal(await metadata.locator('.pc-documentation .pc-document-heading > span').last().innerText(), 'v0.1.0 · README.en.md');
+    await metadata.evaluate(() => window.pluginCenterTest.language('zh'));
+    await metadata.locator('.pc-document-markdown table').waitFor();
+    await metadata.getByRole('button', { name: '全部插件', exact: true }).click();
+    assert.equal(await cards.nth(0).locator('.pc-stars > span').innerText(), '18');
+    assert.equal(await cards.nth(1).locator('.pc-stars > span').innerText(), '-',
+      'An unavailable star count stays unknown, not an invented zero or a missing affordance');
+    assert.equal(await metadata.evaluate(() => window.pluginCenterTest.counts().repositoryReads), 2,
+      'Repeated detail navigation and language changes reuse the repository lookup');
+    await metadata.getByRole('switch', { name: '启用 Bilibili Video Research 服务', exact: true }).click();
+    await metadata.waitForFunction(() => document.querySelector('[aria-label="启用 Bilibili Video Research 服务"]')?.getAttribute('aria-checked') === 'false');
+    assert.equal(await cards.nth(0).locator('.pc-stars > span').innerText(), '18',
+      'A capability refresh must not reset an already fetched star snapshot');
+    console.log('Cold-cache repository lookups, truthful installation sources and live locale switching passed.');
+  } finally { await metadata.close(); }
   const race = await browser.newPage({ viewport: { width: 1440, height: 980 } });
   try {
     await race.goto(`${base}/tests/fixtures/plugin-center-live.html`);
@@ -117,16 +156,50 @@ try {
       assert.equal(await tutorial.getAttribute('href'), 'https://www.bilibili.com/video/BV1dPeP6REwM/');
       assert.equal(await tutorial.getAttribute('target'), '_blank');
       assert.equal(await tutorial.getAttribute('rel'), 'noopener noreferrer');
+      const linkCards = center.locator('.pc-document-link');
+      assert.equal(await linkCards.count(), 2);
+      assert.deepEqual(await linkCards.locator('.pc-document-link-copy > span').allTextContents(), ['github.com', 'github.com']);
+      const documentationUrl = 'https://github.com/7oMB2006/Bilibili-Video-Research/blob/main/README.zh-CN.md';
+      assert.equal(await linkCards.first().getAttribute('href'), documentationUrl);
+      for (const card of await linkCards.all()) {
+        assert.equal(await card.getAttribute('target'), '_blank');
+        assert.equal(await card.getAttribute('rel'), 'noopener noreferrer');
+      }
+      const inlineLink = center.locator('.pc-document-markdown a').filter({ hasText: '完整项目文档' });
+      assert.equal(await inlineLink.count(), 1, 'A body link is not promoted to a website card');
+      assert.equal(await inlineLink.getAttribute('href'), documentationUrl);
+      assert.equal(await inlineLink.locator('.pc-document-link-icon').count(), 0);
+      assert.equal(await center.locator('.pc-documentation').evaluate(element => {
+        const links = element.querySelector('.pc-document-links'), heading = element.querySelector('.pc-document-heading');
+        return Boolean(links.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING);
+      }), true, 'Explicit website cards appear before the guide body');
       assert.equal(await center.locator('.pc-document-markdown table:visible').count(), 1);
       assert.equal(await center.locator('.pc-document-credits').getByText('DFSC 社区', { exact: true }).count(), 1);
       assert.equal(await center.locator('.pc-repository .pc-stars').getAttribute('title'), 'GitHub Stars：18，查询于 2026-11-04');
       assert.equal(await center.locator('.pc-detail-footer:visible').count(), 0);
       await page.locator('.pc-detail-scroll').evaluate(element => { element.scrollTop = 0; });
       await page.waitForTimeout(280);
-      const documentationOverflow = await page.locator('.pc-detail,.pc-plugin-header,.pc-tutorial,.pc-documentation,.pc-document-credits').evaluateAll(elements =>
+      const documentationOverflow = await page.locator('.pc-detail,.pc-plugin-header,.pc-tutorial,.pc-document-links,.pc-document-link,.pc-documentation,.pc-document-credits').evaluateAll(elements =>
         elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.className));
       assert.deepEqual(documentationOverflow, [], `${theme}/${width}: documentation layout`);
       await page.screenshot({ path: `${output}/${theme}-${width}-guide.png` });
+      await page.mouse.move(0, 0);
+      const stickyBand = async position => {
+        await page.locator('.pc-detail-scroll').evaluate((element, top) => { element.scrollTop = top; }, position);
+        await page.waitForTimeout(50);
+        const clip = await page.locator('.pc-detail-tabs').evaluate(element => {
+          const tabs = element.getBoundingClientRect(), scroll = element.closest('.pc-detail-scroll');
+          const viewport = scroll.getBoundingClientRect();
+          if (Math.abs(tabs.top - viewport.top) > 1) throw new Error('Tabs must cover the very top of the scroll viewport');
+          return { x: Math.ceil(viewport.left), y: Math.ceil(viewport.top),
+            width: Math.floor(scroll.clientWidth - 1), height: Math.floor(tabs.bottom - viewport.top - 1) };
+        });
+        return page.screenshot({ clip, animations: 'disabled' });
+      };
+      const firstBand = await stickyBand(360), nextBand = await stickyBand(410);
+      assert.deepEqual(nextBand, firstBand, `${theme}/${width}: scrolling body must not bleed above, through or beside sticky tabs`);
+      await page.screenshot({ path: `${output}/${theme}-${width}-scrolled-guide.png` });
+      await page.locator('.pc-detail-scroll').evaluate(element => { element.scrollTop = 0; });
       await tutorial.focus();
       assert.equal(await tutorial.evaluate(element => {
         const rect = element.getBoundingClientRect(), parent = element.closest('.pc-detail-scroll').getBoundingClientRect();
@@ -134,15 +207,38 @@ try {
         return rect.left - extent >= parent.left && rect.right + extent <= parent.right
           && rect.top - extent >= parent.top && rect.bottom + extent <= parent.bottom;
       }), true, `${theme}/${width}: tutorial focus outline`);
+      for (const card of await linkCards.all()) {
+        await page.keyboard.press('Tab');
+        assert.equal(await card.evaluate(element => element === document.activeElement), true,
+          'Website cards follow the video in keyboard navigation');
+        assert.equal(await card.evaluate(element => element.matches(':focus-visible')), true);
+        assert.deepEqual(await card.evaluate(focusClips), [], `${theme}/${width}: website card focus outline`);
+      }
       await page.getByRole('tab', { name: '更新记录', exact: true }).click();
       assert.equal(await center.locator('.pc-document-markdown:visible').count(), 1);
       await page.screenshot({ path: `${output}/${theme}-${width}-changelog.png` });
       await page.getByRole('button', { name: '全部插件', exact: true }).click();
     }
   }
+  await page.setViewportSize({ width: 390, height: 760 });
+  await page.getByRole('button', { name: '查看 Bilibili Video Research 使用说明', exact: true }).click();
+  const firstCard = center.locator('.pc-document-link').first();
+  await firstCard.locator('strong').evaluate(element => { element.textContent = 'ShowcaseWithoutWhitespace'.repeat(8); });
+  await firstCard.locator('.pc-document-link-copy > span').evaluate(element => {
+    element.textContent = `${'showcase'.repeat(7)}.${'example'.repeat(7)}.example`;
+  });
+  assert.deepEqual(await firstCard.evaluate(element => [...element.querySelectorAll('*'), element]
+    .filter(item => item.scrollWidth > item.clientWidth + 1).map(item => item.className)), [],
+  'Long website titles and domains wrap without hiding the external-link affordance');
+  await firstCard.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  assert.deepEqual(await firstCard.evaluate(focusClips), [], 'Long website card focus remains inside the scroll viewport');
+  await page.screenshot({ path: `${output}/dark-390-long-website-link.png` });
+  await page.getByRole('button', { name: '全部插件', exact: true }).click();
   const cards = page.locator('.pc-plugin-row');
   assert.equal(await cards.nth(0).locator('.pc-stars').count(), 1);
-  assert.equal(await cards.nth(1).locator('.pc-stars').count(), 0, 'Unknown stars are hidden, not shown as zero');
+  assert.equal(await cards.nth(1).locator('.pc-stars > span').innerText(), '-', 'Unavailable stars are marked unknown, not shown as zero');
   await page.getByRole('button', { name: '查看 Playwright 使用说明', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: '使用说明', exact: true }).getAttribute('aria-selected'), 'true');
   assert.equal(await page.getByRole('tab', { name: '更新记录', exact: true }).count(), 0, 'Do not invent a changelog');

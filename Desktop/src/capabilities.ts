@@ -1,4 +1,8 @@
 export type CapabilityPluginIcon = { kind: 'step' } | { kind: 'png'; dataUrl: string };
+export interface PluginLocale {
+  description?: string;
+  documentation?: { readme?: string; changelog?: string };
+}
 export interface PluginPackage {
   ref: string; provenance: 'recorded' | 'unknown' | 'conflict';
   author?: string; maintainer?: string; license?: string;
@@ -7,6 +11,7 @@ export interface PluginPackage {
   links: { title: string; url: string }[]; warnings: string[];
   stars?: PluginStarSnapshot;
   configurationAvailable?: boolean;
+  locales?: Partial<Record<'zh' | 'en', PluginLocale>>;
 }
 export interface PluginConfigurationField {
   id: string; label: string; help?: string; type: 'text' | 'number' | 'enum' | 'boolean' | 'secret' | 'path';
@@ -36,6 +41,7 @@ export interface PluginStarSnapshot {
 export interface CapabilityPlugin {
   id: string; name: string; version?: string; description?: string;
   mcpServers: string[]; warnings: string[]; icon?: CapabilityPluginIcon; repository?: string; marketplace?: string; package?: PluginPackage;
+  installationSource?: { status: 'recorded' | 'matched' | 'unknown' | 'conflict'; marketplaces: string[] };
 }
 export interface MarketplacePlugin {
   name: string; marketplace: string; description?: string; installed: boolean; icon?: CapabilityPluginIcon;

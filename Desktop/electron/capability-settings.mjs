@@ -329,12 +329,18 @@ export function createCapabilitySettings(upstream, options) {
       const descriptor = await packageDescriptor(plugin.rootPath, { kind: 'installed', id: plugin.id, name: basename(plugin.rootPath) });
       const provenance = duplicateIds.has(plugin.id) ? 'conflict'
         : receipt?.state === 'installed' && descriptor?.fingerprint === receipt.fingerprint ? 'recorded' : 'unknown';
+      // A byte-identical market copy is display evidence, not an installation receipt.
+      const matchingMarkets = descriptor ? [...new Set(availablePlugins.filter(entry =>
+        entry.id === plugin.id && entry.packageDescriptor?.fingerprint === descriptor.fingerprint)
+        .map(entry => entry.marketplace))].sort() : [];
       plugins.push({
         id: plugin.id, name: capabilityText(plugin.name, 128), version: capabilityText(plugin.version, 64) || undefined,
         description: capabilityText(plugin.description, 2048), mcpServers: plugin.mcpServers.map(item => capabilityText(item, 160)),
         warnings: warnings(plugin.warnings), icon: presentation.icon ?? (builtinCopy ? { kind: 'step' } : undefined),
         repository: presentation.repository ?? (builtinCopy && plugin.id === 'playwright' ? 'https://github.com/microsoft/playwright-mcp' : undefined),
         marketplace: provenance === 'recorded' ? receipt.marketplace : undefined,
+        installationSource: { status: provenance === 'unknown' && matchingMarkets.length ? 'matched' : provenance,
+          marketplaces: provenance === 'recorded' ? [receipt.marketplace] : matchingMarkets },
         packageDescriptor: descriptor ? { ...descriptor, provenance, instance: provenance === 'recorded' ? receipt.instance : undefined } : undefined,
       });
     }

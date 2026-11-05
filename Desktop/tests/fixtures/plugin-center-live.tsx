@@ -62,6 +62,8 @@ https://www.bilibili.com/video/BV1dPeP6REwM/
 ### 给使用者的话
 
 研究结果中，视频里明确出现的内容、模型的推断，以及评论区的观点，应当分开看待。带着一个具体的问题开始，通常比让模型「分析全部内容」更有帮助。
+
+更多用法见[完整项目文档](https://github.com/7oMB2006/Bilibili-Video-Research/blob/main/README.zh-CN.md)。
 `,
     changelog: `## 0.1.0
 
@@ -91,12 +93,16 @@ https://www.bilibili.com/video/BV1dPeP6REwM/
 let catalog: CapabilityCatalog = {
   plugins: [
     { id: 'bilibili-video-research', name: 'Bilibili Video Research', version: '0.1.0', description: '结合字幕、语音与视频画面，整理带时间定位的研究证据。',
+      installationSource: { status: 'matched', marketplaces: ['bvr-local-preview'] },
       repository: 'https://github.com/7oMB2006/Bilibili-Video-Research', mcpServers: ['bvr'], warnings: [], icon: { kind: 'png', dataUrl: bvrLogo } },
-    { id: 'playwright', name: 'Playwright', version: '1.0.0', description: '浏览器自动化', repository: 'https://github.com/microsoft/playwright-mcp',
+    { id: 'playwright', name: 'Playwright', version: '1.0.0',
+      description: 'Browser automation and end-to-end testing MCP server by Microsoft. Drives web pages, takes screenshots, fills forms, clicks elements and runs automated browser test flows.',
+      installationSource: { status: 'recorded', marketplaces: ['builtin'] }, repository: 'https://github.com/microsoft/playwright-mcp',
       mcpServers: ['browser'], warnings: [], icon: { kind: 'step' } },
     { id: 'fixture-long-name', name: 'LongNamePluginWithoutALogoForLayoutVerification', version: '0.1.0',
       description: '本地文件检索与索引', mcpServers: [], warnings: [] },
     { id: 'dfsc-config-example', name: 'DFSC Configuration Example', version: '0.1.0',
+      marketplace: 'fixture-community',
       description: '本地便笺格式化；字段来自随包清单。', mcpServers: ['notes'], warnings: [],
       package: { ref: 'fixture-config', provenance: 'recorded', documentation: { readme: 'README.md' }, configurationAvailable: true,
         tutorials: [], links: [], warnings: [], author: 'Desktop for Step Code contributors', license: 'MIT' } },
@@ -119,19 +125,31 @@ for (const plugin of catalog.plugins) {
     maintainer: content.maintainer, license: content.license, documentation: {
       ...(content.readme ? { readme: 'README.md' } : {}), ...(content.changelog ? { changelog: 'CHANGELOG.md' } : {}),
     }, tutorials: content.tutorials ?? [], links: content.links ?? [], warnings: [],
-    stars: content.stars ? { ...content.stars, status: 'fresh' } : undefined };
+    stars: { status: 'unknown' },
+    locales: plugin.id === 'bilibili-video-research' ? {
+      en: { description: 'Research public videos using transcripts, audio and frames.', documentation: { readme: 'README.en.md' } },
+    } : undefined };
 }
 let configuration: BvrConfiguration = { revision: 'fixture-1', configured: true, mode: 'dfsc', runtimeDirectory: 'D:\\Tools\\BVR',
   apiBase: 'https://api.stepfun.com/v1', model: 'step-3.7-flash', hasApiKey: false, asrApiBase: 'https://api.stepfun.com/v1',
   asrModel: 'stepaudio-2.5-asr', hasAsrApiKey: false, cookieFile: '', proxy: '', downloadDirectory: '', preferCaptions: true };
-let saves = 0, restarts = 0, catalogReads = 0, preparationRefreshes = 0;
+let saves = 0, restarts = 0, catalogReads = 0, preparationRefreshes = 0, repositoryReads = 0;
+let releaseRepositories: (() => void) | undefined;
+const repositoriesHeld = new URLSearchParams(location.search).get('repositories') === 'held'
+  ? new Promise<void>(resolve => { releaseRepositories = resolve; }) : undefined;
 let preparationRefresh: Promise<void> | undefined, releasePreparationRefresh: (() => void) | undefined;
 let exampleConfiguration: PluginConfiguration = { ref: 'fixture-config', revision: 'example-1', configured: false,
   schema: JSON.parse(exampleSchema), values: { prefix: 'Note: ', uppercase: false, limit: 160 }, hasSecret: {} };
 let exampleFailure = false;
 const bridge: PluginCenterBridge = {
   platform: 'win32', capabilityCatalog: async () => { catalogReads++; return structuredClone(catalog); },
-  pluginRepositoryInfo: async input => catalog.plugins.find(plugin => plugin.package?.ref === input.ref)?.package?.stars ?? { status: 'unknown' },
+  pluginRepositoryInfo: async input => {
+    repositoryReads++;
+    await repositoriesHeld;
+    const plugin = catalog.plugins.find(plugin => plugin.package?.ref === input.ref);
+    const stars = plugin && presentations[plugin.id]?.stars;
+    return stars ? { ...stars, status: 'fresh' } : { status: 'unavailable' };
+  },
   pluginConfiguration: async input => {
     if (input.ref !== 'fixture-config') throw new Error('capability:not-found');
     return structuredClone(exampleConfiguration);
@@ -150,7 +168,8 @@ const bridge: PluginCenterBridge = {
       text: input.path === 'README.md' ? exampleReadme : exampleConsumer, images: {},
       links: Object.fromEntries([input.path === 'README.md' ? ['docs/consumer.md', 'docs/consumer.md'] : ['../README.md', 'README.md']]) };
     const content = presentations[input.ref.replace(/^fixture-/u, '')];
-    const text = input.path === 'README.md' ? content?.readme : content?.changelog;
+    const text = input.path === 'README.en.md' ? '## Video research\n\nAsk a specific question and provide a public video URL.'
+      : input.path === 'README.md' ? content?.readme : content?.changelog;
     if (!text) throw new Error('capability:not-found');
     return { path: input.path, text, images: {}, links: {} };
   },
@@ -185,7 +204,9 @@ const bridge: PluginCenterBridge = {
   },
 };
 Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone(configuration),
-  counts: () => ({ saves, restarts, catalogReads, preparationRefreshes }),
+  counts: () => ({ saves, restarts, catalogReads, preparationRefreshes, repositoryReads }),
+  releaseRepositories: () => releaseRepositories?.(),
+  language: (language: 'zh' | 'en') => dispatchEvent(new CustomEvent('plugin-center-language', { detail: language })),
   holdPreparationRefresh: () => { preparationRefresh = new Promise(resolve => { releasePreparationRefresh = resolve; }); },
   releasePreparationRefresh: () => { releasePreparationRefresh?.(); preparationRefresh = undefined; },
   exampleConfiguration: () => structuredClone(exampleConfiguration),
@@ -204,8 +225,14 @@ Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone
   stale: () => { configuration.revision = 'changed-externally'; } } });
 function Fixture() {
   const [active, setActive] = useState(true);
+  const [language, setLanguage] = useState<'zh' | 'en'>('zh');
   const [wide, setWide] = useState(() => matchMedia('(min-width: 1001px)').matches);
   const [message, setMessage] = useState('保留会话草稿');
+  useEffect(() => {
+    const change = (event: Event) => setLanguage((event as CustomEvent<'zh' | 'en'>).detail);
+    addEventListener('plugin-center-language', change);
+    return () => removeEventListener('plugin-center-language', change);
+  }, []);
   useEffect(() => {
     const media = matchMedia('(min-width: 1001px)');
     const change = () => setWide(media.matches);
@@ -214,7 +241,7 @@ function Fixture() {
   return <div className={`app pc-preview${wide ? ' pc-sidebar-open' : ''}`}><header className="pc-window">Desktop for Step Code<span className="pc-preview-label">插件文档预览</span></header>
     <aside className="sidebar"><SidebarTaskActions selected={false} pluginsSelected={active} onNewSession={() => setActive(false)}
       onScheduledTasks={() => setActive(false)} onPlugins={() => setActive(value => !value)}/></aside>
-    <main><PluginCenter bridge={bridge} active={active} language="zh" busy={false} runtimeId="fixture-runtime" settings={{ mcp: {} }}
+    <main><PluginCenter bridge={bridge} active={active} language={language} busy={false} runtimeId="fixture-runtime" settings={{ mcp: {} }}
       onChanged={async () => { if (preparationRefresh) { preparationRefreshes++; await preparationRefresh; } }}
       onRestart={async () => { restarts++; }} onManageMcp={() => {}} onBack={() => setActive(false)}/>
       <section hidden={active}><textarea aria-label="会话草稿" value={message} onChange={event => setMessage(event.target.value)}/></section>

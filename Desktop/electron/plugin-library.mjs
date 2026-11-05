@@ -38,6 +38,23 @@ export function parsePresentation(value) {
     for (const key of ['readme', 'changelog']) if (value.documentation[key] !== undefined)
       documentation[key] = markdownPath(value.documentation[key]);
   }
+  const locales = {};
+  if (value.locales !== undefined) {
+    if (!object(value.locales) || Object.keys(value.locales).some(key => !['zh', 'en'].includes(key)))
+      throw new PluginFileError('invalid-presentation');
+    for (const [language, locale] of Object.entries(value.locales)) {
+      if (!object(locale)) throw new PluginFileError('invalid-presentation');
+      const entry = {};
+      if (locale.description !== undefined) entry.description = bounded(locale.description, 2048);
+      if (locale.documentation !== undefined) {
+        if (!object(locale.documentation)) throw new PluginFileError('invalid-presentation');
+        entry.documentation = {};
+        for (const key of ['readme', 'changelog']) if (locale.documentation[key] !== undefined)
+          entry.documentation[key] = markdownPath(locale.documentation[key]);
+      }
+      locales[language] = entry;
+    }
+  }
   const tutorials = list(value.tutorials).map(item => {
     const url = documentUrl(item?.url);
     if (!url || !['author', 'community'].includes(item.kind)) throw new PluginFileError('invalid-presentation');
@@ -52,7 +69,8 @@ export function parsePresentation(value) {
     return { title: bounded(item.title), url };
   });
   return { author: names(value.authors), maintainer: names(value.maintainers),
-    license: value.license === undefined ? undefined : bounded(value.license, 128), documentation, tutorials, links };
+    license: value.license === undefined ? undefined : bounded(value.license, 128), documentation, tutorials, links,
+    ...(Object.keys(locales).length ? { locales } : {}) };
 }
 async function fileExists(root, path) {
   try {
@@ -112,10 +130,11 @@ export class PluginLibrary {
           if (bytes) metadata = parsePresentation(JSON.parse(bytes.toString('utf8')));
         } catch { warnings.push('Invalid or unsupported Desktop presentation metadata.'); }
         if (!metadata.documentation.readme && await fileExists(root, 'README.md')) metadata.documentation.readme = 'README.md';
-        for (const [kind, path] of Object.entries(metadata.documentation)) {
-          if (!await fileExists(root, path)) delete metadata.documentation[kind];
-          else reference.allowed.add(path);
-        }
+        for (const documentation of [metadata.documentation, ...Object.values(metadata.locales ?? {}).map(locale => locale.documentation ?? {})])
+          for (const [kind, path] of Object.entries(documentation)) {
+            if (!await fileExists(root, path)) delete documentation[kind];
+            else reference.allowed.add(path);
+          }
         return { ...publicPlugin, package: { ...metadata, warnings, ref: reference.ref, provenance: descriptor.provenance,
           configurationAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
             && await fileExists(root, 'dfsc.settings.json') } };

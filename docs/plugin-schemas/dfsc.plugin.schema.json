@@ -10,12 +10,12 @@
     "authors": { "$ref": "#/definitions/people" },
     "maintainers": { "$ref": "#/definitions/people" },
     "license": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "documentation": {
-      "type": "object",
-      "additionalProperties": false,
+    "documentation": { "$ref": "#/definitions/documentation" },
+    "locales": {
+      "type": "object", "additionalProperties": false,
       "properties": {
-        "readme": { "$ref": "#/definitions/markdownPath" },
-        "changelog": { "$ref": "#/definitions/markdownPath" }
+        "zh": { "$ref": "#/definitions/locale" },
+        "en": { "$ref": "#/definitions/locale" }
       }
     },
     "tutorials": {
@@ -43,6 +43,20 @@
     }
   },
   "definitions": {
+    "documentation": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "readme": { "$ref": "#/definitions/markdownPath" },
+        "changelog": { "$ref": "#/definitions/markdownPath" }
+      }
+    },
+    "locale": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^[^\\u0000-\\u001f]+$" },
+        "documentation": { "$ref": "#/definitions/documentation" }
+      }
+    },
     "label": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\u0000-\\u001f]+$" },
     "https": { "type": "string", "minLength": 9, "maxLength": 2048, "pattern": "^https://[^/@?#]+(?:[/?#]|$)" },
     "markdownPath": {

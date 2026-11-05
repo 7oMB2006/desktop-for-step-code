@@ -35,6 +35,7 @@ test('native installation preserves provenance and blocks two package names decl
     const plugin = catalog.plugins[0], ref = plugin.package!.ref;
     assert.equal(plugin.package?.provenance, 'recorded');
     assert.equal(plugin.package?.configurationAvailable, true);
+    assert.deepEqual(plugin.installationSource, { status: 'recorded', marketplaces: ['dfsc-config-example-local'] });
     assert.doesNotMatch(JSON.stringify(catalog), /packageDescriptor|installations\.json/);
     assert.match((await service.document({ ref, path: 'README.md' })).text, /DFSC Configuration Example/);
     const settings = await service.configuration({ ref });
@@ -44,6 +45,7 @@ test('native installation preserves provenance and blocks two package names decl
     catalog = await service.catalog();
     assert.equal(catalog.plugins[0].package?.provenance, 'recorded');
     assert.equal(catalog.plugins[0].marketplace, 'dfsc-config-example-local');
+    assert.deepEqual(catalog.plugins[0].installationSource, { status: 'recorded', marketplaces: ['dfsc-config-example-local'] });
     // Reusing the same marketplace folder must not claim an earlier installation.
     await service.mutate({ action: 'marketplace-add', source: market });
     catalog = await service.catalog();
@@ -81,10 +83,30 @@ test('raw marketplace duplicates and legacy installations remain unambiguous', {
     const legacy = catalog.plugins.find(item => item.id === 'dfsc-config-example')!;
     assert.equal(legacy.package?.provenance, 'unknown');
     assert.equal(legacy.package?.configurationAvailable, false);
+    assert.equal(legacy.marketplace, undefined, 'A matching copy does not mint an installation receipt');
+    assert.deepEqual(legacy.installationSource, { status: 'matched', marketplaces: ['duplicates'] });
     await assert.rejects(service.configuration({ ref: legacy.package!.ref }), /invalid-configuration/);
+    const secondMarket = join(folder, 'second-market');
+    await cp(market, secondMarket, { recursive: true });
+    await writeFile(join(secondMarket, '.step-plugin/marketplace.json'), JSON.stringify({
+      name: 'second-market', plugins: [{ name: 'another-package', source: './plugins/dfsc-config-example' }],
+    }));
+    await service.mutate({ action: 'marketplace-add', source: secondMarket });
+    catalog = await service.catalog();
+    assert.deepEqual(catalog.plugins.find(item => item.id === legacy.id)?.installationSource,
+      { status: 'matched', marketplaces: ['duplicates', 'second-market'] });
+    const readme = join(root, 'plugins/legacy/README.md'), original = await readFile(readme);
+    await writeFile(readme, Buffer.concat([original, Buffer.from('\nLocal modification\n')]));
+    catalog = await service.catalog();
+    const modified = catalog.plugins.find(item => item.id === legacy.id)!;
+    assert.deepEqual(modified.installationSource, { status: 'unknown', marketplaces: [] });
+    assert.equal(modified.package?.configurationAvailable, false);
+    await assert.rejects(readFile(join(root, 'desktop-plugins/installations.json')), { code: 'ENOENT' });
+    await writeFile(readme, original);
     await cp(join(root, 'plugins/legacy'), join(root, 'plugins/duplicate'), { recursive: true });
     catalog = await service.catalog();
     assert.equal(catalog.plugins.find(item => item.id === legacy.id)?.package?.provenance, 'conflict');
+    assert.equal(catalog.plugins.find(item => item.id === legacy.id)?.installationSource?.status, 'conflict');
     await assert.rejects(service.mutate({ action: 'plugin-remove', id: legacy.id }), /plugin-conflict/);
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });

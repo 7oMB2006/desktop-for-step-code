@@ -71,8 +71,8 @@
 .pc-card-heading > span:last-child { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .pc-card-heading strong { font-size: 14px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
 .pc-card-heading > span > span { color: var(--muted); font-size: 11px; }
-.pc-card-description { display: block; min-height: 44px; margin: 19px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.8; }
-.pc-card-meta { display: flex; gap: 12px; justify-content: space-between; color: var(--muted); font-size: 10px; padding-bottom: 16px; margin-top: auto; }
+.pc-card-description { display: block; min-height: 44px; margin: 19px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.pc-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; justify-content: space-between; color: var(--muted); font-size: 10px; line-height: 1.7; padding-bottom: 16px; margin-top: auto; }
 .pc-card-meta > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .pc-stars { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); }
 .pc-stars > svg { flex-shrink: 0; }
@@ -113,19 +113,20 @@
 .pc-plugin-title .pc-plugin-byline { margin-top: 5px; font-size: 11px; overflow-wrap: anywhere; }
 .pc-header-actions { display: flex; align-items: center; gap: 10px; padding-top: 3px; flex-shrink: 0; }
 .pc-plugin-summary { padding-top: 3px; min-width: 0; }
-.pc-plugin-summary > p { font-size: 12px; color: var(--muted); line-height: 1.7; margin: 0 0 8px; max-width: 65ch; }
+.pc-plugin-summary > p { font-size: 12px; color: var(--muted); line-height: 1.7; margin: 0 0 8px; max-width: 65ch; overflow-wrap: anywhere; }
 .pc-plugin-summary > div { display: flex; gap: 15px; flex-wrap: wrap; align-items: center; }
 .pc-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .pc-status > i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .pc-status.is-ready { color: var(--green); }
 .pc-status.is-pending { color: var(--primary); }
 .pc-auth-state { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
-.pc-detail-tabs { position: sticky; top: 0; z-index: 1; gap: 25px; margin: 0 4px; padding-top: 4px; background: var(--bg); }
+.pc-detail-tabs { position: sticky; top: 0; z-index: 1; isolation: isolate; gap: 25px; margin: 0 4px; padding-top: 4px; background: var(--bg); }
+.pc-detail-tabs::before { content: ''; position: absolute; inset: 0 -4px; z-index: -1; background: var(--bg); pointer-events: none; }
 .pc-detail-tabs button { font-size: 12px; }
 .pc-detail-workspace { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; }
-.pc-detail-scroll { overflow-y: auto; flex: 1; min-height: 0; min-width: 0; padding: 4px 12px 0 4px; scroll-padding: 58px 8px 8px; scrollbar-width: none; }
+.pc-detail-scroll { overflow-y: auto; flex: 1; min-height: 0; min-width: 0; padding: 0 12px 0 4px; scroll-padding: 58px 8px 8px; scrollbar-width: none; }
 .pc-detail-scroll::-webkit-scrollbar { display: none; }
-.pc-detail-document { display: flow-root; min-height: 100%; }
+.pc-detail-document { display: flow-root; min-height: 100%; padding-top: 4px; }
 .pc-detail-scroll-track { top: 4px; bottom: 4px; right: 0; }
 .pc-detail-scroll-track .conversation-scroll-thumb { width: 3px; opacity: .18; transition: opacity .2s var(--pc-ease); }
 .pc-detail-workspace:hover .pc-detail-scroll-track .conversation-scroll-thumb { opacity: .32; }
@@ -241,15 +242,22 @@
 .pc-document-markdown :not(pre) > code { background: var(--code-bg); padding: 2px 5px; border-radius: 3px; font-size: 12px; }
 .pc-document-markdown pre { max-width: 100%; overflow-x: auto; background: var(--code-bg); padding: 14px 16px; border-radius: 6px; font-size: 12px; line-height: 1.8; }
 .pc-document-markdown blockquote { margin: 16px 0; padding: 0; color: var(--muted); }
-.pc-document-markdown a, .pc-document-links a { color: var(--primary); text-underline-offset: 3px; }
+.pc-document-markdown a { color: var(--primary); text-underline-offset: 3px; }
 .pc-document-markdown a > svg { display: inline-block; vertical-align: middle; margin-left: 3px; }
 .pc-document-table { overflow-x: auto; margin-block: 14px 22px; }
 .pc-document-table table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
 .pc-document-table :is(th,td) { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
 .pc-document-table th { font-weight: 600; color: var(--muted); }
 .pc-document-image-alt { color: var(--muted); font-size: 12px; }
-.pc-document-links { display: flex; flex-wrap: wrap; gap: 12px 24px; padding-block: 22px; margin-top: 20px; border-block: 1px solid var(--border); }
-.pc-document-links a { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+.pc-document-links { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 4px; margin-bottom: 24px; }
+.pc-document-link { display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 78px; padding: 14px; color: var(--ink); text-decoration: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; scroll-margin: 8px; transition: border-color .24s var(--pc-ease),background .24s var(--pc-ease); }
+.pc-document-link:hover { border-color: var(--primary); background: color-mix(in srgb,var(--primary) 5%,var(--surface)); }
+.pc-document-link:active { background: color-mix(in srgb,var(--primary) 9%,var(--surface)); }
+.pc-document-link-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 36px; height: 36px; border-radius: 6px; color: var(--primary); background: color-mix(in srgb,var(--primary) 9%,transparent); }
+.pc-document-link-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 5px; line-height: 1.6; overflow-wrap: anywhere; }
+.pc-document-link-copy strong { font-size: 13px; font-weight: 600; }
+.pc-document-link-copy > span { font-size: 11px; color: var(--muted); }
+.pc-document-link > svg { flex-shrink: 0; color: var(--primary); }
 .pc-document-credits { display: flex; flex-wrap: wrap; gap: 18px 40px; padding-block: 22px 6px; margin: 0; font-size: 11px; line-height: 1.7; }
 .pc-document-credits > div { min-width: 0; }
 .pc-document-credits dt { color: var(--muted); margin-bottom: 4px; }
@@ -351,9 +359,10 @@
   .pc-repository .pc-stars > svg { width: 11px; height: 11px; }
   .pc-tutorial { gap: 10px; flex-wrap: wrap; }
   .pc-tutorial-open { margin-left: 52px; }
+  .pc-document-links { grid-template-columns: minmax(0,1fr); }
   .pc-document-credits { gap: 16px 28px; }
   .pc-plugin-summary > p { font-size: 11px; }
-  .pc-detail-scroll { padding: 4px 8px 0 4px; }
+  .pc-detail-scroll { padding: 0 8px 0 4px; }
   .pc-account-grid { column-gap: 18px; }
   .pc-api-services { grid-template-columns: minmax(0,1fr); }
   .pc-mode > button { font-size: 11px; gap: 5px; padding: 8px 5px; }

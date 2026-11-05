@@ -1,5 +1,77 @@
 # Verification
 
+## Plugin Metadata Windows Package (2026-11-06)
+
+The owner requested a fresh Windows package after the metadata fixes and
+reported no significant remaining issue during local use. The package is
+`D:/Desktop For Step Code/Desktop/release/plugin-center-20261106-metadata-fix-preview/`;
+its installer SHA-256 is
+`40217bc7db3ecb947a2284332591b96ef5bf15b9c778d5ce2b3ec9183d514b6a`.
+It includes the uncommitted fixes on base `07e6abf`, with all 760 captured
+Desktop source files checked against the workspace. Pin `81e79bc4` and the
+complete patched-source manifest are unchanged.
+
+The packaged executable passed the same 16 Chinese/English, light/dark and
+responsive native cases described below, using a new credential-free profile.
+Cold-cache stars, four legacy marketplace matches, configuration restrictions,
+sticky-header screenshot equality and renderer isolation passed. GitHub
+responses were deterministic test values, not live counts; no paid model was
+called. The fixture exited normally. File integrity also checked the renderer,
+main/preload, runtime helpers, terminal resources and local BVR companion.
+Receipts and screenshots are in the package's `acceptance/` directory.
+
+After verification, the existing primary desktop shortcut was backed up and
+redirected to this package's `win-unpacked` executable. Target, working directory
+and icon were read back; arguments, hotkey and window style were preserved.
+The daily profile was not changed, the installer was not run, and the owner's
+old application was not stopped or restarted. The package is local, unpublished
+and unsigned; it does not establish current cloud CI, native macOS, production
+upgrade or real-account/billing acceptance. No older package was deleted.
+
+## Plugin Metadata And Legacy Sources (2026-11-06, Local Source)
+
+Installed cards no longer label every missing receipt as a local installation.
+Recorded receipts retain their marketplace, including removed sources. Legacy
+packages expose byte-identical full-package marketplace matches as display-only
+candidates; modified or unmatched copies remain unconfirmed, and conflicting
+installed IDs stay restricted. Matching never creates a receipt or authorizes
+generic configuration.
+
+Opening Plugin Center starts bounded, asynchronous public GitHub metadata
+lookups. Cold caches keep a loading affordance, failed counts remain unavailable
+rather than zero, and fetched snapshots survive navigation, language changes
+and capability refreshes. Author-provided Chinese/English descriptions and
+same-package documents follow the application language; three exact legacy
+descriptions have compatibility translations. Arbitrary author prose is not
+automatically translated. Sticky detail tabs cover the full scrolling gutter
+without clipping or hiding form focus indicators.
+
+Typecheck, isolated production build and 31 focused tests passed, including six
+real pinned-runtime cases. Source regression covers multiple matching markets,
+modified package content, recorded sources, duplicate IDs and configuration
+authorization boundaries. The production-component browser verifier passed
+cold/held/failed repository responses, locale switching, refresh persistence,
+existing configuration flows, focus gutters and light/dark responsive layouts.
+The broader pre-push regression then passed all 62 plugin tests, including
+configuration, snapshot/settings races and the native runtime cases. Typecheck
+passed again; CI policy/inventory/runner tests passed 39 cases with one
+platform-specific skip and no failures.
+
+Real Electron acceptance reproduced four pre-receipt installations in a fresh,
+credential-free profile: BVR matched `bvr-local-preview`, Hermes matched
+`dfsc-community`, and Playwright/StepPage matched `builtin`. All retained unknown
+configuration provenance. Chinese/English, light/dark and four widths from
+1440px to 390px passed, with equal sticky-header screenshot bands at two scroll
+positions. Two deterministic public-metadata responses exercised the actual
+preload/main-process path and cache, not live GitHub counts. Renderer isolation
+passed and the fixture exited normally.
+
+Evidence is under `D:/DFSC-Preview-QA/plugin-center-fixes-20261106-browser/` and
+`D:/DFSC-Preview-QA/plugin-center-fixes-20261106-native-run4/`; the isolated source
+build is `D:/DFSC-Preview-QA/plugin-center-fixes-20261106-app/`. These checks do
+not rebuild the earlier preview package or change the daily profile, shortcut,
+runtime pin, PR, marketplace contents or release.
+
 ## Plugin Center Latest Main Follow-Up (2026-11-05)
 
 PR #195 integrates main `495d974`, including PR #193's subagent redaction,

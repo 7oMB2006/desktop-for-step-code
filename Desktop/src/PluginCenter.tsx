@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowLeft, BookOpen, Check, Globe, LoaderCircle, Plug, Plus, RefreshCw, RotateCcw, Save, Search, Settings, Trash2, X } from 'lucide-react';
 import type { McpServer, SessionSummary } from './contracts';
-import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, PluginPackage } from './capabilities';
+import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, PluginPackage, PluginStarSnapshot } from './capabilities';
 import type { CapabilityTarget, PluginTab } from './capability-command';
 import { CapabilityDisclosure, CapabilityPluginIconView, capabilityErrorText, type CapabilityBridge } from './CapabilitySettings';
 import { BvrConfigurationForm, type BvrSettingsBridge } from './BvrConfigurationForm';
@@ -9,6 +9,7 @@ import { PluginConfigurationForm } from './PluginConfigurationForm';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { StepPageSettings } from './StepPageSettings';
 import { PluginDocumentation, PluginDocumentReader, PluginStars } from './PluginDocumentation';
+import { pluginPresentation, pluginSourceLabel } from './plugin-presentation';
 import './capability-settings.css';
 import './plugin-center.css';
 
@@ -41,6 +42,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   const [detailTab, setDetailTab] = useState('config');
   const [changed, setChanged] = useState(false);
   const [repositoryPending, setRepositoryPending] = useState(false);
+  const [repositoryRevision, setRepositoryRevision] = useState(0);
   const [bvrState, setBvrState] = useState({ dirty: false, pending: false, ready: false });
   const [confirmation, setConfirmation] = useState<{ title: string; action(): void }>();
   const [live, setLive] = useState<{ runtimeId: string; servers: SessionSummary['mcp'] }>();
@@ -51,17 +53,31 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   const listTrigger = useRef<HTMLButtonElement | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
+  const repositoryQueries = useRef(new Map<string, Promise<PluginStarSnapshot>>());
+  const repositorySnapshots = useRef(new Map<string, PluginStarSnapshot>());
   const id = useId();
   const formId = `${id}-bvr`;
-  const installed: Entry[] = (catalog?.plugins ?? []).map(plugin => ({ ...plugin, key: `i:${plugin.id}`, source: plugin.marketplace, installed: plugin }));
-  const available: Entry[] = (catalog?.available ?? []).map(plugin => {
+  const installed: Entry[] = (catalog?.plugins ?? []).map(raw => {
+    const plugin = pluginPresentation(raw, language);
+    return { ...plugin, key: `i:${plugin.id}`, source: pluginSourceLabel(plugin, language), installed: plugin };
+  });
+  const available: Entry[] = (catalog?.available ?? []).map(raw => {
+    const plugin = pluginPresentation(raw, language);
     const owner = catalog?.plugins.find(item => item.id === plugin.installedId);
     return { key: `m:${plugin.marketplace}/${plugin.name}`, name: plugin.displayName ?? plugin.name,
       description: plugin.description, version: plugin.version, repository: plugin.repository,
-      icon: plugin.icon, source: plugin.marketplace, installed: owner, available: plugin,
+      icon: plugin.icon, source: `${t('市场', 'Marketplace')} · ${plugin.marketplace}`, installed: owner, available: plugin,
       package: plugin.package };
   });
   const entry = [...installed, ...available].find(item => item.key === selected);
+  const acceptCatalog = (value: CapabilityCatalog) => {
+    const withSnapshot = <T extends CapabilityCatalog['plugins'][number] | MarketplacePlugin>(plugin: T): T => {
+      const cached = plugin.repository && repositorySnapshots.current.get(plugin.repository);
+      return cached && plugin.package && (!plugin.package.stars || plugin.package.stars.status === 'unknown')
+        ? { ...plugin, package: { ...plugin.package, stars: cached } } : plugin;
+    };
+    setCatalog({ ...value, plugins: value.plugins.map(withSnapshot), available: value.available.map(withSnapshot) });
+  };
   const refreshRepository = async () => {
     if (!entry?.package || repositoryPending) return;
     const ref = entry.package.ref;
@@ -69,6 +85,10 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     setRepositoryPending(true);
     try {
       const stars = await bridge.pluginRepositoryInfo({ ref, refresh: true });
+      if (repository) {
+        repositorySnapshots.current.set(repository, stars);
+        repositoryQueries.current.set(repository, Promise.resolve(stars));
+      }
       if (alive.current) setCatalog(current => current && ({ ...current,
         plugins: current.plugins.map(plugin => plugin.package && plugin.repository === repository ? { ...plugin, package: { ...plugin.package, stars } } : plugin),
         available: current.available.map(plugin => plugin.package && plugin.repository === repository ? { ...plugin, package: { ...plugin.package, stars } } : plugin),
@@ -82,10 +102,16 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   const configurationPackage = entry?.installed?.package;
   const hasConfigurationForm = Boolean(isBvr || configurationPackage?.configurationAvailable);
   const canEditBvr = Boolean(hasConfigurationForm && bvrState.ready);
-  const refresh = async () => {
+  const refresh = async (refreshRepositories = false) => {
     if (operation.current) return;
     operation.current = true; setLoading(true); setError('');
-    try { const value = await bridge.capabilityCatalog(); if (alive.current) setCatalog(value); }
+    try {
+      const value = await bridge.capabilityCatalog();
+      if (alive.current) {
+        acceptCatalog(value);
+        if (refreshRepositories) { repositoryQueries.current.clear(); setRepositoryRevision(value => value + 1); }
+      }
+    }
     catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
     finally { operation.current = false; if (alive.current) setLoading(false); }
   };
@@ -149,7 +175,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
       if (input.action === 'marketplace-add') { setAdding(false); setSource(''); }
       const next = await bridge.capabilityCatalog();
       if (alive.current) {
-        setCatalog(next);
+        acceptCatalog(next);
         if (input.action === 'plugin-install') {
           const added = next.available.find(item => item.name === input.name && item.marketplace === input.marketplace);
           if (added?.installedId) { setSelected(`i:${added.installedId}`); setDetailTab('config'); }
@@ -169,7 +195,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     setChanged(true); await onChanged();
     const next = await bridge.capabilityCatalog();
     if (!alive.current) return;
-    setCatalog(next);
+    acceptCatalog(next);
   };
   const servers = (plugin: CapabilityPlugin) => catalog?.mcp.filter(server => server.pluginId === plugin.id) ?? [];
   const toggle = (plugin: CapabilityPlugin) => {
@@ -187,6 +213,36 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   };
   const matches = (item: Entry) => `${item.name} ${item.description ?? ''} ${item.installed?.id ?? item.available?.name ?? ''} ${item.source ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const shown = (tab === 'installed' ? installed : available).filter(matches);
+  const repositoryEntries = entry ? [entry] : tab === 'sources' ? [] : shown;
+  const repositoryKey = JSON.stringify(repositoryEntries.filter(item => item.repository && item.package)
+    .map(item => [item.repository, item.package!.ref]));
+  useEffect(() => {
+    if (!active) return;
+    let valid = true;
+    const queue = [...new Map(repositoryEntries.filter(item => item.repository && item.package)
+      .map(item => [item.repository!, item])).values()];
+    const worker = async () => {
+      while (valid && queue.length) {
+        const item = queue.shift()!, repository = item.repository!;
+        if (item.package?.stars?.status === 'fresh') continue;
+        let request = repositoryQueries.current.get(repository);
+        if (!request) {
+          request = bridge.pluginRepositoryInfo({ ref: item.package!.ref, refresh: true }).catch(() =>
+            item.package?.stars?.count !== undefined ? { ...item.package.stars, status: 'stale' as const } : { status: 'unavailable' as const })
+            .then(stars => { repositorySnapshots.current.set(repository, stars); return stars; });
+          repositoryQueries.current.set(repository, request);
+        }
+        const stars = await request;
+        if (valid && alive.current) setCatalog(current => current && ({ ...current,
+          plugins: current.plugins.map(plugin => plugin.repository === repository && plugin.package ? { ...plugin, package: { ...plugin.package, stars } } : plugin),
+          available: current.available.map(plugin => plugin.repository === repository && plugin.package ? { ...plugin, package: { ...plugin.package, stars } } : plugin),
+        }));
+      }
+    };
+    // Opening the plugin view opts into public repository metadata, never a model request.
+    void worker(); void worker();
+    return () => { valid = false; };
+  }, [active, bridge, repositoryKey, repositoryRevision]);
   const back = () => navigate(() => { setSelected(undefined); setBvrState({ dirty: false, pending: false, ready: false }); });
   const tabs: [PluginTab, string][] = [['installed', t('已安装', 'Installed')], ['discover', t('发现', 'Discover')], ['sources', t('市场来源', 'Marketplaces')]];
   const detailTabs = [['about', t('使用说明', 'Guide')], ['config', t('配置', 'Configuration')], ['capabilities', t('能力', 'Capabilities')],
@@ -206,7 +262,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     <header className="pc-page-header" hidden={Boolean(entry)}><div><button className="icon-button" aria-label={t('返回会话', 'Back to conversation')} onClick={onBack}><ArrowLeft size={18}/></button>
       <Plug size={23}/><h1>{t('插件', 'Plugins')}</h1><span className="pc-count">{catalog?.plugins.length ?? ''}</span></div>
       <button type="button" className="icon-button" aria-label={t('刷新插件目录', 'Refresh plugins')} disabled={pending || loading}
-        onClick={() => void refresh()}><RefreshCw size={16} className={loading ? 'pc-spin' : undefined}/></button></header>
+        onClick={() => void refresh(true)}><RefreshCw size={16} className={loading ? 'pc-spin' : undefined}/></button></header>
     {pending && <p className="cap-pending" role="status"><LoaderCircle size={14} className="pc-spin"/>{t('正在处理', 'Working')}</p>}
     {error && <div className="cap-error" role="alert">{error}</div>}
     {!!warnings.length && <ul className="cap-notes">{warnings.map((value, index) => <li key={index}>{value}</li>)}</ul>}
@@ -240,8 +296,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
             <div className="pc-plugin-grid">{shown.map(item => <article className="pc-plugin-row" key={item.key}>
               <button className="pc-card-open" aria-label={t(`查看 ${item.name} 使用说明`, `Read ${item.name} guide`)} onClick={event => choose(item, event.currentTarget, 'about')}>
                 <span className="pc-card-heading"><CapabilityPluginIconView icon={item.icon}/><span><strong>{item.name}</strong><span>{item.version ? `v${item.version}` : item.installed?.id ?? item.available?.name}</span></span></span>
-                <span className="pc-card-description">{item.description}</span><span className="pc-card-meta"><span>{item.source ?? t('本机安装', 'Local installation')}</span>
-                  <PluginStars value={item.package?.stars} language={language}/>
+                <span className="pc-card-description">{item.description}</span><span className="pc-card-meta"><span>{item.source}</span>
+                  <PluginStars value={item.repository && item.package ? item.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
                   </span>
               </button>
               <footer className="pc-card-footer"><div className="pc-card-state">{item.installed ? <>{toggle(item.installed)}<span className="pc-status">{status(item.installed)}</span></>
@@ -264,10 +320,10 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         <button className="icon-button" aria-label={t('返回会话', 'Back to conversation')} onClick={onBack}><X size={16}/></button></div>
       <div className="pc-detail-workspace"><div ref={scroll} id={`${id}-scroll`} className="pc-detail-scroll"><div className="pc-detail-document">
         <header className="pc-plugin-header"><div className="pc-plugin-identity"><CapabilityPluginIconView icon={entry.icon}/><div className="pc-plugin-title">
-          <h2 ref={heading} tabIndex={-1}>{entry.name}</h2><p><span>{entry.version ? `v${entry.version}` : ''}</span><span>{entry.source ?? t('本机安装', 'Local installation')}</span></p>
+          <h2 ref={heading} tabIndex={-1}>{entry.name}</h2><p><span>{entry.version ? `v${entry.version}` : ''}</span><span>{entry.source}</span></p>
           {entry.package?.author && <p className="pc-plugin-byline">{entry.package.author}</p>}</div></div>
           <div className="pc-plugin-summary"><p>{entry.description}</p>{entry.installed && <span className="pc-status">{status(entry.installed)}</span>}</div>
-          <div className="pc-header-actions"><span className="pc-repository"><ProjectLink entry={entry} language={language}/><PluginStars value={entry.package?.stars} language={language}/>
+          <div className="pc-header-actions"><span className="pc-repository"><ProjectLink entry={entry} language={language}/><PluginStars value={entry.repository && entry.package ? entry.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
             {entry.repository && entry.package && <button className="icon-button" disabled={repositoryPending} aria-label={t('刷新仓库信息', 'Refresh repository information')}
               onClick={() => void refreshRepository()}><RefreshCw size={13} className={repositoryPending ? 'pc-spin' : undefined}/></button>}</span>{entry.installed ? <>
             {toggle(entry.installed)}<button className="icon-button pc-danger-button" disabled={locked} aria-label={t('卸载插件', 'Uninstall plugin')}
@@ -308,7 +364,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
                   <p>{state ? state.status === 'connected' ? t(`已连接 · ${state.toolCount} 个工具`, `Connected · ${state.toolCount} tools`) : state.status
                     : t('当前会话连接状态未确认', 'Current session connection unconfirmed')}</p></div>{server.source === 'user' && <button className="icon-button" aria-label={t(`编辑 ${server.name}`, `Edit ${server.name}`)} onClick={() => onManageMcp(server.name)}><Settings size={15}/></button>}</div>;
               })}{!servers(entry.installed).length && <p className="pc-body-copy">{t('未声明 MCP 服务', 'No declared MCP services')}</p>}</section>
-              <section className="pc-form-section"><h3>Skills</h3>{catalog?.skills.filter(skill => skill.pluginName === entry.installed!.name).map(skill =>
+              <section className="pc-form-section"><h3>{t('技能', 'Skills')}</h3>{catalog?.skills.filter(skill => skill.pluginName === entry.installed!.name).map(skill =>
                 <div className="pc-capability-row" key={skill.id}><BookOpen size={18}/><div><strong>{skill.name}</strong><p>{skill.description}</p></div></div>)}</section>
             </> : <p className="pc-body-copy">{t('安装后查看运行时发现的能力。', 'Install to view runtime-discovered capabilities.')}</p>}
           </div>
@@ -316,7 +372,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
             <PluginDocumentation presentation={entry.package} description={entry.description} version={entry.version} language={language}
               fileName={entry.package?.documentation.readme}
               reader={active && detailTab === 'about' && entry.package?.documentation.readme
-                ? <PluginDocumentReader key={`${entry.package.ref}-readme`} bridge={bridge} pkg={entry.package} kind="readme" language={language}/> : undefined}/>
+                ? <PluginDocumentReader key={`${entry.package.ref}-${entry.package.documentation.readme}`} bridge={bridge} pkg={entry.package} kind="readme" language={language}/> : undefined}/>
             {entry.package?.provenance === 'unknown' && <p className="cap-notes">{t('安装来源未确认', 'Installation source unconfirmed')}</p>}
             {!!entry.package?.warnings.length && <ul className="cap-notes">{entry.package.warnings.map((value, index) => <li key={index}>{value}</li>)}</ul>}
             {!entry.package && <dl className="pc-info-list"><div><dt>ID</dt><dd>{entry.installed?.id ?? entry.available?.id ?? entry.available?.name}</dd></div>
@@ -325,7 +381,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
           </div>
           {entry.package?.documentation.changelog && <div id={`${id}-updates-panel`} role="tabpanel" aria-labelledby={`${id}-detail-updates`} hidden={detailTab !== 'updates'}>
             <div className="pc-document-heading"><span>{t('更新记录', 'Changelog')}</span><span>{entry.package.documentation.changelog}</span></div>
-            {active && detailTab === 'updates' && <PluginDocumentReader key={`${entry.package.ref}-changelog`} bridge={bridge} pkg={entry.package} kind="changelog" language={language}/>}
+            {active && detailTab === 'updates' && <PluginDocumentReader key={`${entry.package.ref}-${entry.package.documentation.changelog}`} bridge={bridge} pkg={entry.package} kind="changelog" language={language}/>}
           </div>}
         </div>
       </div></div><ScrollThumb scrollRef={scroll} language={language === 'zh' ? 'zh' : 'en'} sessionId={`${entry.key}-${detailTab}`} messageCount={1}

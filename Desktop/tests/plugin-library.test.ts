@@ -35,6 +35,22 @@ test('versioned metadata bounds lists and derives tutorial platform from URL', (
     { schemaVersion: 1, links: [{ title: 'A', url: 'https://user:password@example.com' }] }])
     assert.throws(() => parsePresentation(value));
 });
+test('localized presentation is bounded and only existing same-package documents become readable', async t => {
+  const { library, directory, catalog } = await fixture(t);
+  const value = { schemaVersion: 1, locales: {
+    zh: { description: '中文简介', documentation: { readme: 'docs/next.md' } },
+    en: { description: 'English introduction', documentation: { changelog: 'missing.md' } },
+  } };
+  await writeFile(join(directory, 'dfsc.plugin.json'), JSON.stringify(value));
+  const plugin = (await library.project(await catalog())).plugins[0];
+  assert.equal(plugin.package?.locales?.zh?.description, '中文简介');
+  assert.equal(plugin.package?.locales?.zh?.documentation?.readme, 'docs/next.md');
+  assert.equal(plugin.package?.locales?.en?.documentation?.changelog, undefined);
+  assert.match((await library.document({ ref: plugin.package!.ref, path: 'docs/next.md' })).text, /# Section/);
+  for (const locales of [[], { fr: {} }, { zh: 'text' }, { en: { description: 'x'.repeat(2049) } },
+    { zh: { documentation: { readme: '../secret.md' } } }])
+    assert.throws(() => parsePresentation({ schemaVersion: 1, locales }));
+});
 test('trusted temporary profiles canonicalize parent aliases without authorizing aliased file access', async t => {
   const { root } = await fixture(t);
   const physical = join(root, 'physical-temp'), alias = join(root, 'temp-alias');

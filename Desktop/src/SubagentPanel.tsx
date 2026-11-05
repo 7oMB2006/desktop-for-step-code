@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, ChevronRight, X } from 'lucide-react';
 import type { Message } from './contracts';
-import type { SubagentTask } from './conversation-presentation';
+import type { SubagentDisplayTask } from './conversation-presentation';
 import { responsePresentation } from './conversation-presentation';
 import { CronMessage } from './CronMessage';
 import { AutoResumeMessage } from './AutoResumeMessage';
@@ -18,7 +18,7 @@ import { workflowCount, workflowIcon } from './workflow-state';
 import { BackgroundAgentsView, type BackgroundAgentPresentation } from './BackgroundAgentsView';
 import type { BackgroundAgentClient, BackgroundAgentSelection } from './background-agents';
 
-function SubagentTranscript({ task, ...props }: { task: SubagentTask } & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
+function SubagentTranscript({ task, ...props }: { task: SubagentDisplayTask } & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
   // A child call's arguments and result text are new surfaces here, so credentials, cookies and
   // raw child environment values are filtered before the shared Tool renderer sees them.
   const redacted = useMemo(() => redactSubagentMessages(task.messages), [task.messages]);
@@ -39,12 +39,12 @@ function SubagentTranscript({ task, ...props }: { task: SubagentTask } & Pick<Pa
   </>;
 }
 
-function SubagentContent({ task, onBackground, ...props }: { task: SubagentTask; onBackground?: () => void }
+function SubagentContent({ task, onBackground, ...props }: { task: SubagentDisplayTask; onBackground?: () => void }
   & Pick<Parameters<typeof Text>[0], 'language' | 'openImage' | 'onError'>) {
   const zh = props.language === 'zh';
-  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'queued' ? 'pending' : task.status === 'skipped' ? 'skipped' : task.status === 'aborted' ? 'stopped' : 'failed';
+  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'queued' ? 'pending' : task.status === 'skipped' ? 'skipped' : task.status === 'aborted' ? 'stopped' : task.status === 'unknown' ? 'unknown' : 'failed';
   const status = task.status === 'aborted' ? zh ? '已终止' : 'Stopped'
-    : { pending: zh ? '待执行' : 'Pending', skipped: zh ? '已跳过' : 'Skipped', running: zh ? '进行中' : 'In progress', done: zh ? '完成' : 'Done', failed: zh ? '失败' : 'Failed', stopped: zh ? '已终止' : 'Stopped' }[state];
+    : { pending: zh ? '待执行' : 'Pending', skipped: zh ? '已跳过' : 'Skipped', running: zh ? '进行中' : 'In progress', done: zh ? '完成' : 'Done', failed: zh ? '失败' : 'Failed', stopped: zh ? '已终止' : 'Stopped', unknown: zh ? '结果未知' : 'Outcome unknown' }[state];
   // Activity only arrives with the final result; a running subagent has none yet.
   const hasTranscript = task.messages.some(message => message.role !== 'user' && message.display !== false);
   // Records keep a bounded output tail instead of a child transcript, so settled steps still show
@@ -79,6 +79,9 @@ function SubagentContent({ task, onBackground, ...props }: { task: SubagentTask;
             : `${output.redacted} line(s) that looked like credentials were hidden.`}</p>}
           <div className="lane-text"><Text text={output.text} {...props}/></div>
         </>
+        : state === 'unknown' ? <p className="panel-empty">{task.statusDetail === 'inactive'
+          ? zh ? '历史没有最终状态，当前运行时未在执行这条记录。' : 'History has no final state and the current runtime is not executing this record.'
+          : zh ? '历史没有最终状态，当前执行状态尚未确认。' : 'History has no final state and current execution has not been confirmed.'}</p>
         : task.omitted ? <p className="panel-empty">{zh
           ? '超出展示预算，过程与产出未随本次结果返回。'
           : 'Beyond the display budget; no activity or output was returned for this step.'}</p>
@@ -95,7 +98,7 @@ function SubagentContent({ task, onBackground, ...props }: { task: SubagentTask;
 export function SubagentPanel({ open, replaced, overlay, expanded, task, workflows = [], workflowId, view = 'agent', agentId, onView, onWorkflow, onAgent,
   runtimeId, sessionId, connected = false, selectedLaneId, onBackground, backgroundClient, backgroundPresentation,
   backgroundAgent, onBackgroundAgent, ...props }: {
-  open: boolean; replaced: boolean; overlay: boolean; expanded: boolean; task: SubagentTask | null;
+  open: boolean; replaced: boolean; overlay: boolean; expanded: boolean; task: SubagentDisplayTask | null;
   workflows?: WorkflowState[]; workflowId?: string | null; view?: 'overview' | 'agent' | 'background'; agentId?: string | null;
   onView?: (view: 'overview' | 'agent' | 'background') => void; onWorkflow?: (id: string) => void; onAgent?: (id: string) => void;
   runtimeId?: string; sessionId?: string; connected?: boolean; selectedLaneId?: string;

@@ -29,6 +29,7 @@ let app;
 const errors = [];
 let phase = 'fixture setup';
 let closing = false;
+let dragDestination;
 const mark = value => { phase = value; console.log(`Sidebar acceptance: ${phase}`); };
 process.on('exit', code => {
   if (code !== 0) console.error(`Sidebar acceptance exited (${code}) during ${phase}`);
@@ -77,7 +78,16 @@ async function drag(page, from, to, after = false, cancel = false) {
   // Re-resolve the target after the hold; native/package layout can settle meanwhile.
   const target = await to.boundingBox();
   assert.ok(target, 'the drag destination is visible');
-  await to.hover({ position: { x: 65, y: after ? target.height - 8 : 8 } });
+  const tree = await page.locator('.workspace-tree').boundingBox();
+  assert.ok(tree, 'the sidebar scroll area is visible');
+  // Locator.hover can scroll a project to the edge and trigger edge-autoscroll.
+  // Keep the pointer in the visible destination half, outside the 32px edge zones.
+  const top = Math.max(target.y + (after ? target.height / 2 + 2 : 8), tree.y + 40);
+  const bottom = Math.min(target.y + (after ? target.height - 8 : target.height / 2 - 2), tree.y + tree.height - 40);
+  assert.ok(top <= bottom, 'the intended drop half has a visible area away from edge-autoscroll');
+  dragDestination = { target: await to.getAttribute('data-reorder-id'), after,
+    x: target.x + Math.min(65, target.width / 2), y: (top + bottom) / 2, bounds: target, tree };
+  await page.mouse.move(dragDestination.x, dragDestination.y, { steps: 8 });
   if (await to.getAttribute('data-reorder-kind') === 'workspace') {
     await page.waitForFunction(({ id, after }) =>
       [...document.querySelectorAll('[data-reorder-kind="workspace"]')].some(row =>
@@ -400,6 +410,12 @@ try {
   const page = await app?.firstWindow().catch(() => undefined);
   if (page) {
     await page.screenshot({ path: 'test-results/sidebar-order-failure.png' }).catch(() => {});
+    console.error('Sidebar pointer diagnostic', dragDestination, await page.evaluate(point => {
+      const tree = document.querySelector('.workspace-tree'), preview = document.querySelector('.session-drag-preview');
+      const hit = point && document.elementFromPoint(point.x, point.y)?.closest('[data-reorder-id]');
+      return { scrollTop: tree?.scrollTop, preview: preview?.getBoundingClientRect().toJSON(),
+        hit: hit && { id: hit.dataset.reorderId, group: hit.dataset.reorderGroup } };
+    }, dragDestination).catch(() => undefined));
     console.error('Sidebar drag diagnostic', await page.evaluate(() =>
       [...document.querySelectorAll('[data-reorder-id]')].map(row => ({
         id: row.dataset.reorderId, group: row.dataset.reorderGroup, classes: row.className,

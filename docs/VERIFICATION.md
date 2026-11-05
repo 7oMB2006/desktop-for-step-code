@@ -1,5 +1,40 @@
 # Verification
 
+## PR #194 Native Sidebar Drag Target (2026-11-05)
+
+At `1b28642`, all three Windows cloud groups pass, as do macOS source/package
+sessions and runtime. macOS interface still fails on the second pinned-project
+drag: the new insertion-marker check catches the missing target before release.
+
+The checksum-verified native failure screenshot places the drag preview over
+the independent group instead of the intended pinned project. The scroll tree
+is at its upper limit and the target project has moved below the stationary
+pointer. The helper's `Locator.hover` aims only 8px inside a whole project,
+which can fall inside the tree's intentional 32px edge-autoscroll zone after
+scrolling a drag source into view. Autoscroll then moves the target out from
+under the pointer. Layout settling alone does not prevent this interaction.
+
+The verifier now moves the real pointer in steps to a visible point within
+the intended before/after half, at least 40px inside the scroll viewport.
+It still requires the insertion marker and the exact final order; no timeout,
+product behavior or acceptance inventory is relaxed. Pointer, hit-target and
+scroll diagnostics supplement the existing failure screenshot.
+The complete local source verifier passes at its normal size and with a
+1024-by-684 content viewport. A smaller scrolled Windows fixture reproduces
+the old helper's pinned-project insertion-marker timeout; matching the macOS
+viewport alone does not reproduce that failure on Windows.
+The new helper also passes the complete fixture with the project-drag phase
+at 1024 by 600 and pinned targets deliberately scrolled toward the upper edge.
+
+The unsigned Windows preview built from `1b28642` passes package-content hashes
+and actual executable Remote, sidebar, BTW, general Electron, settings, updates
+and native PowerShell terminal acceptance. The complete combined serial suite
+passes 865 of 879 tests with 14 platform skips. Its backed-up desktop shortcut
+now targets the new preview without terminating the user's old app.
+Real Feishu authorization, callback/reconnect behavior and installer upgrade
+remain manual gates. Replacement cloud acceptance for this verifier follow-up
+is still required.
+
 ## PR #194 Stop Capability And Main Integration (2026-11-05)
 
 The first Remote head passed all three Windows groups and macOS sessions/runtime

@@ -25,7 +25,7 @@ export async function buildRemoteAdapter(upstream, runtime) {
   if (sdk?.version !== '1.76.0') throw new Error('Unexpected Feishu SDK version');
   await mkdir(join(runtime, 'remote'), { recursive: true });
   const result = await build({ absWorkingDir: upstream, metafile: true, stdin: { contents: `export {LarkRegistration,LarkApi,LarkInboundGate,larkCallbackSetupUrl,LARK_OPEN_HOSTS} from ${JSON.stringify(join(directory, 'src/index.ts'))};
-export {WSClient,EventDispatcher,LoggerLevel} from ${JSON.stringify(sdkEntry)};`, resolveDir: directory, sourcefile: 'remote-adapter.ts' },
+export {Client,WSClient,EventDispatcher,LoggerLevel} from ${JSON.stringify(sdkEntry)};`, resolveDir: directory, sourcefile: 'remote-adapter.ts' },
     bundle: true, platform: 'node', target: 'node24', format: 'cjs', legalComments: 'eof',
     outfile: join(runtime, 'remote/lark-adapter.cjs') });
   await cp(join(sdkDirectory, 'LICENSE'), join(runtime, 'remote/FEISHU-SDK-LICENSE'));
@@ -49,7 +49,7 @@ export {WSClient,EventDispatcher,LoggerLevel} from ${JSON.stringify(sdkEntry)};`
   }
   await writeFile(join(runtime, 'remote/THIRD_PARTY_NOTICES.txt'), [...packages].sort(([a], [b]) => a.localeCompare(b)).map(([, text]) => text).join('\n\n--------------------\n\n'));
   await writeFile(join(runtime, 'remote/NOTICE.txt'), `Desktop Remote uses the pinned Step Code lark-adapter (${commit}) and @larksuiteoapi/node-sdk ${sdk.version}.\nSee ../LICENSE, ../THIRD_PARTY_NOTICES.md, THIRD_PARTY_NOTICES.txt and FEISHU-SDK-LICENSE. Original bundled legal comments are retained.\n`);
-  for (const name of ['remote-channel.mjs', 'remote-channel-core.mjs'])
+  for (const name of ['remote-channel.mjs', 'remote-channel-core.mjs', 'remote-card.mjs'])
     await cp(new URL(`../electron/${name}`, import.meta.url), join(runtime, name));
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))

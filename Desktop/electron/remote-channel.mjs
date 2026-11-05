@@ -21,7 +21,7 @@ process.stdin.on('data', chunk => {
     try { value = JSON.parse(line); } catch { close(); return; }
     if (!value || typeof value.id !== 'string' || value.id.length > 80 || typeof value.type !== 'string') { close(); return; }
     Promise.resolve().then(() => connection.command(value.type, value))
-      .then(() => write({ type: 'response', id: value.id, success: true }))
+      .then(data => write({ type: 'response', id: value.id, success: true, data }))
       .catch(() => write({ type: 'response', id: value.id, success: false, error: 'Remote operation unavailable' }));
   }
 });

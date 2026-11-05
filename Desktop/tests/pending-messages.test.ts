@@ -8,6 +8,24 @@ import { SessionRuntimes, type WorkerTransport } from '../electron/session-runti
 import type { RuntimeEvent } from '../src/contracts';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
+test('queue receipt observers use exact IDs for delivery, removal and clear, never message text alone', async () => {
+  const { worker } = fixture();
+  const events: [string, string][] = [];
+  const queue = new PendingMessages(() => {}, (_worker, error) => assert.fail(String(error)), text => text,
+    async () => {}, (target, id, event) => { assert.equal(target, worker); events.push([id, event]); });
+  worker.busy = false; worker.rpc.request = async () => ({});
+  const first = queue.enqueue(worker, 'same', { message: 'same' });
+  const second = queue.enqueue(worker, 'same', { message: 'same' });
+  await queue.drain(worker);
+  assert.deepEqual(events, []);
+  assert.equal(queue.delivered(worker, 'same'), true);
+  assert.deepEqual(events, [[first, 'delivered']]);
+  assert.equal(queue.delivered(worker, 'same'), false, 'An unsent identical input is not consumed');
+  queue.remove(worker, second, 0);
+  const third = queue.enqueue(worker, 'queued', { message: 'queued' });
+  queue.clear(worker); queue.clear(worker);
+  assert.deepEqual(events, [[first, 'delivered'], [second, 'removed'], [third, 'removed']]);
+});
 test('maintenance routes new prompts to the queue and refuses steering until it ends', async () => {
   const { worker, queue, requests } = fixture();
   worker.busy = false;

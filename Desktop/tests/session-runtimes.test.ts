@@ -58,6 +58,21 @@ test('Remote retains its host, rejects history mutation and does not reuse an at
   } finally { await f.pool.stopAll(); }
 });
 
+test('headless Remote preparation creates a new worker without moving local focus or clearing unread sessions', async () => {
+  const f = fixture();
+  try {
+    const active = await f.open();
+    f.pool.unreadSessionIds.add(active.state!.sessionId!);
+    const remote = await f.pool.prepare('node', 'step', 'remote-project', { STEP_PERMISSION_PRESET: 'ask' });
+    assert.notEqual(remote.id, active.id);
+    assert.equal(f.pool.activeId, active.id);
+    assert.equal(f.pool.unreadSessionIds.has(active.state!.sessionId!), true);
+    assert.equal(f.transports[1].startEnv.STEP_PERMISSION_PRESET, 'ask');
+    assert.equal(f.transports[1].calls.includes('new_session'), true);
+    assert.equal(f.transports[1].calls.includes('prompt'), false);
+  } finally { await f.pool.stopAll(); }
+});
+
 test('live background lanes retain their host without blocking foreground messages', async () => {
   const { pool, open, transports, events } = fixture({ idleLimit: () => 0 });
   try {

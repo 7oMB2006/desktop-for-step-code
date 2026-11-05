@@ -87,10 +87,12 @@
 .remote-channel-flow { width: min(620px, 100%); margin: 0 auto; }
 .remote-page .remote-channel-back { margin: 0 0 22px; }
 .remote-channel-detail { min-width: 0; animation: remote-detail-enter 240ms var(--remote-ease); }
-.remote-setup-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; border-bottom: 1px solid var(--border); margin-top: 30px; padding: 4px 4px 0; }
-.remote-setup-steps button { justify-content: flex-start; min-width: 0; min-height: 42px; padding: 0 0 15px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; font-size: 12px; color: var(--muted); }
+.remote-setup-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; border-bottom: 1px solid var(--border); margin-top: 30px; padding: 4px; }
+.remote-setup-steps button { position: relative; display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 0; border-radius: 4px; background: transparent; font-size: 12px; line-height: 20px; text-align: left; color: var(--muted); }
+.remote-setup-steps button::after { content: ''; position: absolute; inset: auto 0 -5px; height: 2px; background: transparent; }
 .remote-setup-steps button > span { display: grid; place-items: center; flex: 0 0 21px; width: 21px; height: 21px; border: 1px solid var(--border); border-radius: 50%; font-size: 10px; font-variant-numeric: tabular-nums; }
-.remote-setup-steps button[aria-current] { color: var(--primary); border-bottom-color: var(--primary); }
+.remote-setup-steps button[aria-current] { color: var(--primary); }
+.remote-setup-steps button[aria-current]::after { background: var(--primary); }
 .remote-setup-steps button[aria-current] > span { border-color: var(--primary); }
 .remote-setup-steps button:disabled { opacity: 1; cursor: default; }
 .remote-setup-stage { min-height: 345px; padding: 28px 5px 5px; animation: remote-detail-enter 240ms cubic-bezier(.215, .61, .355, 1); }
@@ -129,6 +131,16 @@
 .remote-binding-caption { font-size: 10px; color: var(--muted); }
 .remote-binding strong { font-size: 13px; overflow-wrap: anywhere; }
 .remote-binding small { display: flex; align-items: center; gap: 4px; font-size: 10px; }
+.remote-binding small, .remote-authorized-info > small { overflow-wrap: anywhere; }
+.remote-scope { border: 0; margin: 20px 0 0; padding: 4px; min-width: 0; }
+.remote-scope legend { font-size: 12px; color: var(--muted); padding: 0; margin-bottom: 8px; }
+.remote-page .remote-scope label { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 8px 0; }
+.remote-page .remote-scope input { flex: 0 0 16px; width: 16px; height: 16px; margin: 1px 0; accent-color: var(--primary); }
+.remote-scope label > span { min-width: 0; overflow-wrap: anywhere; }
+.remote-command-list { margin: 22px 0 0; }
+.remote-command-list > div { display: grid; grid-template-columns: minmax(145px, .8fr) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
+.remote-command-list dt { color: var(--ink); overflow-wrap: anywhere; }
+.remote-command-list dd { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
 .remote-tag { display: inline-flex; align-items: center; font-size: 10px; color: var(--muted); background: var(--side); padding: 3px 6px; border-radius: 4px; white-space: nowrap; }
 .remote-properties { margin: 0; }
 .remote-properties > div { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; min-width: 0; padding: 11px 0; border-bottom: 1px solid var(--border); }
@@ -220,7 +232,7 @@
   .remote-page .remote-channel-option { min-height: 172px; padding: 18px; gap: 16px 10px; }
   .remote-channel-overview > .remote-section-heading { flex-wrap: wrap; gap: 5px; }
   .remote-setup-steps { gap: 8px; }
-  .remote-setup-steps button { font-size: 11px; gap: 5px; }
+  .remote-setup-steps button { font-size: 11px; gap: 5px; padding: 10px 5px; }
   .remote-setup-stage { min-height: 320px; }
   .remote-setup-heading h3 { font-size: 18px; }
   .remote-planned { font-size: 9px; }

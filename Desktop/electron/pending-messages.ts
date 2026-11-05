@@ -18,6 +18,7 @@ export class PendingMessages {
     private failed: (worker: SessionRuntime, error: unknown) => void,
     private format: (message: string, files: string[]) => string = message => message,
     private beforePrompt: (worker: SessionRuntime, message: string) => Promise<void> = async () => {},
+    private receipt: (worker: SessionRuntime, id: string, event: 'delivered' | 'removed') => void = () => {},
   ) {}
   list(worker: SessionRuntime): PendingMessage[] {
     return (this.entries.get(worker) ?? []).map(({ id, message, attachmentCount, version, sending, steered }) => ({ id, message, attachmentCount, version, sending, ...(steered ? { steered } : {}) }));
@@ -54,6 +55,7 @@ export class PendingMessages {
   remove(worker: SessionRuntime, id: string, version: number) {
     const entry = this.require(worker, id, version);
     this.entries.set(worker, this.entries.get(worker)!.filter(item => item !== entry)); this.publish(worker);
+    this.receipt(worker, entry.id, 'removed');
   }
   pause(worker: SessionRuntime) { this.paused.add(worker); }
   // The caller must first clear upstream queues or confirm the child is gone.
@@ -82,10 +84,15 @@ export class PendingMessages {
       this.entries.set(worker, this.entries.get(worker)!.filter(item => item !== entry));
       worker.queued = Boolean(this.entries.get(worker)?.length);
       if (notify) this.publish(worker);
+      this.receipt(worker, entry.id, 'delivered');
     }
     return Boolean(entry);
   }
-  clear(worker: SessionRuntime) { this.entries.delete(worker); this.paused.delete(worker); worker.queued = false; }
+  clear(worker: SessionRuntime) {
+    const entries = this.entries.get(worker) ?? [];
+    this.entries.delete(worker); this.paused.delete(worker); worker.queued = false;
+    for (const entry of entries) this.receipt(worker, entry.id, 'removed');
+  }
   async steer(worker: SessionRuntime, id: string, version: number) {
     const entry = this.require(worker, id, version);
     if (worker.mutating || worker.stopping || worker.state?.isCompacting || worker.status !== 'connected') throw new Error('This session cannot send right now');

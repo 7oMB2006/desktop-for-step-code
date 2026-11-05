@@ -153,7 +153,7 @@ export class SessionRuntimes {
     try { return await opening; }
     finally { if (this.openingEmpty.get(key) === opening) this.openingEmpty.delete(key); }
   }
-  prepare(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath: string) {
+  prepare(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string) {
     return this.openWorker(node, entry, cwd, env, sessionPath, undefined, false);
   }
   private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation, activate = true, existing?: SessionRuntime) {

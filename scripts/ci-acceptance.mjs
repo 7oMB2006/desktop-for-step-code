@@ -122,6 +122,7 @@ export const localOnly = [
   'verify-first-run-preview.mjs',
   // Isolated Remote UI only; this check starts its own Vite server and uses no real channels.
   'verify-remote-access-preview.mjs',
+  'verify-remote-chat-preview.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

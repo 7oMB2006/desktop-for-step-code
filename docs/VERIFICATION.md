@@ -1,5 +1,183 @@
 # Verification
 
+## Local Feishu Chat Simulation (2026-11-06)
+
+The editable chat fixture adds a Feishu-like host shell with normal, empty,
+interrupted, approval and pairing scenarios, original-message reactions,
+same-card updates, playback controls and an old-layout comparison.
+`remote-card.mjs` is extracted unchanged from the helper's outgoing card
+construction and staged alongside it. Production and preview share that
+document builder; Feishu's actual typography, Markdown subset and reaction
+assets are not reproduced or certified by the HTML approximation.
+
+Local checks passed: typecheck; all 101 focused queue, Remote command/channel/
+manager and simulation tests; 15 CI inventory/policy/runner tests; and source
+Electron Remote acceptance after rebuilding only the isolated Remote adapter.
+The staged helper loads the extracted module and retains actual quit/relaunch
+recovery and explicit-disconnect checks. The browser fixture passed new/old
+comparison, reaction removal, single-card updates, slash help/listing,
+single-use approvals, partial interruption, pending-confirmation pairing,
+light/dark 320/390/700/1440px layouts, full textarea focus gutters, reduced
+motion and menu Escape focus return. No external browser requests occurred.
+
+The local preview serves this worktree read-only on loopback with a separate
+cache under `Desktop/test-results/remote-chat-preview/`; screenshots are in the
+same ignored directory. No installer, installed app, shortcut, real Feishu
+connection, paid-model request or current-head cloud result is included.
+The complete-suite receipt below predates this fixture follow-up; this section
+claims focused and native regression checks, not a new full-suite run.
+
+## Remote Message Feedback And Reply Presentation (2026-11-06)
+
+Accepted model input now receives a processing reaction on the original
+private-chat message instead of a Received card. Main tracks the exact pending
+queue ID, so finishing one input does not clear a later queued input. Removal,
+dispatch failure, interruption, worker disposal and orderly disconnect release
+the corresponding indicators. A slow reaction POST is removed by its exact
+returned ID if completion or unbind arrived first. Reaction failures remain
+best-effort delivery failures and never retry model work.
+
+A matched pairing code receives an acknowledgment reaction, with a literal
+pending-confirmation fallback if reactions fail. This does not authorize chat
+access before local confirmation. Working cards no longer expose an automatic
+Stop button; `/stop` and `/stop s1` retain the original-run guard. Bare `/session`
+and `/help` are covered as local commands without inference.
+
+Normal replies update one Markdown card with a small plain-text session source,
+without Working or Completed headings. Explicit reply status drives presentation
+rather than matching title strings. Empty working/final replies remain distinct;
+interruption retains partial text and an explicit footer. Approval and system
+cards retain literal text, meaningful headings and their existing token gates.
+
+Final Windows source verification passed:
+
+- Typecheck and production build.
+- All 170 focused Remote, pending-queue and session-runtime tests.
+- Complete serial suite: 940 tests, 926 passed, fourteen platform skips, zero
+  failures and clean automatic exit in 233.9 seconds.
+- CI policy/inventory/runner tests: 39 passed and one native-platform skip.
+  The first policy invocation in the non-Git verification snapshot could not
+  read HEAD; the same unchanged tests passed from the actual Git checkout.
+- Real source Electron Remote acceptance with the staged SDK/helper offline
+  smoke, isolated fake transport and loopback provider. It covers input reactions,
+  slash help/listing, cold/new session routing without inference, local draft
+  preservation, original-session stopping, approvals and actual quit/relaunch
+  recovery with no old task replay or reconnect after explicit disconnect.
+- Source/snapshot and staged helper hash checks, plus `git diff --check`.
+
+Build/runtime output is isolated under
+`D:/Desktop Runtime Builds/remote-reactions-pr194-20261106/`: approximately
+10 MiB dist, 123 MiB runtime and 63 MiB terminal runtime. Narrow acceptance
+evidence remains alongside the logs; no old outputs were deleted. No shared
+runtime, existing package, installed app or desktop shortcut was replaced.
+The upstream pin remains `81e79bc4b699148d6823fedde9b5e70d9a80255f`.
+Real Feishu reaction permissions, Markdown appearance, authorization, callbacks
+and SDK reconnection remain manual gates. No installer, paid-model, native
+macOS, current-head cloud-CI, commit, push or release acceptance is claimed.
+
+## Remote Recovery And Step Hit Areas (2026-11-05)
+
+Desktop now keeps a separate `safeStorage`-encrypted Remote snapshot under
+`userData/remote/connection.dpapi`. Only the bot credentials/identity, confirmed
+private chat, exact project grants and current session ID are persisted. Normal
+quit/update preserves it; explicit Disconnect deletes it; Unbind removes chat
+access but keeps the bot. Recovery validates the bot and canonical known
+projects, creates a fresh binding and opens only the saved target in Ask without
+inference, local navigation or task replay. Missing sessions are not replaced;
+invalid projects lose chat access. Tokens, runs, queues, callback readiness,
+cards and attached runtime identities are not restored.
+
+The three setup steps now have equal-width hit targets, symmetric padding and
+vertically centered markers. Hover, the active underline and the unweakened
+shared focus outline follow the same bounds without changing layout.
+
+Local Windows checks passed:
+
+- Typecheck and production build in an isolated source snapshot.
+- Complete serial suite: 927 tests, 913 passed, fourteen platform skips, zero
+  failures and clean automatic exit in 326.9 seconds.
+- CI policy/inventory/runner tests: 39 passed and one native-platform skip.
+- Real Electron Remote acceptance, including actual quit/relaunch against the
+  same isolated profile, encrypted bytes, current-session recovery, no automatic
+  inference, stale approval/Stop rejection and no reconnect after explicit
+  disconnect. Startup interception is confined to the source test launcher;
+  the product has no fake-transport switch. The packaged verifier retains its
+  normal entry point and does not claim source-only restart coverage.
+- Production desktop/narrow hit-target geometry, first-step hover and full
+  focus gutters in light/dark, Chinese/English, plus reduced motion.
+- The existing browser Remote preview acceptance passed with Microsoft Edge.
+
+The build and current screenshots are isolated under
+`D:/Desktop Runtime Builds/remote-persistence-pr194-20261105/`.
+No installed app, shared runtime, shortcut or existing installer was replaced.
+These deterministic source tests do not establish real Feishu authorization,
+platform credential renewal, native macOS, packaged recovery, cloud CI or
+release acceptance. The user must pair once in the first persistence-enabled
+build; credentials already lost by the older memory-only build cannot be
+recovered.
+
+## Remote Multi-session Beta (2026-11-05)
+
+The Desktop follow-up separates the authorized private chat, explicitly granted
+projects and current remote session. Its shared command set provides help,
+paged session lists, selection, creation, project/current/status inspection,
+targeted stop and disconnect. Unknown slash commands never become model input.
+The fixed upstream pin, adapter sources and SDK remain unchanged; upstream
+contributions are outside this Beta implementation.
+
+Final local Windows source checks pass:
+
+- Typecheck and production build.
+- Clean complete serial suite: 910 tests, 896 passed, fourteen platform skips
+  and no failures; automatic exit in 240.3 seconds. The final repeat adds
+  `--test-timeout=180000` to bound each test file, without relaxing assertions.
+- All 120 focused Remote command, manager, channel and session-runtime tests.
+- All 15 CI policy, acceptance inventory and runner tests.
+- The registered `verify-remote-access.mjs` acceptance with isolated profiles,
+  a fake channel transport and loopback model provider: explicit project grants,
+  help/history listing, cold selection and headless creation without inference,
+  local focus/draft preservation, denied out-of-scope selection, exact-request
+  approval, old-session task stopping, deduplication, disconnect and helper exit.
+- Production light/dark narrow layouts, shared select and checkbox focus gutters,
+  and reduced motion. Five current screenshots remain under
+  `Desktop/test-results/remote-access/`.
+
+Regression coverage includes ordered input across blocked submissions and local
+selection, session handles surviving catalog reordering, read-only cold status,
+revocation during preparation, worker exit without losing chat authorization,
+independent concurrent Stop capabilities and existing resident-task observation
+without transcript backfill. Project grants are bounded to twenty and runtime
+attachments to eight; active targets cannot be evicted and an over-capacity
+operation is rejected before preparing or creating another runtime.
+
+An added native equivalent-path fixture first reproduced a cold-session failure:
+canonical preparation changed the workspace spelling and lost the original
+grant match. Preparation now validates the real directory before startup but
+retains the exact granted spelling. The same fixture passes through cold
+selection, new-session creation and the first later model request. Redirected
+canonical targets remain rejected rather than extending the grant.
+
+One intermediate full-suite repeat reported 896 passes and fourteen platform
+skips, but stalled after the runtime tests while twelve fixture-owned RPC
+children remained alive. A system process query also failed during diagnosis.
+Only descendants of the verified test runner were inspected and terminated;
+the later explicit `taskkill` retries succeeded. This manually assisted run is
+not counted as a clean termination receipt, and the original cause of those
+unsuccessful stop attempts was not captured. A read-only process-audit helper
+remains in `Desktop/test-results/remote-beta-process-audit.ps1`.
+The subsequent complete serial repeat above exits without manual cleanup;
+this does not establish that the earlier intermittent OS cleanup cause was
+repaired.
+
+The staged SDK/helper check is an offline loading and gate smoke test; helper
+changes are covered by source unit tests. This does not establish a newly staged
+or packaged helper. No real Feishu authorization, external user-content delivery,
+platform callback/reconnect, paid-model, installer, native macOS or current-head
+cloud-CI acceptance is claimed. No new package or desktop shortcut was created,
+and the previously delivered `db523d1` preview does not contain this Beta.
+Only the current Desktop dist and narrow source-acceptance evidence were rebuilt;
+the user's app, existing preview server and older packages were left alone.
+
 ## PR #194 First-run Main Synchronization (2026-11-05)
 
 Main advanced to `d0a1009` (PR #192 production first-run onboarding) while the

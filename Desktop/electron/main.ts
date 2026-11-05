@@ -38,6 +38,7 @@ import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
 import { changeFavoriteModel, normalizeFavoriteModels } from '../src/model-favorites';
 import { AuthVault } from './auth-vault';
+import { RemoteStore } from './remote-store';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
 import { CapabilityService, assertPluginUnused } from './capability-service';
@@ -393,26 +394,37 @@ const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
   runtimes.publish();
-}, (worker, error) => emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) }),
+}, (worker, error) => {
+  remote.queueFailed(worker);
+  emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) });
+},
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
-  (worker, message) => runtimes.preparePrompt(worker, message));
+  (worker, message) => runtimes.preparePrompt(worker, message),
+  (worker, id, event) => remote.queueEvent(worker, id, event));
 const remote = new RemoteManager({
-  sessions: () => [...runtimes.workers.values()].filter(worker => worker.status === 'connected' && worker.state?.sessionId
-    && !runtimes.isBusy(worker) && !hasBackgroundWork(worker) && !worker.queued && !worker.mutating && !worker.stopping
-    && !worker.failed && !worker.interrupted && worker.launch?.goal?.status !== 'active')
-    .map(worker => ({ runtimeId: worker.id, sessionId: worker.state!.sessionId!,
-      name: worker.state?.sessionName || firstUserText(worker.messages) || 'Step Code', workspace: worker.cwd })),
+  sessions: remoteSessions,
+  refresh: async () => { await listSessions(); },
+  validateWorkspaces: async workspaces => {
+    for (const workspace of workspaces) {
+      if (!remoteSessions().some(session => session.workspace === workspace)
+        || pathKey(await workspaceDirectory(workspace)) !== pathKey(workspace))
+        throw new Error('Saved Remote project is no longer available');
+    }
+  },
+  prepare: sessionId => prepareRemoteSession(sessionId),
+  createSession: workspace => prepareRemoteSession(undefined, workspace),
   worker: (runtimeId, sessionId) => {
     const worker = runtimes.require(runtimeId);
     if (worker.state?.sessionId !== sessionId) throw new Error('Remote session identity changed');
     return worker;
   },
-  submit: async (worker, message) => {
+  submit: async (worker, message, accepted) => {
     if (transition || sessionNavigation.busy || settingsMutation || undoBusy || quitting || quitPending || updateInstalling
       || providerSettingsPending || worker.mutating || worker.stopping || worker.pendingUI.size
       || worker.failed || worker.interrupted || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
       throw new Error('Review the session on Desktop before sending');
-    pendingMessages.enqueue(worker, message, { message });
+    const id = pendingMessages.enqueue(worker, message, { message });
+    accepted(id);
     pendingMessages.resumed(worker);
     void pendingMessages.drain(worker);
   },
@@ -431,7 +443,7 @@ const remote = new RemoteManager({
   env.NODE_USE_ENV_PROXY = '1';
   channel.start(nodePath, join(runtimeRoot, 'remote-channel.mjs'), dataRoot, env);
   return channel;
-}, state => emit({ type: 'desktop_remote', state }));
+}, state => emit({ type: 'desktop_remote', state }), Date.now, new RemoteStore(join(app.getPath('userData'), 'remote')));
 const backgroundAgents = new BackgroundAgents(runtimes.workers,
   () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending);
 const launchControls = new LaunchControls(runtimes);
@@ -610,6 +622,44 @@ function cachedSessions(): Session[] {
     });
   }
   return [...sessions.values()];
+}
+function remoteSessions() {
+  return cachedSessions().filter(session => !isChildSession(session.id) && !preferences.archivedSessionIds?.includes(session.id))
+    .map(session => {
+      const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === session.id && worker.status === 'connected');
+      return { runtimeId: worker?.id, sessionId: session.id, name: session.name || session.firstMessage || 'Step Code',
+        workspace: worker?.cwd ?? session.cwd };
+    });
+}
+async function prepareRemoteSession(sessionId?: string, workspace?: string) {
+  if (transition || sessionNavigation.busy || settingsMutation || undoBusy || deletingArchived || quitting || quitPending
+    || updateInstalling || providerSettingsPending) throw new Error('Desktop operation in progress');
+  transition = true;
+  try {
+    const target = sessionId ? remoteSessions().find(session => session.sessionId === sessionId) : undefined;
+    if (sessionId && !target) throw new Error('Session is unavailable');
+    if (target?.runtimeId) return runtimes.require(target.runtimeId);
+    if (sessionId && [...runtimes.workers.values()].some(worker => worker.state?.sessionId === sessionId && worker.status === 'connecting'))
+      throw new Error('Session is opening');
+    const saved = sessionId ? cachedSessions().find(session => session.id === sessionId) : undefined;
+    if (sessionId && !saved?.path) throw new Error('Session history is unavailable');
+    const cwd = target?.workspace ?? workspace;
+    if (!cwd || !remoteSessions().some(session => session.workspace === cwd)) throw new Error('Unknown Remote workspace');
+    const canonical = await workspaceDirectory(cwd);
+    if (pathKey(canonical) !== pathKey(cwd)) throw new Error('Open the canonical project locally before authorizing Remote');
+    const sessionPath = saved?.path ? await managedSessionFile(join(dataRoot, 'sessions'), saved.path) : undefined;
+    // Preparing never activates the worker or consumes the local composer draft.
+    // Cold/new remote hosts start in Ask; project trust remains a separate local decision.
+    // Preserve the exact granted spelling after verifying its canonical identity.
+    const worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd,
+      { ...authEnvironment(), ...movedSessionEnvironment() }, sessionPath);
+    if ((sessionId && worker.state?.sessionId !== sessionId) || worker.permissionPreset !== 'ask') {
+      await runtimes.remove(worker);
+      throw new Error('Could not verify the Remote session identity and Ask policy');
+    }
+    emit({ type: 'desktop_sessions_changed' });
+    return worker;
+  } finally { transition = false; }
 }
 async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = false): Promise<Snapshot> {
   const draft = ignoreDraft ? undefined : sessionDraft;
@@ -846,7 +896,7 @@ async function beginSession(workspace?: string) {
 }
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[]) {
-  if (method === 'remoteState') return remote.snapshot();
+  if (method === 'remoteState') { await listSessions(); return remote.snapshot(); }
   if (method === 'remoteAction') {
     const action = parseRemoteAction(args[0]);
     if (!['disconnect', 'unbind'].includes(action.type)
@@ -968,7 +1018,7 @@ async function handle(method: string, args: any[]) {
           await usageEstimates.flush();
           await terminals.stopAll();
           await sessionImports.close();
-          await remote.disconnect();
+          await remote.shutdown();
           await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
         });
         success = true;
@@ -2158,7 +2208,7 @@ app.on('before-quit', event => {
       }
       await terminals.stopAll();
       await sessionImports.close();
-      await remote.disconnect();
+      await remote.shutdown();
       await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
@@ -2337,6 +2387,9 @@ else app.whenReady().then(async () => {
       }
     })();
   }
+  void startup.then(async () => {
+    if (!quitting && !quitPending && !updateInstalling) { await listSessions(); await remote.resume(); }
+  }).catch(() => {});
   void startup.then(() => tryAutomaticCron());
   if (process.env.DESKTOP_DEV_URL && !app.isPackaged) await window.loadURL(process.env.DESKTOP_DEV_URL);
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
@@ -2360,5 +2413,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([remote.disconnect(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
+  quitting = true; void Promise.all([remote.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
 });

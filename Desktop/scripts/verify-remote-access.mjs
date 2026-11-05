@@ -15,7 +15,7 @@ const runtime = join(resources, 'runtime');
 const output = resolve('test-results/remote-access');
 await mkdir(output, { recursive: true });
 const adapter = createRequire(import.meta.url)(join(runtime, 'remote/lark-adapter.cjs'));
-for (const name of ['LarkRegistration', 'LarkApi', 'LarkInboundGate', 'WSClient', 'EventDispatcher'])
+for (const name of ['Client', 'LarkRegistration', 'LarkApi', 'LarkInboundGate', 'WSClient', 'EventDispatcher'])
   assert.equal(typeof adapter[name], 'function', `Packaged adapter exports ${name}`);
 assert.ok((await readFile(join(runtime, 'remote/FEISHU-SDK-LICENSE'), 'utf8')).length > 100);
 const gate = new adapter.LarkInboundGate('bot');
@@ -51,13 +51,43 @@ const event = (kind, fields={}) => write({type:'remote_channel',kind,bindingId,.
 createInterface({input:process.stdin}).on('line', line => {
   const value=JSON.parse(line);
   if(value.type==='fixture-event'){event(value.kind,value.fields);return;}
-  if(value.type==='connect') event('authorization',{url:'https://open.feishu.cn/page/cli?user_code=fixture-only',expiresAt:Date.now()+300000});
+  if(value.type==='connect') {
+    if(value.identity) event('connected',{botName:'Isolated Feishu',callbackUrl:'https://open.feishu.cn/page/launcher?clientID=fixture'});
+    else event('authorization',{url:'https://open.feishu.cn/page/cli?user_code=fixture-only',expiresAt:Date.now()+300000});
+  }
   if(value.type==='arm') event('candidate',{armId:value.armId,candidateId:'fixture-candidate'});
-  if(value.type==='bind') bindingId=value.bindingId;
+  if(value.type==='bind'||value.type==='bindSaved') bindingId=value.bindingId;
   if(value.type==='card') write({type:'remote_fixture_record',card:value});
+  if(value.type==='reaction') write({type:'remote_fixture_reaction',reaction:value});
   if(value.type==='unbind') bindingId=undefined;
-  write({type:'response',id:value.id,success:true});
+  const data=value.type==='snapshot'?{identity:{botId:'fixture-bot',credentials:{appId:'fixture-app',appSecret:'REMOTE-PERSISTENCE-SECRET',brand:'feishu'}},
+    peer:bindingId?{actor:'fixture-human',chat:'fixture-chat'}:undefined}:undefined;
+  write({type:'response',id:value.id,success:true,data});
 });
+`);
+// A source-only launcher installs the network boundary before automatic recovery.
+// A packaged launch keeps its normal entry point and the existing process-only injection.
+const sourceEntry = join(profile, 'remote-entry.cjs');
+await writeFile(sourceEntry, `
+const cp=require('node:child_process'),original=cp.spawn;
+const fixture=globalThis.remoteHarness={cards:[],reactions:[],opened:[],child:undefined,env:undefined};
+require('electron').shell.openExternal=async url=>{fixture.opened.push(url);};
+cp.spawn=(command,args,options)=>{
+  if(!args?.[0]?.endsWith('remote-channel.mjs'))return original(command,args,options);
+  fixture.env=options.env;
+  const child=fixture.child=original(command,[${JSON.stringify(fixtureHelper)}],options);
+  let buffer='';
+  child.stdout.on('data',chunk=>{
+    buffer+=chunk;
+    for(;;){const end=buffer.indexOf('\\n');if(end<0)break;
+      const value=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);
+      if(value.type==='remote_fixture_record')fixture.cards.push(value.card);
+      if(value.type==='remote_fixture_reaction')fixture.reactions.push(value.reaction);
+    }
+  });
+  return child;
+};
+require(${JSON.stringify(resolve('dist/main.cjs'))});
 `);
 const received = [], failures = [];
 let held;
@@ -92,18 +122,30 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
 try {
-  app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
-  const page = await app.firstWindow(), errors = [];
+  const launch = () => electron.launch({ ...(executablePath ? { executablePath } : { args: [sourceEntry] }), env, timeout: 60000 });
+  app = await launch();
+  let page = await app.firstWindow();
+  const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1400, 950);
   });
   const owner = await prepareSessionFixture(page);
+  const coldId = 'remote-cold-history';
+  const coldWorkspace = `${owner.preferences.workspace}/.`;
+  const timestamp = new Date().toISOString();
+  await mkdir(join(root, 'sessions'), { recursive: true });
+  await writeFile(join(root, 'sessions', `${coldId}.jsonl`), [
+    { type: 'session', version: 3, id: coldId, cwd: coldWorkspace, timestamp },
+    { type: 'message', id: 'cold-user', parentId: null, timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'COLD-HISTORY-PRIVATE' }], timestamp: Date.now() } },
+    { type: 'session_info', id: 'cold-name', parentId: 'cold-user', timestamp, name: 'Cold Remote' },
+  ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
   // Inject a deterministic child only in the test process, never via a product env flag.
-  await app.evaluate(({ shell }, path) => {
+  if (executablePath) await app.evaluate(({ shell }, path) => {
     const cp = process.getBuiltinModule('node:child_process'), original = cp.spawn;
-    const fixture = globalThis.remoteHarness = { cards: [], opened: [], child: undefined, env: undefined };
+    const fixture = globalThis.remoteHarness = { cards: [], reactions: [], opened: [], child: undefined, env: undefined };
     shell.openExternal = async url => { fixture.opened.push(url); };
     cp.spawn = (command, args, options) => {
       if (!args?.[0]?.endsWith('remote-channel.mjs')) return original(command, args, options);
@@ -116,6 +158,7 @@ try {
           const end = buffer.indexOf('\n'); if (end < 0) break;
           const value = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1);
           if (value.type === 'remote_fixture_record') fixture.cards.push(value.card);
+          if (value.type === 'remote_fixture_reaction') fixture.reactions.push(value.reaction);
         }
       });
       return child;
@@ -136,6 +179,27 @@ try {
   };
   const button = name => page.getByRole('button', { name, exact: true });
   const state = () => page.evaluate(() => window.desktop.remoteState());
+  const waitState = async predicate => {
+    const deadline = Date.now() + 30000;
+    let current;
+    while (Date.now() < deadline) {
+      current = await state();
+      if (predicate(current)) return current;
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    throw new Error(`Remote state did not settle: ${JSON.stringify({ current, cards: (await cards()).slice(-4) })}`);
+  };
+  const waitRuntimeIdle = async runtimeId => {
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      const snapshot = await page.evaluate(() => window.desktop.snapshot());
+      const worker = snapshot.runtimes.find(item => item.runtimeId === runtimeId);
+      assert.ok(worker, 'The approval target must remain resident');
+      if (!/running|waiting/.test(worker.status)) return;
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    throw new Error('The approval target did not become idle');
+  };
   const screenshot = async name => {
     await page.locator('.remote-access-view,.remote-channel-detail,.remote-setup-stage').evaluateAll(elements =>
       Promise.all(elements.flatMap(element => element.getAnimations().map(animation => animation.finished.catch(() => {})))));
@@ -163,9 +227,25 @@ try {
     });
     assert.deepEqual(issues, [], 'Production focus outline must be visible on all four sides');
   };
+  const checkSteps = async () => {
+    const geometry = await page.locator('.remote-setup-steps > button').evaluateAll(elements => elements.map(element => {
+      const rect = element.getBoundingClientRect(), style = getComputedStyle(element), marker = element.firstElementChild.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+        paddingTop: style.paddingTop, paddingBottom: style.paddingBottom,
+        center: marker.y + marker.height / 2, controlCenter: rect.y + rect.height / 2,
+        hit: document.elementFromPoint(rect.right - 3, rect.y + rect.height / 2)?.closest('button') === element };
+    }));
+    assert.equal(geometry.length, 3);
+    for (const rect of geometry) {
+      assert.ok(Math.abs(rect.width - geometry[0].width) < 1 && Math.abs(rect.y - geometry[0].y) < 1);
+      assert.equal(rect.paddingTop, rect.paddingBottom, 'Hit area has symmetric vertical padding');
+      assert.ok(Math.abs(rect.center - rect.controlCenter) < 1, 'Step marker is vertically centered');
+      assert.equal(rect.hit, true, 'The whole step column is the hit target');
+    }
+  };
   await page.locator('.composer > .composer-input').fill('Draft stays local');
   await button('远程访问').click();
-  const panel = page.locator('.remote-live');
+  let panel = page.locator('.remote-live');
   await panel.getByRole('button', { name: /管理配置/ }).click();
   await button('连接飞书').click();
   await button('打开飞书授权').waitFor();
@@ -175,21 +255,30 @@ try {
   assert.equal((await app.evaluate(() => globalThis.remoteHarness.opened)).length, 1);
   assert.equal((await app.evaluate(() => globalThis.remoteHarness.env)).REMOTE_FIXTURE_SECRET, undefined);
   await inject('connected', { botName: 'Isolated Feishu', callbackUrl: 'https://open.feishu.cn/page/launcher?clientID=fixture' });
-  await page.waitForFunction(async () => (await window.desktop.remoteState()).status === 'connected');
+  await waitState(current => current.status === 'connected');
   await button('继续').click();
   await button('生成验证码').click();
   await panel.locator('.remote-binding-code code').waitFor();
   await button('目标会话').click();
   const targetName = (await state()).sessions.find(session => session.runtimeId === owner.runtimeId).name;
   await page.getByRole('menuitemradio', { name: targetName, exact: true }).click();
+  await panel.getByRole('checkbox', { name: coldWorkspace, exact: true }).check();
   await button('确认并绑定').click();
   await panel.locator('.remote-binding strong').waitFor();
+  await waitState(current => current.saved);
+  const savedConnection = await readFile(join(profile, 'remote/connection.dpapi'));
+  assert.equal(savedConnection.includes(Buffer.from('REMOTE-PERSISTENCE-SECRET')), false);
+  assert.doesNotMatch(JSON.stringify(await state()), /REMOTE-PERSISTENCE-SECRET|fixture-human|fixture-chat/);
   assert.equal((await state()).binding.runtimeId, owner.runtimeId);
+  assert.deepEqual((await state()).authorized.workspaces, [owner.preferences.workspace, coldWorkspace]);
   await button('继续').click();
   await button('发送验证卡片').click();
   const probe = await waitCard(card => card.key === 'probe');
   await inject('decision', { token: probe.actions.token, option: 'Verify / 验证' });
-  await page.waitForFunction(async () => (await window.desktop.remoteState()).approvalReady);
+  await waitState(current => current.approvalReady);
+  await checkSteps();
+  await panel.locator('.remote-setup-steps button').first().hover();
+  await checkFocus(panel.locator('.remote-setup-steps button').first());
   await screenshot('01-readiness-dark');
   await button('返回会话').click();
   assert.equal(await page.locator('.composer > .composer-input').innerText(), 'Draft stays local');
@@ -197,11 +286,50 @@ try {
   assert.notEqual(other.runtimeId, owner.runtimeId);
   await page.reload();
   await button('远程访问').waitFor();
+  await page.locator('.composer > .composer-input').fill('Other draft stays local');
   await inject('input', { id: 'remote-one', text: 'REMOTE-ONE' });
   await inject('input', { id: 'remote-one', text: 'REMOTE-ONE' });
-  await waitCard(card => card.title.startsWith('Completed') && card.text.includes('REMOTE-FIXTURE-ANSWER'));
+  const firstReply = await waitCard(card => card.reply === 'completed' && card.text.includes('REMOTE-FIXTURE-ANSWER'));
+  assert.match(firstReply.title, /^s1 · /, 'Reply titles carry only the session source, not a completion heading');
+  assert.equal(firstReply.actions, undefined);
+  const firstReactions = await app.evaluate(() => globalThis.remoteHarness.reactions);
+  assert.deepEqual(firstReactions.filter(value => value.messageId === 'remote-one').map(value => value.active), [true, false]);
+  assert.equal((await cards()).some(card => card.title.startsWith('Received')), false);
   assert.equal(received.filter(task => task === 'REMOTE-ONE').length, 1);
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, other.runtimeId);
+  const beforeCommands = received.length;
+  await inject('input', { id: 'help', text: '/help' });
+  await waitCard(card => card.key !== 'welcome' && card.text.includes('/sessions [page]'));
+  await inject('input', { id: 'list', text: '/session' });
+  await waitCard(card => card.text.includes('Cold Remote'));
+  assert.equal((await state()).sessions.find(session => session.sessionId === coldId).runtimeId, undefined,
+    'Listing saved history must not start its runtime');
+  assert.doesNotMatch(JSON.stringify(await cards()), /COLD-HISTORY-PRIVATE/);
+  await inject('input', { id: 'cold-switch', text: `/session ${coldId}` });
+  await waitState(current => current.binding?.sessionId === coldId);
+  const cold = (await state()).binding;
+  assert.equal(cold.sessionId, coldId, JSON.stringify({ binding: cold, sessions: (await state()).sessions }));
+  assert.equal(cold.workspace, coldWorkspace, 'Cold preparation must retain the exact granted workspace identity');
+  assert.notEqual(cold.runtimeId, owner.runtimeId);
+  assert.equal(received.length, beforeCommands, 'Switching cold history must not send inference');
+  await inject('input', { id: 'new', text: '/new' });
+  await waitState(current => current.binding && current.binding.sessionId !== coldId);
+  const remoteNew = (await state()).binding;
+  assert.notEqual(remoteNew.sessionId, owner.state.sessionId);
+  assert.equal(remoteNew.workspace, coldWorkspace);
+  const local = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(local.runtimeId, other.runtimeId, 'Remote creation must not change local focus');
+  assert.equal(local.runtimes.find(runtime => runtime.runtimeId === remoteNew.runtimeId).status, 'idle');
+  assert.equal(await page.locator('.composer > .composer-input').innerText(), 'Other draft stays local');
+  assert.equal(received.length, beforeCommands, 'Remote creation must not send inference');
+  await inject('input', { id: 'new-message', text: 'REMOTE-NEW-SESSION' });
+  await waitCard(card => card.sessionKey === remoteNew.sessionId && card.reply === 'completed');
+  assert.equal(received.filter(task => task === 'REMOTE-NEW-SESSION').length, 1);
+  await inject('input', { id: 'unauthorized-switch', text: `/session ${other.state.sessionId}` });
+  await waitCard(card => card.title.startsWith('Not accepted'));
+  assert.equal((await state()).binding.sessionId, remoteNew.sessionId);
+  await inject('input', { id: 'owner-switch', text: '/session s1' });
+  await waitState(current => current.binding?.sessionId === owner.state.sessionId);
   const before = received.length;
   await inject('input', { id: 'slash', text: '/permissions full-access' });
   await waitCard(card => card.title.startsWith('Not accepted'));
@@ -212,17 +340,41 @@ try {
   assert.ok(approval.text.length <= 5000, 'Actionable details must fit without clipping');
   await inject('decision', { token: approval.actions.token, option: 'Deny / 拒绝' });
   await inject('decision', { token: approval.actions.token, option: 'Allow once / 允许一次' });
-  await page.waitForFunction(async runtimeId => !(await window.desktop.snapshot()).runtimes.find(item => item.runtimeId === runtimeId)?.status.match(/running|waiting/), owner.runtimeId);
+  await waitRuntimeIdle(owner.runtimeId);
   const previousRuns = new Set((await cards()).map(card => card.key));
   await inject('input', { id: 'hold', text: 'REMOTE-HOLD' });
-  const running = await waitCard(card => card.title.startsWith('Working') && !previousRuns.has(card.key));
+  const running = await waitCard(card => card.reply === 'working' && !previousRuns.has(card.key));
+  assert.equal(running.actions, undefined, 'Working cards do not expose Stop buttons');
   const holdDeadline = Date.now() + 10000;
   while (!received.includes('REMOTE-HOLD')) {
     assert.ok(Date.now() < holdDeadline, 'The held model request must actually start before stopping');
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  await inject('stop', { runId: running.key });
-  await waitCard(card => card.key === running.key && card.title.startsWith('Interrupted'));
+  await inject('input', { id: 'switch-while-running', text: `/session ${remoteNew.sessionId}` });
+  await waitState(current => current.binding?.sessionId === remoteNew.sessionId);
+  await inject('input', { id: 'stop-original', text: '/stop s1' });
+  await waitCard(card => card.key === running.key && card.reply === 'interrupted');
+  assert.equal((await state()).binding.sessionId, remoteNew.sessionId,
+    'An explicitly targeted slash stop must stop its original session without changing the selected session');
+  if (!executablePath) {
+    const beforeRestart = received.length;
+    await closeDesktopFixture(app); app = undefined;
+    app = await launch(); page = await app.firstWindow(); panel = page.locator('.remote-live');
+    page.on('pageerror', error => errors.push(error.message));
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1400, 950);
+    });
+    await waitState(current => current.saved && current.status === 'connected' && current.binding?.sessionId === remoteNew.sessionId);
+    assert.equal((await state()).approvalReady, false, 'Old callback readiness is not restored');
+    assert.equal(received.length, beforeRestart, 'Restart must not replay interrupted or offline work');
+    await inject('decision', { token: approval.actions.token, option: 'Allow once / 允许一次' });
+    await inject('stop', { runId: running.key });
+    await inject('input', { id: 'after-restart', text: 'REMOTE-AFTER-RESTART' });
+    await waitCard(card => card.reply === 'completed' && card.sessionKey === remoteNew.sessionId);
+    assert.equal(received.filter(task => task === 'REMOTE-AFTER-RESTART').length, 1);
+    assert.equal(received.filter(task => task === 'REMOTE-HOLD').length, 1);
+  }
   await button('远程访问').click();
   await page.getByRole('tab', { name: '已授权连接', exact: true }).click();
   await button('解除绑定').click();
@@ -232,6 +384,7 @@ try {
   await page.getByRole('tab', { name: '运行状态', exact: true }).click();
   await button('断开连接').click(); await button('确认').click();
   assert.equal((await state()).status, 'idle');
+  await assert.rejects(readFile(join(profile, 'remote/connection.dpapi')), { code: 'ENOENT' });
   await app.evaluate(async () => {
     const child = globalThis.remoteHarness.child;
     if (child.exitCode !== null || child.signalCode !== null) return;
@@ -249,6 +402,9 @@ try {
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    await checkSteps();
+    await panel.locator('.remote-setup-steps button').first().hover({ force: true });
+    await checkFocus(panel.locator('.remote-setup-steps button').first());
     await screenshot(`02-connection-narrow-${theme}`);
   }
   await button('连接飞书').click();
@@ -257,14 +413,36 @@ try {
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
     await checkFocus(button('目标会话'));
+    await checkFocus(panel.locator('.remote-scope input:not(:disabled)').first());
     await screenshot(`03-binding-focus-narrow-${theme}`);
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await panel.locator('.remote-setup-stage').evaluate(element => getComputedStyle(element).animationName), 'none');
+  await page.evaluate(() => window.desktop.preferences({ language: 'en' }));
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 950));
+  await page.reload();
+  await button('Remote access').click();
+  await panel.getByRole('button', { name: /Manage/ }).click();
+  await page.getByRole('heading', { name: 'Remote access', exact: true }).waitFor();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(420, 850));
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await checkSteps();
+    await checkFocus(panel.locator('.remote-setup-steps button').first());
+    await screenshot(`04-steps-english-narrow-${theme}`);
+  }
+  await page.evaluate(() => window.desktop.preferences({ language: 'zh' }));
   await page.evaluate(() => window.desktop.remoteAction({ type: 'disconnect' }));
+  if (!executablePath) {
+    await closeDesktopFixture(app); app = undefined;
+    app = await launch(); page = await app.firstWindow();
+    await button('远程访问').waitFor();
+    assert.equal((await state()).status, 'idle');
+    assert.equal(await app.evaluate(() => globalThis.remoteHarness.child === undefined), true, 'Explicit disconnect must not reconnect on restart');
+  }
   assert.deepEqual(errors, []);
   assert.deepEqual(failures, []);
-  console.log('Remote acceptance passed: staged SDK/helper, narrow IPC, binding, cross-session routing, dedup, approvals, callback probe, stop, disconnect and UI.');
+  console.log(`Remote Beta acceptance passed: staged SDK/helper, explicit project scope, slash commands, cold/new sessions, no inference on selection, local draft/focus preservation, original-task stop, approvals, dedup, encrypted storage, disconnect and UI.${executablePath ? ' Restart injection is source-only.' : ' Actual quit/relaunch recovery and forget-on-disconnect passed.'}`);
 } finally {
   held?.destroy();
   if (app) await closeDesktopFixture(app);

@@ -1,4 +1,4 @@
-import { Activity, BookOpen, ChartBar, Clock3, Command, Cpu, FileText, FolderCheck, Goal, Lightbulb, ListTodo, MessageSquare, Network, Plug, Shield, Sparkles, Workflow } from 'lucide-react';
+import { Activity, BookOpen, ChartBar, Clock3, Command, Cpu, FileText, FolderCheck, Goal, Lightbulb, ListTodo, MessageCircleQuestion, MessageSquare, Network, Plug, Shield, Sparkles, Workflow } from 'lucide-react';
 import { CompactContextIcon, OrganizeContextIcon, WorkingContextIcon } from './ContextCommandIcon';
 import { McpIcon } from './McpIcon';
 import type { ComposerCommand } from './composer-commands';
@@ -12,6 +12,7 @@ const contextDescriptions = {
 
 const builtins = {
   status: { labels: ['会话状态', 'Session status'], description: '查看当前模型、权限、目录与账户状态', Icon: Activity },
+  btw: { labels: ['旁问', 'Side question'], description: '围绕当前任务单独提问，不打断主任务、不写入主会话', Icon: MessageCircleQuestion },
   usage: { labels: ['用量统计', 'Usage'], description: '查看用量统计；account 打开账户与额度', Icon: ChartBar },
   goal: { labels: ['目标', 'Goal'], description: '查看或设置持续推进的目标', Icon: Goal },
   plan: { labels: ['计划模式', 'Plan mode'], description: '进入或退出计划模式', Icon: Lightbulb },

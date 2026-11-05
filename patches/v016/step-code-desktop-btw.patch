@@ -1,0 +1,192 @@
+diff --git a/packages/coding-agent/src/modes/rpc/desktop-btw.ts b/packages/coding-agent/src/modes/rpc/desktop-btw.ts
+new file mode 100644
+index 0000000..a28d458
+--- /dev/null
++++ b/packages/coding-agent/src/modes/rpc/desktop-btw.ts
+@@ -0,0 +1,122 @@
++import type { AssistantMessage, Message } from "@step-harness/providers";
++import type { AgentSession } from "../../core/agent-session.ts";
++import { convertToLlm } from "../../core/messages.ts";
++
++const reminder = [
++	"<system-reminder>This is a side question from the user. Answer it directly in a single response.",
++	"Tools are unavailable. Do not continue, plan, or edit anything for the main task.</system-reminder>",
++].join("\n");
++const identity = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(value);
++const text = (message: AssistantMessage) =>
++	message.content.filter((block) => block.type === "text").map((block) => block.text).join("");
++
++/** Keep only a complete prefix: an in-flight tool call must not reach a second request unpaired. */
++export function btwContext(messages: Message[]): Message[] {
++	for (let i = 0; i < messages.length; i++) {
++		const message = messages[i];
++		if (message.role !== "assistant") continue;
++		const calls = message.content.filter((block) => block.type === "toolCall");
++		if (!calls.length) continue;
++		const results = new Set<string>();
++		let next = i + 1;
++		while (messages[next]?.role === "toolResult") {
++			results.add((messages[next] as { toolCallId: string }).toolCallId);
++			next++;
++		}
++		if (calls.some((call) => !results.has(call.id))) return messages.slice(0, i);
++	}
++	return messages;
++}
++
++/** A model-only fork, never an agent, session entry, or main-turn event. */
++export class DesktopBtw {
++	private readonly session: () => AgentSession;
++	private readonly output: (event: object) => void;
++	private scope?: string;
++	private history: { question: string; message: AssistantMessage }[] = [];
++	private active?: { requestId: string; scopeId: string; controller: AbortController; settled: Promise<void> };
++	constructor(session: () => AgentSession, output: (event: object) => void) {
++		this.session = session;
++		this.output = output;
++	}
++
++	start(input: { requestId: string; scopeId: string; sessionId: string; question: string }): void {
++		const session = this.session();
++		if (!identity(input.requestId) || !identity(input.scopeId) || input.sessionId !== session.sessionManager.getSessionId()
++			|| typeof input.question !== "string" || !input.question.trim() || input.question.length > 8000)
++			throw new Error("Invalid side question");
++		if (this.active) throw new Error("A side question is already running");
++		if (session.isCompacting || !session.model) throw new Error("Side question is unavailable");
++		if (this.scope !== input.scopeId) { this.scope = input.scopeId; this.history = []; }
++		const question = input.question.trim(), model = session.model;
++		const context = structuredClone({
++			systemPrompt: session.systemPrompt,
++			messages: [
++				...btwContext(convertToLlm(session.agent.state.messages)),
++				...this.history.flatMap(({ question, message }): Message[] => [
++					{ role: "user", content: [{ type: "text", text: question }], timestamp: message.timestamp }, message,
++				]),
++				{ role: "user" as const, content: [{ type: "text" as const, text: `${reminder}\n\n${question}` }], timestamp: Date.now() },
++			],
++		});
++		const active = { requestId: input.requestId, scopeId: input.scopeId, controller: new AbortController(), settled: Promise.resolve() };
++		this.active = active;
++		const emit = (value: object) => this.output({ type: "desktop_btw", requestId: input.requestId,
++			scopeId: input.scopeId, sessionId: input.sessionId, ...value });
++		emit({ kind: "start", model: { id: model.id, provider: model.provider, name: model.name } });
++		active.settled = (async () => {
++			const timer = setTimeout(() => active.controller.abort(), 120_000);
++			let usage: AssistantMessage["usage"] | undefined;
++			try {
++				// Same native auth/provider resolution as upstream /btw; never fall back to another route.
++				const stream = session.modelRuntime.stream(model, context, { signal: active.controller.signal, maxTokens: 2048 });
++				let chars = 0;
++				for await (const event of stream) {
++					if (event.type === "text_delta" && !active.controller.signal.aborted) {
++						chars += event.delta.length;
++						if (chars > 64_000) { active.controller.abort(); break; }
++						emit({ kind: "delta", text: event.delta });
++					}
++				}
++				const message = await stream.result();
++				usage = message.usage;
++				if (active.controller.signal.aborted || message.stopReason === "aborted") emit({ kind: "cancelled", usage });
++				else if (message.stopReason === "error" || message.content.some((block) => block.type === "toolCall")
++					|| !text(message).trim() || text(message).length > 64_000)
++					emit({ kind: "error", usage });
++				else {
++					this.history = [...this.history, { question, message }].slice(-20);
++					while (this.history.length > 1 && this.history.reduce((size, item) => size + item.question.length + text(item.message).length, 0) > 64_000)
++						this.history.shift();
++					emit({ kind: "done", text: text(message), usage, truncated: message.stopReason === "length" });
++				}
++			} catch {
++				// Provider errors can contain credentials or request bodies; only a stable outcome crosses RPC.
++				emit({ kind: active.controller.signal.aborted ? "cancelled" : "error", usage });
++			} finally {
++				clearTimeout(timer);
++				if (this.active === active) this.active = undefined;
++			}
++		})();
++	}
++
++	async cancel(requestId: string, scopeId: string): Promise<void> {
++		const active = this.active;
++		if (!active || active.requestId !== requestId || active.scopeId !== scopeId) return;
++		active.controller.abort();
++		await active.settled;
++	}
++
++	clear(scopeId: string): void {
++		if (this.scope !== scopeId) return;
++		if (this.active) throw new Error("Cancel the side question before clearing history");
++		this.history = [];
++		this.scope = undefined;
++	}
++
++	reset(): void {
++		this.active?.controller.abort();
++		this.history = [];
++		this.scope = undefined;
++	}
++}
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index 1332fb8..fe2b43a 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -32,6 +32,7 @@ import { STEPCODE_VERSION } from "../../step/version.ts";
+ import { type Theme, theme } from "../../theme/theme.ts";
+ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+ import { toJsonEvent } from "../json-event.ts";
++import { DesktopBtw } from "./desktop-btw.ts";
+ import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
+ import type {
+ 	RpcCommand,
+@@ -92,6 +93,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 	const error = (id: string | undefined, command: string, message: string): RpcResponse => {
+ 		return { id, type: "response", command, success: false, error: message };
+ 	};
++	const btw = new DesktopBtw(() => session, output);
+ 
+ 	// Pending extension UI requests waiting for response
+ 	const pendingExtensionRequests = new Map<
+@@ -335,6 +337,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 	});
+ 
+ 	const rebindSession = async (): Promise<void> => {
++		btw.reset();
+ 		const nextSession = runtimeHost.session;
+ 		// Bind output listeners before extension session_start handlers run. This
+ 		// keeps events emitted during replacement observable to RPC clients.
+@@ -412,6 +415,13 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 		const id = command.id;
+ 
+ 		switch (command.type) {
++			case "desktop_btw": {
++				if (command.action === "ask") btw.start(command);
++				else if (command.action === "cancel") await btw.cancel(command.requestId, command.scopeId);
++				else if (command.action === "clear") btw.clear(command.scopeId);
++				else return error(id, "desktop_btw", "Unknown side question action");
++				return success(id, command.type);
++			}
+ 			// =================================================================
+ 			// Prompting
+ 			// =================================================================
+@@ -928,6 +938,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 	let detachInput = () => {};
+ 
+ 	async function shutdown(exitCode = 0, signal?: NodeJS.Signals): Promise<never> {
++		btw.reset();
+ 		if (shuttingDown) {
+ 			process.exit(exitCode);
+ 		}
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index fbf93e0..a1fca14 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -18,6 +18,9 @@ import type { SourceInfo } from "../../core/source-info.ts";
+ // ============================================================================
+ 
+ export type RpcCommand =
++	| { id?: string; type: "desktop_btw"; action: "ask"; requestId: string; scopeId: string; sessionId: string; question: string }
++	| { id?: string; type: "desktop_btw"; action: "cancel"; requestId: string; scopeId: string }
++	| { id?: string; type: "desktop_btw"; action: "clear"; scopeId: string }
+ 	// Prompting
+ 	| { id?: string; type: "prompt"; message: string; images?: ImageContent[]; streamingBehavior?: "steer" | "followUp" }
+ 	| { id?: string; type: "steer"; message: string; images?: ImageContent[] }

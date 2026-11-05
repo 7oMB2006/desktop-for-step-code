@@ -46,6 +46,8 @@ function QuoteItem({ quote, index, language, remove, reveal, annotate, highlight
 
 type QuotePreviewProps = {
   quotes: ChatQuote[]; language: 'zh' | 'en';
+  inline?: boolean;
+  active?: boolean;
   remove: (id: string) => void; reveal: (quote: ChatQuote) => void; clear: () => void;
   annotate: (id: string, text: string) => void;
   onHighlight?: (id: string | null) => void;
@@ -53,13 +55,20 @@ type QuotePreviewProps = {
 
 export function QuotePreview(props: QuotePreviewProps) {
   if (!props.quotes.length) return null;
+  if (props.inline) return <div className="inline-quote-preview"
+    aria-label={props.language === 'zh' ? '待发送引用与批注' : 'Pending quotes and annotations'}>
+    {props.quotes.map((quote, index) => <QuoteItem key={quote.id} quote={quote} index={index} language={props.language}
+      remove={() => props.remove(quote.id)} reveal={() => props.reveal(quote)}
+      annotate={text => props.annotate(quote.id, text)}
+      highlight={active => props.onHighlight?.(active ? quote.id : null)}/>)}
+  </div>;
   return <div className="composer-quotes" aria-label={props.language === 'zh' ? '待发送引用与批注' : 'Pending quotes and annotations'}>
     <QuoteGroup {...props} quotes={props.quotes.filter(quote => quote.annotation === undefined)} annotated={false}/>
     <QuoteGroup {...props} quotes={props.quotes.filter(quote => quote.annotation !== undefined)} annotated/>
   </div>;
 }
 
-function QuoteGroup({ quotes, language, remove, reveal, annotate, onHighlight, annotated }: QuotePreviewProps & { annotated: boolean }) {
+function QuoteGroup({ quotes, language, remove, reveal, annotate, onHighlight, annotated, active = true }: QuotePreviewProps & { annotated: boolean }) {
   const zh = language === 'zh';
   const id = useId();
   const anchor = useRef<HTMLButtonElement>(null);
@@ -67,6 +76,19 @@ function QuoteGroup({ quotes, language, remove, reveal, annotate, onHighlight, a
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   useEffect(() => { if (!quotes.length) { setOpen(false); setPosition(null); } }, [quotes.length]);
+  useLayoutEffect(() => {
+    if (!active && panel.current?.matches(':popover-open')) panel.current.hidePopover();
+  }, [active]);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented || !panel.current?.matches(':popover-open')) return;
+      event.preventDefault(); event.stopPropagation();
+      panel.current?.hidePopover(); anchor.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener('keydown', escape, true);
+    return () => document.removeEventListener('keydown', escape, true);
+  }, [open]);
   useLayoutEffect(() => {
     if (!open) { setPosition(null); return; }
     const place = () => {

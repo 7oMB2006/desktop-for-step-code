@@ -12,6 +12,7 @@ import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
 import { hasBackgroundWork } from './background-work';
+import { BtwRequests } from './btw';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
@@ -297,6 +298,10 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
 }
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   const queueWorker = runtimes.workers.get(event.runtimeId);
+  if (event.type === 'desktop_btw') {
+    if (queueWorker) btw.event(queueWorker, event);
+    return;
+  }
   const modelChanged = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
     && modelSelections.delivered(queueWorker, event.message.content, event.message.timestamp);
   const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
@@ -370,6 +375,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   },
   launch: worker => { usageEstimates.attach(worker); return collaboration.attach(worker); },
   dispose: worker => {
+    btw.dispose(worker);
     conversationTiming.event(worker, { type: 'desktop_exit' });
     usageEstimates.detach(worker);
     collaboration.detach(worker);
@@ -377,6 +383,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     else pendingMessages.clear(worker);
   },
 });
+const btw = new BtwRequests(runtimes, emit);
 const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
@@ -1824,6 +1831,12 @@ async function handle(method: string, args: any[]) {
         if (type === 'set_model' || type === 'set_thinking_level') void pendingMessages.drain(worker);
       }
     }
+    case 'btwAsk':
+      if (transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending)
+        throw new Error('Wait for account and workspace changes to finish');
+      return btw.ask(args[0]);
+    case 'btwCancel': return btw.cancel(args[0]);
+    case 'btwClear': return btw.clear(args[0]);
     case 'accountAllowance':
       if (args[0] !== undefined && typeof args[0] !== 'boolean') throw new Error('Invalid allowance refresh');
       return accountAllowance.query(args[0] === true);

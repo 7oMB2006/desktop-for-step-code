@@ -216,6 +216,10 @@ try {
   assert.equal(cloned.modelChanges.length, 1, 'whole-session copy inherits switch history');
   await reopened.reload();
   await reopened.locator('.client-model-change').waitFor();
+  await reopened.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
+  const restoredClone = await reopened.evaluate(() => window.desktop.snapshot());
+  assert.equal(restoredClone.runtimeId, cloned.runtimeId, 'reload restores the cloned runtime before branching');
+  assert.equal(restoredClone.state.sessionId, cloned.state.sessionId);
   const lastReply = cloned.messages.findLast(message => message.role === 'assistant' && message.display !== false);
   assert.ok(lastReply?.entryId);
   const branched = await reopened.evaluate(({ entryId, runtimeId }) => window.desktop.branchSession('clone', entryId, runtimeId),
@@ -223,6 +227,10 @@ try {
   assert.equal(branched.modelChanges.length, 1, 'reply branch inherits switch history');
   await reopened.reload();
   await reopened.locator('.client-model-change').waitFor();
+  await reopened.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
+  const restoredBranch = await reopened.evaluate(() => window.desktop.snapshot());
+  assert.equal(restoredBranch.runtimeId, branched.runtimeId, 'reload restores the reply branch before creating a draft');
+  assert.equal(restoredBranch.state.sessionId, branched.state.sessionId);
   assert.equal(await reopened.locator('.client-model-change').count(), 1);
   await reopened.evaluate(() => window.desktop.beginSession());
   await reopened.evaluate(() => window.desktop.command('set_model', { provider: 'switch-fixture', modelId: 'model-a' }));

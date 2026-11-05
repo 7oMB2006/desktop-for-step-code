@@ -114,7 +114,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
     assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
     if (outcome === 'control') {
       const sessionId = host.state!.sessionId!;
-      const controls = new BackgroundAgents(pool.workers);
+      const controls = new BackgroundAgents(pool.workers, undefined, true);
       await host.rpc.request('prompt', { message: 'BACKGROUND-START-OTHER' });
       await waitFor(() => otherRequested && !pool.isBusy(host));
       const beforeFile = await readFile(host.state!.sessionFile!, 'utf8');

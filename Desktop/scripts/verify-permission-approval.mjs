@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { skipFirstRunFixture } from './session-fixture.mjs';
 
 // Exercise the production renderer with isolated synthetic requests. No
 // command, approval or model request reaches a real user session.
@@ -32,6 +33,8 @@ try {
     window.setMinimumSize(320, 400); window.setSize(1280, 900);
     dialog.showMessageBox = async () => ({ response: 1 });
   });
+  mark('fresh-profile onboarding');
+  await skipFirstRunFixture(page);
   mark('runtime ready');
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const saved = await page.evaluate(() => window.desktop.snapshot());

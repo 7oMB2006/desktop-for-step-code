@@ -39,6 +39,9 @@ try {
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.getByText('看看引用和选区的效果。', { exact: true }).click();
+  // A navigation preview is replaced when the real transcript finishes loading.
+  await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false'
+    && document.querySelector('.composer > .composer-input')?.getAttribute('contenteditable') === 'true');
   const paragraph = page.locator('.response-text > p').first();
   await paragraph.waitFor();
   await paragraph.scrollIntoViewIfNeeded();

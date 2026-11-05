@@ -15,6 +15,52 @@ the focus extent against clipping ancestors, not just the input's border box.
 
 ## Existing Components
 
+First-run setup is a separate bootstrap surface, not a settings dialog layered
+over the conversation. Only a fresh Desktop profile enters it. Reuse the native
+project chooser, provider form, language menu, model/thinking and permission
+pickers; do not create parallel login or tool-approval policies. Review creates
+only a configured draft, and Full Access still requires the normal acknowledgment
+before execution. The optional brand introduction must be skippable and honor
+reduced motion. Completing or skipping setup mounts the normal workspace fresh.
+
+BTW is an independent temporary right-rail panel, not another Context tab
+or a saved conversation. Its bubble-question right-rail icon and standalone
+`/btw [question]` open the same surface; the composer has no duplicate entry.
+Reuse the shared standard/wide/fullscreen width control, side handle, cubic
+motion and instant reduced-motion fallback. Escape restores fullscreen before
+closing the panel; close returns focus to its rail icon. Hiding or switching
+right tools cancels only its side request; temporary records remain for
+reopening until explicit clear or conversation change.
+Main task controls remain independent. Main and side composers reuse
+`ComposerInput`, the `.composer`/`.composer-tools` surface and
+`ComposerActionIcon`, not a separate textarea or copied button treatment.
+The compact side composer grows with its
+draft and keeps Send/Stop inside its boundary; its shared focus ring surrounds the
+composite field with the complete four-pixel gutter. Do not add persistent notes
+below the editor. The side composer also reuses the shared context-action row
+and upper gradient veil, without a separate horizontal divider. Its bottom edge
+aligns with the main composer by reserving the measured main footer space,
+including when performance metrics wrap or are hidden; fullscreen uses its own
+normal bottom gutter. Drafts still grow independently. Per-answer reported Tokens remain visible, with the missing
+local-total integration disclosed in their tooltip; opening the panel does not
+imply free requests.
+The message selection toolbar offers Ask in side alongside Quote and Annotate.
+It opens BTW with the shared compact quote-count entry and focuses its editor,
+without submitting a request or moving the main draft/references. Pending
+side references expand in the existing anchored quote popover without moving
+the editor. Escape dismisses that popover before the parent panel, and closing
+the panel hides the popover without discarding pending references.
+Side references can be removed or traced to verified source text; sent
+references appear with their question. Plain text is for display, Markdown
+for the request and source identity for navigation. Combined question/reference
+limits reject visibly without discarding user input. Closing keeps pending
+side drafts/references; changing conversations clears them.
+Side questions use the main conversation's user-message and Markdown typography.
+Live responses reuse the existing responding indicator; settled responses reuse
+the shared copy/elapsed/time footer without unsupported branch controls. Failed,
+cancelled and length-limited outcomes remain explicit. Timings are local request
+observations, not provider-side telemetry or main-task completion signals.
+
 Session navigation separates readable history, editable local drafts and
 execution readiness. A cold preview supports text selection, copying and
 historical disclosures; it never authorizes runtime mutations. Text edits are

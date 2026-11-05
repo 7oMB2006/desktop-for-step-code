@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import assert from 'node:assert/strict';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, skipFirstRunFixture } from './session-fixture.mjs';
 const profile = await mkdtemp(join(tmpdir(), 'step-desktop-electron-'));
 const workspace = join(profile, '中文项目 with spaces'); await mkdir(workspace);
 const secondWorkspace = join(profile, 'Second project'); await mkdir(secondWorkspace);
@@ -880,8 +880,11 @@ try {
   await page.screenshot({ path: 'test-results/conversation-navigation.png' });
   await page.waitForTimeout(350);
   const railButtons = page.locator('.right-tool-rail .icon-button');
-  assert.deepEqual(await railButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['摘要', '上下文', '变更', '终端', '浏览器', '文件预览', '子代理', '会话导航']);
-  for (const label of ['摘要', '上下文', '变更', '终端', '浏览器', '文件预览', '子代理', '会话导航']) {
+  const railLabels = ['摘要', '上下文', '旁问', '变更', '终端', '浏览器', '文件预览', '子代理', '会话导航'];
+  assert.deepEqual(await railButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), railLabels);
+  assert.equal(await railButtons.filter({ has: page.locator('.lucide-message-circle-question-mark') }).count(), 1);
+  assert.equal(await page.locator('.right-tool-rail [aria-controls="btw-panel"]').count(), 1);
+  for (const label of railLabels) {
     const button = page.locator('.right-tool-rail').getByRole('button', { name: label, exact: true });
     await button.hover();
     await tooltip.getByText(label, { exact: true }).waitFor();
@@ -1576,7 +1579,7 @@ try {
   throw error;
 } finally { await app.close(); }
 
-// Both repeat launch and a brand-new profile open a proposal, not a worker.
+// Existing profiles bypass onboarding; fresh profiles can skip into a draft.
 const cleanProfile = await mkdtemp(join(tmpdir(), 'step-desktop-first-run-'));
 for (const userData of [profile, cleanProfile]) {
   const relaunched = await electron.launch({ ...launchOptions, env: { ...env, DESKTOP_TEST_USER_DATA: userData } });
@@ -1586,8 +1589,11 @@ for (const userData of [profile, cleanProfile]) {
       const window = BrowserWindow.getAllWindows()[0];
       window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
     });
+    if (userData === cleanProfile) await skipFirstRunFixture(page);
     await page.waitForFunction(() => { const input = document.querySelector('.composer > .composer-input'); return input && !input.disabled; }, { timeout: 60000 });
+    assert.equal(await page.locator('.first-run-production').count(), 0);
     const home = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(home.firstRun?.required, false);
     assert.equal(home.independent, !home.preferences.workspace);
     assert.equal(home.status, 'ready');
     assert.ok(home.draftId);

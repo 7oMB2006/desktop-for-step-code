@@ -12,6 +12,7 @@ import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
 import { hasBackgroundWork } from './background-work';
+import { BtwRequests } from './btw';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
@@ -71,6 +72,7 @@ import { DesktopTray } from './desktop-tray';
 import { QuitReview, quitReasons, needsQuitReview } from './quit-review';
 import { quitConfirmation } from '../src/quit-confirmation';
 import { StartupWindow } from './startup-window';
+import { FirstRun } from './first-run';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
 import { backgroundSubagentStates, conversationEntries } from '../src/conversation-presentation';
@@ -217,6 +219,7 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
   return matches.find(match => match.same)?.workspace;
 }
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
+const firstRun = new FirstRun(app.getPath('userData'));
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
   environment: () => isolatedEnvironment(dataRoot) });
@@ -297,6 +300,10 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
 }
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   const queueWorker = runtimes.workers.get(event.runtimeId);
+  if (event.type === 'desktop_btw') {
+    if (queueWorker) btw.event(queueWorker, event);
+    return;
+  }
   const modelChanged = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
     && modelSelections.delivered(queueWorker, event.message.content, event.message.timestamp);
   const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
@@ -370,6 +377,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   },
   launch: worker => { usageEstimates.attach(worker); return collaboration.attach(worker); },
   dispose: worker => {
+    btw.dispose(worker);
     conversationTiming.event(worker, { type: 'desktop_exit' });
     usageEstimates.detach(worker);
     collaboration.detach(worker);
@@ -377,6 +385,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     else pendingMessages.clear(worker);
   },
 });
+const btw = new BtwRequests(runtimes, emit);
 const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
@@ -571,6 +580,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   if (refresh && worker?.status === 'connected') await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
   return {
+    firstRun: { required: firstRun.required },
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
     workspaceIssue: unavailableWorkspace,
@@ -1242,6 +1252,15 @@ async function handle(method: string, args: any[]) {
       if (startupError) { emit({ type: 'desktop_error', message: startupError }); startupError = undefined; }
       return snapshot();
     }
+    case 'finishFirstRun': {
+      await startup;
+      if (args[0] !== 'completed' && args[0] !== 'skipped') throw new Error('Invalid first-run outcome');
+      if (args[0] === 'completed' && (!sessionDraft?.model || !sessionDraft.models?.some(
+        model => model.id === sessionDraft!.model!.id && model.provider === sessionDraft!.model!.provider)))
+        throw new Error('Choose an available model before completing setup');
+      await firstRun.finish(args[0]);
+      return snapshot();
+    }
     case 'sessions': return listSessions();
     case 'newIndependentSession': await startup; return newIndependentSession();
     case 'openSessionFolder': {
@@ -1826,6 +1845,12 @@ async function handle(method: string, args: any[]) {
         if (type === 'set_model' || type === 'set_thinking_level') void pendingMessages.drain(worker);
       }
     }
+    case 'btwAsk':
+      if (transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending)
+        throw new Error('Wait for account and workspace changes to finish');
+      return btw.ask(args[0]);
+    case 'btwCancel': return btw.cancel(args[0]);
+    case 'btwClear': return btw.clear(args[0]);
     case 'accountAllowance':
       if (args[0] !== undefined && typeof args[0] !== 'boolean') throw new Error('Invalid allowance refresh');
       return accountAllowance.query(args[0] === true);
@@ -2108,6 +2133,8 @@ if (!app.requestSingleInstanceLock()) { quitting = true; app.quit(); }
 else app.whenReady().then(async () => {
   if (!backgroundAcceptance || process.env.DESKTOP_TEST_STARTUP_WINDOW === '1')
     startupWindow = new StartupWindow(backgroundAcceptance, !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined);
+  // Detect older profiles before startup creates runtime configuration or preferences.
+  await firstRun.initialize();
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
   await collaboration.start();
@@ -2232,13 +2259,13 @@ else app.whenReady().then(async () => {
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
     const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill'].includes(method);
-    const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage'].includes(method);
+    const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
     if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
       throw new Error('Shared settings operation in progress');
     if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
       'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
       throw new Error('Undo in progress');
-    if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method)) throw new Error('Shared settings operation in progress');
+    if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
     if (!updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
       await applyProviderSettings();
     }

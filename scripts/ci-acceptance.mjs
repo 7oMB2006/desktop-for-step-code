@@ -4,6 +4,7 @@ export const windowsGroups = ['interface', 'sessions', 'runtime'];
 export const acceptanceGroups = {
   interface: [
     'verify-startup.mjs',
+    'verify-first-run.mjs',
     'verify-app-updates.mjs',
     'verify-update-installer.mjs',
     'verify-native-update-download.mjs',
@@ -20,6 +21,7 @@ export const acceptanceGroups = {
     'verify-desktop-tray.mjs',
     'verify-composer-menu.mjs',
     'verify-command-dispatch.mjs',
+    'verify-btw.mjs',
     'verify-workflow-catalog.mjs',
     'verify-composer-editing.mjs',
     'verify-terminal-panel.mjs',
@@ -90,6 +92,7 @@ export const acceptanceGroups = {
     'verify-usage-overview-runtime.mjs',
     'verify-background-subagents.mjs',
     'verify-background-agent-controls.mjs',
+    'verify-btw-electron.mjs',
     'verify-custom-providers.mjs',
     'verify-crash-log.mjs',
     'verify-steppage-registration.mjs',
@@ -114,7 +117,7 @@ export const localOnly = [
   'verify-clm-preview.mjs',
   // Mock-data search preview; requires a local Vite server, not runtime integration acceptance.
   'verify-fulltext-search-preview.mjs',
-  // Standalone first-run design preview; no production onboarding integration is shipped.
+  // Standalone visual fixture; production startup coverage is in verify-first-run.
   'verify-first-run-preview.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',

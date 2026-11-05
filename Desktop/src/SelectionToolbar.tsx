@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Copy, PencilLine, X } from 'lucide-react';
+import { Check, Copy, MessageCircleQuestion, PencilLine, X } from 'lucide-react';
 import { fencedSelection, MAX_QUOTE_LENGTH, MAX_ANNOTATION_LENGTH, type ChatQuote } from './chat-quotes';
 import { selectionMarkdown } from './selection-markdown';
 
@@ -12,6 +12,8 @@ type Props = {
   language: 'zh' | 'en';
   enabled: boolean;
   onQuote: (quote: ChatQuote) => boolean;
+  onBtw?: (quote: ChatQuote) => boolean;
+  btwDisabled?: boolean;
   onError: (message: string) => void;
 };
 
@@ -48,6 +50,7 @@ function capture(root: HTMLElement): Selected | null {
     range: range.cloneRange(),
     quote: {
       id: crypto.randomUUID(), messageIndex: index,
+      entryId: closest(range.startContainer, '[data-message-entry-id]')?.dataset.messageEntryId,
       role: article.classList.contains('user') ? 'user' : 'assistant',
       text, markdown: inCode ? fencedSelection(selection.toString(), language) : selectionMarkdown(fragment, text),
       startOffset, endOffset: startOffset + range.toString().length, sourceText: range.toString(),
@@ -56,7 +59,7 @@ function capture(root: HTMLElement): Selected | null {
   };
 }
 
-export function SelectionToolbar({ root, scope, language, enabled, onQuote, onError }: Props) {
+export function SelectionToolbar({ root, scope, language, enabled, onQuote, onBtw, btwDisabled, onError }: Props) {
   const [selected, setSelected] = useState<Selected | null>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -173,6 +176,11 @@ export function SelectionToolbar({ root, scope, language, enabled, onQuote, onEr
       </div>
     </div> : <>
     <button type="button" onClick={() => add()}>{zh ? '引用' : 'Quote'}</button>
+    {onBtw && <button type="button" disabled={btwDisabled} onClick={() => {
+      if (!selected || !onBtw(selected.quote)) return;
+      setSelected(null);
+      window.getSelection()?.removeAllRanges();
+    }}><MessageCircleQuestion size={16}/>{zh ? '旁问' : 'Ask in side'}</button>}
     <button type="button" onClick={() => setAnnotating(true)}><PencilLine size={16}/>{zh ? '批注' : 'Annotate'}</button>
     <span className="selection-toolbar-divider"/>
     <button type="button" onClick={() => void copy()} aria-label={zh ? '复制选段' : 'Copy selection'}

@@ -16,7 +16,7 @@ import { BtwRequests } from './btw';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
-import { consumeReview, reviewPayload } from './completion-review';
+import { reserveReview, reviewPayload } from './completion-review';
 import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { importedHistoryMessages } from './imported-history';
@@ -1683,6 +1683,7 @@ async function handle(method: string, args: any[]) {
       if (mutating) worker.mutating = true;
       const wasStreaming = promptNeedsQueue(worker);
       if (type === 'prompt') worker.submissions++;
+      let restoreReview: (() => void) | undefined;
       try {
         const rpc = worker.rpc;
         const pendingUI = worker.pendingUI;
@@ -1778,6 +1779,10 @@ async function handle(method: string, args: any[]) {
         if (type === 'prompt') {
           payload.message = text(data.message);
           if (/^\s*\/_desktop_(?:retry|goal_input)\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
+          promptLaunch = { ...worker.launch ?? emptyLaunch() };
+          payload = reviewPayload(worker, payload, promptLaunch);
+          restoreReview = reserveReview(worker, payload);
+          if (restoreReview) runtimes.publishLaunch(worker);
           if (data.files !== undefined) {
             if (!Array.isArray(data.files) || data.files.length > MAX_ATTACHMENTS || new Set(data.files).size !== data.files.length) throw new Error('Invalid attachments');
             const paths = await Promise.all(data.files.map(async (id: unknown) => {
@@ -1797,14 +1802,12 @@ async function handle(method: string, args: any[]) {
               return { type: 'image', mimeType: i.mimeType, data: text(i.data, 14000000) };
             });
           }
-          promptLaunch = { ...worker.launch ?? emptyLaunch() };
-          payload = reviewPayload(worker, payload, promptLaunch);
           if (wasStreaming || worker.state?.isCompacting) {
             if (worker.launch?.goalArmed) throw new Error('Finish the current task before starting a new goal');
             if (worker.state?.desktopCompletionReview === 1)
               await rpc.request('desktop_completion_review_skip');
             const id = pendingMessages.enqueue(worker, text(data.message), launchControls.input(worker, payload), filePaths);
-            consumeReview(worker, payload);
+            restoreReview = undefined;
             launchControls.consume(worker);
             if (Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
             return { queued: true, id, version: 0 };
@@ -1833,7 +1836,7 @@ async function handle(method: string, args: any[]) {
             }
             const submission = rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
             response = await submission;
-            if (type === 'prompt') { consumeReview(worker, payload); runtimes.publishLaunch(worker); }
+            if (type === 'prompt') { restoreReview = undefined; runtimes.publishLaunch(worker); }
           }
           if (type === 'abort') {
             // Abort waits for idle; clear accepted steers before making them editable.
@@ -1850,6 +1853,7 @@ async function handle(method: string, args: any[]) {
           runtimes.publish();
         }
       } finally {
+        if (restoreReview) { restoreReview(); runtimes.publishLaunch(worker); }
         if (mutating) worker.mutating = false;
         if (type === 'abort') worker.stopping = false;
         if (type === 'prompt') { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }

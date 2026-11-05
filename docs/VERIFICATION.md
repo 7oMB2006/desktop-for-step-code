@@ -1,5 +1,27 @@
 # Verification
 
+## PR #199 One-Shot Review Reservation (2026-11-06)
+
+The main-process prompt handler now reserves the one-shot review choice before
+its first attachment/preparation/RPC await. Concurrent follow-ups capture their
+own unarmed payload. Enqueue/RPC acceptance commits the choice; rejection returns
+it to the original session without changing queued snapshots or enabling review
+on a replaced runtime/session or an incompatible task mode.
+
+Typecheck, production build and 63 focused review/runtime/queue/launch/timing
+tests pass locally. Native Windows Electron acceptance holds a real RPC
+preflight through an isolated input extension. A second prompt queues while the
+choice is reserved; after acceptance both ordinary tasks finish with exactly
+two model requests and no inherited review. A malformed-input fault injected
+after the same gate exercises native preflight rejection: the choice returns,
+the separate queued follow-up remains recoverable, and no model request occurs.
+The existing menu, provenance, ownership, completion, theme/narrow-layout and
+reduced-motion assertions remain intact. Runtime patches, pin and installed
+application are unchanged. Existing native launch-mode acceptance also passes,
+including Goal image attachments, one-shot Ultracode and queue steering.
+This focused result is not a new full-suite, cloud,
+installer or real-account acceptance claim.
+
 ## PR #196 Native CI Synchronization (2026-11-05)
 
 Run `41975811560` fails macOS source capability acceptance immediately after

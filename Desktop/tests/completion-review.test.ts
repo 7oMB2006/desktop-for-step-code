@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reviewPayload, consumeReview } from '../electron/completion-review';
+import { reviewPayload, reserveReview } from '../electron/completion-review';
 import { SessionRuntimes, type SessionRuntime, type WorkerTransport } from '../electron/session-runtimes';
-import { PendingMessages } from '../electron/pending-messages';
+import { PendingMessages, promptNeedsQueue } from '../electron/pending-messages';
 import { projectLaunch } from '../electron/launch-state';
 import { emptyLaunch, draftLaunchChanges } from '../src/launch-state';
 import { completionReview, reviewActive, reviewErrorText, reviewLabel, reviewReason } from '../src/completion-review';
@@ -29,9 +29,13 @@ test('review is a one-shot snapshot, never an unchecked renderer RPC option', ()
   const payload = reviewPayload(host, { message: 'task' });
   assert.equal(payload.completionReview, true);
   assert.equal(host.launch?.reviewArmed, true, 'Preparing or failing submission does not consume consent');
-  consumeReview(host, {});
+  assert.equal(reserveReview(host, {}), undefined);
   assert.equal(host.launch?.reviewArmed, true);
-  consumeReview(host, payload);
+  const restore = reserveReview(host, payload);
+  assert.equal(host.launch?.reviewArmed, false);
+  restore!();
+  assert.equal(host.launch?.reviewArmed, true, 'A rejected submission restores its choice');
+  reserveReview(host, payload);
   assert.equal(host.launch?.reviewArmed, false);
   assert.equal(payload.completionReview, true, 'A queued task keeps its captured choice');
   for (const launch of [{ plan: true }, { goalArmed: true }, { ultracode: true }, { ultracodeArmed: true }]) {
@@ -45,6 +49,61 @@ test('review is a one-shot snapshot, never an unchecked renderer RPC option', ()
   assert.throws(() => reviewPayload(host, { message: 'task' }), /does not support/);
   assert.deepEqual(draftLaunchChanges({ ...emptyLaunch(), reviewArmed: true }, { ...emptyLaunch(), plan: true }),
     [{ mode: 'review', enabled: false }, { mode: 'plan', enabled: true }]);
+});
+
+for (const queued of [false, true]) {
+  for (const accepted of [true, false]) {
+    test(`an in-flight ${queued ? 'enqueue' : 'direct submission'} reserves review from a concurrent follow-up (${accepted ? 'accepted' : 'rejected'})`, async () => {
+      const host = worker(), calls: Record<string, unknown>[] = [];
+      const queue = new PendingMessages(() => {}, () => {});
+      host.rpc = { start() {}, respond() {}, async stop() {}, async request(_type, payload) {
+        calls.push(payload!); return {};
+      } };
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      host.submissions++;
+      const first = reviewPayload(host, { message: 'first task' });
+      let restore = reserveReview(host, first);
+      const submission = (async () => {
+        try {
+          await gate;
+          if (!accepted) throw new Error('submission rejected');
+          if (queued) queue.enqueue(host, 'first task', first);
+          else await host.rpc.request('prompt', first);
+          restore = undefined;
+        } finally {
+          restore?.(); host.submissions--;
+        }
+      })();
+      assert.equal(promptNeedsQueue(host), true);
+      const followup = reviewPayload(host, { message: 'follow-up' });
+      assert.equal(followup.completionReview, undefined, 'No second opt-in was given');
+      queue.enqueue(host, 'follow-up', followup);
+      release();
+      if (accepted) await submission;
+      else await assert.rejects(submission, /rejected/);
+      assert.equal(host.launch?.reviewArmed, !accepted, 'Only rejection returns the reserved choice');
+      await queue.drain(host);
+      const delivered = calls.find(call => call.message === 'follow-up');
+      assert.ok(delivered, 'The captured follow-up actually dispatches');
+      assert.equal(delivered.completionReview, undefined);
+      assert.equal(host.launch?.reviewArmed, !accepted, 'Dispatching the captured follow-up does not consume a restored choice');
+    });
+  }
+}
+
+test('a rejected reservation never rearms review on a replaced runtime or incompatible task mode', () => {
+  for (const changed of ['runtime', 'session', 'plan', 'goal', 'ultracode'] as const) {
+    const host = worker();
+    const restore = reserveReview(host, reviewPayload(host, { message: 'task' }))!;
+    if (changed === 'runtime') host.rpc = {} as WorkerTransport;
+    else if (changed === 'session') host.state!.sessionId = 'different-session';
+    else if (changed === 'plan') host.launch!.plan = true;
+    else if (changed === 'goal') host.launch!.goalArmed = true;
+    else host.launch!.ultracodeArmed = true;
+    restore();
+    assert.equal(host.launch?.reviewArmed, false, changed);
+  }
 });
 
 test('history restores the outcome, but never resumes an unfinished review or accepts foreign records', () => {
@@ -128,7 +187,7 @@ test('queued review choices survive edits and failed dispatch, and cannot become
   } };
   const queue = new PendingMessages(() => {}, () => {});
   const id = queue.enqueue(host, 'task', reviewPayload(host, { message: 'task' }));
-  consumeReview(host, reviewPayload(host, { message: 'task' }));
+  reserveReview(host, reviewPayload(host, { message: 'task' }));
   queue.edit(host, id, 0, 'edited task');
   host.busy = true;
   await assert.rejects(queue.steer(host, id, 1), /in order/);

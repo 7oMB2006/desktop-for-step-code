@@ -192,6 +192,44 @@ test('trusted subagent calls expose a safe input copy without rewriting authorit
   assert.deepEqual(history, original);
 });
 
+test('trusted subagent input copies replace values beneath sensitive object keys', () => {
+  for (const name of ['subagent', 'agent_send']) {
+    const args = {
+      api_key: 'synthetic-key-only-value',
+      task: 'Keep this task description',
+      nested: { 'api&#95;key': { value: 'synthetic-nested-value' }, safe: 'Keep this note' },
+      chain: [{ agent: 'general', task: 'Keep this chain step', password: 'synthetic-array-value' }],
+      prompt: 'PROMPT-BEGIN\nsecret = synthetic-line-value\nPROMPT-END',
+    };
+    const call: Content = { type: 'toolCall', id: 'key-call', name, arguments: args };
+    const history: Message[] = [{ role: 'assistant', content: [call] },
+      { role: 'toolResult', toolCallId: call.id, toolName: name, content: 'Dispatch failed', isError: true }];
+    const before = structuredClone(history);
+    const tool = responsePresentation(indexed(history)).content.find(item => item.type === 'tool')!;
+    assert.deepEqual(tool.call?.arguments, {
+      api_key: '[redacted]', task: args.task,
+      nested: { 'api&#95;key': '[redacted]', safe: args.nested.safe },
+      chain: [{ agent: 'general', task: 'Keep this chain step', password: '[redacted]' }],
+      prompt: 'PROMPT-BEGIN\n[redacted]\nPROMPT-END',
+    });
+    assert.doesNotMatch(JSON.stringify(tool.call?.arguments), /synthetic-/);
+    assert.equal(tool.call?.id, call.id);
+    assert.equal(tool.call?.name, name);
+    assert.deepEqual(history, before);
+  }
+});
+
+test('clean subagent input copies retain call identity and ordinary tools stay outside this projection', () => {
+  for (const name of ['subagent', 'agent_send', 'read_file']) {
+    const args = name === 'read_file' ? { api_key: 'synthetic-ordinary-value' }
+      : { task: 'Inspect files', chain: [{ agent: 'general', task: 'Summarize findings' }], action: 'status', lane_id: 'lane_12345678' };
+    const call: Content = { type: 'toolCall', id: 'clean-call', name, arguments: args };
+    const tool = responsePresentation(indexed([{ role: 'assistant', content: [call] }])).content.find(item => item.type === 'tool')!;
+    assert.equal(tool.call, call);
+    assert.equal(tool.call?.arguments, args);
+  }
+});
+
 test('paired child results without toolName use the trusted call name without rewriting tool identity', () => {
   // Looking only at result.toolName leaks old paired results whose identity lives on the call.
   for (const name of ['subagent', 'agent_send']) {

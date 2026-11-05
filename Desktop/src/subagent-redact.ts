@@ -62,7 +62,8 @@ function safeArgumentValue(value: unknown): { value: unknown; changed: boolean }
       changed: items.some(item => item.changed) };
   }
   if (!value || typeof value !== 'object') return { value, changed: false };
-  const entries = Object.entries(value).map(([key, entry]) => [key, safeArgumentValue(entry)] as const);
+  const entries = Object.entries(value).map(([key, entry]) => [key, sensitiveLine(`${key} =`)
+    ? { value: PLACEHOLDER, changed: entry !== PLACEHOLDER } : safeArgumentValue(entry)] as const);
   const changed = entries.some(([, entry]) => entry.changed);
   return { value: changed ? Object.fromEntries(entries.map(([key, entry]) => [key, entry.value])) : value, changed };
 }

@@ -8,18 +8,19 @@ The official `0.1.6/manifest.json` identifies version 0.1.6 and artifact hashes,
 but does not provide a source SHA. This is not an official Git release tag or
 a claim that the source build is byte-identical to an official binary.
 
-`patches/v016/manifest.json` pins 15 shared patches and their source pre/post
+`patches/v016/manifest.json` pins 16 shared patches and their source pre/post
 images, with two additional Darwin patches. `patches/v015/` and dated 0.6.0
 release records remain unchanged. The applier supports both manifests.
 
-The final `step-code-desktop-background-agents.patch` adds a narrow current-session
+The `step-code-desktop-background-agents.patch` adds a narrow current-session
 `desktop_subagents` list/stop RPC over the existing native `agent_send` tool.
 It does not upgrade the pin, expose reply, invoke a model or change the
 live-ownership lifecycle. Its bounded output reuses upstream redaction before
 clipping. See [Background controls](BACKGROUND_AGENTS.md).
 
-The following `step-code-desktop-subagent-redaction.patch` completes the
-Desktop output boundary without modifying the native lane registry or control
+`step-code-desktop-btw.patch` follows the background controls patch and adds
+isolated side questions; the final `step-code-desktop-subagent-redaction.patch`
+completes the Desktop output boundary without modifying the native lane registry or control
 RPC. Child transcripts, runner messages, chain `{previous}` values and raw
 answer hashes remain authoritative. Desktop-facing tool content, background
 notifications, parent journal facts and retained diagnostics use filtered
@@ -32,8 +33,8 @@ size bound. Ordinary CLI output keeps its existing policy.
 Desktop also projects typed historical notifications and subagent tool results
 into safe render/copy copies while preserving source messages and lifecycle
 identity. Trusted `subagent` and `agent_send` tool inputs use recursive safe
-copies only when a string changes; clean calls keep their original object
-identity. The current-runtime Background service refuses list/stop requests
+copies only when text or a sensitive key's value changes; clean calls keep their
+original object identity. The current-runtime Background service refuses list/stop requests
 unless the staged manifest advertises `desktop-subagent-redaction`, so a newer
 Desktop cannot silently consume output from a control-only runtime. XML-looking
 ordinary user or assistant text is not treated as a notification. Existing

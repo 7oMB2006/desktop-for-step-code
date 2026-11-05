@@ -1,5 +1,24 @@
 # Verification
 
+## PR #193 sensitive input-key correction (2026-11-05)
+
+The original PR head `4620846` recursively filtered string values but did not
+inspect object keys. Its statement that sensitive object keys were covered was
+incorrect: `{api_key: "synthetic-key-only-value"}` remained unchanged and visible.
+A new test first fails against that implementation, then passes after values
+beneath sensitive keys are replaced in the display copy. Coverage includes both
+trusted subagent tools, top-level and nested keys, encoded keys, arrays, normal
+text preservation, unchanged authoritative history and clean-call reference
+identity. This corrects a missing implementation, not a newly discovered runtime
+patch requirement. The runtime safety patch itself is unchanged.
+
+The original serial Desktop result below remains evidence for the old
+`5d35c814` baseline only. Windows run `41858346184` attempt 2 passed, but attempt
+3 at the same PR head again printed both then_run success messages and hung
+until its 300-second outer deadline. One passing rerun did not establish a
+runner-only cause. The repeated exit hang remains under investigation; neither
+forced successful exit nor extended acceptance deadlines are used.
+
 ## Desktop subagent output boundary on background controls main (2026-11-04, local uncommitted candidate)
 
 The candidate is rebased on main `5d35c814`, after the native Background view
@@ -57,8 +76,10 @@ The runtime manifest advertises `desktop-subagent-redaction`. Main-process
 Background list/stop fails closed before any RPC call when that capability is
 absent; a control-only runtime therefore cannot silently bypass the early-tail
 boundary. Trusted `subagent` and `agent_send` call arguments use safe display
-copies, including sensitive object keys, while clean calls retain the original
-object reference and authoritative history stays unchanged. The guard is
+copies for credential-bearing strings, while clean calls retain the original
+object reference and authoritative history stays unchanged. Sensitive object
+keys were not filtered in the original PR head; the correction is recorded above.
+The guard is
 covered both ways: a real staged control-capable runtime passes its control
 scenario, while a service without the redaction capability rejects list and
 stop before any RPC call.

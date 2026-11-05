@@ -109,6 +109,25 @@ const launch = async () => {
   return page;
 };
 const snapshot = page => page.evaluate(() => window.desktop.snapshot());
+// A cron-hosting worker can still be draining its navigation or status reads when
+// the move is attempted; the guard then reports the transient operation instead of
+// the Cron ownership. The Cron rejection must remain the final reason, so retry
+// only that transient race and never accept a different outcome.
+const expectCronBlockedMove = async (sessionId, destination) => {
+  for (let attempt = 0; ; attempt++) {
+    let failure;
+    try {
+      await page.evaluate(({ id, destination }) => window.desktop.moveSessionToProject(id, destination),
+        { id: sessionId, destination });
+      failure = `Moving session ${sessionId} unexpectedly succeeded`;
+    } catch (error) {
+      failure = String(error instanceof Error ? error.message : error);
+    }
+    if (/Cron|scheduled/i.test(failure)) return;
+    if (attempt >= 5 || !/operation in progress/i.test(failure)) throw new Error(failure);
+    await page.waitForTimeout(500);
+  }
+};
 const row = (page, id) => page.locator(`.session-row[data-reorder-id="${id}"]`);
 const project = (page, directory) => page.locator(`[data-session-workspace="${directory.replaceAll('\\', '\\\\')}"]`);
 const waitSnapshot = async (page, predicate) => {
@@ -257,7 +276,7 @@ try {
   const tomorrow = new Date(Date.now() + 86400000);
   await page.evaluate(input => window.desktop.cronCreate(input), { runtimeId: restarted.runtimeId,
     cron: `0 9 ${tomorrow.getDate()} ${tomorrow.getMonth() + 1} *`, prompt: 'Move guard fixture', recurring: false, durable: false });
-  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-one', destination), projects[0]), /scheduled|Cron/i);
+  await expectCronBlockedMove('move-one', projects[0]);
   const cron = await page.evaluate(() => window.desktop.cronList());
   const jobs = cron.tasks.filter(task => task.runtimeId === restarted.runtimeId);
   assert.ok(jobs.length);
@@ -285,7 +304,7 @@ try {
   assert.equal(await readFile(join(projects[0], '.stepcode', 'cron', 'tasks.json'), 'utf8'), savedCronBytes);
   const foreignSource = await page.evaluate(destination => window.desktop.moveSessionToProject('move-three', destination), projects[1]);
   assert.equal(foreignSource.sessions.find(session => session.id === 'move-three').cwd, projects[1]);
-  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-two', destination), projects[1]), /Cron|scheduled/i);
+  await expectCronBlockedMove('move-two', projects[1]);
   const scoped = await page.evaluate(() => window.desktop.navigateSession('move-one'));
   await page.evaluate(input => window.desktop.cronCreate(input), { runtimeId: scoped.runtimeId,
     cron: `0 10 ${tomorrow.getDate()} ${tomorrow.getMonth() + 1} *`, prompt: 'New moved-session task', recurring: false, durable: true });
@@ -307,7 +326,7 @@ try {
   await mkdir(join(profile, 'cron-bindings'), { recursive: true });
   await writeFile(join(profile, 'cron-bindings', `${createHash('sha256').update(bindingKey).digest('hex')}.json`),
     JSON.stringify({ sessionId: 'move-one', source: 'created', at: Date.now() }));
-  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-one', destination), projects[1]), /Cron|scheduled/i);
+  await expectCronBlockedMove('move-one', projects[1]);
   console.log('Session move: unrelated source/destination schedules stay with their original host; associated jobs still block movement');
   await closeDesktopFixture(app); app = undefined;
   await writeFile(join(projects[0], '.stepcode', 'cron', 'tasks.json'), '');

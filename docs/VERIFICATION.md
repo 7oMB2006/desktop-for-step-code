@@ -50,6 +50,18 @@ the projected status is never running/queued after a known-empty roster, the
 known-empty downgrade still applies to a frozen running snapshot, the journal
 prefix is preserved, and no model call is made.
 
+The next head's macOS run passed the source-mode sessions group in full,
+including the complete session-move acceptance, but the packaged-candidate run
+failed session-move with `Session operation in progress` where the Cron
+ownership rejection was expected: the cron-host worker was still draining its
+navigation/status reads when the move was attempted, so the transient-operation
+guard fired before the Cron guard. This is a native acceptance timing race, not
+a Cron-guard or relocation regression. All three Cron-rejection assertions now
+retry only that transient operation race with a bounded wait and still require
+the Cron rejection as the final outcome; an unexpected success or any other
+error still fails the acceptance, and no product guard, deadline or assertion
+is weakened.
+
 The earlier existing session-move verifier fails before reaching this regression
 on both the previous candidate and unchanged main (dialog-close timeout on one
 run; a missing fixture-generated file on the control run). Those failures are

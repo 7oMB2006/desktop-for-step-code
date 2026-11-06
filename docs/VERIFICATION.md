@@ -1,5 +1,63 @@
 # Verification
 
+## StepPage Storage Boundary (2026-11-07, local candidate)
+
+This candidate starts from main `4318d6e` after the v0.1.7 pin migration. The
+open Remote/Linux branches do not touch the StepPage preparer or unit tests. It
+does not modify the new pin, patches or Plan integration.
+
+A real Windows junction reproduces the storage guard failure: its directory entry
+is a link and realpath resolves outside the owned root, while lstat reports an
+ordinary directory. The old preparer therefore downloads a deterministic,
+hash-pinned local ESM fixture into the outside target, executes its version probe,
+calls apply and reports ready/installed. All bytes and markers stay under a new
+isolated test directory; no official artifact, account, model or personal profile
+is used.
+
+Formal tests fail on the old implementation because redirected storage is not
+rejected before download/apply/outside creation. The fix checks owned directory
+entries plus canonical parent identity before mkdir and again afterwards. Bundles
+must remain within the owned StepPage root before hashing, reuse or probing; the
+newly written temporary is rechecked and rehashed before execution. Dangling
+storage cannot recreate its target. The walk stops at the StepPage root's direct
+parent so macOS system links such as `/var` and `/tmp` are not rejected. Test
+cleanup removes only each created link entry with a platform-appropriate API.
+The check/use interval remains; this does not claim to eliminate adversarial
+concurrent replacement or every reparse type.
+
+On pre-v0.1.7 main, typecheck/build, seven formal StepPage tests, 22 focused tests
+and the real Electron preparation/MCP/Cron-host/tampered-bundle matrix pass after
+the review corrections. The complete bounded suite executes 148 files: 143 pass
+and five fail; the former StepPage linked-storage failure passes. Those results
+are historical input only after main moved.
+
+On this v0.1.7 candidate the exact locked dependencies are installed offline from
+the local pnpm store after removing only this tree's dependency junctions, whose
+final targets were verified before removal. The v0.1.7 runtime rebuilds offline
+and stages from clean pin `29eb460` with Node 24.16.0 into a physical directory:
+20 patch files, 47 source postimages and 23 runtime capability IDs match the
+current manifest. The earlier 20-file staging attempt that reused a dependency
+junction failed at the CLI typecheck and is retained only as evidence that mixed
+dependencies do not build; none of its results are used. The application build
+and the focused StepPage/error/plugin suite pass 22 tests. The real Electron
+verifier passes official fixed-integrity download, actual MCP handshake, protected
+Cron host, tampered-bundle rejection/no execution, repair and relaunch disable
+retention and Desktop-owned HOME. CI runner/inventory/receipt tests pass 30 cases
+with one platform skip. Complete bounded per-file verification executes 151 files:
+147 pass and four fail. Capabilities exceeds the 180-second file deadline;
+project-trust junction cleanup, linked-undo classification and workflow-catalog
+junction cleanup fail with their previously observed signatures. The former
+StepPage and template-input failures pass on this baseline. Full local acceptance
+is not green, and this does not establish the causes or safety of the remaining
+failures.
+
+A bounded independent review identified and then rechecked three issues before
+the final result: the path walk originally extended through unowned macOS system
+ancestors, POSIX link cleanup incorrectly used rmdir, and the downloaded temporary
+was probed before a final storage/hash recheck. No native macOS source/package
+acceptance or real-account validation is claimed. This local candidate contains
+no commit, push, PR, installer, shortcut, release or version change.
+
 ## Upstream v0.1.7 Local Migration (2026-11-06)
 
 The `codex/upstream-v017` worktree, based on main `1979ee7`, migrates the

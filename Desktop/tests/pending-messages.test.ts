@@ -17,14 +17,14 @@ test('queue receipt observers use exact IDs for delivery, removal and clear, nev
   const first = queue.enqueue(worker, 'same', { message: 'same' });
   const second = queue.enqueue(worker, 'same', { message: 'same' });
   await queue.drain(worker);
-  assert.deepEqual(events, []);
+  assert.deepEqual(events, [[first, 'dispatching']]);
   assert.equal(queue.delivered(worker, 'same'), true);
-  assert.deepEqual(events, [[first, 'delivered']]);
+  assert.deepEqual(events, [[first, 'dispatching'], [first, 'delivered']]);
   assert.equal(queue.delivered(worker, 'same'), false, 'An unsent identical input is not consumed');
   queue.remove(worker, second, 0);
   const third = queue.enqueue(worker, 'queued', { message: 'queued' });
   queue.clear(worker); queue.clear(worker);
-  assert.deepEqual(events, [[first, 'delivered'], [second, 'removed'], [third, 'removed']]);
+  assert.deepEqual(events, [[first, 'dispatching'], [first, 'delivered'], [second, 'removed'], [third, 'removed']]);
 });
 test('maintenance routes new prompts to the queue and refuses steering until it ends', async () => {
   const { worker, queue, requests } = fixture();
@@ -133,6 +133,7 @@ function fixture({ consume = true } = {}) {
   const requests: { type: string; args: Record<string, unknown> }[] = [];
   let failure = false;
   const worker = { id: 'A', busy: true, status: 'connected', submissions: 0, operations: 0, mutating: false, failed: false, interrupted: false,
+    state: { model: { id: 'image-fixture', provider: 'fixture', name: 'Image fixture', input: ['text', 'image'] } },
     rpc: { request: async (type: string, args: Record<string, unknown>) => {
       requests.push({ type, args }); if (failure) throw new Error('offline');
       if (consume) queue.delivered(worker, args.message);
@@ -141,6 +142,53 @@ function fixture({ consume = true } = {}) {
   const errors: unknown[] = [];
   const queue = new PendingMessages(() => {}, (_worker, error) => errors.push(error), (message, files) => `${message}${files.length ? `\nfiles:${files.join(',')}` : ''}`);
   return { worker, queue, requests, errors, fail: () => { failure = true; } };
+}
+test('queued images recheck the applied model after preparation and remain recoverable instead of silently omitted', async () => {
+  const { worker } = fixture();
+  worker.busy = false;
+  let prompts = 0;
+  worker.rpc.request = async () => { prompts++; };
+  const errors: unknown[] = [];
+  const queue = new PendingMessages(() => {}, (_worker, error) => errors.push(error), undefined, async () => {
+    worker.state!.model = { id: 'text-only', provider: 'fixture', name: 'Text only', input: ['text'] };
+  });
+  const id = queue.enqueue(worker, 'inspect this', { message: 'inspect this', images: [{ data: 'retained-image' }] });
+  await queue.drain(worker);
+  assert.equal(prompts, 0);
+  assert.match(String(errors[0]), /does not support images/);
+  assert.equal(queue.list(worker)[0].id, id);
+  assert.equal(queue.list(worker)[0].attachmentCount, 1);
+  assert.equal(queue.list(worker)[0].sending, false);
+});
+for (const cancellation of ['recover', 'clear', 'pause-resume'] as const) {
+  test(`preparing queued input cannot dispatch after ${cancellation}`, async () => {
+    const { worker } = fixture();
+    worker.busy = false;
+    let prepared!: () => void;
+    const hold = new Promise<void>(resolve => { prepared = resolve; });
+    const requests: string[] = [], events: string[] = [];
+    worker.rpc.request = async type => { requests.push(type); return {}; };
+    const queue = new PendingMessages(() => {}, (_worker, error) => assert.fail(String(error)), undefined,
+      async () => { await hold; }, (_worker, _id, event) => { events.push(event); });
+    const id = queue.enqueue(worker, 'not sent', { message: 'not sent' });
+    const draining = queue.drain(worker);
+    await tick();
+    worker.stopping = true; worker.interrupted = true; queue.pause(worker);
+    await worker.rpc.request('abort'); await worker.rpc.request('clear_queue');
+    if (cancellation === 'recover') queue.recover(worker);
+    if (cancellation === 'clear') queue.clear(worker);
+    if (cancellation === 'pause-resume') queue.resumed(worker);
+    worker.stopping = false;
+    prepared(); await draining; await tick();
+    assert.deepEqual(requests, ['abort', 'clear_queue']);
+    assert.equal(events.includes('dispatching'), false);
+    assert.equal(events.includes('unknown'), false);
+    if (cancellation !== 'clear') {
+      assert.equal(queue.list(worker)[0].sending, false);
+      assert.equal(queue.withdraw(worker, id), true, 'No prompt RPC was issued');
+    }
+    assert.equal(worker.submissions, 0); assert.equal(worker.operations, 0);
+  });
 }
 test('queued drafts are worker scoped, bounded and expose neither image bytes nor file paths', () => {
   const { worker, queue } = fixture();
@@ -305,4 +353,20 @@ test('steering is blocked while abort and queue cancellation settle', async () =
   worker.stopping = true;
   await assert.rejects(queue.steer(worker, first, 0), /cannot send/);
   assert.equal(requests.length, 0);
+});
+test('remote withdrawal is limited to never-dispatched input even after failed RPC and local recovery', async () => {
+  const { worker } = fixture({ consume: false });
+  const events: string[] = [];
+  const queue = new PendingMessages(() => {}, () => {}, value => value, async () => {},
+    (_worker, _id, event) => { events.push(event); });
+  const waiting = queue.enqueue(worker, 'waiting', { message: 'waiting' });
+  assert.equal(queue.withdraw(worker, waiting), true);
+  const attempted = queue.enqueue(worker, 'attempt', { message: 'attempt' });
+  worker.rpc = { request: async () => { throw new Error('RPC delivery unknown'); }, start() {}, respond() {}, stop: async () => {} };
+  await assert.rejects(queue.steer(worker, attempted, 0));
+  assert.equal(queue.list(worker)[0].sending, false);
+  assert.equal(queue.withdraw(worker, attempted), false);
+  worker.busy = false; worker.interrupted = true; queue.recover(worker);
+  assert.equal(queue.withdraw(worker, attempted), false);
+  assert.ok(events.includes('dispatching')); assert.ok(events.includes('unknown'));
 });

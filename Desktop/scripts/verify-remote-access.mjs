@@ -43,6 +43,7 @@ const profile = await mkdtemp(join(tmpdir(), 'step-remote-'));
 const root = join(profile, 'step-runtime');
 await mkdir(root, { recursive: true });
 const fixtureHelper = join(profile, 'remote-fixture.mjs');
+const fixtureImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 await writeFile(fixtureHelper, `
 import { createInterface } from 'node:readline';
 let bindingId;
@@ -59,9 +60,14 @@ createInterface({input:process.stdin}).on('line', line => {
   if(value.type==='bind'||value.type==='bindSaved') bindingId=value.bindingId;
   if(value.type==='card') write({type:'remote_fixture_record',card:value});
   if(value.type==='reaction') write({type:'remote_fixture_reaction',reaction:value});
+  if(value.type==='imageUploadSend') write({type:'remote_fixture_record',card:{key:'fixture-image-sent',nativeImage:true,sessionKey:value.sessionKey}});
   if(value.type==='unbind') bindingId=undefined;
   const data=value.type==='snapshot'?{identity:{botId:'fixture-bot',credentials:{appId:'fixture-app',appSecret:'REMOTE-PERSISTENCE-SECRET',brand:'feishu'}},
-    peer:bindingId?{actor:'fixture-human',chat:'fixture-chat'}:undefined}:undefined;
+    peer:bindingId?{actor:'fixture-human',chat:'fixture-chat'}:undefined}
+    :value.type==='imageOpen'?{transferId:'fixture-download',mimeType:'image/png',size:${fixtureImage.length}}
+    :value.type==='imageChunk'?{data:${JSON.stringify(fixtureImage.toString('base64'))},end:true}
+    :value.type==='imageUploadOpen'?{transferId:'fixture-upload'}
+    :value.type==='imageUploadSend'?{messageId:'fixture-image-sent'}:undefined;
   write({type:'response',id:value.id,success:true,data});
 });
 `);
@@ -89,7 +95,7 @@ cp.spawn=(command,args,options)=>{
 };
 require(${JSON.stringify(resolve('dist/main.cjs'))});
 `);
-const received = [], failures = [];
+const received = [], failures = [], imageInputs = [];
 let held;
 const server = createServer(async (request, response) => {
   try {
@@ -98,6 +104,7 @@ const server = createServer(async (request, response) => {
     const body = JSON.parse(raw);
     const text = message => typeof message.content === 'string' ? message.content : message.content?.filter(block => block.type === 'text').map(block => block.text).join('\n');
     const task = text(body.messages.findLast(message => message.role === 'user'));
+    if (task === 'REMOTE-IMAGE-INPUT') imageInputs.push(body.messages.findLast(message => message.role === 'user').content);
     received.push(task);
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, finish_reason = null) => response.write(`data: ${JSON.stringify({ id: 'remote-fixture', object: 'chat.completion.chunk',
@@ -107,16 +114,21 @@ const server = createServer(async (request, response) => {
     const toolDone = body.messages.some(message => message.role === 'tool' && message.tool_call_id === 'remote-call-12345678');
     if (task === 'REMOTE-APPROVAL' && !toolDone) send({ tool_calls: [{ index: 0, id: 'remote-call-12345678', type: 'function',
       function: { name: 'run_command', arguments: '{"command":"echo remote-approved"}' } }] }, 'tool_calls');
+    else if (task === 'REMOTE-IMAGE-OUTPUT' && !body.messages.some(message => message.role === 'tool' && message.tool_call_id === 'remote-image-12345678'))
+      send({ tool_calls: [{ index: 0, id: 'remote-image-12345678', type: 'function',
+        function: { name: 'desktop_send_image', arguments: '{"path":"remote-chart.png","caption":"Requested chart"}' } }] }, 'tool_calls');
     else send({ content: 'REMOTE-FIXTURE-ANSWER' }, 'stop');
     response.end('data: [DONE]\n\n');
   } catch (error) { failures.push(error.message); response.destroy(); }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspaces: [] }));
+const emptyWorkspace = join(profile, 'empty-project');
+await mkdir(emptyWorkspace, { recursive: true });
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspaces: [emptyWorkspace] }));
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-only',
-  models: [{ id: 'fixture', name: 'Remote fixture', contextWindow: 100000, maxTokens: 2048 }],
+  models: [{ id: 'fixture', name: 'Remote fixture', input: ['text', 'image'], contextWindow: 100000, maxTokens: 2048 }],
 } } }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', REMOTE_FIXTURE_SECRET: 'MUST-NOT-INHERIT' };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -132,6 +144,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1400, 950);
   });
   const owner = await prepareSessionFixture(page);
+  await writeFile(join(owner.preferences.workspace, 'remote-chart.png'), fixtureImage);
   const coldId = 'remote-cold-history';
   const coldWorkspace = `${owner.preferences.workspace}/.`;
   const timestamp = new Date().toISOString();
@@ -263,6 +276,7 @@ try {
   const targetName = (await state()).sessions.find(session => session.runtimeId === owner.runtimeId).name;
   await page.getByRole('menuitemradio', { name: targetName, exact: true }).click();
   await panel.getByRole('checkbox', { name: coldWorkspace, exact: true }).check();
+  await panel.getByRole('checkbox', { name: emptyWorkspace, exact: true }).check();
   await button('确认并绑定').click();
   await panel.locator('.remote-binding strong').waitFor();
   await waitState(current => current.saved);
@@ -270,7 +284,9 @@ try {
   assert.equal(savedConnection.includes(Buffer.from('REMOTE-PERSISTENCE-SECRET')), false);
   assert.doesNotMatch(JSON.stringify(await state()), /REMOTE-PERSISTENCE-SECRET|fixture-human|fixture-chat/);
   assert.equal((await state()).binding.runtimeId, owner.runtimeId);
-  assert.deepEqual((await state()).authorized.workspaces, [owner.preferences.workspace, coldWorkspace]);
+  assert.deepEqual((await state()).authorized.workspaces, [owner.preferences.workspace, coldWorkspace, emptyWorkspace]);
+  assert.equal((await state()).sessions.some(session => session.workspace === emptyWorkspace), false,
+    'An empty known project can be authorized without creating a runtime');
   await button('继续').click();
   await button('发送验证卡片').click();
   const probe = await waitCard(card => card.key === 'probe');
@@ -293,18 +309,21 @@ try {
   assert.match(firstReply.title, /^s1 · /, 'Reply titles carry only the session source, not a completion heading');
   assert.equal(firstReply.actions, undefined);
   const firstReactions = await app.evaluate(() => globalThis.remoteHarness.reactions);
-  assert.deepEqual(firstReactions.filter(value => value.messageId === 'remote-one').map(value => value.active), [true, false]);
+  assert.deepEqual(firstReactions.filter(value => value.messageId === 'remote-one').map(value => value.active), [true, true, true, false]);
+  assert.deepEqual(firstReactions.filter(value => value.messageId === 'remote-one' && value.active).map(value => value.phase), ['queued', 'running', 'running']);
   assert.equal((await cards()).some(card => card.title.startsWith('Received')), false);
   assert.equal(received.filter(task => task === 'REMOTE-ONE').length, 1);
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, other.runtimeId);
   const beforeCommands = received.length;
   await inject('input', { id: 'help', text: '/help' });
-  await waitCard(card => card.key !== 'welcome' && card.text.includes('/sessions [page]'));
+  await waitCard(card => card.key !== 'welcome' && card.text.includes('/sessions [p1] [page]'));
   await inject('input', { id: 'list', text: '/session' });
   await waitCard(card => card.text.includes('Cold Remote'));
   assert.equal((await state()).sessions.find(session => session.sessionId === coldId).runtimeId, undefined,
     'Listing saved history must not start its runtime');
   assert.doesNotMatch(JSON.stringify(await cards()), /COLD-HISTORY-PRIVATE/);
+  await inject('input', { id: 'empty-project-list', text: '/sessions p3' });
+  await waitCard(card => card.text.includes('empty-project (0)') && card.text.includes('/new p3'));
   await inject('input', { id: 'cold-switch', text: `/session ${coldId}` });
   await waitState(current => current.binding?.sessionId === coldId);
   const cold = (await state()).binding;
@@ -328,6 +347,9 @@ try {
   await inject('input', { id: 'unauthorized-switch', text: `/session ${other.state.sessionId}` });
   await waitCard(card => card.title.startsWith('Not accepted'));
   assert.equal((await state()).binding.sessionId, remoteNew.sessionId);
+  await inject('input', { id: 'after-failed-switch', text: 'MUST-NOT-MISROUTE' });
+  await waitCard(card => card.text?.includes('Target unconfirmed'));
+  assert.ok(!received.includes('MUST-NOT-MISROUTE'));
   await inject('input', { id: 'owner-switch', text: '/session s1' });
   await waitState(current => current.binding?.sessionId === owner.state.sessionId);
   const before = received.length;
@@ -341,6 +363,24 @@ try {
   await inject('decision', { token: approval.actions.token, option: 'Deny / 拒绝' });
   await inject('decision', { token: approval.actions.token, option: 'Allow once / 允许一次' });
   await waitRuntimeIdle(owner.runtimeId);
+  assert.equal((await state()).imagesAllowed, false, 'Legacy and ordinary bindings have no image grant');
+  await page.evaluate(() => window.desktop.remoteAction({ type: 'images', allowed: true }));
+  assert.equal((await state()).imagesAllowed, true);
+  const previousImageKeys = new Set((await cards()).map(card => card.key));
+  await inject('input', { id: 'image-input', text: 'REMOTE-IMAGE-INPUT', images: ['img_fixture'] });
+  await waitCard(card => card.reply === 'completed' && card.sessionKey === owner.state.sessionId
+    && !previousImageKeys.has(card.key));
+  assert.equal(imageInputs.length, 1, JSON.stringify({ received, cards: (await cards()).slice(-5) }));
+  assert.ok(imageInputs[0].some(block => block.type === 'image_url' && block.image_url?.url?.startsWith('data:image/png;base64,')),
+    'Remote image bytes must reach the actual runtime model input');
+  await waitRuntimeIdle(owner.runtimeId);
+  await inject('input', { id: 'image-output', text: 'REMOTE-IMAGE-OUTPUT' });
+  const imageApproval = await waitCard(card => card.actions?.options.includes('Allow once / 允许一次') && card.text.includes('desktop_send_image'));
+  assert.match(imageApproval.text, /remote-chart\.png/);
+  await inject('decision', { token: imageApproval.actions.token, option: 'Allow once / 允许一次' });
+  await waitCard(card => card.nativeImage && card.sessionKey === owner.state.sessionId);
+  await waitCard(card => card.key === 'image-fixture-image-sent' && card.text === 'Requested chart');
+  await waitRuntimeIdle(owner.runtimeId);
   const previousRuns = new Set((await cards()).map(card => card.key));
   await inject('input', { id: 'hold', text: 'REMOTE-HOLD' });
   const running = await waitCard(card => card.reply === 'working' && !previousRuns.has(card.key));
@@ -350,6 +390,13 @@ try {
     assert.ok(Date.now() < holdDeadline, 'The held model request must actually start before stopping');
     await new Promise(resolve => setTimeout(resolve, 20));
   }
+  await inject('input', { id: 'recall-queued', text: 'MUST-NOT-RUN-RECALLED' });
+  await inject('input', { id: 'tasks-overview', text: '/tasks' });
+  await waitCard(card => card.overview?.rows.some(row => row.queue === 1));
+  await inject('recalled', { id: 'recall-queued' });
+  await inject('input', { id: 'recall-status', text: '/status s1' });
+  await waitCard(card => card.text?.includes('Queue: 0') && card.text.includes('Remote:'));
+  assert.ok(!received.includes('MUST-NOT-RUN-RECALLED'));
   await inject('input', { id: 'switch-while-running', text: `/session ${remoteNew.sessionId}` });
   await waitState(current => current.binding?.sessionId === remoteNew.sessionId);
   await inject('input', { id: 'stop-original', text: '/stop s1' });
@@ -366,15 +413,63 @@ try {
       window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1400, 950);
     });
     await waitState(current => current.saved && current.status === 'connected' && current.binding?.sessionId === remoteNew.sessionId);
+    assert.equal((await state()).imagesAllowed, true, 'The separate image opt-in survives encrypted restart recovery');
     assert.equal((await state()).approvalReady, false, 'Old callback readiness is not restored');
+    assert.deepEqual((await state()).authorized.workspaces, [owner.preferences.workspace, coldWorkspace, emptyWorkspace],
+      'A still-empty project must not invalidate restored authorization');
     assert.equal(received.length, beforeRestart, 'Restart must not replay interrupted or offline work');
     await inject('decision', { token: approval.actions.token, option: 'Allow once / 允许一次' });
     await inject('stop', { runId: running.key });
+    await inject('input', { id: 'restored-old-handle', text: '/session s1' });
+    await waitState(current => current.binding?.sessionId === owner.state.sessionId);
+    await inject('input', { id: 'empty-project-new', text: '/new p3' });
+    await waitState(current => current.binding?.workspace === emptyWorkspace);
+    assert.equal(received.length, beforeRestart, 'Creating the first session in an empty project sends no inference');
+    await inject('input', { id: 'restore-target', text: `/session ${remoteNew.sessionId}` });
+    await waitState(current => current.binding?.sessionId === remoteNew.sessionId);
     await inject('input', { id: 'after-restart', text: 'REMOTE-AFTER-RESTART' });
     await waitCard(card => card.reply === 'completed' && card.sessionKey === remoteNew.sessionId);
     assert.equal(received.filter(task => task === 'REMOTE-AFTER-RESTART').length, 1);
     assert.equal(received.filter(task => task === 'REMOTE-HOLD').length, 1);
+    assert.ok(!received.includes('MUST-NOT-RUN-RECALLED'));
   }
+  const attached = (await state()).binding;
+  await button('远程访问').click();
+  await page.getByRole('tab', { name: '接入渠道', exact: true }).click();
+  await panel.getByRole('button', { name: /管理配置/ }).click();
+  await panel.locator('.remote-setup-steps button').nth(1).click();
+  const imageGrant = panel.getByRole('checkbox', { name: '允许图片输入与明确交付的图片外发', exact: true });
+  assert.equal(await imageGrant.isChecked(), true);
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]; window.setMinimumSize(320, 600);
+  });
+  for (const width of [1400, 420]) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 850), width);
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+      await checkFocus(imageGrant);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+      await screenshot(`05-image-grant-${theme}-${width}`);
+    }
+  }
+  await page.getByRole('tab', { name: '已授权连接', exact: true }).click();
+  const forwarding = panel.locator('.remote-forwarding');
+  assert.ok(await forwarding.locator('.remote-authorized-row').count() > 0);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await checkFocus(forwarding.getByRole('button', { name: '退出回传', exact: true }).first());
+    assert.deepEqual(await forwarding.locator('.remote-authorized-row').evaluateAll(elements =>
+      elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.className)), []);
+    await screenshot(`06-forwarding-${theme}-420`);
+  }
+  await button('返回会话').click();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 950));
+  await page.evaluate(sessionId => window.desktop.remoteAction({ type: 'detach', sessionId }), attached.sessionId);
+  assert.equal((await state()).binding, undefined);
+  assert.ok(!(await state()).sharing.some(session => session.sessionId === attached.sessionId));
+  const detachedLocal = await page.evaluate(() => window.desktop.snapshot());
+  assert.ok(detachedLocal.runtimes.some(runtime => runtime.runtimeId === attached.runtimeId),
+    'Exiting forwarding must not terminate the resident local session');
   await button('远程访问').click();
   await page.getByRole('tab', { name: '已授权连接', exact: true }).click();
   await button('解除绑定').click();
@@ -414,6 +509,7 @@ try {
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
     await checkFocus(button('目标会话'));
     await checkFocus(panel.locator('.remote-scope input:not(:disabled)').first());
+    await checkFocus(panel.getByRole('checkbox', { name: '允许图片输入与明确交付的图片外发', exact: true }));
     await screenshot(`03-binding-focus-narrow-${theme}`);
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -442,7 +538,7 @@ try {
   }
   assert.deepEqual(errors, []);
   assert.deepEqual(failures, []);
-  console.log(`Remote Beta acceptance passed: staged SDK/helper, explicit project scope, slash commands, cold/new sessions, no inference on selection, local draft/focus preservation, original-task stop, approvals, dedup, encrypted storage, disconnect and UI.${executablePath ? ' Restart injection is source-only.' : ' Actual quit/relaunch recovery and forget-on-disconnect passed.'}`);
+  console.log(`Remote Beta acceptance passed: staged SDK/helper, scoped slash routing, cold/new sessions without inference, actual runtime image input, permission-tool native image delivery and caption, queued-only recall, tasks queue counts, detach retaining local work, original-task stop, approvals, dedup, encrypted grants, local draft/focus and light/dark narrow UI.${executablePath ? ' Restart injection is source-only.' : ' Actual quit/relaunch recovery and forget-on-disconnect passed.'}`);
 } finally {
   held?.destroy();
   if (app) await closeDesktopFixture(app);

@@ -92,6 +92,7 @@ await cp('electron/session-search.mjs', join(runtime, 'session-search.mjs'));
 await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
+await cp('electron/desktop-remote.mjs', join(runtime, 'desktop-remote.mjs'));
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));
 await buildRemoteAdapter(upstream, runtime);
 const require = createRequire(join(source, 'package.json'));

@@ -55,6 +55,7 @@ import { sessionSummary } from './session-summary';
 import { clmSnapshot } from './clm';
 import { BackgroundAgents } from './background-agents';
 import { RemoteManager, parseRemoteAction } from './remote-manager';
+import { receiveRemoteImages, sendRemoteImage } from './remote-images';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { readWorkflowCatalog } from './workflow-catalog';
 import { workflowsFromMessages, workflowIsActive } from '../src/workflow-state';
@@ -402,11 +403,13 @@ const pendingMessages = new PendingMessages(worker => {
   (worker, message) => runtimes.preparePrompt(worker, message),
   (worker, id, event) => remote.queueEvent(worker, id, event));
 const remote = new RemoteManager({
+  language: () => preferences.language,
   sessions: remoteSessions,
+  projects: remoteProjects,
   refresh: async () => { await listSessions(); },
   validateWorkspaces: async workspaces => {
     for (const workspace of workspaces) {
-      if (!remoteSessions().some(session => session.workspace === workspace)
+      if (!remoteProjects().some(project => project.workspace === workspace)
         || pathKey(await workspaceDirectory(workspace)) !== pathKey(workspace))
         throw new Error('Saved Remote project is no longer available');
     }
@@ -418,16 +421,21 @@ const remote = new RemoteManager({
     if (worker.state?.sessionId !== sessionId) throw new Error('Remote session identity changed');
     return worker;
   },
-  submit: async (worker, message, accepted) => {
+  submit: async (worker, message, accepted, images) => {
     if (transition || sessionNavigation.busy || settingsMutation || undoBusy || quitting || quitPending || updateInstalling
       || providerSettingsPending || worker.mutating || worker.stopping || worker.pendingUI.size
       || worker.failed || worker.interrupted || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
       throw new Error('Review the session on Desktop before sending');
-    const id = pendingMessages.enqueue(worker, message, { message });
+    const id = pendingMessages.enqueue(worker, message, { message, ...(images?.length ? { images } : {}) });
     accepted(id);
     pendingMessages.resumed(worker);
     void pendingMessages.drain(worker);
   },
+  withdraw: (worker, queueId) => pendingMessages.withdraw(worker, queueId),
+  queued: worker => pendingMessages.list(worker).filter(entry => !entry.sending).length,
+  loadImages: receiveRemoteImages,
+  sendImage: (channel, bindingId, sessionId, worker, path, valid, signal) =>
+    sendRemoteImage(channel, bindingId, sessionId, worker.cwd, path, valid, signal),
   stop: async worker => { await handle('command', ['abort', {}, worker.id]); },
   respond: (worker, answer) => {
     if (quitting || quitPending || updateInstalling || settingsMutation) throw new Error('Desktop is unavailable');
@@ -548,7 +556,9 @@ async function tryAutomaticCron(workspace?: string) {
   finally { transition = false; emit({ type: 'desktop_cron_changed' }); }
 }
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
-  (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
+  (worker, message) => { pendingMessages.enqueue(worker, message, { message }); },
+  { extensionPath: join(runtimeRoot, 'desktop-remote.mjs'),
+    sendImage: (worker, path, caption, signal) => remote.deliverImage(worker, path, caption, signal) });
 function recycleSessionRuntimes() {
   if (transition && !sessionNavigation.busy) return;
   void runtimes.recycle(worker => sessionNavigation.pending(worker.state?.sessionId))
@@ -629,9 +639,17 @@ function remoteSessions() {
   return cachedSessions().filter(session => !isChildSession(session.id) && !preferences.archivedSessionIds?.includes(session.id))
     .map(session => {
       const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === session.id && worker.status === 'connected');
+      const workspace = worker?.cwd ?? session.cwd;
       return { runtimeId: worker?.id, sessionId: session.id, name: session.name || session.firstMessage || 'Step Code',
-        workspace: worker?.cwd ?? session.cwd };
+        workspace, workspaceName: preferences.workspaceNames?.[pathKey(session.workspacePath ?? workspace)] || basename(workspace) };
     });
+}
+function remoteProjects() {
+  const sessions = remoteSessions();
+  return [...new Set([...preferences.workspaces, ...sessions.map(session => session.workspace)])].map(workspace => ({
+    workspace, name: preferences.workspaceNames?.[pathKey(workspace)]
+      || sessions.find(session => session.workspace === workspace)?.workspaceName || basename(workspace),
+  }));
 }
 async function prepareRemoteSession(sessionId?: string, workspace?: string) {
   if (transition || sessionNavigation.busy || settingsMutation || undoBusy || deletingArchived || quitting || quitPending
@@ -646,7 +664,7 @@ async function prepareRemoteSession(sessionId?: string, workspace?: string) {
     const saved = sessionId ? cachedSessions().find(session => session.id === sessionId) : undefined;
     if (sessionId && !saved?.path) throw new Error('Session history is unavailable');
     const cwd = target?.workspace ?? workspace;
-    if (!cwd || !remoteSessions().some(session => session.workspace === cwd)) throw new Error('Unknown Remote workspace');
+    if (!cwd || !remoteProjects().some(project => project.workspace === cwd)) throw new Error('Unknown Remote workspace');
     const canonical = await workspaceDirectory(cwd);
     if (pathKey(canonical) !== pathKey(cwd)) throw new Error('Open the canonical project locally before authorizing Remote');
     const sessionPath = saved?.path ? await managedSessionFile(join(dataRoot, 'sessions'), saved.path) : undefined;

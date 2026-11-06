@@ -17,6 +17,7 @@ export function RemoteAccessPanel({ bridge, language, onBack }: { bridge: Deskto
   const [step, setStep] = useState(0);
   const [target, setTarget] = useState('');
   const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const [allowImages, setAllowImages] = useState(false);
   const [confirmation, setConfirmation] = useState<'disconnect' | 'unbind'>();
   const [now, setNow] = useState(Date.now());
   const alive = useRef(true);
@@ -70,7 +71,7 @@ export function RemoteAccessPanel({ bridge, language, onBack }: { bridge: Deskto
     { id: 'runtime' as const, label: t('运行状态', 'Host status') }];
   const code = state?.bindingCode && state.bindingCode.expiresAt > now ? state.bindingCode : undefined;
   const selected = state?.sessions.find(session => session.sessionId === target);
-  const projects = [...new Set(state?.sessions.map(session => session.workspace) ?? [])];
+  const projects = [...new Set(state?.projects?.map(project => project.workspace) ?? state?.sessions.map(session => session.workspace) ?? [])];
   const scope = [...new Set([...(selected ? [selected.workspace] : []), ...workspaces])].filter(workspace => projects.includes(workspace));
   const sessions = state?.sessions.filter(session => !authorized || authorized.workspaces.includes(session.workspace)) ?? [];
   const resetPage = (value: typeof page) => { setConfirmation(undefined); setChannel(undefined); setPage(value); setError(''); };
@@ -132,12 +133,15 @@ export function RemoteAccessPanel({ bridge, language, onBack }: { bridge: Deskto
               </>}
               {step === 1 && <>
                 {authorized ? <><div className="remote-binding"><Link2 size={20}/><div><span className="remote-binding-caption">{t('当前远程会话', 'Current remote session')}</span><strong>{binding?.name ?? t('尚未选择', 'Not selected')}</strong><small>{binding?.workspace}</small></div><span className="remote-tag">{t('可切换', 'Switchable')}</span></div>
+                  {state?.targetUnconfirmed && <p className="remote-stage-error" role="status">{t('输入目标待确认。成功选择会话前，新的正文和图片不会发送。', 'Input target is unconfirmed. Select a session before sending more text or images.')}</p>}
                   <label><span>{t('目标会话', 'Target session')}</span><ScheduledTaskSelect label={t('目标会话', 'Target session')} value={target || binding?.sessionId || ''}
                     options={[{ id: '', label: t('选择会话', 'Choose a session') }, ...sessions.map(session => ({ id: session.sessionId, label: session.name }))]}
                     onChange={setTarget}/></label>
-                  <div className="remote-form-actions"><button disabled={busy || !connected || !selected || selected.sessionId === binding?.sessionId}
+                  <div className="remote-form-actions"><button disabled={busy || !connected || !selected || selected.sessionId === binding?.sessionId && !state?.targetUnconfirmed}
                     onClick={() => selected && void act({ type: 'select', sessionId: selected.sessionId })}><ArrowRight size={14}/>{t('切换远程会话', 'Switch remote session')}</button></div>
                   <dl className="remote-properties">{authorized.workspaces.map(workspace => <div key={workspace}><dt>{t('已授权项目', 'Authorized project')}</dt><dd>{workspace}</dd></div>)}</dl>
+                  <label className="checkbox"><input type="checkbox" checked={state?.imagesAllowed === true} disabled={busy || !connected}
+                    onChange={event => void act({ type: 'images', allowed: event.target.checked })}/><span>{t('允许图片输入与明确交付的图片外发', 'Allow image input and explicit image delivery')}</span></label>
                   <div className="remote-form-actions"><button onClick={event => ask('unbind', event.currentTarget)}><Unlink size={14}/>{t('解除绑定', 'Unbind')}</button></div></> : <>
                   <div className="remote-form-actions"><button disabled={busy || !connected} onClick={() => void act({ type: 'armBinding' })}><RefreshCw size={14}/>{code ? t('重新生成验证码', 'New verification code') : t('生成验证码', 'Generate verification code')}</button></div>
                   {code && <><div className="remote-binding-code"><code>{code.code}</code><small>{Math.max(0, Math.ceil((code.expiresAt - now) / 1000))}s</small>
@@ -151,10 +155,12 @@ export function RemoteAccessPanel({ bridge, language, onBack }: { bridge: Deskto
                     <label key={workspace}><input type="checkbox" checked={scope.includes(workspace)}
                       disabled={workspace === selected?.workspace || !scope.includes(workspace) && scope.length >= remoteWorkspaceLimit}
                       onChange={event => setWorkspaces(previous => event.target.checked ? [...previous, workspace] : previous.filter(value => value !== workspace))}/><span>{workspace}</span></label>)}</fieldset>
+                  <label className="checkbox"><input type="checkbox" checked={allowImages} onChange={event => setAllowImages(event.target.checked)}/>
+                    <span>{t('允许图片输入与明确交付的图片外发', 'Allow image input and explicit image delivery')}</span></label>
                   {scope.length > remoteWorkspaceLimit && <p className="remote-stage-error" role="alert">{t(`最多授权 ${remoteWorkspaceLimit} 个项目`, `Authorize at most ${remoteWorkspaceLimit} projects`)}</p>}
                   {code && state?.candidate && <p className="remote-inline-note" role="status"><Check size={13}/>{t('已收到验证码。确认将允许此私聊列出、切换和新建所选项目内的会话，并收发选中会话后续回复、消息、停止与工具审批。已有对话正文不主动发送。', 'Code received. Confirm to allow listing, switching and creating sessions in the selected projects, future replies and messages in attached sessions, task stopping and tool approval. Existing transcript content is not automatically sent.')}</p>}
                   <div className="remote-form-actions"><button className="primary" disabled={busy || !connected || !code || !state?.candidate || !selected || scope.length > remoteWorkspaceLimit} onClick={() => {
-                    if (selected && state?.candidate) void act({ type: 'bind', candidateId: state.candidate.id, runtimeId: selected.runtimeId, sessionId: selected.sessionId, workspaces: scope });
+                    if (selected && state?.candidate) void act({ type: 'bind', candidateId: state.candidate.id, runtimeId: selected.runtimeId, sessionId: selected.sessionId, workspaces: scope, imagesAllowed: allowImages });
                   }}><ShieldCheck size={14}/>{t('确认并绑定', 'Confirm and bind')}</button></div>
                 </>}
               </>}
@@ -183,6 +189,12 @@ export function RemoteAccessPanel({ bridge, language, onBack }: { bridge: Deskto
           {authorized ? <div className="remote-authorized-row">{feishu(22)}<div className="remote-authorized-info"><strong>{t('飞书私聊', 'Feishu private chat')}</strong><span>{binding?.name ?? t('未选择会话', 'No session selected')}</span><small>{authorized.workspaces.length} {t('个授权项目', 'authorized project(s)')}</small></div>
             <span className="remote-status">{status}</span><button onClick={event => ask('unbind', event.currentTarget)}><Unlink size={14}/>{t('解除绑定', 'Unbind')}</button></div>
             : <div className="remote-empty"><ShieldCheck size={30}/><h3>{t('暂无已授权连接', 'No authorized connections')}</h3><button onClick={() => resetPage('channels')}>{t('查看接入渠道', 'View channels')}<ArrowUpRight size={14}/></button></div>}
+          {authorized && <section className="remote-forwarding"><div className="remote-section-heading"><h3>{t('正在回传的会话', 'Forwarding sessions')}</h3><span>{state?.sharing?.length ?? 0}</span></div>
+            {(state?.sharing ?? []).map(item => <div className="remote-authorized-row" key={item.sessionId}><Link2 size={16}/>
+              <div className="remote-authorized-info"><strong>{item.name}</strong><small>{item.workspace}</small></div>
+              <button disabled={busy || !connected} onClick={() => void act({ type: 'detach', sessionId: item.sessionId })}><Unlink size={14}/>{t('退出回传', 'Stop forwarding')}</button></div>)}
+            {!state?.sharing?.length && <p className="remote-inline-note">{t('没有会话正在回传，本机任务不受影响。', 'No sessions are forwarding. Local work is unchanged.')}</p>}
+          </section>}
         </section>}
         {page === 'runtime' && <section className="remote-runtime"><div className="remote-section-heading"><h2>{t('本机宿主', 'Local host')}</h2><Server size={21}/></div>
           <dl className="remote-properties"><div><dt>{t('运行方式', 'Hosting')}</dt><dd>{t('随 Desktop 运行', 'Hosted by Desktop')}</dd></div><div><dt>{t('飞书', 'Feishu')}</dt><dd>{status}</dd></div>

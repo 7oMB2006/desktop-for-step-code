@@ -49,7 +49,7 @@ export {Client,WSClient,EventDispatcher,LoggerLevel} from ${JSON.stringify(sdkEn
   }
   await writeFile(join(runtime, 'remote/THIRD_PARTY_NOTICES.txt'), [...packages].sort(([a], [b]) => a.localeCompare(b)).map(([, text]) => text).join('\n\n--------------------\n\n'));
   await writeFile(join(runtime, 'remote/NOTICE.txt'), `Desktop Remote uses the pinned Step Code lark-adapter (${commit}) and @larksuiteoapi/node-sdk ${sdk.version}.\nSee ../LICENSE, ../THIRD_PARTY_NOTICES.md, THIRD_PARTY_NOTICES.txt and FEISHU-SDK-LICENSE. Original bundled legal comments are retained.\n`);
-  for (const name of ['remote-channel.mjs', 'remote-channel-core.mjs', 'remote-card.mjs'])
+  for (const name of ['remote-channel.mjs', 'remote-channel-core.mjs', 'remote-media-channel.mjs', 'remote-card.mjs'])
     await cp(new URL(`../electron/${name}`, import.meta.url), join(runtime, name));
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))

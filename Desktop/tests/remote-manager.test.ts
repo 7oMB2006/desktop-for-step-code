@@ -98,6 +98,266 @@ function approval(worker: SessionRuntime, id = 'approval'): UIRequest {
   return request;
 }
 
+test('malformed selection fails closed but unrelated invalid commands do not lock the current target', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind();
+  f.receive('input', { bindingId, id: 'bad', text: '/help extra' });
+  f.receive('input', { bindingId, id: 'ordinary', text: 'valid target' }); await tick();
+  assert.deepEqual(f.inputs, [['a', 'valid target']]);
+  f.receive('input', { bindingId, id: 'switch', text: '/session s1 extra' });
+  f.receive('input', { bindingId, id: 'blocked', text: 'must not reach old target' }); await tick();
+  assert.equal(f.inputs.length, 1);
+  assert.equal(f.manager.snapshot().targetUnconfirmed, true);
+});
+test('a detached queued input retains withdrawal ownership without relighting its remote reaction', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind();
+  f.receive('input', { bindingId, id: 'queued-detach', text: 'later task' }); await tick();
+  await f.manager.action({ type: 'detach', sessionId: 'session-a' });
+  const reactions = () => f.channels[0].calls.filter(call => call.type === 'reaction');
+  const before = reactions().length;
+  f.manager.queueEvent(f.workers[0], 'queue-1', 'dispatching');
+  f.manager.queueEvent(f.workers[0], 'queue-1', 'delivered'); await tick();
+  assert.equal(reactions().length, before);
+  assert.deepEqual(f.stops, []);
+  f.manager.runtimeEvent(f.workers[0], { type: 'agent_end' });
+  await f.manager.action({ type: 'select', sessionId: 'session-a' });
+  f.receive('input', { bindingId, id: 'settled-status', text: '/status' }); await tick();
+  assert.match(f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args.text, /dispatched 0/);
+});
+test('local detach invalidates selections already waiting on refresh or cold preparation', async t => {
+  for (const stage of ['refresh', 'prepare'] as const) {
+    const f = fixture(); t.after(() => f.manager.shutdown());
+    await f.connect(); const bindingId = await f.bind(0, ['workspace-a', 'workspace-b']);
+    const hold = deferred();
+    if (stage === 'refresh') f.host.refresh = async () => { await hold.promise; };
+    else {
+      f.saved.push({ sessionId: 'cold', workspace: 'workspace-a', name: 'Cold target' });
+      const prepare = f.host.prepare;
+      f.host.prepare = async id => { await hold.promise; return prepare(id); };
+    }
+    f.receive('input', { bindingId, id: 'waiting-select', text: `/session ${stage === 'refresh' ? 'session-a' : 'cold'}` });
+    await tick();
+    await f.manager.action({ type: 'detach', sessionId: 'session-a' });
+    hold.resolve(); await tick();
+    assert.equal(f.manager.snapshot().binding, undefined);
+    assert.deepEqual(f.manager.snapshot().sharing, []);
+    f.receive('input', { bindingId, id: 'after-detach', text: 'must remain blocked' }); await tick();
+    assert.deepEqual(f.inputs, []);
+  }
+});
+test('ordered remote detach, selection and prose keep their routing barriers', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind(0, ['workspace-a', 'workspace-b']);
+  f.receive('input', { bindingId, id: 'detach-a', text: '/detach' });
+  f.receive('input', { bindingId, id: 'select-b', text: '/session session-b' });
+  f.receive('input', { bindingId, id: 'to-b', text: 'send only to b' }); await tick();
+  assert.deepEqual(f.inputs, [['b', 'send only to b']]);
+  assert.equal(Boolean(f.manager.snapshot().targetUnconfirmed), false);
+  f.receive('input', { bindingId, id: 'detach-b', text: '/detach' });
+  f.receive('input', { bindingId, id: 'blocked-prose', text: 'no target' }); await tick();
+  assert.deepEqual(f.inputs, [['b', 'send only to b']]);
+  assert.equal(f.manager.snapshot().targetUnconfirmed, true);
+});
+test('unavailable legacy short handles invalidate routing instead of falling through to the old target', async t => {
+  const p = persistence({ version: 1, identity, access: { actor: 'human', chat: 'chat',
+    workspaces: ['workspace-a', 'workspace-b'], sessionId: 'session-b' } });
+  const f = fixture(p.store); t.after(() => f.manager.shutdown());
+  await f.manager.resume(); f.receive('connected'); await tick(); await tick();
+  const bindingId = f.channels[0].calls.find(call => call.type === 'bindSaved')!.args.bindingId;
+  f.receive('input', { bindingId, id: 'unavailable-handle', text: '/session s1' });
+  f.receive('input', { bindingId, id: 'must-not-use-b', text: 'wrong target' }); await tick();
+  assert.deepEqual(f.inputs, []);
+  assert.equal(f.manager.snapshot().targetUnconfirmed, true);
+  f.receive('input', { bindingId, id: 'explicit-exact', text: '/session session-b' });
+  f.receive('input', { bindingId, id: 'now-confirmed', text: 'correct target' }); await tick();
+  assert.deepEqual(f.inputs, [['b', 'correct target']]);
+});
+test('image opt-in waits for saved confirmation and failed revocation stays disabled in memory', async t => {
+  const p = persistence(), f = fixture(p.store); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind();
+  const save = p.store.save, hold = deferred();
+  p.store.save = async value => { await hold.promise; await save(value); };
+  const enabling = f.manager.action({ type: 'images', allowed: true }); await tick();
+  assert.equal(f.manager.snapshot().imagesAllowed, false);
+  f.receive('input', { bindingId, id: 'not-granted-yet', text: '', images: ['image-key'] }); await tick();
+  assert.deepEqual(f.inputs, []);
+  hold.resolve(); await enabling;
+  assert.equal(f.manager.snapshot().imagesAllowed, true);
+  assert.equal(p.read()?.access?.imagesAllowed, true);
+  p.store.save = async () => { throw new Error('disk unavailable'); };
+  await assert.rejects(f.manager.action({ type: 'images', allowed: false }), /disabled.*not be saved/);
+  assert.equal(f.manager.snapshot().imagesAllowed, false);
+  await assert.rejects(f.manager.action({ type: 'images', allowed: true }), /Could not save/);
+  assert.equal(f.manager.snapshot().imagesAllowed, false);
+});
+test('initial binding cannot use an image grant before its save or retain a failed grant in memory', async t => {
+  for (const success of [true, false]) {
+    const p = persistence(), f = fixture(p.store), hold = deferred(); t.after(() => f.manager.shutdown());
+    await f.connect(); await f.manager.action({ type: 'armBinding' });
+    const arm = f.channels[0].calls.find(call => call.type === 'arm')!.args;
+    f.receive('candidate', { armId: arm.armId, candidateId: 'candidate' });
+    const save = p.store.save;
+    p.store.save = async value => {
+      await hold.promise;
+      if (!success) throw new Error('disk unavailable');
+      await save(value);
+    };
+    const binding = f.manager.action({ type: 'bind', candidateId: 'candidate', sessionId: 'session-a', imagesAllowed: true });
+    await tick();
+    assert.equal(f.manager.snapshot().imagesAllowed, false);
+    hold.resolve(); await binding;
+    assert.equal(f.manager.snapshot().imagesAllowed, success);
+    assert.equal(p.read()?.access?.imagesAllowed === true, success);
+  }
+});
+test('native image delivery is active-run scoped and optional captions follow only confirmed image messages', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); await f.bind();
+  const worker = f.workers[0], calls: string[] = [];
+  f.host.sendImage = async (_channel, _binding, session, owner, path, valid) => {
+    assert.equal(valid(), true); assert.equal(owner, worker); assert.equal(path, 'chart.png');
+    calls.push(session); return { messageId: 'native-image' };
+  };
+  await assert.rejects(f.manager.deliverImage(worker, 'chart.png'), /permission/);
+  await f.manager.action({ type: 'images', allowed: true });
+  await assert.rejects(f.manager.deliverImage(worker, 'chart.png'), /active/);
+  f.manager.runtimeEvent(worker, { type: 'agent_start' }); await tick();
+  const imageScopes = () => f.channels[0].calls.filter(call => call.type === 'imageScope').map(call => call.args);
+  assert.equal(imageScopes().at(-1).active, true);
+  const result = await f.manager.deliverImage(worker, 'chart.png', 'Requested chart');
+  assert.equal(result.delivered, true); assert.equal(result.captionDelivered, true);
+  assert.deepEqual(calls, ['session-a']);
+  assert.equal(f.channels[0].calls.find(call => call.args?.key === 'image-native-image')?.args.text, 'Requested chart');
+  f.host.sendImage = async () => { throw new Error('delivery uncertain'); };
+  const before = f.channels[0].calls.length;
+  await assert.rejects(f.manager.deliverImage(worker, 'chart.png', 'must not send alone'), /uncertain/);
+  assert.equal(f.channels[0].calls.length, before);
+  f.manager.runtimeEvent(worker, { type: 'desktop_task_completed' });
+  assert.equal(imageScopes().at(-1).active, false);
+  await assert.rejects(f.manager.deliverImage(worker, 'chart.png'), /active/);
+});
+test('tasks is read-only across authorized resident sessions and sharing is a separate scope', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind(0, ['workspace-a', 'workspace-b']);
+  f.saved.push({ sessionId: 'cold', name: 'Never start this', workspace: 'workspace-a' });
+  f.host.prepare = async () => { throw new Error('Read-only query started a runtime'); };
+  f.workers[1].busy = true;
+  f.receive('input', { bindingId, id: 'tasks', text: '/tasks' }); await tick();
+  const card = f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args;
+  assert.equal(card.overview.total, 1);
+  assert.deepEqual(card.overview.rows.map((row: { name: string }) => row.name), ['Session b']);
+  assert.equal(card.overview.rows[0].status, '运行中');
+  assert.equal(card.overview.current, 's1 · Session a');
+  f.host.language = () => 'en';
+  f.receive('input', { bindingId, id: 'tasks-en', text: '/tasks' }); await tick();
+  const english = f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args.overview;
+  assert.equal(english.language, 'en'); assert.equal(english.rows[0].status, 'Running');
+  assert.equal(f.workers[1].remoteAttached, undefined);
+  f.receive('input', { bindingId, id: 'sharing', text: '/sharing' }); await tick();
+  assert.doesNotMatch(f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args.text, /Session b/);
+});
+test('recall withdraws only the exact remotely queued input and detach does not cancel local work', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind();
+  const withdrawn: string[] = [];
+  f.host.withdraw = (_worker, id) => { withdrawn.push(id); return true; };
+  f.receive('input', { bindingId, id: 'one', text: 'queued input' }); await tick();
+  f.workers[0].busy = true;
+  await f.manager.action({ type: 'detach', sessionId: 'session-a' });
+  assert.deepEqual(f.stops, []);
+  assert.equal(f.workers[0].busy, true);
+  assert.equal(f.manager.snapshot().sharing?.length, 0);
+  f.receive('recalled', { bindingId: 'foreign', id: 'one' });
+  assert.deepEqual(withdrawn, []);
+  f.receive('recalled', { bindingId, id: 'one' });
+  assert.deepEqual(withdrawn, ['queue-1']);
+  assert.deepEqual(f.stops, []);
+});
+test('recall after dispatch or uncertain delivery cannot report cancellation or stop a task', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind();
+  let withdrawals = 0;
+  f.host.withdraw = () => { withdrawals++; return true; };
+  f.receive('input', { bindingId, id: 'one', text: 'start' }); await tick();
+  f.manager.queueEvent(f.workers[0], 'queue-1', 'dispatching');
+  f.manager.queueEvent(f.workers[0], 'queue-1', 'unknown');
+  f.receive('recalled', { bindingId, id: 'one' }); await tick();
+  assert.equal(withdrawals, 0);
+  assert.deepEqual(f.stops, []);
+  assert.match(f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args.text, /无法确认/);
+});
+test('image input needs explicit permission and recall during download prevents enqueue', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind();
+  const hold = deferred();
+  let loads = 0;
+  f.host.loadImages = async (_channel, _binding, _id, _keys, valid) => {
+    loads++; await hold.promise;
+    if (!valid()) throw new Error('Withdrawn');
+    return [{ type: 'image', mimeType: 'image/png', data: 'fixture' }];
+  };
+  f.receive('input', { bindingId, id: 'no-permission', text: '', images: ['img'] }); await tick();
+  assert.equal(loads, 0); assert.deepEqual(f.inputs, []);
+  await f.manager.action({ type: 'images', allowed: true });
+  f.receive('input', { bindingId, id: 'text-only-model', text: 'look', images: ['img'] }); await tick();
+  assert.equal(loads, 0);
+  assert.match(f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args.text, /does not declare image support/);
+  f.workers[0].state!.model = { id: 'image-fixture', name: 'Image fixture', provider: 'fixture', input: ['text', 'image'] };
+  f.receive('input', { bindingId, id: 'image', text: '', images: ['img'] }); await tick();
+  assert.equal(loads, 1);
+  f.receive('recalled', { bindingId, id: 'image' });
+  hold.resolve(); await tick();
+  assert.deepEqual(f.inputs, []);
+});
+test('recall before a routed operation starts is not lost behind another message', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind();
+  const hold = deferred(), original = f.host.submit;
+  f.host.submit = async (...args) => { await original(...args); await hold.promise; };
+  f.receive('input', { bindingId, id: 'first', text: 'first' });
+  f.receive('input', { bindingId, id: 'second', text: 'withdraw before entering queue' });
+  f.receive('recalled', { bindingId, id: 'second' });
+  hold.resolve(); await tick();
+  assert.deepEqual(f.inputs, [['a', 'first']]);
+});
+test('expired approvals show their state and status refreshes only the same pending original request', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind();
+  approval(f.workers[0]);
+  f.manager.runtimeEvent(f.workers[0], { type: 'agent_start' }); await tick();
+  const original = f.channels[0].calls.filter(call => call.type === 'card' && call.args.actions).at(-1)!.args;
+  f.now(Date.now() + 610000);
+  f.receive('decision', { bindingId, token: original.actions.token, option: 'Allow once / 允许一次' }); await tick();
+  assert.equal(f.answers.length, 0);
+  assert.ok(f.channels[0].calls.some(call => call.type === 'revoke' && call.args.status === 'expired'));
+  f.receive('input', { bindingId, id: 'refresh', text: '/status' }); await tick();
+  const refreshed = f.channels[0].calls.filter(call => call.type === 'card' && call.args.actions).at(-1)!.args;
+  assert.notEqual(refreshed.actions.token, original.actions.token);
+  assert.equal(refreshed.key, original.key);
+  f.receive('decision', { bindingId, token: original.actions.token, option: 'Allow once / 允许一次' });
+  assert.equal(f.answers.length, 0);
+  f.receive('decision', { bindingId, token: refreshed.actions.token, option: 'Deny / 拒绝' });
+  assert.equal(f.answers.length, 1);
+});
+test('tools and truncation stay on the original reply card without leaking arguments or thinking', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); await f.bind();
+  const worker = f.workers[0];
+  f.manager.runtimeEvent(worker, { type: 'agent_start' });
+  f.manager.runtimeEvent(worker, { type: 'tool_execution_start', toolCallId: 'call', toolName: 'run_command',
+    args: { command: 'PRIVATE-COMMAND' } });
+  f.manager.runtimeEvent(worker, { type: 'tool_execution_end', toolCallId: 'call', toolName: 'run_command',
+    result: { content: [{ type: 'text', text: 'PRIVATE-OUTPUT' }] } });
+  f.manager.runtimeEvent(worker, { type: 'message_end', message: { role: 'assistant', content: 'x'.repeat(6000) } });
+  f.manager.runtimeEvent(worker, { type: 'desktop_task_completed' }); await tick();
+  const cards = f.channels[0].calls.filter(call => call.type === 'card' && call.args.reply);
+  assert.equal(new Set(cards.map(call => call.args.key)).size, 1);
+  const final = cards.at(-1)!.args;
+  assert.equal(final.truncated, true);
+  assert.ok(final.progress);
+  assert.doesNotMatch(JSON.stringify(cards), /PRIVATE-|tests passed/i);
+});
 test('normal shutdown retains encrypted-store input; resume uses stable session identity and fresh capabilities', async t => {
   const p = persistence(), first = fixture(p.store); t.after(() => first.manager.shutdown());
   await first.connect(); const oldBinding = await first.bind(1, ['workspace-a', 'workspace-b']);
@@ -261,15 +521,16 @@ test('accepted messages use one original-message reaction, not a Received card, 
   f.receive('input', { bindingId, id: 'original', text: 'hello' });
   f.receive('input', { bindingId, id: 'original', text: 'duplicate' }); await tick();
   const reactions = () => f.channels[0].calls.filter(call => call.type === 'reaction').map(call => call.args);
-  assert.deepEqual(reactions(), [{ bindingId, messageId: 'original', active: true }]);
+  assert.deepEqual(reactions(), [{ bindingId, messageId: 'original', active: true, phase: 'queued' }]);
   assert.equal(f.channels[0].calls.some(call => call.type === 'card' && call.args.title.startsWith('Received')), false);
   f.manager.runtimeEvent(f.workers[0], { type: 'agent_start' });
   f.manager.queueEvent(f.workers[0], 'queue-1', 'delivered');
   f.manager.runtimeEvent(f.workers[0], { type: 'agent_end' }); await tick();
-  assert.deepEqual(reactions(), [{ bindingId, messageId: 'original', active: true },
+  assert.deepEqual(reactions(), [{ bindingId, messageId: 'original', active: true, phase: 'queued' },
+    { bindingId, messageId: 'original', active: true, phase: 'running' },
     { bindingId, messageId: 'original', active: false }]);
   f.manager.runtimeEvent(f.workers[0], { type: 'desktop_task_completed' }); await tick();
-  assert.equal(reactions().length, 2);
+  assert.equal(reactions().length, 3);
 });
 test('ending one turn does not clear a later message still in the local queue', async t => {
   const f = fixture(); t.after(() => f.manager.disconnect()); await f.connect(); const bindingId = await f.bind();
@@ -337,7 +598,7 @@ test('help and bare session are handled locally; rejection and slash commands ge
   for (const [id, text] of [['help', '/help'], ['session', '/session']]) f.receive('input', { bindingId, id, text });
   await tick();
   const cards = f.channels[0].calls.filter(call => call.type === 'card');
-  assert.ok(cards.some(call => call.args.key !== 'welcome' && call.args.text.includes('/sessions [page]')));
+  assert.ok(cards.some(call => call.args.key !== 'welcome' && call.args.text.includes('/sessions [p1] [page]')));
   assert.ok(cards.some(call => call.args.text.includes('/session s1')));
   assert.deepEqual(f.inputs, []);
   f.host.submit = async () => { throw new Error('Not accepted'); };
@@ -566,14 +827,22 @@ test('accepted messages retain their ordered target across a blocked submission 
   assert.deepEqual(f.inputs, [['a', 'first'], ['a', 'before switching'], ['b', 'after switching']]);
 });
 
-test('project scope hides other sessions and failed switching leaves the next message on the old session', async t => {
+test('project scope hides other sessions and failed switching blocks subsequent input until explicit confirmation', async t => {
   const f = fixture(); t.after(() => f.manager.disconnect()); await f.connect(); const bindingId = await f.bind();
   f.receive('input', { bindingId, id: 'list', text: '/sessions' }); await tick();
   const list = f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text;
   assert.match(list, /Session a/); assert.doesNotMatch(list, /Session b/);
   f.receive('input', { bindingId, id: 'switch', text: '/session session-b' });
   f.receive('input', { bindingId, id: 'next', text: 'still a' }); await tick();
-  assert.deepEqual(f.inputs, [['a', 'still a']]);
+  assert.deepEqual(f.inputs, []);
+  assert.equal(f.manager.snapshot().targetUnconfirmed, true);
+  f.receive('input', { bindingId, id: 'current', text: '/current' });
+  f.receive('input', { bindingId, id: 'blocked', text: 'not confirmed yet' }); await tick();
+  assert.deepEqual(f.inputs, []);
+  f.receive('input', { bindingId, id: 'confirm', text: '/session session-a' });
+  f.receive('input', { bindingId, id: 'confirmed', text: 'confirmed a' }); await tick();
+  assert.deepEqual(f.inputs, [['a', 'confirmed a']]);
+  assert.equal(f.manager.snapshot().targetUnconfirmed, undefined);
   await assert.rejects(f.manager.action({ type: 'select', sessionId: 'session-b' }), /scope/);
   assert.equal(f.workers[1].remoteAttached, undefined);
 });
@@ -596,6 +865,27 @@ test('saved sessions are listed without loading or sending transcript content, t
   assert.deepEqual(f.inputs, [['loaded-history-c', 'resume saved session']]);
 });
 
+test('session trees preserve project grants, display aliases and original session handles', async t => {
+  const f = fixture(); t.after(() => f.manager.disconnect());
+  f.saved.push({ sessionId: 'saved-a', name: 'History A', workspace: 'workspace-a' });
+  const sessions = f.host.sessions;
+  f.host.sessions = () => sessions().map(session => ({ ...session,
+    workspaceName: session.workspace === 'workspace-a' ? 'Desktop project' : 'Docs project' }));
+  await f.connect(); const bindingId = await f.bind(0, ['workspace-a', 'workspace-b']);
+  f.receive('input', { bindingId, id: 'tree', text: '/session' }); await tick();
+  const list = f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text;
+  assert.match(list, /p1 · Desktop project \(2\)\n  ├─ s1 · Session a ← 当前 \/ Current\n  └─ s3 · History A/);
+  assert.match(list, /p2 · Docs project \(1\)\n  └─ s2 · Session b/);
+  assert.deepEqual(f.inputs, []);
+  assert.equal(f.workers.length, 2);
+  f.receive('input', { bindingId, id: 'projects', text: '/projects' }); await tick();
+  assert.match(f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text,
+    /p1 · Desktop project \(2\)\n\/sessions p1\n\np2 · Docs project \(1\)/);
+  f.receive('input', { bindingId, id: 'switch-tree', text: '/session s3' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'saved-a');
+  assert.deepEqual(f.inputs, []);
+});
+
 test('new sessions use only locally authorized projects and do not send inference until a later message', async t => {
   const f = fixture(); t.after(() => f.manager.disconnect()); await f.connect();
   const bindingId = await f.bind(0, f.workers.map(worker => worker.cwd));
@@ -606,6 +896,9 @@ test('new sessions use only locally authorized projects and do not send inferenc
   f.receive('input', { bindingId, id: 'outside', text: '/new C:/unauthorized' }); await tick();
   assert.equal(f.workers.length, 3);
   f.receive('input', { bindingId, id: 'follow', text: 'first new-session request' }); await tick();
+  assert.deepEqual(f.inputs, [], 'A failed creation must not silently send follow-up to the previous target');
+  f.receive('input', { bindingId, id: 'confirm-new', text: '/session session-new-2' });
+  f.receive('input', { bindingId, id: 'retry-follow', text: 'first new-session request' }); await tick();
   assert.deepEqual(f.inputs, [['new-2', 'first new-session request']]);
 });
 
@@ -746,7 +1039,7 @@ test('pagination retains stable handles after catalog order changes and status d
   await f.connect(); const bindingId = await f.bind();
   f.receive('input', { bindingId, id: 'list-page2', text: '/sessions 2' }); await tick();
   const page = f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text;
-  assert.match(page, /^2 \/ 2/); assert.match(page, /s11 · Saved 9/); assert.doesNotMatch(page, /s2 · Saved 0/);
+  assert.match(page, /^会话 \/ Sessions · 13 · 2 \/ 2/); assert.match(page, /s11 · Saved 9/); assert.doesNotMatch(page, /s2 · Saved 0/);
   let prepared = 0;
   f.host.prepare = async () => { prepared++; throw new Error('Read-only commands must not prepare'); };
   f.saved.reverse();
@@ -771,4 +1064,252 @@ test('slash disconnect revokes remote control without stopping local work or ans
   assert.equal(worker.pendingUI.get(request.id), request);
   f.receive('input', { bindingId, id: 'late', text: 'must not deliver' }); await tick();
   assert.deepEqual(f.stops, []); assert.deepEqual(f.answers, []); assert.deepEqual(f.inputs, []);
+});
+
+test('saved handles retain the same session after selecting another project and restarting', async t => {
+  const p = persistence(), first = fixture(p.store); t.after(() => first.manager.shutdown());
+  await first.connect(); const bindingId = await first.bind(0, ['workspace-a', 'workspace-b']);
+  first.receive('input', { bindingId, id: 'list', text: '/sessions' }); await tick();
+  first.receive('input', { bindingId, id: 'select', text: '/session s2' }); await tick();
+  assert.equal(first.manager.snapshot().binding?.sessionId, 'session-b');
+  await first.manager.shutdown();
+  assert.deepEqual(p.read()?.access?.sessionRefs, [['session-a', 's1'], ['session-b', 's2']]);
+  const second = fixture(p.store); t.after(() => second.manager.shutdown());
+  await second.manager.resume(); second.receive('connected'); await tick(); await tick();
+  const restored = second.channels[0].calls.find(call => call.type === 'bindSaved')!.args.bindingId;
+  second.receive('input', { bindingId: restored, id: 'old-s1', text: '/session s1' }); await tick();
+  assert.equal(second.manager.snapshot().binding?.sessionId, 'session-a');
+  second.receive('input', { bindingId: restored, id: 'task', text: 'correct project' }); await tick();
+  assert.deepEqual(second.inputs, [['a', 'correct project']]);
+});
+
+test('failed list writes never publish or accept new handles, while confirmed handles remain usable', async t => {
+  const p = persistence(), f = fixture(p.store); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind(0, ['workspace-a', 'workspace-b']);
+  const save = p.store.save;
+  p.store.save = async () => { throw new Error('Storage unavailable'); };
+  const lastCard = () => f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args;
+  f.receive('input', { bindingId, id: 'failed-list', text: '/sessions' }); await tick();
+  assert.match(lastCard().title, /^Not accepted/);
+  assert.doesNotMatch(lastCard().text, /s2/);
+  f.receive('input', { bindingId, id: 'unconfirmed', text: '/session s2' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-a');
+  f.receive('input', { bindingId, id: 'exact-select', text: '/session session-b' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-b');
+  assert.match(lastCard().text, /session-b · Session b/);
+  assert.doesNotMatch(lastCard().text, /s2 ·/);
+  f.receive('input', { bindingId, id: 'exact-status', text: '/status session-b' }); await tick();
+  assert.match(lastCard().text, /session-b · Session b/);
+  assert.doesNotMatch(lastCard().text, /s2 ·/);
+  f.receive('input', { bindingId, id: 'confirmed', text: '/session s1' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-a');
+  assert.match(lastCard().text, /s1 · Session a/);
+  assert.deepEqual(p.read()?.access?.sessionRefs, [['session-a', 's1']]);
+  p.store.save = save;
+  f.receive('input', { bindingId, id: 'retry-list', text: '/sessions' }); await tick();
+  assert.match(lastCard().text, /s2 · Session b/);
+  f.receive('input', { bindingId, id: 'confirmed-later', text: '/session s2' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-b');
+  assert.deepEqual(f.inputs, []);
+});
+
+test('new-session feedback falls back to the exact ID until its handle can be saved', async t => {
+  const p = persistence(), f = fixture(p.store); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind();
+  p.store.save = async () => { throw new Error('Storage unavailable'); };
+  f.receive('input', { bindingId, id: 'new', text: '/new' }); await tick();
+  const text = f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text;
+  assert.match(text, /session-new-2 · New session/);
+  assert.doesNotMatch(text, /s2 ·/);
+  f.receive('input', { bindingId, id: 'unpublished', text: '/session s2' }); await tick();
+  assert.match(f.channels[0].calls.at(-1)!.args.title, /^Not accepted/);
+  assert.deepEqual(p.read()?.access?.sessionRefs, [['session-a', 's1']]);
+  assert.deepEqual(f.inputs, []);
+});
+
+test('recovering storage through current preserves old mappings and restart cannot renumber disclosed handles', async t => {
+  const p = persistence(), first = fixture(p.store); t.after(() => first.manager.shutdown());
+  await first.connect(); const bindingId = await first.bind(0, ['workspace-a', 'workspace-b']);
+  first.receive('input', { bindingId, id: 'listed', text: '/sessions' }); await tick();
+  const save = p.store.save;
+  p.store.save = async () => { throw new Error('Storage unavailable'); };
+  first.saved.push({ sessionId: 'history', workspace: 'workspace-a', name: 'History' });
+  first.receive('input', { bindingId, id: 'failed-refresh', text: '/sessions' }); await tick();
+  p.store.save = save;
+  first.receive('input', { bindingId, id: 'current', text: '/current' }); await tick();
+  assert.deepEqual(p.read()?.access?.sessionRefs, [['session-a', 's1'], ['session-b', 's2'], ['history', 's3']]);
+  await first.manager.shutdown();
+  const next = fixture(p.store); t.after(() => next.manager.shutdown());
+  next.workers.reverse();
+  await next.manager.resume(); next.receive('connected'); await tick(); await tick();
+  const restored = next.channels[0].calls.find(call => call.type === 'bindSaved')!.args.bindingId;
+  next.receive('input', { bindingId: restored, id: 'old-s2', text: '/session s2' }); await tick();
+  assert.equal(next.manager.snapshot().binding?.sessionId, 'session-b');
+  next.receive('input', { bindingId: restored, id: 'old-s1', text: '/session s1' }); await tick();
+  assert.equal(next.manager.snapshot().binding?.sessionId, 'session-a');
+  assert.deepEqual(next.inputs, []);
+});
+
+test('same-process transport recovery does not confirm an unsuccessful handle write', async t => {
+  const p = persistence(), f = fixture(p.store); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind(0, ['workspace-a', 'workspace-b']);
+  p.store.save = async () => { throw new Error('Storage unavailable'); };
+  f.receive('input', { bindingId, id: 'failed-list', text: '/sessions' }); await tick();
+  f.receive('error', { stage: 'transport' }); await tick();
+  await f.manager.action({ type: 'connect' });
+  f.receive('connected'); await tick(); await tick();
+  const restored = f.channels.at(-1)!.calls.find(call => call.type === 'bindSaved')!.args.bindingId;
+  f.receive('input', { bindingId: restored, id: 'not-durable', text: '/session s2' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-a');
+  assert.match(f.channels.at(-1)!.calls.at(-1)!.args.title, /^Not accepted/);
+  f.receive('input', { bindingId: restored, id: 'durable', text: '/session s1' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-a');
+  assert.deepEqual(p.read()?.access?.sessionRefs, [['session-a', 's1']]);
+});
+
+test('initial binding never advertises a short handle when the first grant cannot be saved', async t => {
+  const p = persistence(), f = fixture(p.store); t.after(() => f.manager.shutdown());
+  await f.connect();
+  const save = p.store.save;
+  p.store.save = async () => { throw new Error('Storage unavailable'); };
+  const bindingId = await f.bind();
+  const welcome = f.channels[0].calls.find(call => call.args?.key === 'welcome')!.args.text;
+  assert.match(welcome, /Current: session-a · Session a/);
+  assert.doesNotMatch(welcome, /s1 · Session a/);
+  f.receive('input', { bindingId, id: 'not-durable', text: '/status s1' }); await tick();
+  assert.match(f.channels[0].calls.at(-1)!.args.title, /^Not accepted/);
+  p.store.save = save;
+  f.receive('input', { bindingId, id: 'retry-list', text: '/sessions' }); await tick();
+  assert.match(f.channels[0].calls.at(-1)!.args.text, /s1 · Session a/);
+  assert.deepEqual(p.read()?.access?.sessionRefs, [['session-a', 's1']]);
+});
+
+test('a delayed initial save confirms only its own handle snapshot, not a later failed list', async t => {
+  const p = persistence(), f = fixture(p.store), hold = deferred(); t.after(() => f.manager.shutdown());
+  await f.connect();
+  const save = p.store.save;
+  let initial = true;
+  p.store.save = async value => {
+    if (!value?.access) return save(value);
+    if (!initial) throw new Error('Storage unavailable');
+    initial = false; await hold.promise; await save(value);
+  };
+  const binding = f.bind(0, ['workspace-a', 'workspace-b']); await tick();
+  const bindingId = f.channels[0].calls.find(call => call.type === 'bind')!.args.bindingId;
+  f.receive('input', { bindingId, id: 'pending-list', text: '/sessions' }); await tick();
+  hold.resolve(); await binding; await tick();
+  assert.deepEqual(p.read()?.access?.sessionRefs, [['session-a', 's1']]);
+  f.receive('input', { bindingId, id: 'not-saved', text: '/session s2' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-a');
+  assert.match(f.channels[0].calls.at(-1)!.args.title, /^Not accepted/);
+  assert.deepEqual(f.inputs, []);
+});
+
+test('worker exit during a failed first grant save keeps authorization without confirming provisional handles', async t => {
+  const p = persistence(), f = fixture(p.store), hold = deferred(); t.after(() => f.manager.shutdown());
+  await f.connect();
+  p.store.save = async () => { await hold.promise; throw new Error('Storage unavailable'); };
+  const binding = f.bind(); await tick();
+  f.manager.dispose(f.workers[0]); hold.resolve(); await binding; await tick();
+  assert.equal(f.manager.snapshot().binding, undefined);
+  assert.deepEqual(f.manager.snapshot().authorized, { workspaces: ['workspace-a'] });
+  const welcome = f.channels[0].calls.find(call => call.args?.key === 'welcome')!.args.text;
+  assert.match(welcome, /Current: 未选择 \/ Not selected/);
+  assert.equal(p.read()?.access, undefined);
+  f.receive('error', { stage: 'transport' }); await tick();
+  await f.manager.action({ type: 'connect' });
+  f.receive('connected'); await tick(); await tick();
+  const bindingId = f.channels.at(-1)!.calls.find(call => call.type === 'bindSaved')!.args.bindingId;
+  f.receive('input', { bindingId, id: 'not-durable', text: '/status s1' }); await tick();
+  assert.match(f.channels.at(-1)!.calls.at(-1)!.args.title, /^Not accepted/);
+  assert.deepEqual(f.inputs, []);
+});
+
+test('legacy saved connections reject short handles until an explicit fresh list', async t => {
+  const p = persistence({ version: 1, identity, access: { actor: 'human', chat: 'chat',
+    workspaces: ['workspace-a', 'workspace-b'], sessionId: 'session-b' } });
+  const f = fixture(p.store); t.after(() => f.manager.shutdown());
+  await f.manager.resume(); f.receive('connected'); await tick(); await tick();
+  const bindingId = f.channels[0].calls.find(call => call.type === 'bindSaved')!.args.bindingId;
+  f.receive('input', { bindingId, id: 'legacy', text: '/session s1' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-b');
+  assert.match(f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text, /旧编号尚未用于操作/);
+  assert.equal(p.read()?.access?.sessionRefs, undefined);
+  f.receive('input', { bindingId, id: 'fresh', text: '/sessions' }); await tick();
+  assert.ok(p.read()?.access?.sessionRefs);
+  f.receive('input', { bindingId, id: 'new-s2', text: '/session s2' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-a');
+  assert.deepEqual(f.inputs, []);
+});
+
+test('retired persisted handles are not recycled for newly discovered sessions', async t => {
+  const p = persistence({ version: 1, identity, access: { actor: 'human', chat: 'chat',
+    workspaces: ['workspace-a'], sessionId: 'session-a', sessionRefs: [['deleted', 's1'], ['session-a', 's7']] } });
+  const f = fixture(p.store); t.after(() => f.manager.shutdown());
+  f.saved.push({ sessionId: 'new-history', workspace: 'workspace-a', name: 'New history' });
+  await f.manager.resume(); f.receive('connected'); await tick(); await tick();
+  const bindingId = f.channels[0].calls.find(call => call.type === 'bindSaved')!.args.bindingId;
+  f.receive('input', { bindingId, id: 'fresh', text: '/sessions' }); await tick();
+  assert.match(f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text, /s8 · New history/);
+  f.receive('input', { bindingId, id: 'retired', text: '/session s1' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.sessionId, 'session-a');
+});
+
+test('authorized empty projects remain selectable for creating their first session', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  f.host.projects = () => [{ workspace: 'workspace-a', name: 'Project A' }, { workspace: 'empty-project', name: 'Empty' }];
+  await f.connect(); const bindingId = await f.bind(0, ['workspace-a', 'empty-project']);
+  assert.ok(f.manager.snapshot().projects?.some(project => project.workspace === 'empty-project'));
+  f.receive('input', { bindingId, id: 'empty-list', text: '/sessions p2' }); await tick();
+  assert.match(f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text, /Empty \(0\)/);
+  f.receive('input', { bindingId, id: 'create', text: '/new p2' }); await tick();
+  assert.equal(f.manager.snapshot().binding?.workspace, 'empty-project');
+  assert.deepEqual(f.inputs, []);
+});
+
+test('following pages use one snapshot while a new first page refreshes the catalog', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  for (let index = 0; index < 12; index++) f.saved.push({ sessionId: `history-${index}`, workspace: 'workspace-a', name: `History ${index}` });
+  await f.connect(); const bindingId = await f.bind();
+  const card = () => f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text as string;
+  f.receive('input', { bindingId, id: 'first', text: '/sessions' }); await tick();
+  assert.match(card(), /s10 · History 8/);
+  let refreshed = 0;
+  f.host.refresh = async () => { refreshed++; f.saved.reverse(); };
+  f.receive('input', { bindingId, id: 'second', text: '/sessions 2' }); await tick();
+  assert.equal(refreshed, 0);
+  assert.match(card(), /s11 · History 9/);
+  assert.match(card(), /s13 · History 11/);
+  assert.doesNotMatch(card(), /s2 · History 0/);
+  f.receive('input', { bindingId, id: 'refresh', text: '/sessions' }); await tick();
+  assert.equal(refreshed, 1);
+  assert.match(card(), /s13 · History 11/);
+});
+
+test('project filtering keeps global handles and identifies the current target outside that project', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  await f.connect(); const bindingId = await f.bind(0, ['workspace-a', 'workspace-b']);
+  f.receive('input', { bindingId, id: 'filtered', text: '/sessions p2' }); await tick();
+  const text = f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text;
+  assert.match(text, /s2 · Session b/);
+  assert.match(text, /当前.*p1.*workspace-a.*s1/);
+  assert.doesNotMatch(text, /p1 · workspace-a \(1\)/);
+  f.receive('input', { bindingId, id: 'invalid-project', text: '/sessions p3' }); await tick();
+  assert.match(f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.title, /^Not accepted/);
+  assert.deepEqual(f.inputs, []);
+});
+
+test('renaming updates attached metadata and same-named projects get distinguishing suffixes', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown());
+  f.workers[0].cwd = '/alpha/client'; f.workers[1].cwd = '/beta/client';
+  await f.connect(); const bindingId = await f.bind(0, f.workers.map(worker => worker.cwd));
+  f.workers[0].state!.sessionName = 'Renamed';
+  f.receive('input', { bindingId, id: 'current', text: '/current' }); await tick();
+  let text = f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text;
+  assert.match(text, /Renamed/); assert.doesNotMatch(text, /Session a/);
+  assert.equal(f.manager.snapshot().binding?.name, 'Renamed');
+  f.receive('input', { bindingId, id: 'projects', text: '/projects' }); await tick();
+  text = f.channels[0].calls.slice().reverse().find(call => call.type === 'card')!.args.text;
+  assert.match(text, /alpha\/client/); assert.match(text, /beta\/client/);
+  assert.doesNotMatch(text, /workspace-a|workspace-b/);
 });

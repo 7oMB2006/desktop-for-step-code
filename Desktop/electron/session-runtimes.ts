@@ -17,6 +17,8 @@ import { questionnaire } from '../src/questionnaire';
 import { cronState, hasScheduledCron, type CronState } from './cron-state';
 import { restoreSelectedModel, UnavailableModelError } from './model-preference';
 import { backgroundLaneStates, backgroundState, hasBackgroundWork, type BackgroundLaneState } from './background-work';
+import { taskOutcome } from './task-outcome';
+export { taskOutcome } from './task-outcome';
 
 export interface WorkerTransport {
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
@@ -63,13 +65,6 @@ export interface SessionRuntime {
 export function firstUserText(messages: Message[]) {
   const message = messages.find(isUserMessage);
   return message ? visibleInputBlocks({ ...message, role: 'user' }).filter(block => block.type === 'text').map(block => block.text ?? '').join('\n').slice(0, 200) : '';
-}
-export function taskOutcome(messages: Message[]) {
-  const last = messages.at(-1);
-  if (last?.role !== 'assistant') return 'idle' as const;
-  if (last.stopReason === 'stop') return 'completed' as const;
-  if (['error', 'aborted', 'length'].includes(last.stopReason ?? '')) return 'interrupted' as const;
-  return 'idle' as const;
 }
 function workspaceKey(cwd: string) {
   const path = resolve(cwd);

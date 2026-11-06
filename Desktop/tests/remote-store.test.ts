@@ -62,3 +62,24 @@ test('saved Remote schema rejects malformed scope and strips transient capabilit
     assert.throws(() => savedRemote(value));
   assert.deepEqual(savedRemote({ ...saved, approval: 'old', access: { ...saved.access, runId: 'old' } }), saved);
 });
+test('image delivery is an explicit encrypted opt-in and legacy saved grants remain disabled', async t => {
+  const { root, backend } = await fixture(t), store = new RemoteStore(root, backend);
+  assert.equal(savedRemote(saved).access?.imagesAllowed, undefined);
+  for (const imagesAllowed of [null, 'true', 1, {}])
+    assert.throws(() => savedRemote({ ...saved, access: { ...saved.access, imagesAllowed } }), /scope/i);
+  const enabled = { ...saved, access: { ...saved.access!, imagesAllowed: true } };
+  await store.save(enabled);
+  assert.equal((await store.load())?.access?.imagesAllowed, true);
+  await store.save({ ...enabled, access: { ...enabled.access, imagesAllowed: false } });
+  assert.equal((await store.load())?.access?.imagesAllowed, undefined);
+});
+test('session handles are encrypted and survive storage without reassigning retired handles', async t => {
+  const { root, backend } = await fixture(t), store = new RemoteStore(root, backend);
+  const value: SavedRemote = { ...saved, access: { ...saved.access!, sessionRefs: [['removed-session', 's1'], ['session-a', 's7']] } };
+  await store.save(value);
+  assert.deepEqual(await store.load(), value);
+  assert.doesNotMatch((await readFile(join(root, 'connection.dpapi'))).toString('utf8'), /removed-session|session-a/);
+  for (const sessionRefs of [[['a', 's1'], ['a', 's2']], [['a', 's1'], ['b', 's1']], [['a', 's0']],
+    [['a', 's-1']], [['a', 's2', 'extra']], [['', 's1']], new Array(10001).fill(['a', 's1'])])
+    assert.throws(() => savedRemote({ ...saved, access: { ...saved.access, sessionRefs } }), /handles/);
+});

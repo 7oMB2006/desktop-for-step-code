@@ -137,6 +137,13 @@
 .remote-page .remote-scope label { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 8px 0; }
 .remote-page .remote-scope input { flex: 0 0 16px; width: 16px; height: 16px; margin: 1px 0; accent-color: var(--primary); }
 .remote-scope label > span { min-width: 0; overflow-wrap: anywhere; }
+.remote-page label.checkbox { align-items: flex-start; padding: 5px 4px; margin: 16px 0; }
+.remote-page label.checkbox > input { flex: 0 0 16px; margin: 2px 0; accent-color: var(--primary); }
+.remote-page label.checkbox > span { min-width: 0; overflow-wrap: anywhere; }
+.remote-forwarding { margin-top: 30px; }
+.remote-forwarding .remote-authorized-row { margin-top: 0; border-top: 0; padding: 14px 4px; }
+.remote-forwarding .remote-section-heading h3 { margin: 0; font-size: 13px; }
+.remote-forwarding .remote-section-heading > span { color: var(--muted); font-size: 11px; }
 .remote-command-list { margin: 22px 0 0; }
 .remote-command-list > div { display: grid; grid-template-columns: minmax(145px, .8fr) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
 .remote-command-list dt { color: var(--ink); overflow-wrap: anywhere; }

@@ -23,7 +23,8 @@ export class SessionCollaboration {
   private url?: string;
   private tokens = new Map<string, SessionRuntime>();
   constructor(private pool: SessionRuntimes, private extensionPath: string, private language: () => 'zh' | 'en',
-    private enqueue: (worker: SessionRuntime, message: string) => void) {}
+    private enqueue: (worker: SessionRuntime, message: string) => void,
+    private remote?: { extensionPath: string; sendImage: (worker: SessionRuntime, path: string, caption?: string, signal?: AbortSignal) => Promise<unknown> }) {}
 
   async start() {
     const server = createServer(async (req, res) => {
@@ -71,6 +72,7 @@ export class SessionCollaboration {
       // The broker gates every send itself, even under Full Access, so only
       // these three desktop-owned tools bypass that duplicate approval.
       args: ['--desktop-plan-review', '--desktop-clarification', '--extension', this.extensionPath,
+        ...(this.remote ? ['--extension', this.remote.extensionPath] : []),
         '--tool-override', 'desktop_sessions=allow',
         '--tool-override', 'desktop_read_session=allow',
         '--tool-override', 'desktop_send_message=allow'],
@@ -88,6 +90,12 @@ export class SessionCollaboration {
     requireSource();
     if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('Invalid session request');
     const data = request as Record<string, unknown>;
+    if (data.action === 'remote-image') {
+      if (!this.remote || typeof data.path !== 'string' || !data.path || data.path.length > 4096
+        || data.caption !== undefined && (typeof data.caption !== 'string' || data.caption.length > 500))
+        throw new Error('Invalid image delivery request');
+      return this.remote.sendImage(source, data.path, data.caption as string | undefined, signal);
+    }
     if (data.action === 'list') return {
       scope: 'Resident sessions in this Desktop profile only. Historical recycled sessions are not included.',
       self: source.state?.sessionId,

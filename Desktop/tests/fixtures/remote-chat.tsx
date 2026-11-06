@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Check, CheckCheck, ChevronDown, Code2, MessageSquare, Moon, Pause, Play, RotateCcw, Send, Sun } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, Code2, ImagePlus, MessageSquare, Moon, Pause, Play, RotateCcw, Send, Sun, Undo2 } from 'lucide-react';
 import { AppMenu } from '../../src/AppMenu';
 import { AppTooltip } from '../../src/AppTooltip';
-import { remoteCard, type RemoteCardButton, type RemoteCardDocument } from '../../electron/remote-card.mjs';
-import { chatReducer, initialChat, scenes, sessionLabel, type ChatMessage, type Scene } from './remote-chat-model';
+import { remoteCard, type RemoteCardDocument } from '../../electron/remote-card.mjs';
+import { RemoteChatPreview, scenes, sessionLabel, type ChatMessage, type Scene } from './remote-chat-model';
 import '../../src/theme.css';
 import './remote-chat.css';
 
@@ -41,24 +41,29 @@ function Markdown({ text }: { text: string }) {
 function Card({ document, message, decide }: {
   document: RemoteCardDocument; message: ChatMessage; decide: (allow: boolean) => void;
 }) {
-  return <div className="fc-card" data-reply={message.card?.reply} data-testid="bot-card">
+  return <div className="fc-card" data-reply={message.card?.reply} data-approval={message.approval}
+    data-status={message.card?.status} data-overview={Boolean(message.card?.overview)} data-testid="bot-card">
     {document.header && <header>{document.header.title.content}</header>}
     {document.elements.map((element, index) => element.tag === 'div'
-      ? <div className="fc-card-body" key={index}>{element.text.tag === 'lark_md'
+      ? <div className={message.card?.reply && element.text.tag === 'plain_text' ? 'fc-tool-progress' : 'fc-card-body'}
+        data-testid={message.card?.reply && element.text.tag === 'plain_text' ? 'tool-progress' : undefined}
+        title={message.card?.reply && element.text.tag === 'plain_text' ? element.text.content : undefined}
+        key={index}>{element.text.tag === 'lark_md'
         ? <Markdown text={element.text.content}/> : <p className="fc-literal">{element.text.content}</p>}</div>
       : element.tag === 'note' ? <footer key={index} data-interrupted={message.card?.reply === 'interrupted'}>
         {element.elements.map((item, index) => <span key={index}>{item.content}</span>)}</footer>
         : <div className="fc-approval" key={index}>{element.actions.map((action, index) =>
-          <button key={index} disabled={message.approval !== 'pending'} onClick={() => decide(index === 0)}>
+          <button key={index} disabled={message.approval !== 'pending'}
+            onClick={() => decide(action.value.option === 'Allow once / 允许一次')}>
             {message.approval === 'allowed' && index === 0 ? '已允许一次' : message.approval === 'denied' && index === 1
-              ? '已拒绝' : action.text.content}</button>)}</div>)}
+              ? '已拒绝' : action.text.content.split(' / ').at(-1)}</button>)}
+          {message.approval === 'expired' && <span className="fc-expired">审批已失效</span>}</div>)}
   </div>;
 }
-function Message({ message, mode, decide }: {
-  message: ChatMessage; mode: 'new' | 'old'; decide: (allow: boolean) => void;
+function Message({ message, mode, decide, recall, connected }: {
+  message: ChatMessage; mode: 'new' | 'old'; decide: (allow: boolean) => void; recall: () => void; connected: boolean;
 }) {
-  const actions: RemoteCardButton[] = message.approval ? ['允许一次', '拒绝'].map(option =>
-    ({ tag: 'button', text: { tag: 'plain_text', content: option }, value: { token: `demo-${message.id}`, option } })) : [];
+  const actions = message.actions ?? [];
   const value = message.card && mode === 'old' && message.card.reply ? {
     title: `${message.card.reply === 'working' ? 'Working / 正在处理'
       : message.card.reply === 'completed' ? 'Completed / 已完成' : 'Interrupted / 已中断'} · ${message.card.title}`,
@@ -68,9 +73,16 @@ function Message({ message, mode, decide }: {
     <div className="fc-avatar" aria-hidden="true">{message.role === 'bot'
       ? <img src="/StepCode.svg" alt=""/> : <span>我</span>}</div>
     <div className="fc-message-content">
-      <div className="fc-sender">{message.role === 'bot' ? <>Desktop for Step Code <small>应用</small></> : '你'}</div>
+      <div className="fc-sender">{message.role === 'bot' ? <>Desktop for Step Code <small>应用</small></> : <>
+        <span>你</span>{message.recalled ? <span className="fc-recalled">已撤回</span>
+          : <IconButton label="撤回这条模拟消息" disabled={!connected} onClick={recall}><Undo2 size={13}/></IconButton>}</>}</div>
       {value ? <Card document={remoteCard(value, actions)} message={message} decide={decide}/>
-        : <div className="fc-bubble">{message.text}</div>}
+        : message.text ? <div className="fc-bubble">{message.text}</div> : null}
+      {message.image && <figure className="fc-image" data-testid="simulated-image">
+        <img src={`data:${message.image.mimeType};base64,${message.image.data}`}
+          width="128" height="80" alt="模拟 PNG 单像素测试图"/>
+        <figcaption>模拟图片 · 单像素 PNG{message.imageSession ? ` · ${sessionLabel(message.imageSession)}` : ''}</figcaption>
+      </figure>}
       {message.reaction && (mode === 'new' || message.reaction === 'ok') && <div className="fc-reaction"
         role="status" aria-label={message.reaction === 'typing' ? '正在处理这条消息' : '验证码已匹配，等待本机确认'}
         data-tooltip={message.reaction === 'typing' ? '正在处理' : '验证码已匹配，仍需本机确认'}>
@@ -84,8 +96,10 @@ function Message({ message, mode, decide }: {
   </article>;
 }
 function Preview({ onReset }: { onReset: () => void }) {
-  const [state, dispatch] = useReducer(chatReducer, startingScene.id, initialChat);
+  const [controller, setController] = useState(() => new RemoteChatPreview(startingScene.id));
+  const [state, setState] = useState(() => controller.snapshot());
   const [scene, setScene] = useState<Scene>(startingScene.id);
+  const [error, setError] = useState<string>();
   const [mode, setMode] = useState<'new' | 'old'>('new');
   const [speed, setSpeed] = useState('1');
   const [paused, setPaused] = useState(false);
@@ -94,35 +108,50 @@ function Preview({ onReset }: { onReset: () => void }) {
   const transcript = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const editor = useRef<HTMLTextAreaElement>(null);
+  const run = useCallback((operation: Promise<void>) => {
+    void operation.catch(error => setError(error instanceof Error ? error.message : String(error)));
+  }, []);
   useEffect(() => {
-    if (paused || !state.job && !state.queue.length) return;
-    const timer = setInterval(() => dispatch({ type: 'tick', ms: 80 * Number(speed) }), 80);
+    const unsubscribe = controller.subscribe(setState);
+    run(controller.start());
+    return () => { unsubscribe(); void controller.dispose(); };
+  }, [controller, run]);
+  useEffect(() => {
+    if (paused || !state.ready || !state.jobs.length && !state.queue.length) return;
+    const timer = setInterval(() => run(controller.advance(80 * Number(speed))), 80);
     return () => clearInterval(timer);
-  }, [paused, speed, Boolean(state.job), state.queue.length]);
+  }, [controller, paused, run, speed, state.ready, state.jobs.length, state.queue.length]);
   useEffect(() => {
     if (follow.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
   }, [state.messages]);
   const changeScene = (value: string) => {
     const option = scenes.find(item => item.id === value)!;
     setScene(option.id); setDraft(option.prompt); setPaused(false);
-    dispatch({ type: 'reset', scene: option.id }); follow.current = true;
+    const next = new RemoteChatPreview(option.id);
+    setController(next); setState(next.snapshot()); setError(undefined); follow.current = true;
   };
   const send = () => {
-    if (!draft.trim()) return;
-    dispatch({ type: 'send', text: draft, scene }); setDraft(''); follow.current = true; setPaused(false);
+    if (!state.ready || !draft.trim()) return;
+    run(controller.send(draft)); setDraft(''); follow.current = true; setPaused(false);
     editor.current?.focus();
   };
   const play = () => {
-    if (state.job || state.queue.length) setPaused(value => !value);
+    if (state.jobs.length || state.queue.length) setPaused(value => !value);
     else {
-      dispatch({ type: 'send', text: scenes.find(item => item.id === scene)!.prompt, scene });
+      run(controller.demo());
       follow.current = true; setPaused(false);
     }
   };
-  const status = state.awaitingConfirmation ? '等待本机确认' : state.messages.some(item => item.approval === 'pending')
-    ? '等待审批' : state.job ? paused ? '已暂停演示' : '正在回复' : '空闲';
+  const job = state.jobs.find(job => job.session === state.session);
+  const running = state.jobs.length > 0;
+  const status = !state.ready ? '正在准备' : state.awaitingConfirmation ? '等待本机确认'
+    : !state.connected ? state.remoteStatus === 'idle' ? '已断开' : '待授权'
+    : state.messages.some(item => item.approval === 'pending') ? '等待审批'
+    : running ? paused ? '已暂停演示' : '正在回复' : '空闲';
   const active = [...state.messages].reverse().find(message => message.card);
-  return <div className="fc-preview" data-mode={mode}>
+  return <div className="fc-preview" data-mode={mode} data-ready={state.ready}
+    data-session={state.session ?? ''} data-running={state.jobs.length} data-queued={state.queue.length}
+    data-images-allowed={state.imagesAllowed} data-connected={state.connected}>
     <header className="fc-preview-bar">
       <div className="fc-preview-title"><img src={feishuIcon} alt="飞书" width="22" height="22"/>
         <strong>飞书消息模拟</strong><span className="fc-offline">本地模拟</span></div>
@@ -137,6 +166,7 @@ function Preview({ onReset }: { onReset: () => void }) {
         }}>{dark ? <Sun size={17}/> : <Moon size={17}/>}</IconButton>
       </div>
     </header>
+    {(error || state.error) && <p className="fc-preview-error" role="alert">{error || state.error}</p>}
     <div className="fc-workspace">
       <aside className="fc-conversations">
         <h2>消息</h2>
@@ -147,14 +177,16 @@ function Preview({ onReset }: { onReset: () => void }) {
       </aside>
       <main className="fc-chat">
         <header className="fc-chat-header"><img src="/StepCode.svg" alt="" width="30" height="30"/>
-          <div><h1>Desktop for Step Code <small>应用</small></h1><span>{sessionLabel(state.session)}</span></div>
-          <span className="fc-connection"><i data-active={state.connected}/>{state.connected ? '已连接' : '待授权'}</span>
+          <div><h1>Desktop for Step Code <small>应用</small></h1><span>{sessionLabel(state.session, state.sessions)}</span></div>
+          <span className="fc-connection"><i data-active={state.connected}/>{state.connected ? '已连接'
+            : state.remoteStatus === 'idle' ? '已断开' : '待授权'}</span>
         </header>
         <div ref={transcript} className="fc-transcript" role="log" aria-label="模拟聊天记录" aria-live="off"
           onScroll={() => { const element = transcript.current!; follow.current = element.scrollHeight - element.clientHeight - element.scrollTop < 64; }}>
           <div className="fc-date">今天</div>
           {state.messages.map(message => <Message key={message.id} message={message} mode={mode}
-            decide={allow => dispatch({ type: 'decision', id: message.id, allow })}/>)}
+            connected={state.connected} recall={() => run(controller.recall(message.id))}
+            decide={allow => run(controller.decide(message.id, allow))}/>)}
         </div>
         <form className="fc-composer" onSubmit={event => { event.preventDefault(); send(); }}>
           <textarea ref={editor} aria-label="发送给飞书机器人的模拟消息" value={draft} maxLength={12000}
@@ -162,8 +194,13 @@ function Preview({ onReset }: { onReset: () => void }) {
             onKeyDown={event => {
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
             }}/>
-          <div className="fc-composer-bottom"><span>{sessionLabel(state.session)}</span>
-            <button className="fc-send" type="submit" disabled={!draft.trim()} aria-label="发送消息" data-tooltip="发送消息"><Send size={17}/></button></div>
+          <div className="fc-composer-bottom"><span>{sessionLabel(state.session, state.sessions)}</span>
+            <div className="fc-composer-actions">{scene === 'images' && <IconButton label="发送模拟图片"
+              disabled={!state.ready || !state.connected} onClick={() => {
+                run(controller.sendImageInput(draft || undefined)); setDraft(''); follow.current = true; setPaused(false);
+              }}><ImagePlus size={17}/></IconButton>}
+              <button className="fc-send" type="submit" disabled={!state.ready || !draft.trim()} aria-label="发送消息" data-tooltip="发送消息"><Send size={17}/></button>
+            </div></div>
         </form>
       </main>
       <aside className="fc-controls">
@@ -172,21 +209,24 @@ function Preview({ onReset }: { onReset: () => void }) {
           <div className="fc-control-field"><label>速度</label><Select label="播放速度" value={speed}
             options={[{ id: '.5', name: '0.5×' }, { id: '1', name: '1×' }, { id: '2', name: '2×' }]} onChange={setSpeed}/></div>
           <div className="fc-playback">
-            <button className="fc-play" onClick={play}>{state.job && !paused ? <Pause size={15}/> : <Play size={15}/>}
-              {state.job ? paused ? '继续' : '暂停' : '播放一轮'}</button>
-            <IconButton label="立即完成当前回复" disabled={!state.job || state.job.scene === 'approval' && !state.job.approved}
-              onClick={() => dispatch({ type: 'finish' })}><CheckCheck size={18}/></IconButton>
+            <button className="fc-play" disabled={!state.ready} onClick={play}>{running && !paused ? <Pause size={15}/> : <Play size={15}/>}
+              {running || state.queue.length ? paused ? '继续' : '暂停' : '播放一轮'}</button>
+            <IconButton label="立即完成当前回复" disabled={!job || job.scene === 'approval' && !job.approved}
+              onClick={() => run(controller.finish())}><CheckCheck size={18}/></IconButton>
           </div>
-          {state.awaitingConfirmation && <button className="fc-local-confirm" onClick={() => dispatch({ type: 'confirm' })}>模拟本机确认</button>}
+          {state.awaitingConfirmation && <button className="fc-local-confirm" onClick={() => run(controller.confirm())}>模拟本机确认</button>}
+          {scene === 'images' && <label className="fc-image-permission"><input type="checkbox"
+            aria-label="允许模拟图片收发" checked={state.imagesAllowed} disabled={!state.connected}
+            onChange={event => run(controller.setImagesAllowed(event.target.checked))}/><span>允许模拟图片收发</span></label>}
         </section>
-        <section className="fc-run-state"><h2>当前状态</h2><div><i data-live={Boolean(state.job)}/><strong>{status}</strong></div>
-          <dl><dt>目标会话</dt><dd>{state.session}</dd><dt>排队消息</dt><dd>{state.queue.length}</dd><dt>真实网络</dt><dd>未连接</dd></dl>
+        <section className="fc-run-state"><h2>当前状态</h2><div><i data-live={state.connected && running}/><strong>{status}</strong></div>
+          <dl><dt>目标会话</dt><dd>{state.session ?? '未选择'}</dd><dt>排队消息</dt><dd>{state.queue.length}</dd><dt>真实网络</dt><dd>未连接</dd></dl>
         </section>
         <section className="fc-events"><h2>消息事件</h2>
           <ol>{state.events.length ? state.events.map((event, index) => <li key={index}><i/>{event}</li>) : <li>等待下一条消息</li>}</ol>
         </section>
         <section className="fc-payload"><details><summary><Code2 size={14}/>消息数据<ChevronDown size={14}/></summary>
-          <pre>{JSON.stringify(active?.card ? remoteCard(active.card) : {}, null, 2)}</pre></details></section>
+          <pre>{JSON.stringify(active?.card ? remoteCard(active.card, active.actions) : {}, null, 2)}</pre></details></section>
       </aside>
     </div>
     <AppTooltip/>

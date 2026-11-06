@@ -571,8 +571,9 @@ test('suspended background lane stays gone on reopen: native lanes empty, known-
     const activity = pool.summaries().find(runtime => runtime.runtimeId === reopened.id)!.background;
     assert.deepEqual(activity, { status: 'known', lanes: [] }, 'The desktop display cache knows the lane set is empty');
     const historical = backgroundSubagentStates(reopened.messages);
-    // Windows keeps the frozen running dispatch; a graceful posix shutdown may
-    // record the lane's end instead. Both are recorded facts, never invented.
+    // Preserve the outcome actually returned in saved messages; the cloud run
+    // observed failed while the local probe retained running. Do not infer why
+    // shutdown produced that outcome solely from the operating system.
     const historicalStatus = historical.get(laneId);
     assert.ok(historicalStatus === 'running' || historicalStatus === 'failed' || historicalStatus === 'aborted',
       `Reopen preserves the recorded dispatch outcome, got ${historicalStatus}`);

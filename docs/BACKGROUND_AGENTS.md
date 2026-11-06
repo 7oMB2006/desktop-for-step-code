@@ -88,6 +88,9 @@ supplies a bounded current lane roster from validated live status events, or a
 separate read-only observation when unresolved history is loaded. Observations
 never modify live ownership. Transport/session changes and newer lifecycle
 events invalidate them; failed or unavailable reads do not become empty rosters.
+Manual reply actions also invalidate observations before and after the native
+service, including unconfirmed receipts, without changing event-owned process
+state or the reply deduplication contract.
 Only a validated current roster revises the display: a known empty roster marks
 unresolved historical running/queued records as unknown outcomes, never
 completed/failed/stopped tasks. When the current roster is unavailable the

@@ -1,5 +1,69 @@
 # Verification
 
+## PR #198 main integration and acceptance corrections (2026-11-06)
+
+Main `5c3fd214` (#197 background replies and #199 completion review) is merged
+without rewriting the published PR ancestry. Four conflicts retain both
+background-observation invalidation and completion-review event/ownership
+handling, both renderer imports, all verifier registrations and both dated
+verification records. The reply capability, request deduplication, selected
+session gate and one-shot review reservation remain intact. None of main's
+18 runtime patches, its pinned commit, upstream overlays or postimages changes
+in this Desktop state fix.
+
+The latest old-head Windows sessions job `127410474542` fails in
+`verify-session-move.mjs` with `page is not defined`: its module-level Cron
+assertion helper referenced a page local to the test's try block. The previous
+copied-function simulation did not exercise this scope and was insufficient
+verification. The helper is now an actual imported module with an explicit page
+parameter. Success throws outside the error-classification catch, so it cannot
+be misaccepted as a Cron rejection. Only the exact preflight
+`Session operation in progress` error is retried, at most five 500-ms waits;
+other errors propagate unchanged. Eight tests call the real helper and cover
+page selection, rejection, exhaustion, unexpected success and non-preflight
+operation errors. The old implementation's missing binding is reproduced by
+executing its actual extracted function, not a copied approximation.
+
+Old-head macOS prepare job `127410346947` times out in the native background
+complete scenario at 60 seconds. That failure has no execution-phase evidence,
+so it is not attributed to graceful shutdown, runner capacity or a resolved
+flake. The parameterized fixture now records allowlisted execution/cleanup
+phases and bounded failure state before rethrowing its original error. Cleanup
+releases every fixture gate and closes HTTP connections before awaiting the
+runtime pool; server closure runs even when pool shutdown fails. Three local
+complete-scenario runs pass, but this does not reproduce or prove resolution of
+the native macOS timeout. The original per-test and CI deadlines remain intact.
+
+Manual replies do not append parent `agent_send` tool results. To keep the new
+observation cache from surviving those actions, the selected-session reply
+handler invalidates display observations before and after the existing native
+reply service, including unconfirmed delivery. Tests exercise the actual
+BackgroundAgents service and preserve its receipt/error result. Invalidation
+never modifies event-owned lane state, dispatches a second prompt or changes
+reply deduplication. Completion-review busy/consent and completion-notification
+guards are unchanged.
+
+The combined 18-patch runtime replays from a clean pinned checkout and builds
+offline. Node 24.16.0 staging matches all 45 shared postimages and advertises
+both background-reply and completion-review capabilities. Both Darwin additions
+also apply and match 46 combined postimages on Windows; this is not native macOS
+acceptance. Desktop typecheck and production build pass. The focused combined
+runtime/state/review suite passes 71 tests before the additional exact-operation
+helper case; the final helper suite passes all eight cases. History-liveness,
+background-replies, completion-review, background-controls and hidden-messages
+Electron acceptances pass with isolated loopback providers.
+
+Final combined local verification collects 939 serial Desktop tests: 924 pass,
+14 platform skips and one pre-existing file-URL marketplace clone failure.
+Typecheck and production build pass; 843 candidate inputs match the validation
+mirror byte-for-byte. CI inventory/policy/runner checks pass 30 tests with one
+platform skip. The complete native session-move script still stops earlier at a
+missing command-generated file in this Windows environment; its original
+file/command assertions are retained. Replacement current-head Windows/macOS
+checks remain required, including the native completion scenario and complete
+source/packaged session-move acceptance. No package, shortcut, personal profile
+or original dirty worktree is changed.
+
 ## Background transcript state and live activity (2026-11-05, local uncommitted candidate)
 
 The candidate starts from main `7c349b73`, including #196's BTW boundary update.

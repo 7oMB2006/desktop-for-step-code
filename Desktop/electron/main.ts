@@ -16,6 +16,7 @@ import { BtwRequests } from './btw';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
+import { reserveReview, reviewPayload } from './completion-review';
 import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { importedHistoryMessages } from './imported-history';
@@ -1653,9 +1654,14 @@ async function handle(method: string, args: any[]) {
           return;
         }
         if (type === 'set_launch_mode') {
-          if (!['plan', 'goal', 'ultracode'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
+          if (!['plan', 'goal', 'ultracode', 'review'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
           const launch = sessionDraft.launch ??= emptyLaunch();
-          if (data.mode === 'ultracode') launch.ultracodeArmed = data.enabled;
+          if (data.mode === 'review') {
+            if (data.enabled && (launch.plan || launch.goalArmed || launch.ultracodeArmed))
+              throw new Error('Completion review is only available for ordinary main tasks');
+            launch.reviewArmed = data.enabled;
+          } else if (data.enabled && launch.reviewArmed) throw new Error('Disable completion review before selecting another task mode');
+          else if (data.mode === 'ultracode') launch.ultracodeArmed = data.enabled;
           else if (data.mode === 'plan') { launch.plan = data.enabled; launch.planArmed = data.enabled; if (data.enabled) launch.goalArmed = false; }
           else { launch.goalArmed = data.enabled; if (data.enabled) { launch.plan = false; launch.planArmed = false; } }
           return;
@@ -1681,11 +1687,12 @@ async function handle(method: string, args: any[]) {
       if (mutating) worker.mutating = true;
       const wasStreaming = promptNeedsQueue(worker);
       if (type === 'prompt') worker.submissions++;
+      let restoreReview: (() => void) | undefined;
       try {
         const rpc = worker.rpc;
         const pendingUI = worker.pendingUI;
         if (type === 'set_launch_mode') {
-          if (!['plan', 'goal', 'ultracode'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
+          if (!['plan', 'goal', 'ultracode', 'review'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
           return await launchControls.set(worker, data.mode, data.enabled);
         }
         if (type === 'goal_action') return await launchControls.goal(worker, text(data.action, 20), data.value);
@@ -1776,6 +1783,10 @@ async function handle(method: string, args: any[]) {
         if (type === 'prompt') {
           payload.message = text(data.message);
           if (/^\s*\/_desktop_(?:retry|goal_input)\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
+          promptLaunch = { ...worker.launch ?? emptyLaunch() };
+          payload = reviewPayload(worker, payload, promptLaunch);
+          restoreReview = reserveReview(worker, payload);
+          if (restoreReview) runtimes.publishLaunch(worker);
           if (data.files !== undefined) {
             if (!Array.isArray(data.files) || data.files.length > MAX_ATTACHMENTS || new Set(data.files).size !== data.files.length) throw new Error('Invalid attachments');
             const paths = await Promise.all(data.files.map(async (id: unknown) => {
@@ -1795,10 +1806,12 @@ async function handle(method: string, args: any[]) {
               return { type: 'image', mimeType: i.mimeType, data: text(i.data, 14000000) };
             });
           }
-          promptLaunch = { ...worker.launch ?? emptyLaunch() };
           if (wasStreaming || worker.state?.isCompacting) {
             if (worker.launch?.goalArmed) throw new Error('Finish the current task before starting a new goal');
+            if (worker.state?.desktopCompletionReview === 1)
+              await rpc.request('desktop_completion_review_skip');
             const id = pendingMessages.enqueue(worker, text(data.message), launchControls.input(worker, payload), filePaths);
+            restoreReview = undefined;
             launchControls.consume(worker);
             if (Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
             return { queued: true, id, version: 0 };
@@ -1827,6 +1840,7 @@ async function handle(method: string, args: any[]) {
             }
             const submission = rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
             response = await submission;
+            if (type === 'prompt') { restoreReview = undefined; runtimes.publishLaunch(worker); }
           }
           if (type === 'abort') {
             // Abort waits for idle; clear accepted steers before making them editable.
@@ -1843,6 +1857,7 @@ async function handle(method: string, args: any[]) {
           runtimes.publish();
         }
       } finally {
+        if (restoreReview) { restoreReview(); runtimes.publishLaunch(worker); }
         if (mutating) worker.mutating = false;
         if (type === 'abort') worker.stopping = false;
         if (type === 'prompt') { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }

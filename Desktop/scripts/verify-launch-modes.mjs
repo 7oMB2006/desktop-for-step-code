@@ -76,7 +76,7 @@ try {
   const permissions = page.getByRole('button', { name: '访问权限', exact: true });
   const mode = name => page.getByRole('menuitemcheckbox', { name, exact: true });
   await permissions.click();
-  assert.equal(await page.getByRole('menuitemcheckbox').count(), 3);
+  assert.equal(await page.getByRole('menuitemcheckbox').count(), 4);
   assert.equal(await page.getByRole('menuitemradio').count(), 3);
   assert.equal(await page.getByText('普通', { exact: true }).count(), 0);
   await page.waitForTimeout(250);

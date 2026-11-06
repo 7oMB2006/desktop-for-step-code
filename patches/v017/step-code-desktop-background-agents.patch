@@ -1,0 +1,113 @@
+diff --git a/packages/coding-agent/src/features/subagent/projection.ts b/packages/coding-agent/src/features/subagent/projection.ts
+index 1a524ff8500355073dace0fae2cf64e0bd33b909..bae44c1e7c5361ec3fb4a01e49483638cc6bcb1f 100644
+--- a/packages/coding-agent/src/features/subagent/projection.ts
++++ b/packages/coding-agent/src/features/subagent/projection.ts
+@@ -28,7 +28,7 @@ import { cloneUsage } from "./helpers.ts";
+ const SENSITIVE_LINE =
+ 	/(api[-_.]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|secret|password|passwd|credential|cookie|authorization|bearer\s+[A-Za-z0-9._-]|['"]?(?:token|apiKey|api_key)['"]?\s*[:=]|^\s*(?:STEP|PI|AI_AGENT)[A-Z0-9_]*\s*=)/i;
+ 
+-function redactSensitiveText(text: string | undefined): string | undefined {
++export function redactSensitiveText(text: string | undefined): string | undefined {
+ 	if (text === undefined) return undefined;
+ 	return text
+ 		.split("\n")
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index 565fdf3cd385b56128a7b21fa12bd6b61031c089..94fb0608198a601dac7247c5fa83a8779a57be5e 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -28,6 +28,7 @@ import {
+ import { pendingHandoffText } from "../../features/plan-handoff.ts";
+ import { getStepPlanMode, pendingProposalOf } from "../../features/step-plan.ts";
+ import { resumeDesktopCronRecovery, updateDesktopCronJob } from "../../features/step-cron.ts";
++import { redactSensitiveText } from "../../features/subagent/projection.ts";
+ import { getStepMcpStatuses } from "../../step/mcp.ts";
+ import { STEPCODE_VERSION } from "../../step/version.ts";
+ import { type Theme, theme } from "../../theme/theme.ts";
+@@ -554,6 +555,69 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 				});
+ 			}
+ 
++			case "desktop_subagents": {
++				if (typeof command.sessionId !== "string" || !command.sessionId || command.sessionId !== session.sessionId)
++					throw new Error("Session changed");
++				if (!["list", "stop"].includes(command.action)) throw new Error("Invalid background agent action");
++				if (command.action === "stop" && !/^lane_[0-9a-f]{8}$/.test(command.laneId ?? ""))
++					throw new Error("Invalid background lane id");
++				const runner = session.extensionRunner;
++				const tool = runner.getToolDefinition("agent_send");
++				if (!tool) throw new Error("Background agent controls are unavailable");
++				const ctx = runner.createContext();
++				const invoke = (params: Record<string, unknown>) =>
++					tool.execute(crypto.randomUUID(), params, new AbortController().signal, undefined, ctx);
++				const result = await invoke({ action: "status" });
++				if (command.sessionId !== session.sessionId) throw new Error("Session changed");
++				const object = (value: unknown): Record<string, unknown> =>
++					value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
++				const all = Array.isArray(result.details) ? result.details.map(object) : [];
++				if (command.action === "stop") {
++					const lane = all.find((entry) => entry.agentId === command.laneId);
++					if (!lane || lane.status !== "running") throw new Error("Background lane is no longer running");
++					const stopped = await invoke({ action: "stop", lane_id: command.laneId });
++					if (command.sessionId !== session.sessionId || !Array.isArray(stopped.details)
++						|| !stopped.details.some((entry) => {
++							const lane = object(entry);
++							return lane.agentId === command.laneId && lane.status === "aborted";
++						})) throw new Error("Background lane stop was not confirmed");
++					return success(id, "desktop_subagents", { sessionId: session.sessionId, requested: true });
++				}
++				// Never return child transcripts, paths, tool arguments or environments.
++				let remaining = 64;
++				let outputBudget = 32000;
++				const string = (value: unknown, limit: number) =>
++					typeof value === "string" ? redactSensitiveText(value)?.slice(0, limit) : undefined;
++				const lanes = all.slice(0, 24).map((lane) => {
++					const records = Array.isArray(lane.results) ? lane.results : [];
++					const selected = records.slice(0, remaining);
++					remaining -= selected.length;
++					return {
++						agentId: lane.agentId, mode: lane.mode, status: lane.status,
++						startedAt: lane.startedAt, updatedAt: lane.updatedAt,
++						omittedResults: records.length - selected.length,
++						results: selected.map((entry) => {
++							const record = object(entry);
++							const output = redactSensitiveText(typeof record.activeText === "string" ? record.activeText : "") ?? "";
++							const limit = Math.min(12000, outputBudget);
++							const activeText = limit ? output.slice(-limit) : "";
++							outputBudget -= activeText.length;
++							const usage = object(record.usage);
++							return {
++								agent: string(record.agent, 200), task: string(record.task, 4000), status: record.status,
++								model: string(record.model, 300), startedAt: record.startedAt, updatedAt: record.updatedAt,
++								usage: Object.fromEntries(["input", "output", "cacheRead", "cacheWrite", "turns"]
++									.flatMap((key) => typeof usage[key] === "number" && Number.isFinite(usage[key]) && usage[key] >= 0
++										? [[key, usage[key]]] : [])),
++								activeTool: string(record.activeTool, 100), activeText,
++								outputTruncated: output.length > activeText.length,
++								errorMessage: string(record.errorMessage, 2000),
++							};
++						}),
++					};
++				});
++				return success(id, "desktop_subagents", { sessionId: session.sessionId, lanes });
++			}
+ 			case "get_desktop_summary": {
+ 				const entries = session.sessionManager.getBranch();
+ 				const tasks = [...entries]
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index fbf93e00639ac42ef28382c78df7f2229f8e7172..f461fe122ded27af97523721c1f483190c13ea15 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -29,6 +29,13 @@ export type RpcCommand =
+ 	// State
+ 	| { id?: string; type: "get_state" }
+ 	| { id?: string; type: "get_desktop_summary" }
++	| {
++			id?: string;
++			type: "desktop_subagents";
++			sessionId: string;
++			action: "list" | "stop";
++			laneId?: string;
++	  }
+ 	| { id?: string; type: "desktop_cron_resume"; before?: number }
+ 	| {
+ 			id?: string;

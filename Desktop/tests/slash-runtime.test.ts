@@ -42,7 +42,7 @@ test('pinned slash handlers support read-only commands, cancellable dialogs and 
       ['--include-live-events']);
     const { commands } = await rpc.request('get_commands');
     const manifest = JSON.parse(await readFile(resolve('runtime/manifest.json'), 'utf8'));
-    assert.equal(manifest.commit, '81e79bc4b699148d6823fedde9b5e70d9a80255f');
+    assert.equal(manifest.commit, '29eb460780489801ce8afc8bffc1a2efae7cbded');
     assert.equal(commands.some((command: { name: string }) => command.name === 'usage'), true,
       'Native Usage registration matches the staged baseline; Desktop provides its own Usage mapping');
     for (const name of ['todos', 'workflows', 'cron', 'feedback', 'plugin', 'plan', 'goal', 'ultracode', 'init']) {
@@ -62,7 +62,16 @@ test('pinned slash handlers support read-only commands, cancellable dialogs and 
     assert.match(notifications(await prompt('/ultracode status')), /Ultracode|Ultraloop|Ultra/);
     await prompt('/plan');
     assert.ok(events.some(event => event.statusKey === 'plan-mode' && event.statusText), 'Plan mode publishes runtime state');
-    assert.match(notifications(await prompt('/plan')), /Plan mode disabled/);
+    assert.equal((await rpc.request('get_desktop_summary')).status.collaboration, 'Plan');
+    await prompt('/plan');
+    assert.equal((await rpc.request('get_desktop_summary')).status.collaboration, 'Default',
+      'Native mode state, not a removed presentation notification, confirms Plan exit');
+    for (const [command, expected] of [['/plan on', 'Plan'], ['/plan off', 'Default']]) {
+      await prompt(command);
+      await prompt(command);
+      assert.equal((await rpc.request('get_desktop_summary')).status.collaboration, expected,
+        'Explicit mode verbs are idempotent, not toggles');
+    }
     assert.ok((await prompt('/plugin')).some(event => event.method === 'select' && event.title === 'Plugins'));
     assert.ok((await prompt('/feedback')).some(event => event.method === 'select' && event.title === 'Feedback category'));
     assert.equal(requests.length, 0, 'Read-only commands and cancelled dialogs do not call a model or submit feedback');

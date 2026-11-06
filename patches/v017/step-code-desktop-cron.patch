@@ -1,0 +1,134 @@
+diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
+index 10c9239ade29203120556c15b240455be546551a..309148e6f93e6f9d1f175d846b3522a19fc16da3 100644
+--- a/packages/coding-agent/src/features/step-cron.ts
++++ b/packages/coding-agent/src/features/step-cron.ts
+@@ -349,6 +349,8 @@ export interface StepCronRuntimeOptions {
+ 	sendMessage?: (message: CronDelivery) => void;
+ 	telemetry?: StepTelemetryReporter;
+ 	warn?: (message: string) => void;
++	/** Desktop observer only; it must never change scheduling or storage. */
++	onStateChange?: (jobs: readonly CronJob[], healthy: boolean) => void;
+ }
+ 
+ export interface CronDelivery {
+@@ -381,6 +383,7 @@ export class StepCronRuntime {
+ 	private recoveryPending = false;
+ 	private trusted = false;
+ 	private durableRefreshAt = Number.NEGATIVE_INFINITY;
++	private storageHealthy = true;
+ 
+ 	constructor(options: StepCronRuntimeOptions = {}) {
+ 		this.now = options.now ?? Date.now;
+@@ -395,6 +398,17 @@ export class StepCronRuntime {
+ 		this.sendMessage = options.sendMessage ?? (() => {});
+ 		this.telemetry = options.telemetry;
+ 		this.warn = options.warn ?? ((message) => console.warn(`[step-cron] ${message}`));
++		this.onStateChange = options.onStateChange;
++	}
++
++	private readonly onStateChange?: StepCronRuntimeOptions["onStateChange"];
++
++	private publishState(): void {
++		try {
++			this.onStateChange?.([...this.jobs.values()].map((job) => ({ ...job })), this.storageHealthy);
++		} catch {
++			// A disconnected Desktop observer must not consume or reschedule work.
++		}
+ 	}
+ 
+ 	start(cwd: string, trusted: boolean): void {
+@@ -405,6 +419,7 @@ export class StepCronRuntime {
+ 			try {
+ 				this.loadDurable(trusted);
+ 			} catch (error) {
++				this.storageHealthy = false;
+ 				this.reportFailure(
+ 					"storage",
+ 					`Unable to load cron storage: ${error instanceof Error ? error.message : String(error)}`,
+@@ -412,6 +427,7 @@ export class StepCronRuntime {
+ 			}
+ 		}
+ 		if (this.interval === undefined) this.interval = this.startInterval(() => this.tick(), TICK_INTERVAL_MS);
++		this.publishState();
+ 	}
+ 
+ 	setContext(cwd: string): void {
+@@ -452,6 +468,7 @@ export class StepCronRuntime {
+ 			return { ...next };
+ 		});
+ 		this.emit("cron_scheduled", { recurring });
++		this.publishState();
+ 		return { job, nextFireAt: job.nextFireAt };
+ 	}
+ 
+@@ -469,6 +486,7 @@ export class StepCronRuntime {
+ 			return true;
+ 		});
+ 		this.emit("cron_deleted", { found });
++		this.publishState();
+ 		return found;
+ 	}
+ 
+@@ -483,12 +501,17 @@ export class StepCronRuntime {
+ 			if (this.needsLockedDrain(now)) this.withLatestJobs(() => this.drain(now));
+ 			else this.deferDue(now);
+ 			this.failures.delete("storage");
++			this.storageHealthy = true;
+ 		} catch (error) {
++			this.storageHealthy = false;
++			this.durableRefreshAt = Number.NEGATIVE_INFINITY;
+ 			// A busy lock or failed write must not kill the timer or consume a job.
+ 			this.reportFailure(
+ 				"storage",
+ 				`Unable to update cron storage: ${error instanceof Error ? error.message : String(error)}`,
+ 			);
++		} finally {
++			this.publishState();
+ 		}
+ 	}
+ 
+@@ -509,6 +532,8 @@ export class StepCronRuntime {
+ 		this.recoveryPending = false;
+ 		this.trusted = false;
+ 		this.durableRefreshAt = Number.NEGATIVE_INFINITY;
++		this.storageHealthy = true;
++		this.publishState();
+ 	}
+ 
+ 	private loadDurable(trusted: boolean): void {
+@@ -562,6 +587,7 @@ export class StepCronRuntime {
+ 		this.loaded = true;
+ 		this.recoveryPending = false;
+ 		this.failures.delete("storage");
++		this.storageHealthy = true;
+ 	}
+ 
+ 	private drain(now: number): void {
+@@ -842,6 +868,7 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 	return (pi: ExtensionAPI): void => {
+ 		if (options.enabled === false || envFlagEnabled(process.env.STEP_DISABLE_CRON)) return;
+ 		let currentContext: ExtensionContext | undefined;
++		let desktopState = "";
+ 		const runtime =
+ 			options.runtime ??
+ 			new StepCronRuntime({
+@@ -855,6 +882,19 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 							// user may reject.
+ 							currentContext.hasPendingUserDecision?.() !== true,
+ 					),
++				onStateChange: (jobs, healthy) => {
++					if (process.env.DESKTOP_CRON_STATE !== "1" || !currentContext) return;
++					const state = JSON.stringify({
++						version: 1,
++						status: healthy ? "ready" : "unavailable",
++						jobs: jobs.map(({ id, recurring, durable, nextFireAt, autoExpireAt }) => ({
++							id, recurring, durable, nextFireAt, autoExpireAt,
++						})),
++					});
++					if (state === desktopState) return;
++					desktopState = state;
++					currentContext.ui.setStatus("desktop-cron", state);
++				},
+ 				warn: (message) => currentContext?.ui.notify(message, "warning"),
+ 				sendMessage: (delivery) => {
+ 					if (delivery.kind === "missed") {

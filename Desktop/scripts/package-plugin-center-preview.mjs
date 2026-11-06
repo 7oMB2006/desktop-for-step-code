@@ -32,7 +32,7 @@ for (const target of [root, output]) {
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' });
-const pin = await json(join(source, 'patches/v016/manifest.json'));
+const pin = await json(join(source, 'patches/v017/manifest.json'));
 const sharedRuntime = await realpath(join(source, 'Desktop/runtime'));
 const sharedManifest = await json(join(sharedRuntime, 'manifest.json'));
 const patchedSources = { ...pin.patchedSources, ...pin.platforms?.win32?.patchedSources };
@@ -61,8 +61,8 @@ for (const file of [...new Set(files)]) {
   sourceHashes[file] = hash(bytes);
 }
 await cp(join(source, 'LICENSE'), join(root, 'LICENSE'));
-await mkdir(join(root, 'patches/v016'), { recursive: true });
-await cp(join(source, 'patches/v016/manifest.json'), join(root, 'patches/v016/manifest.json'));
+await mkdir(join(root, 'patches/v017'), { recursive: true });
+await cp(join(source, 'patches/v017/manifest.json'), join(root, 'patches/v017/manifest.json'));
 await symlink(await realpath(join(source, 'Desktop/node_modules')), join(desktop, 'node_modules'), 'junction');
 // Never build or restage into the shared runtime junction.
 await cp(sharedRuntime, join(desktop, 'runtime'), { recursive: true, dereference: true });

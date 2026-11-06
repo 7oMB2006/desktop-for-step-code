@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { planContext, planPath as planFilePath } from './plan-context.mjs';
 
 const text = value => typeof value === 'string' ? value : value?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
 const requests = [];
@@ -28,10 +29,12 @@ const server = createServer(async (req, res) => {
   const payload = JSON.parse(body); requests.push(payload);
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   const context = payload.messages.map(m => text(m.content)).join('\n');
+  const mode = planContext(payload.messages);
   const tool = (name, args) => res.end(chunk({ tool_calls: [{ index: 0, id: `plan-${requests.length}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls') + 'data: [DONE]\n\n');
   if (stage === 0) {
-    assert.match(context, /Desktop Plan mode active/);
-    planPath = /Write the proposal to (.*)\. Only this proposal/.exec(context)?.[1];
+    assert.match(mode, /# Plan Mode/);
+    assert.ok(!payload.tools.some(tool => tool.function.name === 'enter_plan_mode'), 'Only the user can enter Plan');
+    planPath = planFilePath(mode);
     assert.ok(planPath);
     if (!checkedRestriction) {
       checkedRestriction = true;
@@ -40,16 +43,16 @@ const server = createServer(async (req, res) => {
     }
     stage = 1; tool('write_file', { path: planPath, content: initialProposal });
   } else if (stage === 1) {
-    assert.match(context, /Desktop Plan mode active/); stage = 2; tool('exit_plan_mode', {});
+    assert.match(mode, /# Plan Mode/); stage = 2; tool('exit_plan_mode', {});
   } else if (stage === 2) {
     if (refining) {
-      assert.match(context, /Desktop Plan mode active/);
+      assert.match(mode, /# Plan Mode/);
       assert.match(context, /Add validation/);
       refining = false; stage = 1;
       tool('write_file', { path: planPath, content: '# Revised proposal\n\nAdd validation before creating approved.txt.\nEND OF PROPOSAL' });
       return;
     }
-    assert.doesNotMatch(context, /\[Desktop Plan mode active\]/); stage = 3; tool('write_file', { path: 'approved.txt', content: 'Approved execution' });
+    assert.match(mode, /# Collaboration Mode: Default/); stage = 3; tool('write_file', { path: 'approved.txt', content: 'Approved execution' });
   } else {
     const finish = () => res.end(chunk({ role: 'assistant', content: 'Completed approved plan.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
     if (holdExecution) { holdExecution = false; finishExecution = () => { if (!res.writableEnded && !res.destroyed) finish(); }; }
@@ -232,7 +235,7 @@ try {
     assert.equal(approved.details.planContents, initialProposal);
     assert.equal(approved.details.planHash, createHash('sha256').update(initialProposal, 'utf8').digest('hex'));
     assert.equal(approved.details.planModeExited, true);
-    assert.equal(approved.details.approvalSource, 'external', 'Desktop owns the external review decision');
+    assert.equal(approved.details.approvalSource, 'user', 'The user owns the decision; Desktop is its transport');
   }
   const approvalNote = page.locator('.plan-approval-note');
   assert.equal(await approvalNote.count(), 1, 'A confirmed approval produces exactly one inline note');

@@ -75,8 +75,8 @@ Run these commands in PowerShell from the repository root:
 
 ```powershell
 git clone https://github.com/stepfun-ai/Step-Code.git Step-Code
-git -C Step-Code checkout 81e79bc4b699148d6823fedde9b5e70d9a80255f
-node scripts/apply-step-code-desktop-patch.mjs Step-Code patches\v016\step-code-desktop.patch
+git -C Step-Code checkout 29eb460780489801ce8afc8bffc1a2efae7cbded
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches\v017\step-code-desktop.patch
 
 Push-Location Step-Code
 corepack pnpm install --frozen-lockfile
@@ -95,7 +95,7 @@ corepack pnpm dev
 ```
 
 The Windows development baseline above is newer than the published v0.5.1 runtime.
-Development builds use the v0.1.6 announcement source baseline and `patches/v016/`.
+Development builds use the v0.1.7 announcement source baseline and `patches/v017/`.
 The macOS 0.6.0 release baseline retains v0.1.5 and `patches/v015/`, plus a
 Darwin process-tree cleanup patch; see [MACOS.md](docs/MACOS.md).
 

@@ -15,6 +15,9 @@ const checked = await execute(write, { path: 'nested/output.txt', content: 'appl
   then_run: `printf '%s\\n' \"$BASH\"; ${process.platform === 'win32' ? 'cygpath -m /usr/bin/bash.exe;' : ''} pwd; printf STDERR_CHECK >&2; exit 7` });
 assert.equal(checked.details.thenRun.exitCode, 7);
 assert.equal(checked.details.thenRun.timedOut, false);
+assert.equal(checked.details.thenRun.execution.status, 'exited');
+assert.equal(checked.details.thenRun.execution.exitCode, 7);
+assert.equal(checked.details.thenRun.execution.aborted, false);
 assert.equal(await readFile(join(workspace, 'nested/output.txt'), 'utf8'), 'applied\n');
 const output = checked.content.map(part => part.text ?? '').join('\n');
 assert.match(output, /STDERR_CHECK/);
@@ -25,11 +28,25 @@ const cwdOutput = await execute(write, { path: 'nested/cwd.txt', content: 'cwd\n
 assert.match(cwdOutput.content[0].text, /ROOT_CWD/);
 assert.equal(cwdOutput.details.thenRun.exitCode, 0, 'nested file checks use the initial cwd, not the file parent');
 
-await assert.rejects(execute(run, { command: 'sleep 5' }, undefined, { commandTimeoutMs: 250 }), /Command timed out after 0.25 seconds/);
+const commandTimeout = await execute(run, { command: 'sleep 5' }, undefined, { commandTimeoutMs: 250 });
+assert.equal(commandTimeout.isError, false, 'A command deadline is an observed outcome, not an invocation failure');
+assert.equal(commandTimeout.details.execution.status, 'timed_out');
+assert.ok(commandTimeout.details.execution.exitCode === null || Number.isInteger(commandTimeout.details.execution.exitCode),
+  'A timeout preserves the executor exit code when available');
+assert.equal(commandTimeout.details.execution.timedOut, true);
+assert.equal(commandTimeout.details.execution.aborted, false);
+assert.equal(commandTimeout.details.execution.timeoutSeconds, 0.25);
+assert.match(commandTimeout.content.map(part => part.text ?? '').join('\n'), /Command timed out after 0.25 seconds/);
 const timed = await execute(write, { path: 'timeout.txt', content: 'timeout applied\n', then_run: 'sleep 5' },
   undefined, { commandTimeoutMs: 250 });
 assert.equal(timed.details.thenRun.timedOut, true);
-assert.equal(timed.details.thenRun.exitCode, null);
+assert.ok(timed.details.thenRun.execution.exitCode === null || Number.isInteger(timed.details.thenRun.execution.exitCode),
+  'A verification timeout preserves the executor exit code when available');
+assert.equal(timed.details.thenRun.exitCode, timed.details.thenRun.execution.exitCode);
+assert.equal(timed.details.thenRun.execution.status, 'timed_out');
+assert.equal(timed.details.thenRun.execution.timedOut, true);
+assert.equal(timed.details.thenRun.execution.aborted, false);
+assert.equal(timed.details.thenRun.execution.timeoutSeconds, 0.25);
 assert.equal(await readFile(join(workspace, 'timeout.txt'), 'utf8'), 'timeout applied\n');
 const large = await execute(write, { path: 'large.txt', content: 'large applied\n',
   then_run: "printf once >> command-count; printf '%035000d' 0; exit 7" }, undefined, { commandOutputLimit: 100 });

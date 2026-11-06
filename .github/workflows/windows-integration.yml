@@ -60,11 +60,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code line endings' }
           git -C $upstream remote add origin https://github.com/stepfun-ai/Step-Code.git
           if ($LASTEXITCODE -ne 0) { throw 'Unable to configure Step Code remote' }
-          git -C $upstream fetch --depth 1 --no-tags origin 81e79bc4b699148d6823fedde9b5e70d9a80255f
+          git -C $upstream fetch --depth 1 --no-tags origin 29eb460780489801ce8afc8bffc1a2efae7cbded
           if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned Step Code revision' }
           git -C $upstream checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Unable to check out pinned Step Code revision' }
-          if ((git -C $upstream rev-parse HEAD).Trim() -ne '81e79bc4b699148d6823fedde9b5e70d9a80255f') {
+          if ((git -C $upstream rev-parse HEAD).Trim() -ne '29eb460780489801ce8afc8bffc1a2efae7cbded') {
             throw 'Unexpected Step Code revision'
           }
 
@@ -73,7 +73,7 @@ jobs:
         shell: pwsh
         run: |
           $upstream = Join-Path $env:GITHUB_WORKSPACE 'Step-Code'
-          $patch = Join-Path $env:GITHUB_WORKSPACE 'patches/v016/step-code-desktop.patch'
+          $patch = Join-Path $env:GITHUB_WORKSPACE 'patches/v017/step-code-desktop.patch'
           $applyScript = Join-Path $env:GITHUB_WORKSPACE 'scripts/apply-step-code-desktop-patch.mjs'
           node $applyScript $upstream $patch
           if ($LASTEXITCODE -ne 0) { throw 'Unable to apply the pinned Step Code integration changes' }
@@ -147,6 +147,12 @@ jobs:
         run: |
           corepack pnpm exec vitest run test/subagent-lane-notifications.test.ts test/subagent-background-tui.test.ts test/step-search-web.test.ts test/suite/regressions/plan-mode-prompt-cache-prefix.test.ts test/suite/regressions/6647-compaction-retries-transient-stream-drop.test.ts test/suite/regressions/subagent-lane-progress-backlog.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream v0.1.6 boundary regressions failed' }
+
+      - name: Upstream v0.1.7 safety and context regressions
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/suite/plan-approval-gate.test.ts test/suite/plan-barrier.test.ts test/suite/plan-storage.test.ts test/plan-handoff.test.ts test/extension-plan-review-surface.test.ts test/step-plan-mode-prompt.test.ts test/compaction-trigger-policy.test.ts test/suite/agent-session-compaction-trigger.test.ts test/suite/incomplete-turn-recovery.test.ts test/command-outcome.test.ts test/compaction-summary-reasoning.test.ts test/compaction.test.ts test/branch-summary-extensions.test.ts test/suite/regressions/find-removed-host-cwd.test.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream v0.1.7 safety and context regressions failed' }
 
       - name: Runtime staging
         id: runtime_stage

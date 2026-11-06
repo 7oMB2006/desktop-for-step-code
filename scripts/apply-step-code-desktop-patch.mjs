@@ -8,7 +8,7 @@ if (!upstreamDir || !patchPath) {
 	throw new Error("Usage: node apply-step-code-desktop-patch.mjs <step-code-dir> <patch-file>");
 }
 const resolvedPatchPath = path.resolve(patchPath);
-const integrationPatches = ["v015", "v016"].map(version =>
+const integrationPatches = ["v015", "v016", "v017"].map(version =>
 	path.resolve(import.meta.dirname, `../patches/${version}/step-code-desktop.patch`));
 
 function gitBlobHash(bytes) {

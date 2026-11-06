@@ -61,7 +61,7 @@ test('Mac CI runs the same serial inventory against source and package and stage
   assert.match(workflow, /cp release\/v\*\/Desktop\.for\.Step\.Code\.\*\.arm64\.zip release\/Desktop\.for\.Step\.Code\.macos-arm64\.preview\.zip/);
   const setup = readFileSync(new URL('../.github/actions/setup-macos/action.yml', import.meta.url), 'utf8');
   assert.match(setup, /node-version: 24\.15\.0/);
-  assert.match(setup, /81e79bc4b699148d6823fedde9b5e70d9a80255f/);
+  assert.match(setup, /29eb460780489801ce8afc8bffc1a2efae7cbded/);
   assert.match(setup, /corepack pnpm stage:runtime/);
   assert.match(workflow, /'\.github\/actions\/setup-macos\/\*\*'/);
   assert.match(workflow, /'\.github\/workflows\/macos-\*\.yml'/);

@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
+import { planContext, planPath } from './plan-context.mjs';
 
 const text = value => typeof value === 'string' ? value : value?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
 const questions = [
@@ -21,29 +22,30 @@ const server = createServer(async (req, res) => {
     let body = ''; for await (const part of req) body += part;
     const payload = JSON.parse(body); payloads.push(payload);
     const boundary = payload.messages.findLastIndex(m => m.role === 'user'
-      && !text(m.content).includes('This is runtime state, not an additional user message.'));
+      && !text(m.content).includes('<collaboration_mode>'));
     const prompt = text(payload.messages[boundary]?.content);
     const current = payload.messages.slice(boundary + 1);
     const hasResult = name => current.some(m => m.role === 'tool' && current.some(a =>
       a.tool_calls?.some(call => call.id === m.tool_call_id && call.function.name === name)));
     const context = payload.messages.map(m => text(m.content)).join('\n');
+    const mode = planContext(payload.messages);
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const tool = (name, args) => res.end(chunk({ tool_calls: [{ index: 0, id: `question-${payloads.length}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls') + 'data: [DONE]\n\n');
     if (!hasResult('clarify_user')) {
       assert.ok(payload.tools.some(t => t.function.name === 'clarify_user'), 'Clarification is exposed to the model');
-      if (prompt.includes('PLAN')) assert.match(context, /Desktop Plan mode active/);
+      if (prompt.includes('PLAN')) assert.match(mode, /# Plan Mode/);
       return tool('clarify_user', prompt.includes('LEGACY')
         ? { question: 'Choose one answer', options: [{ label: 'Yes', value: 'yes' }], allow_freeform: false } : { questions });
     }
     if (prompt.includes('PLAN') && !hasResult('write_file')) {
-      assert.match(context, /Desktop Plan mode active/);
+      assert.match(mode, /# Plan Mode/);
       assert.match(context, /answer: large/);
-      const path = /Write the proposal to (.*)\. Only this proposal/.exec(context)?.[1];
+      const path = planPath(mode);
       assert.ok(path);
       return tool('write_file', { path, content: '# Proposal\n\nUse a broader change with no dependencies.\n\nValidation: run tests.' });
     }
     if (prompt.includes('PLAN') && !hasResult('exit_plan_mode')) return tool('exit_plan_mode', {});
-    if (prompt.includes('PLAN')) assert.doesNotMatch(context, /\[Desktop Plan mode active\]/);
+    if (prompt.includes('PLAN')) assert.match(mode, /# Collaboration Mode: Default/);
     if (prompt.includes('CANCEL')) assert.match(context, /User clarification cancelled/);
     res.end(chunk({ role: 'assistant', content: prompt.includes('PLAN') ? 'Approved plan complete.' : 'Question answers received.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
   } catch (error) { fixtureErrors.push(String(error)); res.end(); }

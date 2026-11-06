@@ -50,6 +50,10 @@ jobs:
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/subagent-lane-notifications.test.ts test/subagent-background-tui.test.ts test/step-search-web.test.ts test/suite/regressions/plan-mode-prompt-cache-prefix.test.ts test/suite/regressions/6647-compaction-retries-transient-stream-drop.test.ts test/suite/regressions/subagent-lane-progress-backlog.test.ts
+      - name: Upstream v0.1.7 safety and context regressions
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/suite/plan-approval-gate.test.ts test/suite/plan-barrier.test.ts test/suite/plan-storage.test.ts test/plan-handoff.test.ts test/extension-plan-review-surface.test.ts test/step-plan-mode-prompt.test.ts test/compaction-trigger-policy.test.ts test/suite/agent-session-compaction-trigger.test.ts test/suite/incomplete-turn-recovery.test.ts test/command-outcome.test.ts test/compaction-summary-reasoning.test.ts test/compaction.test.ts test/branch-summary-extensions.test.ts test/suite/regressions/find-removed-host-cwd.test.ts
       - name: Typecheck and protocol tests
         working-directory: Desktop
         run: |

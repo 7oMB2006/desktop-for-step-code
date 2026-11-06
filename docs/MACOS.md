@@ -28,8 +28,8 @@ These checks do not establish real-account balances or official billing outcomes
 
 ## Build natively
 
-The commands below target the development v0.1.6 announcement source baseline
-`81e79bc4b699148d6823fedde9b5e70d9a80255f` and `patches/v016/`. The 0.6.0
+The commands below target the development v0.1.7 announcement source baseline
+`29eb460780489801ce8afc8bffc1a2efae7cbded` and `patches/v017/`. The 0.6.0
 freeze and acceptance records above remain historical. Darwin patch replay on
 Windows is not a native macOS build or package acceptance.
 
@@ -40,8 +40,8 @@ From the repository root:
 
 ```sh
 git clone https://github.com/stepfun-ai/Step-Code.git Step-Code
-git -C Step-Code checkout 81e79bc4b699148d6823fedde9b5e70d9a80255f
-node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v016/step-code-desktop.patch
+git -C Step-Code checkout 29eb460780489801ce8afc8bffc1a2efae7cbded
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v017/step-code-desktop.patch
 (cd Step-Code && corepack pnpm install --frozen-lockfile && corepack pnpm build:offline)
 cd Desktop
 corepack pnpm install --frozen-lockfile

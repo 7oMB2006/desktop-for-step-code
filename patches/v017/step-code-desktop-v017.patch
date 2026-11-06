@@ -1,0 +1,375 @@
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index 1035d56a86d98e0fb403f28abb0c07460c6053ac..c786077177d506b3fa5d3ec16d4bfd8002440240 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -2494,7 +2494,12 @@ export class AgentSession {
+ 			}
+ 			const userMessage: AgentMessage = options?.customMessage
+ 				? { ...options.customMessage, role: "custom", content: userContent, timestamp: Date.now() }
+-				: { role: "user", content: userContent, timestamp: Date.now(), ...desktopTemplateInput(originalInput, expandedText) };
++				: {
++						role: "user",
++						content: userContent,
++						timestamp: Date.now(),
++						...desktopTemplateInput(originalInput, expandedText),
++					};
+ 			// A prompt a person typed is theirs, whatever delivered it. Recorded by
+ 			// identity so the delivery rule and the delivery event can tell it from
+ 			// work an extension queued on their behalf.
+@@ -2702,14 +2707,24 @@ export class AgentSession {
+ 	private _queueDeliveryAllowed = (message: AgentMessage): boolean =>
+ 		!this.hasPendingUserDecision || this._queuedFromUser.has(message);
+ 
+-	private async _queueSteer(text: string, images?: ImageContent[], source?: InputSource, originalInput?: string): Promise<void> {
++	private async _queueSteer(
++		text: string,
++		images?: ImageContent[],
++		source?: InputSource,
++		originalInput?: string,
++	): Promise<void> {
+ 		this._steeringMessages.push(text);
+ 		this._emitQueueUpdate();
+ 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+ 		if (images) {
+ 			content.push(...images);
+ 		}
+-		const message: AgentMessage = { role: "user", content, timestamp: Date.now(), ...desktopTemplateInput(originalInput, text) };
++		const message: AgentMessage = {
++			role: "user",
++			content,
++			timestamp: Date.now(),
++			...desktopTemplateInput(originalInput, text),
++		};
+ 		if (source !== "extension") this._queuedFromUser.add(message);
+ 		this.agent.steer(message);
+ 	}
+@@ -2717,14 +2732,24 @@ export class AgentSession {
+ 	/**
+ 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
+ 	 */
+-	private async _queueFollowUp(text: string, images?: ImageContent[], source?: InputSource, originalInput?: string): Promise<void> {
++	private async _queueFollowUp(
++		text: string,
++		images?: ImageContent[],
++		source?: InputSource,
++		originalInput?: string,
++	): Promise<void> {
+ 		this._followUpMessages.push(text);
+ 		this._emitQueueUpdate();
+ 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+ 		if (images) {
+ 			content.push(...images);
+ 		}
+-		const message: AgentMessage = { role: "user", content, timestamp: Date.now(), ...desktopTemplateInput(originalInput, text) };
++		const message: AgentMessage = {
++			role: "user",
++			content,
++			timestamp: Date.now(),
++			...desktopTemplateInput(originalInput, text),
++		};
+ 		if (source !== "extension") this._queuedFromUser.add(message);
+ 		this.agent.followUp(message);
+ 	}
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index e5be08db75caadc28d78c54034fd6e0ecbe48040..a2dbb20d2f66d38a121a3dcd776b60abe33d9d10 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -26,8 +26,8 @@ import {
+ 	writeRawStdout,
+ } from "../../core/output-guard.ts";
+ import { pendingHandoffText } from "../../features/plan-handoff.ts";
+-import { getStepPlanMode, pendingProposalOf } from "../../features/step-plan.ts";
+ import { resumeDesktopCronRecovery, updateDesktopCronJob } from "../../features/step-cron.ts";
++import { getStepPlanMode, pendingProposalOf } from "../../features/step-plan.ts";
+ import { redactSensitiveText } from "../../features/subagent/projection.ts";
+ import { getStepMcpStatuses } from "../../step/mcp.ts";
+ import { STEPCODE_VERSION } from "../../step/version.ts";
+@@ -113,13 +113,20 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 	const backgroundReplies = new Map<string, { digest: string; promise?: Promise<RpcResponse> }>();
+ 	let desktopUltracode = false;
+ 	let desktopBackgroundWork = false;
+-	const review = new DesktopCompletionReview(() => session, output, () => {
+-		const branch = session.sessionManager.getBranch();
+-		const goal = branch.filter(entry => entry.type === "custom" && entry.customType === "step-goal").at(-1);
+-		return getStepPlanMode(session.sessionManager) !== "plan"
+-			&& !desktopUltracode && !desktopBackgroundWork
+-			&& !(goal?.type === "custom" && (goal.data as { status?: string })?.status === "active");
+-	});
++	const review = new DesktopCompletionReview(
++		() => session,
++		output,
++		() => {
++			const branch = session.sessionManager.getBranch();
++			const goal = branch.filter((entry) => entry.type === "custom" && entry.customType === "step-goal").at(-1);
++			return (
++				getStepPlanMode(session.sessionManager) !== "plan" &&
++				!desktopUltracode &&
++				!desktopBackgroundWork &&
++				!(goal?.type === "custom" && (goal.data as { status?: string })?.status === "active")
++			);
++		},
++	);
+ 
+ 	// Pending extension UI requests waiting for response
+ 	const pendingExtensionRequests = new Map<
+@@ -216,8 +223,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 		setStatus(key: string, text: string | undefined): void {
+ 			if (key === "ultracode") desktopUltracode = Boolean(text);
+ 			if (key === "desktop-subagents") {
+-				try { desktopBackgroundWork = JSON.parse(text ?? "{}").lanes?.length > 0; }
+-				catch { desktopBackgroundWork = true; }
++				try {
++					desktopBackgroundWork = JSON.parse(text ?? "{}").lanes?.length > 0;
++				} catch {
++					desktopBackgroundWork = true;
++				}
+ 			}
+ 			// Fire and forget - no response needed
+ 			output({
+@@ -450,8 +460,21 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 	// Handle a single command
+ 	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
+ 		const id = command.id;
+-		if (review.running && ["set_model", "cycle_model", "set_thinking_level", "cycle_thinking_level", "compact",
+-			"new_session", "switch_session", "fork", "clone", "desktop_cron_resume"].includes(command.type))
++		if (
++			review.running &&
++			[
++				"set_model",
++				"cycle_model",
++				"set_thinking_level",
++				"cycle_thinking_level",
++				"compact",
++				"new_session",
++				"switch_session",
++				"fork",
++				"clone",
++				"desktop_cron_resume",
++			].includes(command.type)
++		)
+ 			return error(id, command.type, "Finish or cancel completion review before changing this task.");
+ 
+ 		switch (command.type) {
+@@ -477,23 +500,25 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 				// prompt preflight succeeds. Queued and immediately handled prompts also count as success.
+ 				let preflightSucceeded = false;
+ 				const promptOptions = {
+-						images: command.images,
+-						streamingBehavior: command.streamingBehavior,
+-						source: "rpc" as const,
+-						preflightResult: (didSucceed: boolean) => {
+-							if (didSucceed) {
+-								preflightSucceeded = true;
+-								output(success(id, "prompt"));
+-							}
+-						},
+-					};
+-				void (command.completionReview ? review.prompt(command.message, promptOptions)
+-					: session.prompt(command.message, promptOptions))
+-					.catch((e) => {
+-						if (!preflightSucceeded) {
+-							output(error(id, "prompt", e.message));
++					images: command.images,
++					streamingBehavior: command.streamingBehavior,
++					source: "rpc" as const,
++					preflightResult: (didSucceed: boolean) => {
++						if (didSucceed) {
++							preflightSucceeded = true;
++							output(success(id, "prompt"));
+ 						}
+-					});
++					},
++				};
++				void (
++					command.completionReview
++						? review.prompt(command.message, promptOptions)
++						: session.prompt(command.message, promptOptions)
++				).catch((e) => {
++					if (!preflightSucceeded) {
++						output(error(id, "prompt", e.message));
++					}
++				});
+ 				return undefined;
+ 			}
+ 
+@@ -626,7 +651,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 				const result = await invoke({ action: "status" });
+ 				if (command.sessionId !== session.sessionId) throw new Error("Session changed");
+ 				const object = (value: unknown): Record<string, unknown> =>
+-					value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
++					value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+ 				const all = Array.isArray(result.details) ? result.details.map(object) : [];
+ 				if (command.action === "reply") {
+ 					if (session !== owner || command.sessionId !== session.sessionId || runner !== session.extensionRunner)
+@@ -652,7 +677,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 					}
+ 					const lane = all.find((entry) => entry.agentId === command.laneId);
+ 					if (!lane || lane.mode !== "single") throw new Error("Single background lane is unavailable");
+-					if (!previous && backgroundReplies.size >= 512) throw new Error("Background reply receipt limit reached");
++					if (!previous && backgroundReplies.size >= 512)
++						throw new Error("Background reply receipt limit reached");
+ 					const receipt = previous ?? { digest: fingerprint, promise: undefined };
+ 					const promise = (async () => {
+ 						const sent = object(
+@@ -674,7 +700,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 							// Keep the identity, but allow a fresh manual attempt only after native
+ 							// code confirms no delivery. Throws/missing receipts remain deduplicated.
+ 							receipt.promise = undefined;
+-							throw new Error("Background reply was not delivered; wait for the lane to settle or a slot to free, then retry");
++							throw new Error(
++								"Background reply was not delivered; wait for the lane to settle or a slot to free, then retry",
++							);
+ 						}
+ 						if (!["queued", "started"].includes(String(sent.delivery)))
+ 							throw new Error("Background reply was not confirmed");
+@@ -693,11 +721,15 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 					const lane = all.find((entry) => entry.agentId === command.laneId);
+ 					if (!lane || lane.status !== "running") throw new Error("Background lane is no longer running");
+ 					const stopped = await invoke({ action: "stop", lane_id: command.laneId });
+-					if (command.sessionId !== session.sessionId || !Array.isArray(stopped.details)
+-						|| !stopped.details.some((entry) => {
++					if (
++						command.sessionId !== session.sessionId ||
++						!Array.isArray(stopped.details) ||
++						!stopped.details.some((entry) => {
+ 							const lane = object(entry);
+ 							return lane.agentId === command.laneId && lane.status === "aborted";
+-						})) throw new Error("Background lane stop was not confirmed");
++						})
++					)
++						throw new Error("Background lane stop was not confirmed");
+ 					return success(id, "desktop_subagents", { sessionId: session.sessionId, requested: true });
+ 				}
+ 				// Never return child transcripts, paths, tool arguments or environments.
+@@ -710,23 +742,36 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 					const selected = records.slice(0, remaining);
+ 					remaining -= selected.length;
+ 					return {
+-						agentId: lane.agentId, mode: lane.mode, status: lane.status,
+-						startedAt: lane.startedAt, updatedAt: lane.updatedAt,
++						agentId: lane.agentId,
++						mode: lane.mode,
++						status: lane.status,
++						startedAt: lane.startedAt,
++						updatedAt: lane.updatedAt,
+ 						omittedResults: records.length - selected.length,
+ 						results: selected.map((entry) => {
+ 							const record = object(entry);
+-							const output = redactSensitiveText(typeof record.activeText === "string" ? record.activeText : "") ?? "";
++							const output =
++								redactSensitiveText(typeof record.activeText === "string" ? record.activeText : "") ?? "";
+ 							const limit = Math.min(12000, outputBudget);
+ 							const activeText = limit ? output.slice(-limit) : "";
+ 							outputBudget -= activeText.length;
+ 							const usage = object(record.usage);
+ 							return {
+-								agent: string(record.agent, 200), task: string(record.task, 4000), status: record.status,
+-								model: string(record.model, 300), startedAt: record.startedAt, updatedAt: record.updatedAt,
+-								usage: Object.fromEntries(["input", "output", "cacheRead", "cacheWrite", "turns"]
+-									.flatMap((key) => typeof usage[key] === "number" && Number.isFinite(usage[key]) && usage[key] >= 0
+-										? [[key, usage[key]]] : [])),
+-								activeTool: string(record.activeTool, 100), activeText,
++								agent: string(record.agent, 200),
++								task: string(record.task, 4000),
++								status: record.status,
++								model: string(record.model, 300),
++								startedAt: record.startedAt,
++								updatedAt: record.updatedAt,
++								usage: Object.fromEntries(
++									["input", "output", "cacheRead", "cacheWrite", "turns"].flatMap((key) =>
++										typeof usage[key] === "number" && Number.isFinite(usage[key]) && usage[key] >= 0
++											? [[key, usage[key]]]
++											: [],
++									),
++								),
++								activeTool: string(record.activeTool, 100),
++								activeText,
+ 								outputTruncated: output.length > activeText.length,
+ 								errorMessage: string(record.errorMessage, 2000),
+ 							};
+diff --git a/packages/coding-agent/test/step-plan-extension.test.ts b/packages/coding-agent/test/step-plan-extension.test.ts
+index 79f3614c01813392fcaacf9d663d265685290e18..c5c42d1487ad6fc3c3ccbbb06ad0f3dd97f842ea 100644
+--- a/packages/coding-agent/test/step-plan-extension.test.ts
++++ b/packages/coding-agent/test/step-plan-extension.test.ts
+@@ -12,7 +12,7 @@ import { SessionManager } from "../src/core/session-manager.ts";
+ import { PLAN_MODE_BLOCK_VERSION } from "../src/features/plan-mode-prompt.ts";
+ import { getPlanFilePath } from "../src/features/plan-mode-tools.ts";
+ import { createStepExtension } from "../src/features/step.ts";
+-import { createStepPlanExtension } from "../src/features/step-plan.ts";
++import { createStepPlanExtension, pendingProposalOf } from "../src/features/step-plan.ts";
+ import { createStepTasksExtension, type StepTask } from "../src/features/step-tasks.ts";
+ import type { PlanReviewDetails } from "../src/render/plan-review.ts";
+ import type { StepTelemetryReporter } from "../src/step/telemetry.ts";
+@@ -71,6 +71,7 @@ test("Desktop context tracks Plan on every model call without persisting message
+ 	expect(result.messages[0].content).toContain("# Plan Mode");
+ 	expect(result.messages[0].content).toContain("session-sess-1.md");
+ 	expect(h.userMessages).toHaveLength(0);
++	h.session.appendCustomMessageEntry("step-plan-mode", result.messages[0].content, false, result.messages[0].details);
+ 	await h.commands.get("plan")!.handler("", h.ctx());
+ 	const after = (await h.emit({ type: "context", messages: result.messages }, h.ctx())) as { messages: any[] };
+ 	expect(after.messages.at(-1).details.mode).toBe("default");
+@@ -120,9 +121,7 @@ test.each(["Approve plan", undefined, "changed", "branch", "abort", "missing", "
+ 			planModeExited: choice === "Approve plan" || choice === "path",
+ 		});
+ 		if (choice !== "Approve plan") expect(result.terminate).toBe(true);
+-		expect(lastPlanEntry(h).pendingProposalHash !== undefined).toBe(
+-			choice !== "Approve plan" && choice !== "path",
+-		);
++		expect(lastPlanEntry(h).pendingProposalHash !== undefined).toBe(choice !== "Approve plan" && choice !== "path");
+ 	},
+ );
+ 
+@@ -148,6 +147,35 @@ test("Desktop refinements remain in Plan and return feedback to the model", asyn
+ 	expect((h.appended.at(-1)!.data as { enabled: boolean }).enabled).toBe(true);
+ });
+ 
++test("Desktop dismissal preserves the native pending decision across questions and restore", async () => {
++	const cwd = makeWorkspace();
++	const h = createHarness({ cwd, flags: { "desktop-plan-review": true } });
++	createStepPlanExtension()(h.api);
++	const context = h.ctx({ mode: "rpc", planReviewSurface: true });
++	await h.commands.get("plan")!.handler("on", context);
++	const file = getPlanFilePath("sess-1", cwd);
++	mkdirSync(path.dirname(file), { recursive: true });
++	writeFileSync(file, "Proposal still awaiting consent");
++	const hash = createHash("sha256").update("Proposal still awaiting consent", "utf8").digest("hex");
++	const result = await h.tools.get("exit_plan_mode")!.execute("exit", {}, undefined, undefined, context);
++	expect(result.details).toMatchObject({ outcome: "dismissed", planModeExited: false });
++	await h.emit({ type: "before_agent_start", prompt: "A question is not approval" }, context);
++	await h.emit({ type: "message_start", fromUser: true }, context);
++	expect(pendingProposalOf({ sessionManager: h.session })).toMatchObject({ pendingProposalHash: hash });
++	const restored = createHarness({
++		cwd,
++		entries: [{ type: "custom", customType: "step-plan", data: lastPlanEntry(h) }],
++	});
++	createStepPlanExtension()(restored.api);
++	const restoredContext = restored.ctx({ mode: "rpc", planReviewSurface: true });
++	await restored.emit({ type: "session_start", reason: "resume" }, restoredContext);
++	expect(pendingProposalOf({ sessionManager: restored.session })).toMatchObject({ pendingProposalHash: hash });
++	expect(restored.statuses.get("plan-mode")).toBe("Planning (user)");
++	await restored.commands.get("plan")!.handler("off", restoredContext);
++	expect(lastPlanEntry(restored).pendingProposalHash).toBeUndefined();
++	expect(lastPlanEntry(restored).enabled).toBe(false);
++});
++
+ test.each(["changed", "branch", "abort", "cancel"])(
+ 	"Desktop refinements reject stale or cancelled notes: %s",
+ 	async (change) => {
+diff --git a/packages/coding-agent/test/suite/plan-storage.test.ts b/packages/coding-agent/test/suite/plan-storage.test.ts
+index 7bcae1c63e37190a30c925daf39ecd881524005f..e1f28ca03e6ed8e91f8a13b137af622933259591 100644
+--- a/packages/coding-agent/test/suite/plan-storage.test.ts
++++ b/packages/coding-agent/test/suite/plan-storage.test.ts
+@@ -151,7 +151,12 @@ test.each([false, true])(
+ 		const announcement = harness.session.messages.find(
+ 			(message) => message.role === "custom" && message.customType === "step-plan-mode",
+ 		);
+-		expect(JSON.stringify(announcement)).toContain(planPath);
++		expect(announcement).toMatchObject({
++			role: "custom",
++			customType: "step-plan-mode",
++			details: { planFilePath: planPath },
++		});
++		expect(getMessageText(announcement!)).toContain(planPath);
+ 		expect(getMessageText(tools[2].result)).toContain("caller must gate approval externally");
+ 		expect(getMessageText(tools[2].result)).toContain("Check the parser and tests.");
+ 		expect(tools[2].result.details).toMatchObject({ outcome: "approved", approvalSource: "external" });

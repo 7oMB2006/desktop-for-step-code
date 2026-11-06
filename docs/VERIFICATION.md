@@ -1,5 +1,141 @@
 # Verification
 
+## PR #202 Packaged Goal-Clear Failure Diagnostics (2026-11-06)
+
+PR head `2749ee5` passes all Windows groups and macOS candidate preparation,
+interface and runtime source/package groups. macOS sessions job `127849966760`
+passes its source inventory and packaged session-move, then fails at
+`verify-launch-modes.mjs:279`: after the Clear goal click, the trigger remains
+for the original 30-second wait. The failure snapshot still contains the complete
+Goal; it does not record the click target, action error or clear-command receipt.
+The final receipt gate correctly rejects that candidate.
+
+The unchanged local launch workflow passes against the exact staged runtime.
+Additional isolated runs extend the disclosure animation, use narrow geometry
+and delay pointer release while recording click/IPC outcomes. Those runs also
+pass with a real clear receipt. They do not reproduce or identify the native
+macOS failure; no production Goal change, retry or timeout increase is justified
+by this evidence. Early generated probes that did not match CRLF source are not
+counted as instrumentation; later probes assert the actual hook was installed.
+
+The verifier now observes only the clear command at its existing IPC handler,
+forwarding the same request/result or original rejection without dispatching an
+extra action. Bounded target-only pointer records, finite clear receipts and
+allowlisted UI/runtime fields distinguish no-click, rejected/unconfirmed command
+and stale display. Raw messages, Goal objectives, request payloads, provider
+configuration and environment values are not printed. Main/page observations
+are bounded in the test process, so a never-settling read cannot hide the first
+failure; cleanup restores only the observer's own IPC wrapper and listeners.
+All original UI clicks, Goal ownership/no-inherited-consent assertions and test
+limits remain unchanged.
+
+Five tests execute the actual callback bodies in separate main/renderer contexts:
+exact forwarding, rejection preservation/redaction, ownership-safe restoration,
+non-settling timeout and unavailable reads. Two real Electron fault probes execute
+the verifier's actual catch path with a non-settling or rejected snapshot; both
+retain the original failure and bounded timeout/unavailable evidence. The actual observer also
+captures one resolved IPC receipt and a clear click in the successful real UI
+path; the Goal and trigger disappear. Typecheck, production build, full local
+launch acceptance and 116 focused Goal/runtime/cache/diagnostic tests pass.
+Complete per-file verification executes 148 files: 142 pass and the same six
+local files fail (capabilities timeout, project-trust, StepPage, template-input
+runtime, undo and workflow-catalog); no failure is filtered or marked passed.
+CI runner/inventory/receipt checks pass 30 tests with one platform skip.
+Local Electron still uses an assertion-preserving
+no-sandbox entry; this is not native macOS package acceptance. The original
+macOS Clear goal root cause remains unconfirmed. New current-head source/package
+CI evidence is required; a subsequent green run must not be called a diagnosed
+flake or a confirmed product fix.
+
+## Update Cache Junction Boundary Investigation (2026-11-06, local candidate)
+
+This candidate starts from main `e9102aa`, including #195, #198 and #200 and the
+owner's v0.1.7 TODOs. Final synchronization advances to `1979ee7`, which changes
+only TODO completion records; the verified application/runtime inputs are unchanged.
+The newly open owner #201 does not touch the update-cache module. This candidate
+does not upgrade the runtime pin or duplicate that migration. Update-cache and
+installer files are unchanged by those merges. This is routine maintenance of
+the existing update-cache boundary, not a version bump or release-readiness claim.
+
+Real Windows junctions created by both Node and the native directory tool carry
+reparse tag `0xa0000003`. On this host, their targets have a `Global` substitute
+prefix: `lstat().isSymbolicLink()` returns false and `readlink()` rejects with
+EINVAL, while parent directory entries identify them as links and asynchronous
+`realpath` resolves their targets. Consequently the previous lstat-only guard
+accepts redirected cache paths. The isolated probe and actual tests establish
+three distinct facts: preflight creates missing directories outside a redirected
+root; startup cleanup removes an outside download-cache through a redirected
+ancestor; file verification accepts an outside file if the redirected cache
+itself is supplied as its trusted root. No actual installer is executed.
+
+New tests verify the real fixture identity before exercising the production
+helpers. On the old implementation they fail for external creation, missing
+rejection and a deleted sentinel read directly through its outside path. The
+narrow change inspects directory entries as well as lstat, checks existing
+ancestors before recursive mkdir, rejects links during bounded cache traversal
+and validates the file-verification root. Cleanup retains the existing behavior
+for a redirected cache itself: preserve it without deleting its marker or target.
+The check/use interval remains; this is not a claim to eliminate concurrent
+adversarial path replacement or all Windows reparse-point behaviors.
+
+Directory listings can omit short aliases or filesystem-normalized spellings.
+The fallback validates canonical parent ownership and an ordinary target entry,
+then rejects sibling links to the same target. Only lstat ENOENT is tolerated
+while checking a missing root; a failed sibling target lookup cannot skip the
+rest of the guard. Actual Windows 8.3 aliases pass normal prepare/hash/cleanup,
+while a same-parent junction short alias is rejected before creation. A dangling
+sibling does not block the ordinary alias or admit the redirect. Three formal
+Windows tests now exercise ordinary short aliases and same-parent/outside short
+redirects beside dangling links. Their helper restricts the input to the isolated
+fixture and confirms canonical target identity before using the returned alias.
+The same formal tests are run against the unmodified `e9102aa` cache module:
+the ordinary path passes and both redirects fail because outside directories are
+created. All three pass with the candidate and actually execute on this volume;
+volumes without distinct short aliases report explicit skips, not coverage.
+An earlier short-path edit was blocked by the local security hook. It was not
+written through another tool; the constrained helper and tests described here
+are separately accepted Write/Edit candidates, not a claim to have disabled or
+cleared that earlier scanner finding.
+
+Typecheck and production build pass. The latest focused update/cache/driver suite
+passes 46 tests with five native-macOS-only skips (51 total). The real NSIS
+fixture passes normal download, metadata refusal, corrupt hash refusal,
+cancellation and retry, including removal of network hooks; it does not execute
+an installer. Only its local assertion-preserving copy uses --no-sandbox because
+normal Electron startup fails on this Windows host. Production and CI launch
+settings are unchanged. macOS case/Unicode normalization is covered by the
+canonical fallback design but has not been executed on native macOS here.
+
+For combination validation, all 19 current shared patches replay from clean pin
+`81e79bc4`; the complete runtime builds and stages with Node 24.16.0. All 45
+source postimages and ten copied helper files match current inputs. The first
+full-suite attempt is stopped after discovering that the mirror had no runtime;
+its partial results do not establish acceptance. The replacement per-file serial
+run executes all 147 files: 141 pass and six fail. After adding the three formal
+short-alias tests, a second complete per-file run has the same 141/6 file result;
+the final focused run requires a distinct short alias for the last directory
+component and executes all three cases without skipping. Capabilities exceeds the
+180-second outer deadline; the other failures are project-trust junction unlink,
+StepPage linked-storage classification, template-input persisted metadata, linked
+undo classification and workflow-catalog junction cleanup. An independent exact
+`e9102aa` baseline with the same staged runtime reproduces those five files and
+the three old update-cache failures (54 tests: 43 pass, eight fail, three skips).
+The candidate removes the old update-cache failures; neither this comparison nor
+the verified source hashes establish the causes of the remaining failures.
+The capabilities timeout remains unlocated. Full local acceptance is not green.
+
+All 31 CI runner/inventory/receipt tests execute from the real Git worktree:
+30 pass and one platform skip. A bounded independent review checks the local
+cache guard, missing-root handling and short-alias fallback; the identified
+ENOENT catch-scope and dangling-sibling issues are corrected and rechecked.
+A follow-up bounded review of the constrained short-path helper and formal tests
+finds no blocking issues; dangling junction entries are asserted preserved as
+well as their moved targets. The isolated helper has finite subprocess/output
+bounds and validates canonical identity before returning a short alias.
+No native macOS candidate or new cloud checks execute for this uncommitted
+change. No commit, push, PR, installer, release, shortcut or personal-profile
+change is part of this local candidate.
+
 ## Plugin Center Background History Main Synchronization (2026-11-06)
 
 PR #195 now integrates main `af52f41`, including #198's background-history

@@ -1,5 +1,45 @@
 # Verification
 
+## Plugin Center Main Synchronization (2026-11-06)
+
+The owner authorized synchronizing current main into PR #195 after the metadata
+fix commit `8df1683`. The merge captures main `33abd6c`, including #196's
+answer-only BTW/quote boundaries and #197's manual background follow-ups.
+Five conflicts retain both lines' work: staging advertises template-input,
+subagent-redaction and background-reply; the ordered patch manifest keeps all
+18 shared patches; the task-progress fixture combines scenario-aware routing
+with bounded failure evidence; both verification histories remain intact.
+The plugin TODO is consolidated without changing other lines' completion claims.
+
+A clean pinned checkout replays the production patch applier successfully.
+All 44 Windows postimages match; the two Darwin additions apply and match all
+45 combined postimages, then are reversed before the Windows build. This is
+source verification, not native macOS acceptance. Pin `81e79bc4` is unchanged.
+An independent physical QA mirror builds the production main/preload/renderer
+and stages the rebuilt runtime with Node 24.16.0, without writing through the
+workspace's shared runtime or dependency junctions. A missing local dependency
+cache link initially interrupted the QA build; restoring that link in the new
+QA checkout permits the complete offline build. No product fix is claimed for it.
+
+Typecheck and all 36 targeted upstream tests pass. CI policy/inventory/runner
+tests pass 39 cases with one platform skip. The full Desktop test suite exits
+normally and unassisted: 980 total, 966 passed, 14 platform skips, zero failures
+or cancellations, about 308 seconds. Its log is
+`D:/DFSC-Preview-QA/plugin-main-sync-20261106-full-unit.log`.
+Both production PluginCenter and input/MCP browser verifiers pass. Six isolated
+Electron verifiers pass: first-run lifecycle, capability management, background
+follow-ups, BTW, chat quotes and task-progress sound/impact/sweep/history.
+They use local fixture providers, not real-account or paid-model requests.
+
+The isolated mirror is `D:/DFSC-Preview-QA/plugin-main-sync-20261106-final/`;
+the clean replay/build checkout is `plugin-main-sync-20261106-upstream/`
+under the same QA root. Excluding junction targets, they occupy about 203 MiB
+and 52 MiB; the two browser evidence directories total about 2.8 MiB.
+Artifacts are inventoried, not deleted. Current-head cloud checks are recorded
+separately in PR #195. No installer, shortcut change, daily-profile mutation,
+application restart, PR merge, release or marketplace submission is part of
+this synchronization; the previously delivered local package remains unchanged.
+
 ## Plugin Metadata Windows Package (2026-11-06)
 
 The owner requested a fresh Windows package after the metadata fixes and
@@ -7,7 +47,7 @@ reported no significant remaining issue during local use. The package is
 `D:/Desktop For Step Code/Desktop/release/plugin-center-20261106-metadata-fix-preview/`;
 its installer SHA-256 is
 `40217bc7db3ecb947a2284332591b96ef5bf15b9c778d5ce2b3ec9183d514b6a`.
-It includes the uncommitted fixes on base `07e6abf`, with all 760 captured
+It includes the fixes later committed as `8df1683` on base `07e6abf`, with all 760 captured
 Desktop source files checked against the workspace. Pin `81e79bc4` and the
 complete patched-source manifest are unchanged.
 
@@ -572,6 +612,172 @@ acceptance are represented. Plan ASR retains the existing BVR dedicated-model
 route on the selected Plan endpoint; real-account ASR availability and billing
 have not been retested in this integration. Abort cannot undo a request already
 accepted by a provider.
+## PR #197 Confirmed Non-delivery Retry (2026-11-06)
+
+The P2 review finding is reproduced against the previous staged runtime:
+finish one child, occupy all eight running-lane slots, reject its follow-up,
+free a slot, and retry the same request identity. The original cached rejection
+still prevents delivery. Native capacity and final-settlement refusals now
+explicitly return `not_sent`. Only that confirmed non-delivery clears the
+attempt's promise; the request digest remains reserved. A subsequent manual
+attempt can succeed, concurrent attempts share one promise, and success remains
+deduplicated. Missing metadata, thrown failures and lost acknowledgments still
+retain their uncertain/successful receipt. No automatic retry is added.
+
+The new native capacity regression passes after rebuilding/restaging. All five
+pinned-runtime scenarios and 29 background service/presentation tests pass.
+Three new RPC receipt tests cover confirmed refusal, missing metadata and a
+thrown result; a native lifecycle regression captures a refusal during the real
+settlement handoff. All 84 selected upstream tests pass, as do the upstream
+workspace type check, Desktop type check/build, four staging tests, and the
+40 CI policy/runner/summary tests (39 passes, one platform skip). Both real
+Electron background controls and replies verifiers pass, including delivery
+once after a deliberately lost acknowledgment.
+
+The complete serial Desktop run passes: 890 tests, 876 passes, 14 platform
+skips, zero failures in 242.8 seconds. Its log is
+`Desktop/test-results/background-replies/review-serial-tests.log`.
+The unchanged pin and 17 shared patches replay with all 44 Windows postimages;
+Darwin additions also replay with matching combined postimages. The new RPC
+tests are explicitly registered in both upstream integration workflows.
+
+An additional run of upstream `subagent-live-channel.test.ts` fails both cases
+in its Windows temporary-directory cleanup (`EPERM`), including isolated reruns
+with Node 24.15.0 and 24.16.0. This extra test is outside the existing integration
+inventory; its cleanup cause is not fixed or claimed as passing here.
+No installer is generated. The reused staged runtime (0.11 GiB) and Desktop
+build (0.01 GiB) remain needed for verification; no historical package is
+created or deleted. These are local results, not replacement cloud/native
+macOS, real-account, installer or merge acceptance.
+
+## Background Agent Follow-ups (2026-11-05, Local Candidate)
+
+Based on main `7c349b7`, this candidate adds explicit single-agent
+follow-ups through the existing background inspector and typed preload/IPC.
+It reuses the shared composer and native `agent_send reply`, always without
+interruption. Running children queue; settled retained children continue their
+original transcript. Parallel/chain steps, missing/stale/disconnected records
+and settling lanes cannot send. These child tasks may execute tools and consume
+model usage; they are not read-only BTW requests.
+
+The source pin and two upstream overlays are unchanged. The new final patch
+adds structured queued/started delivery receipts and request-digest
+deduplication scoped to the live registry. Uncertain outcomes are retained,
+never retried automatically or silently evicted; the bound is 512 receipts.
+No durable exactly-once guarantee across app restarts is claimed. All 17 shared
+patches replay cleanly and match all 43 Windows postimages. Both Darwin
+additions also replay with matching combined postimages on Windows; this is
+not native macOS execution.
+
+The upstream workspace type check, complete offline build and 80 focused
+subagent/lifecycle tests pass. Desktop type checking, production build,
+29 focused background service/presentation tests, all four pinned-runtime
+lifecycle/control/reply scenarios and four staging tests pass. The latest
+CI inventory/runner/summary check collects 30 tests: 29 pass, one platform skip.
+The real Electron controls and new replies verifiers pass with an isolated
+loopback provider. Coverage includes queueing, retained child context,
+continuation, lost-acknowledgment manual retry delivering once, independent
+parent/peer execution, per-lane drafts, delayed receipts and reload.
+
+Browser checks cover 1400/390/320-pixel light/dark layouts, English/Chinese,
+IME, multiline/Enter, length bounds and reduced motion. Long live output
+exposed a real focus-scroll defect: revealing only the editor caret could
+leave the send button and composite focus ring clipped. The form now reveals
+itself on focus and on focused layout changes. Both browser and native
+Electron checks verify the complete four-pixel focus gutter.
+
+The initial complete serial Desktop run collects 889 tests: 873 pass,
+14 platform skips and two failures. Both fail during StepPage fixture cleanup
+with `EBUSY` while removing their isolated project directories; their runtime
+children remain alive. Those exact test-owned process trees were terminated
+to let the failed run exit. An unchanged isolated rerun passes both tests
+with one platform skip. A replacement unchanged complete serial run passes:
+889 tests, 875 passes, 14 platform skips, zero failures in 325.5 seconds.
+That successful rerun does not establish a fix for the original
+process-cleanup cause.
+
+The new Electron reply verifier selects explicit fixture scenarios rather than
+assuming the last user-shaped message is the task. Its startup failure also
+closes the loopback service, and orderly shutdown waits for both controller and
+launcher exit with the existing 30-second bound. A deliberately missing
+executable exits with the expected failure code rather than leaving the server
+alive. The normal final verifier rerun also passes and exits cleanly.
+
+Evidence is under `Desktop/test-results/background-replies/`; the isolated
+runtime build is `D:\Desktop Runtime Builds\background-follow-up-20261105`.
+The rebuildable isolated workspace is about 0.34 GiB, the staged runtime
+0.11 GiB and the Desktop build 0.01 GiB. They remain needed for candidate
+verification; no installer or historical package was generated or removed.
+No installer, installed application, shortcut or personal Step Code checkout
+was changed. These local results do not establish real-account, cloud or
+native macOS acceptance, nor PR approval or merge readiness.
+
+## PR #196 Native CI Synchronization (2026-11-05)
+
+Run `41975811560` fails macOS source capability acceptance immediately after
+reload while its search button is still disabled, and task-progress acceptance
+times out before the full-but-running checkpoint. Capability acceptance now
+waits for the existing enabled control before retaining its original assertion.
+The task fixture routes by the explicit user scenario and acknowledged tool
+result instead of global request ordinal; it asserts exactly one task update,
+one held post-tool answer and one next-turn request. Its failure path captures
+phase/count/stream state without logging provider payloads. No production
+behavior, animation assertion, deadline or CI inventory is relaxed.
+
+Main `495d974` is merged without rewriting history. Both native BTW stream
+isolation checks and unsupported-tool scenarios are retained, alongside both
+runtime capabilities and all subagent redaction postimages. The complete
+combined patch set applies on a new pinned checkout, builds offline and stages
+with Node 24.16.0. The upstream pin and overlays are unchanged. Replacement
+Windows and native macOS source/package checks remain required; this local
+record is not a cloud success, package, real-account or release claim.
+
+At `2bce3bf`, Windows runtime and sessions pass. The replacement macOS runtime
+job `127198503188` stops earlier at the project-trust drawer, before reaching
+task-progress acceptance. Its menu-selection fixture now requires the exact
+inserted `/trust ` value, editable composer and closed command menu before
+Enter. This retains the real menu/composer/IPC flow and all approval/save/
+no-model assertions. Failure diagnostics capture a screenshot and safe control/
+request state so a remaining failure cannot be mistaken for this timing gap.
+The original failed job has no such diagnostic, so the exact missing stage
+is not claimed as reproduced locally. Native cloud acceptance remains pending.
+
+## BTW Message Actions And Tool Boundary (2026-11-05)
+
+Follow-up to merged main `3158d8d` (PR #190). Side questions now reuse
+the shared user timestamp/copy footer without an unsupported edit action.
+Inside BTW, the existing selection toolbar offers Quote, Annotate and Copy
+without recursive side questions. Source identity, composer focus and
+annotation ranges remain isolated from the main transcript; closing BTW
+removes only its own floating markers/highlights.
+
+The upstream pin and applied upstream commits are unchanged. A fresh
+isolated checkout replayed the complete reviewed patch set, then rebuilt
+and staged the runtime with Node v24.16.0. The side-only reminder is also
+applied at system level. Structured tool invocations and bare leading
+tool-protocol text produce an allowlisted unsupported-tools error, never
+execute tools, and do not enter side followup history. Fenced and quoted
+protocol examples remain ordinary answers. This is conservative detection,
+not a claim to recognize every malformed provider response.
+
+Typecheck, production build and all 849 serial tests pass: 835 passed,
+14 platform skips, no failures. The focused staging/native runtime tests
+also pass after the final patch metadata/hash update. Native runtime tests
+use only an isolated loopback provider and verify tool rejection, legitimate
+examples, followup isolation, no retry/tool loop and main/side cancellation.
+The BTW browser acceptance covers shared message actions, side-local
+selection/annotations, independent main/side highlights, hidden-panel
+cleanup, source navigation, focus and light/dark 1600/1100/390/320 layouts
+plus reduced motion. The native BTW and main chat-quote acceptances pass,
+including real clipboard operations, stable entry identity after index
+changes, independently retained drafts/references and no main JSONL writes.
+
+The serial test log and BTW screenshots are in
+`Desktop/test-results/btw/`; the patch replay/build workspace is
+`D:\Desktop Runtime Builds\btw-boundaries-20261105\isolated`.
+No installer, installed application, desktop shortcut, real-account request,
+cloud check or native macOS acceptance was changed or claimed by this pass.
+
 ## PR #193 main synchronization and acceptance corrections (2026-11-05)
 
 Merged main `d0a1009b` (#190 BTW and #192 production first-run) into the original

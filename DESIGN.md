@@ -87,11 +87,19 @@ references appear with their question. Plain text is for display, Markdown
 for the request and source identity for navigation. Combined question/reference
 limits reject visibly without discarding user input. Closing keeps pending
 side drafts/references; changing conversations clears them.
+Selections inside BTW reuse Quote, Annotate and Copy, without Ask in side.
+They attach only to the side composer and retain a stable source entry across
+history trimming. Main and side annotation ranges coexist without overwriting
+each other; hiding the panel removes only its floating markers/highlights.
 Side questions use the main conversation's user-message and Markdown typography.
+Sent side questions reuse the user timestamp/copy footer without edit/retry.
 Live responses reuse the existing responding indicator; settled responses reuse
 the shared copy/elapsed/time footer without unsupported branch controls. Failed,
 cancelled and length-limited outcomes remain explicit. Timings are local request
 observations, not provider-side telemetry or main-task completion signals.
+The model row identifies the answer-only/no-tools boundary. Tool invocations
+are explicit unsuccessful outcomes, not executed operations or successful
+answers; the user is directed to the main conversation for executable work.
 
 Session navigation separates readable history, editable local drafts and
 execution readiness. A cold preview supports text selection, copying and
@@ -265,6 +273,15 @@ Settings use one centered, fixed-size secondary window: 1060 by 740 pixels, boun
 Artifact and web-reference entry points also close the right panel when it already shows that target. External application actions and explicit file refresh remain commands. Hiding a panel preserves its reading state, browser tabs and terminal processes. Local HTML reactivation selects its existing browser tab without reloading it; the browser refresh command remains available.
 
 Resizable inspectors share a subtle single-line grip centered on their left boundary, with a larger invisible pointer target and no tooltip. Drag geometry follows the pointer and release snaps to existing presets; a long drag may cross multiple presets. Closing requires dragging at least 100px beyond standard width. Browser, file and terminal use standard/wide/fullscreen; context, changes and subagent use standard/fullscreen. Conversation navigation is excluded. Click opens an anchored in-app size menu; keyboard left/right expands/contracts. The browser yields its native surface while the menu is open. Reduced-motion preferences disable the settling transition.
+
+Current-runtime single background-agent details offer a compact follow-up
+composer using the actual ComposerInput, composer surface and ComposerActionIcon.
+The native current turn is not interrupted; retained completed children continue
+their original conversation. Per-lane drafts stay separate from the parent.
+Queued/started are delivery receipts, never completion claims. Stale,
+disconnected, settling, missing and parallel/chain records cannot send.
+Unconfirmed delivery retains the draft without automatic retry. The composite
+focus ring keeps its full four-pixel gutter inside the scrolling inspector.
 
 The thinking fader animates one inherited position and resistance value for both
 the thumb center and gradient fill edge. Their geometry uses the same inner

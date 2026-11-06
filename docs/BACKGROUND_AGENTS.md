@@ -7,13 +7,15 @@ saved Workflow catalog and not a new conversation with a child agent.
 ## Data And Ownership
 
 - Electron owns `backgroundAgents(runtimeId, sessionId)` and
-  `stopBackgroundAgent(runtimeId, sessionId, laneId)` through the typed preload.
-  Both require the exact connected worker and session, with no destructive
+  `stopBackgroundAgent(runtimeId, sessionId, laneId)` through the typed preload,
+  plus a typed `replyBackgroundAgent` request. All require the exact connected
+  worker and session, with no destructive
   account/history/runtime transition in progress.
 - A narrow `desktop_subagents` RPC invokes the registered native `agent_send`
   tool for `status` or `stop`. It does not submit a prompt, invoke a model,
-  append a conversation message or grant arbitrary tool access. Reply is
-  deliberately not exposed.
+  append a conversation message or grant arbitrary tool access for reads/stops.
+  Explicit follow-ups use native `reply` with `interrupt: false` and can invoke
+  the child model and its tools. They are not answer-only BTW requests.
 - Reads are coalesced per worker/transport/session. Pending operations retain
   the host; identity and transition guards are checked again after the reply.
   Stops have per-lane duplicate protection and no automatic retry.
@@ -36,7 +38,7 @@ errors and output excerpts. Missing values are unknown, not fabricated zeroes.
 The panel refreshes every 1.5 seconds only while open, connected and selected;
 native state changes trigger an immediate refresh. Manual refresh remains
 available after errors. Failed reads retain labelled stale rows and disable
-stopping. Switching runtime/session resets the display and ignores old replies.
+control actions. Switching runtime/session resets the display and ignores old replies.
 
 Production and the visual preview share the role presentation component.
 Known native role names receive role labels and output headings; the raw agent
@@ -53,8 +55,9 @@ follow the same current-runtime snapshot and polling owner, not a guessed
 transcript match. Returning restores the mounted list's disclosure state,
 scroll position and originating button focus. If a selected step leaves the
 snapshot, an explicit missing-record message replaces it, never another agent.
-These details remain read-only excerpts; stop still targets the whole lane
-from the Background tab.
+The output remains a read-only excerpt; stop still targets the whole lane
+from the Background tab. A single-agent detail additionally offers the shared
+composer for explicit follow-up tasks.
 
 Read limits are 24 lanes, 64 steps in total, 32,000 output characters in total
 and 12,000 per step. Native omitted-step counts are preserved. Credential-like
@@ -84,6 +87,37 @@ it. A timeout or unconfirmed response has an explicit unknown outcome and is
 never retried automatically. The parent, other lanes, queue and account route
 are not changed.
 
+## Follow-up Semantics
+
+Follow-ups are available only with both the `desktop-background-reply` staged
+capability and the current RPC snapshot capability. Only the selected session's
+live, retained single-agent lanes accept them. Parallel/chain steps, missing
+records, stale/disconnected snapshots and settling lanes cannot send. Nothing
+loads or restarts a parent runtime from saved history as a fallback.
+
+Running children queue the prompt after their current turn; settled retained
+children continue the same child conversation, including a native respawn from
+its saved transcript after idle expiry. There is no interrupt/steer option.
+Existing tool permissions, project/agent selection and account/model routing
+remain native. This may execute tools and consume model usage. The follow-up is
+not submitted as a parent prompt and does not append a parent user turn; normal
+child output, final notifications and the parent wake-up still apply.
+
+The receipt states `queued` or `started`, never `completed`. Drafts and pending
+receipts are isolated per lane and reset on conversation changes. Enter sends,
+Shift+Enter inserts a line, and IME composition never submits. Empty and
+over-8,000-character inputs cannot send. Unconfirmed delivery retains the text
+and its request identity, with no automatic retry. Resubmitting unchanged text
+reuses that identity; editing creates a new request. The runtime retains a
+prompt digest and delivery promise per request for this live registry. A native
+confirmed non-delivery (capacity or final-settlement refusal) releases only the
+attempt's promise so unchanged text can be retried manually once the condition
+clears. Throws or missing delivery metadata remain uncertain and retain their
+promise; neither case retries automatically. The digest still rejects identity
+reuse with another lane/text, and the receipt set is bounded at 512 without silent
+eviction. This is live-runtime deduplication, not durable exactly-once delivery
+across application restarts. Restarted history is not sendable.
+
 ## Local Verification
 
 `background-agents.test.ts` covers projection bounds/redaction, encoded free
@@ -91,6 +125,11 @@ text, missing data, coalescing, stale session/worker/transport replies, transiti
 guards, per-lane stop locks and native settlement. The real pinned runtime test adds
 two concurrent lanes, read-only/no-model queries, rejected unsupported controls,
 targeted stop while the parent runs, peer completion and filtered native output.
+The native capacity regression also fills all eight running-lane slots, verifies
+that a refused request delivers nothing, frees a slot, and resubmits unchanged
+text with concurrent retries delivering once. Runtime RPC tests distinguish
+confirmed refusal from thrown/missing receipts; the lifecycle test captures a
+real final-settlement refusal before a successful continuation.
 
 `verify-background-agent-controls.mjs` exercises the actual Electron bridge
 and RPC with an isolated loopback model, plus explicit read/stop fault
@@ -105,3 +144,10 @@ It is registered in the shared Windows/macOS runtime acceptance inventory.
 `tests/fixtures/background-agents.html` uses the production inspector with
 sample data. It is a visual preview, not real-account acceptance. Native macOS,
 cloud CI, installer and real-account verification remain separate.
+
+`verify-background-agent-replies.mjs` adds actual preload/IPC/RPC acceptance
+with an isolated loopback model: queued execution, retained child context,
+continuation, lost-receipt retry deduplication, independent parent/peer,
+per-lane drafts, reload and light/dark narrow focus gutters. It is registered
+in the shared runtime CI inventory. Native runtime units also reject replies
+to parallel lanes and request-identity reuse with changed text.

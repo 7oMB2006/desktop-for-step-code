@@ -120,6 +120,12 @@ try {
   assert.equal(await answer.locator('.branch-action').count(), 0, 'Side answers do not expose unsupported main-session branching');
   await panel.getByRole('button', { name: '复制旁问回答', exact: true }).click();
   assert.equal(await page.evaluate(() => window.btwFixture.calls.at(-1).type), 'copy');
+  const user = panel.locator('.btw-request');
+  await user.hover();
+  assert.ok(await user.locator('.user-actions time').getAttribute('dateTime'), 'Side questions retain their send timestamp');
+  assert.equal(await user.locator('.user-actions button').count(), 1, 'No unsupported edit/retry button');
+  await user.getByRole('button', { name: '复制旁问问题', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.btwFixture.calls.at(-1).text), '为什么独立旁问不影响主任务？');
   await panel.getByRole('button', { name: '旁问宽度', exact: true }).click();
   await page.getByRole('menuitemradio', { name: '全屏', exact: true }).click();
   await page.waitForTimeout(300);
@@ -175,6 +181,14 @@ try {
   await page.getByLabel('旁问内容', { exact: true }).fill('失败场景');
   await page.getByLabel('旁问内容', { exact: true }).press('Enter');
   await panel.locator('[data-state="error"]').waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Scenario').selectOption('unsupported-tools');
+  await open();
+  await sideEditor.fill('需要工具的问题');
+  await sideEditor.press('Enter');
+  await panel.getByRole('status').filter({ hasText: '这次未执行任何操作' }).waitFor();
+  assert.equal(await panel.locator('[data-state="error"]').last().locator('.btw-answer').count(), 0,
+    'A rejected tool invocation is not shown as a successful answer');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Switch session', exact: true }).click();
   await open();
@@ -278,6 +292,55 @@ try {
   await open();
   assert.equal(await panel.locator('.composer-quotes').count(), 0);
   assert.equal(await sideInput.evaluate(el => el.value), '', 'New conversation discards pending side references and draft');
+  await composer.fill('KEEP-MAIN-LOCAL-SELECTION');
+  await select('main .response-text > p');
+  await toolbar.getByRole('button', { name: '批注', exact: true }).click();
+  await toolbar.getByRole('textbox', { name: '选段批注', exact: true }).fill('MAIN-NOTE');
+  await toolbar.getByRole('button', { name: '添加批注', exact: true }).click();
+  await sideInput.fill('先回答一个旁问');
+  await sideInput.press('Enter');
+  await panel.locator('[data-state="done"]').waitFor();
+  await sideInput.fill('KEEP-SIDE-LOCAL-DRAFT');
+  const requestsBeforeSelection = await page.evaluate(() => window.btwFixture.calls.filter(call => call.type === 'ask').length);
+  await select('#btw-panel .btw-answer > p');
+  assert.equal(await toolbar.getByRole('button', { name: '旁问', exact: true }).count(), 0, 'No recursive side-question entry');
+  await toolbar.getByRole('button', { name: '复制选段', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.btwFixture.calls.at(-1).text), '这里有两个不同的生命周期。');
+  await toolbar.getByRole('button', { name: '引用', exact: true }).click();
+  assert.equal(await sideInput.evaluate(el => el === document.activeElement), true, 'Side quotes focus the side composer');
+  assert.equal(await sideInput.evaluate(el => el.value), 'KEEP-SIDE-LOCAL-DRAFT');
+  assert.equal(await composer.innerText(), 'KEEP-MAIN-LOCAL-SELECTION');
+  assert.equal(await mainQuotes.locator('.quote-chip').count(), 1);
+  assert.equal(await page.evaluate(() => window.btwFixture.calls.filter(call => call.type === 'ask').length), requestsBeforeSelection,
+    'Side selections never send automatically');
+  await select('#btw-panel .btw-answer > p');
+  await toolbar.getByRole('button', { name: '批注', exact: true }).click();
+  await toolbar.getByRole('textbox', { name: '选段批注', exact: true }).fill('SIDE-NOTE');
+  await toolbar.getByRole('button', { name: '添加批注', exact: true }).click();
+  await page.waitForFunction(() => CSS.highlights.get('quote-annotation-marks')?.size === 2);
+  assert.deepEqual(await page.evaluate(() => [...CSS.highlights.get('quote-annotation-marks')].map(range =>
+    Boolean(range.startContainer.parentElement.closest('#btw-panel'))).sort()), [false, true],
+    'Main and side annotations coexist in the shared highlight registry');
+  await panel.getByRole('button', { name: '查看引用', exact: true }).click();
+  await quotePopover.waitFor();
+  await quotePopover.getByRole('button', { name: '查看引用 1 的原文', exact: true }).click();
+  assert.equal(await panel.getByRole('alert').count(), 0, 'Side quotes navigate inside their own transcript');
+  await panel.getByRole('button', { name: '关闭旁问', exact: true }).click();
+  await panel.waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => CSS.highlights.get('quote-annotation-marks')?.size === 1);
+  assert.equal(await page.locator('.annotation-footnote').count(), 1, 'Hidden side panels leave no floating annotation markers');
+  await open();
+  await page.waitForFunction(() => CSS.highlights.get('quote-annotation-marks')?.size === 2);
+  await sideInput.fill('解释旁问选段');
+  await sideInput.press('Enter');
+  await panel.locator('[data-state="done"]').nth(1).waitFor();
+  const localPrompt = await page.evaluate(() => window.btwFixture.calls.filter(call => call.type === 'ask').at(-1).input.question);
+  assert.match(localPrompt, /SIDE-NOTE/);
+  assert.ok(!localPrompt.includes('MAIN-NOTE'), 'Main annotations never leak into side selections');
+  await panel.locator('.btw-sent-quotes .sent-quote-annotation').filter({ hasText: 'SIDE-NOTE' }).waitFor();
+  await page.waitForFunction(() => CSS.highlights.get('quote-annotation-marks')?.size === 1);
+  assert.equal(await composer.innerText(), 'KEEP-MAIN-LOCAL-SELECTION');
+  await page.screenshot({ path: join(output, 'local-quotes.png') });
   for (const theme of ['light', 'dark']) for (const width of [1600, 1100, 390, 320]) {
     await page.setViewportSize({ width, height: 720 });
     await page.goto(`${url}?theme=${theme}&lang=en`);
@@ -379,6 +442,44 @@ try {
       return ['.btw-preview-conversation .message.user', '.composer'].every(selector => document.querySelector(selector).getBoundingClientRect().right <= edge);
     }), true, 'Docked preview reuses the reading column so the main content stays clear of the panel');
     await page.screenshot({ path: join(output, `${theme}-${width}.png`) });
+    await dialog.locator('.btw-answer > p').first().scrollIntoViewIfNeeded();
+    await dialog.locator('.btw-answer > p').first().evaluate(el => {
+      document.activeElement?.blur();
+      const range = document.createRange(); range.selectNodeContents(el);
+      getSelection().removeAllRanges(); getSelection().addRange(range);
+    });
+    await englishToolbar.waitFor();
+    assert.equal(await englishToolbar.getByRole('button', { name: 'Ask in side', exact: true }).count(), 0);
+    assert.equal(await englishToolbar.evaluate(el => {
+      const box = el.getBoundingClientRect();
+      const viewport = document.querySelector('#btw-panel .btw-history').getBoundingClientRect();
+      return box.left >= viewport.left && box.right <= viewport.right && box.top >= viewport.top && box.bottom <= viewport.bottom;
+    }), true, 'Side selection actions stay within their own visible history');
+    await englishToolbar.getByRole('button', { name: 'Annotate', exact: true }).click();
+    const annotationInput = englishToolbar.getByRole('textbox', { name: 'Selection annotation', exact: true });
+    await annotationInput.fill('A focused side annotation');
+    await settleLayout(englishToolbar);
+    assert.equal(await annotationInput.evaluate(el => {
+      const style = getComputedStyle(el), box = el.getBoundingClientRect();
+      const extent = parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset));
+      if (style.outlineStyle === 'none' || extent <= 0) return false;
+      for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+        const clipping = getComputedStyle(parent);
+        if (!/(hidden|auto|scroll|clip)/.test(`${clipping.overflowX} ${clipping.overflowY}`)) continue;
+        const clip = parent.getBoundingClientRect();
+        if (box.left - extent < clip.left || box.right + extent > clip.right
+          || box.top - extent < clip.top || box.bottom + extent > clip.bottom) return false;
+      }
+      return box.left - extent >= 0 && box.right + extent <= innerWidth
+        && box.top - extent >= 0 && box.bottom + extent <= innerHeight;
+    }), true, 'The shared annotation focus outline remains visible on all four sides');
+    assert.equal(await englishToolbar.evaluate(el => {
+      const box = el.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight;
+    }), true, 'The annotation editor fits desktop and narrow viewports');
+    await page.screenshot({ path: join(output, `${theme}-side-annotation-${width}.png`) });
+    await englishToolbar.getByRole('button', { name: 'Cancel annotation', exact: true }).click();
+    await page.evaluate(() => getSelection().removeAllRanges());
+    await textarea.focus();
     if (width === 1600) {
       const standard = await dialog.evaluate(el => el.getBoundingClientRect().width);
       await dialog.getByRole('button', { name: 'Side question width', exact: true }).click();
@@ -428,5 +529,5 @@ try {
     'Reduced motion retains visible streamed answers without text animations');
   await alignedComposers();
   assert.deepEqual(errors, []);
-  console.log('BTW: quote toolbar, independent main/side drafts and references, no auto-send, Markdown, deduplication, removal, length guards, verified source identity, session isolation, right rail, widths, streaming, themes, narrow layout and focus passed.');
+  console.log('BTW: shared user timestamps/copy, local quote/annotation/copy without recursive side questions, independent highlights/drafts, unsupported tools, no auto-send, source identity, session isolation, widths, streaming, themes, narrow layout and focus passed.');
 } finally { await browser.close(); await server.close(); }

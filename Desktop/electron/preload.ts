@@ -112,6 +112,7 @@ const bridge: DesktopBridge = {
   summary: runtimeId => invoke('summary', runtimeId),
   backgroundAgents: (runtimeId, sessionId) => invoke('backgroundAgents', runtimeId, sessionId),
   stopBackgroundAgent: (runtimeId, sessionId, laneId) => invoke('stopBackgroundAgent', runtimeId, sessionId, laneId),
+  replyBackgroundAgent: request => invoke('replyBackgroundAgent', request),
   workflows: (runtimeId, sessionId) => invoke('workflows', runtimeId, sessionId),
   clm: (runtimeId, entryId) => invoke('clm', runtimeId, entryId),
   clmAction: (runtimeId, sessionId, action, guidance) => invoke('clmAction', runtimeId, sessionId, action, guidance),

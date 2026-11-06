@@ -31,28 +31,38 @@ await writeFile(join(runtimeProfile, 'sessions', 'progress-fixture.jsonl'), [
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }, timestamp: Date.now() } },
   { type: 'session_info', id: 'name', parentId: 'a', timestamp, name: '进度条声画验收' },
 ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
-let calls = 0;
+let taskUpdateRequests = 0;
+let taskSummaryRequests = 0;
+let nextTurnRequests = 0;
 let finishTaskAnswer;
 const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
   id: 'progress', object: 'chat.completion.chunk', model: 'fixture', created: 1,
   choices: [{ index: 0, delta, finish_reason }],
 })}\n\n`;
 const server = createServer(async (request, response) => {
-  for await (const _part of request) { /* Consume fixture data without logging it. */ }
+  let body = '';
+  for await (const part of request) body += part;
+  const { messages = [] } = JSON.parse(body);
+  // Auxiliary requests and trailing context reminders must not consume the task scenario.
+  const scenario = [...messages].reverse().filter(message => message.role === 'user')
+    .map(message => JSON.stringify(message.content))
+    .find(content => /完成最后一项，然后总结。|下一轮只回复确认即可。/.test(content)) ?? '';
   response.writeHead(200, { 'content-type': 'text/event-stream' });
-  const call = calls++;
-  if (call === 0) {
+  if (scenario.includes('完成最后一项，然后总结。')
+    && !messages.some(message => message.role === 'tool' && message.tool_call_id === 'finish-task')) {
+    taskUpdateRequests++;
     response.end(chunk({ role: 'assistant', tool_calls: [{
       index: 0, id: 'finish-task', type: 'function', function: {
         name: 'task_update', arguments: JSON.stringify({ taskId: '2', status: 'completed' }),
       },
     }] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
-  } else {
+  } else if (scenario.includes('完成最后一项，然后总结。')) {
+    taskSummaryRequests++;
     response.write(chunk({ role: 'assistant', content: '归档已完成，正在汇总结果。' }));
-    const finish = () => response.end(chunk({ content: '本轮任务已完成。' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
-    // Hold the first answer until the full-but-still-running state is observed.
-    if (call === 1) finishTaskAnswer = finish;
-    else finish();
+    finishTaskAnswer = () => response.end(chunk({ content: '本轮任务已完成。' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
+  } else {
+    if (scenario.includes('下一轮只回复确认即可。')) nextTurnRequests++;
+    response.end(chunk({ role: 'assistant', content: '确认。' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
   }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -125,6 +135,8 @@ try {
     frame.phase === 'running' && Math.abs(frame.full - frame.width) < 1));
   await page.screenshot({ path: 'test-results/task-progress-electron-full-waiting.png' });
   assert.equal(typeof finishTaskAnswer, 'function');
+  assert.equal(taskUpdateRequests, 1, 'The task command runs once regardless of auxiliary requests');
+  assert.equal(taskSummaryRequests, 1, 'Only the post-tool answer is held for completion');
   const impact = await captureWaapi(page, '.sb-task-progress', () => {
     finishTaskAnswer();
     finishTaskAnswer = undefined;
@@ -183,9 +195,11 @@ try {
   await trigger.waitFor();
   assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
   assert.equal(await progress.count(), 0, 'Reload reconstructs history from persisted runtime/message records');
+  assert.equal(nextTurnRequests, 1, 'The next turn uses its own scenario rather than replaying the task tool');
   assert.deepEqual(errors, []);
   console.log('Real Electron task progress verified: runtime tasks, round event, sound/impact/sweep, next-turn retirement, history and renderer reload.');
 } catch (error) {
+  page ??= app && await app.firstWindow().catch(() => undefined);
   if (page) {
     const diagnostic = await page.evaluate(async () => {
       const snapshot = await window.desktop.snapshot();
@@ -204,9 +218,11 @@ try {
           now: root.getAttribute('aria-valuenow'), max: root.getAttribute('aria-valuemax'), phase: root.dataset.phase,
         })),
         taskText: document.querySelector('.sb-steps')?.textContent,
+        toolStates: [...document.querySelectorAll('[data-tool-state]')].map(element => element.dataset.toolState),
       };
     }).catch(error => ({ diagnosticError: String(error) }));
-    const evidence = { calls, answerPending: typeof finishTaskAnswer === 'function', errors, ...diagnostic };
+    const evidence = { taskUpdateRequests, taskSummaryRequests, nextTurnRequests,
+      answerPending: typeof finishTaskAnswer === 'function', errors, ...diagnostic };
     console.error('Task progress failure diagnostic:', JSON.stringify(evidence));
     await writeFile('test-results/task-progress-electron-failure.json', JSON.stringify(evidence, null, 2));
     await page.screenshot({ path: 'test-results/task-progress-electron-failure.png' }).catch(() => {});

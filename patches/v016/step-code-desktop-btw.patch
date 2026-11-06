@@ -1,9 +1,9 @@
 diff --git a/packages/coding-agent/src/modes/rpc/desktop-btw.ts b/packages/coding-agent/src/modes/rpc/desktop-btw.ts
 new file mode 100644
-index 0000000..a28d458
+index 0000000..0d9656f
 --- /dev/null
 +++ b/packages/coding-agent/src/modes/rpc/desktop-btw.ts
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,130 @@
 +import type { AssistantMessage, Message } from "@step-harness/providers";
 +import type { AgentSession } from "../../core/agent-session.ts";
 +import { convertToLlm } from "../../core/messages.ts";
@@ -15,6 +15,11 @@ index 0000000..a28d458
 +const identity = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(value);
 +const text = (message: AssistantMessage) =>
 +	message.content.filter((block) => block.type === "text").map((block) => block.text).join("");
++
++/** Only a bare invocation envelope, not a fenced/quoted example or prose discussing tools. */
++export function btwToolProtocol(value: string): boolean {
++	return /^(?:<tool_call>\s*<function=[\w.:-]+>|<function=[\w.:-]+>\s*<parameter=|<function_calls>\s*<invoke\b)/i.test(value.trimStart());
++}
 +
 +/** Keep only a complete prefix: an in-flight tool call must not reach a second request unpaired. */
 +export function btwContext(messages: Message[]): Message[] {
@@ -56,7 +61,7 @@ index 0000000..a28d458
 +		if (this.scope !== input.scopeId) { this.scope = input.scopeId; this.history = []; }
 +		const question = input.question.trim(), model = session.model;
 +		const context = structuredClone({
-+			systemPrompt: session.systemPrompt,
++			systemPrompt: `${session.systemPrompt}\n\n${reminder}`,
 +			messages: [
 +				...btwContext(convertToLlm(session.agent.state.messages)),
 +				...this.history.flatMap(({ question, message }): Message[] => [
@@ -87,7 +92,10 @@ index 0000000..a28d458
 +				const message = await stream.result();
 +				usage = message.usage;
 +				if (active.controller.signal.aborted || message.stopReason === "aborted") emit({ kind: "cancelled", usage });
-+				else if (message.stopReason === "error" || message.content.some((block) => block.type === "toolCall")
++				else if (message.stopReason === "toolUse" || message.content.some((block) => block.type === "toolCall")
++					|| btwToolProtocol(text(message)))
++					emit({ kind: "error", reason: "tools_unavailable", usage });
++				else if (message.stopReason === "error"
 +					|| !text(message).trim() || text(message).length > 64_000)
 +					emit({ kind: "error", usage });
 +				else {

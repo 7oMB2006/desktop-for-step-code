@@ -24,6 +24,7 @@ export interface BtwEvent extends BtwOwner {
   text?: string;
   usage?: Usage;
   truncated?: boolean;
+  reason?: 'tools_unavailable';
 }
 export interface BtwBridge {
   btwAsk(input: BtwInput): Promise<void>;
@@ -36,6 +37,7 @@ export interface BtwExchange {
   quotes?: ChatQuote[];
   promptLength?: number;
   model?: BtwEvent['model']; usage?: Usage; truncated?: boolean;
+  reason?: BtwEvent['reason'];
 }
 export function trimBtwHistory(items: BtwExchange[]): BtwExchange[] {
   const completed = items.filter(item => item.state === 'done').slice(-20);
@@ -52,6 +54,8 @@ export function applyBtwEvent(exchange: BtwExchange, event: BtwEvent, now = Date
   if (exchange.requestId !== event.requestId || exchange.state !== 'running') return exchange;
   if (event.kind === 'start') return { ...exchange, model: event.model };
   if (event.kind === 'delta') return { ...exchange, answer: (exchange.answer + (event.text ?? '')).slice(0, 64_000) };
-  return { ...exchange, state: event.kind, endedAt: now, answer: event.kind === 'done' ? event.text ?? exchange.answer : exchange.answer,
-    usage: event.usage, truncated: event.truncated };
+  return { ...exchange, state: event.kind, endedAt: now,
+    answer: event.kind === 'error' && event.reason === 'tools_unavailable' ? ''
+      : event.kind === 'done' ? event.text ?? exchange.answer : exchange.answer,
+    reason: event.kind === 'error' ? event.reason : undefined, usage: event.usage, truncated: event.truncated };
 }

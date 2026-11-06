@@ -1,4 +1,5 @@
-import type { BackgroundAgentLane, BackgroundAgentSnapshot, BackgroundAgentStep } from '../src/background-agents';
+import { MAX_BACKGROUND_REPLY_LENGTH, type BackgroundAgentLane, type BackgroundAgentReplyRequest,
+  type BackgroundAgentReplyReceipt, type BackgroundAgentSnapshot, type BackgroundAgentStep } from '../src/background-agents';
 import { redactSensitiveLines, redactSensitiveText } from '../src/subagent-redact';
 import type { SessionRuntime } from './session-runtimes';
 
@@ -47,14 +48,15 @@ export function backgroundAgentsSnapshot(value: unknown, sessionId: string, sett
       startedAt: time(lane.startedAt), updatedAt: time(lane.updatedAt), steps,
       omittedSteps: Math.min(100000, (number(lane.omittedResults) ?? 0) + lane.results.length - records.length) });
   }
-  return { sessionId, lanes };
+  return { sessionId, lanes, replyAvailable: raw.replyAvailable === true };
 }
 
 export class BackgroundAgents {
   private stopping = new Set<string>();
+  private replying = new Set<string>();
   private reading = new Map<SessionRuntime, { sessionId: string; rpc: SessionRuntime['rpc']; promise: Promise<BackgroundAgentSnapshot> }>();
   constructor(private workers: ReadonlyMap<string, SessionRuntime>, private blocked: () => boolean = () => false,
-    private safeOutput = false) {}
+    private safeOutput = false, private replies = false) {}
   private require(runtimeId: string, sessionId: string) {
     if (!this.safeOutput) throw new Error('Background agent output safety is unavailable');
     const worker = this.workers.get(runtimeId);
@@ -75,8 +77,10 @@ export class BackgroundAgents {
       try {
         const raw = await rpc.request('desktop_subagents', { sessionId, action: 'list' }, 10000);
         if (!this.current(worker, sessionId, rpc)) throw new Error('Session changed');
-        return backgroundAgentsSnapshot(raw, sessionId,
+        const snapshot = backgroundAgentsSnapshot(raw, sessionId,
           new Set(worker.backgroundLanes?.filter(lane => lane.status === 'settling').map(lane => lane.id)));
+        snapshot.replyAvailable = this.replies && snapshot.replyAvailable;
+        return snapshot;
       } finally { worker.operations--; }
     })();
     this.reading.set(worker, { sessionId, rpc, promise: read });
@@ -87,7 +91,7 @@ export class BackgroundAgents {
     const worker = this.require(runtimeId, sessionId), rpc = worker.rpc;
     if (!/^lane_[0-9a-f]{8}$/.test(laneId)) throw new Error('Invalid background lane id');
     const key = `${runtimeId}:${laneId}`;
-    if (this.stopping.has(key)) throw new Error('Background lane stop is already pending');
+    if (this.stopping.has(key) || this.replying.has(key)) throw new Error('Background lane action is already pending');
     this.stopping.add(key);
     this.reading.delete(worker);
     worker.operations++;
@@ -97,5 +101,30 @@ export class BackgroundAgents {
         throw new Error('Background lane stop was not confirmed');
       // Do not abort the parent, pause its queue, release its host or invent a final lane event.
     } finally { worker.operations--; this.stopping.delete(key); }
+  }
+  async reply(request: BackgroundAgentReplyRequest): Promise<BackgroundAgentReplyReceipt> {
+    if (!request || typeof request !== 'object' || !this.replies) throw new Error('Background replies are unavailable');
+    const { runtimeId, sessionId, laneId, requestId, prompt } = request;
+    const worker = this.require(runtimeId, sessionId), rpc = worker.rpc;
+    if (typeof laneId !== 'string' || !/^lane_[0-9a-f]{8}$/.test(laneId)
+      || typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{24,80}$/.test(requestId)
+      || typeof prompt !== 'string' || !prompt.trim() || prompt.length > MAX_BACKGROUND_REPLY_LENGTH)
+      throw new Error('Invalid background reply');
+    const key = `${runtimeId}:${laneId}`;
+    if (this.stopping.has(key) || this.replying.has(key)) throw new Error('Background lane action is already pending');
+    if (worker.backgroundLanes?.some(lane => lane.id === laneId && lane.status === 'settling'))
+      throw new Error('Wait for the background lane to settle');
+    this.replying.add(key);
+    this.reading.delete(worker);
+    worker.operations++;
+    try {
+      const result = await rpc.request('desktop_subagents', { sessionId, action: 'reply', laneId, requestId, prompt }, 10000);
+      if (!this.current(worker, sessionId, rpc) || result?.sessionId !== sessionId || result?.laneId !== laneId
+        || result?.requestId !== requestId || !['queued', 'started'].includes(result?.delivery))
+        throw new Error('Background reply was not confirmed');
+      return { sessionId, laneId, requestId, delivery: result.delivery };
+    } finally {
+      worker.operations--; this.replying.delete(key);
+    }
   }
 }

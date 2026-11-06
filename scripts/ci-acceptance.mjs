@@ -94,6 +94,7 @@ export const acceptanceGroups = {
     'verify-usage-overview-runtime.mjs',
     'verify-background-subagents.mjs',
     'verify-background-agent-controls.mjs',
+    'verify-background-agent-replies.mjs',
     'verify-btw-electron.mjs',
     'verify-custom-providers.mjs',
     'verify-crash-log.mjs',

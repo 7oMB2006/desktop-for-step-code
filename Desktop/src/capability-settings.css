@@ -37,8 +37,10 @@
 .cap-notes { margin:10px 0; padding-left:17px; color:var(--muted); font-size:11px; line-height:1.65; overflow-wrap:anywhere; }
 .cap-notes li + li { margin-top:6px; }
 .cap-switch { width:30px; height:18px; min-height:18px; flex-shrink:0; padding:2px; border:0; border-radius:12px; background:var(--muted); }
+.cap-switch:hover:not(:disabled) { background:var(--muted); }
 .cap-switch span { display:block; width:14px; height:14px; border-radius:50%; background:var(--bg); transform:translateX(-6px); transition:transform .2s cubic-bezier(.215,.61,.355,1); }
 .cap-switch.on { background:var(--primary); }
+.cap-switch.on:hover:not(:disabled) { background:var(--primary); }
 .cap-switch.on span { transform:translateX(6px); }
 .cap-switch:disabled { opacity:.45; }
 .cap-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid var(--border); padding-top:12px; margin-top:4px; flex-shrink:0; }

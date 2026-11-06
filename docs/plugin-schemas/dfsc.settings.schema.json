@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DFSC declarative settings v1",
+  "type": "object",
+  "required": ["schemaVersion", "consumer", "groups"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "consumer": {
+      "type": "object", "required": ["kind", "server"], "additionalProperties": false,
+      "properties": { "kind": { "const": "json-file-v1" }, "server": { "$ref": "#/definitions/id" } }
+    },
+    "groups": {
+      "type": "array", "maxItems": 8,
+      "items": {
+        "type": "object", "required": ["id", "title", "fields"], "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/definitions/id" },
+          "title": { "$ref": "#/definitions/label" },
+          "fields": { "type": "array", "maxItems": 16, "items": { "$ref": "#/definitions/field" } }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,47}$", "not": { "enum": ["constructor", "prototype", "__proto__"] } },
+    "label": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\u0000-\\u001f]+$" },
+    "field": {
+      "type": "object", "required": ["id", "label", "type"], "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/id" }, "label": { "$ref": "#/definitions/label" },
+        "type": { "enum": ["text", "number", "enum", "boolean", "secret", "path"] },
+        "help": { "$ref": "#/definitions/label" }, "required": { "type": "boolean" },
+        "default": { "type": ["string", "number", "boolean"] },
+        "maxLength": { "type": "integer", "minimum": 1, "maximum": 8192 },
+        "min": { "type": "number" }, "max": { "type": "number" },
+        "selection": { "enum": ["file", "directory"] },
+        "options": {
+          "type": "array", "minItems": 1, "maxItems": 32,
+          "items": {
+            "type": "object", "required": ["value", "label"], "additionalProperties": false,
+            "properties": { "value": { "$ref": "#/definitions/label" }, "label": { "$ref": "#/definitions/label" } }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "secret" } } }, "then": { "not": { "required": ["default"] } } },
+        { "if": { "properties": { "type": { "const": "enum" } } }, "then": { "required": ["options"] } },
+        { "if": { "properties": { "type": { "const": "boolean" } } }, "then": { "properties": { "default": { "type": "boolean" } } } },
+        { "if": { "properties": { "type": { "const": "number" } } }, "then": { "properties": { "default": { "type": "number" } } } },
+        { "if": { "properties": { "type": { "enum": ["text", "path", "enum"] } } }, "then": { "properties": { "default": { "type": "string" } } } }
+      ]
+    }
+  }
+}

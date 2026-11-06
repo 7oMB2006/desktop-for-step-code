@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import assert from 'node:assert/strict';
 import { prepareSessionFixture, skipFirstRunFixture } from './session-fixture.mjs';
-const profile = await mkdtemp(join(tmpdir(), 'step-desktop-electron-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-desktop-electron-')));
 const workspace = join(profile, '中文项目 with spaces'); await mkdir(workspace);
 const secondWorkspace = join(profile, 'Second project'); await mkdir(secondWorkspace);
 const independentCwd = join(profile, 'Independent cwd'); await mkdir(independentCwd);
@@ -1580,7 +1580,7 @@ try {
 } finally { await app.close(); }
 
 // Existing profiles bypass onboarding; fresh profiles can skip into a draft.
-const cleanProfile = await mkdtemp(join(tmpdir(), 'step-desktop-first-run-'));
+const cleanProfile = await realpath(await mkdtemp(join(tmpdir(), 'step-desktop-first-run-')));
 for (const userData of [profile, cleanProfile]) {
   const relaunched = await electron.launch({ ...launchOptions, env: { ...env, DESKTOP_TEST_USER_DATA: userData } });
   try {

@@ -12,14 +12,19 @@ import { desktopSystemPolicy } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
 import { importedHistoryMessages } from './imported-history';
-import type { Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, RuntimeStartupTiming, SessionStats, UIRequest } from '../src/contracts';
+import type { BackgroundLaneActivity, Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, RuntimeStartupTiming, SessionStats, UIRequest } from '../src/contracts';
+import { backgroundAgentsSnapshot } from './background-agents';
+import type { BackgroundAgentSnapshot } from '../src/background-agents';
+import { backgroundSubagentStates } from '../src/conversation-presentation';
 import { isFullAccessRisk } from '../src/full-access-risk';
 import { questionnaire } from '../src/questionnaire';
 import { cronState, hasScheduledCron, type CronState } from './cron-state';
 import { restoreSelectedModel, UnavailableModelError } from './model-preference';
 import { backgroundLaneStates, backgroundState, hasBackgroundWork, type BackgroundLaneState } from './background-work';
+import { completionReview, reviewActive } from '../src/completion-review';
 
 export interface WorkerTransport {
+  readonly pid?: number;
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
   request(type: string, args?: Record<string, unknown>, timeout?: number): Promise<any>;
   respond(value: Record<string, unknown>): void;
@@ -90,6 +95,11 @@ export class SessionRuntimes {
   private launchReads = new Map<SessionRuntime, Promise<void>>();
   private launchDirty = new Set<SessionRuntime>();
   private confirmations = new Map<string, { worker: SessionRuntime; resolve: (approved: boolean) => void }>();
+  private backgroundVersions = new WeakMap<SessionRuntime, number>();
+  private backgroundObservations = new WeakMap<SessionRuntime, { rpc: WorkerTransport; sessionId: string;
+    version: number; activity: BackgroundLaneActivity }>();
+  private backgroundReads = new WeakMap<SessionRuntime, { rpc: WorkerTransport; sessionId: string;
+    version: number; promise: Promise<BackgroundAgentSnapshot> }>();
   constructor(
     private emit: (event: RuntimeEvent) => void,
     // Reviewed imports can contain 128 MiB of source history plus embedded
@@ -100,7 +110,7 @@ export class SessionRuntimes {
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
-      idleLimit?: () => number;
+      idleLimit?: () => number; backgroundAvailable?: () => boolean;
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
@@ -108,11 +118,76 @@ export class SessionRuntimes {
     || worker.status === 'connected' && (worker.launch?.goal?.status === 'active' || hasScheduledCron(worker.cron))); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
   async preparePrompt(worker: SessionRuntime, message: string) { await this.hooks.beforePrompt?.(worker, message); }
+  private invalidateBackground(worker: SessionRuntime) {
+    this.backgroundVersions.set(worker, (this.backgroundVersions.get(worker) ?? 0) + 1);
+    this.backgroundObservations.delete(worker);
+  }
+  async withBackgroundAction<T>(worker: SessionRuntime, action: () => Promise<T>): Promise<T> {
+    this.invalidateBackground(worker);
+    this.publish();
+    try { return await action(); }
+    finally { this.invalidateBackground(worker); this.publish(); }
+  }
+  private observeBackground(worker: SessionRuntime, snapshot: BackgroundAgentSnapshot, revision: number) {
+    if (this.workers.get(worker.id) !== worker || worker.status !== 'connected'
+      || worker.state?.sessionId !== snapshot.sessionId || worker.revision !== revision) return;
+    const lanes = snapshot.lanes.filter(lane => lane.status === 'running' || lane.status === 'queued' || lane.settling)
+      .map(lane => ({ id: lane.id, status: lane.settling ? 'settling' as const : 'running' as const }));
+    this.backgroundObservations.set(worker, { rpc: worker.rpc, sessionId: snapshot.sessionId,
+      version: this.backgroundVersions.get(worker) ?? 0, activity: { status: 'known', lanes } });
+    this.publish();
+  }
+  private backgroundActivity(worker: SessionRuntime): BackgroundLaneActivity {
+    if (worker.status !== 'connected') return { status: 'unavailable' };
+    if (worker.backgroundLanes) return { status: 'known', lanes: worker.backgroundLanes.map(({ id, status }) => ({ id, status })) };
+    if (worker.backgroundActive) return { status: 'unavailable' };
+    const observed = this.backgroundObservations.get(worker);
+    return observed?.rpc === worker.rpc && observed.sessionId === worker.state?.sessionId
+      && observed.version === (this.backgroundVersions.get(worker) ?? 0) ? observed.activity : { status: 'unavailable' };
+  }
+  readBackground(worker: SessionRuntime): Promise<BackgroundAgentSnapshot> {
+    if (this.hooks.backgroundAvailable?.() === false)
+      return Promise.reject(new Error('Background agent output safety is unavailable'));
+    if (this.workers.get(worker.id) !== worker || worker.status !== 'connected' || !worker.state?.sessionId)
+      return Promise.reject(new Error('This session runtime is not connected'));
+    const rpc = worker.rpc, sessionId = worker.state.sessionId, revision = worker.revision;
+    const version = this.backgroundVersions.get(worker) ?? 0;
+    const pending = this.backgroundReads.get(worker);
+    if (pending?.rpc === rpc && pending.sessionId === sessionId && pending.version === version) return pending.promise;
+    worker.operations++;
+    const read = (async () => {
+      try {
+        const raw = await rpc.request('desktop_subagents', { sessionId, action: 'list' }, 10000);
+        if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.status !== 'connected'
+          || worker.state?.sessionId !== sessionId || (this.backgroundVersions.get(worker) ?? 0) !== version)
+          throw new Error('Background ownership changed; try again');
+        if (!Array.isArray(raw?.lanes) || raw.lanes.length > 24) throw new Error('Background agent snapshot unavailable');
+        const snapshot = backgroundAgentsSnapshot(raw, sessionId,
+          new Set(worker.backgroundLanes?.filter(lane => lane.status === 'settling').map(lane => lane.id)));
+        this.observeBackground(worker, snapshot, revision);
+        return snapshot;
+      } finally { worker.operations--; }
+    })();
+    this.backgroundReads.set(worker, { rpc, sessionId, version, promise: read });
+    void read.finally(() => {
+      if (this.backgroundReads.get(worker)?.promise === read) this.backgroundReads.delete(worker);
+    }).catch(() => {});
+    return read;
+  }
+  async assertBackgroundIdle(worker: SessionRuntime, options: { allowDisconnected?: boolean } = {}) {
+    await this.assertIdle(worker, { stopHost: true });
+    if (options.allowDisconnected && worker.status === 'disconnected') return;
+    const snapshot = await this.readBackground(worker);
+    if (snapshot.lanes.some(lane => lane.status === 'running' || lane.status === 'queued' || lane.settling))
+      throw new Error('Stop background agents before changing this session runtime');
+    await this.assertIdle(worker, { stopHost: true });
+  }
   summaries() {
     return [...this.workers.values()].filter(worker => worker.state?.sessionId).map(worker => ({
       runtimeId: worker.id, sessionId: worker.state!.sessionId!, cwd: worker.cwd,
       firstMessage: firstUserText(worker.messages), name: worker.state?.sessionName,
       backgroundCount: worker.status === 'connected' ? worker.backgroundLanes?.length : undefined,
+      background: this.backgroundActivity(worker),
       status: worker.status === 'disconnected' ? 'failed' as const : worker.pendingUI.size ? 'waiting' as const : this.isBusy(worker) || hasBackgroundWork(worker) ? 'running' as const : worker.failed ? 'failed' as const : worker.interrupted || taskOutcome(worker.messages) === 'interrupted' ? 'interrupted' as const : this.unreadSessionIds.has(worker.state!.sessionId!) ? 'completed' as const : 'idle' as const,
     }));
   }
@@ -163,20 +238,54 @@ export class SessionRuntimes {
     };
     worker.cronScopeDirectory = env.DESKTOP_CRON_SCOPE_DIR ?? existing?.cronScopeDirectory;
     worker.status = 'connecting';
+    this.invalidateBackground(worker);
+    this.backgroundReads.delete(worker);
     worker.cron = undefined;
     worker.backgroundActive = false;
     worker.backgroundLanes = undefined;
     // A transport-local Full Access grant must not survive process replacement.
     if (existing?.permissionPreset === 'full-access') worker.permissionPreset = undefined;
-    worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false };
+    worker.launch = { ...worker.launch ?? emptyLaunch(), ultracode: false, ultracodeTurn: false,
+      ...(existing ? { reviewArmed: false, review: undefined } : {}) };
     let runGeneration = 0;
     let notifiedGeneration = 0;
     const transport = this.create(event => {
       if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected') return;
+      if (event.type === 'agent_end' && reviewActive(worker.launch?.review)) event = { ...event, desktopReviewPending: true };
+      if (event.type === 'agent_start' && worker.runActive && reviewActive(worker.launch?.review))
+        event = { ...event, desktopReviewContinuation: true };
       event = this.hooks.event?.(worker, event) ?? event;
       worker.revision++;
+      if (event.type === 'agent_start' || event.type === 'desktop_exit'
+        || event.type === 'tool_execution_start' && ['subagent', 'agent_send'].includes(event.toolName)
+        || ['message_start', 'message_end'].includes(event.type) && (event.message?.role === 'toolResult' && ['subagent', 'agent_send'].includes(event.message.toolName)
+          || event.message?.role === 'custom' && event.message.customType === 'agent-notification')
+        || event.type === 'extension_ui_request' && event.method === 'setStatus' && event.statusKey === 'desktop-subagents')
+        this.invalidateBackground(worker);
+      if (event.type === 'desktop_completion_review') {
+        const review = completionReview(event.review);
+        if (!review || review.sessionId !== worker.state?.sessionId) return;
+        worker.launch = { ...worker.launch ?? emptyLaunch(), review };
+        if (reviewActive(review)) {
+          worker.busy = true;
+          if (worker.state) worker.state = { ...worker.state, isStreaming: true };
+        } else {
+          worker.busy = false; worker.runActive = false; worker.touched = Date.now();
+          if (worker.state) worker.state = { ...worker.state, isStreaming: false };
+          if (review.status === 'failed') worker.failed = true;
+          if (review.status === 'cancelled') worker.interrupted = true;
+          if (event.completed && !worker.failed && !worker.interrupted && !worker.queued && !hasBackgroundWork(worker)
+            && notifiedGeneration !== runGeneration && runGeneration > 0) {
+            notifiedGeneration = runGeneration;
+            if (worker.id !== this.activeId) this.unreadSessionIds.add(review.sessionId);
+            this.emit({ type: 'desktop_task_completed', runtimeId: worker.id, sessionId: review.sessionId });
+          }
+        }
+        this.publishLaunch(worker);
+      }
+      const reviewing = reviewActive(worker.launch?.review);
       if (event.type === 'agent_start') { if (!worker.runActive) runGeneration++; worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
-      if (event.type === 'agent_settled' && !worker.runActive) {
+      if (event.type === 'agent_settled' && !worker.runActive && !reviewing) {
         worker.busy = false;
         if (worker.state) worker.state = { ...worker.state, isStreaming: false };
       }
@@ -190,7 +299,7 @@ export class SessionRuntimes {
       }
       if (['compaction_start', 'auto_compaction_start', 'auto_clm_start'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: true };
       if (['compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: false };
-      if (event.type === 'agent_end') {
+      if (event.type === 'agent_end' && !reviewing) {
         const completedGeneration = runGeneration;
         const completed = worker.runActive && !worker.failed && !worker.interrupted && taskOutcome(worker.messages) === 'completed';
         worker.runActive = false; worker.busy = false; worker.touched = Date.now();
@@ -224,7 +333,7 @@ export class SessionRuntimes {
           }
         }
       }
-      if (['message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
+      if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
       if (event.type === 'message_end' && event.message?.stopReason === 'error') worker.failed = true;
       if (event.type === 'desktop_exit') {
         worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
@@ -299,7 +408,7 @@ export class SessionRuntimes {
         || event.type === 'extension_ui_request' && (event.method === 'setStatus' && ['step-goal', 'plan-mode'].includes(event.statusKey)
           || event.method === 'notify' && /^(?:Goal|Plan mode|Ultraloop)/.test(event.message ?? ''))))
         void this.readLaunch(worker).catch(() => {});
-      if (['agent_start', 'agent_end', 'agent_settled', 'desktop_exit', 'extension_ui_request', 'compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_compaction_end', 'auto_clm_start', 'auto_clm_end'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
+      if (['desktop_completion_review', 'agent_start', 'agent_end', 'agent_settled', 'desktop_exit', 'extension_ui_request', 'compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_compaction_end', 'auto_clm_start', 'auto_clm_end'].includes(event.type) || event.type === 'message_start' && event.message?.role === 'user') this.publish();
     });
     worker.rpc = transport;
     this.workers.set(worker.id, worker);
@@ -402,11 +511,16 @@ export class SessionRuntimes {
         worker.messages = decorated;
         worker.leafId = history.leafId ?? undefined;
       }
-      worker.busy = Boolean(state.isStreaming);
+      worker.busy = Boolean(state.isStreaming) || reviewActive(worker.launch?.review);
     }
     worker.models = models;
     if (this.statsVersions.get(worker) === statsVersion) worker.stats = stats;
     worker.touched = Date.now();
+    if (!worker.backgroundActive && !worker.backgroundLanes && !this.backgroundObservations.has(worker)
+      && !this.isBusy(worker) && this.hooks.backgroundAvailable?.() !== false
+      && [...backgroundSubagentStates(worker.messages).values()].some(status => status === 'running' || status === 'queued')) {
+      await this.readBackground(worker).catch(() => {});
+    }
   }
   private nextStatsVersion(worker: SessionRuntime) {
     const version = (this.statsVersions.get(worker) ?? 0) + 1;
@@ -582,6 +696,8 @@ export class SessionRuntimes {
     // Keep history and navigation identities, but expose no usable mixed-config transport.
     for (const worker of workers) {
       worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
+      this.invalidateBackground(worker);
+      this.backgroundReads.delete(worker);
       worker.cron = undefined;
       worker.backgroundActive = false;
       worker.backgroundLanes = undefined;

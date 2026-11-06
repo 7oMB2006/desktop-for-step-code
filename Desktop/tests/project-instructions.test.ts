@@ -12,6 +12,8 @@ import ts from 'typescript';
 import { runInNewContext } from 'node:vm';
 import { PendingMessages, promptNeedsQueue } from '../electron/pending-messages';
 import { SessionRuntimes, type SessionRuntime } from '../electron/session-runtimes';
+import { reviewPayload, reserveReview } from '../electron/completion-review';
+import { emptyLaunch } from '../src/launch-state';
 
 async function fixture(run: (cwd: string) => Promise<void>) {
   const cwd = await mkdtemp(join(tmpdir(), 'desktop-project-rules-'));
@@ -141,18 +143,19 @@ async function submissionFixture(cwd: string) {
   const declaration = source.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'handle')!;
   const javascript = ts.transpileModule(declaration.getText(source), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const sent: string[] = [];
+  const sentPayloads: Record<string, unknown>[] = [];
   let hold: (() => Promise<unknown>) | undefined;
   const worker = { id: 'worker', cwd, status: 'connected', state: { sessionId: 'session' },
     busy: false, submissions: 0, operations: 0, mutating: false, pendingUI: new Map(),
     rpc: { request: async (type: string, args: any) => {
       if (type === 'get_state') return hold ? hold() : { isStreaming: false };
-      if (type === 'prompt') sent.push(args.message);
+      if (type === 'prompt') { sent.push(args.message); sentPayloads.push(args); }
       return {};
     } },
   } as unknown as SessionRuntime;
   const runtimes = {
     activeId: worker.id, workers: new Map([[worker.id, worker]]), require: () => worker,
-    publish() {}, preparePrompt: async () => {},
+    publish() {}, publishLaunch() {}, preparePrompt: async () => {},
     isBusy: SessionRuntimes.prototype.isBusy,
     assertIdle: SessionRuntimes.prototype.assertIdle,
   };
@@ -160,13 +163,28 @@ async function submissionFixture(cwd: string) {
   const handle = runInNewContext(javascript + '\nhandle', {
     updateInstalling: false, transition: false, sessionNavigation: {}, sessionDraft: null, runtimes,
     text: (value: string) => value, isProjectInstructionsCommand, projectInstructionsMessage, promptNeedsQueue,
-    isProjectTrustInput: () => false, preferences: { language: 'zh' }, pendingMessages, emptyLaunch: () => ({}),
+    isProjectTrustInput: () => false, preferences: { language: 'zh' }, pendingMessages, emptyLaunch, reviewPayload, reserveReview,
     launchControls: { consume() {}, input: (_worker: unknown, payload: unknown) => payload },
   });
-  return { worker, sent, pendingMessages, hold: (read: typeof hold) => { hold = read; },
+  return { worker, sent, sentPayloads, pendingMessages, hold: (read: typeof hold) => { hold = read; },
     edit: (id: string, message: string) => handle('command', ['queue_edit', { id, version: 0, message }, worker.id]),
     send: (message: string) => handle('command', ['prompt', { message }, worker.id]) };
 }
+
+test('actual IPC init preserves a preselected completion review for the next ordinary task', () => fixture(async cwd => {
+  const f = await submissionFixture(cwd);
+  f.worker.launch = { ...emptyLaunch(), reviewArmed: true };
+  f.worker.state!.desktopCompletionReview = 1;
+  await f.send('/init');
+  assert.equal(f.worker.launch.reviewArmed, true);
+  assert.equal(f.sentPayloads[0].completionReview, undefined);
+  assert.match(String(f.sentPayloads[0].message), /Mode: create/);
+  await f.send('ordinary task');
+  assert.equal(f.sentPayloads[1].completionReview, true);
+  assert.equal(f.worker.launch.reviewArmed, false);
+  assert.equal(f.worker.submissions, 0);
+  assert.equal(f.worker.operations, 0);
+}));
 
 test('actual IPC queue editing rejects bare init but preserves image and file attachment routing', () => fixture(async cwd => {
   const f = await submissionFixture(cwd);

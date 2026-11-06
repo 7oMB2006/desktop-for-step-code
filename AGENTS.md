@@ -22,3 +22,10 @@
 - Read `docs/VERIFICATION.md` before claiming release readiness; local fixture tests do not establish real model acceptance.
 - Do not add AI-client co-author attribution to commits.
 - Follow `DESIGN.md` for shared UI components, including animated disclosures and form focus states. Input, textarea and composite-field focus indicators must remain fully visible on all four sides and rounded corners; reserve space inside clipping/scroll containers and verify focused controls in light/dark and narrow layouts. Never hide the focus indicator to mask clipping.
+
+## Windows Package Handoff
+
+- Unless the owner explicitly opts out for a particular build, a requested Windows acceptance package includes updating the existing primary desktop `Desktop for Step Code.lnk` after package verification passes. This is standing authorization; do not require a separate shortcut-update request.
+- Inspect and back up that exact shortcut before editing. Point its target, working directory and icon to the newly verified package's `win-unpacked` executable, then read the saved shortcut back to verify all three fields and that the executable exists.
+- Preserve existing launch arguments, profile selection, hotkey and window style. Do not introduce demo arguments, profile overrides or credential/configuration changes as part of redirecting the shortcut.
+- Updating the shortcut does not switch an already-running single-instance application. Do not close or restart the owner's application, run the installer or delete the previous package without separate authorization; report when the old app is still running.

@@ -92,6 +92,7 @@ export class PendingMessages {
   async steer(worker: SessionRuntime, id: string, version: number) {
     const entry = this.require(worker, id, version);
     if (worker.mutating || worker.stopping || worker.state?.isCompacting || worker.status !== 'connected') throw new Error('This session cannot send right now');
+    if (entry.payload.completionReview && worker.busy) throw new Error('Tasks with completion review must be sent in order');
     this.resumed(worker);
     return this.dispatch(worker, entry, true);
   }
@@ -101,7 +102,8 @@ export class PendingMessages {
     setTimeout(() => void this.drain(worker), 0).unref();
   }
   runtimeEvent(worker: SessionRuntime, event: RuntimeEvent) {
-    if (['agent_end', 'compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
+    if (event.type === 'desktop_completion_review' && !['pending', 'reviewing'].includes(event.review?.status)
+      || ['agent_end', 'compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
   }
   resumed(worker: SessionRuntime) { this.paused.delete(worker); }
   async drain(worker: SessionRuntime) {

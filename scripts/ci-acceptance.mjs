@@ -18,6 +18,8 @@ export const acceptanceGroups = {
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',
     'verify-capabilities.mjs',
+    'verify-plugin-center.mjs',
+    'verify-plugin-input-mcp.mjs',
     'verify-desktop-tray.mjs',
     'verify-composer-menu.mjs',
     'verify-command-dispatch.mjs',
@@ -51,6 +53,7 @@ export const acceptanceGroups = {
   sessions: [
     'verify-new-session.mjs',
     'verify-launch-modes.mjs',
+    'verify-completion-review.mjs',
     'verify-plan-review.mjs',
     'verify-question-review.mjs',
     'verify-ultracode-restore.mjs',
@@ -94,6 +97,7 @@ export const acceptanceGroups = {
     'verify-background-subagents.mjs',
     'verify-background-agent-controls.mjs',
     'verify-background-agent-replies.mjs',
+    'verify-background-history-liveness.mjs',
     'verify-btw-electron.mjs',
     'verify-custom-providers.mjs',
     'verify-crash-log.mjs',
@@ -106,6 +110,16 @@ export const acceptanceGroups = {
 export const localOnly = [
   // Menu state/copy preview; native creation/read-only enforcement also has runtime tests.
   'verify-project-instructions-preview.mjs',
+  // Cross-repository/native fixtures require explicit isolated paths and/or a prepared BVR checkout.
+  // Native plugin protocol and consumer coverage also run in plugin-skeleton-native.test.ts.
+  'verify-bvr-electron.mjs',
+  'verify-bvr-host.mjs',
+  'verify-bvr-settings-electron.mjs',
+  'verify-plugin-starter.mjs',
+  'verify-plugin-center-package.mjs',
+  'verify-plugin-center-manual.mjs',
+  // Design-only preview; the production PluginCenter fixture is self-contained and runs above.
+  'verify-plugin-center-preview.mjs',
   // Comparative startup timings need a quiet machine; navigation correctness runs in CI above.
   'verify-session-navigation-performance.mjs',
   // Real Electron coverage above complements these visual fixture matrices.

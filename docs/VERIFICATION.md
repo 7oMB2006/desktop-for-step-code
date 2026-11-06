@@ -1,5 +1,25 @@
 # Verification
 
+## Project Rules Main Synchronization (2026-11-06)
+
+This branch integrates main `e9102aa`. Conflict resolution retains main's
+completion-review reservation/rollback, canonical template-input provenance and
+the full plugin/runtime acceptance inventory alongside the project-rules changes.
+Bare `/init` preserves a preselected completion review for the next ordinary
+task; the actual IPC-handler regression verifies both submissions and consent.
+
+After synchronization, typecheck, production build and all 144 focused
+project-rules, review, command, queue, session, search and input-projection tests
+pass. CI policy/inventory/runner checks pass 39 cases with one platform skip.
+The actual-application installed-Edge preview passes its light/dark/Burgundy,
+Chinese/English and 1280/390/320px matrix without page or console errors.
+
+The full-suite and native Electron receipts below predate this synchronization.
+The existing shared local runtime lacks the full current-main patch set; it was
+not overwritten or represented as a fresh main-runtime acceptance. Complete
+native source/package checks remain for the PR's cloud CI. No installer, merge,
+release, profile change or historical-artifact deletion is performed.
+
 ## Question Drawer Drag Dismissal (2026-11-06, Local Candidate)
 
 The Question drawer now follows the merged Plan drawer's downward gesture:
@@ -106,6 +126,1006 @@ focused evidence (1.46 MiB) remain needed for local inspection. No installer or
 historical package was created or deleted. These checks do not prove real-model
 project-rule quality, native macOS, cloud CI, installer or release acceptance.
 The installed app and personal Step Code profile were not modified.
+
+## Plugin Center Background History Main Synchronization (2026-11-06)
+
+PR #195 now integrates main `af52f41`, including #198's background-history
+liveness and #200's Plan drawer drag dismissal. Four conflicts preserve the
+real SummaryMcp controls alongside runtime-owned background presentation,
+both progress-regression histories and both verification records. Failure
+diagnostics retain bounded snapshot/summary reads, distinguish navigation from
+run activity and rethrow the original acceptance error even if evidence fails.
+Four fault-injection cases execute the actual catch block, including
+never-settling snapshot/summary reads and a rejected RPC.
+
+Typecheck and the isolated production build pass. The complete serial Desktop
+suite exits normally: 1029 total, 1015 passed, 14 platform skips, zero failures
+or cancellations, about 335 seconds. CI policy/inventory/runner tests pass 39
+cases with one platform skip. All 773 tracked Desktop inputs match the new
+physical mirror `D:/DFSC-Preview-QA/plugin-conflict-sync-20261106-final/`.
+The complete test log is `plugin-conflict-sync-20261106-full-unit.log` under
+the same QA root.
+
+Three production browser verifiers pass: PluginCenter, input/MCP and task
+progress. Seven isolated Electron verifiers pass: background-history liveness,
+summary runtime, task progress, background replies, Plan review, completion
+review and capability management. Desktop/narrow summary and progress screenshots
+are inspected. These use temporary profiles and loopback providers, not paid
+models. Vite's cache is isolated in the QA mirror.
+
+The runtime patch chain, overlays, pin and staging inputs are unchanged.
+The previously isolated runtime is reused only after its exact pin, all 45
+source postimages and all ten staged helper files match current inputs.
+No runtime rebuild, installer, shortcut change, daily-profile mutation,
+application restart, artifact deletion, PR merge or release is included.
+Fresh cloud checks must validate the new head; previous green checks do not.
+The new mirror occupies about 102.5 MiB excluding its two junction targets.
+No application or runtime process remains under this QA path; nothing is deleted.
+
+## Plugin Center Completion Review Main Synchronization (2026-11-06)
+
+The authorized PR #195 synchronization now includes main `5c3fd21` and #199's
+one-shot completion review. The three merge conflicts preserve both staging
+capability sets, both TODO entries and both verification histories. The
+task-progress mount-race fix in `8994a1b` is retained. No runtime pin upgrade,
+test timeout increase, assertion removal or acceptance inventory exclusion is
+part of this merge.
+
+The production patch applier replays all 19 shared patches from clean pin
+`81e79bc4`. All 45 Windows postimages match. Applying the Darwin additions
+matches all 46 combined postimages; those additions are reversed before the
+Windows build. This is source verification, not native macOS acceptance.
+The fresh physical application mirror
+`D:/DFSC-Preview-QA/plugin-review-sync-20261106-final/` and upstream checkout
+`plugin-review-sync-20261106-upstream/` rebuild and stage with Node 24.16.0,
+without writing through the workspace's shared dependency/runtime junctions.
+
+Typecheck, production application/runtime builds and 199 targeted upstream
+tests pass. CI policy/inventory/runner tests pass 39 cases with one platform
+skip; they run in the Git checkout because the physical source mirror has
+no Git metadata. The complete serial Desktop suite exits normally and
+unassisted: 1003 total, 989 passed, 14 platform skips, zero failures or
+cancellations, about 366 seconds. The log is
+`D:/DFSC-Preview-QA/plugin-review-sync-20261106-full-unit.log`.
+
+Three production-component browser verifiers pass: PluginCenter, input/MCP
+and task-progress motion. Eight isolated Electron verifiers pass: completion
+review, update-installer UI, capabilities, background follow-ups, BTW, quotes,
+task progress and first-run lifecycle. Desktop and narrow screenshots are
+reviewed. These use isolated profiles and loopback fixtures, not paid models.
+The previous macOS packaged updater fixture's early exit was not reproduced
+on Windows; its cause remains unconfirmed and current-head native cloud
+results are recorded separately in PR #195.
+
+Excluding junction targets, the new application mirror occupies about
+206 MiB and its upstream checkout 52 MiB. The downloaded prior macOS interface
+diagnostics occupy about 44 MiB. These are inventoried, not deleted.
+No new installer, shortcut change, daily-profile mutation, application restart,
+merge, release or public marketplace submission is included. The previously
+delivered `8df1683` Windows package remains unchanged.
+
+## Plugin Center Main Synchronization (2026-11-06)
+
+The owner authorized synchronizing current main into PR #195 after the metadata
+fix commit `8df1683`. The merge captures main `33abd6c`, including #196's
+answer-only BTW/quote boundaries and #197's manual background follow-ups.
+Five conflicts retain both lines' work: staging advertises template-input,
+subagent-redaction and background-reply; the ordered patch manifest keeps all
+18 shared patches; the task-progress fixture combines scenario-aware routing
+with bounded failure evidence; both verification histories remain intact.
+The plugin TODO is consolidated without changing other lines' completion claims.
+
+A clean pinned checkout replays the production patch applier successfully.
+All 44 Windows postimages match; the two Darwin additions apply and match all
+45 combined postimages, then are reversed before the Windows build. This is
+source verification, not native macOS acceptance. Pin `81e79bc4` is unchanged.
+An independent physical QA mirror builds the production main/preload/renderer
+and stages the rebuilt runtime with Node 24.16.0, without writing through the
+workspace's shared runtime or dependency junctions. A missing local dependency
+cache link initially interrupted the QA build; restoring that link in the new
+QA checkout permits the complete offline build. No product fix is claimed for it.
+
+Typecheck and all 36 targeted upstream tests pass. CI policy/inventory/runner
+tests pass 39 cases with one platform skip. The full Desktop test suite exits
+normally and unassisted: 980 total, 966 passed, 14 platform skips, zero failures
+or cancellations, about 308 seconds. Its log is
+`D:/DFSC-Preview-QA/plugin-main-sync-20261106-full-unit.log`.
+Both production PluginCenter and input/MCP browser verifiers pass. Six isolated
+Electron verifiers pass: first-run lifecycle, capability management, background
+follow-ups, BTW, chat quotes and task-progress sound/impact/sweep/history.
+They use local fixture providers, not real-account or paid-model requests.
+
+The isolated mirror is `D:/DFSC-Preview-QA/plugin-main-sync-20261106-final/`;
+the clean replay/build checkout is `plugin-main-sync-20261106-upstream/`
+under the same QA root. Excluding junction targets, they occupy about 203 MiB
+and 52 MiB; the two browser evidence directories total about 2.8 MiB.
+Artifacts are inventoried, not deleted. Current-head cloud checks are recorded
+separately in PR #195. No installer, shortcut change, daily-profile mutation,
+application restart, PR merge, release or marketplace submission is part of
+this synchronization; the previously delivered local package remains unchanged.
+
+### Task Progress Mount Race (2026-11-06)
+
+Cloud macOS runtime acceptance on `9824b73` captured a full task bar without a
+phase while the final response was held. Retiring earlier completed tasks can
+change the bar's key and mount it with every remaining task already completed
+during an active round. That initial state did not enter either layout-effect
+branch. A deterministic production-component browser regression fails on the
+old code with a missing phase, then passes after initializing the non-animating
+bar to `running` while busy or `complete` while idle. Mounting still emits no
+completion sound or impact; the live completion event remains authoritative.
+
+Typecheck, the isolated production build, 20 focused completion/summary tests,
+the complete browser motion verifier and real Electron progress/history
+acceptance pass locally. The regression retains delayed snapshots, scope
+isolation, reduced motion and no-replay assertions. No timeout, inventory,
+runtime pin, installed package or shortcut is changed. Current-head cloud
+results are recorded in PR #195 rather than inferred from this local pass.
+
+## Plugin Metadata Windows Package (2026-11-06)
+
+The owner requested a fresh Windows package after the metadata fixes and
+reported no significant remaining issue during local use. The package is
+`D:/Desktop For Step Code/Desktop/release/plugin-center-20261106-metadata-fix-preview/`;
+its installer SHA-256 is
+`40217bc7db3ecb947a2284332591b96ef5bf15b9c778d5ce2b3ec9183d514b6a`.
+It includes the fixes later committed as `8df1683` on base `07e6abf`, with all 760 captured
+Desktop source files checked against the workspace. Pin `81e79bc4` and the
+complete patched-source manifest are unchanged.
+
+The packaged executable passed the same 16 Chinese/English, light/dark and
+responsive native cases described below, using a new credential-free profile.
+Cold-cache stars, four legacy marketplace matches, configuration restrictions,
+sticky-header screenshot equality and renderer isolation passed. GitHub
+responses were deterministic test values, not live counts; no paid model was
+called. The fixture exited normally. File integrity also checked the renderer,
+main/preload, runtime helpers, terminal resources and local BVR companion.
+Receipts and screenshots are in the package's `acceptance/` directory.
+
+After verification, the existing primary desktop shortcut was backed up and
+redirected to this package's `win-unpacked` executable. Target, working directory
+and icon were read back; arguments, hotkey and window style were preserved.
+The daily profile was not changed, the installer was not run, and the owner's
+old application was not stopped or restarted. The package is local, unpublished
+and unsigned; it does not establish current cloud CI, native macOS, production
+upgrade or real-account/billing acceptance. No older package was deleted.
+
+## Plugin Metadata And Legacy Sources (2026-11-06, Local Source)
+
+Installed cards no longer label every missing receipt as a local installation.
+Recorded receipts retain their marketplace, including removed sources. Legacy
+packages expose byte-identical full-package marketplace matches as display-only
+candidates; modified or unmatched copies remain unconfirmed, and conflicting
+installed IDs stay restricted. Matching never creates a receipt or authorizes
+generic configuration.
+
+Opening Plugin Center starts bounded, asynchronous public GitHub metadata
+lookups. Cold caches keep a loading affordance, failed counts remain unavailable
+rather than zero, and fetched snapshots survive navigation, language changes
+and capability refreshes. Author-provided Chinese/English descriptions and
+same-package documents follow the application language; three exact legacy
+descriptions have compatibility translations. Arbitrary author prose is not
+automatically translated. Sticky detail tabs cover the full scrolling gutter
+without clipping or hiding form focus indicators.
+
+Typecheck, isolated production build and 31 focused tests passed, including six
+real pinned-runtime cases. Source regression covers multiple matching markets,
+modified package content, recorded sources, duplicate IDs and configuration
+authorization boundaries. The production-component browser verifier passed
+cold/held/failed repository responses, locale switching, refresh persistence,
+existing configuration flows, focus gutters and light/dark responsive layouts.
+The broader pre-push regression then passed all 62 plugin tests, including
+configuration, snapshot/settings races and the native runtime cases. Typecheck
+passed again; CI policy/inventory/runner tests passed 39 cases with one
+platform-specific skip and no failures.
+
+Real Electron acceptance reproduced four pre-receipt installations in a fresh,
+credential-free profile: BVR matched `bvr-local-preview`, Hermes matched
+`dfsc-community`, and Playwright/StepPage matched `builtin`. All retained unknown
+configuration provenance. Chinese/English, light/dark and four widths from
+1440px to 390px passed, with equal sticky-header screenshot bands at two scroll
+positions. Two deterministic public-metadata responses exercised the actual
+preload/main-process path and cache, not live GitHub counts. Renderer isolation
+passed and the fixture exited normally.
+
+Evidence is under `D:/DFSC-Preview-QA/plugin-center-fixes-20261106-browser/` and
+`D:/DFSC-Preview-QA/plugin-center-fixes-20261106-native-run4/`; the isolated source
+build is `D:/DFSC-Preview-QA/plugin-center-fixes-20261106-app/`. These checks do
+not rebuild the earlier preview package or change the daily profile, shortcut,
+runtime pin, PR, marketplace contents or release.
+
+## Plugin Center Latest Main Follow-Up (2026-11-05)
+
+PR #195 integrates main `495d974`, including PR #193's subagent redaction,
+without changing pin `81e79bc4` or either upstream overlay. The combined manifest
+retains both template-input provenance and subagent redaction, with the
+template-aware AgentSession postimage. Independent read-only review found no
+additional merge defect in the four manual conflict resolutions or the
+auto-merged main-process configuration guards.
+
+A fresh pinned checkout replays all 17 shared patches and validates all 43
+postimages. A separate physical QA mirror builds the production application and
+stages the newly compiled runtime with Node 24.16.0; no build writes through the
+workspace runtime/node_modules junctions. Typecheck, 62 focused staging,
+background, conversation, subagent and shutdown tests pass. CI inventory,
+policy and runner tests pass 39 checks with one platform skip. Both production
+PluginCenter/input-MCP browser verifiers pass using the installed Edge.
+
+The merged build passes real isolated Electron first-run lifecycle, capability
+management, background controls, chained-runtime notification safety, BTW and
+subagent status acceptance. Capability management initially failed at uninstall;
+the unchanged full verifier passes on rerun. The initial serial unit run left
+owned background-runtime processes alive after its assertions; those processes
+were manually terminated, so that run is not counted as a clean full-suite
+pass. No product fix for either transient observation is claimed. A separate,
+unassisted serial rerun and fresh Windows/macOS cloud results are tracked in
+PR #195 rather than inferred from the previous head's green checks.
+
+The live production-component preview remains available on loopback port 5297
+with a mocked bridge. It does not exercise the daily app, real credentials or
+billing. New generated artifacts are isolated below
+`D:/DFSC-Preview-QA/plugin-main-sync-20261105-*`: the physical application/runtime
+mirror is about 201.6 MiB, clean replay 17 MiB and browser evidence 2.3 MiB,
+excluding linked dependency targets. These were inventoried, not deleted.
+No installer, shortcut change, daily-profile replacement, PR merge, release or
+marketplace submission is included in this synchronization.
+
+## Plugin Center PR Integration (2026-11-05)
+
+The plugin-center/authoring branch initially integrates main `3158d8d`, retaining
+full-text search, BTW, background controls and model selection. A fresh pinned upstream
+checkout applies the complete hashed patch chain, including background/BTW and
+template-input, without changing pin `81e79bc4`. It builds and stages with Node
+24.16.0 in an isolated QA directory; shared runtime/node_modules junctions and
+the owner's daily profile, shortcut and existing manual window are untouched.
+
+Two independent reviewers reproduced five P2 defects, now fixed with
+failing-first regressions:
+
+- Match native ID normalization before duplicate detection.
+- Bound the complete serialized UTF-8 configuration snapshot, including its
+  newline, before writing; reject oversized input without changing the committed
+  revision or secrets. Exact-boundary, multibyte and escaped input are covered.
+- Complete uninstall identity/source/race preflight before revocation, then
+  revoke only the selected installation. Rejected preflight preserves the saved
+  configuration; failed native deletion remains revoked and incomplete.
+- Refresh StepPage's catalog without asynchronously taking over another plugin's
+  configuration or discarding its unsaved draft.
+- Invalidate named MCP reads when the editor target, settings category or
+  settings lifecycle changes. Late success/failure cannot replace newer drafts,
+  including animated close and reduced motion.
+
+Pre-onboarding source verification passes typecheck, production build, the five
+real background/BTW/template RPC cases, 39 CI policy/runner checks with one
+platform skip, both production PluginCenter/input-MCP browser verifiers and
+isolated Electron capability-management acceptance. The standalone text plugin
+passes 13 tests; both draft-07 schemas and five example manifests validate.
+The complete serial Desktop rerun passes 930 tests: 916 passed, 14 platform
+skips, no failures/cancellations. It uses the isolated Node/runtime, an explicit
+production TSX config and physical test fixtures so runtime probes import the
+same new bundle as the managed process, not the shared older runtime. The final
+log is `plugin-skeleton-pr-20261105-full-unit-final.log`.
+Merged full-text Electron acceptance also passes native IPC, read-only anchors,
+filters, cancellation/races, focus return, draft/runtime/JSONL isolation and
+theme/narrow checks.
+
+The initial Windows/macOS cloud protocol runs exposed aliased temporary roots
+(Windows short names and macOS `/var` versus `/private/var`). Test fixtures now
+canonicalize their newly created, owned roots before deriving child paths.
+Production canonical-root, ancestor and junction/race guards are unchanged.
+A local aliased-TEMP reproduction fails before the fixture fix and passes all
+49 focused tests afterwards, including a regression that still rejects aliased
+plugin reads and private writes. Isolated capability-management and all eight
+StepPage registration Electron cases also pass under the aliased temporary
+directory. A complete aliased-TEMP serial rerun then passes 931 tests: 917 passed,
+14 platform skips, no failures/cancellations. Its log is
+`plugin-skeleton-pr-20261105-full-unit-alias.log`. These follow-up results precede
+the subsequent first-run integration merge; they are not a cloud-CI verdict.
+
+Main subsequently advances to `d0a1009` with first-run onboarding. The merge
+preserves both typed bridges, the fresh Bootstrap/App handoff, the two plugin
+configuration mutation guards and `finishFirstRun` serialization. Independent
+read-only review finds no further integration defect. Post-merge typecheck,
+production build, 21 focused tests, real first-run lifecycle and all eight
+StepPage registration cases pass under aliased TEMP. First-run acceptance now
+also asserts that Plan authorization blocks both plugin configuration saves.
+The seeded plugin-management profile explicitly checks existing-profile bypass.
+The post-merge isolated build is
+`D:/DFSC-Preview-QA/plugin-skeleton-pr-20261105-onboarding-app/`.
+The complete post-merge aliased-TEMP rerun passes 943 tests: 929 passed, 14
+platform skips, no failures/cancellations
+(`plugin-skeleton-pr-20261105-full-unit-merged.log`).
+
+The second cloud run passes both platforms' protocol suites. Native acceptance
+then identifies two legacy fixture mismatches: the full Electron script still
+uses aliased temporary roots, and the fixed-settings script expects Plugins to
+remain inside the settings modal. Only the Electron, settings-dialog and summary
+runtime fixtures require further root canonicalization; independent review
+confirms this bounded allowlist. The aliased-TEMP Electron failure is reproduced
+before the fix and the complete script passes afterwards, including its fresh
+profile branch. Settings acceptance now explicitly checks PluginCenter
+navigation, retained draft/runtime/messages and the restored settings bounds.
+Summary acceptance waits for a configurable real MCP switch and rejects read
+errors. All three native scripts pass locally; cloud results remain separate.
+
+The pre-onboarding production build is
+`D:/DFSC-Preview-QA/plugin-skeleton-pr-20261105-app/`.
+Actual isolated Electron acceptance repeats native discovery, install,
+documentation, configuration, MCP initialization/tool calls, explicit restart,
+service disable and uninstall/revocation for the independent text plugin.
+BVR's independent main/ASR configuration and native MCP initialization also pass.
+Browser/native checks include light/dark, narrow layouts, visible focus,
+draft preservation and reduced motion. No real model or paid-account request
+is made. Evidence/logs use the `plugin-skeleton-pr-20261105-*` QA paths.
+
+This is source/PR validation, not an installer, native macOS or cloud-CI verdict.
+No merge, release, public plugin repository, community registry/lock update or
+market submission is included. Rebuildable QA artifacts are inventoried without
+following junctions; deletion remains subject to owner authorization.
+The inventory excludes linked targets: the current app is about 6.1 MiB, its
+isolated runtime/toolchain/test mirror 207.7 MiB and clean upstream build 52 MiB.
+Browser, text-plugin and BVR evidence use about 29.6 MiB combined. The older
+6 MiB pre-integration source build is not current acceptance and is retained
+pending authorized cleanup.
+
+## Independent Text Workbench Example (2026-11-05, Local Only)
+
+`examples/community/text-workbench/` is an independent source directory and local
+market, separate from the two host-maintained starters and BVR. It uses only
+public native/presentation/settings files and the unchanged MIT starter consumer.
+Two offline MCP tools format supplied lines and report text counts; heading,
+list style, maximum entries, exact deduplication and ordering affect real output.
+The package includes a command, skill, author documentation, original PNG icon,
+license, local SHA-256 inventory, tests and unpublished submission notes.
+It has no host account access, remote dependency installation or frontend script.
+
+Thirteen independent Node tests and both draft-07 schemas pass. A real isolated
+Electron run against
+`D:/DFSC-Preview-QA/text-workbench-20261105-build2/main.cjs` passes native discovery,
+installation, form save, installed document navigation, changelog, native MCP
+connection, command/skill loading, installed stdio calls, stale-revision refusal,
+explicit service disable/restart and uninstall with binding revocation.
+Light/dark and 1440/640/390px checks pass. No model or paid-account request was made.
+Evidence and generated `verification.json` are under
+`D:/DFSC-Preview-QA/text-workbench-20261105-run9/`; selected original screenshots
+are copied into the independent source's `screenshots/` directory.
+
+The rehearsal found a generic host defect: Discover entries used the marketplace
+package reference for installed-plugin configuration. PluginCenter now retains
+marketplace documents but resolves settings from the installed package reference.
+There is no `text-workbench` name check or other plugin-specific host exception.
+The existing production-component browser acceptance now includes this regression
+using the configuration starter; it passes, along with typecheck, production build
+and `git diff --check`. The full 868-test suite below was not rerun for this small
+renderer-only fix. Its earlier result is not presented as a new full-suite run.
+
+The new build stages current helpers without writing through the runtime or
+node_modules links. It retains the existing pin and validated patched source set.
+No installer, daily shortcut, production profile, commit, push, public repository,
+community registry/lock or submission was changed. Local file hashes are not a
+published Git SHA. Public sync/submission, production availability, native macOS
+and real-account acceptance remain separate steps.
+
+Generated workbench QA directories were inventoried without following junctions:
+about 132 MiB total, including the final roughly 6 MiB build and 14 MiB acceptance.
+Earlier failed harness runs remain pending owner-authorized cleanup; no prior
+package or unrelated checkout was deleted.
+
+## Plugin Skeleton Stages I-V (2026-11-04, Local Branch)
+
+The branch implements the optional presentation and declarative configuration
+protocols described in `PLUGIN_AUTHORING.md`, with draft-07 JSON Schemas under
+`plugin-schemas/`. Native plugin identity remains authoritative. Desktop owns
+persistent source/installation records and opaque snapshot references; legacy
+unconfirmed installations and duplicate native IDs cannot acquire a configuration
+or secret binding. Interrupted publication and failed uninstall retain incomplete
+records rather than claiming a complete installation.
+
+Documents come from the selected installed or marketplace snapshot, on demand,
+with bounded local PNG/JPEG/WebP, relative Markdown navigation and anchors.
+Remote images, HTML and third-party frontend execution remain disabled. GitHub
+Stars are cache-only during catalog reads; explicit refresh uses the main-process
+fixed GitHub API route, bounded concurrency/payload/deadline, persistent cache
+and failure cooldown. A real opt-in query from the Electron BVR page returned
+18 Stars at `2026-11-04T11:27:14.023Z`; this is a dated observation, not a live value.
+
+The six-field-type configuration form uses a native picker, explicit secret
+keep/replace/delete intentions and optimistic revisions. The `json-file-v1`
+consumer validates the installation, package/schema hashes and committed snapshot
+content. Initialization fixes the revision; later changes/revocation require an
+explicit restart. The sentinel prevents automatic Step account injection.
+The native `format_note` example applies saved prefix/case/length settings in a
+real MCP round trip against a local provider fixture, without a paid account.
+BVR retains its separately authorized host bridge; it is not a generic privilege.
+
+Independent review identified five P2 defects during implementation: mixed
+installation snapshots, unbound configuration payloads, mid-read revocation,
+parent-directory read races and a private-write junction race. All have fixes
+and negative regressions. Review confirmed no remaining P1/P2. Private writes
+verify the actual opened handle and ancestor identities before secrets, and
+truncate uncommitted content through that handle on failure. Final small fixes
+also prevent a close failure from skipping cleanup and make the filesystem
+substitute genuinely open the external target in the race test. This protocol
+is not an OS sandbox for untrusted native code.
+
+The final current-source verification build is
+`D:/DFSC-Preview-QA/plugin-skeleton-20261104/build-6/`.
+It validates the existing pin and complete patched-source manifest before linking
+the cached runtime, stages current management helpers in the isolated output,
+and builds the production main/preload/renderer. The runtime and node_modules
+junction targets were not written through. Pin `81e79bc4` is unchanged.
+An earlier shared-runtime test input lacked the already-existing template-input
+overlay; the isolated build selects the matching cached runtime instead of
+weakening that regression or changing the pin.
+
+The final full serial run against build-6 collected 868 tests: 854 passed,
+14 platform skips, zero failures (`desktop-tests-build6.log`). Typecheck,
+focused race/configuration/library/Star checks and the
+CI-inventory policy tests pass (34 policy tests, 33 passed, one platform skip).
+An additional seven-case library run passes, including the subsequently added
+missing/corrupt/oversized/image-count/aggregate-size regression.
+The final combined library/native run passes all 11 cases, including two
+simultaneous install requests producing exactly one installation.
+Both JSON Schema documents and all three presentation examples plus the
+configuration example validate with AJV 6.15.0. No new validator dependency was
+added to the product.
+
+The final production-component browser acceptance uses installed Edge and mock bridge
+data, covering light/dark, 390/640/900/1440px, draft retention, stale save review,
+secret clearing, local navigation, native-picker calls, reduced motion and
+unclipped focus, including a six-layout generic-control focus matrix.
+Actual isolated Electron acceptance against build-6 additionally installs the
+resource and configuration starters, reads and decodes their local documentation
+image, saves a secret without readback, consumes `Electron HELLO` and explicitly
+restarts into the connected native MCP. BVR's real installed package document,
+tutorial, independent settings and native MCP initialization also pass without
+a model request. Evidence is under `Desktop/test-results/plugin-center-live/`,
+`Desktop/test-results/plugin-skeleton-electron.png`, and the QA root's
+`bvr-electron-build6/` and `resource-starter-final/`.
+
+The resource starter includes an actual isolated Electron capabilities screenshot.
+The configuration starter is a host-maintained local tool, not the independent
+third-party rehearsal. BVR adds only `dfsc.plugin.json` and `docs/DFSC.md` in its
+separate checkout. The separate community checkout adds authoring guidance and
+a sync regression proving presentation/settings/docs/images/consumer resources
+are copied and hash-locked; 22 tests collected, 21 passed, one Windows symlink
+permission skip. No registry entry, lock, public market resource or submission
+was changed. Stage VI waits for the owner's skeleton freeze.
+
+No installer was produced, no shortcut/profile was changed, and nothing was
+committed, pushed, submitted or published. Existing installed preview packages
+do not contain this skeleton merely because this local build passes. No cloud
+CI, native macOS, real-account billing, power-loss recovery or production-profile
+migration is claimed. The final build owns about 6 MiB excluding its two shared
+runtime links; BVR acceptance directories are about 13 MiB each. Older QA outputs
+were inventoried and retained because deletion was not authorized.
+
+## Template Input And MCP Preview Package (2026-11-04)
+
+A new local unsigned Windows x64 0.6.0 package is under
+`D:/Desktop For Step Code/Desktop/release/plugin-input-mcp-20261104-preview/`.
+It contains this branch's plugin/BVR changes and both template-input and Summary
+MCP fixes, not the separate BTW feature line or a public release.
+
+The packaging script accepts an explicit patched upstream checkout, validates
+its pin and every patched-source hash, and restages only inside a new isolated
+build directory. The packaged runtime retains pin `81e79bc4` and Node v24.16.0;
+its manifest includes `desktop-template-input` and agent-session hash
+`7da82915cba850bc91614be564d545c1196f4538`. The shared runtime junction was not
+modified. File integrity passes for 693 source files, 101 archived Desktop files,
+1,331 runtime files, 27 terminal files, ten extra-resource files, twelve BVR files
+and eleven local-market files. Installer SHA-256:
+`de49047a9a70e2e271034cff898700c2f0a97e959d431905c823c5fb7323e8fa`.
+The installer size and SHA-512 match `latest.yml`; Authenticode is NotSigned.
+
+The actual shipped executable passes general Electron acceptance and real BVR
+configuration/MCP initialization using isolated profiles. All 18 focused
+template/capability tests pass against its shipped runtime, including original
+input, model expansion, steering and saved-history reopen. The production
+transcript/Summary browser checks also pass. No paid or real-account request was
+made. Evidence is in the package's `acceptance/` directory.
+
+The primary desktop shortcut now points to this executable, without a profile
+override. Its previous BTW-preview link and before/after receipt are preserved
+in `acceptance/`; the daily profile was not changed or restarted. The package
+(about 651 MiB) and isolated build (about 207 MiB) are retained for this acceptance.
+No old packages were deleted, no installer was run, and no cloud CI or release
+publication is claimed.
+
+## Template Input And Summary MCP Fixes (2026-11-04, Local Branch)
+
+The transcript now uses versioned runtime expansion provenance for slash-template
+inputs, not template wording. An additional reviewed overlay records the original
+input in user-message metadata while retaining expanded model content. The pin
+and upstream overlays are unchanged. Unmarked older history is left untouched.
+Pending-message and model-selection receipts acknowledge the original queued
+input, including steering, rather than the expanded prompt body.
+
+Summary MCP switches now use the existing persistent capability mutation.
+Saving does not close a live connection: the panel shows Restart pending and an
+explicit current-session restart action. Runtime-owned connection counts remain
+unchanged until that restart; active work and scheduled-host guards remain intact.
+The two distinct BVR service names are not combined or automatically removed.
+
+Typecheck, 82 focused BVR/capability/message/queue/summary/native-RPC tests and
+the complete serial Desktop suite pass (836 collected, 822 passed, 14 platform
+skips, zero failures).
+The native test uses a separately built pinned runtime with local provider
+fixtures and covers template/skill expansion, original-input receipts, steering,
+follow-up, saved history and reopen. Provider requests contain the expanded body
+but no presentation metadata. The complete Desktop overlay chain reapplies in
+the isolated source checkout and every patched-source hash matches the manifest.
+Production-component browser acceptance passes on installed Edge in light/dark
+themes at 1440, 640 and 390 pixels, including copy/edit/reload, exact service
+targeting, external settings refresh, busy states, failed saves, rejected restarts,
+visible switch thumbs, unclipped keyboard focus and reduced motion.
+
+Browser evidence is under `Desktop/test-results/plugin-input-mcp/`. The runtime
+build is under `D:/Desktop Runtime Builds/bvr-input-origin-20261104/`. The shared
+runtime junction, daily application package, credentials and user configuration
+were not changed. No real-account model request, installer, cloud CI or native
+macOS acceptance is claimed.
+
+## Plugin Center Preview Package And Authoring Starter (2026-11-03)
+
+A fresh local unsigned Windows x64 0.6.0 package is under
+`D:/Desktop For Step Code/Desktop/release/plugin-center-20261103-preview/`.
+It contains the current uncommitted plugin-center/BVR integration, not a release
+or an import of another feature line. The isolated build snapshots current
+Desktop sources, copies the cached runtime without modifying its shared junction,
+and updates only the copied Desktop runtime helpers. The upstream pin is unchanged.
+
+Package integrity checks match 681 source files, 101 archived Desktop files,
+1,331 runtime files, 27 terminal files, ten extra-resource files, twelve BVR
+source files and eleven local-market files. Extra resources are verified at
+their actual resource paths, not assumed to remain duplicated in app.asar.
+Installer SHA-256:
+`8d7a0688a06224eaced2f11f16e6fb8928ed7af713af7e963007412ae7887d4e`.
+The updater size/SHA-512 metadata matches; Authenticode is NotSigned.
+
+The shipped executable passes general Electron acceptance with isolated first-run
+and reopened profiles, real RPC, settings, rename, MCP, themes, narrow layout and
+renderer isolation. Its BVR-specific acceptance installs the real resource,
+saves separately redacted main/ASR connections, initializes the real BVR MCP,
+and switches to Follow DFSC. No model request is made. An initial run reached
+the final state but timed out taking a background screenshot; the final run
+uses the existing nonfocused compositor flags and passes without removing tests.
+
+A new `manual-preview-profile` contains the matching local BVR resource and
+runtime source snapshot, without copied credentials. The shipped executable
+opens its real configuration/capability pages, renders its icon, passes the
+local environment check and cleans the bridge descriptor on orderly quit.
+These receipts and screenshots are in the output's `acceptance/` directory.
+The local BVR dependency junction is not portable. Installing the DFSC installer
+does not install that separate BVR runtime or copy the prepared preview profile.
+
+The authoring guide and two-layer examples are in `docs/PLUGIN_AUTHORING.md`
+and `examples/plugins/`. The minimal resource passes the community manifest
+validator and native discovery/install/skill/prompt-loading/uninstall acceptance
+against the shipped runtime. The host field template typechecks against the
+Desktop dependencies/shared components, but is not a dynamically loaded plugin
+frontend. Starter evidence is under
+`D:/DFSC-Preview-QA/plugin-center-20261103/starter-native-final/`.
+Desktop typecheck also passes. A final 36-case BVR/capability regression passes
+against the shipped `resources/runtime`. An initial run accidentally selected
+the old shared helper and failed its repository-metadata assertion; the explicit
+runtime selection corrects the test input without modifying that shared runtime.
+The desktop primary shortcut now targets the new executable with no profile
+override; the separate `BVR Preview.lnk` uses only the prepared preview profile.
+The previous primary shortcut and readback receipt are retained in `acceptance/`.
+No installer execution, real billing, marketplace
+publication, cloud CI, macOS acceptance or production-profile migration is claimed.
+
+## Main-View Plugin Center (2026-11-03, Local Branch)
+
+The plugin catalog and detail configuration now use the production main-view
+component. Sidebar, Settings and local plugin commands share this entry.
+Installed/discovery/marketplace management uses the existing native management
+APIs. An exact-owner, atomic MCP-service switch preserves other overrides,
+credentials and tool settings; it does not unload skills or commands. BVR has
+two independent Step connection groups and Desktop-owned private configuration.
+Other plugins retain technical MCP settings; no arbitrary plugin UI is executed.
+
+Both repositories pass type checks and the isolated Desktop production build
+passes. The serial Desktop suite collects 832 tests: 818 pass, 14 platform skips,
+zero failures. A later 39-case focused BVR/capability/StepPage regression also
+passes. BVR has 42 passing tests, including changed/deleted configuration,
+separate ASR credentials and a configuration change between ASR and synthesis
+blocking the second model request. The old independent child cannot adopt the
+new setting without restart or continue sending new model requests with stale
+credentials.
+
+Production-component browser acceptance passes in light/dark themes at 1440,
+640 and 390 pixels, with independent connection fields, native-picker bridge
+calls, blank-key retention/redacted reads, navigation drafts, stale-save
+preservation, reduced motion, four-sided focus visibility and no horizontal
+overflow. The bridge is mocked in this browser fixture.
+
+Real Electron capability management passes in an isolated profile, including
+marketplace install/removal, live MCP/configuration distinctions, protected
+plugin removal, explicit restart and refresh locking/failure recovery. Actual
+BVR installation, saving two private connections and initializing the real MCP
+child also pass. A real Step runtime separately discovers BVR, completes a tool
+round trip and exercises native session consent against local provider fixtures.
+No paid request or real-account credential is used.
+
+The adapted StepPage native acceptance also passes: explicit main-view setup,
+official download/integrity validation, 13-tool MCP handshake, disabled state
+after relaunch, tampered-bundle quarantine/repair, and idle Cron-host/job
+preservation. The protected Cron restart error remains visible across polling.
+Fixture navigation waits for loaded entries and real sidebar inert state;
+direct fixture-created hosts are synchronized before UI interaction. Shutdown
+uses the shared orderly-close helper and its normal quit review, not forced
+application exit.
+
+Evidence is under `D:/DFSC-Preview-QA/plugin-center-20261103/`, including
+`implementation-browser-final`, `implementation-build-4`,
+`bvr-settings-electron-final`, `bvr-host-final`, `capabilities-final.log` and
+`steppage-final.log`, plus `implementation-unit-tests-final.log`.
+Verification builds link existing runtime
+directories read-only; neither the shared staged runtime nor its pin was
+modified. These are local source/build checks, not an installer, shortcut update,
+marketplace publication, cloud-CI success or native macOS acceptance.
+The subsequent package and shipped-executable checks are documented above.
+
+## BVR Follow-Account Integration (2026-11-03, Local Branch)
+
+The optional BVR bridge is based on main `fb4828b`; the upstream runtime pin
+and overlays are unchanged. Both repositories pass type checks. Desktop's
+serial suite collects 824 tests: 810 pass, 14 platform skips, zero failures.
+The BVR suite has 37 passing tests, including legacy independent configuration,
+hosted launch isolation and fixed research-context revisions.
+
+ASR regressions cover all four paired regional Plan/API endpoints, the dedicated
+ASR model, ASR-then-summary context pinning, session confirmation and Plan ASR
+failure without direct API retry. These tests use fixture provider responses.
+
+An isolated staged Step runtime discovers the real BVR plugin, launches its MCP
+child and completes a video-tool round trip. The launcher's real parent PID binds
+the request to that resident session; native session confirmation is exercised.
+The runtime model and bridge provider responses are local fixtures. Separate
+real-MCP acceptance covers Plan failure without API fallback, an explicit
+overseas API account switch and logout rejection. Native marketplace discovery,
+resource loading, install/remove/reinstall and independent-mode startup pass.
+The community resource schema validator accepts the ten-file plugin package.
+
+Actual Electron startup with the new main-process bundle passes in an isolated
+profile: renderer state excludes the bridge capability, Node remains unavailable
+in the renderer, missing opt-in rejects requests, and shutdown removes the
+connection descriptor. The unchanged renderer/preloads come from the same main
+baseline. Evidence is under `D:/Desktop Runtime Builds/bvr-follow-dfsc-20261103/`;
+the ASR correction reruns are in `plan-asr-native-acceptance/` and
+`plan-asr-correction/` within that directory.
+
+A local unsigned Windows x64 preview was built at
+`D:/Desktop For Step Code/Desktop/release/bvr-follow-dfsc-20261103-preview/`.
+It remains version 0.6.0 and includes the uncommitted feature changes from both
+repositories, recorded in `source-receipt.json`. Cached runtime reuse was
+validated against the pin, upstream overlays, platform hashes, bundled Node
+hash and eight current Desktop runtime helpers; it was not restaged through the
+shared runtime junction. Packaging follows the existing isolated-app bundling
+pattern without collecting shared development dependencies.
+
+Package verification matches 105 Desktop bundle files, 1,331 runtime files,
+27 terminal files and seven extra resources against their build inputs.
+Installer SHA-256 is
+`34bfa59db8a28ddf726dbc03aed33c856d8c959258ddae3fc05b2e8ca9a28558`;
+the generated update metadata matches its size and SHA-512. Authenticode reports
+`NotSigned`. The actual unpacked executable passes the BVR startup/isolation
+smoke and general Electron acceptance, including settings, real RPC, rename,
+MCP, themes, narrow layout and first/reopened home profiles. Native marketplace
+discovery, installation, resource loading, real BVR MCP initialization/tool
+declarations and uninstall/reinstall preservation also pass against its shipped
+runtime, without a real provider request.
+
+A separate `manual-preview-profile` is prepared with the local plugin installed
+and following DFSC. The actual packaged app's IPC catalog and plugin UI confirm
+the installed plugin, enabled MCP declaration, skill and rendered PNG icon.
+Shutdown removes its host descriptor. `BVR Preview.lnk` in the output directory
+uses only this isolated profile; the primary desktop shortcut is unchanged.
+The resource ZIP has the market catalog and ten plugin files, without dependency
+trees or credentials. The BVR source snapshot uses a local dependency junction
+and is explicitly not portable. Integrity, screenshots and setup reports are
+under the preview's `acceptance/` directory.
+
+No real credentials, billed model requests, external videos, installer execution,
+installed app replacement, cloud CI, marketplace publication or native macOS
+acceptance are represented. Plan ASR retains the existing BVR dedicated-model
+route on the selected Plan endpoint; real-account ASR availability and billing
+have not been retested in this integration. Abort cannot undo a request already
+accepted by a provider.
+## PR #198 full-progress mount regression (2026-11-06)
+
+Head `5bcd1b2` passes all three Windows groups. macOS candidate preparation,
+interface and sessions groups pass, including source and packaged session-move.
+The runtime source group passes; its packaged group fails at
+`verify-task-progress-electron.mjs:127` after 30 seconds, with progress `1/1`
+and no `data-phase`. The final receipt gate consequently rejects that candidate.
+The older background complete scenario passes this run in 9.2 seconds through
+acknowledgment, idle and cleanup; this does not establish the old timeout's cause.
+
+The task-progress script is byte-identical to main `5c3fd214`. An actual production
+component experiment deterministically reproduces the missing phase: replace a
+running `2/1` component with a full `1/1` component while `busy` remains true.
+Both initialization branches are skipped because the previous busy/scope refs
+already equal mount-time props. SummaryBoard keys progress on the task IDs, so
+changed task sets can remount a full progress bar. The exact cloud event ordering
+is not captured, but this is a verified product defect matching the failing state,
+not a reason to increase the timeout or retry the acceptance.
+
+The narrow fix initializes an absent phase to running only while busy. Existing
+settling/complete feedback, buffered completion, scope changes and idle full
+snapshots remain unchanged. Formal motion regression cases exercise full initial
+snapshots and task-set replacements, no premature sound, real completion and idle
+reopen without replay. The new formal regression fails on the old component with
+`null !== 'running'` and passes with the fix. The independent actual-component
+experiment also changes from null to running; it does not copy the state machine.
+
+The former diagnostic `busy` field read `.conversation[aria-busy]`, which is
+navigation state, not foreground run state. It is now named `navigationBusy`.
+Bounded DOM fields and a one-second snapshot observation separately report the
+working indicator and native `isStreaming`/runtime status. Observation failure
+never replaces the original exception. It is not valid to infer early model
+termination from the older navigation field.
+
+Local typecheck, production build and 127 focused summary/runtime/background/
+review/helper tests pass. Formal motion acceptance and task-progress Electron,
+history-liveness, background-replies and completion-review acceptances pass.
+Ordinary Electron startup currently exits before the fixture on this Windows
+host; only assertion-preserving isolated scripts use `--no-sandbox`. The motion
+script uses an isolated Vite cache because the shared dependency cache rejects
+unlink. Neither adjustment changes production/CI launch settings, assertions or
+deadlines; these results are not native macOS packaged acceptance.
+
+The first full serial attempt stalls inside capabilities tests and is stopped
+without a final count or success claim. Per-file serial verification executes all
+135 test files: 129 pass and six fail. Capabilities exceeds the 180-second outer
+deadline; the other failures are project-trust junction unlink (EPERM), StepPage
+linked-storage classification, linked undo, installer redirects (three assertions)
+and workflow-catalog junction cleanup (ENOTEMPTY). An independent exact `5bcd1b2`
+baseline reproduces the same seven failed assertions across the latter five files
+(53 tests: 43 pass, seven fail, three skips). This establishes they are not newly
+introduced by this task-progress change, not that their underlying causes are
+resolved or safe. The capabilities timeout remains separately unlocated.
+
+All 31 CI runner/inventory/receipt tests run from the actual Git worktree: 30 pass
+and one platform skip. The mirror has no Git metadata and is not a valid location
+for the receipt CLI's Git identity test. The bounded diagnostic observation is
+also fault-tested with a never-settling read; it returns unavailable and rethrows
+the original failure. All 843 candidate inputs match the validation mirror.
+Local full verification is not green and is not compared as an exact test count
+to the previous one-process run because capabilities did not finish. Replacement
+current-head cloud gates remain required. Runtime pin, overlays, all 18 patches
+and postimages are unchanged; no installer, release or personal profile is modified.
+
+## PR #198 main integration and acceptance corrections (2026-11-06)
+
+Main `5c3fd214` (#197 background replies and #199 completion review) is merged
+without rewriting the published PR ancestry. Four conflicts retain both
+background-observation invalidation and completion-review event/ownership
+handling, both renderer imports, all verifier registrations and both dated
+verification records. The reply capability, request deduplication, selected
+session gate and one-shot review reservation remain intact. None of main's
+18 runtime patches, its pinned commit, upstream overlays or postimages changes
+in this Desktop state fix.
+
+The latest old-head Windows sessions job `127410474542` fails in
+`verify-session-move.mjs` with `page is not defined`: its module-level Cron
+assertion helper referenced a page local to the test's try block. The previous
+copied-function simulation did not exercise this scope and was insufficient
+verification. The helper is now an actual imported module with an explicit page
+parameter. Success throws outside the error-classification catch, so it cannot
+be misaccepted as a Cron rejection. Only the exact preflight
+`Session operation in progress` error is retried, at most five 500-ms waits;
+other errors propagate unchanged. Eight tests call the real helper and cover
+page selection, rejection, exhaustion, unexpected success and non-preflight
+operation errors. The old implementation's missing binding is reproduced by
+executing its actual extracted function, not a copied approximation.
+
+Old-head macOS prepare job `127410346947` times out in the native background
+complete scenario at 60 seconds. That failure has no execution-phase evidence,
+so it is not attributed to graceful shutdown, runner capacity or a resolved
+flake. The parameterized fixture now records allowlisted execution/cleanup
+phases and bounded failure state before rethrowing its original error. Cleanup
+releases every fixture gate and closes HTTP connections before awaiting the
+runtime pool; server closure runs even when pool shutdown fails. Three local
+complete-scenario runs pass, but this does not reproduce or prove resolution of
+the native macOS timeout. The original per-test and CI deadlines remain intact.
+
+Manual replies do not append parent `agent_send` tool results. To keep the new
+observation cache from surviving those actions, the selected-session reply
+handler invalidates display observations before and after the existing native
+reply service, including unconfirmed delivery. Tests exercise the actual
+BackgroundAgents service and preserve its receipt/error result. Invalidation
+never modifies event-owned lane state, dispatches a second prompt or changes
+reply deduplication. Completion-review busy/consent and completion-notification
+guards are unchanged.
+
+The combined 18-patch runtime replays from a clean pinned checkout and builds
+offline. Node 24.16.0 staging matches all 45 shared postimages and advertises
+both background-reply and completion-review capabilities. Both Darwin additions
+also apply and match 46 combined postimages on Windows; this is not native macOS
+acceptance. Desktop typecheck and production build pass. The focused combined
+runtime/state/review suite passes 71 tests before the additional exact-operation
+helper case; the final helper suite passes all eight cases. History-liveness,
+background-replies, completion-review, background-controls and hidden-messages
+Electron acceptances pass with isolated loopback providers.
+
+Final combined local verification collects 939 serial Desktop tests: 924 pass,
+14 platform skips and one pre-existing file-URL marketplace clone failure.
+Typecheck and production build pass; 843 candidate inputs match the validation
+mirror byte-for-byte. CI inventory/policy/runner checks pass 30 tests with one
+platform skip. The complete native session-move script still stops earlier at a
+missing command-generated file in this Windows environment; its original
+file/command assertions are retained. Replacement current-head Windows/macOS
+checks remain required, including the native completion scenario and complete
+source/packaged session-move acceptance. No package, shortcut, personal profile
+or original dirty worktree is changed.
+
+## Background transcript state and live activity (2026-11-05, local uncommitted candidate)
+
+The candidate starts from main `7c349b73`, including #196's BTW boundary update.
+It does not import the open background-reply PR #197 or modify any of the 16
+runtime patches, their pin, overlays, source postimages, or capability IDs.
+The current patch chain is replayed from a fresh pinned checkout and built
+completely offline. Node 24.16.0 staging matches all 43 Windows postimages.
+
+Two isolated native RPC probes first demonstrate the defects: a retained lane
+restarted by native `agent_send reply` has a real array-shaped running result
+while the old transcript projection remains completed; after suspending an
+active child and reopening its saved session, the native registry is empty and
+the host idle while old history still reports running and blocks relocation.
+The native lifecycle forbids progress after a terminal event in the same turn,
+but a legal reply can reuse the lane ID for another turn. Therefore the fix does
+not impose a permanent terminal-state lock or infer lifecycle from result prose.
+
+Desktop now consumes validated, bounded array-shaped control results while
+retaining the old object-shaped history. Current lane activity is projected
+separately: native live status events remain the sole process-ownership source,
+while registry observations are display-only and invalidate on transport,
+session, generation or structured lifecycle changes. A stale observation cannot
+release a newer running/settling owner. Only a validated current roster revises
+the display; an unavailable registry means "not observed yet", so the
+history-derived running status persists instead of being downgraded, and
+unknown registry state still fails closed for relocation. Old unresolved
+transcript status alone no longer owns the host. No child transcript is loaded
+to invent a missing final outcome.
+
+The five native RPC scenarios pass, including actual follow-up execution and
+suspend/reopen. Pre-existing journal entries retain their exact bytes. Native
+reopening appends resource-discovery records in this environment, so tests check
+that bounded allowed initialization separately; subsequent lane observations
+leave the reopened file unchanged. The dedicated Electron verifier passes
+unknown chat/Agent/summary presentation, actual relocation with zero model
+requests, unchanged historical running status, and refusal to relocate a real
+running child. Existing subagent status, background controls, chain/safety and
+BTW native Electron verifiers also pass against the rebuilt current-main
+runtime. These remain loopback/source evidence, not native macOS, packaged,
+real-account or release acceptance.
+
+The first macOS cloud run of the previous head failed only the reopen test's
+frozen-snapshot assertion: after a graceful posix shutdown the runtime records
+the interrupted lane's terminal outcome, so the reopened history reads `failed`
+instead of the frozen `running` that Windows keeps. Both are recorded facts, and
+the test now accepts either while asserting the product invariants that matter:
+the projected status is never running/queued after a known-empty roster, the
+known-empty downgrade still applies to a frozen running snapshot, the journal
+prefix is preserved, and no model call is made.
+
+The next head's macOS run passed the source-mode sessions group in full,
+including the complete session-move acceptance, but the packaged-candidate run
+failed session-move with `Session operation in progress` where the Cron
+ownership rejection was expected: the cron-host worker was still draining its
+navigation/status reads when the move was attempted, so the transient-operation
+guard fired before the Cron guard. This is a native acceptance timing race, not
+a Cron-guard or relocation regression. All three Cron-rejection assertions now
+retry only that transient operation race with a bounded wait and still require
+the Cron rejection as the final outcome; an unexpected success or any other
+error still fails the acceptance, and no product guard, deadline or assertion
+is weakened.
+
+The earlier existing session-move verifier fails before reaching this regression
+on both the previous candidate and unchanged main (dialog-close timeout on one
+run; a missing fixture-generated file on the control run). Those failures are
+not called product regressions or proven flaky. Its final historical-only
+blocking assertions are updated to the demonstrated current-registry contract,
+with existing active-task, queue, approval, Cron and directory checks retained.
+Complete current-input results and remaining verification failures are
+recorded below; no deadline or assertion is relaxed for an environmental
+failure. The final review identified disconnected source-host
+compatibility: an explicitly disconnected source skips querying its dead
+transport after the normal task/queue checks, while the prepared destination
+always verifies its live registry. This distinction has a red/green regression.
+Structured notifications and subagent control results also invalidate prior
+display observations; the cache does not own or release a process.
+
+First cloud execution of the previous head exposed a display-semantics
+regression: the projection downgraded history-derived running/queued records to
+unknown whenever the current roster was unavailable, but the native lifecycle
+and the existing background acceptance both require that stale/unavailable
+current state keeps the history-derived status until a validated roster says
+otherwise (a mocked main process never observes, so the downgrade became
+permanent). `verify-background-subagents.mjs` and `verify-hidden-messages.mjs`
+timed out waiting for `running` after reload on Windows sessions/runtime. The
+fix restricts the downgrade to a validated known roster, with the reversed unit
+assertion added first. Movement still fails closed on unavailable registries;
+this is display-only. Both scripts were reproduced locally against the same
+mirror and re-run after the fix.
+
+Final local candidate verification: typecheck and production build pass; the
+complete serial Desktop suite collects 894 tests, with 879 passes, 14 platform
+skips and one file-URL Git marketplace clone failure. It remains the same local
+marketplace failure recorded during #193, not a passing full-suite result.
+The complete session-move acceptance again stops earlier at its missing
+fixture-generated `moved-cwd.txt`, before reaching the changed historical-lane
+assertions. An original-flow diagnostic confirms that the `run_command` was
+issued once, returned `isError: true`, and reported Bash
+`NtCreateDirectoryObject(...): 0xC0000022` with exit code `3221225794`.
+The missing file is a consequence of that native initialization failure, not
+successful command execution or a demonstrated relocation regression. The
+original command/file assertions are retained; no runtime failure is converted
+into success. The focused native RPC and new liveness Electron verifiers pass.
+CI inventory/policy/runner checks pass 30 tests with one platform skip. All
+831 candidate inputs match the isolated validation mirror byte-for-byte.
+Independent bounded read-only reviews find no confirmed blocker after the
+message-invalidation and disconnected-source regressions are added; they do not
+replace cloud execution. The original 16 patch manifest and all 43 staged
+source postimages remain unchanged. No commit, push, PR, package, shortcut or
+personal-profile change is made by this local verification.
+
+## PR #199 Main Integration (2026-11-06)
+
+Merge main `33abd6c` (PR #197) into the completion-review candidate without
+rewriting either branch. Both background follow-up and completion-review
+capabilities remain registered. Their RPC patches share an insertion point;
+the review patch now targets the background-reply postimage, with updated patch
+and combined RPC source hashes. Neither the pin nor upstream overlays change.
+The production applier succeeds from a clean pinned checkout with all 18 shared
+patches and 45 postimages. Darwin additions also replay with matching hashes;
+this source check is not native macOS execution.
+
+The combined runtime is rebuilt/restaged. Upstream workspace type checking and
+89 focused subagent/RPC tests pass, as do Desktop type checking and production
+build. Complete serial Desktop regression collects 913 tests: 899 pass,
+14 platform skips, zero failures in 180.5 seconds. Evidence is
+`Desktop/test-results/completion-review/merged-serial-tests.log`. All four staging
+tests pass independently, as do 34 CI policy/runner/summary tests (33 passes,
+one platform skip).
+
+Real Windows Electron review, background-replies, background-controls and
+launch-mode verifiers all pass against this combined runtime with isolated
+loopback providers. Coverage retains one-shot preflight reservation/rollback,
+completion deduplication, queued and continued child work, lost-receipt
+deduplication, parent/peer independence and non-inherited task-mode consent.
+These local results do not establish current-head cloud, native macOS,
+installer or real-account acceptance.
+
+No installer is generated or installed, and no package is deleted. The reused
+isolated source (0.04 GiB), new replay (0.02 GiB), staged runtime (0.11 GiB) and
+reused Desktop build (0.01 GiB) remain needed for verification and evidence;
+dependency junction targets are excluded from these sizes.
+
+## PR #199 One-Shot Review Reservation (2026-11-06)
+
+The main-process prompt handler now reserves the one-shot review choice before
+its first attachment/preparation/RPC await. Concurrent follow-ups capture their
+own unarmed payload. Enqueue/RPC acceptance commits the choice; rejection returns
+it to the original session without changing queued snapshots or enabling review
+on a replaced runtime/session or an incompatible task mode.
+
+Typecheck, production build and 63 focused review/runtime/queue/launch/timing
+tests pass locally. Native Windows Electron acceptance holds a real RPC
+preflight through an isolated input extension. A second prompt queues while the
+choice is reserved; after acceptance both ordinary tasks finish with exactly
+two model requests and no inherited review. A malformed-input fault injected
+after the same gate exercises native preflight rejection: the choice returns,
+the separate queued follow-up remains recoverable, and no model request occurs.
+The existing menu, provenance, ownership, completion, theme/narrow-layout and
+reduced-motion assertions remain intact. Runtime patches, pin and installed
+application are unchanged. Existing native launch-mode acceptance also passes,
+including Goal image attachments, one-shot Ultracode and queue steering.
+This focused result is not a new full-suite, cloud,
+installer or real-account acceptance claim.
 
 ## PR #197 Confirmed Non-delivery Retry (2026-11-06)
 
@@ -6611,3 +7631,47 @@ CI inventory/policy/runner checks passed 39 tests with one platform skip.
 Typecheck, production build, real Electron background controls and Workflow
 acceptance passed again after integration. These local results do not replace
 the new PR's cloud CI, native macOS or installer acceptance.
+
+## Completion Self-Review (2026-11-05)
+
+The existing task-options menu adds a default-off, one-shot completion
+self-review for the next ordinary main task. A hashed Desktop RPC patch reuses
+the native same-session feedback without enabling CLI-only flags, upgrading the
+pin, requiring a Git commit or creating an independent reviewer.
+Plan, Goal, Ultracode, Cron, BTW and child-agent automatic tasks are excluded.
+Queued tasks retain their own choice; rejected direct submissions do not
+consume it. Cancellation, errors, terminating denials and approval handoff
+block automatic continuation. New input skips a still-pending review but queues
+behind an already-started review.
+
+Local Windows source verification uses isolated profiles and loopback model
+providers through the real typed preload, IPC and pinned RPC. Native tests cover
+default-off behavior, exactly one extra prompt with a real tool continuation,
+the same model/credential route, exact once-only token totals, persisted
+structured provenance, queued input, cancellation and mutation guards.
+Fault injection covers each history-write phase: a failed store still emits one
+failed terminal event and releases task ownership, without a completion claim.
+Error, cancellation and handoff reasons cannot be masked by an earlier input
+skip or a later successful response.
+
+Electron verifies the production menu, one-shot consumption, automatic input
+without a fake human bubble, uninterrupted ownership across both native runs,
+one final completion event and light/dark/narrow/reduced-motion presentation.
+An ended review cannot label a later Plan. The existing launch-mode Electron
+acceptance also passes for Plan, Goal, Ultracode, draft options and queue steering.
+The original completion sound uses that final event; total task timing spans
+both runs. Review endings remain neutral, not "verification passed."
+The 24 focused controller/RPC, projection, queue and timing tests pass.
+The final complete serial Desktop suite passes 896 tests: 882 passed and 14
+platform skips, with no failures. The local log is
+`Desktop/test-results/completion-review/desktop-suite-final.log`.
+Desktop typecheck and production build, runtime build/typecheck using
+`tsconfig.build.json`, and clean patch replay with all 44 postimage hashes pass.
+CI policy, inventory and platform runners pass 30 tests with one platform skip;
+the new native verifier is assigned to the shared sessions group.
+
+The active staged runtime and replay evidence are isolated under
+`D:\Desktop Runtime Builds\completion-review-20261105`; the installed application
+and existing installer are unchanged. This is local source acceptance, not
+real-account/billing, native macOS, current cloud CI or installer acceptance.
+See [the implementation contract](COMPLETION_REVIEW.md).

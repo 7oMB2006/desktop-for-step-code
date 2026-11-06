@@ -30,8 +30,10 @@
     "step-code-desktop-v016.patch": "0ddabcc99129eb2864d992d6e30389f51874162a",
     "step-code-desktop-background-agents.patch": "11516b7fa7933c8a5007954176817ca8b499aed4",
     "step-code-desktop-btw.patch": "62e10811ddf99b382f32a46db90d7d0ca09aa34a",
+    "step-code-desktop-template-input.patch": "37fd62db0eb8a0b2ce1dfb252b6e5c78dd766f6e",
     "step-code-desktop-subagent-redaction.patch": "50ca4b2c21db9dc7017a5785090b4b2389c1f387",
-    "step-code-desktop-background-reply.patch": "79ca264d02dea88a2b0eeb838e00676604ca137e"
+    "step-code-desktop-background-reply.patch": "79ca264d02dea88a2b0eeb838e00676604ca137e",
+    "step-code-desktop-completion-review.patch": "bb8508cb5234417474f4e54dd58132fd9b0d98ed"
   },
   "sources": {
     "packages/coding-agent/src/core/agent-session.ts": "54acd866d6ad519fd33b0fdb0b7088c2d1357fc6",
@@ -73,7 +75,7 @@
     "packages/coding-agent/test/subagent-lane-notifications.test.ts": "ba7a5d6a2023fc9aae4aacc4b52d5fb714ffe91c"
   },
   "patchedSources": {
-    "packages/coding-agent/src/core/agent-session.ts": "92e32567799a10ca43b016a12248976fda21e5e1",
+    "packages/coding-agent/src/core/agent-session.ts": "7da82915cba850bc91614be564d545c1196f4538",
     "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",
     "packages/coding-agent/src/core/extensions/types.ts": "f7aa30d22cd536ea1b6f0592d42d25c79eba8902",
     "packages/coding-agent/src/core/session-import/parsers.ts": "806835c29d1fe9583170019bf0d4d432bec83235",
@@ -91,8 +93,8 @@
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "830e1909f690be987ed833903367f725452104c1",
     "packages/coding-agent/src/index.ts": "1455084feb0a19ed89c3035462c923f25ba35f6c",
     "packages/coding-agent/src/modes/rpc/desktop-btw.ts": "0d9656fb61e93fecee1a602d17b30d5d668017f5",
-    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "f8c272144f1238afde70578bb8659c81208ee87d",
-    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "253187f6d42d0462b48394a806a31bcc0f86c868",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "433b5ce3858904e7689e41f8b43a0af5b610ae2e",
+    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "5be771e3b2294f727b102719b4ea260d37ea94d3",
     "packages/coding-agent/src/step/mcp.ts": "569b7203dfa2ce28955ac1c2c93b0a9fd317d484",
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
@@ -116,7 +118,8 @@
     "packages/coding-agent/src/features/subagent/lane-events.ts": "ee924c3e07a272df11a78642a2532cc835948079",
     "packages/coding-agent/test/subagent-child-env.test.ts": "1448e9e01f7a52788411f465b07d1e1b15189957",
     "packages/coding-agent/test/subagent-chain-result.test.ts": "6dd0e0605c5fc74d7fa1c7c93693f073baf14955",
-    "packages/coding-agent/test/subagent-lane-notifications.test.ts": "ba7442dbbff39ed4c9a7317bb0994c20ee53a817"
+    "packages/coding-agent/test/subagent-lane-notifications.test.ts": "ba7442dbbff39ed4c9a7317bb0994c20ee53a817",
+    "packages/coding-agent/src/modes/rpc/desktop-completion-review.ts": "072dc370724cfc0d2ac9e81b35063ac04885f2a9"
   },
   "platforms": {
     "darwin": {

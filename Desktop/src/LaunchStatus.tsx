@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Goal, Lightbulb, Network, Pause, Pencil, Play, Trash2, X } from 'lucide-react';
+import { Check, Goal, Lightbulb, Network, Pause, Pencil, Play, Trash2, X, ScanLine } from 'lucide-react';
 import { emptyLaunch, goalStatusLabel, type LaunchMode, type LaunchState } from './launch-state';
 import { elapsedTime } from './elapsed-time';
 import { TurnStatusTrigger } from './TurnStatusTrigger';
 import './launch-status.css';
+import { reviewActive, reviewLabel, reviewReason, reviewErrorText } from './completion-review';
 
 export function LaunchStatus({ state = emptyLaunch(), language, disabled, onMode, onAction, placement = 'composer', align = 'start', turnUltracode = false, onDisableStanding, expanded, onExpandedChange }: {
   state?: LaunchState; language: 'zh' | 'en'; disabled: boolean;
@@ -30,7 +31,7 @@ export function LaunchStatus({ state = emptyLaunch(), language, disabled, onMode
   const panel = useRef<HTMLDivElement>(null);
   const actionLock = useRef(false);
   const [position, setPosition] = useState({ left: 0, top: 0 });
-  const visible = state.plan || state.ultracode || state.goalArmed || Boolean(goal) || turnUltracode;
+  const visible = state.plan || state.ultracode || state.goalArmed || Boolean(goal) || turnUltracode || state.reviewArmed || reviewActive(state.review);
   const previousGoal = useRef(goal?.id);
   useEffect(() => {
     if (previousGoal.current !== goal?.id) { setOpen(false); setEditing(false); setError(''); }
@@ -91,7 +92,9 @@ export function LaunchStatus({ state = emptyLaunch(), language, disabled, onMode
   };
   if (!visible) return null;
   const status = goal ? goalStatusLabel(goal.status, zh) : state.goalArmed ? (zh ? '目标待发送' : 'Goal armed') : '';
-  const label = [state.plan ? (zh ? '计划' : 'Plan') : '', status, state.ultracode || turnUltracode ? 'Ultracode' : ''].filter(Boolean).join(' · ');
+  const reviewStatus = state.reviewArmed ? 'armed' : reviewActive(state.review) ? state.review?.status : undefined;
+  const label = [state.plan ? (zh ? '计划' : 'Plan') : '', status, state.ultracode || turnUltracode ? 'Ultracode' : '',
+    reviewStatus ? reviewLabel(reviewStatus, zh) : ''].filter(Boolean).join(' · ');
   const content = <div ref={panel} popover={placement === 'composer' ? 'auto' : undefined} role="dialog" aria-label={zh ? '任务状态' : 'Task state'}
       className={`launch-status-panel${placement === 'pulse' ? ' launch-status-panel-inline' : ''}`} data-goal-state={goal?.status}
       aria-hidden={!open || undefined} style={placement === 'composer' ? position : undefined}
@@ -142,13 +145,20 @@ export function LaunchStatus({ state = emptyLaunch(), language, disabled, onMode
         <button type="button" className="icon-button" disabled={pending} aria-label={zh ? '关闭 Ultracode' : 'Disable Ultracode'}
           onClick={() => void run(() => onDisableStanding ? onDisableStanding() : onMode('ultracode', false))}><X size={15}/></button></div>}
       {(turnUltracode || goal?.ultracode) && !state.ultracode && <div className="launch-state-row"><Network size={16}/><span>Ultracode</span><small>{goal?.ultracode ? zh ? '本次目标' : 'This goal' : zh ? '本次任务' : 'This task'}</small></div>}
-      {error && <p className="launch-action-error" role="alert">{error}</p>}
+      {error && <p className="launch-action-error" role="alert">{reviewErrorText(error, zh)}</p>}
+      {reviewStatus && <div className="launch-state-row"><ScanLine size={16}/><span>{reviewLabel(reviewStatus, zh)}</span>
+        {state.reviewArmed && <button type="button" className="icon-button" disabled={pending} aria-label={zh ? '取消完成后自查' : 'Disarm completion review'}
+          onClick={() => void run(() => onMode('review', false))}><X size={15}/></button>}</div>}
+      {reviewStatus && <p className="launch-objective">{reviewReason(state.review?.reason, zh) || (zh
+        ? '同一会话最多追加一次自查，可补验证和修复；会额外消耗 Token，不是独立审查或正确性保证。'
+        : 'At most one same-session self-review, including checks and fixes. Uses extra tokens; not an independent review or correctness guarantee.')}</p>}
     </div>;
   const triggerIcons = <>{state.plan && <Lightbulb size={16}/>}
     {(state.goalArmed || goal) && <Goal size={16}/>}
-    {(state.ultracode || turnUltracode) && <Network size={16}/>}</>;
+    {(state.ultracode || turnUltracode) && <Network size={16}/>}
+    {reviewStatus && <ScanLine size={16}/>}</>;
   const pulseLabel = goal ? zh ? `目标${goal.status === 'active' ? '推进' : status}` : `Goal: ${status}`
-    : state.plan ? zh ? '计划中' : 'Planning' : 'Ultracode';
+    : state.plan ? zh ? '计划中' : 'Planning' : reviewStatus ? reviewLabel(reviewStatus, zh) : 'Ultracode';
   return <>
     {placement === 'pulse' && align === 'end' ? <TurnStatusTrigger ref={anchor}
       className="launch-status-trigger launch-status-pulse" aria-label={label}

@@ -5,6 +5,7 @@ import type { LaunchState } from './launch-state';
 import type { BackgroundAgentClient } from './background-agents';
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
+export interface Message { desktopInput?: { version: 1; text: string } }
 export interface Content { historical?: boolean }
 export interface Snapshot { workspaceIssue?: string }
 export interface Snapshot { firstRun?: { required: boolean } }
@@ -34,13 +35,15 @@ export type PermissionPreset = 'ask' | 'approve-for-me' | 'full-access';
 export interface ElapsedTiming { startedAt: number; endedAt?: number }
 export interface MessageTiming { run: ElapsedTiming; thinking: Record<string, ElapsedTiming> }
 export interface Message { role: string; content: string | Content[]; customType?: string; display?: boolean; timestamp?: number; desktopTiming?: MessageTiming; desktopSteered?: boolean; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string; entryId?: string; provider?: string; model?: string; errorMessage?: string; summary?: string; command?: string; output?: string; excludeFromContext?: boolean; details?: { patch?: string; diff?: string; results?: unknown[]; [key: string]: unknown } }
-export interface RuntimeState { isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
+export interface RuntimeState { desktopCompletionReview?: 1; isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
 export interface ModelSelection { model: Model; thinkingLevel?: string }
 export interface ModelChange { id: string; userTimestamp: number; from: Pick<Model, 'id' | 'provider' | 'name'>; to: Pick<Model, 'id' | 'provider' | 'name'> }
 export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string; projectTrust?: { cwd: string } }
 export type RuntimeEvent = { type: string; [key: string]: any };
 export interface Preferences { interfaceSettings?: import('./interface-presets').InterfacePreferences; appearance?: import('./appearance').Appearance; theme: import('./theme').ThemePreference; accentColor?: string | null; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; workspaceSessionRedirects?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; collapsedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide'; updateChannel?: UpdateChannel; autoCheckUpdates?: boolean }
-export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; backgroundCount?: number; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
+export type BackgroundLaneSummary = { id: string; status: 'running' | 'settling' };
+export type BackgroundLaneActivity = { status: 'known'; lanes: BackgroundLaneSummary[] } | { status: 'unavailable' };
+export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; backgroundCount?: number; background?: BackgroundLaneActivity; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
 export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
@@ -100,8 +103,17 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   projectInstructions(owner: import('./project-instructions').ProjectInstructionsOwner): Promise<import('./project-instructions').ProjectInstructionsStatus>;
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
+  pluginDocument(input: { ref: string; path: string }): Promise<import('./capabilities').PluginDocument>;
+  pluginRepositoryInfo(input: { ref: string; refresh: boolean }): Promise<import('./capabilities').PluginStarSnapshot>;
+  pluginConfiguration(input: { ref: string }): Promise<import('./capabilities').PluginConfiguration>;
+  pluginSaveConfiguration(input: import('./capabilities').PluginConfigurationInput): Promise<import('./capabilities').PluginConfiguration>;
+  pluginChoosePath(input: { ref: string; field: string }): Promise<string | null>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;
+  bvrConfiguration(): Promise<import('./bvr-settings').BvrConfiguration>;
+  bvrSaveConfiguration(input: import('./bvr-settings').BvrConfigurationInput): Promise<import('./bvr-settings').BvrConfiguration>;
+  bvrCheckEnvironment(input: import('./bvr-settings').BvrConfigurationInput): Promise<import('./bvr-settings').BvrEnvironmentCheck>;
+  bvrChoosePath(kind: import('./bvr-settings').BvrPathKind): Promise<string | null>;
   stepPageState(): Promise<StepPagePreparation>;
   prepareStepPage(): Promise<StepPagePreparation>;
   cronList(): Promise<CronOverview>;

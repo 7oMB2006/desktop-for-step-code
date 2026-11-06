@@ -95,12 +95,12 @@ export function TaskProgress(props: ProgressProps) {
       pending.current = null;
       notified.current = false;
     }
-    if (!total || completed !== total || newRun || scopeChanged) {
+    if (!total || completed !== total || newRun || scopeChanged || (busy && !root.current.dataset.phase)) {
       stop.current?.(); stop.current = null;
       root.current.dataset.phase = 'running';
       root.current.querySelector<HTMLElement>('.task-progress-green')!.style.maskImage = '';
-    } else if (!stop.current && !busy) {
-      root.current.dataset.phase = 'complete';
+    } else if (!stop.current) {
+      root.current.dataset.phase = busy ? 'running' : 'complete';
     }
     previousBusy.current = busy;
     previousScope.current = { runtimeId, sessionId };

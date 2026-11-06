@@ -1,0 +1,10 @@
+{
+  "name": "text-workbench-demo-local",
+  "plugins": [
+    {
+      "name": "text-workbench",
+      "source": "./plugins/text-workbench",
+      "description": "文本整理台：本地去重、排序、生成清单与文本统计。第三方投稿流程示范，尚未公开上架。"
+    }
+  ]
+}

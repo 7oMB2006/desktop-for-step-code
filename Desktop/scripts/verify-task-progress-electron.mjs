@@ -206,9 +206,23 @@ try {
       phase: document.querySelector('.sb-task-progress')?.dataset.phase,
       value: document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow'),
       max: document.querySelector('[role=progressbar]')?.getAttribute('aria-valuemax'),
-      busy: document.querySelector('.conversation')?.getAttribute('aria-busy'),
-      toolStates: [...document.querySelectorAll('[data-tool-state]')].map(element => element.dataset.toolState),
+      navigationBusy: document.querySelector('.conversation')?.getAttribute('aria-busy'),
+      working: !!document.querySelector('.working'),
+      progressClass: document.querySelector('[role=progressbar]')?.className,
+      toolStates: [...document.querySelectorAll('[data-tool-state]')].map(element => element.dataset.toolState).slice(-8),
     })).catch(() => undefined),
+    runtime: await page?.evaluate(async () => {
+      let timer;
+      try {
+        const snapshot = await Promise.race([
+          window.desktop.snapshot(),
+          new Promise(resolve => { timer = setTimeout(() => resolve(undefined), 1000); }),
+        ]);
+        if (!snapshot) return { unavailable: true };
+        const active = snapshot.runtimes?.find(runtime => runtime.runtimeId === snapshot.runtimeId);
+        return { isStreaming: snapshot.state?.isStreaming, status: active?.status };
+      } finally { clearTimeout(timer); }
+    }).catch(() => undefined),
   });
   throw error;
 } finally {

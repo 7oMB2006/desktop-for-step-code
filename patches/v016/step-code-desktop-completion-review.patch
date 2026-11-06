@@ -1,0 +1,324 @@
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index f8c2721..433b5ce 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -34,6 +34,7 @@ import { type Theme, theme } from "../../theme/theme.ts";
+ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+ import { toJsonEvent } from "../json-event.ts";
+ import { DesktopBtw } from "./desktop-btw.ts";
++import { DesktopCompletionReview } from "./desktop-completion-review.ts";
+ import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
+ import type {
+ 	RpcCommand,
+@@ -100,6 +101,15 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 	let replyOwner: object | undefined;
+ 	let replySessionId: string | undefined;
+ 	const backgroundReplies = new Map<string, { digest: string; promise?: Promise<RpcResponse> }>();
++	let desktopUltracode = false;
++	let desktopBackgroundWork = false;
++	const review = new DesktopCompletionReview(() => session, output, () => {
++		const branch = session.sessionManager.getBranch();
++		const goal = branch.filter(entry => entry.type === "custom" && entry.customType === "step-goal").at(-1);
++		return getStepPlanMode(session.sessionManager) !== "plan"
++			&& !desktopUltracode && !desktopBackgroundWork
++			&& !(goal?.type === "custom" && (goal.data as { status?: string })?.status === "active");
++	});
+ 
+ 	// Pending extension UI requests waiting for response
+ 	const pendingExtensionRequests = new Map<
+@@ -194,6 +204,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 		},
+ 
+ 		setStatus(key: string, text: string | undefined): void {
++			if (key === "ultracode") desktopUltracode = Boolean(text);
++			if (key === "desktop-subagents") {
++				try { desktopBackgroundWork = JSON.parse(text ?? "{}").lanes?.length > 0; }
++				catch { desktopBackgroundWork = true; }
++			}
+ 			// Fire and forget - no response needed
+ 			output({
+ 				type: "extension_ui_request",
+@@ -344,6 +359,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 
+ 	const rebindSession = async (): Promise<void> => {
+ 		btw.reset();
++		review.skip("rebound");
++		desktopUltracode = false;
++		desktopBackgroundWork = false;
+ 		const nextSession = runtimeHost.session;
+ 		// Bind output listeners before extension session_start handlers run. This
+ 		// keeps events emitted during replacement observable to RPC clients.
+@@ -419,8 +437,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 	// Handle a single command
+ 	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
+ 		const id = command.id;
++		if (review.running && ["set_model", "cycle_model", "set_thinking_level", "cycle_thinking_level", "compact",
++			"new_session", "switch_session", "fork", "clone", "desktop_cron_resume"].includes(command.type))
++			return error(id, command.type, "Finish or cancel completion review before changing this task.");
+ 
+ 		switch (command.type) {
++			case "desktop_completion_review_skip":
++				review.skip("input");
++				return success(id, command.type);
+ 			case "desktop_btw": {
+ 				if (command.action === "ask") btw.start(command);
+ 				else if (command.action === "cancel") await btw.cancel(command.requestId, command.scopeId);
+@@ -433,21 +457,25 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			// =================================================================
+ 
+ 			case "prompt": {
++				if (command.completionReview !== undefined && command.completionReview !== true)
++					return error(id, "prompt", "Invalid completion review option");
++				if (!command.completionReview) review.skip("input");
+ 				// Start prompt handling immediately, but emit the authoritative response only after
+ 				// prompt preflight succeeds. Queued and immediately handled prompts also count as success.
+ 				let preflightSucceeded = false;
+-				void session
+-					.prompt(command.message, {
++				const promptOptions = {
+ 						images: command.images,
+ 						streamingBehavior: command.streamingBehavior,
+-						source: "rpc",
+-						preflightResult: (didSucceed) => {
++						source: "rpc" as const,
++						preflightResult: (didSucceed: boolean) => {
+ 							if (didSucceed) {
+ 								preflightSucceeded = true;
+ 								output(success(id, "prompt"));
+ 							}
+ 						},
+-					})
++					};
++				void (command.completionReview ? review.prompt(command.message, promptOptions)
++					: session.prompt(command.message, promptOptions))
+ 					.catch((e) => {
+ 						if (!preflightSucceeded) {
+ 							output(error(id, "prompt", e.message));
+@@ -457,16 +485,19 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			}
+ 
+ 			case "steer": {
++				review.skip("input");
+ 				await session.steer(command.message, command.images);
+ 				return success(id, "steer");
+ 			}
+ 
+ 			case "follow_up": {
++				review.skip("input");
+ 				await session.followUp(command.message, command.images);
+ 				return success(id, "follow_up");
+ 			}
+ 
+ 			case "abort": {
++				review.skip("cancelled");
+ 				await session.abort();
+ 				return success(id, "abort");
+ 			}
+@@ -815,9 +846,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			}
+ 			case "get_state": {
+ 				const state: RpcSessionState = {
++					desktopCompletionReview: 1,
+ 					model: session.model,
+ 					thinkingLevel: session.thinkingLevel,
+-					isStreaming: session.isStreaming,
++					isStreaming: session.isStreaming || review.running,
+ 					isCompacting: session.isCompacting,
+ 					steeringMode: session.steeringMode,
+ 					followUpMode: session.followUpMode,
+@@ -1084,6 +1116,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 
+ 	async function shutdown(exitCode = 0, signal?: NodeJS.Signals): Promise<never> {
+ 		btw.reset();
++		review.skip("cancelled");
+ 		if (shuttingDown) {
+ 			process.exit(exitCode);
+ 		}
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 253187f..5be771e 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -22,7 +22,8 @@ export type RpcCommand =
+ 	| { id?: string; type: "desktop_btw"; action: "cancel"; requestId: string; scopeId: string }
+ 	| { id?: string; type: "desktop_btw"; action: "clear"; scopeId: string }
+ 	// Prompting
+-	| { id?: string; type: "prompt"; message: string; images?: ImageContent[]; streamingBehavior?: "steer" | "followUp" }
++	| { id?: string; type: "prompt"; message: string; images?: ImageContent[]; streamingBehavior?: "steer" | "followUp"; completionReview?: true }
++	| { id?: string; type: "desktop_completion_review_skip" }
+ 	| { id?: string; type: "steer"; message: string; images?: ImageContent[] }
+ 	| { id?: string; type: "follow_up"; message: string; images?: ImageContent[] }
+ 	| { id?: string; type: "abort" }
+@@ -120,6 +121,7 @@ export interface RpcSlashCommand {
+ // ============================================================================
+ 
+ export interface RpcSessionState {
++	desktopCompletionReview?: 1;
+ 	model?: Model<any>;
+ 	thinkingLevel: ThinkingLevel;
+ 	isStreaming: boolean;
+diff --git a/packages/coding-agent/src/modes/rpc/desktop-completion-review.ts b/packages/coding-agent/src/modes/rpc/desktop-completion-review.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/coding-agent/src/modes/rpc/desktop-completion-review.ts
+@@ -0,0 +1,161 @@
++import { randomUUID } from "node:crypto";
++import type { AgentSession, AgentSessionEvent, PromptOptions } from "../../core/agent-session.ts";
++import { completionCheckFeedback } from "../completion-check.ts";
++
++type Status = "pending" | "reviewing" | "ended" | "failed" | "cancelled" | "skipped";
++type Reason = "input" | "cancelled" | "rebound" | "failure" | "denied" | "approval" | "mode" | "intercepted" | "no_final_text" | "persistence";
++interface Review {
++	version: 1;
++	id: string;
++	sessionId: string;
++	status: Status;
++	sent: boolean;
++	reason?: Reason;
++}
++interface Run {
++	session: AgentSession;
++	state: Review;
++	reason?: Reason;
++	delivered: boolean;
++	finalText: boolean;
++	expected?: string;
++}
++const reasonPriority: Record<Reason, number> = {
++	input: 0, mode: 1, intercepted: 1, no_final_text: 1,
++	failure: 2, denied: 2, approval: 2, cancelled: 3, rebound: 4, persistence: 5,
++};
++function mark(run: Run, reason: Reason): void {
++	if (!run.reason || reasonPriority[reason] > reasonPriority[run.reason]) run.reason = reason;
++}
++function outcome(reason?: Reason): Status {
++	return reason === "cancelled" || reason === "rebound" ? "cancelled"
++		: reason === "failure" || reason === "no_final_text" || reason === "persistence" ? "failed"
++		: reason ? "skipped" : "ended";
++}
++
++/** Owns one explicit RPC task, never an agent_end callback or a recurring reviewer. */
++export class DesktopCompletionReview {
++	private active?: Run;
++	private readonly session: () => AgentSession;
++	private readonly output: (event: object) => void;
++	private readonly eligible: () => boolean;
++	constructor(
++		session: () => AgentSession,
++		output: (event: object) => void,
++		eligible: () => boolean,
++	) { this.session = session; this.output = output; this.eligible = eligible; }
++
++	get running(): boolean { return this.active !== undefined; }
++	skip(reason: "input" | "cancelled" | "rebound"): void {
++		if (this.active && (reason !== "input" || this.active.state.status === "pending"))
++			mark(this.active, reason);
++	}
++
++	async prompt(message: string, options: PromptOptions): Promise<void> {
++		const session = this.session();
++		if (this.active || session.isStreaming || session.isCompacting || session.pendingMessageCount)
++			throw new Error("Completion review requires a new idle task.");
++		if (!this.eligible() || message.trimStart().startsWith("/") || /^(?:ultracode|ultraloop):/i.test(message.trimStart()))
++			throw new Error("Completion review is only available for ordinary main tasks.");
++		const run: Run = { session, state: { version: 1, id: randomUUID(), sessionId: session.sessionId,
++			status: "pending", sent: false }, delivered: false, finalText: false };
++		const cwd = session.sessionManager.getCwd(), model = session.model, thinking = session.thinkingLevel;
++		this.active = run;
++		let accepted = false, finished = false;
++		const persist = () => {
++			try { session.sessionManager.appendCustomEntry("desktop-completion-review", run.state); }
++			catch (error) { mark(run, "persistence"); throw error; }
++		};
++		const output = () => this.output({ type: "desktop_completion_review", review: run.state,
++			completed: !run.reason && run.finalText && run.state.status === "ended" });
++		const publish = (status: Status, reason?: Reason) => {
++			run.state = { ...run.state, status, ...(reason ? { reason } : {}) };
++			persist();
++			output();
++		};
++		const finish = async (status: Status, reason?: Reason) => {
++			if (finished) return;
++			finished = true;
++			run.state = { ...run.state, status, ...(reason ? { reason } : {}) };
++			try {
++				persist();
++				if (accepted && this.session() === session)
++					await session.sendCustomMessage({ customType: "desktop-completion-review-result", display: true,
++						content: `Completion self-review: ${status}${reason ? ` (${reason})` : ""}.`,
++						details: { ...run.state } }, { triggerTurn: false });
++			} catch (error) {
++				mark(run, "persistence");
++				run.state = { ...run.state, status: "failed", reason: "persistence" };
++				// A broken history store must not strand Desktop's task ownership.
++				try { persist(); } catch { /* The terminal event remains authoritative for this live task. */ }
++				output();
++				throw error;
++			}
++			output();
++		};
++		const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
++			if (event.type === "message_start") {
++				if (run.state.status === "pending" && event.message.role === "user") run.delivered = true;
++				if (event.message.role === "custom" && event.message.customType === "desktop-completion-review-input"
++					&& (event.message.details as { reviewId?: string } | undefined)?.reviewId === run.state.id
++					&& (typeof event.message.content === "string" ? event.message.content
++						: event.message.content.filter(part => part.type === "text").map(part => part.text).join("\n")) === run.expected)
++					run.state.sent = true;
++			}
++			if (event.type === "message_end" && event.message.role === "assistant") {
++				const message = event.message;
++				if (message.stopReason === "error") mark(run, "failure");
++				if (message.stopReason === "aborted") mark(run, "cancelled");
++				run.finalText = !["toolUse", "error", "aborted"].includes(message.stopReason)
++					&& !message.content.some(part => part.type === "toolCall")
++					&& message.content.some(part => part.type === "text" && part.text.trim().length > 0);
++			}
++			if (event.type === "tool_execution_end") {
++				const result = event.result as { terminate?: unknown; details?: { outcome?: unknown } } | undefined;
++				if (event.isError && result?.terminate === true) mark(run, "denied");
++				if (!event.isError && event.toolName === "exit_plan_mode" && result?.details?.outcome === "external_approval_required")
++					mark(run, "approval");
++			}
++		});
++		try {
++			// Reserve the task before extension input handlers can themselves run an agent.
++			publish("pending");
++			await session.prompt(message, { ...options, preflightResult: success => {
++				if (success && (run.reason === "cancelled" || run.reason === "rebound"))
++					throw new Error("Task cancelled before delivery.");
++				if (success) accepted = true;
++				options.preflightResult?.(success);
++			} });
++			if (this.session() !== session || session.sessionManager.getCwd() !== cwd) mark(run, "rebound");
++			if (!this.eligible() || session.model !== model || session.thinkingLevel !== thinking) mark(run, "mode");
++			if (!run.delivered) mark(run, "intercepted");
++			if (session.pendingMessageCount) mark(run, "input");
++			if (!run.reason) {
++				publish("reviewing");
++				const feedback = completionCheckFeedback(undefined, run.finalText, true);
++				run.expected = feedback;
++				run.finalText = false;
++				await session.prompt(feedback, {
++					source: "extension", expandPromptTemplates: false,
++					preflightResult: success => {
++						if (success && run.reason) throw new Error("Completion review was cancelled before delivery.");
++					},
++					customMessage: { customType: "desktop-completion-review-input", display: true,
++						details: { version: 1, reviewId: run.state.id, source: "completion-review" } },
++				});
++				if (!run.state.sent) mark(run, "intercepted");
++				else if (!run.finalText) mark(run, "no_final_text");
++			}
++			const reason = run.reason;
++			await finish(outcome(reason), reason);
++		} catch (error) {
++			mark(run, "failure");
++			const reason = run.reason ?? "failure";
++			await finish(outcome(reason), reason);
++			throw error;
++		} finally {
++			unsubscribe();
++			if (this.active === run) this.active = undefined;
++		}
++	}
++}

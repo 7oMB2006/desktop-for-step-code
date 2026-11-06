@@ -27,6 +27,21 @@ export interface BackgroundAgentLane {
 export interface BackgroundAgentSnapshot {
   sessionId: string;
   lanes: BackgroundAgentLane[];
+  replyAvailable?: boolean;
+}
+export const MAX_BACKGROUND_REPLY_LENGTH = 8000;
+export interface BackgroundAgentReplyRequest {
+  runtimeId: string;
+  sessionId: string;
+  laneId: string;
+  requestId: string;
+  prompt: string;
+}
+export interface BackgroundAgentReplyReceipt {
+  sessionId: string;
+  laneId: string;
+  requestId: string;
+  delivery: 'queued' | 'started';
 }
 export interface BackgroundAgentSelection {
   laneId: string;
@@ -35,4 +50,5 @@ export interface BackgroundAgentSelection {
 export type BackgroundAgentClient = {
   backgroundAgents(runtimeId: string, sessionId: string): Promise<BackgroundAgentSnapshot>;
   stopBackgroundAgent(runtimeId: string, sessionId: string, laneId: string): Promise<void>;
+  replyBackgroundAgent(request: BackgroundAgentReplyRequest): Promise<BackgroundAgentReplyReceipt>;
 };

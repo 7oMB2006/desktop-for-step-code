@@ -48,6 +48,13 @@ redacted `desktop_subagents` list/stop RPC over native `agent_send`, without
 model calls, transcript writes or reply support. It shares the existing live
 ownership and notification handoff, not a second task registry.
 
+The final `step-code-desktop-background-reply.patch` adds explicit single-lane
+follow-ups over the same RPC. It keeps native queue/continuation semantics,
+forces no interruption and returns structured delivery receipts with bounded
+live-runtime request deduplication. These explicit child tasks can use tools
+and model usage; list/stop remain no-model operations. The staged capability is
+`desktop-background-reply`. See [Background controls](../docs/BACKGROUND_AGENTS.md).
+
 Development Windows/macOS builds select the same v016 base.
 The v016 bundle also supplies module-relative CommonJS filename globals so the
 new Lark dependency can load under Node ESM. This does not add Desktop Lark UI.

@@ -14,7 +14,7 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-async function fixture(options: { safeOutput?: boolean } = {}) {
+async function fixture(options: { safeOutput?: boolean; replies?: boolean } = {}) {
   const calls: { type: string; args?: Record<string, unknown> }[] = [];
   let handle = async (_args?: Record<string, unknown>): Promise<any> => raw();
   const rpc: WorkerTransport = {
@@ -32,7 +32,7 @@ async function fixture(options: { safeOutput?: boolean } = {}) {
   const worker = await pool.open('node', 'step', 'workspace', {});
   calls.length = 0;
   let blocked = false;
-  const service = new BackgroundAgents(pool.workers, () => blocked, options.safeOutput ?? true);
+  const service = new BackgroundAgents(pool.workers, () => blocked, options.safeOutput ?? true, options.replies ?? true);
   return { calls, rpc, pool, worker, service, handle: (next: typeof handle) => { handle = next; },
     block: () => { blocked = true; } };
 }
@@ -187,3 +187,87 @@ test('stops reject invalid identities and unconfirmed acknowledgments without re
   await assert.rejects(f.service.stop(f.worker.id, 'session-a', laneId), /not ready/);
   assert.equal(f.calls.length, 3);
 });
+
+const replyRequest = () => ({
+  runtimeId: '', sessionId: 'session-a', laneId, requestId: '12345678-1234-1234-1234-123456789abc',
+  prompt: 'Check one more boundary.',
+});
+test('replies require the capability, validate untrusted input and never fall back to parent prompts', async () => {
+  for (const options of [{ replies: false }, { safeOutput: false }]) {
+    const f = await fixture(options);
+    await assert.rejects(f.service.reply({ ...replyRequest(), runtimeId: f.worker.id }));
+    assert.equal(f.calls.length, 0);
+  }
+  const f = await fixture();
+  const request = { ...replyRequest(), runtimeId: f.worker.id };
+  for (const patch of [{ sessionId: 'other' }, { laneId: '../lane' }, { requestId: 'short' },
+    { prompt: ' ' }, { prompt: 'x'.repeat(8001) }, { laneId: null }, { prompt: {} }]) {
+    await assert.rejects(f.service.reply({ ...request, ...patch } as any));
+  }
+  assert.equal(f.calls.length, 0);
+  f.worker.backgroundLanes = [{ id: laneId, status: 'settling' }];
+  await assert.rejects(f.service.reply(request), /settle/);
+  assert.equal(f.calls.length, 0);
+});
+
+test('reply receipts require both runtime and snapshot capability', async () => {
+  for (const replies of [false, true]) {
+    const f = await fixture({ replies });
+    f.handle(async () => ({ ...raw(), replyAvailable: true }));
+    assert.equal((await f.service.read(f.worker.id, 'session-a')).replyAvailable, replies);
+    f.handle(async () => raw());
+    assert.equal((await f.service.read(f.worker.id, 'session-a')).replyAvailable, false);
+  }
+});
+
+test('replies retain native ownership, exclude competing actions and release operations', async () => {
+  const f = await fixture(), pending = deferred<any>();
+  const request = { ...replyRequest(), runtimeId: f.worker.id };
+  f.worker.busy = true; f.worker.queued = true; f.worker.backgroundActive = true;
+  f.handle(() => pending.promise);
+  const reply = f.service.reply(request);
+  assert.equal(f.worker.operations, 1);
+  await assert.rejects(f.service.reply(request), /pending/);
+  await assert.rejects(f.service.stop(f.worker.id, 'session-a', laneId), /pending/);
+  assert.deepEqual(f.calls, [{ type: 'desktop_subagents', args: {
+    sessionId: 'session-a', action: 'reply', laneId, requestId: request.requestId, prompt: request.prompt,
+  } }]);
+  const receipt = { sessionId: 'session-a', laneId, requestId: request.requestId, delivery: 'queued' };
+  pending.resolve(receipt);
+  assert.deepEqual(await reply, receipt);
+  assert.equal(f.worker.operations, 0);
+  assert.equal(f.worker.busy, true); assert.equal(f.worker.queued, true); assert.equal(f.worker.backgroundActive, true);
+});
+
+test('invalid or failed reply acknowledgments remain uncertain without automatic retries', async () => {
+  const f = await fixture();
+  const request = { ...replyRequest(), runtimeId: f.worker.id };
+  const receipt = { sessionId: 'session-a', laneId, requestId: request.requestId, delivery: 'started' };
+  for (const patch of [{ sessionId: 'other' }, { laneId: 'lane_99999999' }, { requestId: 'other' }, { delivery: 'completed' }]) {
+    f.handle(async () => ({ ...receipt, ...patch }));
+    await assert.rejects(f.service.reply(request), /not confirmed/);
+    assert.equal(f.worker.operations, 0);
+  }
+  f.handle(async () => { throw new Error('transport lost'); });
+  await assert.rejects(f.service.reply(request), /transport lost/);
+  assert.equal(f.calls.length, 5);
+  assert.equal(f.worker.operations, 0);
+});
+
+for (const change of ['session', 'rpc', 'worker', 'disconnect', 'mutation', 'global'] as const) {
+  test(`a follow-up acknowledgment cannot cross ${change} identity or transition`, async () => {
+    const f = await fixture(), pending = deferred<any>();
+    const request = { ...replyRequest(), runtimeId: f.worker.id };
+    f.handle(() => pending.promise);
+    const reply = f.service.reply(request);
+    if (change === 'session') f.worker.state!.sessionId = 'session-b';
+    if (change === 'rpc') f.worker.rpc = { ...f.rpc };
+    if (change === 'worker') f.pool.workers.set(f.worker.id, { ...f.worker });
+    if (change === 'disconnect') f.worker.status = 'disconnected';
+    if (change === 'mutation') f.worker.mutating = true;
+    if (change === 'global') f.block();
+    pending.resolve({ sessionId: 'session-a', laneId, requestId: request.requestId, delivery: 'started' });
+    await assert.rejects(reply, /not confirmed|not ready/);
+    assert.equal(f.worker.operations, 0);
+  });
+}

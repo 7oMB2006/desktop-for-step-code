@@ -10,6 +10,7 @@ import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Sessio
 import { fullAccessRiskPresentation } from './full-access-risk';
 import { pendingPlanReview, planReview } from './plan-review';
 import { conversationEntries } from './conversation-presentation';
+import { reviewActive, reviewErrorText } from './completion-review';
 import { planExecutionResponses } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
 import { PlanReview } from './PlanReview';
@@ -763,10 +764,12 @@ function App() {
         }) }));
         return;
       }
-      if (['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_end', 'message_update', 'message_end', 'agent_end'].includes(event.type)) {
+      if (!event.desktopReviewPending && !event.desktopReviewContinuation && ['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_end', 'message_update', 'message_end', 'agent_end'].includes(event.type)
+        || event.type === 'desktop_completion_review' && !reviewActive(event.review)) {
         const receivedAt = performance.now();
         const id = event.sessionId ?? view.current.sessionId;
-        if (id) metricsBySession.current.set(id, updateRunMetrics(metricsBySession.current.get(id) ?? null, event, receivedAt));
+        if (id) metricsBySession.current.set(id, updateRunMetrics(metricsBySession.current.get(id) ?? null,
+          event.type === 'desktop_completion_review' ? { ...event, type: 'agent_end' } : event, receivedAt));
         if (!switching.current && (!event.runtimeId || event.runtimeId === viewId.current)) {
           if (event.type === 'agent_start') setClock(receivedAt);
           setRunMetrics(id ? metricsBySession.current.get(id) ?? null : null);
@@ -803,7 +806,11 @@ function App() {
       if (['live_context', 'auto_clm_end', 'agent_end', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
-      if (event.type === 'agent_end') { setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh); }
+      if (event.type === 'agent_end' && !event.desktopReviewPending
+        || event.type === 'desktop_completion_review' && !reviewActive(event.review)) {
+        setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh);
+      }
+      if (event.type === 'desktop_completion_review' && reviewActive(event.review)) setBusy(true);
       if (event.type === 'desktop_exit') { setBusy(false); stoppingRef.current = false; setStopping(false); setRunMetrics(null); setNotice(null); setData(d => ({ ...d, status: 'disconnected', stats: undefined, permissionPreset: undefined })); setRequests([]); }
       if (event.type === 'desktop_permission') setData(d => ({ ...d, permissionPreset: event.preset }));
       if (event.type === 'desktop_launch') setData(d => ({ ...d, launch: event.launch }));
@@ -814,7 +821,7 @@ function App() {
       if (event.type === 'desktop_error') setError(event.message);
       if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
       if (['message_start', 'message_end'].includes(event.type) && event.message && isUserMessage(event.message)) setArrivingUser(event.message);
-      if (['message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
+      if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
       if (event.type === 'tool_execution_update' || event.type === 'tool_execution_end') {
         setData(d => ({ ...d, messages: applyToolResult(d.messages, event) }));
       }
@@ -1491,7 +1498,8 @@ function App() {
   const taskStatusControls = <>
     <LaunchStatus key={`task-${data.runtimeId}`} placement="pulse" align={busy ? 'start' : 'end'}
       expanded={taskStatusOpen} onExpandedChange={setTaskStatusOpen}
-      state={{ plan: Boolean(data.launch?.plan && !data.launch.planArmed), ultracode: Boolean(data.launch?.ultracode), goalArmed: false, goal: currentGoal }}
+      state={{ plan: Boolean(data.launch?.plan && !data.launch.planArmed), ultracode: Boolean(data.launch?.ultracode), goalArmed: false, goal: currentGoal,
+        review: data.launch?.review }}
       turnUltracode={turnUltracode && !currentTurnWorkflow} language={data.preferences.language} disabled={!connected || loading}
       onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
       onAction={(action, value) => rawCommand('goal_action', { action, value })}
@@ -1594,7 +1602,7 @@ function App() {
         </button>
       </>}
     </div>}
-    {error && (settingsOpen || removeProject || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{error}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
+    {error && (settingsOpen || removeProject || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{reviewErrorText(error, zh)}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
     {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
     <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
@@ -1658,7 +1666,7 @@ function App() {
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
       {(error || unavailableWorkspace) && !settingsOpen && !removeProject && !mcpEdit && !requests.length && <div className="app-error-banner" role="alert">
         <AlertCircle size={16}/><span>{unavailableWorkspace
-          ? t(`项目目录不可用，可能已改名或移动：${unavailableWorkspace}`, `Project directory unavailable; it may have been renamed or moved: ${unavailableWorkspace}`) : error}</span>
+          ? t(`项目目录不可用，可能已改名或移动：${unavailableWorkspace}`, `Project directory unavailable; it may have been renamed or moved: ${unavailableWorkspace}`) : reviewErrorText(error, zh)}</span>
         {unavailableWorkspace && data.preferences.workspaces.some(path => workspaceKey(path) === workspaceKey(unavailableWorkspace)) && <>
           <button disabled={loading} onClick={() => void repairProject(unavailableWorkspace)}><FolderOpen size={14}/>{t('重新定位', 'Locate folder')}</button>
           <button disabled={loading} onClick={() => confirmRemoveProject(unavailableWorkspace)}>{t('移除项目', 'Remove project')}</button>
@@ -1829,12 +1837,14 @@ function App() {
                 plan: Boolean(data.draftId) || commands.some(c => c.name === 'plan' && c.source === 'extension'),
                 goal: Boolean(data.draftId) || commands.some(c => c.name === 'goal' && c.source === 'extension'),
                 ultracode: Boolean(data.draftId) || commands.some(c => c.name === 'ultraloop' && c.source === 'extension'),
+                review: Boolean(data.draftId) || data.state?.desktopCompletionReview === 1,
               }} onLaunch={(mode, enabled) => command('set_launch_mode', { mode, enabled })}
               onReview={requests.length && !approvalOpen && !renaming && !reviewPlan && !planFeedback && !reviewQuestion ? () => setApprovalOpen(true) : undefined}/>
             {(reviewPlan || planFeedback) && <button className="permission-trigger permission-review plan-review-trigger" aria-expanded={approvalOpen} onClick={() => setApprovalOpen(v => !v)}><ClipboardCheck size={16}/><span>{t('批阅计划', 'Review plan')}</span></button>}
             {!requests.length && canResubmitPlan && <button className="permission-trigger permission-review plan-review-trigger" disabled={!connected || loading || busy || resubmittingPlan} onClick={() => void resubmitPlan()}><ClipboardCheck size={16}/><span>{t('重新批阅计划', 'Review plan again')}</span></button>}
             <LaunchStatus key={data.runtimeId ?? data.draftId}
-              state={{ plan: Boolean(data.launch?.planArmed), ultracode: Boolean(data.launch?.ultracodeArmed), goalArmed: Boolean(data.launch?.goalArmed) }}
+              state={{ plan: Boolean(data.launch?.planArmed), ultracode: Boolean(data.launch?.ultracodeArmed), goalArmed: Boolean(data.launch?.goalArmed),
+                reviewArmed: data.launch?.reviewArmed }}
               language={data.preferences.language} disabled={!connected || loading}
               onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
               onAction={(action, value) => rawCommand('goal_action', { action, value })}/>

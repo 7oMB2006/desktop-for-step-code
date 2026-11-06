@@ -4,6 +4,7 @@ import { isUserMessage } from './user-message';
 import { cronMessage, type CronNotice } from './cron-message';
 import { isAutoResumeMessage } from './auto-resume-message';
 import { subagentDisplayCall, subagentDisplayMessage } from './subagent-redact';
+import { isReviewInput, reviewResult, type CompletionReview } from './completion-review';
 
 export const messageBlocks = (message: Message): Content[] => visibleInputBlocks(subagentDisplayMessage(message));
 export const messageText = (message: Message): string => messageBlocks(message)
@@ -30,6 +31,7 @@ export function conversationEntries(messages: Message[]): ConversationEntry[] {
 }
 
 export type ResponseItem =
+  | { type: 'completion-review'; result?: CompletionReview; index: number; key: string }
   | { type: 'auto-resume'; index: number; key: string }
   | { type: 'cron'; notice: CronNotice; index: number; key: string }
   | { type: 'thinking' | 'text' | 'image'; block: Content; index: number; key: string }
@@ -40,6 +42,10 @@ export function responsePresentation(items: IndexedMessage[]) {
   const pending = new Map<string, Extract<ResponseItem, { type: 'tool' }>>();
   for (const { message, index } of items) {
     if (message.display === false) continue;
+    if (isReviewInput(message) || reviewResult(message)) {
+      content.push({ type: 'completion-review', result: reviewResult(message), index, key: `${index}:completion-review` });
+      continue;
+    }
     if (isAutoResumeMessage(message)) {
       content.push({ type: 'auto-resume', index, key: `${index}:auto-resume` });
       continue;
@@ -74,7 +80,7 @@ export function responsePresentation(items: IndexedMessage[]) {
     lastTextIndex: content.reduce((last, item, position) =>
       item.type === 'text' && item.block.text?.trim() ? position : last, -1),
     text: items.filter(item => item.message.display !== false && item.message.role !== 'toolResult'
-      && !isAutoResumeMessage(item.message))
+      && !isAutoResumeMessage(item.message) && !isReviewInput(item.message) && !reviewResult(item.message))
       .map(item => messageText(item.message)).filter(Boolean).join('\n\n'),
   };
 }

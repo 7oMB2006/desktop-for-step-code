@@ -111,6 +111,160 @@ replace cloud execution. The original 16 patch manifest and all 43 staged
 source postimages remain unchanged. No commit, push, PR, package, shortcut or
 personal-profile change is made by this local verification.
 
+## PR #199 Main Integration (2026-11-06)
+
+Merge main `33abd6c` (PR #197) into the completion-review candidate without
+rewriting either branch. Both background follow-up and completion-review
+capabilities remain registered. Their RPC patches share an insertion point;
+the review patch now targets the background-reply postimage, with updated patch
+and combined RPC source hashes. Neither the pin nor upstream overlays change.
+The production applier succeeds from a clean pinned checkout with all 18 shared
+patches and 45 postimages. Darwin additions also replay with matching hashes;
+this source check is not native macOS execution.
+
+The combined runtime is rebuilt/restaged. Upstream workspace type checking and
+89 focused subagent/RPC tests pass, as do Desktop type checking and production
+build. Complete serial Desktop regression collects 913 tests: 899 pass,
+14 platform skips, zero failures in 180.5 seconds. Evidence is
+`Desktop/test-results/completion-review/merged-serial-tests.log`. All four staging
+tests pass independently, as do 34 CI policy/runner/summary tests (33 passes,
+one platform skip).
+
+Real Windows Electron review, background-replies, background-controls and
+launch-mode verifiers all pass against this combined runtime with isolated
+loopback providers. Coverage retains one-shot preflight reservation/rollback,
+completion deduplication, queued and continued child work, lost-receipt
+deduplication, parent/peer independence and non-inherited task-mode consent.
+These local results do not establish current-head cloud, native macOS,
+installer or real-account acceptance.
+
+No installer is generated or installed, and no package is deleted. The reused
+isolated source (0.04 GiB), new replay (0.02 GiB), staged runtime (0.11 GiB) and
+reused Desktop build (0.01 GiB) remain needed for verification and evidence;
+dependency junction targets are excluded from these sizes.
+
+## PR #199 One-Shot Review Reservation (2026-11-06)
+
+The main-process prompt handler now reserves the one-shot review choice before
+its first attachment/preparation/RPC await. Concurrent follow-ups capture their
+own unarmed payload. Enqueue/RPC acceptance commits the choice; rejection returns
+it to the original session without changing queued snapshots or enabling review
+on a replaced runtime/session or an incompatible task mode.
+
+Typecheck, production build and 63 focused review/runtime/queue/launch/timing
+tests pass locally. Native Windows Electron acceptance holds a real RPC
+preflight through an isolated input extension. A second prompt queues while the
+choice is reserved; after acceptance both ordinary tasks finish with exactly
+two model requests and no inherited review. A malformed-input fault injected
+after the same gate exercises native preflight rejection: the choice returns,
+the separate queued follow-up remains recoverable, and no model request occurs.
+The existing menu, provenance, ownership, completion, theme/narrow-layout and
+reduced-motion assertions remain intact. Runtime patches, pin and installed
+application are unchanged. Existing native launch-mode acceptance also passes,
+including Goal image attachments, one-shot Ultracode and queue steering.
+This focused result is not a new full-suite, cloud,
+installer or real-account acceptance claim.
+
+## PR #197 Confirmed Non-delivery Retry (2026-11-06)
+
+The P2 review finding is reproduced against the previous staged runtime:
+finish one child, occupy all eight running-lane slots, reject its follow-up,
+free a slot, and retry the same request identity. The original cached rejection
+still prevents delivery. Native capacity and final-settlement refusals now
+explicitly return `not_sent`. Only that confirmed non-delivery clears the
+attempt's promise; the request digest remains reserved. A subsequent manual
+attempt can succeed, concurrent attempts share one promise, and success remains
+deduplicated. Missing metadata, thrown failures and lost acknowledgments still
+retain their uncertain/successful receipt. No automatic retry is added.
+
+The new native capacity regression passes after rebuilding/restaging. All five
+pinned-runtime scenarios and 29 background service/presentation tests pass.
+Three new RPC receipt tests cover confirmed refusal, missing metadata and a
+thrown result; a native lifecycle regression captures a refusal during the real
+settlement handoff. All 84 selected upstream tests pass, as do the upstream
+workspace type check, Desktop type check/build, four staging tests, and the
+40 CI policy/runner/summary tests (39 passes, one platform skip). Both real
+Electron background controls and replies verifiers pass, including delivery
+once after a deliberately lost acknowledgment.
+
+The complete serial Desktop run passes: 890 tests, 876 passes, 14 platform
+skips, zero failures in 242.8 seconds. Its log is
+`Desktop/test-results/background-replies/review-serial-tests.log`.
+The unchanged pin and 17 shared patches replay with all 44 Windows postimages;
+Darwin additions also replay with matching combined postimages. The new RPC
+tests are explicitly registered in both upstream integration workflows.
+
+An additional run of upstream `subagent-live-channel.test.ts` fails both cases
+in its Windows temporary-directory cleanup (`EPERM`), including isolated reruns
+with Node 24.15.0 and 24.16.0. This extra test is outside the existing integration
+inventory; its cleanup cause is not fixed or claimed as passing here.
+No installer is generated. The reused staged runtime (0.11 GiB) and Desktop
+build (0.01 GiB) remain needed for verification; no historical package is
+created or deleted. These are local results, not replacement cloud/native
+macOS, real-account, installer or merge acceptance.
+
+## Background Agent Follow-ups (2026-11-05, Local Candidate)
+
+Based on main `7c349b7`, this candidate adds explicit single-agent
+follow-ups through the existing background inspector and typed preload/IPC.
+It reuses the shared composer and native `agent_send reply`, always without
+interruption. Running children queue; settled retained children continue their
+original transcript. Parallel/chain steps, missing/stale/disconnected records
+and settling lanes cannot send. These child tasks may execute tools and consume
+model usage; they are not read-only BTW requests.
+
+The source pin and two upstream overlays are unchanged. The new final patch
+adds structured queued/started delivery receipts and request-digest
+deduplication scoped to the live registry. Uncertain outcomes are retained,
+never retried automatically or silently evicted; the bound is 512 receipts.
+No durable exactly-once guarantee across app restarts is claimed. All 17 shared
+patches replay cleanly and match all 43 Windows postimages. Both Darwin
+additions also replay with matching combined postimages on Windows; this is
+not native macOS execution.
+
+The upstream workspace type check, complete offline build and 80 focused
+subagent/lifecycle tests pass. Desktop type checking, production build,
+29 focused background service/presentation tests, all four pinned-runtime
+lifecycle/control/reply scenarios and four staging tests pass. The latest
+CI inventory/runner/summary check collects 30 tests: 29 pass, one platform skip.
+The real Electron controls and new replies verifiers pass with an isolated
+loopback provider. Coverage includes queueing, retained child context,
+continuation, lost-acknowledgment manual retry delivering once, independent
+parent/peer execution, per-lane drafts, delayed receipts and reload.
+
+Browser checks cover 1400/390/320-pixel light/dark layouts, English/Chinese,
+IME, multiline/Enter, length bounds and reduced motion. Long live output
+exposed a real focus-scroll defect: revealing only the editor caret could
+leave the send button and composite focus ring clipped. The form now reveals
+itself on focus and on focused layout changes. Both browser and native
+Electron checks verify the complete four-pixel focus gutter.
+
+The initial complete serial Desktop run collects 889 tests: 873 pass,
+14 platform skips and two failures. Both fail during StepPage fixture cleanup
+with `EBUSY` while removing their isolated project directories; their runtime
+children remain alive. Those exact test-owned process trees were terminated
+to let the failed run exit. An unchanged isolated rerun passes both tests
+with one platform skip. A replacement unchanged complete serial run passes:
+889 tests, 875 passes, 14 platform skips, zero failures in 325.5 seconds.
+That successful rerun does not establish a fix for the original
+process-cleanup cause.
+
+The new Electron reply verifier selects explicit fixture scenarios rather than
+assuming the last user-shaped message is the task. Its startup failure also
+closes the loopback service, and orderly shutdown waits for both controller and
+launcher exit with the existing 30-second bound. A deliberately missing
+executable exits with the expected failure code rather than leaving the server
+alive. The normal final verifier rerun also passes and exits cleanly.
+
+Evidence is under `Desktop/test-results/background-replies/`; the isolated
+runtime build is `D:\Desktop Runtime Builds\background-follow-up-20261105`.
+The rebuildable isolated workspace is about 0.34 GiB, the staged runtime
+0.11 GiB and the Desktop build 0.01 GiB. They remain needed for candidate
+verification; no installer or historical package was generated or removed.
+No installer, installed application, shortcut or personal Step Code checkout
+was changed. These local results do not establish real-account, cloud or
+native macOS acceptance, nor PR approval or merge readiness.
+
 ## PR #196 Native CI Synchronization (2026-11-05)
 
 Run `41975811560` fails macOS source capability acceptance immediately after
@@ -6515,3 +6669,47 @@ CI inventory/policy/runner checks passed 39 tests with one platform skip.
 Typecheck, production build, real Electron background controls and Workflow
 acceptance passed again after integration. These local results do not replace
 the new PR's cloud CI, native macOS or installer acceptance.
+
+## Completion Self-Review (2026-11-05)
+
+The existing task-options menu adds a default-off, one-shot completion
+self-review for the next ordinary main task. A hashed Desktop RPC patch reuses
+the native same-session feedback without enabling CLI-only flags, upgrading the
+pin, requiring a Git commit or creating an independent reviewer.
+Plan, Goal, Ultracode, Cron, BTW and child-agent automatic tasks are excluded.
+Queued tasks retain their own choice; rejected direct submissions do not
+consume it. Cancellation, errors, terminating denials and approval handoff
+block automatic continuation. New input skips a still-pending review but queues
+behind an already-started review.
+
+Local Windows source verification uses isolated profiles and loopback model
+providers through the real typed preload, IPC and pinned RPC. Native tests cover
+default-off behavior, exactly one extra prompt with a real tool continuation,
+the same model/credential route, exact once-only token totals, persisted
+structured provenance, queued input, cancellation and mutation guards.
+Fault injection covers each history-write phase: a failed store still emits one
+failed terminal event and releases task ownership, without a completion claim.
+Error, cancellation and handoff reasons cannot be masked by an earlier input
+skip or a later successful response.
+
+Electron verifies the production menu, one-shot consumption, automatic input
+without a fake human bubble, uninterrupted ownership across both native runs,
+one final completion event and light/dark/narrow/reduced-motion presentation.
+An ended review cannot label a later Plan. The existing launch-mode Electron
+acceptance also passes for Plan, Goal, Ultracode, draft options and queue steering.
+The original completion sound uses that final event; total task timing spans
+both runs. Review endings remain neutral, not "verification passed."
+The 24 focused controller/RPC, projection, queue and timing tests pass.
+The final complete serial Desktop suite passes 896 tests: 882 passed and 14
+platform skips, with no failures. The local log is
+`Desktop/test-results/completion-review/desktop-suite-final.log`.
+Desktop typecheck and production build, runtime build/typecheck using
+`tsconfig.build.json`, and clean patch replay with all 44 postimage hashes pass.
+CI policy, inventory and platform runners pass 30 tests with one platform skip;
+the new native verifier is assigned to the shared sessions group.
+
+The active staged runtime and replay evidence are isolated under
+`D:\Desktop Runtime Builds\completion-review-20261105`; the installed application
+and existing installer are unchanged. This is local source acceptance, not
+real-account/billing, native macOS, current cloud CI or installer acceptance.
+See [the implementation contract](COMPLETION_REVIEW.md).

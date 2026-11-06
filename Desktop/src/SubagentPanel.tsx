@@ -5,6 +5,7 @@ import type { SubagentDisplayTask } from './conversation-presentation';
 import { responsePresentation } from './conversation-presentation';
 import { CronMessage } from './CronMessage';
 import { AutoResumeMessage } from './AutoResumeMessage';
+import { CompletionReviewNote } from './CompletionReviewNote';
 import { Tool, Text } from './ConversationMessages';
 import { redactSubagentMessages, redactSensitiveLines, redactSensitiveText } from './subagent-redact';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
@@ -34,6 +35,7 @@ function SubagentTranscript({ task, ...props }: { task: SubagentDisplayTask } & 
       ? <Tool key={item.key} item={item} active={false} {...props}/>
       : item.type === 'cron' ? <CronMessage key={item.key} notice={item.notice} index={item.index} language={props.language}/>
       : item.type === 'auto-resume' ? <AutoResumeMessage key={item.key} index={item.index} language={props.language}/>
+      : item.type === 'completion-review' ? <CompletionReviewNote key={item.key} index={item.index} result={item.result} language={props.language}/>
       : item.type === 'image' ? null
         : <div className="lane-text" key={item.key}><Text text={item.block.text ?? ''} {...props}/></div>)}
   </>;

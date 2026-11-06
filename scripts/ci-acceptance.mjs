@@ -51,6 +51,7 @@ export const acceptanceGroups = {
   sessions: [
     'verify-new-session.mjs',
     'verify-launch-modes.mjs',
+    'verify-completion-review.mjs',
     'verify-plan-review.mjs',
     'verify-question-review.mjs',
     'verify-ultracode-restore.mjs',
@@ -92,6 +93,7 @@ export const acceptanceGroups = {
     'verify-usage-overview-runtime.mjs',
     'verify-background-subagents.mjs',
     'verify-background-agent-controls.mjs',
+    'verify-background-agent-replies.mjs',
     'verify-background-history-liveness.mjs',
     'verify-btw-electron.mjs',
     'verify-custom-providers.mjs',

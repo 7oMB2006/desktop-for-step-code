@@ -9,6 +9,7 @@ import type { Content, Message, ModelChange, PendingMessage } from './contracts'
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { redactSensitiveText } from './subagent-redact';
 import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, projectBackgroundSubagentStates, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
+import { CompletionReviewNote } from './CompletionReviewNote';
 import type { BackgroundLaneActivity } from './conversation-presentation';
 import type { BackgroundSubagentStates, ResponseItem, SubagentDisplayTask } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
@@ -461,6 +462,8 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     </MessageActions>;
     const renderItem = (item: ResponseItem, onExpandedChange?: (expanded: boolean) => void): ReactNode => item.type === 'auto-resume'
       ? <AutoResumeMessage key={item.key} index={item.index} language={props.language}/>
+      : item.type === 'completion-review'
+      ? <CompletionReviewNote key={item.key} index={item.index} result={item.result} language={props.language}/>
       : item.type === 'cron'
       ? <CronMessage key={item.key} notice={item.notice} index={item.index} language={props.language} onLayoutChange={props.onLayoutChange}/>
       : item.type === 'tool'

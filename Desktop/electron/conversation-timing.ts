@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Message, MessageTiming, RuntimeEvent } from '../src/contracts';
 import type { SessionRuntime } from './session-runtimes';
+import { reviewActive } from '../src/completion-review';
 
 type RecordSet = Record<string, MessageTiming>;
 type LiveRun = { startedAt: number; records: RecordSet };
@@ -42,7 +43,7 @@ export class ConversationTiming {
   event(worker: SessionRuntime, event: RuntimeEvent, now = Date.now()): RuntimeEvent {
     const sessionId = worker.state?.sessionId;
     if (!sessionId) return event;
-    if (event.type === 'agent_start') this.live.set(worker.id, { startedAt: now, records: {} });
+    if (event.type === 'agent_start' && !event.desktopReviewContinuation) this.live.set(worker.id, { startedAt: now, records: {} });
     const live = this.live.get(worker.id);
     if (!live) return event;
     const records = this.records.get(sessionId) ?? {};
@@ -79,7 +80,8 @@ export class ConversationTiming {
       event = { ...event, desktopTimings: { [key]: timing },
         ...(event.message ? { message: { ...event.message, desktopTiming: timing } } : {}) };
     }
-    if (event.type === 'agent_end' || event.type === 'desktop_exit') {
+    if (event.type === 'agent_end' && !event.desktopReviewPending || event.type === 'desktop_exit'
+      || event.type === 'desktop_completion_review' && !reviewActive(event.review)) {
       for (const [key, previous] of Object.entries(live.records)) {
         const timing = { run: { ...previous.run, endedAt: now }, thinking: { ...previous.thinking } };
         closeThinking(timing);

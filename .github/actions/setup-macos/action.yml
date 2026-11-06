@@ -18,10 +18,10 @@ runs:
       run: |
         git init Step-Code
         git -C Step-Code remote add origin https://github.com/stepfun-ai/Step-Code.git
-        git -C Step-Code fetch --depth 1 --no-tags origin 81e79bc4b699148d6823fedde9b5e70d9a80255f
+        git -C Step-Code fetch --depth 1 --no-tags origin 29eb460780489801ce8afc8bffc1a2efae7cbded
         git -C Step-Code checkout --detach FETCH_HEAD
-        test "$(git -C Step-Code rev-parse HEAD)" = 81e79bc4b699148d6823fedde9b5e70d9a80255f
-        node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v016/step-code-desktop.patch
+        test "$(git -C Step-Code rev-parse HEAD)" = 29eb460780489801ce8afc8bffc1a2efae7cbded
+        node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v017/step-code-desktop.patch
     - name: Build pinned Step Code
       shell: bash
       working-directory: Step-Code

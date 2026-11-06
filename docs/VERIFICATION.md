@@ -1,5 +1,73 @@
 # Verification
 
+## Upstream v0.1.7 Local Migration (2026-11-06)
+
+The `codex/upstream-v017` worktree, based on main `1979ee7`, migrates the
+development source pin to `29eb460780489801ce8afc8bffc1a2efae7cbded`.
+This is the reviewed source associated with the announcement, not a verified
+official release tag or binary/source equivalence. The previous two overlays
+are already present in this source; the new manifest applies neither again.
+Historical v015/v016 patch sets and release records remain unchanged.
+
+All 19 shared Desktop patches and both Darwin patches are migrated, with one
+final compatibility-test/formatting patch. The production applier replays
+20 shared patches from a clean target and matches all 47 Windows postimages.
+The Darwin source replay matches all 48 combined postimages, then reverses
+cleanly. An intentionally incorrect postimage in a QA-only manifest fails
+and fully rolls back. This source replay is not native macOS acceptance.
+
+The existing Plan drawer now uses native pending-proposal state and mode
+announcements. Main workers opt into both Desktop review and native review
+surface flags; there is no structured `plan_review` UI RPC at this pin.
+The compatibility adapter persists the pending hash before waiting and checks
+the active branch leaf, Plan state, proposal path and complete content hash
+before approval. Cancellation, expiry and stale decisions never approve.
+A native test preserves the pending decision across ordinary questions and
+session restoration; explicit `/plan off` clears it. Approvals identify the
+user as decision owner. The removed model-facing entry tool stays removed.
+Command execution still uses normal permissions, not a read-only sandbox.
+
+Upstream tests cover 51 files in three runs: 1011 cases, 1005 passed, six
+skipped and zero failures. The skips are three Linux process cases, two
+real-model compaction cases and the removed-host-cwd fd regression because
+fd is unavailable. That last scenario was not executed locally. Upstream
+typechecking, scoped formatting checks, the offline build and final runtime
+staging pass with Node 24.16.0. Staged pin, all source hashes and the current
+manifest are checked again after staging.
+
+The complete serial Desktop suite exits normally: 1030 cases, 1016 passed,
+14 platform skips, zero failures or cancellations, about 360 seconds.
+After final helper/documentation pin corrections, all seven focused staging
+and slash-runtime tests pass, including a new manifest-selector guard.
+Desktop typechecking and the production build pass. CI runner, inventory,
+summary and macOS candidate-policy tests pass 35 cases with one platform skip.
+The standalone bundle verifies usage totals/cache/cancellation and the actual
+SQLite index worker, not JSONL fallback. The separate plugin verification
+build helper also builds successfully against the current manifest.
+
+Ten isolated Electron verifiers pass: Plan review, clarification, permission
+approval, completion review, BTW, background-history liveness, background
+replies, summary runtime, full-text search and Workflow. Plan acceptance
+retains drag dismissal, drafts, refinement, approval snapshots, stale decisions,
+restart and expiry checks. The narrow Plan screenshot was inspected.
+These use temporary profiles and deterministic loopback models, not paid
+models or real account credentials.
+
+Builds and tests use physical directories under
+`D:/Desktop Runtime Builds/upstream-v017-20261106/`, not writes through the
+workspace's shared runtime/dist/test-results junctions. Receipts include
+`replay-result.json`, `upstream-*-results.json`, `desktop-full-final.log`
+and `acceptance/results.json`. Excluding symlinks/junction targets, the new
+source tree contains about 320 MiB of logical file bytes, the application
+mirror 205 MiB, clean replay and old-source trees about 17 MiB each, and the
+separate verification output 6 MiB. These remain current QA inputs/evidence;
+no installer is produced and no existing package is deleted.
+
+Current-head cloud CI, native macOS builds/execution, packaged acceptance,
+installer upgrades and real-account/model checks remain unconfirmed.
+No commit, push, PR, installed-app change, public release or version bump is
+part of this local implementation. See [integration boundaries](UPSTREAM_V017.md).
+
 ## Plugin Center Background History Main Synchronization (2026-11-06)
 
 PR #195 now integrates main `af52f41`, including #198's background-history

@@ -48,7 +48,7 @@ a universal detector for every provider's malformed output.
 Source basis: pinned upstream
 `packages/coding-agent/src/step/slash-commands.ts` and
 `packages/coding-agent/src/render/btw-panel.ts`; Desktop's native compatibility
-implementation is reviewed in `patches/v016/step-code-desktop-btw.patch`.
+implementation is reviewed in `patches/v017/step-code-desktop-btw.patch`.
 Token/accounting and temporary-history limits are described below.
 
 ## Selected References

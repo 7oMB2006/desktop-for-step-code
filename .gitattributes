@@ -2,3 +2,4 @@
 patches/*.patch whitespace=-blank-at-eol,-space-before-tab
 patches/v015/*.patch whitespace=-blank-at-eol,-space-before-tab
 patches/v016/*.patch whitespace=-blank-at-eol,-space-before-tab
+patches/v017/*.patch whitespace=-blank-at-eol,-space-before-tab

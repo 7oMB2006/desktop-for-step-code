@@ -7,7 +7,7 @@ import { build as viteBuild } from 'vite';
 const output = process.argv[2];
 if (!output || !isAbsolute(output)) throw new Error('Pass a new absolute verification output directory');
 const runtime = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
-const integration = JSON.parse(await readFile('../patches/v016/manifest.json', 'utf8'));
+const integration = JSON.parse(await readFile('../patches/v017/manifest.json', 'utf8'));
 const staged = JSON.parse(await readFile(join(runtime, 'manifest.json'), 'utf8'));
 assert.equal(staged.commit, integration.commit, 'Verification runtime must use the current pin');
 assert.deepEqual(staged.patchedSourceHashes, {

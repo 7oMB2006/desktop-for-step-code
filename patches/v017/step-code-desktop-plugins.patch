@@ -1,0 +1,24 @@
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index d8fe80aa8cbb74ef64cb8da78412586eb4aaa1c5..201aa3af48b5a7fee4f786c02a4e0110f072a7f2 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -707,6 +707,19 @@ export {
+ 	type StepToolPermissionMode,
+ 	stepPermissionStateForPreset,
+ } from "./step/permissions.ts";
++export {
++	addMarketplaceSource,
++	discoverStepPluginResourcePaths,
++	ensureBuiltinMarketplace,
++	installMarketplacePlugin,
++	listInstalledStepPlugins,
++	listMarketplacePlugins,
++	listMarketplaceSources,
++	readStepPluginManifest,
++	removeMarketplaceSource,
++	uninstallPlugin,
++	updateMarketplaceSource,
++} from "./step/plugins.ts";
+ export {
+ 	type CreateStepAgentSessionOptions,
+ 	type CreateStepAgentSessionServicesOptions,

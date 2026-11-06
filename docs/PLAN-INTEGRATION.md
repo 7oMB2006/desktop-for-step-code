@@ -5,8 +5,9 @@
 1. Read authoritative Plan state in the runtime, on the current history branch.
 2. Gate `exit_plan_mode` inside the runtime before restoring editing tools. Enable
    this only with the Desktop main-worker flag; RPC children retain upstream behavior.
-3. Add ephemeral model context before every provider call while Plan is active,
-   including its actual proposal path and the requirement to request review.
+3. Reuse native collaboration-mode announcements, including the actual proposal
+   path and submission rules. The request view restores them after compaction;
+   do not duplicate them as Desktop-authored user messages.
 4. Show the full proposal with approve, refine and cancel actions. Bind approval
    to the reviewed file contents and current branch. Cancellation, expiry, abort,
    disconnection and restart do not grant approval.
@@ -19,12 +20,24 @@
 Plan restricts upstream file-editing tools to the proposal file. Commands retain
 their normal permission policy, including Full Access; this is not a read-only
 sandbox. Model instructions guide planning but do not replace execution controls.
-No change to Goal, Ultracode or the upstream commit pin is intended.
+Goal and Ultracode retain their existing controls. Current development uses the
+v0.1.7 source pin documented in `UPSTREAM_V017.md`; historical approvals remain
+history, never a fresh grant.
 
 ## Implemented
 
-- Runtime state and proposal path supply per-call ephemeral context.
-- Main-worker `--desktop-plan-review` gates the native exit tool through RPC.
+- Only the user enters Plan through `/plan` or `--plan`; there is no model-facing
+  `enter_plan_mode` tool.
+- Native runtime state and proposal path supply collaboration-mode announcements.
+- Main workers use `--desktop-plan-review` with native `--plan-review-surface`.
+  The thin adapter retains the existing blocking select/input drawer transport
+  rather than inventing a `plan_review` RPC. Before waiting, it records the native
+  pending proposal hash, so Cron, Goal and background notifications stay behind
+  the native undecided-plan gate, including after cancellation or restart.
+- Approval validates the exact branch leaf, proposal path, current Plan state and
+  complete content hash before the native state transition. Successful Desktop
+  decisions now carry `approvalSource: "user"`: RPC is the transport, not the
+  author. Child handoffs remain external approval, never user consent.
 - Full proposal review supports approval, feedback and cancellation in Chinese
   and English, using a non-modal composer-anchored drawer.
 - Guarded patch application and staging hashes make the runtime change reproducible.
@@ -42,6 +55,8 @@ Opening requested changes is local navigation, not a runtime response. Back to
 review retains the pending approval and unsent draft; only submitting notes
 advances the native refinement handshake.
 Review and feedback each expire after four minutes, with no automatic approval.
+This deadline belongs to the Desktop bridge, not the upstream terminal dialog.
+Expiry ends that transport request, not the persisted pending decision.
 Ended reviews retain a history-derived permission-adjacent reentry while Plan
 remains enabled, including after ordinary follow-ups, renderer reload and restart.
 Reentry sends a visible user request asking the model to resubmit `exit_plan_mode`;

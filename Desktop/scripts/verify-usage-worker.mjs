@@ -6,7 +6,8 @@ import { join, resolve } from 'node:path';
 assert.ok(['win32', 'darwin'].includes(process.platform), 'This check covers the pinned runtime');
 const runtime = process.env.DESKTOP_MACOS_RESOURCES ? join(process.env.DESKTOP_MACOS_RESOURCES, 'runtime') : resolve('runtime');
 const manifest = JSON.parse(await readFile(join(runtime, 'manifest.json'), 'utf8'));
-assert.equal(manifest.commit, '81e79bc4b699148d6823fedde9b5e70d9a80255f');
+const baseline = JSON.parse(await readFile('../patches/v017/manifest.json', 'utf8'));
+assert.equal(manifest.commit, baseline.commit);
 for (const worker of ['activity-worker.js', 'session-index-worker.js', 'image-resize-worker.js']) {
   await readFile(join(runtime, 'step/dist/bundle/chunks', worker)).catch(error => {
     if (error.code !== 'ENOENT') throw error;

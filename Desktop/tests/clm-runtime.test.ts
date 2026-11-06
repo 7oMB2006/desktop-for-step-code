@@ -81,9 +81,10 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
           assert.equal(all.includes(retained), !forkRequest, `Working revision must follow the active branch: ${mode}, request ${requests.length}, fork=${forkRequest}, tail=${text(payload.messages.at(-1)?.content).slice(0, 180)}`);
           assert.ok(!all.includes(oldText), 'Old editable body must be replaced in actor context');
           if (!forkRequest) assert.ok(all.includes('PROTECTED USER REQUIREMENT'));
-          if (mode === 'plan' && planStage < 2) assert.match(all, /Desktop Plan mode active/);
+          const planMode = [...all.matchAll(/<collaboration_mode>[\s\S]*?<\/collaboration_mode>/g)].at(-1)?.[0] ?? '';
+          if (mode === 'plan' && planStage < 2) assert.match(planMode, /# Plan Mode/);
           if (mode === 'plan' && planStage >= 0 && planStage < 2) {
-            const planPath = /Write the proposal to (.*)\. Only this proposal/.exec(all)?.[1];
+            const planPath = /Write the plan to (.*) with write_file/.exec(planMode)?.[1];
             assert.ok(planPath);
             const name = planStage++ === 0 ? 'write_file' : 'exit_plan_mode';
             const args = name === 'write_file' ? { path: planPath, content: '# Proposal\n\nPreserve protocol magic d371 and public API.' } : {};
@@ -92,7 +93,7 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
             } }] }, 'tool_calls', { prompt_tokens: 200, completion_tokens: 30, total_tokens: 230 }) + 'data: [DONE]\n\n');
             return;
           }
-          if (mode === 'plan' && planStage === 2) assert.ok(!all.includes('[Desktop Plan mode active]'));
+          if (mode === 'plan' && planStage === 2) assert.match(planMode, /# Collaboration Mode: Default/);
           if (mode === 'active-goal' && !goalCompleted) {
             assert.match(all, /Preserve protocol d371/);
             goalCompleted = true;
@@ -150,7 +151,7 @@ for (const mode of ['plan', 'goal', 'active-goal', 'fallback', 'cancel']) {
         pool.respondToRequest(pool.require(event.runtimeId), { id: event.id, value: 'Approve plan' });
       }
     }, undefined, {
-      launch: () => ({ env: {}, args: ['--desktop-plan-review'] }),
+      launch: () => ({ env: {}, args: ['--desktop-plan-review', '--plan-review-surface'] }),
     });
     const node = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
     const step = resolve('runtime/step/dist/bundle/step.js');

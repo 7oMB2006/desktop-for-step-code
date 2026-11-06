@@ -8,10 +8,10 @@ const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE
 const runtime = resolve('runtime');
 if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
 const nodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
-const integrationManifest = JSON.parse(await readFile(new URL('../../patches/v016/manifest.json', import.meta.url), 'utf8'));
+const integrationManifest = JSON.parse(await readFile(new URL('../../patches/v017/manifest.json', import.meta.url), 'utf8'));
 const platformManifest = integrationManifest.platforms?.[process.platform];
 const PINNED_COMMIT = integrationManifest.commit;
-const patchFile = 'patches/v016/step-code-desktop.patch';
+const patchFile = 'patches/v017/step-code-desktop.patch';
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 if (commit !== PINNED_COMMIT) {
   // Naming both sides keeps a stale build instruction from reading as a broken checkout.

@@ -1,0 +1,1101 @@
+diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
+index b7b64b7b044d5c91ff2d7e611b4317977f3472ee..3dad86d9280de9aff8fd5a58ea045b80efd37af9 100644
+--- a/packages/coding-agent/src/core/extensions/types.ts
++++ b/packages/coding-agent/src/core/extensions/types.ts
+@@ -1534,10 +1534,7 @@ export interface ExtensionAPI {
+ 	 * When the agent is streaming, use deliverAs to specify how to queue the message.
+ 	 * Set expandPromptTemplates to dispatch extension commands and expand skill commands and prompt templates.
+ 	 */
+-	sendUserMessage(
+-		content: string | (TextContent | ImageContent)[],
+-		options?: SendUserMessageOptions,
+-	): void;
++	sendUserMessage(content: string | (TextContent | ImageContent)[], options?: SendUserMessageOptions): void;
+ 
+ 	/** Append a custom entry to the session for state persistence (not sent to LLM). */
+ 	appendEntry<T = unknown>(customType: string, data?: T): void;
+diff --git a/packages/coding-agent/src/core/session-manager.ts b/packages/coding-agent/src/core/session-manager.ts
+index 05b86102d7320a0d61dbaf8f68dc021058783398..1e27bbf5a5adaf0d9f4e25aee8caa1bbe3bcaa19 100644
+--- a/packages/coding-agent/src/core/session-manager.ts
++++ b/packages/coding-agent/src/core/session-manager.ts
+@@ -390,7 +390,11 @@ function getSessionContextSettings(path: SessionEntry[]): Pick<SessionContext, "
+ 			thinkingLevel = entry.thinkingLevel;
+ 		} else if (entry.type === "model_change") {
+ 			model = { provider: entry.provider, modelId: entry.modelId };
+-		} else if (entry.type === "message" && entry.message.role === "assistant" && !isImportProvenance(entry.imported)) {
++		} else if (
++			entry.type === "message" &&
++			entry.message.role === "assistant" &&
++			!isImportProvenance(entry.imported)
++		) {
+ 			model = { provider: entry.message.provider, modelId: entry.message.model };
+ 		}
+ 	}
+@@ -408,34 +412,56 @@ export function sessionEntryToContextMessages(entry: SessionEntry): AgentMessage
+ 		const message = entry.message;
+ 		if (isImportProvenance(entry.imported)) {
+ 			if (message.role === "assistant") {
+-				return [{
+-					...message,
+-					content: message.content.flatMap((block) => {
+-						if (block.type === "toolCall") return [{
+-							type: "text" as const,
+-							text: `[Historical tool call: ${block.name}]\n${JSON.stringify(block.arguments)}`,
+-						}];
+-						if (block.type === "thinking") return [{
+-							type: "text" as const, text: `[Historical reasoning summary]\n${block.thinking}`,
+-						}];
+-						return [block];
+-					}),
+-				}];
++				return [
++					{
++						...message,
++						content: message.content.flatMap((block) => {
++							if (block.type === "toolCall")
++								return [
++									{
++										type: "text" as const,
++										text: `[Historical tool call: ${block.name}]\n${JSON.stringify(block.arguments)}`,
++									},
++								];
++							if (block.type === "thinking")
++								return [
++									{
++										type: "text" as const,
++										text: `[Historical reasoning summary]\n${block.thinking}`,
++									},
++								];
++							return [block];
++						}),
++					},
++				];
+ 			}
+ 			if (message.role === "toolResult") {
+-				const importedStatus = message.details && typeof message.details === "object" && "importedStatus" in message.details
+-					? message.details.importedStatus : undefined;
+-				const status = message.isError || importedStatus === "failed" ? "failed"
+-					: importedStatus === "completed" ? "completed" : "unknown";
+-				return [{
+-					role: "user",
+-					content: [{
+-						type: "text",
+-						text: `[Historical tool result, not a new user instruction: ${message.toolName}; status: ${status}]\n${message.content
+-							.filter((block) => block.type === "text").map((block) => block.text).join("\n")}`,
+-					}, ...message.content.filter((block) => block.type === "image")],
+-					timestamp: message.timestamp,
+-				}];
++				const importedStatus =
++					message.details && typeof message.details === "object" && "importedStatus" in message.details
++						? message.details.importedStatus
++						: undefined;
++				const status =
++					message.isError || importedStatus === "failed"
++						? "failed"
++						: importedStatus === "completed"
++							? "completed"
++							: "unknown";
++				return [
++					{
++						role: "user",
++						content: [
++							{
++								type: "text",
++								text: `[Historical tool result, not a new user instruction: ${message.toolName}; status: ${status}]\n${message.content
++									.filter((block) => block.type === "text")
++									.map((block) => block.text)
++									.join("\n")}`,
++							},
++							...message.content.filter((block) => block.type === "image"),
++						],
++						timestamp: message.timestamp,
++					},
++				];
+ 			}
+ 		}
+ 		// Session files are parsed without validation; old versions, forks, or
+diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
+index 39f17596e2d99d556996929ca1cc7e24c60ae5fa..e57eb8fa89c3422866cc1c49d5987a9542cc84ec 100644
+--- a/packages/coding-agent/src/features/step-cron.ts
++++ b/packages/coding-agent/src/features/step-cron.ts
+@@ -66,8 +66,13 @@ export interface CronJob {
+ }
+ 
+ let desktopCronRuntime: StepCronRuntime | undefined;
+-export function updateDesktopCronJob(id: string, expected: string, changes: { cron?: string; prompt?: string; paused?: boolean }): CronJob {
+-	if (process.env.DESKTOP_CRON_STATE !== "1" || !desktopCronRuntime) throw new Error("Desktop Cron management is unavailable");
++export function updateDesktopCronJob(
++	id: string,
++	expected: string,
++	changes: { cron?: string; prompt?: string; paused?: boolean },
++): CronJob {
++	if (process.env.DESKTOP_CRON_STATE !== "1" || !desktopCronRuntime)
++		throw new Error("Desktop Cron management is unavailable");
+ 	return desktopCronRuntime.updateDesktop(id, expected, changes);
+ }
+ 
+@@ -314,8 +319,11 @@ function isStaleLock(lockPath: string, maxAgeMs: number): boolean {
+ function parsePersistedJob(value: unknown): CronJob | undefined {
+ 	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+ 	const candidate = value as Record<string, unknown>;
+-	const paused = candidate.schemaVersion === 2 && process.env.DESKTOP_CRON_STATE === "1"
+-		&& typeof candidate.desktopPausedAt === "number" && Number.isFinite(candidate.desktopPausedAt);
++	const paused =
++		candidate.schemaVersion === 2 &&
++		process.env.DESKTOP_CRON_STATE === "1" &&
++		typeof candidate.desktopPausedAt === "number" &&
++		Number.isFinite(candidate.desktopPausedAt);
+ 	if ((candidate.schemaVersion !== 1 && !paused) || candidate.durable !== true) return undefined;
+ 	if (candidate.schemaVersion === 1 && candidate.desktopPausedAt !== undefined) return undefined;
+ 	if (
+@@ -431,7 +439,10 @@ export class StepCronRuntime {
+ 
+ 	private publishState(): void {
+ 		try {
+-			this.onStateChange?.([...this.jobs.values()].map((job) => ({ ...job })), this.storageHealthy);
++			this.onStateChange?.(
++				[...this.jobs.values()].map((job) => ({ ...job })),
++				this.storageHealthy,
++			);
+ 		} catch {
+ 			// A disconnected Desktop observer must not consume or reschedule work.
+ 		}
+@@ -519,9 +530,15 @@ export class StepCronRuntime {
+ 	assertAutomaticRecovery(before: number): void {
+ 		this.refreshDurableNow();
+ 		const now = this.readNow();
+-		if (now >= before || this.pendingMissed.size > 0 || [...this.jobs.values()].some(job =>
+-			job.autoExpireAt !== undefined && job.autoExpireAt <= now
+-			|| job.desktopPausedAt === undefined && job.nextFireAt <= now)) {
++		if (
++			now >= before ||
++			this.pendingMissed.size > 0 ||
++			[...this.jobs.values()].some(
++				(job) =>
++					(job.autoExpireAt !== undefined && job.autoExpireAt <= now) ||
++					(job.desktopPausedAt === undefined && job.nextFireAt <= now),
++			)
++		) {
+ 			throw new Error("Automatic Cron recovery deadline expired; review recovery again");
+ 		}
+ 	}
+@@ -533,8 +550,16 @@ export class StepCronRuntime {
+ 		const updated = this.withLatestJobs(() => {
+ 			const job = this.jobs.get(id);
+ 			if (!job) throw new Error("Cron task no longer exists; refresh");
+-			const revision = JSON.stringify([job.id, job.createdAt, job.cron, job.prompt, job.recurring, job.durable,
+-				job.autoExpireAt ?? null, job.desktopPausedAt ?? null]);
++			const revision = JSON.stringify([
++				job.id,
++				job.createdAt,
++				job.cron,
++				job.prompt,
++				job.recurring,
++				job.durable,
++				job.autoExpireAt ?? null,
++				job.desktopPausedAt ?? null,
++			]);
+ 			if (expected !== revision) throw new Error("Cron task changed; refresh before editing");
+ 			if (job.autoExpireAt !== undefined && job.autoExpireAt <= now) throw new Error("Cron task expired");
+ 			const cron = changes.cron?.trim() ?? job.cron;
+@@ -691,8 +716,11 @@ export class StepCronRuntime {
+ 
+ 	/** Reached its expiry before the next occurrence, so it leaves without a final delivery. */
+ 	private isExpiredBeforeDelivery(job: CronJob, now: number): boolean {
+-		return job.autoExpireAt !== undefined && now >= job.autoExpireAt
+-			&& (job.desktopPausedAt !== undefined || job.nextFireAt > now);
++		return (
++			job.autoExpireAt !== undefined &&
++			now >= job.autoExpireAt &&
++			(job.desktopPausedAt !== undefined || job.nextFireAt > now)
++		);
+ 	}
+ 
+ 	/**
+@@ -958,7 +986,11 @@ export class DesktopSessionCronStore extends CronFileStore {
+ 	}
+ 	private bindingKey(cwd: string, job: CronJob): string {
+ 		const workspace = (process.platform === "win32" ? cwd.replace(/\\/g, "/") : cwd).replace(/\/+$/, "");
+-		return JSON.stringify([process.platform === "win32" ? workspace.toLowerCase() : workspace, job.id, job.createdAt]);
++		return JSON.stringify([
++			process.platform === "win32" ? workspace.toLowerCase() : workspace,
++			job.id,
++			job.createdAt,
++		]);
+ 	}
+ 	private owns(job: CronJob): boolean {
+ 		const owner = this.owner();
+@@ -966,11 +998,16 @@ export class DesktopSessionCronStore extends CronFileStore {
+ 		const key = this.bindingKey(owner.cwd, job);
+ 		if (this.created.has(JSON.stringify([owner.sessionId, key]))) return true;
+ 		try {
+-			const bytes = readFileSync(path.join(this.directory, createHash("sha256").update(key).digest("hex") + ".json"));
++			const bytes = readFileSync(
++				path.join(this.directory, createHash("sha256").update(key).digest("hex") + ".json"),
++			);
+ 			if (bytes.length > 4096) return false;
+ 			const binding = JSON.parse(bytes.toString("utf8"));
+-			return binding.sessionId === owner.sessionId && ["created", "recovered"].includes(binding.source)
+-				&& Number.isFinite(binding.at);
++			return (
++				binding.sessionId === owner.sessionId &&
++				["created", "recovered"].includes(binding.source) &&
++				Number.isFinite(binding.at)
++			);
+ 		} catch {
+ 			// Unowned or unreadable associations stay in the shared file, never adopted.
+ 			return false;
+@@ -982,7 +1019,8 @@ export class DesktopSessionCronStore extends CronFileStore {
+ 	override update(mutate: (jobs: CronJob[]) => readonly CronJob[]): void {
+ 		const newlyCreated: string[] = [];
+ 		super.update((stored) => {
+-			const owned: CronJob[] = [], foreign: CronJob[] = [];
++			const owned: CronJob[] = [],
++				foreign: CronJob[] = [];
+ 			for (const job of stored) (this.owns(job) ? owned : foreign).push(job);
+ 			const next = mutate(owned);
+ 			if (next.some((job) => foreign.some((other) => other.id === job.id)))
+@@ -990,11 +1028,12 @@ export class DesktopSessionCronStore extends CronFileStore {
+ 			if (next.length + foreign.length > MAX_JOBS)
+ 				throw new Error(`At most ${MAX_JOBS} cron jobs can be scheduled in a project`);
+ 			const owner = this.owner();
+-			if (owner) for (const job of next) {
+-				if (stored.some((other) => this.identity(other) === this.identity(job))) continue;
+-				const key = this.bindingKey(owner.cwd, job);
+-				newlyCreated.push(JSON.stringify([owner.sessionId, key]));
+-			}
++			if (owner)
++				for (const job of next) {
++					if (stored.some((other) => this.identity(other) === this.identity(job))) continue;
++					const key = this.bindingKey(owner.cwd, job);
++					newlyCreated.push(JSON.stringify([owner.sessionId, key]));
++				}
+ 			return [...foreign, ...next];
+ 		});
+ 		// Only keep local ownership after the shared-file transaction succeeds.
+@@ -1011,10 +1050,16 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 		const runtime =
+ 			options.runtime ??
+ 			new StepCronRuntime({
+-				...(process.env.DESKTOP_CRON_STATE === "1" && process.env.DESKTOP_CRON_SCOPE_DIR ? {
+-					storeFactory: (filePath: string) => new DesktopSessionCronStore(filePath, process.env.DESKTOP_CRON_SCOPE_DIR!, () =>
+-						currentContext ? { cwd: currentContext.cwd, sessionId: currentContext.sessionManager.getSessionId() } : undefined),
+-				} : {}),
++				...(process.env.DESKTOP_CRON_STATE === "1" && process.env.DESKTOP_CRON_SCOPE_DIR
++					? {
++							storeFactory: (filePath: string) =>
++								new DesktopSessionCronStore(filePath, process.env.DESKTOP_CRON_SCOPE_DIR!, () =>
++									currentContext
++										? { cwd: currentContext.cwd, sessionId: currentContext.sessionManager.getSessionId() }
++										: undefined,
++								),
++						}
++					: {}),
+ 				telemetry: options.telemetry,
+ 				isIdle: () =>
+ 					Boolean(
+@@ -1032,7 +1077,12 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 						version: 1,
+ 						status: healthy ? "ready" : "unavailable",
+ 						jobs: jobs.map(({ id, recurring, durable, nextFireAt, autoExpireAt, desktopPausedAt }) => ({
+-							id, recurring, durable, nextFireAt, autoExpireAt, desktopPausedAt,
++							id,
++							recurring,
++							durable,
++							nextFireAt,
++							autoExpireAt,
++							desktopPausedAt,
+ 						})),
+ 					});
+ 					if (state === desktopState) return;
+@@ -1067,7 +1117,13 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 							customType: "step-cron",
+ 							content: `[cron] ${job.prompt}`,
+ 							display: true,
+-							details: { id: job.id, createdAt: job.createdAt, cron: job.cron, recurring: job.recurring, durable: job.durable },
++							details: {
++								id: job.id,
++								createdAt: job.createdAt,
++								cron: job.cron,
++								recurring: job.recurring,
++								durable: job.durable,
++							},
+ 						},
+ 						{ deliverAs: "steer", triggerTurn: true },
+ 					);
+diff --git a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+index 5474c00eb3844b2b3b1900cbe70107a9edd175a9..8b4f2b4f1bd313a8e9ec321495141089d0d0dfb7 100644
+--- a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
++++ b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+@@ -258,7 +258,21 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 	};
+ 
+ 	/** Finished lanes whose final notification has not been sent yet; never evicted. */
+-	const pendingFinal = new WeakSet<BackgroundAgentLane>();
++	const pendingFinal = new WeakMap<BackgroundAgentLane, number>();
++	let publishedDesktopState: string | undefined;
++	const publishDesktopState = (ctx: ExtensionContext): void => {
++		if (ctx.mode !== "rpc") return;
++		const snapshot = JSON.stringify({
++			version: 1,
++			parentActive: !ctx.isIdle(),
++			lanes: [...lanes.values()]
++				.filter((lane) => lane.status === "running" || pendingFinal.has(lane))
++				.map((lane) => ({ id: lane.id, status: lane.status === "running" ? "running" : "settling" })),
++		});
++		if (snapshot === publishedDesktopState) return;
++		publishedDesktopState = snapshot;
++		ctx.ui.setStatus?.("desktop-subagents", snapshot);
++	};
+ 
+ 	/** Forget the oldest finished lanes beyond MAX_RETAINED_FINISHED_LANES. */
+ 	const evictFinishedLanes = (): void => {
+@@ -273,7 +287,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 	};
+ 
+ 	const deliverFinal = async (lane: BackgroundAgentLane, generation: number): Promise<void> => {
+-		pendingFinal.add(lane);
++		pendingFinal.set(lane, generation);
++		publishDesktopState(lane.ctx);
+ 		try {
+ 			await lane.completionWrites;
+ 			if (!isCurrent(lane, generation)) return;
+@@ -300,8 +315,11 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 				view.text,
+ 			);
+ 		} finally {
+-			pendingFinal.delete(lane);
+-			if (laneEpochs.get(lane) === epoch) evictFinishedLanes();
++			if (pendingFinal.get(lane) === generation) pendingFinal.delete(lane);
++			if (laneEpochs.get(lane) === epoch) {
++				evictFinishedLanes();
++				publishDesktopState(lane.ctx);
++			}
+ 		}
+ 	};
+ 
+@@ -311,6 +329,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 		lane.runGeneration = generation;
+ 		lane.controller = new AbortController();
+ 		lane.status = "running";
++		publishDesktopState(lane.ctx);
+ 		lane.updatedAt = Date.now();
+ 		lane.lastProgressNotifyAt = Date.now();
+ 		lane.completionError = undefined;
+@@ -549,7 +568,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 		lane.status = "aborted";
+ 		lane.updatedAt = Date.now();
+ 		// Keep the lane until its interrupted notification is out.
+-		pendingFinal.add(lane);
++		pendingFinal.set(lane, generation);
++		publishDesktopState(lane.ctx);
+ 		lane.details = { ...lane.details, status: "aborted", updatedAt: lane.updatedAt };
+ 		updateLaneWidget(lane);
+ 		// Notify only after the aborted run has actually wound down, with what it
+@@ -568,7 +588,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			)
+ 			.then(() => {
+ 				if (isCurrent(lane, generation) && lane.status === "aborted") return deliverFinal(lane, generation);
+-				pendingFinal.delete(lane);
++				if (pendingFinal.get(lane) === generation) pendingFinal.delete(lane);
++				if (laneEpochs.get(lane) === epoch) publishDesktopState(lane.ctx);
+ 			});
+ 		return `Stopped lane ${lane.id}; you will get one notification once it has wound down`;
+ 	};
+@@ -669,6 +690,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 		}
+ 		if (runs.length === 0 && sessions.length === 0) {
+ 			for (const lane of owned) closedRetention.add(lane);
++			if (owned[0]) publishDesktopState(owned[0].ctx);
+ 			return running;
+ 		}
+ 		let timer: ReturnType<typeof setTimeout> | undefined;
+@@ -681,6 +703,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 		for (const lane of owned) closedRetention.add(lane);
+ 		if (timer) clearTimeout(timer);
+ 		if (!clean) for (const session of sessions) session.terminate();
++		if (owned[0]) publishDesktopState(owned[0].ctx);
+ 		return running;
+ 	};
+ 
+diff --git a/packages/coding-agent/src/features/subagent/projection.ts b/packages/coding-agent/src/features/subagent/projection.ts
+index 1e4126bdc7cf3723ed819a7b23107cccc34b7873..1a524ff8500355073dace0fae2cf64e0bd33b909 100644
+--- a/packages/coding-agent/src/features/subagent/projection.ts
++++ b/packages/coding-agent/src/features/subagent/projection.ts
+@@ -21,6 +21,21 @@
+ import type { StepSubagentResultRecord } from "../step-subagent.ts";
+ import { cloneUsage } from "./helpers.ts";
+ 
++// Child output can carry credentials that neither the parent conversation nor a
++// desktop renderer may display. Renderers filter whole lines, so a truncation
++// boundary that keeps a value but drops its `key =` prefix would evade them;
++// redact before any clipping instead.
++const SENSITIVE_LINE =
++	/(api[-_.]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|secret|password|passwd|credential|cookie|authorization|bearer\s+[A-Za-z0-9._-]|['"]?(?:token|apiKey|api_key)['"]?\s*[:=]|^\s*(?:STEP|PI|AI_AGENT)[A-Z0-9_]*\s*=)/i;
++
++function redactSensitiveText(text: string | undefined): string | undefined {
++	if (text === undefined) return undefined;
++	return text
++		.split("\n")
++		.map((line) => (!line.trim() || !SENSITIVE_LINE.test(line) ? line : "[redacted]"))
++		.join("\n");
++}
++
+ /** Live frames are one per repaint; a renderer shows the newest lines only. */
+ const LIVE_TEXT_CHARS = 2_000;
+ const LIVE_TOOL_OUTPUT_CHARS = 1_000;
+@@ -118,19 +133,23 @@ export function liveRecord(record: StepSubagentResultRecord): StepSubagentResult
+ 		status: record.status,
+ 		exitCode: record.exitCode,
+ 		messages: [],
+-		stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
++		stderr: tailChars(redactSensitiveText(record.stderr), LIVE_STDERR_CHARS) ?? "",
+ 		usage: cloneUsage(record.usage),
+ 		...(record.model === undefined ? {} : { model: clipMiddle(record.model, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.stopReason === undefined ? {} : { stopReason: clipMiddle(record.stopReason, LIVE_IDENTIFIER_CHARS) }),
+-		...(record.errorMessage === undefined ? {} : { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
+-		...(record.activeText === undefined ? {} : { activeText: tailChars(record.activeText, LIVE_TEXT_CHARS) }),
++		...(record.errorMessage === undefined
++			? {}
++			: { errorMessage: tailChars(redactSensitiveText(record.errorMessage), LIVE_ERROR_CHARS) }),
++		...(record.activeText === undefined
++			? {}
++			: { activeText: tailChars(redactSensitiveText(record.activeText), LIVE_TEXT_CHARS) }),
+ 		...(record.activeTool === undefined ? {} : { activeTool: clipMiddle(record.activeTool, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.activeToolArgs === undefined
+ 			? {}
+-			: { activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS) }),
++			: { activeToolArgs: tailChars(redactSensitiveText(record.activeToolArgs), LIVE_TOOL_ARGS_CHARS) }),
+ 		...(record.activeToolOutput === undefined
+ 			? {}
+-			: { activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS) }),
++			: { activeToolOutput: tailChars(redactSensitiveText(record.activeToolOutput), LIVE_TOOL_OUTPUT_CHARS) }),
+ 		...(record.lastEvent === undefined ? {} : { lastEvent: clipMiddle(record.lastEvent, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
+ 		...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
+@@ -181,12 +200,12 @@ export function liveRoster(records: readonly StepSubagentResultRecord[]): {
+  * always renders even when the runner reported none.
+  */
+ export function finalRecord(record: StepSubagentResultRecord, budget: Budget): StepSubagentResultRecord {
+-	const text = record.activeText || finalAssistantText(record);
++	const text = redactSensitiveText(record.activeText || finalAssistantText(record));
+ 	const fields = [
+ 		{ value: record.task || "(unspecified task)", max: FINAL_TASK_CHARS, clip: clipMiddle },
+ 		{ value: text, max: FINAL_TEXT_CHARS, clip: tailChars },
+-		{ value: record.stderr, max: FINAL_STDERR_CHARS, clip: tailChars },
+-		{ value: record.errorMessage, max: FINAL_ERROR_CHARS, clip: tailChars },
++		{ value: redactSensitiveText(record.stderr), max: FINAL_STDERR_CHARS, clip: tailChars },
++		{ value: redactSensitiveText(record.errorMessage), max: FINAL_ERROR_CHARS, clip: tailChars },
+ 	];
+ 	// Floors are bounded independently of the shared budget. Without them later
+ 	// records lose their identity, output, and failure reason once a batch fills it.
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index 5e32ff9c5e25bdb7f4ade55eace099d0db7f9d01..88a6fa66fbcb23d623d164ebd7620fbb54aff08c 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -334,6 +334,14 @@ export {
+ 	sessionEventDurability,
+ } from "./core/session-event-durability.ts";
+ export { exportSessionToJsonl } from "./core/session-export.ts";
++export { SessionImportError, SessionImportService } from "./core/session-import/service.ts";
++export type {
++	ImportCandidate,
++	ImportJob,
++	ImportPreview,
++	ImportResult,
++	ImportSelection,
++} from "./core/session-import/types.ts";
+ export * from "./core/session-index/index.ts";
+ export type {
+ 	SessionFilePersistedEvent,
+@@ -920,5 +928,3 @@ export { loadAllHighlightLanguages } from "./utils/syntax-highlight.ts";
+ export { stripBom } from "./utils/text.ts";
+ export { formatElapsedTime } from "./utils/time.ts";
+ export { ensureTool, type ToolStatus } from "./utils/tools-manager.ts";
+-export { SessionImportService, SessionImportError } from "./core/session-import/service.ts";
+-export type { ImportCandidate, ImportPreview, ImportSelection, ImportResult, ImportJob } from "./core/session-import/types.ts";
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index 3b68764b2aac88645613273ae86117a6533ac794..565fdf3cd385b56128a7b21fa12bd6b61031c089 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -483,33 +483,74 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			// =================================================================
+ 
+ 			case "get_desktop_clm": {
+-				const { renderLiveContext } = await import("../../core/compaction/live-context/document.js");
++				const { renderLiveContext } = await import("../../core/compaction/live-context/document.ts");
+ 				const branch = session.sessionManager.getBranch();
+ 				const records = branch.flatMap((entry) => {
+-					const value = entry.type === "custom" && entry.customType === "step-live-context"
+-						? entry.data : entry.type === "compaction" ? (entry.details as any)?.liveContext : undefined;
++					const value =
++						entry.type === "custom" && entry.customType === "step-live-context"
++							? entry.data
++							: entry.type === "compaction"
++								? (entry.details as any)?.liveContext
++								: undefined;
+ 					return value && Number.isSafeInteger((value as any).revision)
+-						? [{ entryId: entry.id, timestamp: entry.timestamp, kind: (value as any).reset ? "reset" : entry.type === "compaction" ? "compaction" : "edit", value: value as any }] : [];
++						? [
++								{
++									entryId: entry.id,
++									timestamp: entry.timestamp,
++									kind: (value as any).reset ? "reset" : entry.type === "compaction" ? "compaction" : "edit",
++									value: value as any,
++								},
++							]
++						: [];
+ 				});
+ 				const status = session.getLiveContextStatus();
+-				const selected = command.entryId ? records.find((item) => item.entryId === command.entryId) : records.at(-1);
++				const selected = command.entryId
++					? records.find((item) => item.entryId === command.entryId)
++					: records.at(-1);
+ 				if (command.entryId && !selected) return error(id, command.type, "Revision is not on the active branch");
+ 				const messages = selected?.value.messages;
+-				const blocks = Array.isArray(messages) && messages.length <= 10000
+-					? renderLiveContext(messages, selected!.value.revision, selected!.entryId).blocks : [];
++				const blocks =
++					Array.isArray(messages) && messages.length <= 10000
++						? renderLiveContext(messages, selected!.value.revision, selected!.entryId).blocks
++						: [];
+ 				let budget = 500000;
+ 				const shown = blocks.slice(0, 200).map((block) => {
+ 					const body = block.body.slice(0, Math.min(16000, Math.max(0, budget)));
+ 					budget -= body.length;
+-					return { id: block.id, role: block.role, protected: block.protected, text: body, truncated: body.length < block.body.length };
++					return {
++						id: block.id,
++						role: block.role,
++						protected: block.protected,
++						text: body,
++						truncated: body.length < block.body.length,
++					};
+ 				});
+ 				return success(id, command.type, {
+-					sessionId: session.sessionId, leafId: session.sessionManager.getLeafId(),
++					sessionId: session.sessionId,
++					leafId: session.sessionManager.getLeafId(),
+ 					enabled: session.settingsManager.getContextProjectionMode() === "clm-v1",
+-					revision: status?.revision, tokens: status?.tokens, lastOutcome: selected?.kind === "edit" && selected.value.archivePath && selected.value.archivePath === status?.lastOutcome?.archivePath ? status?.lastOutcome : undefined,
+-					total: records.length, revisions: records.slice(-2000).map(({ value, ...item }) => ({ ...item, revision: value.revision })),
+-					selected: selected ? { entryId: selected.entryId, blocks: shown, truncated: Array.isArray(messages) && messages.length > 10000 || shown.length < blocks.length || shown.some((block) => block.truncated),
+-						diff: typeof selected.value.diff === "string" ? selected.value.diff.slice(0, 128000) : "", diffTruncated: typeof selected.value.diff === "string" && selected.value.diff.length > 128000 } : undefined,
++					revision: status?.revision,
++					tokens: status?.tokens,
++					lastOutcome:
++						selected?.kind === "edit" &&
++						selected.value.archivePath &&
++						selected.value.archivePath === status?.lastOutcome?.archivePath
++							? status?.lastOutcome
++							: undefined,
++					total: records.length,
++					revisions: records.slice(-2000).map(({ value, ...item }) => ({ ...item, revision: value.revision })),
++					selected: selected
++						? {
++								entryId: selected.entryId,
++								blocks: shown,
++								truncated:
++									(Array.isArray(messages) && messages.length > 10000) ||
++									shown.length < blocks.length ||
++									shown.some((block) => block.truncated),
++								diff: typeof selected.value.diff === "string" ? selected.value.diff.slice(0, 128000) : "",
++								diffTruncated: typeof selected.value.diff === "string" && selected.value.diff.length > 128000,
++							}
++						: undefined,
+ 				});
+ 			}
+ 
+@@ -543,8 +584,12 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 				});
+ 			}
+ 			case "desktop_cron_resume": {
+-				if (session.isStreaming || session.isCompacting || session.pendingMessageCount
+-					|| !session.extensionRunner.createContext().isProjectTrusted()) {
++				if (
++					session.isStreaming ||
++					session.isCompacting ||
++					session.pendingMessageCount ||
++					!session.extensionRunner.createContext().isProjectTrusted()
++				) {
+ 					throw new Error("Cron recovery requires an idle trusted project");
+ 				}
+ 				resumeDesktopCronRecovery(command.before);
+@@ -552,8 +597,12 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			}
+ 			case "desktop_cron": {
+ 				if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is disabled");
+-				if (!["list", "create", "delete", "update"].includes(command.action)) throw new Error("Invalid Cron action");
+-				if (command.action !== "list" && (session.isStreaming || session.isCompacting || session.pendingMessageCount)) {
++				if (!["list", "create", "delete", "update"].includes(command.action))
++					throw new Error("Invalid Cron action");
++				if (
++					command.action !== "list" &&
++					(session.isStreaming || session.isCompacting || session.pendingMessageCount)
++				) {
+ 					throw new Error("Wait for this session to become idle");
+ 				}
+ 				const runner = session.extensionRunner;
+@@ -563,31 +612,63 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 				if (!list || !tool) throw new Error("Cron tools are unavailable");
+ 				let result: unknown;
+ 				if (command.action !== "list") {
+-					if (command.action === "create" && (typeof command.cron !== "string" || command.cron.length > 100
+-						|| typeof command.prompt !== "string" || !command.prompt.trim() || command.prompt.length > 4000
+-						|| typeof command.recurring !== "boolean" || typeof command.durable !== "boolean")) {
++					if (
++						command.action === "create" &&
++						(typeof command.cron !== "string" ||
++							command.cron.length > 100 ||
++							typeof command.prompt !== "string" ||
++							!command.prompt.trim() ||
++							command.prompt.length > 4000 ||
++							typeof command.recurring !== "boolean" ||
++							typeof command.durable !== "boolean")
++					) {
+ 						throw new Error("Invalid Cron creation parameters");
+ 					}
+-					if (["delete", "update"].includes(command.action) && (typeof command.jobId !== "string" || !/^[\w-]{1,24}$/.test(command.jobId))) {
++					if (
++						["delete", "update"].includes(command.action) &&
++						(typeof command.jobId !== "string" || !/^[\w-]{1,24}$/.test(command.jobId))
++					) {
+ 						throw new Error("Invalid Cron job id");
+ 					}
+ 					if (command.action === "update") {
+-						if (typeof command.expected !== "string" || command.expected.length > 20000
+-							|| command.cron !== undefined && (typeof command.cron !== "string" || !command.cron.trim() || command.cron.length > 100)
+-							|| command.prompt !== undefined && (typeof command.prompt !== "string" || !command.prompt.trim() || command.prompt.length > 4000)
+-							|| command.paused !== undefined && typeof command.paused !== "boolean"
+-							|| command.cron === undefined && command.prompt === undefined && command.paused === undefined) throw new Error("Invalid Cron update");
+-						result = updateDesktopCronJob(command.jobId!, command.expected, { cron: command.cron, prompt: command.prompt, paused: command.paused });
++						if (
++							typeof command.expected !== "string" ||
++							command.expected.length > 20000 ||
++							(command.cron !== undefined &&
++								(typeof command.cron !== "string" || !command.cron.trim() || command.cron.length > 100)) ||
++							(command.prompt !== undefined &&
++								(typeof command.prompt !== "string" ||
++									!command.prompt.trim() ||
++									command.prompt.length > 4000)) ||
++							(command.paused !== undefined && typeof command.paused !== "boolean") ||
++							(command.cron === undefined && command.prompt === undefined && command.paused === undefined)
++						)
++							throw new Error("Invalid Cron update");
++						result = updateDesktopCronJob(command.jobId!, command.expected, {
++							cron: command.cron,
++							prompt: command.prompt,
++							paused: command.paused,
++						});
+ 					} else {
+-						const params = command.action === "create"
+-							? { cron: command.cron, prompt: command.prompt, recurring: command.recurring, durable: command.durable }
+-							: { id: command.jobId };
+-						result = (await tool.execute(crypto.randomUUID(), params, new AbortController().signal, undefined, ctx)).details;
++						const params =
++							command.action === "create"
++								? {
++										cron: command.cron,
++										prompt: command.prompt,
++										recurring: command.recurring,
++										durable: command.durable,
++									}
++								: { id: command.jobId };
++						result = (
++							await tool.execute(crypto.randomUUID(), params, new AbortController().signal, undefined, ctx)
++						).details;
+ 					}
+ 				}
+ 				// Do not turn a committed mutation into a failure because a later list read failed.
+-				const jobs = command.action === "list"
+-					? (await list.execute(crypto.randomUUID(), {}, new AbortController().signal, undefined, ctx)).details : [];
++				const jobs =
++					command.action === "list"
++						? (await list.execute(crypto.randomUUID(), {}, new AbortController().signal, undefined, ctx)).details
++						: [];
+ 				return success(id, "desktop_cron", { jobs, result, trusted: ctx.isProjectTrusted() });
+ 			}
+ 			case "get_state": {
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 85b661aa8438565857cc18aa6bde23588ce8c61b..fbf93e00639ac42ef28382c78df7f2229f8e7172 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -25,13 +25,23 @@ export type RpcCommand =
+ 	| { id?: string; type: "abort" }
+ 	| { id?: string; type: "clear_queue" }
+ 	| { id?: string; type: "new_session"; parentSession?: string }
+-
+ 	| { id?: string; type: "get_desktop_clm"; entryId?: string }
+ 	// State
+ 	| { id?: string; type: "get_state" }
+ 	| { id?: string; type: "get_desktop_summary" }
+ 	| { id?: string; type: "desktop_cron_resume"; before?: number }
+-	| { id?: string; type: "desktop_cron"; action: "list" | "create" | "delete" | "update"; cron?: string; prompt?: string; recurring?: boolean; durable?: boolean; jobId?: string; expected?: string; paused?: boolean }
++	| {
++			id?: string;
++			type: "desktop_cron";
++			action: "list" | "create" | "delete" | "update";
++			cron?: string;
++			prompt?: string;
++			recurring?: boolean;
++			durable?: boolean;
++			jobId?: string;
++			expected?: string;
++			paused?: boolean;
++	  }
+ 
+ 	// Model
+ 	| { id?: string; type: "set_model"; provider: string; modelId: string }
+diff --git a/packages/coding-agent/test/step-cron.test.ts b/packages/coding-agent/test/step-cron.test.ts
+index 4a582ede1662a523917decc26409df65da0e7190..ac19370a075ae147e67cc154a93f200df9d95381 100644
+--- a/packages/coding-agent/test/step-cron.test.ts
++++ b/packages/coding-agent/test/step-cron.test.ts
+@@ -1,5 +1,5 @@
+-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+ import { createHash } from "node:crypto";
++import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import path from "node:path";
+ import { afterEach, describe, expect, test, vi } from "vitest";
+@@ -7,9 +7,9 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core
+ import {
+ 	type CronDelivery,
+ 	CronFileStore,
+-	DesktopSessionCronStore,
+ 	type CronJob,
+ 	createStepCronExtension,
++	DesktopSessionCronStore,
+ 	SimpleCronExpression,
+ 	StepCronRuntime,
+ } from "../src/features/step-cron.ts";
+@@ -35,19 +35,42 @@ describe("DesktopSessionCronStore", () => {
+ 		mkdirSync(directory);
+ 		const file = path.join(cwd, ".stepcode", "cron", "tasks.json");
+ 		const store = new CronFileStore(file);
+-		const job: CronJob = { schemaVersion: 1, id: "foreign", cron: "* * * * *", prompt: "Keep",
+-			recurring: true, durable: true, createdAt: 100, nextFireAt: 200 };
++		const job: CronJob = {
++			schemaVersion: 1,
++			id: "foreign",
++			cron: "* * * * *",
++			prompt: "Keep",
++			recurring: true,
++			durable: true,
++			createdAt: 100,
++			nextFireAt: 200,
++		};
+ 		store.save([job]);
+ 		const bind = (job: CronJob, sessionId: string) => {
+ 			const workspace = (process.platform === "win32" ? cwd.replace(/\\/g, "/") : cwd).replace(/\/+$/, "");
+-			const key = JSON.stringify([process.platform === "win32" ? workspace.toLowerCase() : workspace, job.id, job.createdAt]);
++			const key = JSON.stringify([
++				process.platform === "win32" ? workspace.toLowerCase() : workspace,
++				job.id,
++				job.createdAt,
++			]);
+ 			const binding = path.join(directory, createHash("sha256").update(key).digest("hex") + ".json");
+ 			writeFileSync(binding, JSON.stringify({ sessionId, source: "created", at: 100 }));
+ 			return binding;
+ 		};
+ 		let sessionId = "moved";
+ 		const create = () => new DesktopSessionCronStore(file, directory, () => ({ cwd, sessionId }));
+-		return { cwd, directory, file, store, job, bind, create, session: (id: string) => { sessionId = id; } };
++		return {
++			cwd,
++			directory,
++			file,
++			store,
++			job,
++			bind,
++			create,
++			session: (id: string) => {
++				sessionId = id;
++			},
++		};
+ 	}
+ 	test("does not adopt foreign, unbound, corrupt or reused task identities", () => {
+ 		const f = scoped();
+@@ -71,7 +94,7 @@ describe("DesktopSessionCronStore", () => {
+ 		writeFileSync(f.file, readFileSync(f.file, "utf8") + unknown);
+ 		const foreignLine = readFileSync(f.file, "utf8").split("\n")[0];
+ 		const view = f.create();
+-		view.update(jobs => jobs.map(job => ({ ...job, prompt: "Updated" })));
++		view.update((jobs) => jobs.map((job) => ({ ...job, prompt: "Updated" })));
+ 		expect(f.store.load()).toEqual([f.job, { ...own, prompt: "Updated" }]);
+ 		expect(readFileSync(f.file, "utf8")).toContain(foreignLine + "\n");
+ 		expect(readFileSync(f.file, "utf8")).toContain(unknown);
+@@ -106,8 +129,13 @@ describe("DesktopSessionCronStore", () => {
+ 		const f = scoped();
+ 		const bytes = readFileSync(f.file, "utf8");
+ 		const sendMessage = vi.fn();
+-		const runtime = new StepCronRuntime({ storeFactory: () => f.create(), sendMessage, now: () => 1_000,
+-			setInterval: () => 0 as unknown as ReturnType<typeof setInterval>, clearInterval: () => {} });
++		const runtime = new StepCronRuntime({
++			storeFactory: () => f.create(),
++			sendMessage,
++			now: () => 1_000,
++			setInterval: () => 0 as unknown as ReturnType<typeof setInterval>,
++			clearInterval: () => {},
++		});
+ 		runtime.start(f.cwd, true);
+ 		runtime.tick();
+ 		expect(runtime.list()).toEqual([]);
+@@ -119,8 +147,14 @@ describe("DesktopSessionCronStore", () => {
+ 		const f = scoped();
+ 		let now = 1_000;
+ 		const deliveries: CronDelivery[] = [];
+-		const runtime = new StepCronRuntime({ storeFactory: () => f.create(), sendMessage: job => deliveries.push(job),
+-			now: () => now, jitterRatio: 0, setInterval: () => 0 as unknown as ReturnType<typeof setInterval>, clearInterval: () => {} });
++		const runtime = new StepCronRuntime({
++			storeFactory: () => f.create(),
++			sendMessage: (job) => deliveries.push(job),
++			now: () => now,
++			jitterRatio: 0,
++			setInterval: () => 0 as unknown as ReturnType<typeof setInterval>,
++			clearInterval: () => {},
++		});
+ 		runtime.start(f.cwd, true);
+ 		const own = runtime.create("* * * * *", "Own", false, true);
+ 		now = 60_001;
+diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
+index 4f084529b161c385ed806ed050ec45ae43f65695..c51e842618ef39afff301f15d95e8e729d670eda 100644
+--- a/packages/coding-agent/test/step-subagent-events.test.ts
++++ b/packages/coding-agent/test/step-subagent-events.test.ts
+@@ -16,9 +16,6 @@ import {
+ 	type StepSubagentRunResult,
+ } from "../src/features/step-subagent.ts";
+ import { builtinStepAgents, resolveStepAgent, type StepAgentConfig } from "../src/features/step-subagent-agents.ts";
+-import { resetWorkflowAdmission } from "../src/features/workflow/admission.ts";
+-import { createWorkflowRunPaths, WorkflowJournal } from "../src/features/workflow/journal.ts";
+-import { WorkflowRuntime } from "../src/features/workflow/runtime.ts";
+ import {
+ 	readSubagentLaneSnapshot,
+ 	SUBAGENT_LANE_CHANNEL,
+@@ -26,6 +23,9 @@ import {
+ } from "../src/features/subagent/lane-events.ts";
+ import { finalRoster } from "../src/features/subagent/projection.ts";
+ import { renderSubagentResult } from "../src/features/subagent/rendering.ts";
++import { resetWorkflowAdmission } from "../src/features/workflow/admission.ts";
++import { createWorkflowRunPaths, WorkflowJournal } from "../src/features/workflow/journal.ts";
++import { WorkflowRuntime } from "../src/features/workflow/runtime.ts";
+ import { getThemeByName } from "../src/theme/theme.ts";
+ 
+ interface SentMessage {
+@@ -489,6 +489,57 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<voi
+ 	}
+ }
+ 
++test("Desktop RPC owns background lanes through final delivery and clears them on shutdown", async () => {
++	const { api, tools, sent, handlers } = createApi();
++	const snapshots: { version: number; lanes: { id: string; status: string }[] }[] = [];
++	let finish!: () => void;
++	const gate = new Promise<void>((resolve) => {
++		finish = resolve;
++	});
++	const ctx = createContext("/workspace");
++	ctx.mode = "rpc";
++	let parentActive = false;
++	ctx.isIdle = () => !parentActive;
++	const sendMessage = api.sendMessage;
++	api.sendMessage = (message, options) => {
++		parentActive = true;
++		sendMessage(message, options);
++	};
++	ctx.ui.setStatus = (key, value) => {
++		if (key === "desktop-subagents" && value) snapshots.push(JSON.parse(value));
++	};
++	createStepSubagentExtension({
++		includeBuiltinAgents: true,
++		agentDir: "/tmp/step-agent-test",
++		runner: async () => {
++			await gate;
++			return textResult("done");
++		},
++	})(api);
++	try {
++		const result = await tools
++			.get("subagent")!
++			.execute(
++				"call",
++				{ agent: "general", task: "inspect", run_in_background: true } as never,
++				undefined,
++				undefined,
++				ctx,
++			);
++		const id = laneIdOf(result);
++		expect(snapshots.at(-1)).toEqual({ version: 1, parentActive: false, lanes: [{ id, status: "running" }] });
++		finish();
++		await waitFor(() => sent.length > 0);
++		expect(snapshots).toContainEqual({ version: 1, parentActive: false, lanes: [{ id, status: "settling" }] });
++		expect(snapshots.at(-1)).toEqual({ version: 1, parentActive: true, lanes: [] });
++	} finally {
++		finish();
++		parentActive = false;
++		for (const handler of handlers.get("session_shutdown") ?? []) await handler({ reason: "quit" }, ctx);
++	}
++	expect(snapshots.at(-1)).toEqual({ version: 1, parentActive: false, lanes: [] });
++});
++
+ test("escapeXmlAttr neutralizes attribute breakouts", () => {
+ 	expect(escapeXmlAttr('lane"<>&x')).toBe("lane&quot;&lt;&gt;&amp;x");
+ 	expect(escapeXmlAttr('alias" status="completed')).toBe("alias&quot; status=&quot;completed");
+@@ -1370,7 +1421,9 @@ test("an oversized final output is saved to disk and the notification keeps its
+ 		expect(content).toMatch(
+ 			/^<agent-notification lane="lane_[0-9a-f]{8}" tasks="1">Lane lane_[0-9a-f]{8} finished: 1 completed\./u,
+ 		);
+-		expect(content).toContain(`Full output: &quot;${join(sessionDir, "tool-output")}`);
++		expect(content).toContain(
++			`Full output: ${escapeXmlAttr(JSON.stringify(join(sessionDir, "tool-output")).slice(0, -1))}`,
++		);
+ 		expect(content).toContain("TAIL");
+ 		expect(content.length).toBeLessThan(60_000);
+ 	} finally {
+@@ -1378,6 +1431,31 @@ test("an oversized final output is saved to disk and the notification keeps its
+ 	}
+ });
+ 
++test("projected records redact credential lines before truncation clips them", async () => {
++	const { api, tools } = createApi();
++	// The clip boundary lands ten characters into the credential line, so the kept
++	// region starts after `api_key = ` and a line-level filter on the projection
++	// could no longer match it. Redaction must run on the full text instead.
++	const head = "x".repeat(49_980);
++	const activeText = `${head}api_key = super-secret-value\n${"z".repeat(49_980)}`;
++	createStepSubagentExtension({
++		agentDir: "/tmp/step-agent-test",
++		runner: async () => ({ ...textResult(""), messages: [], activeText, exitCode: 0 }),
++	})(api);
++	const tool = tools.get("subagent");
++	if (!tool) throw new Error("subagent tool not registered");
++	const result = await tool.execute(
++		"batch",
++		{ tasks: [{ agent: "general", task: "task-0" }] },
++		undefined,
++		undefined,
++		createContext("/tmp"),
++	);
++	const typed = result as AgentToolResult<StepSubagentDetails>;
++	expect(JSON.stringify(typed.details)).not.toContain("super-secret-value");
++	expect(typed.details?.results[0]?.activeText).toContain("[redacted]");
++});
++
+ test("session shutdown stops this session's lanes silently and leaves another session's lanes running", async () => {
+ 	const gate = deferred();
+ 	const signals: AbortSignal[] = [];
+@@ -1476,8 +1554,10 @@ test("idle keep-alive children are stopped after the TTL and a reply resumes qui
+ 		/**
+ 		 * A finished lane sends its notification only after reading the child's
+ 		 * details from disk, so waiting on 1ms of virtual time is a race against
+-		 * file I/O that a loaded CI runner loses. Advance in steps for a bounded
+-		 * virtual budget instead, and report what did arrive.
++		 * file I/O that a loaded CI runner loses — 500 event-loop turns can elapse
++		 * in far less wall time than a contended disk needs. Bound the loop by
++		 * real wall clock in addition to the virtual step cap, and report what
++		 * did arrive.
+ 		 */
+ 		const seen = (count: number): boolean =>
+ 			sent.filter((m) => m.details?.event === "background_done").length >= count;
+diff --git a/packages/coding-agent/test/suite/agent-session-prompt.test.ts b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
+index 9dd5ec2137a2d69d847000af1a4a3a111e7ab646..d79ac01281b1b39f2322466c4fdc412705a1b0da 100644
+--- a/packages/coding-agent/test/suite/agent-session-prompt.test.ts
++++ b/packages/coding-agent/test/suite/agent-session-prompt.test.ts
+@@ -7,8 +7,8 @@ import { Type } from "typebox";
+ import { afterEach, describe, expect, it } from "vitest";
+ import type { ExtensionAPI, InputEvent } from "../../src/core/extensions/index.ts";
+ import type { PromptTemplate } from "../../src/core/prompt-templates.ts";
+-import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";
+ import { SessionManager } from "../../src/core/session-manager.ts";
++import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";
+ import { AUTO_RESUME_PROMPT } from "../../src/step/permissions.ts";
+ import { createTestResourceLoader } from "../utilities.ts";
+ import { createHarness, getMessageText, type Harness } from "./harness.ts";
+@@ -330,7 +330,9 @@ describe("AgentSession prompt characterization", () => {
+ 		const harness = await createHarness({
+ 			extensionFactories: [
+ 				(pi) => {
+-					pi.on("input", (event) => { inputEvents.push(event); });
++					pi.on("input", (event) => {
++						inputEvents.push(event);
++					});
+ 					pi.on("before_agent_start", (event) => {
+ 						starts.push(event.prompt);
+ 						return { systemPrompt: "Preserved extension instructions." };
+@@ -339,14 +341,17 @@ describe("AgentSession prompt characterization", () => {
+ 			],
+ 		});
+ 		harnesses.push(harness);
+-		harness.setResponses([(context) => {
+-			expect(getMessageText(context.messages.at(-1))).toBe(AUTO_RESUME_PROMPT);
+-			expect(context.messages.at(-1)?.role).toBe("user");
+-			expect(context.systemPrompt).toBe("Preserved extension instructions.");
+-			return fauxAssistantMessage("continued");
+-		}]);
++		harness.setResponses([
++			(context) => {
++				expect(getMessageText(context.messages.at(-1))).toBe(AUTO_RESUME_PROMPT);
++				expect(context.messages.at(-1)?.role).toBe("user");
++				expect(context.systemPrompt).toBe("Preserved extension instructions.");
++				return fauxAssistantMessage("continued");
++			},
++		]);
+ 		const customMessage = {
+-			customType: "step-auto-resume", display: true,
++			customType: "step-auto-resume",
++			display: true,
+ 			details: { version: 1, kind: "resume", source: "autopilot" },
+ 		};
+ 		await harness.session.sendUserMessage(AUTO_RESUME_PROMPT, { customMessage });
+@@ -356,8 +361,12 @@ describe("AgentSession prompt characterization", () => {
+ 		const entry = harness.sessionManager.getBranch().find((entry) => entry.type === "custom_message");
+ 		expect(entry).toMatchObject({ type: "custom_message", ...customMessage });
+ 		const file = join(harness.tempDir, "recovery.jsonl");
+-		writeFileSync(file, [harness.sessionManager.getHeader(), ...harness.sessionManager.getEntries()]
+-			.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
++		writeFileSync(
++			file,
++			[harness.sessionManager.getHeader(), ...harness.sessionManager.getEntries()]
++				.map((entry) => JSON.stringify(entry))
++				.join("\n") + "\n",
++		);
+ 		const restored = SessionManager.open(file).buildSessionContext().messages;
+ 		expect(restored[0]).toMatchObject({ role: "custom", ...customMessage });
+ 		expect(getMessageText(restored[0])).toBe(AUTO_RESUME_PROMPT);
+@@ -369,9 +378,11 @@ describe("AgentSession prompt characterization", () => {
+ 	it("does not let interactive prompts claim extension provenance", async () => {
+ 		const harness = await createHarness();
+ 		harnesses.push(harness);
+-		await expect(harness.session.prompt("hello", {
+-			customMessage: { customType: "step-auto-resume", display: true, details: {} },
+-		})).rejects.toThrow("idle extension source");
++		await expect(
++			harness.session.prompt("hello", {
++				customMessage: { customType: "step-auto-resume", display: true, details: {} },
++			}),
++		).rejects.toThrow("idle extension source");
+ 		expect(harness.session.messages).toEqual([]);
+ 	});
+ 
+diff --git a/scripts/build-coding-agent-bundle.mjs b/scripts/build-coding-agent-bundle.mjs
+index af80dd75c3bf429cc63bd08b5d0fd1c0cc7aa8f9..fac2aeda34008d81d0a01b1fa4d8a0af2ab4b476 100644
+--- a/scripts/build-coding-agent-bundle.mjs
++++ b/scripts/build-coding-agent-bundle.mjs
+@@ -20,7 +20,9 @@ const codingAgentDistDir = join(codingAgentDir, "dist");
+ const bundleDir = join(codingAgentDistDir, "bundle");
+ const stepBuildDefines = readStepBuildDefines();
+ const banner = {
+-	js: 'import { createRequire as __piCreateRequire } from "node:module"; const require = __piCreateRequire(import.meta.url);',
++	// Bundled CommonJS dependencies (including the Lark SDK) still resolve files
++	// relative to their emitted module. Never bake the build machine's path in.
++	js: 'import { createRequire as __piCreateRequire } from "node:module"; import { fileURLToPath as __piFileURLToPath } from "node:url"; import { dirname as __piDirname } from "node:path"; const require = __piCreateRequire(import.meta.url); const __piFilename = __piFileURLToPath(import.meta.url); const __piDirectory = __piDirname(__piFilename);',
+ };
+ const allowedExternalPackages = new Set([
+ 	"@silvia-odwyer/photon-node",
+@@ -85,7 +87,7 @@ function commonBuildOptions() {
+ 		absWorkingDir: repoRoot,
+ 		banner,
+ 		bundle: true,
+-		define: { STEP_BUNDLED_NODE: "true", ...stepBuildDefines },
++		define: { STEP_BUNDLED_NODE: "true", __dirname: "__piDirectory", __filename: "__piFilename", ...stepBuildDefines },
+ 		external: ["@silvia-odwyer/photon-node"],
+ 		format: "esm",
+ 		legalComments: "none",

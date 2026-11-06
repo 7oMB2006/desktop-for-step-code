@@ -188,6 +188,8 @@ test('image broker derives the source worker from its token and never bypasses r
   } });
   try {
     assert.ok(f.transports[0].args.includes('desktop-remote.mjs'));
+    for (const flag of ['--desktop-plan-review', '--plan-review-surface', '--desktop-clarification'])
+      assert.ok(f.transports[0].args.includes(flag), `Remote image workers retain ${flag}`);
     assert.ok(!f.transports[0].args.some(value => value.startsWith('desktop_send_image=')));
     const { DESKTOP_SESSION_URL: url, DESKTOP_SESSION_TOKEN: token } = f.transports[0].env;
     const request = (data: unknown, auth = token) => fetch(url!, {

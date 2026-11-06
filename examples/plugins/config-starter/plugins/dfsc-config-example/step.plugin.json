@@ -1,0 +1,13 @@
+{
+  "id": "dfsc-config-example",
+  "name": "DFSC Configuration Example",
+  "version": "0.1.0",
+  "description": "Format supplied text locally. No account, paid service or automatic dependency installation.",
+  "mcpServers": {
+    "notes": {
+      "command": "node",
+      "args": ["server/stdio.mjs"],
+      "env": { "STEPFUN_API_KEY": "DFSC_INDEPENDENT_PLUGIN" }
+    }
+  }
+}

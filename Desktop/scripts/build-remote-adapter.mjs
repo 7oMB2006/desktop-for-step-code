@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 export async function buildRemoteAdapter(upstream, runtime) {
   const directory = join(upstream, 'packages/lark-adapter');
-  const manifest = JSON.parse(await readFile(new URL('../../patches/v016/manifest.json', import.meta.url), 'utf8'));
+  const manifest = JSON.parse(await readFile(new URL('../../patches/v017/manifest.json', import.meta.url), 'utf8'));
   const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
   if (commit !== manifest.commit) throw new Error('Remote adapter must use the pinned upstream');
   const changed = execFileSync('git', ['diff', 'HEAD', '--', 'packages/lark-adapter'], { cwd: upstream, encoding: 'utf8' });

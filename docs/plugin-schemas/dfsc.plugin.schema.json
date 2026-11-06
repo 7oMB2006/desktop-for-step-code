@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DFSC plugin presentation v1",
+  "type": "object",
+  "required": ["schemaVersion"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "authors": { "$ref": "#/definitions/people" },
+    "maintainers": { "$ref": "#/definitions/people" },
+    "license": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "categories": {
+      "type": "array", "maxItems": 3, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 48, "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" }
+    },
+    "keywords": {
+      "type": "array", "maxItems": 5, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 48, "pattern": "^[^\\u0000-\\u001f]+$" }
+    },
+    "documentation": { "$ref": "#/definitions/documentation" },
+    "locales": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "zh": { "$ref": "#/definitions/locale" },
+        "en": { "$ref": "#/definitions/locale" }
+      }
+    },
+    "tutorials": {
+      "type": "array", "maxItems": 8,
+      "items": {
+        "type": "object", "required": ["title", "url", "creator", "kind"], "additionalProperties": false,
+        "properties": {
+          "title": { "$ref": "#/definitions/label" },
+          "creator": { "$ref": "#/definitions/label" },
+          "url": { "$ref": "#/definitions/https" },
+          "kind": { "enum": ["author", "community"] }
+        }
+      }
+    },
+    "links": {
+      "type": "array", "maxItems": 8,
+      "items": {
+        "type": "object", "required": ["title", "url"], "additionalProperties": false,
+        "properties": {
+          "title": { "$ref": "#/definitions/label" },
+          "url": { "$ref": "#/definitions/https" },
+          "kind": { "type": "string", "maxLength": 48 }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "documentation": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "readme": { "$ref": "#/definitions/markdownPath" },
+        "changelog": { "$ref": "#/definitions/markdownPath" }
+      }
+    },
+    "locale": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^[^\\u0000-\\u001f]+$" },
+        "documentation": { "$ref": "#/definitions/documentation" }
+      }
+    },
+    "label": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\u0000-\\u001f]+$" },
+    "https": { "type": "string", "minLength": 9, "maxLength": 2048, "pattern": "^https://[^/@?#]+(?:[/?#]|$)" },
+    "markdownPath": {
+      "type": "string", "minLength": 4, "maxLength": 256,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[:\\\\\\u0000?#])(?!.*//).+\\.[mM][dD]$"
+    },
+    "people": {
+      "type": "array", "maxItems": 8,
+      "items": {
+        "type": "object", "required": ["name"], "additionalProperties": false,
+        "properties": { "name": { "$ref": "#/definitions/label" } }
+      }
+    }
+  }
+}

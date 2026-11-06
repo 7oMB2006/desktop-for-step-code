@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { planContext, planPath as planFilePath } from './plan-context.mjs';
 
 const text = value => typeof value === 'string' ? value : value?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
 const requests = [];
@@ -28,10 +29,12 @@ const server = createServer(async (req, res) => {
   const payload = JSON.parse(body); requests.push(payload);
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   const context = payload.messages.map(m => text(m.content)).join('\n');
+  const mode = planContext(payload.messages);
   const tool = (name, args) => res.end(chunk({ tool_calls: [{ index: 0, id: `plan-${requests.length}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls') + 'data: [DONE]\n\n');
   if (stage === 0) {
-    assert.match(context, /Desktop Plan mode active/);
-    planPath = /Write the proposal to (.*)\. Only this proposal/.exec(context)?.[1];
+    assert.match(mode, /# Plan Mode/);
+    assert.ok(!payload.tools.some(tool => tool.function.name === 'enter_plan_mode'), 'Only the user can enter Plan');
+    planPath = planFilePath(mode);
     assert.ok(planPath);
     if (!checkedRestriction) {
       checkedRestriction = true;
@@ -40,16 +43,16 @@ const server = createServer(async (req, res) => {
     }
     stage = 1; tool('write_file', { path: planPath, content: initialProposal });
   } else if (stage === 1) {
-    assert.match(context, /Desktop Plan mode active/); stage = 2; tool('exit_plan_mode', {});
+    assert.match(mode, /# Plan Mode/); stage = 2; tool('exit_plan_mode', {});
   } else if (stage === 2) {
     if (refining) {
-      assert.match(context, /Desktop Plan mode active/);
+      assert.match(mode, /# Plan Mode/);
       assert.match(context, /Add validation/);
       refining = false; stage = 1;
       tool('write_file', { path: planPath, content: '# Revised proposal\n\nAdd validation before creating approved.txt.\nEND OF PROPOSAL' });
       return;
     }
-    assert.doesNotMatch(context, /\[Desktop Plan mode active\]/); stage = 3; tool('write_file', { path: 'approved.txt', content: 'Approved execution' });
+    assert.match(mode, /# Collaboration Mode: Default/); stage = 3; tool('write_file', { path: 'approved.txt', content: 'Approved execution' });
   } else {
     const finish = () => res.end(chunk({ role: 'assistant', content: 'Completed approved plan.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
     if (holdExecution) { holdExecution = false; finishExecution = () => { if (!res.writableEnded && !res.destroyed) finish(); }; }
@@ -71,6 +74,13 @@ let app = await electron.launch(launchOptions);
 const errors = [];
 try {
   const page = await app.firstWindow(); page.setDefaultTimeout(30000); page.on('pageerror', e => errors.push(e.message));
+  const setTheme = async theme => {
+    await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
+    // Direct preference IPC does not refresh React's snapshot.
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
+    await page.waitForFunction(theme => document.documentElement.dataset.palette === theme, theme);
+  };
   await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setOpacity(0); w.setIgnoreMouseEvents(true); w.showInactive(); w.setSize(1360, 900); });
   await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
@@ -118,6 +128,7 @@ try {
   await dialog.locator('h1').waitFor();
   assert.equal(await page.locator('.modal-backdrop').count(), 0);
   await settleLayout(dialog);
+  const proposalText = await dialog.locator('.markdown').textContent();
   const compactHeight = (await dialog.boundingBox()).height;
   assert.equal(await page.locator('.composer-underlay').evaluate(el => getComputedStyle(el).visibility), 'hidden', 'Drawer covers the entire composer including runtime metrics');
   const grip = dialog.getByRole('button', { name: '调整计划批阅高度', exact: true });
@@ -142,10 +153,48 @@ try {
   await page.mouse.up();
   await page.waitForFunction(() => document.querySelector('.plan-review-drawer')?.getAttribute('data-dragging') === 'false');
   await settleLayout(dialog);
+  const dragDown = async (surface, distance) => {
+    await settleLayout(surface);
+    const handle = await surface.locator('.approval-drawer-grip').boundingBox();
+    const x = handle.x + handle.width / 2, y = handle.y + handle.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.waitForFunction(() => document.querySelector('.plan-review-drawer')?.dataset.dragging === 'true');
+    await page.mouse.move(x, y + distance, { steps: 8 });
+    await page.mouse.up();
+  };
+  const assertStillPending = async (before, calls) => {
+    const after = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(after.requests[0]?.id, before.requests[0].id, 'Dragging retains the exact pending review');
+    assert.equal(after.launch.plan, true, 'Dragging does not exit Plan mode');
+    assert.equal(after.state.isStreaming, true, 'Dragging does not cancel the pending turn');
+    assert.equal(requests.length, calls, 'Dragging never answers the review or resumes the model');
+  };
+  await dragDown(dialog, 60);
+  await settleLayout(dialog);
+  assert.equal(await dialog.isVisible(), true, 'A short downward drag does not dismiss the review');
+  assert.equal(await dialog.getAttribute('data-size'), 'compact');
+  const beforeDrag = await page.evaluate(() => window.desktop.snapshot());
+  const callsBeforeDrag = requests.length;
+  await dragDown(dialog, 110);
+  await dialog.waitFor({ state: 'hidden' });
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  await assert.rejects(readFile(output), { code: 'ENOENT' });
+  const reviewTrigger = page.getByRole('button', { name: '批阅计划', exact: true });
+  assert.equal(await page.evaluate(() => document.activeElement?.matches('.plan-review-trigger')), true, 'Dismissal returns focus to a review entry');
+  await reviewTrigger.click();
+  await dialog.waitFor();
+  assert.equal(await dialog.locator('.markdown').textContent(), proposalText, 'Reopening retains the complete proposal');
   await dialog.getByRole('button', { name: '调整计划批阅高度', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.plan-review-drawer')?.getAttribute('data-size') === 'expanded');
   await settleLayout(dialog);
-  assert.ok((await dialog.boundingBox()).height > compactHeight * 1.5);
+  const expandedHeight = (await dialog.boundingBox()).height;
+  assert.ok(expandedHeight > compactHeight * 1.5);
+  await dragDown(dialog, expandedHeight - compactHeight + 20);
+  await dialog.waitFor({ state: 'hidden' });
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  await reviewTrigger.click();
+  await dialog.waitFor();
   await dialog.getByRole('button', { name: '稍后批阅', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
   const triggerAnimation = await page.getByRole('button', { name: '批阅计划', exact: true }).evaluate(el => getComputedStyle(el).animationName);
@@ -153,15 +202,24 @@ try {
   assert.equal(requests.length, 3, 'Review later does not answer or resume the runtime');
   await page.getByRole('button', { name: '批阅计划', exact: true }).click();
   await dialog.waitFor();
+  await settleLayout(dialog);
   await page.screenshot({ path: 'test-results/plan-review-dark.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));
-  await page.waitForTimeout(150);
+  await page.waitForFunction(() => innerWidth === 640 && innerHeight === 620);
+  await settleLayout(dialog);
   const bounds = await dialog.boundingBox();
   const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= viewport.width && bounds.y + bounds.height <= viewport.height);
   await page.screenshot({ path: 'test-results/plan-review-narrow.png' });
-  await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
+  await setTheme('light');
+  await settleLayout(dialog);
   await page.screenshot({ path: 'test-results/plan-review-light.png' });
+  await dialog.locator('.approval-drawer-grip').press('Home');
+  await dragDown(dialog, 110);
+  await dialog.waitFor({ state: 'hidden' });
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  await reviewTrigger.click();
+  await dialog.waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
   await dialog.getByRole('button', { name: '提出修改', exact: true }).click();
   const initialEdits = page.getByRole('dialog', { name: '修改计划', exact: true });
@@ -177,7 +235,7 @@ try {
     assert.equal(approved.details.planContents, initialProposal);
     assert.equal(approved.details.planHash, createHash('sha256').update(initialProposal, 'utf8').digest('hex'));
     assert.equal(approved.details.planModeExited, true);
-    assert.equal(approved.details.approvalSource, 'external', 'Desktop owns the external review decision');
+    assert.equal(approved.details.approvalSource, 'user', 'The user owns the decision; Desktop is its transport');
   }
   const approvalNote = page.locator('.plan-approval-note');
   assert.equal(await approvalNote.count(), 1, 'A confirmed approval produces exactly one inline note');
@@ -188,7 +246,8 @@ try {
   await page.screenshot({ path: 'test-results/plan-execution-running-light.png' });
   await approvalNote.locator('button').click();
   await page.waitForTimeout(220);
-  await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
+  await setTheme('dark');
+  await settleLayout(runningPlan);
   await page.screenshot({ path: 'test-results/plan-execution-running-dark.png' });
   const anchorPosition = async locator => {
     const measured = await locator.evaluate(el => {
@@ -298,6 +357,16 @@ try {
   await dialog.getByRole('button', { name: '提出修改', exact: true }).click();
   await feedback.waitFor();
   assert.equal(await feedback.locator('textarea').evaluate(element => element.value), 'Add validation', 'Back retains the unsubmitted draft');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await feedback.locator('.approval-drawer-grip').press('Home');
+  await settleLayout(feedback);
+  await dragDown(feedback, 110);
+  await feedback.waitFor({ state: 'hidden' });
+  await assertStillPending(editingSnapshot, callsBeforeBack);
+  await page.getByRole('button', { name: '批阅计划', exact: true }).click();
+  await feedback.waitFor();
+  assert.equal(await feedback.locator('textarea').inputValue(), 'Add validation', 'Drag dismissal retains the unsubmitted refinement draft');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await feedback.getByRole('button', { name: '稍后批阅', exact: true }).click();
   await feedback.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: '批阅计划', exact: true }).click();

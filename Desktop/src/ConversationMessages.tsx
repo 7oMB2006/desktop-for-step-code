@@ -8,8 +8,10 @@ import { ArrowLeft, ArrowRight, ArrowRightLeft, Bot, Brain, Check, Copy, FilePen
 import type { Content, Message, ModelChange, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { redactSensitiveText } from './subagent-redact';
-import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
-import type { BackgroundSubagentStates, ResponseItem, SubagentTask } from './conversation-presentation';
+import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, projectBackgroundSubagentStates, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
+import { CompletionReviewNote } from './CompletionReviewNote';
+import type { BackgroundLaneActivity } from './conversation-presentation';
+import type { BackgroundSubagentStates, ResponseItem, SubagentDisplayTask } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { ProcessRowLabel } from './ProcessRowLabel';
@@ -48,11 +50,12 @@ type Props = {
   awaitingToolCalls?: string[];
   modelChanges?: ModelChange[];
   messages: Message[]; language: 'zh' | 'en'; busy: boolean; canEdit: boolean;
+  backgroundActivity?: BackgroundLaneActivity;
   openImage: (src: string, name: string, anchor: HTMLElement) => void;
   edit: (message: Message, text: string) => Promise<void>; onError: (message: string) => void;
   branch: (message: Message) => void;
   onLayoutChange?: () => void;
-  onOpenSubagent: (task: SubagentTask) => void;
+  onOpenSubagent: (task: SubagentDisplayTask) => void;
   onOpenWorkflow?: (id: string) => void;
   arrivingUser?: Message | null;
   settledStatus?: ReactNode;
@@ -355,14 +358,14 @@ function ProcessGroup({ group, children, ...props }: { group: ProcessGroupData; 
   </section>;
 }
 function SubagentTaskRow({ task, onOpen, language }: {
-  task: SubagentTask; onOpen: (task: SubagentTask) => void; language: 'zh' | 'en';
+  task: SubagentDisplayTask; onOpen: (task: SubagentDisplayTask) => void; language: 'zh' | 'en';
 }) {
   const zh = language === 'zh';
-  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'queued' ? 'pending' : task.status === 'skipped' ? 'skipped' : task.status === 'aborted' ? 'stopped' : 'failed';
+  const state = task.status === 'completed' ? 'done' : task.status === 'running' ? 'running' : task.status === 'queued' ? 'pending' : task.status === 'skipped' ? 'skipped' : task.status === 'aborted' ? 'stopped' : task.status === 'unknown' ? 'unknown' : 'failed';
   const summary = redactSensitiveText(task.task).replace(/\s+/gu, ' ').trim();
   const agent = redactSensitiveText(task.agent);
-  const label = zh ? (state === 'pending' ? '待执行' : state === 'skipped' ? '已跳过' : state === 'running' ? '进行中' : state === 'done' ? '已完成' : task.status === 'aborted' ? '已终止' : '已失败')
-    : (state === 'pending' ? 'Pending' : state === 'skipped' ? 'Skipped' : state === 'running' ? 'Running' : state === 'done' ? 'Completed' : task.status === 'aborted' ? 'Stopped' : 'Failed');
+  const label = zh ? (state === 'pending' ? '待执行' : state === 'skipped' ? '已跳过' : state === 'running' ? '进行中' : state === 'done' ? '已完成' : state === 'unknown' ? '结果未知' : task.status === 'aborted' ? '已终止' : '已失败')
+    : (state === 'pending' ? 'Pending' : state === 'skipped' ? 'Skipped' : state === 'running' ? 'Running' : state === 'done' ? 'Completed' : state === 'unknown' ? 'Outcome unknown' : task.status === 'aborted' ? 'Stopped' : 'Failed');
   return <button type="button" className="lane-row" data-tool-state={state} data-lane-agent={task.agent}
     aria-label={language === 'zh' ? `查看子代理记录: ${label}，${summary}` : `Open subagent record: ${label}, ${summary}`}
     onClick={() => onOpen(task)}>
@@ -377,7 +380,7 @@ function SubagentTaskRow({ task, onOpen, language }: {
 function SubagentLane({ item, active, onOpen, background, ...props }: {
   item: Extract<ResponseItem, { type: 'tool' }>; active: boolean;
   background: BackgroundSubagentStates;
-  onOpen: (task: SubagentTask) => void;
+  onOpen: (task: SubagentDisplayTask) => void;
 } & BodyProps) {
   const tasks = useMemo(() => subagentTasks(item.call, item.result, background), [item.call, item.result, background]);
   // A failed dispatch carries no per-task records. Falling back to the planned list here would
@@ -428,7 +431,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     execution?: { plan: ApprovedPlan; state: PlanExecutionState };
     searchTarget?: SearchTextTarget;
     background: BackgroundSubagentStates;
-    onOpenSubagent: (task: SubagentTask) => void;
+    onOpenSubagent: (task: SubagentDisplayTask) => void;
     onOpenWorkflow?: (id: string) => void;
   } & BodyProps) {
     const { content, text } = responsePresentation(items);
@@ -459,6 +462,8 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     </MessageActions>;
     const renderItem = (item: ResponseItem, onExpandedChange?: (expanded: boolean) => void): ReactNode => item.type === 'auto-resume'
       ? <AutoResumeMessage key={item.key} index={item.index} language={props.language}/>
+      : item.type === 'completion-review'
+      ? <CompletionReviewNote key={item.key} index={item.index} result={item.result} language={props.language}/>
       : item.type === 'cron'
       ? <CronMessage key={item.key} notice={item.notice} index={item.index} language={props.language} onLayoutChange={props.onLayoutChange}/>
       : item.type === 'tool'
@@ -586,7 +591,7 @@ export function ConversationMessages(props: Props) {
   const [editState, setEditState] = useState<EditState | null>(null);
   const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
   const executions = useMemo(() => planExecutionResponses(props.messages, props.busy), [props.messages, props.busy]);
-  const background = useMemo(() => backgroundSubagentStates(props.messages), [props.messages]);
+  const background = useMemo(() => projectBackgroundSubagentStates(backgroundSubagentStates(props.messages), props.backgroundActivity), [props.messages, props.backgroundActivity]);
   const latestUser = [...props.messages].reverse().find(isUserMessage);
   const lastEntry = entries.at(-1);
   const hasSettledFooter = !props.busy && lastEntry?.type === 'response' && responsePresentation(lastEntry.items).content.length > 0;

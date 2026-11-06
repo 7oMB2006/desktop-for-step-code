@@ -1,0 +1,9 @@
+.rules-preview { height: 100dvh; display: flex; flex-direction: column; }
+.rules-preview-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; border-bottom: 1px solid var(--border); padding: 8px 12px; }
+.rules-preview-toolbar > span { font-size: 12px; color: var(--muted); margin-right: auto; }
+.rules-preview-toolbar select { max-width: 100%; font-size: 12px; min-height: 30px; padding: 5px 8px; }
+.rules-preview > iframe { flex: 1; min-height: 0; width: 100%; border: 0; }
+@media (max-width: 520px) {
+  .rules-preview-toolbar { gap: 6px; padding: 8px; }
+  .rules-preview-toolbar > span { width: 100%; }
+}

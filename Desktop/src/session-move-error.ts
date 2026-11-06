@@ -12,6 +12,9 @@ export function sessionMoveError(cause: unknown, zh: boolean): string {
   if (cron || /scheduled|cron/i.test(message)) return t(
     '暂时无法核验此会话的定时任务或运行时不支持隔离，请刷新后重试；无需清空其他会话的定时任务。',
     'Scheduled-task ownership cannot be verified, or the runtime lacks isolation support. Refresh and retry; unrelated tasks do not need to be deleted.');
+  if (/Background agent (?:output safety|snapshot).*unavailable|Background ownership changed|Background agent output safety/i.test(message)) return t(
+    '暂时无法核验后台任务，请刷新后重试；若运行时缺少安全能力，请更新应用或重新暂存运行时。',
+    'Background activity could not be verified. Refresh and retry; update the app or restage its runtime if the required safety capability is missing.');
   if (/goal/.test(message)) return t('请先暂停当前目标，再移动会话。', 'Pause the active goal before moving.');
   if (/background agents/.test(message)) return t(
     '后台子代理尚未确认结束，请先处理后再移动。', 'Background agents have not settled. Resolve them before moving.');

@@ -2,14 +2,14 @@ import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { sampleMotion } from './sample-motion.mjs';
 
-const profile = await mkdtemp(join(tmpdir(), 'step-summary-runtime-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-summary-runtime-')));
 const workspace = join(profile, 'summary-board');
 await mkdir(workspace);
 const exec = promisify(execFile);
@@ -81,6 +81,9 @@ try {
   await board.locator('.sb-mcp-trigger').click();
   await board.locator('.sb-mcp-server').filter({ hasText: 'local-search' }).getByText('连接失败', { exact: true }).waitFor();
   assert.equal(await board.getByText('已关闭', { exact: true }).count(), 1);
+  await page.waitForFunction(() => [...document.querySelectorAll('.sb-mcp-server [role="switch"]')]
+    .some(button => button.getAttribute('aria-label') === '启用 reference-library' && !button.disabled));
+  assert.equal(await board.locator('.sb-mcp-error').count(), 0, 'MCP configuration reads succeed before switches become available');
   const services = await page.evaluate(async () => {
     const snapshot = await window.desktop.snapshot();
     return (await window.desktop.summary(snapshot.runtimeId)).mcp;

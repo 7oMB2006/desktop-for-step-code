@@ -11,16 +11,21 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
+import { inspectProjectInstructions, projectInstructionsMessage } from './project-instructions';
+import { isProjectInstructionsCommand, projectInstructionsInput } from '../src/project-instructions';
 import { hasBackgroundWork } from './background-work';
 import { BtwRequests } from './btw';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
+import { reserveReview, reviewPayload } from './completion-review';
 import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { importedHistoryMessages } from './imported-history';
 import { messagesWithEntryIds } from './session-branching';
 import { SessionCollaboration } from './session-collaboration';
+import { BvrBridge } from './bvr-bridge';
+import { BvrSettings } from './bvr-settings';
 import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
 import { hasScheduledCron } from './cron-state';
@@ -52,6 +57,7 @@ import { isFullAccessRisk } from '../src/full-access-risk';
 import { TurnUndoStore } from './turn-undo';
 import { repositoryDiff, repositoryFileDiff } from './repository-diff';
 import { sessionSummary } from './session-summary';
+import { submittedInputContent } from '../src/template-input';
 import { clmSnapshot } from './clm';
 import { BackgroundAgents } from './background-agents';
 import { RemoteManager, parseRemoteAction } from './remote-manager';
@@ -78,7 +84,7 @@ import { StartupWindow } from './startup-window';
 import { FirstRun } from './first-run';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
-import { backgroundSubagentStates, conversationEntries } from '../src/conversation-presentation';
+import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Message, Model, PermissionPreset, Preferences, Session, SessionReading, Snapshot } from '../src/contracts';
 import { validateSidebarPreferences } from '../src/sidebar-order';
@@ -225,7 +231,11 @@ const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const firstRun = new FirstRun(app.getPath('userData'));
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
-  environment: () => isolatedEnvironment(dataRoot) });
+  fetchRepository: (url, options) => net.fetch(url instanceof URL ? url.href : url, { ...options, credentials: 'omit' }),
+  environment: () => isolatedEnvironment(dataRoot), validateImage: bytes => {
+    const image = nativeImage.createFromBuffer(bytes), size = image.getSize();
+    return !image.isEmpty() && size.width <= 4096 && size.height <= 4096;
+  } });
 const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-import.mjs'), dataRoot,
   () => emit({ type: 'desktop_sessions_changed' }), async sessionIds => {
     const independent = pathKey(await realpath(independentRoot).catch(() => independentRoot));
@@ -285,6 +295,7 @@ const movedSessionEnvironment = () => ({
   DESKTOP_CRON_SCOPE_DIR: join(app.getPath('userData'), 'cron-bindings'),
 });
 async function persistAuth(next: Record<string, unknown>) {
+  bvrBridge.invalidate();
   try { await vault.save(next); }
   catch (error) {
     await admin.stop();
@@ -309,9 +320,9 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   }
   if (queueWorker) remote.runtimeEvent(queueWorker, event);
   const modelChanged = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
-    && modelSelections.delivered(queueWorker, event.message.content, event.message.timestamp);
+    && modelSelections.delivered(queueWorker, submittedInputContent(event.message), event.message.timestamp);
   const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
-    && pendingMessages.delivered(queueWorker, event.message.content, event.message.timestamp, false);
+    && pendingMessages.delivered(queueWorker, submittedInputContent(event.message), event.message.timestamp, false);
   if (queueWorker && event.message?.role === 'user') {
     event.message = pendingMessages.decorate(queueWorker, event.message);
     queueWorker.messages = queueWorker.messages.map(message => pendingMessages.decorate(queueWorker, message));
@@ -340,6 +351,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (consumed) pendingMessages.publish(queueWorker!);
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
+  backgroundAvailable: () => runtimeManifest.patches?.includes('desktop-subagent-redaction') === true,
   event: (worker, event) => {
     try {
       cronHistory.event(worker, event);
@@ -379,9 +391,14 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     const expected = history ? savedSessionModel(history.entries ?? [], history.leafId ?? null) : preferences.preferredModel;
     await restoreSelectedModel(worker, expected, preferences.language);
   },
-  launch: worker => { usageEstimates.attach(worker); return collaboration.attach(worker); },
+  launch: worker => {
+    usageEstimates.attach(worker);
+    const launch = collaboration.attach(worker);
+    return { ...launch, args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs')] };
+  },
   dispose: worker => {
     remote.dispose(worker);
+    bvrBridge.detach(worker);
     btw.dispose(worker);
     conversationTiming.event(worker, { type: 'desktop_exit' });
     usageEstimates.detach(worker);
@@ -390,6 +407,10 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     else pendingMessages.clear(worker);
   },
 });
+const bvrBridge = new BvrBridge(dataRoot, runtimes, () => appliedAuthData,
+  () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
+  () => preferences.language, (input, init) => net.fetch(input instanceof URL ? input.href : String(input), init));
+const bvrSettings = new BvrSettings(dataRoot, () => bvrBridge.invalidate());
 const btw = new BtwRequests(runtimes, emit);
 const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
@@ -455,7 +476,8 @@ const remote = new RemoteManager({
 const runtimeManifest = JSON.parse(readFileSync(join(runtimeRoot, 'manifest.json'), 'utf8'));
 const backgroundAgents = new BackgroundAgents(runtimes.workers,
   () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending,
-  runtimeManifest.patches?.includes('desktop-subagent-redaction') === true);
+  runtimeManifest.patches?.includes('desktop-subagent-redaction') === true,
+  runtimeManifest.patches?.includes('desktop-background-reply') === true);
 const launchControls = new LaunchControls(runtimes);
 const cronBindings = new CronBindings(join(app.getPath('userData'), 'cron-bindings'));
 const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
@@ -602,7 +624,8 @@ let sessionCatalog: Session[] = [];
 async function listSessions(): Promise<Session[]> {
   const upstream: Session[] = await admin.request('sessions');
   const sessions: Session[] = upstream
-    .filter(session => !isChildSession(String(session.id ?? '')));
+    .filter(session => !isChildSession(String(session.id ?? '')))
+    .map(session => ({ ...session, firstMessage: projectInstructionsInput(session.firstMessage) ?? session.firstMessage }));
   // Empty upstream sessions are persisted lazily, but must remain navigable.
   for (const worker of runtimes.workers.values()) {
     const id = worker.state?.sessionId;
@@ -1293,6 +1316,11 @@ async function handle(method: string, args: any[]) {
       return backgroundAgents.read(text(args[0], 80), text(args[1], 200));
     case 'stopBackgroundAgent':
       return backgroundAgents.stop(text(args[0], 80), text(args[1], 200), text(args[2], 40));
+    case 'replyBackgroundAgent': {
+      if (args[0]?.runtimeId !== runtimes.activeId) throw new Error('Session is not selected');
+      const worker = runtimes.require(text(args[0]?.runtimeId, 80));
+      return runtimes.withBackgroundAction(worker, () => backgroundAgents.reply(args[0]));
+    }
     case 'summary': {
       const worker = runtimes.require(text(args[0], 80));
       const sessionId = worker.state?.sessionId;
@@ -1497,10 +1525,7 @@ async function handle(method: string, args: any[]) {
           if (worker.cron?.status === 'unavailable') throw new Error('MOVE_CRON_UNAVAILABLE');
           if (hasScheduledCron(worker.cron))
             throw new Error(`MOVE_CRON_HOST: ${worker.cron?.jobs.map(job => job.id).join(', ') || 'unavailable'}`);
-          await runtimes.assertIdle(worker, { stopHost: true });
-          if (worker.status === 'connected' && [...backgroundSubagentStates(worker.messages).values()]
-            .some(status => status === 'running' || status === 'queued'))
-            throw new Error('Wait for background agents to finish before moving this conversation');
+          await runtimes.assertBackgroundIdle(worker, { allowDisconnected: true });
         }
         const target = (await listSessions()).find(session => session.id === id);
         if (!target?.path) throw new Error('Save this conversation before moving it');
@@ -1532,7 +1557,7 @@ async function handle(method: string, args: any[]) {
         prepared.mutating = true;
         if (prepared.state?.sessionId !== id || prepared.permissionPreset !== 'ask')
           throw new Error('Could not verify the destination conversation and approval policy');
-        await runtimes.assertIdle(prepared, { stopHost: true });
+        await runtimes.assertBackgroundIdle(prepared);
         await restoreSelectedModel(prepared, source?.state?.model, preferences.language);
         if (source?.state?.thinkingLevel) {
           const { levels } = await prepared.rpc.request('get_available_thinking_levels');
@@ -1540,9 +1565,6 @@ async function handle(method: string, args: any[]) {
             await prepared.rpc.request('set_thinking_level', { level: source.state.thinkingLevel });
         }
         await runtimes.read(prepared);
-        if ([...backgroundSubagentStates(prepared.messages).values()]
-          .some(status => status === 'running' || status === 'queued'))
-          throw new Error('Wait for background agents to finish before moving this conversation');
         const previous = preferences;
         preferences = moveSessionToWorkspace(preferences, target, destination);
         if (wasActive) preferences.workspace = canonical;
@@ -1665,7 +1687,7 @@ async function handle(method: string, args: any[]) {
       if (worker.id !== runtimes.activeId || worker.mutating || worker.operations) throw new Error('Session operation in progress');
       const entryId = text(args[0], 80);
       const message = text(args[1]);
-      if (/^\s*\/_desktop_retry\b/.test(message)) throw new Error('Reserved Desktop command');
+      if (/^\s*\/_desktop_(?:retry|goal_input|init)\b/.test(message)) throw new Error('Reserved Desktop command');
       worker.mutating = true;
       try { await runtimes.retryLatest(worker, entryId, message); }
       finally { worker.mutating = false; }
@@ -1739,6 +1761,25 @@ async function handle(method: string, args: any[]) {
       await usageEstimates.remove(target.id);
       return true;
     }
+    case 'projectInstructions': {
+      const owner = args[0];
+      if (transition || sessionNavigation.busy || !owner || typeof owner !== 'object') throw new Error('Project selection is changing');
+      if (owner.draftId !== undefined) {
+        if (!sessionDraft || sessionDraft.id !== text(owner.draftId, 80) || owner.runtimeId !== undefined || owner.sessionId !== undefined)
+          throw new Error('This session draft is no longer active');
+        const draft = sessionDraft;
+        if (!draft.workspace) return { mode: 'choose-project' };
+        const { mode } = await inspectProjectInstructions(draft.workspace);
+        if (sessionDraft !== draft) throw new Error('Project selection changed');
+        return { mode };
+      }
+      const worker = runtimes.require(text(owner.runtimeId, 80));
+      if (worker.state?.sessionId !== text(owner.sessionId, 256)) throw new Error('Session selection changed');
+      const sessionId = worker.state.sessionId;
+      const { mode } = await inspectProjectInstructions(worker.cwd);
+      if (runtimes.require(worker.id) !== worker || worker.state?.sessionId !== sessionId) throw new Error('Session selection changed');
+      return { mode };
+    }
     case 'command': {
       const type = text(args[0], 80); const data = args[1] ?? {};
       // Obsolete navigation preparation still locks shared account/settings
@@ -1765,9 +1806,14 @@ async function handle(method: string, args: any[]) {
           return;
         }
         if (type === 'set_launch_mode') {
-          if (!['plan', 'goal', 'ultracode'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
+          if (!['plan', 'goal', 'ultracode', 'review'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
           const launch = sessionDraft.launch ??= emptyLaunch();
-          if (data.mode === 'ultracode') launch.ultracodeArmed = data.enabled;
+          if (data.mode === 'review') {
+            if (data.enabled && (launch.plan || launch.goalArmed || launch.ultracodeArmed))
+              throw new Error('Completion review is only available for ordinary main tasks');
+            launch.reviewArmed = data.enabled;
+          } else if (data.enabled && launch.reviewArmed) throw new Error('Disable completion review before selecting another task mode');
+          else if (data.mode === 'ultracode') launch.ultracodeArmed = data.enabled;
           else if (data.mode === 'plan') { launch.plan = data.enabled; launch.planArmed = data.enabled; if (data.enabled) launch.goalArmed = false; }
           else { launch.goalArmed = data.enabled; if (data.enabled) { launch.plan = false; launch.planArmed = false; } }
           return;
@@ -1777,6 +1823,8 @@ async function handle(method: string, args: any[]) {
       const runtimeId = args[2] === undefined ? runtimes.activeId : text(args[2], 80);
       const worker = ['queue_edit', 'queue_remove'].includes(type) ? runtimes.workers.get(runtimeId!) : runtimes.require(runtimeId);
       if (!worker) throw new Error('This session runtime is unavailable');
+      const projectRules = type === 'prompt' && typeof data.message === 'string'
+        && isProjectInstructionsCommand(data.message, (data.files?.length ?? 0) + (data.images?.length ?? 0));
       if (worker.stopping && ['prompt', 'queue_steer', 'queue_steer_first', 'abort'].includes(type))
         throw new Error('Wait for this session to stop');
       if (worker.mutating && !['abort', 'extension_ui_response', 'get_commands', 'get_available_thinking_levels', 'get_session_stats'].includes(type)) throw new Error('Session operation in progress');
@@ -1789,21 +1837,25 @@ async function handle(method: string, args: any[]) {
             : 'Project trust saved. Restart the runtime to apply; existing sessions were not restarted.' });
         return result;
       }
-      const mutating = ['set_permission_preset', 'set_launch_mode', 'goal_action', 'disable_standing_ultracode', 'compact', 'queue_recover'].includes(type);
+      const mutating = projectRules || ['set_permission_preset', 'set_launch_mode', 'goal_action', 'disable_standing_ultracode', 'compact', 'queue_recover'].includes(type);
       if (mutating) worker.mutating = true;
-      const wasStreaming = promptNeedsQueue(worker);
-      if (type === 'prompt') worker.submissions++;
+      let submitted = false;
+      let restoreReview: (() => void) | undefined;
       try {
+        if (projectRules) await runtimes.assertIdle(worker);
+        const wasStreaming = promptNeedsQueue(worker);
+        if (type === 'prompt') { worker.submissions++; submitted = true; }
         const rpc = worker.rpc;
         const pendingUI = worker.pendingUI;
         if (type === 'set_launch_mode') {
-          if (!['plan', 'goal', 'ultracode'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
+          if (!['plan', 'goal', 'ultracode', 'review'].includes(data.mode) || typeof data.enabled !== 'boolean') throw new Error('Invalid launch state');
           return await launchControls.set(worker, data.mode, data.enabled);
         }
         if (type === 'goal_action') return await launchControls.goal(worker, text(data.action, 20), data.value);
         if (type === 'disable_standing_ultracode') return await launchControls.disableStandingUltracode(worker);
         if (type === 'set_model' || type === 'set_thinking_level') {
           if (type === 'set_model') {
+            bvrBridge.detach(worker);
             const provider = text(data.provider, 200), modelId = text(data.modelId, 300);
             const model = worker.models.find(model => model.provider === provider && model.id === modelId);
             if (!model) throw new Error('Unknown model');
@@ -1858,7 +1910,11 @@ async function handle(method: string, args: any[]) {
           if (!Number.isInteger(data.version) || data.version < 0) throw new Error('Invalid queued message version');
           if (type === 'queue_edit') {
             const message = text(data.message);
-            if (/^\s*\/_desktop_(?:retry|goal_input)\b/.test(message)) throw new Error('Reserved Desktop command');
+            if (/^\s*\/_desktop_(?:retry|goal_input|init)\b/.test(message)) throw new Error('Reserved Desktop command');
+            if (isProjectInstructionsCommand(message,
+              pendingMessages.list(worker).find(entry => entry.id === id)?.attachmentCount ?? 0)) throw new Error(preferences.language === 'zh'
+              ? '请等待当前任务结束后单独运行 /init，不能将排队消息改成此指令。'
+              : 'Run /init separately after the current task finishes; it cannot replace a queued message.');
             pendingMessages.edit(worker, id, data.version, message);
           } else if (type === 'queue_remove') pendingMessages.remove(worker, id, data.version);
           else await pendingMessages.steer(worker, id, data.version);
@@ -1889,7 +1945,13 @@ async function handle(method: string, args: any[]) {
         let filePaths: string[] = [];
         if (type === 'prompt') {
           payload.message = text(data.message);
-          if (/^\s*\/_desktop_(?:retry|goal_input)\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
+          if (/^\s*\/_desktop_(?:retry|goal_input|init)\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
+          promptLaunch = { ...worker.launch ?? emptyLaunch() };
+          if (!projectRules) {
+            payload = reviewPayload(worker, payload, promptLaunch);
+            restoreReview = reserveReview(worker, payload);
+            if (restoreReview) runtimes.publishLaunch(worker);
+          }
           if (data.files !== undefined) {
             if (!Array.isArray(data.files) || data.files.length > MAX_ATTACHMENTS || new Set(data.files).size !== data.files.length) throw new Error('Invalid attachments');
             const paths = await Promise.all(data.files.map(async (id: unknown) => {
@@ -1909,10 +1971,12 @@ async function handle(method: string, args: any[]) {
               return { type: 'image', mimeType: i.mimeType, data: text(i.data, 14000000) };
             });
           }
-          promptLaunch = { ...worker.launch ?? emptyLaunch() };
           if (wasStreaming || worker.state?.isCompacting) {
             if (worker.launch?.goalArmed) throw new Error('Finish the current task before starting a new goal');
+            if (worker.state?.desktopCompletionReview === 1)
+              await rpc.request('desktop_completion_review_skip');
             const id = pendingMessages.enqueue(worker, text(data.message), launchControls.input(worker, payload), filePaths);
+            restoreReview = undefined;
             launchControls.consume(worker);
             if (Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
             return { queued: true, id, version: 0 };
@@ -1928,7 +1992,7 @@ async function handle(method: string, args: any[]) {
         if (type === 'prompt') runtimes.publish();
         try {
           let response;
-          if (type === 'prompt' && promptLaunch?.goalArmed) {
+          if (type === 'prompt' && promptLaunch?.goalArmed && !projectRules) {
             launchControls.consume(worker);
             await runtimes.preparePrompt(worker, payload.message as string);
             if (!await launchControls.startGoal(worker, payload, promptLaunch)) throw new Error('Goal state changed before submission');
@@ -1939,8 +2003,13 @@ async function handle(method: string, args: any[]) {
               launchControls.consume(worker);
               await runtimes.preparePrompt(worker, payload.message as string);
             }
+            if (projectRules) {
+              await runtimes.preparePrompt(worker, '/init');
+              payload.message = await projectInstructionsMessage(worker.cwd, '/init');
+            }
             const submission = rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
             response = await submission;
+            if (type === 'prompt') { restoreReview = undefined; runtimes.publishLaunch(worker); }
           }
           if (type === 'abort') {
             // Abort waits for idle; clear accepted steers before making them editable.
@@ -1957,9 +2026,10 @@ async function handle(method: string, args: any[]) {
           runtimes.publish();
         }
       } finally {
+        if (restoreReview) { restoreReview(); runtimes.publishLaunch(worker); }
         if (mutating) worker.mutating = false;
         if (type === 'abort') worker.stopping = false;
-        if (type === 'prompt') { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }
+        if (submitted) { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }
         if (type === 'set_model' || type === 'set_thinking_level') void pendingMessages.drain(worker);
       }
     }
@@ -2065,6 +2135,61 @@ async function handle(method: string, args: any[]) {
     case 'capabilityCatalog': {
       if (settingsMutation) throw new Error('Shared settings operation in progress');
       return capabilityService.catalog();
+    }
+    case 'pluginDocument': {
+      if (settingsMutation) throw new Error('capability:busy');
+      try { return await capabilityService.document(args[0]); }
+      catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
+    }
+    case 'pluginRepositoryInfo': {
+      if (settingsMutation) throw new Error('capability:busy');
+      try { return await capabilityService.repositoryInfo(args[0]); }
+      catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
+    }
+    case 'pluginConfiguration':
+    case 'pluginSaveConfiguration': {
+      if (method === 'pluginConfiguration' && settingsMutation) throw new Error('capability:busy');
+      if (method === 'pluginSaveConfiguration') await guardIdle({ stopHost: false });
+      try { return await capabilityService.configuration(args[0], method === 'pluginSaveConfiguration' ? args[0] : undefined); }
+      catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
+    }
+    case 'pluginChoosePath': {
+      if (settingsMutation) throw new Error('capability:busy');
+      const input = args[0];
+      if (!input || typeof input.ref !== 'string' || typeof input.field !== 'string') throw new Error('capability:invalid-input');
+      const config = await capabilityService.configuration(input);
+      const field = config.schema.groups.flatMap(group => group.fields).find(field => field.id === input.field && field.type === 'path');
+      if (!field) throw new Error('capability:invalid-input');
+      const result = await dialog.showOpenDialog(window, { title: field.label,
+        properties: [field.selection === 'file' ? 'openFile' : 'openDirectory'] });
+      if (result.canceled) return null;
+      await capabilityService.configuration(input);
+      return result.filePaths[0] ?? null;
+    }
+    case 'bvrConfiguration':
+    case 'bvrSaveConfiguration':
+    case 'bvrCheckEnvironment': {
+      if (method !== 'bvrSaveConfiguration' && settingsMutation) throw new Error('bvr:busy');
+      if (!(await capabilityService.catalog()).plugins.some(plugin => plugin.id === 'bilibili-video-research'))
+        throw new Error('bvr:not-installed');
+      try {
+        if (method === 'bvrSaveConfiguration') {
+          await guardIdle({ stopHost: false });
+          return await bvrSettings.save(args[0]);
+        }
+        return method === 'bvrCheckEnvironment' ? await bvrSettings.check(args[0]) : await bvrSettings.read();
+      } catch (error) {
+        throw new Error(error instanceof Error && /^bvr:[a-z-]+$/u.test(error.message) ? error.message : 'bvr:storage');
+      }
+    }
+    case 'bvrChoosePath': {
+      const kind = args[0];
+      if (!['runtime', 'cookie', 'download'].includes(kind)) throw new Error('bvr:invalid-input');
+      const selected = await dialog.showOpenDialog(window, {
+        properties: [kind === 'cookie' ? 'openFile' : 'openDirectory'],
+        ...(kind === 'cookie' ? { filters: [{ name: 'Cookie', extensions: ['txt'] }] } : {}),
+      });
+      return selected.canceled ? null : selected.filePaths[0] ?? null;
     }
     case 'capabilityMutate': {
       await guardIdle({ stopHost: false });
@@ -2229,7 +2354,7 @@ app.on('before-quit', event => {
       await terminals.stopAll();
       await sessionImports.close();
       await remote.shutdown();
-      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
+      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
       await usageEstimates.flush();
@@ -2257,6 +2382,7 @@ else app.whenReady().then(async () => {
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
   await collaboration.start();
+  await bvrBridge.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;
   // vault.load() also migrates and removes a legacy plaintext auth.json. safeStorage
   // requires the ready state, which whenReady provides.
@@ -2377,7 +2503,7 @@ else app.whenReady().then(async () => {
     if (method === 'quitRespond' || method === 'windowControl') return handle(method, args);
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
-    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill'].includes(method);
+    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration'].includes(method);
     const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
     if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
       throw new Error('Shared settings operation in progress');

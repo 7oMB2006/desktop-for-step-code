@@ -1,5 +1,5 @@
 import type { Message, SummaryTask } from './contracts';
-import { backgroundSubagentStates, conversationEntries, responsePresentation, subagentTasks, type SubagentTask } from './conversation-presentation';
+import { backgroundSubagentStates, conversationEntries, projectBackgroundSubagentStates, responsePresentation, subagentTasks, type BackgroundLaneActivity, type SubagentDisplayStatus, type SubagentDisplayTask } from './conversation-presentation';
 import { workflowsFromMessages } from './workflow-state';
 import { redactSensitiveText } from './subagent-redact';
 import { isUserMessage } from './user-message';
@@ -7,14 +7,14 @@ import { cronMessage } from './cron-message';
 
 export type SummaryAgent = {
   key: string; agent: string; task: string;
-  status: SubagentTask['status'] | 'unknown' | 'cached';
+  status: SubagentDisplayStatus | 'cached';
   carried?: boolean;
-  target: { type: 'subagent'; task: SubagentTask } | { type: 'workflow'; id: string };
+  target: { type: 'subagent'; task: SubagentDisplayTask } | { type: 'workflow'; id: string };
 };
 
 /** Reuse structured timeline projections; never infer success from a parent tool. */
-export function summaryAgents(messages: Message[], busy: boolean): SummaryAgent[] {
-  const background = backgroundSubagentStates(messages);
+export function summaryAgents(messages: Message[], busy: boolean, activity?: BackgroundLaneActivity): SummaryAgent[] {
+  const background = projectBackgroundSubagentStates(backgroundSubagentStates(messages), activity);
   const entries = conversationEntries(messages);
   const lastTurn = messages.reduce((last, message, index) =>
     isUserMessage(message) || cronMessage(message) ? index : last, -1);
@@ -37,7 +37,7 @@ export function summaryAgents(messages: Message[], busy: boolean): SummaryAgent[
       if (item.type !== 'tool' || (item.call?.name ?? item.result?.toolName) !== 'subagent') continue;
       const results = Array.isArray(item.result?.details?.results)
         ? item.result.details.results.filter(record => record && typeof record === 'object') : [];
-      subagentTasks(item.call, item.result, background).forEach((task, index) => {
+      subagentTasks(item.call, item.result, background, activity).forEach((task, index) => {
         const raw = results[index] as { status?: unknown } | undefined;
         const registered = task.backgroundAgentId && background.has(task.backgroundAgentId);
         const explicit = ['queued', 'running', 'completed', 'failed', 'aborted', 'skipped'].includes(String(raw?.status));

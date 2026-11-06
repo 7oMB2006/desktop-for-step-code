@@ -1,0 +1,69 @@
+diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
+index 309148e6f93e6f9d1f175d846b3522a19fc16da3..3cfc96ec9954870b497a59727c3175ed743def50 100644
+--- a/packages/coding-agent/src/features/step-cron.ts
++++ b/packages/coding-agent/src/features/step-cron.ts
+@@ -23,6 +23,15 @@ import type {
+ } from "../core/extensions/types.ts";
+ import type { StepTelemetryProperties, StepTelemetryReporter } from "../step/telemetry.ts";
+ 
++// Desktop Beta: a recovery host cannot deliver until its configuration is verified.
++let desktopRecoveryBlocked = process.env.DESKTOP_CRON_STATE === "1" && process.env.DESKTOP_CRON_RECOVERY === "1";
++export function resumeDesktopCronRecovery(): void {
++	if (process.env.DESKTOP_CRON_STATE !== "1" || !desktopRecoveryBlocked) {
++		throw new Error("No gated Desktop Cron recovery is pending");
++	}
++	desktopRecoveryBlocked = false;
++}
++
+ const TICK_INTERVAL_MS = 1_000;
+ /** Cross-process pickup cadence; firing precision comes from the in-memory view. */
+ const DURABLE_REFRESH_INTERVAL_MS = 30_000;
+@@ -875,7 +884,8 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 				telemetry: options.telemetry,
+ 				isIdle: () =>
+ 					Boolean(
+-						currentContext?.isIdle() &&
++						!desktopRecoveryBlocked &&
++							currentContext?.isIdle() &&
+ 							!currentContext.hasPendingMessages() &&
+ 							// A job whose delivery would start a turn stays due instead of
+ 							// being fired into a queue, so an approval does not replay work the
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index 0f018a5fd164afd7e27283f1d2f0a23d9860f350..36b21ae156291a1ddb022a782d30e48395f9d87d 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -27,6 +27,7 @@ import {
+ } from "../../core/output-guard.ts";
+ import { pendingHandoffText } from "../../features/plan-handoff.ts";
+ import { getStepPlanMode, pendingProposalOf } from "../../features/step-plan.ts";
++import { resumeDesktopCronRecovery } from "../../features/step-cron.ts";
+ import { getStepMcpStatuses } from "../../step/mcp.ts";
+ import { STEPCODE_VERSION } from "../../step/version.ts";
+ import { type Theme, theme } from "../../theme/theme.ts";
+@@ -541,6 +542,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 					skillCount: session.resourceLoader.getSkills().skills.length,
+ 				});
+ 			}
++			case "desktop_cron_resume": {
++				if (session.isStreaming || session.isCompacting || session.pendingMessageCount
++					|| !session.extensionRunner.createContext().isProjectTrusted()) {
++					throw new Error("Cron recovery requires an idle trusted project");
++				}
++				resumeDesktopCronRecovery();
++				return success(id, "desktop_cron_resume");
++			}
+ 			case "desktop_cron": {
+ 				if (process.env.DESKTOP_CRON_STATE !== "1") throw new Error("Desktop Cron management is disabled");
+ 				if (!["list", "create", "delete"].includes(command.action)) throw new Error("Invalid Cron action");
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 2d7930d2d1cf9193d07d93a5ab3be1341e0d0ddf..b4c1343921d9d5060c6c7346ef2578f243da89ee 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -30,6 +30,7 @@ export type RpcCommand =
+ 	// State
+ 	| { id?: string; type: "get_state" }
+ 	| { id?: string; type: "get_desktop_summary" }
++	| { id?: string; type: "desktop_cron_resume" }
+ 	| { id?: string; type: "desktop_cron"; action: "list" | "create" | "delete"; cron?: string; prompt?: string; recurring?: boolean; durable?: boolean; jobId?: string }
+ 
+ 	// Model

@@ -1,0 +1,6 @@
+{
+  "name": "dfsc-config-example-local",
+  "plugins": [
+    { "name": "dfsc-config-example", "source": "./plugins/dfsc-config-example", "description": "A local note-formatting example with real declarative settings." }
+  ]
+}

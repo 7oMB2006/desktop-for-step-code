@@ -82,6 +82,7 @@ test('live background lanes retain their host without blocking foreground messag
       method: 'setStatus', statusKey: 'desktop-subagents', statusText: JSON.stringify({ version: 1, lanes }) });
     notify([{ id: 'lane_12345678', status: 'running' }]);
     assert.deepEqual(host.backgroundLanes, [{ id: 'lane_12345678', status: 'running' }]);
+    assert.deepEqual(pool.summaries()[0].background, { status: 'known', lanes: [{ id: 'lane_12345678', status: 'running' }] });
     assert.equal(pool.summaries()[0].backgroundCount, 1);
     transports[0].receive({ type: 'agent_start' });
     transports[0].receive({ type: 'agent_end', messages: host.messages });
@@ -101,6 +102,7 @@ test('live background lanes retain their host without blocking foreground messag
     notify([{ id: 'lane_12345678', status: 'settling' }]);
     assert.equal(pool.running, true, 'Final notification delivery retains the host too');
     notify([]);
+    assert.deepEqual(pool.summaries().find(runtime => runtime.runtimeId === host.id)?.background, { status: 'known', lanes: [] });
     assert.equal(pool.summaries().find(runtime => runtime.runtimeId === host.id)?.backgroundCount, 0);
     await new Promise(resolve => setImmediate(resolve));
     await pool.recycle();
@@ -121,6 +123,7 @@ test('historical lanes and stale transports cannot revive live background owners
     assert.equal(pool.running, true, 'Unknown live state fails closed');
     receive({ type: 'desktop_exit' });
     assert.equal(host.backgroundLanes, undefined);
+    assert.deepEqual(pool.summaries()[0].background, { status: 'unavailable' });
     assert.equal(pool.summaries()[0].backgroundCount, undefined);
     receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-subagents',
       statusText: JSON.stringify({ version: 1, lanes: [{ id: 'lane_12345678', status: 'running' }] }) });
@@ -1007,13 +1010,13 @@ function branchFixture(outcome: 'success' | 'cancelled' | 'changed' = 'success')
   return { pool, transports, events };
 }
 
-function retryFixture(outcome: 'success' | 'cancelled' | 'unsupported' | 'rejected' = 'success') {
+function retryFixture(outcome: 'success' | 'cancelled' | 'unsupported' | 'rejected' = 'success', withImages = true) {
   const events: RuntimeEvent[] = [];
   const image = { type: 'image', mimeType: 'image/png', data: 'fixture' };
   const entries = [
     { id: 'u1', parentId: null, type: 'message', message: { role: 'user', content: 'same', timestamp: 1 } },
     { id: 'a1', parentId: 'u1', type: 'message', message: { role: 'assistant', content: 'earlier', timestamp: 2 } },
-    { id: 'u2', parentId: 'a1', type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'same' }, image], timestamp: 3 } },
+    { id: 'u2', parentId: 'a1', type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'same' }, ...(withImages ? [image] : [])], timestamp: 3 } },
     { id: 'a2', parentId: 'u2', type: 'message', message: { role: 'assistant', content: 'discarded', timestamp: 4 } },
   ];
   let leafId = 'a2';
@@ -1055,6 +1058,17 @@ test('retry stays in the same worker/session, excludes the old turn and retains 
   assert.deepEqual(events.find(event => event.type === 'desktop_history')?.messages.map((message: { content: unknown }) => message.content), ['same', 'earlier']);
   assert.deepEqual(submitted, [{ message: 'edited', images: [image] }]);
   assert.equal(worker.submissions, 0);
+});
+test('retry prepares only attachment-free init through execution-time detection', async () => {
+  for (const withImages of [false, true]) {
+    const { pool, submitted, image } = retryFixture('success', withImages);
+    const worker = await pool.open('node', 'step', process.cwd(), {});
+    await pool.retryLatest(worker, 'u2', '/init');
+    if (withImages) assert.deepEqual(submitted, [{ message: '/init', images: [image] }]);
+    else assert.match(String(submitted[0].message), /Desktop project AI instructions \(\/init\)/);
+    assert.equal(worker.submissions, 0);
+    await pool.stopAll();
+  }
 });
 test('retry rejects old and forged entries before navigating', async () => {
   const { pool, events, submitted } = retryFixture();

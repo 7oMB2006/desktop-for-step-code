@@ -31,9 +31,13 @@ export function desktopCommand(message: string, attachments = 0, quotes = 0) {
 
 export function desktopCommands(commands: ComposerCommand[]): ComposerCommand[] {
   const names = new Set([...coreCommands, ...localCommands].map(command => command.name));
-  return [
-    ...commands.filter(command => !command.name.startsWith('_desktop_') && !names.has(command.name)),
+  const catalog = [
+    ...commands.filter(command => !command.name.startsWith('_desktop_') && !names.has(command.name)
+      && !(command.name === 'init' && command.source === 'desktop')),
     ...coreCommands.map(command => ({ ...command })),
     ...localCommands.map(command => ({ ...command })),
   ];
+  if (!catalog.some(command => command.name === 'init'))
+    catalog.push({ name: 'init', source: 'desktop', description: 'Create project AI rules or check existing AGENTS.md without changing it' });
+  return catalog;
 }

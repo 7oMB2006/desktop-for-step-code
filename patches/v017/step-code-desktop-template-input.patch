@@ -1,0 +1,108 @@
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index b4dbe9aa6b2f2fa998919078e18653af881ecae0..1035d56a86d98e0fb403f28abb0c07460c6053ac 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -151,6 +151,13 @@ import { addUsageToTotals, createUsageTotals, entryUsage } from "./usage-totals.
+ export { type ParsedSkillBlock, parseSkillBlock } from "../utils/skill-block.ts";
+ export type { AgentRunFailure } from "./run-failure.ts";
+ 
++function desktopTemplateInput(original: string | undefined, expanded: string) {
++	// Preserve presentation provenance without replacing the model's expanded input.
++	return process.env.STEP_CLIENT === "desktop-for-step-code" && original?.startsWith("/") && original !== expanded
++		? { desktopInput: { version: 1 as const, text: original } }
++		: {};
++}
++
+ /** Session-specific events that extend the core AgentEvent */
+ export type AgentSessionEvent =
+ 	| Exclude<AgentEvent, { type: "agent_end" }>
+@@ -2412,6 +2419,7 @@ export class AgentSession {
+ 				expandedText = this._expandSkillCommand(expandedText);
+ 				expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+ 			}
++			const originalInput = expandedText !== currentText ? text : undefined;
+ 
+ 			// If streaming, queue via steer() or followUp() based on option
+ 			if (this.isStreaming) {
+@@ -2421,9 +2429,9 @@ export class AgentSession {
+ 					);
+ 				}
+ 				if (options.streamingBehavior === "followUp") {
+-					await this._queueFollowUp(expandedText, currentImages, options?.source);
++					await this._queueFollowUp(expandedText, currentImages, options?.source, originalInput);
+ 				} else {
+-					await this._queueSteer(expandedText, currentImages, options?.source);
++					await this._queueSteer(expandedText, currentImages, options?.source, originalInput);
+ 				}
+ 				preflightResult?.(true);
+ 				return;
+@@ -2433,7 +2441,7 @@ export class AgentSession {
+ 			// answered; the message waits for the turn that answers it. A user's own
+ 			// message always runs, because that is how the decision gets answered.
+ 			if (options?.source === "extension" && this.hasPendingUserDecision) {
+-				await this._queueFollowUp(expandedText, currentImages, options.source);
++				await this._queueFollowUp(expandedText, currentImages, options.source, originalInput);
+ 				preflightResult?.(true);
+ 				return;
+ 			}
+@@ -2486,7 +2494,7 @@ export class AgentSession {
+ 			}
+ 			const userMessage: AgentMessage = options?.customMessage
+ 				? { ...options.customMessage, role: "custom", content: userContent, timestamp: Date.now() }
+-				: { role: "user", content: userContent, timestamp: Date.now() };
++				: { role: "user", content: userContent, timestamp: Date.now(), ...desktopTemplateInput(originalInput, expandedText) };
+ 			// A prompt a person typed is theirs, whatever delivered it. Recorded by
+ 			// identity so the delivery rule and the delivery event can tell it from
+ 			// work an extension queued on their behalf.
+@@ -2655,7 +2663,7 @@ export class AgentSession {
+ 		let expandedText = this._expandSkillCommand(text);
+ 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+ 
+-		await this._queueSteer(expandedText, images);
++		await this._queueSteer(expandedText, images, undefined, text);
+ 	}
+ 
+ 	/**
+@@ -2675,7 +2683,7 @@ export class AgentSession {
+ 		let expandedText = this._expandSkillCommand(text);
+ 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+ 
+-		await this._queueFollowUp(expandedText, images);
++		await this._queueFollowUp(expandedText, images, undefined, text);
+ 	}
+ 
+ 	/**
+@@ -2694,14 +2702,14 @@ export class AgentSession {
+ 	private _queueDeliveryAllowed = (message: AgentMessage): boolean =>
+ 		!this.hasPendingUserDecision || this._queuedFromUser.has(message);
+ 
+-	private async _queueSteer(text: string, images?: ImageContent[], source?: InputSource): Promise<void> {
++	private async _queueSteer(text: string, images?: ImageContent[], source?: InputSource, originalInput?: string): Promise<void> {
+ 		this._steeringMessages.push(text);
+ 		this._emitQueueUpdate();
+ 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+ 		if (images) {
+ 			content.push(...images);
+ 		}
+-		const message: AgentMessage = { role: "user", content, timestamp: Date.now() };
++		const message: AgentMessage = { role: "user", content, timestamp: Date.now(), ...desktopTemplateInput(originalInput, text) };
+ 		if (source !== "extension") this._queuedFromUser.add(message);
+ 		this.agent.steer(message);
+ 	}
+@@ -2709,14 +2717,14 @@ export class AgentSession {
+ 	/**
+ 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
+ 	 */
+-	private async _queueFollowUp(text: string, images?: ImageContent[], source?: InputSource): Promise<void> {
++	private async _queueFollowUp(text: string, images?: ImageContent[], source?: InputSource, originalInput?: string): Promise<void> {
+ 		this._followUpMessages.push(text);
+ 		this._emitQueueUpdate();
+ 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+ 		if (images) {
+ 			content.push(...images);
+ 		}
+-		const message: AgentMessage = { role: "user", content, timestamp: Date.now() };
++		const message: AgentMessage = { role: "user", content, timestamp: Date.now(), ...desktopTemplateInput(originalInput, text) };
+ 		if (source !== "extension") this._queuedFromUser.add(message);
+ 		this.agent.followUp(message);
+ 	}

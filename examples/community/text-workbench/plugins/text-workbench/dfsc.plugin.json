@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "authors": [{ "name": "DFSC example contributors" }],
+  "maintainers": [{ "name": "DFSC example contributors" }],
+  "license": "MIT",
+  "categories": ["text-documents"],
+  "keywords": ["plain text", "text cleanup"],
+  "documentation": {
+    "readme": "docs/GUIDE.md",
+    "changelog": "CHANGELOG.md"
+  },
+  "tutorials": [],
+  "links": []
+}

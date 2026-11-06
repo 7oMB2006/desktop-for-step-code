@@ -1,0 +1,16 @@
+{
+  "id": "text-workbench",
+  "name": "文本整理台",
+  "version": "0.1.0",
+  "description": "把多行文本整理成清单，支持去重、排序和统计。离线工具，无需 Key；第三方投稿流程示范。",
+  "icon": "assets/icon.png",
+  "commands": ["commands"],
+  "skills": ["skills"],
+  "mcpServers": {
+    "text": {
+      "command": "node",
+      "args": ["server/stdio.mjs"],
+      "env": { "STEPFUN_API_KEY": "DFSC_INDEPENDENT_PLUGIN" }
+    }
+  }
+}

@@ -28,6 +28,24 @@ test('duration formatting covers zero, hours, and clock rollback', () => {
   assert.equal(elapsedTime({ startedAt: 2000 }, 1000), '0s');
 });
 
+test('completion review keeps one timing span across both native runs', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'step-review-timing-'));
+  try {
+    const timing = new ConversationTiming(root), host = worker('review-timing');
+    send(timing, host, { type: 'agent_start' }, 1000);
+    send(timing, host, { type: 'message_start', message: { role: 'assistant', timestamp: 1100, content: 'Original' } }, 1100);
+    send(timing, host, { type: 'agent_end', desktopReviewPending: true }, 2000);
+    assert.equal(host.messages[0].desktopTiming!.run.endedAt, undefined);
+    send(timing, host, { type: 'agent_start', desktopReviewContinuation: true }, 3000);
+    send(timing, host, { type: 'message_start', message: { role: 'assistant', timestamp: 3100, content: 'Review' } }, 3100);
+    send(timing, host, { type: 'agent_end', desktopReviewPending: true }, 4000);
+    send(timing, host, { type: 'desktop_completion_review', review: { status: 'ended' } }, 5000);
+    for (const message of host.messages)
+      assert.deepEqual(message.desktopTiming!.run, { startedAt: 1000, endedAt: 5000 });
+    await timing.flush();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('thinking freezes independently; total includes tools and steering; sidecar survives reopening', async () => {
   const root = await mkdtemp(join(tmpdir(), 'step-timing-'));
   try {

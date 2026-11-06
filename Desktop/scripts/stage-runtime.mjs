@@ -3,16 +3,17 @@ import { createRequire } from 'node:module';
 import { resolve, dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { build } from 'esbuild';
 import { assertStagingNodeVersion } from './staging-node-version.mjs';
 import { buildRemoteAdapter } from './build-remote-adapter.mjs';
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
 if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
 const nodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
-const integrationManifest = JSON.parse(await readFile(new URL('../../patches/v016/manifest.json', import.meta.url), 'utf8'));
+const integrationManifest = JSON.parse(await readFile(new URL('../../patches/v017/manifest.json', import.meta.url), 'utf8'));
 const platformManifest = integrationManifest.platforms?.[process.platform];
 const PINNED_COMMIT = integrationManifest.commit;
-const patchFile = 'patches/v016/step-code-desktop.patch';
+const patchFile = 'patches/v017/step-code-desktop.patch';
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 if (commit !== PINNED_COMMIT) {
   // Naming both sides keeps a stale build instruction from reading as a broken checkout.
@@ -86,6 +87,7 @@ for (const name of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) await cp(joi
 await cp('electron/admin.mjs', join(runtime, 'admin.mjs'));
 await cp('electron/capability-admin.mjs', join(runtime, 'capability-admin.mjs'));
 await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.mjs'));
+await cp('electron/plugin-files.mjs', join(runtime, 'plugin-files.mjs'));
 await cp('electron/session-import.mjs', join(runtime, 'session-import.mjs'));
 await cp('electron/session-history.mjs', join(runtime, 'session-history.mjs'));
 await cp('electron/session-search.mjs', join(runtime, 'session-search.mjs'));
@@ -93,6 +95,8 @@ await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
 await cp('electron/desktop-remote.mjs', join(runtime, 'desktop-remote.mjs'));
+await build({ entryPoints: ['electron/project-instructions-extension.ts'], outfile: join(runtime, 'project-instructions.mjs'),
+  bundle: true, platform: 'node', format: 'esm', target: 'node24' });
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));
 await buildRemoteAdapter(upstream, runtime);
 const require = createRequire(join(source, 'package.json'));
@@ -115,5 +119,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, upstreamCommits: (integrationManifest.upstream?.commits ?? []).map(entry => entry.sha), platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', 'desktop-background-control', 'desktop-btw', 'desktop-subagent-redaction', ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, upstreamCommits: (integrationManifest.upstream?.commits ?? []).map(entry => entry.sha), platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', 'desktop-background-control', 'desktop-btw', 'desktop-template-input', 'desktop-subagent-redaction', 'desktop-background-reply', 'desktop-completion-review', ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

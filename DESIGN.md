@@ -15,6 +15,38 @@ the focus extent against clipping ancestors, not just the input's border box.
 
 ## Existing Components
 
+Expanded slash templates retain a versioned runtime record of the original input.
+Transcript rendering, copy/edit text and navigation previews use that record;
+the model and canonical history retain the expanded content. Never infer command
+provenance from English template wording or rewrite unmarked historical messages.
+
+Summary MCP switches edit the same persistent per-server configuration as Settings.
+Live connection counts remain runtime-owned. Saved changes show Restart pending
+until an explicit idle-session restart applies them; running work and scheduled
+hosts keep their existing restart guards. Switches have no tooltip, retain their
+compact footprint and expose a larger invisible hit target.
+
+Plugins use a main-view catalog and a separate detail level, not a split sidebar
+or a small settings modal. Installed, Discover and Marketplaces share existing
+theme tokens and cubic/reduced-motion disclosure behavior. Installed cards have
+an MCP service switch without a tooltip, a verified GitHub link and an icon-only
+configuration gear. A service switch does not claim to unload skills or commands.
+Details retain an accessible back action, sticky tabs, a shared trackless thumb
+and a persistent save/restart footer. Main navigation preserves local plugin
+configuration and conversation drafts; leaving a dirty plugin detail requires
+confirmation. BVR has independent address/key/model fields for its main model
+and ASR connection. Saved keys are never loaded into renderer inputs. Generic
+plugins may declare bounded settings with a verified native configuration consumer;
+unsupported plugins retain raw MCP controls in technical Settings. Arbitrary
+plugin frontends are not executed. Package Markdown and images are read on demand
+through opaque references, never renderer filesystem access. Tutorials and
+authorship remain author declarations; GitHub Stars are host-queried snapshots.
+
+Plugin authoring, fixed layout, control/copy conventions and the BVR mapping
+are documented in `docs/PLUGIN_AUTHORING.md`. `examples/plugins` separates a
+native-installable resource starter from a host-owned React field template;
+neither declares a third-party frontend SDK.
+
 First-run setup is a separate bootstrap surface, not a settings dialog layered
 over the conversation. Only a fresh Desktop profile enters it. Reuse the native
 project chooser, provider form, language menu, model/thinking and permission
@@ -241,6 +273,15 @@ Settings use one centered, fixed-size secondary window: 1060 by 740 pixels, boun
 Artifact and web-reference entry points also close the right panel when it already shows that target. External application actions and explicit file refresh remain commands. Hiding a panel preserves its reading state, browser tabs and terminal processes. Local HTML reactivation selects its existing browser tab without reloading it; the browser refresh command remains available.
 
 Resizable inspectors share a subtle single-line grip centered on their left boundary, with a larger invisible pointer target and no tooltip. Drag geometry follows the pointer and release snaps to existing presets; a long drag may cross multiple presets. Closing requires dragging at least 100px beyond standard width. Browser, file and terminal use standard/wide/fullscreen; context, changes and subagent use standard/fullscreen. Conversation navigation is excluded. Click opens an anchored in-app size menu; keyboard left/right expands/contracts. The browser yields its native surface while the menu is open. Reduced-motion preferences disable the settling transition.
+
+Current-runtime single background-agent details offer a compact follow-up
+composer using the actual ComposerInput, composer surface and ComposerActionIcon.
+The native current turn is not interrupted; retained completed children continue
+their original conversation. Per-lane drafts stay separate from the parent.
+Queued/started are delivery receipts, never completion claims. Stale,
+disconnected, settling, missing and parallel/chain records cannot send.
+Unconfirmed delivery retains the draft without automatic retry. The composite
+focus ring keeps its full four-pixel gutter inside the scrolling inspector.
 
 The thinking fader animates one inherited position and resistance value for both
 the thumb center and gradient fill edge. Their geometry uses the same inner

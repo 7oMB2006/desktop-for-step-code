@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { prepareSessionFixture } from './session-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { planContext, planPath } from './plan-context.mjs';
 
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const resources = executablePath ? (process.platform === 'darwin' ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
@@ -103,9 +104,11 @@ const server = createServer(async (request, response) => {
     for await (const chunk of request) { raw += chunk; assert.ok(raw.length < 8 * 1024 * 1024); }
     const body = JSON.parse(raw);
     const text = message => typeof message.content === 'string' ? message.content : message.content?.filter(block => block.type === 'text').map(block => block.text).join('\n');
-    const task = text(body.messages.findLast(message => message.role === 'user'
-      && !text(message).includes('This is runtime state, not an additional user message.')));
-    if (task === 'REMOTE-IMAGE-INPUT') imageInputs.push(body.messages.findLast(message => message.role === 'user').content);
+    const input = body.messages.findLast(message => message.role === 'user'
+      && !text(message).startsWith('<collaboration_mode>')
+      && !text(message).includes('This is runtime state, not an additional user message.'));
+    const task = text(input);
+    if (task === 'REMOTE-IMAGE-INPUT') imageInputs.push(input.content);
     received.push(task);
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, finish_reason = null) => response.write(`data: ${JSON.stringify({ id: 'remote-fixture', object: 'chat.completion.chunk',
@@ -130,14 +133,16 @@ const server = createServer(async (request, response) => {
     }
     if (task === 'REMOTE-PLAN' || task === 'REMOTE-PLAN-REFINE') {
       const context = body.messages.map(text).join('\n');
+      const mode = planContext(body.messages);
       if (!done(`${task}-write`)) {
-        const path = /Write the proposal to (.*)\. Only this proposal/.exec(context)?.[1];
+        assert.match(mode, /# Plan Mode/);
+        const path = planPath(mode);
         assert.ok(path, 'The real runtime provides the active proposal path');
         return tool(`${task}-write`, 'write_file', { path, content: '# Remote proposal\n\nInspect the message mapping.\nRun regression tests before packaging.' });
       }
       if (!done(`${task}-submit`)) return tool(`${task}-submit`, 'exit_plan_mode', {});
-      if (task === 'REMOTE-PLAN') assert.doesNotMatch(context, /\[Desktop Plan mode active\]/, 'Only explicit Plan approval exits planning');
-      else { assert.match(context, /\[Desktop Plan mode active\]/); assert.match(context, /Add regression coverage/); }
+      if (task === 'REMOTE-PLAN') assert.match(mode, /# Collaboration Mode: Default/, 'Only explicit Plan approval exits planning');
+      else { assert.match(mode, /# Plan Mode/); assert.match(context, /Add regression coverage/); }
     }
     const toolDone = body.messages.some(message => message.role === 'tool' && message.tool_call_id === 'remote-call-12345678');
     if (task === 'REMOTE-APPROVAL' && !toolDone) send({ tool_calls: [{ index: 0, id: 'remote-call-12345678', type: 'function',
@@ -286,6 +291,19 @@ try {
   };
   await page.locator('.composer > .composer-input').fill('Draft stays local');
   await button('远程访问').click();
+  await page.locator('.remote-live').waitFor();
+  assert.equal(await page.locator('main:visible').count(), 1);
+  await button('插件市场').click();
+  await page.locator('.plugin-center').waitFor();
+  assert.equal(await page.locator('.remote-live').count(), 0, 'Plugin navigation closes Remote without replacing its routing');
+  assert.equal(await button('远程访问').getAttribute('aria-pressed'), 'false');
+  assert.equal(await page.locator('main:visible').count(), 1);
+  await button('远程访问').click();
+  await page.locator('.remote-live').waitFor();
+  assert.equal(await page.locator('.plugin-center').isVisible(), false, 'Remote hides the retained plugin center');
+  assert.equal(await button('插件市场').getAttribute('aria-pressed'), 'false');
+  assert.equal(await page.locator('main:visible').count(), 1);
+  assert.equal(await page.locator('.composer > .composer-input').innerText(), 'Draft stays local');
   let panel = page.locator('.remote-live');
   await panel.getByRole('button', { name: /管理配置/ }).click();
   await button('连接飞书').click();

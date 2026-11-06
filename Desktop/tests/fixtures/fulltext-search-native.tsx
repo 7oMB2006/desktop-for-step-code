@@ -48,7 +48,7 @@ function Preview() {
           || query.since && timestamp < query.since) return [];
         return conversation.messages.flatMap(message => terms.every(term => message.text.toLowerCase().includes(term)) ? [{
           sessionId: session.id, entryId: scenario === 'degraded' ? null : message.id,
-          timestamp, role: message.role, snippet: message.text.replace(expression, match => `\u0002${match}\u0003`),
+          timestamp, role: message.role, snippet: scenario === 'unconfirmed' ? '' : message.text.replace(expression, match => `\u0002${match}\u0003`),
         } satisfies FulltextHit] : []);
       });
       return { id: query.id, hits, limited: false, limit: 100, shortQuery: terms.some(term => [...term].length < 3),
@@ -67,7 +67,8 @@ function Preview() {
   return <div className="fulltext-native-preview">
     <div className="fulltext-native-toolbar"><span>实际组件预览 · 示例数据</span><div>
       <ScheduledTaskSelect label="预览状态" value={scenario}
-        options={[{ id: 'ready', label: '正常' }, { id: 'partial', label: '索引建立中' }, { id: 'degraded', label: '索引不可用' }, { id: 'error', label: '查询失败' }]}
+        options={[{ id: 'ready', label: '正常' }, { id: 'partial', label: '索引建立中' }, { id: 'degraded', label: '索引不可用' },
+          { id: 'unconfirmed', label: '摘要不可预览' }, { id: 'error', label: '查询失败' }]}
         onChange={value => { setScenario(value); setActive(true); setRequest(value => ({ ...value, id: value.id + 1 })); }}/>
       <button className="icon-button" aria-label="切换主题" data-tooltip="切换主题" onClick={() => setDark(value => !value)}>{dark ? <Sun size={16}/> : <Moon size={16}/>}</button>
     </div></div>

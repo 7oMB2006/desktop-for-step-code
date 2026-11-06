@@ -2,13 +2,36 @@
 
 Repository: https://github.com/stepfun-ai/Step-Code
 
+## Current Development Baseline
+
+Development pinned commit: `29eb460780489801ce8afc8bffc1a2efae7cbded`
+(v0.1.7 announcement source baseline, not an official release tag or verified
+binary/source identity). Use the complete ordered `patches/v017/` set:
+
+```powershell
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v017/step-code-desktop.patch
+```
+
+This pin already contains the two v016 upstream overlays, so v017 applies
+neither again. It retains the 19 Desktop integration patches, a v017 compatibility
+test/formatting delta and the Darwin
+additions with reviewed pre/postimage hashes, including every added source.
+Plan entry is user-only. The Desktop drawer records the native pending proposal
+fact before its existing select/input bridge waits; cancellation and expiry keep
+that barrier. Native collaboration-mode announcements replace the old duplicated
+Desktop context injection. Live-event opt-in, credentials isolation, BTW,
+background controls, template-input provenance and completion review are retained.
+See [v0.1.7 boundaries](../docs/UPSTREAM_V017.md).
+
+## Historical v0.1.6 Baseline
+
 The v016 set also includes `step-code-desktop-btw.patch`: a model-only,
 streaming `desktop_btw` RPC with scoped cancellation and transient history.
 It reuses native model/auth routing, adds no agent tools and does not write to
 the main session. It does not change the pin or historical v015 patches.
 See [BTW boundaries](../docs/BTW.md), including the separate usage-total limit.
 
-Development pinned commit: `81e79bc4b699148d6823fedde9b5e70d9a80255f`
+Historical development pinned commit: `81e79bc4b699148d6823fedde9b5e70d9a80255f`
 (v0.1.6 announcement source baseline, not an official release tag). The public
 0.1.6 manifest has no source SHA; binary/source identity is not asserted.
 Its patches and reviewed pre/post-image hashes live in `patches/v016/`. Apply with:
@@ -48,7 +71,14 @@ redacted `desktop_subagents` list/stop RPC over native `agent_send`, without
 model calls, transcript writes or reply support. It shares the existing live
 ownership and notification handoff, not a second task registry.
 
-Development Windows/macOS builds select the same v016 base.
+The final `step-code-desktop-background-reply.patch` adds explicit single-lane
+follow-ups over the same RPC. It keeps native queue/continuation semantics,
+forces no interruption and returns structured delivery receipts with bounded
+live-runtime request deduplication. These explicit child tasks can use tools
+and model usage; list/stop remain no-model operations. The staged capability is
+`desktop-background-reply`. See [Background controls](../docs/BACKGROUND_AGENTS.md).
+
+Historical v016 Windows/macOS builds select the same v016 base.
 The v016 bundle also supplies module-relative CommonJS filename globals so the
 new Lark dependency can load under Node ESM. This does not add Desktop Lark UI.
 See `docs/UPSTREAM_V016.md` for source identity, ownership and acceptance boundaries.

@@ -21,7 +21,9 @@ test('preparation and capability edits retain idle checks without stopping Cron 
     const start = main.indexOf(`case '${method}':`);
     assert.match(main.slice(start, main.indexOf("\n    case ", start + 1)), /guardIdle\(\{ stopHost: false \}\)/);
   }
-  assert.equal(main.match(/guardIdle\(\{ stopHost: false \}\)/g)?.length, 4);
+  const bvr = main.slice(main.indexOf("case 'bvrConfiguration':"), main.indexOf("case 'bvrChoosePath':"));
+  assert.match(bvr, /if \(method === 'bvrSaveConfiguration'\) \{\s+await guardIdle\(\{ stopHost: false \}\)/);
+  assert.match(main, /const capabilityMutation = \[[^\]]*'bvrSaveConfiguration'/);
   const app = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
   const entry = app.slice(app.indexOf('<CapabilitySettings'), app.indexOf('/> : null}', app.indexOf('<CapabilitySettings')));
   assert.doesNotMatch(entry, /applySnapshot/);

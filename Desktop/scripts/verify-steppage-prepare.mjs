@@ -3,6 +3,7 @@ import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 if (!['win32', 'darwin'].includes(process.platform)) throw new Error('StepPage acceptance requires Windows or macOS');
 const output = resolve('test-results');
@@ -32,8 +33,9 @@ let app;
 const launch = async () => {
   app = await electron.launch({
     ...(executablePath ? { executablePath: resolve(executablePath) } : {}),
-    args: [...(executablePath ? [] : [resolve('.')]), '--disable-backgrounding-occluded-windows',
+    args: [...(executablePath ? [] : [resolve(process.env.DESKTOP_VERIFY_MAIN ?? '.')]), '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding'], env, timeout: 60000,
+    ...(process.env.DESKTOP_VERIFY_CWD ? { cwd: process.env.DESKTOP_VERIFY_CWD } : {}),
   });
   const page = await app.firstWindow();
   await page.locator('.app').waitFor();
@@ -41,6 +43,25 @@ const launch = async () => {
 };
 try {
   let page = await launch();
+  const openCategory = async name => {
+    if (!await page.locator('.settings-dialog').isVisible()) {
+      if (await page.locator('.sidebar').evaluate(element => element.inert)) {
+        await page.locator('.window-sidebar-toggle').click();
+        await page.waitForFunction(() => !document.querySelector('.sidebar')?.inert);
+      }
+      await page.locator('.sidebar-settings').click();
+    }
+    await page.getByRole('navigation', { name: /设置分类|Settings categories/ }).getByRole('button', { name, exact: true }).click();
+  };
+  const openStepPage = async () => {
+    if (await page.locator('.steppage-settings').isVisible()) return;
+    const card = page.locator('.pc-plugin-row').filter({ hasText: /steppage/i });
+    await page.locator('.steppage-settings:visible').or(card.locator('.pc-card-settings'))
+      .or(page.locator('.cap-preparation > summary')).first().waitFor();
+    if (await page.locator('.steppage-settings').isVisible()) return;
+    if (await card.count()) await card.locator('.pc-card-settings').click();
+    else await page.locator('.cap-preparation > summary').click();
+  };
   await page.evaluate(() => window.desktop.snapshot());
   await page.evaluate(() => window.desktop.settings());
   assert.equal((await page.evaluate(() => window.desktop.stepPageState())).status, 'missing');
@@ -54,10 +75,13 @@ try {
     return { runtimeId: host.runtimeId, sessionId: host.state.sessionId, tasks: tasks.filter(job => job.runtimeId === host.runtimeId) };
   });
   assert.equal(cronHost.tasks.length, 1);
+  // This direct fixture RPC does not run App's normal installSnapshot handoff.
+  await page.reload();
+  await page.locator('.app').waitFor();
   // Exercise the actual settings entry rather than installing through a fixture hook.
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click();
-  await page.locator('.cap-preparation > summary').click();
+  await openStepPage();
   const setup = page.getByRole('button', { name: /安装并准备|Install and prepare/ });
   await setup.click();
   await page.getByRole('status').filter({ hasText: /文件就绪|Files ready/ }).waitFor({ timeout: 60000 });
@@ -82,9 +106,9 @@ try {
   assert.equal(await protection.isVisible(), true);
   await page.screenshot({ path: join(output, 'steppage-cron-restart-protected.png') });
   assert.deepEqual((await page.evaluate(() => window.desktop.cronList())).tasks.filter(job => job.runtimeId === cronHost.runtimeId), cronHost.tasks);
-  await page.getByRole('button', { name: /^MCP$/ }).click();
-  await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click();
-  await page.locator('.cap-preparation > summary').click();
+  await openCategory('MCP');
+  await openCategory('插件');
+  await openStepPage();
   await page.getByRole('status').filter({ hasText: /文件就绪|Files ready/ }).waitFor();
   await page.screenshot({ path: join(output, 'steppage-preparation-ready.png') });
   await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
@@ -92,7 +116,7 @@ try {
   await page.locator('.app').waitFor();
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: /^Plugins$/ }).click();
-  await page.locator('.cap-preparation > summary').click();
+  await openStepPage();
   await page.getByRole('status').filter({ hasText: 'Files ready' }).waitFor();
   await page.screenshot({ path: join(output, 'steppage-preparation-light-en.png') });
   const mainWindow = await app.browserWindow(page);
@@ -124,7 +148,7 @@ try {
     return (await window.desktop.summary(s.runtimeId)).mcp.filter(s => s.name.includes('steppage'));
   });
   assert.deepEqual(disabled, [{ name: 'steppage__steppage', status: 'disabled', toolCount: 0 }]);
-  await app.close(); app = undefined;
+  await closeDesktopFixture(app); app = undefined;
   page = await launch();
   assert.equal((await page.evaluate(() => window.desktop.stepPageState())).status, 'ready');
   assert.equal((await page.evaluate(() => window.desktop.settings())).mcp.steppage__steppage.enabled, false);
@@ -135,7 +159,7 @@ try {
     const s = await window.desktop.settings();
     await window.desktop.saveMcp('steppage__steppage', { ...s.mcp.steppage__steppage, enabled: true });
   });
-  await app.close(); app = undefined;
+  await closeDesktopFixture(app); app = undefined;
   const marker = join(profile, 'unverified-bundle-executed');
   await writeFile(join(root, 'steppage/bin/steppage-mcp.mjs'),
     `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'must-not-run');\n`);
@@ -168,7 +192,7 @@ try {
 } finally {
   if (app) {
     await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
-    await app.close();
+    await closeDesktopFixture(app);
   }
   // This script owns the exact mkdtemp profile and all its children.
   assert.ok(profile.startsWith(join(output, 'steppage-prepare-profile-')));

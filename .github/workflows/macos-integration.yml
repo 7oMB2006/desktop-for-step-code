@@ -45,11 +45,15 @@ jobs:
       - name: Upstream shared runtime integration tests
         working-directory: Step-Code/packages/coding-agent
         run: |
-          corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts test/step-then-run-command-parity.test.ts test/step-permissions.test.ts test/step-extension.test.ts test/suite/agent-session-prompt.test.ts test/shell-process-tree.test.ts test/shell-process-tree-darwin.test.ts test/step-subagent-events.test.ts test/subagent-exit-drain.test.ts test/step-usage-lifecycle.test.ts test/step-cron.test.ts test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts test/session-import.test.ts test/session-manager/build-context.test.ts test/compaction-serialization.test.ts test/workflow-runtime.test.ts test/workflow-extension.test.ts test/workflow-agent-runner.test.ts test/workflow-vm.test.ts test/workflow-registration.test.ts
+          corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts test/step-then-run-command-parity.test.ts test/step-permissions.test.ts test/step-extension.test.ts test/suite/agent-session-prompt.test.ts test/shell-process-tree.test.ts test/shell-process-tree-darwin.test.ts test/step-subagent-events.test.ts test/desktop-background-replies.test.ts test/subagent-exit-drain.test.ts test/step-usage-lifecycle.test.ts test/step-cron.test.ts test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts test/session-import.test.ts test/session-manager/build-context.test.ts test/compaction-serialization.test.ts test/workflow-runtime.test.ts test/workflow-extension.test.ts test/workflow-agent-runner.test.ts test/workflow-vm.test.ts test/workflow-registration.test.ts
       - name: Upstream v0.1.6 boundary regressions
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/subagent-lane-notifications.test.ts test/subagent-background-tui.test.ts test/step-search-web.test.ts test/suite/regressions/plan-mode-prompt-cache-prefix.test.ts test/suite/regressions/6647-compaction-retries-transient-stream-drop.test.ts test/suite/regressions/subagent-lane-progress-backlog.test.ts
+      - name: Upstream v0.1.7 safety and context regressions
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/suite/plan-approval-gate.test.ts test/suite/plan-barrier.test.ts test/suite/plan-storage.test.ts test/plan-handoff.test.ts test/extension-plan-review-surface.test.ts test/step-plan-mode-prompt.test.ts test/compaction-trigger-policy.test.ts test/suite/agent-session-compaction-trigger.test.ts test/suite/incomplete-turn-recovery.test.ts test/command-outcome.test.ts test/compaction-summary-reasoning.test.ts test/compaction.test.ts test/branch-summary-extensions.test.ts test/suite/regressions/find-removed-host-cwd.test.ts
       - name: Typecheck and protocol tests
         working-directory: Desktop
         run: |

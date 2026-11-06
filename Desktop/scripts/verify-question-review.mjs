@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
+import { planContext, planPath } from './plan-context.mjs';
 
 const text = value => typeof value === 'string' ? value : value?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
 const questions = [
@@ -21,29 +22,30 @@ const server = createServer(async (req, res) => {
     let body = ''; for await (const part of req) body += part;
     const payload = JSON.parse(body); payloads.push(payload);
     const boundary = payload.messages.findLastIndex(m => m.role === 'user'
-      && !text(m.content).includes('This is runtime state, not an additional user message.'));
+      && !text(m.content).includes('<collaboration_mode>'));
     const prompt = text(payload.messages[boundary]?.content);
     const current = payload.messages.slice(boundary + 1);
     const hasResult = name => current.some(m => m.role === 'tool' && current.some(a =>
       a.tool_calls?.some(call => call.id === m.tool_call_id && call.function.name === name)));
     const context = payload.messages.map(m => text(m.content)).join('\n');
+    const mode = planContext(payload.messages);
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const tool = (name, args) => res.end(chunk({ tool_calls: [{ index: 0, id: `question-${payloads.length}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls') + 'data: [DONE]\n\n');
     if (!hasResult('clarify_user')) {
       assert.ok(payload.tools.some(t => t.function.name === 'clarify_user'), 'Clarification is exposed to the model');
-      if (prompt.includes('PLAN')) assert.match(context, /Desktop Plan mode active/);
+      if (prompt.includes('PLAN')) assert.match(mode, /# Plan Mode/);
       return tool('clarify_user', prompt.includes('LEGACY')
         ? { question: 'Choose one answer', options: [{ label: 'Yes', value: 'yes' }], allow_freeform: false } : { questions });
     }
     if (prompt.includes('PLAN') && !hasResult('write_file')) {
-      assert.match(context, /Desktop Plan mode active/);
+      assert.match(mode, /# Plan Mode/);
       assert.match(context, /answer: large/);
-      const path = /Write the proposal to (.*)\. Only this proposal/.exec(context)?.[1];
+      const path = planPath(mode);
       assert.ok(path);
       return tool('write_file', { path, content: '# Proposal\n\nUse a broader change with no dependencies.\n\nValidation: run tests.' });
     }
     if (prompt.includes('PLAN') && !hasResult('exit_plan_mode')) return tool('exit_plan_mode', {});
-    if (prompt.includes('PLAN')) assert.doesNotMatch(context, /\[Desktop Plan mode active\]/);
+    if (prompt.includes('PLAN')) assert.match(mode, /# Collaboration Mode: Default/);
     if (prompt.includes('CANCEL')) assert.match(context, /User clarification cancelled/);
     res.end(chunk({ role: 'assistant', content: prompt.includes('PLAN') ? 'Approved plan complete.' : 'Question answers received.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
   } catch (error) { fixtureErrors.push(String(error)); res.end(); }
@@ -71,6 +73,30 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.evaluate(() => window.desktop.snapshot());
   const dialog = page.getByRole('dialog', { name: '回答问题', exact: true });
+  const grip = dialog.getByRole('button', { name: '调整提问高度', exact: true });
+  const dragGrip = async (distance, interrupt) => {
+    await settleLayout(dialog);
+    const handle = await grip.boundingBox();
+    const x = handle.x + handle.width / 2, y = handle.y + handle.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.waitForFunction(() => document.querySelector('.question-review-drawer')?.dataset.dragging === 'true');
+    await page.mouse.move(x, y + distance, { steps: 8 });
+    if (interrupt) await grip.dispatchEvent(interrupt);
+    await page.mouse.up();
+  };
+  const assertStillPending = async (before, calls) => {
+    const after = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(after.requests[0]?.id, before.requests[0].id, 'Dragging retains the exact pending question');
+    assert.equal(after.state.isStreaming, true, 'Dragging does not cancel the pending turn');
+    assert.equal(payloads.length, calls, 'Dragging never submits answers or resumes the model');
+  };
+  const reopen = async () => {
+    await questionStatus.click();
+    await dialog.waitFor();
+    assert.equal(await dialog.getByRole('textbox', { name: '你的回答', exact: true }).inputValue(),
+      'Retain this draft', 'Reopening retains the answer and question page');
+  };
   const send = async (prompt, approval = false) => {
     await page.waitForFunction(() => document.querySelector('.composer-action-button')?.getAttribute('data-action') === 'send');
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(prompt);
@@ -141,6 +167,61 @@ try {
   await page.waitForTimeout(300);
   await dialog.getByRole('radio', { name: /Small change/ }).click();
   await dialog.getByRole('textbox', { name: '你的回答', exact: true }).fill('Retain this draft');
+  const beforeDrag = await page.evaluate(() => window.desktop.snapshot());
+  const callsBeforeDrag = payloads.length;
+  await grip.press('Home');
+  await dragGrip(60);
+  await settleLayout(dialog);
+  assert.equal(await dialog.isVisible(), true, 'A short downward drag does not dismiss the question');
+  assert.equal(await dialog.getAttribute('data-size'), 'compact');
+  await dragGrip(110, 'pointercancel');
+  await settleLayout(dialog);
+  assert.equal(await dialog.isVisible(), true, 'A cancelled gesture does not dismiss the question');
+  assert.equal(await dialog.getAttribute('data-dragging'), 'false');
+  await dragGrip(110, 'lostpointercapture');
+  await settleLayout(dialog);
+  assert.equal(await dialog.isVisible(), true, 'Losing capture does not dismiss the question');
+  assert.equal(await dialog.getAttribute('data-dragging'), 'false');
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  await dragGrip(110);
+  await dialog.waitFor({ state: 'hidden' });
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  assert.equal(await page.evaluate(() => document.activeElement?.matches('.question-review-trigger')),
+    true, 'Dismissal returns focus to the question entry');
+  assert.equal(await page.locator('.composer-underlay').evaluate(el => getComputedStyle(el).visibility),
+    'visible', 'Dragging restores the composer without answering the question');
+  await reopen();
+  await grip.press('Home');
+  await settleLayout(dialog);
+  const compactHeight = (await dialog.boundingBox()).height;
+  await grip.press('End');
+  await settleLayout(dialog);
+  const expandedHeight = (await dialog.boundingBox()).height;
+  assert.ok(expandedHeight > compactHeight * 1.5);
+  await dragGrip((expandedHeight - compactHeight) * .75);
+  await settleLayout(dialog);
+  assert.equal(await dialog.isVisible(), true, 'Resizing above the compact boundary does not dismiss');
+  assert.equal(await dialog.getAttribute('data-size'), 'compact');
+  await grip.press('End');
+  await dragGrip(expandedHeight - compactHeight + 20);
+  await dialog.waitFor({ state: 'hidden' });
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  await reopen();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 740));
+  await page.waitForFunction(() => innerWidth === 900 && innerHeight <= 740);
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await grip.press('Home');
+  await dragGrip(110);
+  await dialog.waitFor({ state: 'hidden' });
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  await reopen();
+  await settleLayout(dialog);
+  assert.equal(await dialog.evaluate(el => getComputedStyle(el).animationName), 'none');
+  await page.screenshot({ path: 'test-results/questions-drag-reopened-narrow-light.png' });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await dialog.getByRole('button', { name: '稍后回答', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
   await page.screenshot({ path: 'test-results/questions-approval-status-dark.png' });
@@ -262,7 +343,7 @@ try {
   await dialog.getByRole('button', { name: '提交回答', exact: true }).click();
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   assert.deepEqual(errors, []); assert.deepEqual(fixtureErrors, []);
-  console.log('Clarification Beta: real RPC tool, single/multi-question draft, validation/retry, Plan gating, cancel and abort passed.');
+  console.log('Clarification Beta: real RPC tool, drag defer/reopen with retained answers, single/multi-question draft, validation/retry, Plan gating, cancel and abort passed.');
 } catch (error) {
   const page = await app.firstWindow().catch(() => undefined);
   await page?.screenshot({ path: 'test-results/questions-failure.png' }).catch(() => {});

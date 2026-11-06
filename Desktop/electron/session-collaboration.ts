@@ -71,7 +71,7 @@ export class SessionCollaboration {
       // Unknown extension tools otherwise get a generic write/execute prompt.
       // The broker gates every send itself, even under Full Access, so only
       // these three desktop-owned tools bypass that duplicate approval.
-      args: ['--desktop-plan-review', '--desktop-clarification', '--extension', this.extensionPath,
+      args: ['--desktop-plan-review', '--plan-review-surface', '--desktop-clarification', '--extension', this.extensionPath,
         ...(this.remote ? ['--extension', this.remote.extensionPath] : []),
         '--tool-override', 'desktop_sessions=allow',
         '--tool-override', 'desktop_read_session=allow',

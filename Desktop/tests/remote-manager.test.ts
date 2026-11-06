@@ -679,6 +679,45 @@ test('ending one turn does not clear a later message still in the local queue', 
   f.manager.runtimeEvent(f.workers[0], { type: 'agent_end' }); await tick();
   assert.deepEqual(removed(), ['one', 'two']);
 });
+test('completion review retains the original reply, image grant and reaction until authoritative completion', async t => {
+  const f = fixture(); t.after(() => f.manager.disconnect()); await f.connect(); const bindingId = await f.bind();
+  await f.manager.action({ type: 'images', allowed: true });
+  const worker = f.workers[0];
+  f.receive('input', { bindingId, id: 'reviewed', text: 'hello' }); await tick();
+  f.manager.runtimeEvent(worker, { type: 'agent_start' });
+  f.manager.queueEvent(worker, 'queue-1', 'delivered'); await tick();
+  const replies = () => f.channels[0].calls.filter(call => call.type === 'card' && call.args.reply).map(call => call.args);
+  const key = replies().at(-1).key;
+  const before = f.channels[0].calls.length;
+  f.manager.runtimeEvent(worker, { type: 'agent_end', desktopReviewPending: true }); await tick();
+  assert.equal(f.channels[0].calls.slice(before).some(call => call.type === 'reaction' && !call.args.active), false);
+  assert.equal(f.channels[0].calls.slice(before).some(call => call.type === 'imageScope' && !call.args.active), false);
+  f.manager.runtimeEvent(worker, { type: 'agent_start', desktopReviewContinuation: true });
+  f.manager.runtimeEvent(worker, { type: 'message_end', message: { role: 'assistant', content: 'Reviewed answer', stopReason: 'stop' } });
+  f.manager.runtimeEvent(worker, { type: 'desktop_task_completed' });
+  f.manager.runtimeEvent(worker, { type: 'desktop_completion_review', completed: true,
+    review: { version: 1, id: 'review-1', sessionId: worker.state!.sessionId, status: 'ended', sent: true } }); await tick();
+  assert.ok(replies().every(reply => reply.key === key), 'Self-review must update the same reply card');
+  assert.equal(replies().at(-1).reply, 'completed');
+  assert.equal(replies().at(-1).text, 'Reviewed answer');
+  assert.equal(f.channels[0].calls.filter(call => call.type === 'reaction' && !call.args.active).length, 1);
+});
+for (const status of ['failed', 'cancelled'] as const) test(`a ${status} completion review ends its Remote reply without accepting foreign review events`, async t => {
+  const f = fixture(); t.after(() => f.manager.disconnect()); await f.connect(); const bindingId = await f.bind();
+  const worker = f.workers[0];
+  f.receive('input', { bindingId, id: 'reviewed', text: 'hello' }); await tick();
+  f.manager.runtimeEvent(worker, { type: 'agent_start' });
+  f.manager.queueEvent(worker, 'queue-1', 'delivered');
+  f.manager.runtimeEvent(worker, { type: 'agent_end', desktopReviewPending: true }); await tick();
+  const replies = () => f.channels[0].calls.filter(call => call.type === 'card' && call.args.reply).map(call => call.args);
+  const review = { version: 1, id: 'review-1', sessionId: worker.state!.sessionId, status, sent: true };
+  f.manager.runtimeEvent(worker, { type: 'desktop_completion_review', review: { ...review, sessionId: 'foreign' } });
+  f.manager.runtimeEvent(worker, { type: 'desktop_completion_review', review: { ...review, version: 2 } }); await tick();
+  assert.equal(replies().at(-1).reply, 'working');
+  f.manager.runtimeEvent(worker, { type: 'desktop_completion_review', review }); await tick();
+  assert.equal(replies().at(-1).reply, 'interrupted');
+  assert.equal(f.channels[0].calls.filter(call => call.type === 'reaction' && !call.args.active).length, 1);
+});
 test('removal, dispatch failure and interruption release receipts without replaying queued inputs', async t => {
   const f = fixture(); t.after(() => f.manager.disconnect()); await f.connect(); const bindingId = await f.bind();
   f.receive('input', { bindingId, id: 'removed', text: 'queued one' }); await tick();

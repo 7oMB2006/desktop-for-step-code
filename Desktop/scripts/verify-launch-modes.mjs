@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
+import { observeGoalClear, launchFailureDiagnostics, restoreGoalClearObservation } from './launch-failure-diagnostics.mjs';
 
 const requests = [];
 const streams = new Set();
@@ -76,7 +77,7 @@ try {
   const permissions = page.getByRole('button', { name: '访问权限', exact: true });
   const mode = name => page.getByRole('menuitemcheckbox', { name, exact: true });
   await permissions.click();
-  assert.equal(await page.getByRole('menuitemcheckbox').count(), 3);
+  assert.equal(await page.getByRole('menuitemcheckbox').count(), 4);
   assert.equal(await page.getByRole('menuitemradio').count(), 3);
   assert.equal(await page.getByText('普通', { exact: true }).count(), 0);
   await page.waitForTimeout(250);
@@ -274,6 +275,7 @@ try {
   await completedAnchor.waitFor();
   assert.equal(await page.locator('.message.assistant').last().locator('.launch-status-pulse').count(), 0,
     'Reload never relocates the completed Goal into the latest response');
+  await observeGoalClear(app, page);
   await completedAnchor.click();
   await page.getByRole('button', { name: 'Clear goal', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.launch-status-trigger'));
@@ -380,22 +382,10 @@ try {
   console.log('Launch modes: real Goal RPC/SSE, attachments, draft arming, pulse management, pause/resume/edit/budget/complete/clear, single-task Ultracode, queue steering without inherited consent, light/dark and narrow UI passed.');
 } catch (error) {
   const page = await app.firstWindow().catch(() => undefined);
-  if (page) {
-    console.error('Launch failure state:', JSON.stringify(await page.evaluate(async () => {
-      const snapshot = await window.desktop.snapshot();
-      return {
-        launch: snapshot.launch,
-        state: snapshot.state,
-        requests: snapshot.requests,
-        messages: snapshot.messages,
-        statuses: [...document.querySelectorAll('.launch-status-pulse')].map(node => ({
-          text: node.textContent, goalState: node.getAttribute('data-goal-state'),
-        })),
-      };
-    }).catch(() => undefined)));
-  }
+  console.error('Launch failure diagnostic:', JSON.stringify(await launchFailureDiagnostics(app, page)));
   throw error;
 } finally {
+  await restoreGoalClearObservation(app, app.windows()[0]);
   for (const stream of streams) stream.destroy();
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); }).catch(() => {});
   await closeDesktopFixture(app).catch(() => {});

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Message, PendingMessage, RuntimeEvent } from '../src/contracts';
 import type { SessionRuntime } from './session-runtimes';
 import { isUltracodeInput, ultracodeInput } from '../src/ultracode-input';
+import { isProjectInstructionsCommand } from '../src/project-instructions';
 
 interface Entry extends PendingMessage { payload: Record<string, unknown>; files: string[]; bytes: number; dispatched?: boolean }
 export type QueueReceiptEvent = 'delivered' | 'removed' | 'dispatching' | 'unknown';
@@ -30,6 +31,7 @@ export class PendingMessages {
     this.changed(worker);
   }
   enqueue(worker: SessionRuntime, message: string, payload: Record<string, unknown>, files: string[] = []) {
+    this.assertQueueable(message, payload, files);
     const entries = this.entries.get(worker) ?? [];
     const bytes = Buffer.byteLength(JSON.stringify(payload));
     if (entries.length >= 20 || entries.reduce((sum, entry) => sum + entry.bytes, 0) + bytes > 32 * 1024 * 1024)
@@ -45,6 +47,7 @@ export class PendingMessages {
   }
   edit(worker: SessionRuntime, id: string, version: number, message: string) {
     const entry = this.require(worker, id, version);
+    this.assertQueueable(message, entry.payload, entry.files);
     if (!message.trim() && !entry.attachmentCount) throw new Error('Message is empty');
     const formatted = this.format(message, entry.files);
     const payload = { ...entry.payload, message: isUltracodeInput(String(entry.payload.message ?? '')) ? ultracodeInput(formatted) : formatted };
@@ -108,6 +111,7 @@ export class PendingMessages {
   async steer(worker: SessionRuntime, id: string, version: number) {
     const entry = this.require(worker, id, version);
     if (worker.mutating || worker.stopping || worker.state?.isCompacting || worker.status !== 'connected') throw new Error('This session cannot send right now');
+    if (entry.payload.completionReview && worker.busy) throw new Error('Tasks with completion review must be sent in order');
     this.resumed(worker);
     return this.dispatch(worker, entry, true);
   }
@@ -117,7 +121,8 @@ export class PendingMessages {
     setTimeout(() => void this.drain(worker), 0).unref();
   }
   runtimeEvent(worker: SessionRuntime, event: RuntimeEvent) {
-    if (['agent_end', 'compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
+    if (event.type === 'desktop_completion_review' && !['pending', 'reviewing'].includes(event.review?.status)
+      || ['agent_end', 'compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
   }
   resumed(worker: SessionRuntime) { this.paused.delete(worker); }
   async drain(worker: SessionRuntime) {
@@ -131,6 +136,7 @@ export class PendingMessages {
     finally { this.draining.delete(worker); }
   }
   private async dispatch(worker: SessionRuntime, entry: Entry, steer: boolean) {
+    this.assertQueueable(entry.message, entry.payload, entry.files);
     const revision = this.revisions.get(worker), version = entry.version;
     entry.sending = true; entry.steered = steer && worker.busy; worker.submissions++; worker.operations++; this.publish(worker);
     try {
@@ -160,5 +166,10 @@ export class PendingMessages {
       if (this.revisions.get(worker) === revision && !worker.busy && !worker.interrupted && !worker.failed && !this.paused.has(worker))
         setTimeout(() => void this.drain(worker), 0).unref();
     }
+  }
+  private assertQueueable(message: string, payload: Record<string, unknown>, files: string[]) {
+    const attachments = files.length + (Array.isArray(payload.images) ? payload.images.length : 0);
+    if (isProjectInstructionsCommand(message, attachments) || isProjectInstructionsCommand(String(payload.message ?? ''), attachments))
+      throw new Error('Run /init separately after the current task finishes; it cannot be queued');
   }
 }

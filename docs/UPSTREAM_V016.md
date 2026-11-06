@@ -8,7 +8,7 @@ The official `0.1.6/manifest.json` identifies version 0.1.6 and artifact hashes,
 but does not provide a source SHA. This is not an official Git release tag or
 a claim that the source build is byte-identical to an official binary.
 
-`patches/v016/manifest.json` pins 16 shared patches and their source pre/post
+`patches/v016/manifest.json` pins 17 shared patches and their source pre/post
 images, with two additional Darwin patches. `patches/v015/` and dated 0.6.0
 release records remain unchanged. The applier supports both manifests.
 
@@ -19,7 +19,7 @@ live-ownership lifecycle. Its bounded output reuses upstream redaction before
 clipping. See [Background controls](BACKGROUND_AGENTS.md).
 
 `step-code-desktop-btw.patch` follows the background controls patch and adds
-isolated side questions; the final `step-code-desktop-subagent-redaction.patch`
+isolated side questions; `step-code-desktop-subagent-redaction.patch`
 completes the Desktop output boundary without modifying the native lane registry or control
 RPC. Child transcripts, runner messages, chain `{previous}` values and raw
 answer hashes remain authoritative. Desktop-facing tool content, background
@@ -29,6 +29,13 @@ size bound begins mid-line; display projections omit that unknown first
 fragment rather than exposing a value whose credential label was clipped.
 Cancelled-dialog titles and task descriptions are filtered before their first
 size bound. Ordinary CLI output keeps its existing policy.
+
+The final `step-code-desktop-background-reply.patch` adds explicit single-lane
+follow-ups using native `agent_send reply` without interruption. It supplies
+structured queued/started receipts and bounded live-registry deduplication,
+without changing the source pin or earlier patches. Only these explicit
+follow-ups can invoke the child model/tools; list/stop remain no-model controls.
+Desktop requires the separate `desktop-background-reply` capability.
 
 Desktop also projects typed historical notifications and subagent tool results
 into safe render/copy copies while preserving source messages and lifecycle

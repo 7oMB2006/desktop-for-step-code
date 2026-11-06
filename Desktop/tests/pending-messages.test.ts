@@ -26,6 +26,25 @@ test('queue receipt observers use exact IDs for delivery, removal and clear, nev
   queue.clear(worker); queue.clear(worker);
   assert.deepEqual(events, [[first, 'dispatching'], [first, 'delivered'], [second, 'removed'], [third, 'removed']]);
 });
+
+test('all queue entry points reject bare init without losing ordinary drafts or attachment semantics', async () => {
+  const { worker, queue, requests } = fixture();
+  assert.throws(() => queue.enqueue(worker, '/init', { message: '/init' }), /cannot be queued/);
+  assert.throws(() => queue.enqueue(worker, 'ordinary', { message: ' /init \n' }), /cannot be queued/);
+  const id = queue.enqueue(worker, 'ordinary', { message: 'ordinary' });
+  assert.throws(() => queue.edit(worker, id, 0, '/init'), /cannot be queued/);
+  assert.equal(queue.list(worker)[0].message, 'ordinary');
+  queue.remove(worker, id, 0);
+  const payload = { message: 'legacy draft' };
+  queue.enqueue(worker, 'legacy draft', payload);
+  payload.message = '/init';
+  await assert.rejects(queue.steer(worker, queue.list(worker)[0].id, 0), /cannot be queued/);
+  assert.equal(requests.length, 0);
+  assert.equal(worker.submissions, 0);
+  const { worker: attached, queue: attachments } = fixture();
+  assert.doesNotThrow(() => attachments.enqueue(attached, '/init', { message: '/init', images: [{ data: 'image' }] }));
+});
+
 test('maintenance routes new prompts to the queue and refuses steering until it ends', async () => {
   const { worker, queue, requests } = fixture();
   worker.busy = false;

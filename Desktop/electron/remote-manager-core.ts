@@ -11,6 +11,7 @@ import { RemoteToolProgress, remoteWorkerStatus } from './remote-progress';
 import { remoteOverviewLimit, type RemoteOverview } from './remote-card.mjs';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { planReview } from '../src/plan-review';
+import { completionReview, reviewActive } from '../src/completion-review';
 import { submitAnswer, cancelAnswer, validRemoteForm, remoteFormAnswers, type RemoteFormField } from './remote-form.mjs';
 
 export interface RemotePlatform {
@@ -1122,9 +1123,12 @@ export class RemoteManager {
     }
   }
   runtimeEvent(worker: SessionRuntime, event: RuntimeEvent) {
+    const review = event.type === 'desktop_completion_review' ? completionReview(event.review) : undefined;
+    const reviewEnded = review && review.sessionId === worker.state?.sessionId && !reviewActive(review);
+    const ended = event.type === 'agent_end' && !event.desktopReviewPending;
     // Receipt ownership outlives forwarding, but settled detached inputs must not
     // pin deduplication entries forever.
-    if (event.type === 'agent_end' || event.type === 'desktop_exit') {
+    if (ended || reviewEnded || event.type === 'desktop_exit') {
       for (const [id, receipt] of this.receipts) if (receipt.target.worker === worker
         && (event.type === 'desktop_exit' || receipt.state === 'delivered')) this.receipts.delete(id);
     }
@@ -1133,8 +1137,10 @@ export class RemoteManager {
     try { this.current(target); }
     catch { this.dispose(worker); return; }
     this.syncDecisions(worker);
-    target.progress.update(event);
-    if (event.type === 'agent_start') {
+    if (event.type === 'agent_end' && event.desktopReviewPending) return;
+    const continuingReview = event.type === 'agent_start' && event.desktopReviewContinuation && target.runId;
+    if (!continuingReview) target.progress.update(event);
+    if (event.type === 'agent_start' && !continuingReview) {
       target.runId = this.platform.uuid(); target.imageActive = true; this.imageScope(target);
       target.projection = ''; target.truncated = false; this.project(target, 'working');
     }
@@ -1157,13 +1163,14 @@ export class RemoteManager {
       target.timer = setTimeout(() => { target.timer = undefined; this.project(target, 'working'); }, 1000);
       target.timer.unref?.();
     }
-    if (event.type === 'agent_end') {
+    if (ended || reviewEnded) {
       target.imageActive = false;
       this.imageScope(target, false);
       this.clearReceipts(target, worker.failed || worker.interrupted || taskOutcome(worker.messages) === 'interrupted');
     }
     if (event.type === 'desktop_task_completed' && target.runId) this.finish(target, 'completed');
-    if (event.type === 'agent_end' && (worker.failed || worker.interrupted || taskOutcome(worker.messages) === 'interrupted'))
+    if (ended && (worker.failed || worker.interrupted || taskOutcome(worker.messages) === 'interrupted')
+      || reviewEnded && ['failed', 'cancelled'].includes(review.status))
       this.finish(target, 'interrupted');
     if (event.type === 'desktop_exit') this.dispose(worker);
   }

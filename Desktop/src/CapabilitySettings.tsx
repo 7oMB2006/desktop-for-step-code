@@ -19,12 +19,18 @@ function IconButton({ title, ...props }: ButtonHTMLAttributes<HTMLButtonElement>
   return <button type="button" className="icon-button" aria-label={title} data-tooltip={title} {...props}/>;
 }
 
-function errorText(error: unknown, zh: boolean) {
+export function capabilityErrorText(error: unknown, zh: boolean) {
   const code = /capability:([a-z-]+)/u.exec(String(error instanceof Error ? error.message : error))?.[1];
   const messages: Record<string, [string, string]> = {
     'invalid-input': ['输入无效，请检查名称、来源和内容。', 'Invalid input. Check the name, source and content.'],
     'already-exists': ['同名资源已存在，未覆盖已有内容。', 'This resource already exists. Existing files were not replaced.'],
     'not-found': ['资源已变化或不存在，请刷新后重试。', 'The resource changed or no longer exists. Refresh and retry.'],
+    'stale': ['插件内容已变化，请刷新目录后重新打开。', 'The plugin changed. Refresh the catalog and reopen it.'],
+    'plugin-conflict': ['插件名称或运行时 ID 冲突，请检查市场来源和已安装副本。', 'Plugin name or runtime ID conflict. Check marketplace sources and installed copies.'],
+    'invalid-configuration': ['配置或字段声明无效，未应用更改。', 'Invalid configuration or field declaration. No changes were applied.'],
+    'stale-configuration': ['配置已被其他操作更新。当前草稿已保留，请重新载入后核对。', 'Configuration changed elsewhere. Your draft is retained; reload and review it.'],
+    'configuration-schema-changed': ['插件配置格式已变化，旧配置未自动转换。', 'The plugin configuration schema changed. Existing settings were not converted.'],
+    'configuration-consumer-conflict': ['MCP 设置覆盖了插件服务，请先检查该服务的启动配置。', 'MCP settings override this plugin service. Review its launch configuration first.'],
     'invalid-path': ['路径包含链接或超出允许范围，操作已阻止。', 'The path contains links or is outside the allowed location.'],
     'read-only': ['此资源由插件或运行时管理，不能单独修改。', 'This resource is managed by its plugin or runtime.'],
     'too-large': ['来源文件过多或过大，未完成导入。', 'The source contains too many files or is too large.'],
@@ -45,7 +51,7 @@ function Notes({ values }: { values: string[] }) {
   return values.length ? <ul className="cap-notes">{values.map((value, index) => <li key={index}>{value}</li>)}</ul> : null;
 }
 
-function PluginIcon({ icon }: { icon?: CapabilityPluginIcon }) {
+export function CapabilityPluginIconView({ icon }: { icon?: CapabilityPluginIcon }) {
   const [failed, setFailed] = useState('');
   const source = icon?.kind === 'png' ? icon.dataUrl : '';
   const image = source && source !== failed && /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/u.test(source);
@@ -55,7 +61,7 @@ function PluginIcon({ icon }: { icon?: CapabilityPluginIcon }) {
   </span>;
 }
 
-function CapabilityDisclosure({ className, label, children }: {
+export function CapabilityDisclosure({ className, label, children }: {
   className: string; label: ReactNode; children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -101,7 +107,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
     operation.current = true;
     setLoading(true); setError('');
     try { const next = await bridge.capabilityCatalog(); if (alive.current) setCatalog(next); }
-    catch (error) { if (alive.current) setError(errorText(error, zh)); }
+    catch (error) { if (alive.current) setError(capabilityErrorText(error, zh)); }
     finally { operation.current = false; if (alive.current) setLoading(false); }
   };
   useEffect(() => {
@@ -134,7 +140,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
       setResultWarnings(result.warnings); if (applies) setChanged(true);
       await onChanged();
       if (alive.current) setCatalog(await bridge.capabilityCatalog());
-    } catch (error) { if (alive.current) setError(errorText(error, zh)); }
+    } catch (error) { if (alive.current) setError(capabilityErrorText(error, zh)); }
     finally { operation.current = false; if (alive.current) setPending(false); }
   };
   const mutate = (input: CapabilityMutation) => perform(() => bridge.capabilityMutate(input),
@@ -143,7 +149,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
     if (operation.current || busy) return;
     operation.current = true; setPending(true); setError('');
     try { await onRestart(); if (alive.current) { setChanged(false); setLive(undefined); } }
-    catch (error) { if (alive.current) setError(errorText(error, zh)); }
+    catch (error) { if (alive.current) setError(capabilityErrorText(error, zh)); }
     finally { operation.current = false; if (alive.current) setPending(false); }
   };
   const confirm = (key: string) => confirmation?.key === key && <div className="cap-confirm" role="group" aria-label={confirmation.label}>
@@ -213,7 +219,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
       {loading && !catalog ? <div className="cap-empty" role="status">{t('加载中', 'Loading')}</div> : !catalog ? <button type="button" onClick={() => void refresh()}>{t('重试', 'Retry')}</button> : <>
         {page === 'plugins' && tab === 'installed' && <>
           {catalog.plugins.filter(plugin => search(`${plugin.name} ${plugin.id} ${plugin.description}`)).map(plugin => <div className="cap-row-wrap" key={plugin.id}>
-            <CapabilityDisclosure className="cap-resource" label={<><PluginIcon icon={plugin.icon}/><div><strong>{plugin.name}</strong><small>{plugin.description || plugin.id}</small></div>
+            <CapabilityDisclosure className="cap-resource" label={<><CapabilityPluginIconView icon={plugin.icon}/><div><strong>{plugin.name}</strong><small>{plugin.description || plugin.id}</small></div>
                 {plugin.version && <span className="cap-meta">v{plugin.version}</span>}</>}>
               <div className="cap-details"><dl><dt>ID</dt><dd>{plugin.id}</dd><dt>MCP</dt><dd>{plugin.mcpServers.join(', ') || '—'}</dd>
                 {plugin.icon?.kind === 'png' && <><dt>{t('图标', 'Icon')}</dt><dd>DFSC Beta</dd></>}</dl>
@@ -229,7 +235,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
         </>}
         {page === 'plugins' && tab === 'discover' && <>
           {catalog.available.filter(plugin => search(`${plugin.name} ${plugin.description} ${plugin.marketplace}`)).map(plugin => <div className="cap-row" key={`${plugin.marketplace}/${plugin.name}`}>
-            <PluginIcon icon={plugin.icon}/><div><strong>{plugin.name}</strong><small>{plugin.description}</small><small>{plugin.marketplace}</small></div>
+            <CapabilityPluginIconView icon={plugin.icon}/><div><strong>{plugin.name}</strong><small>{plugin.description}</small><small>{plugin.marketplace}</small></div>
             {plugin.installed ? <span className="cap-installed"><Check size={13}/>{t('已安装', 'Installed')}</span>
               : <IconButton title={t(`安装 ${plugin.name}`, `Install ${plugin.name}`)} disabled={locked} onClick={() => void mutate({ action: 'plugin-install', name: plugin.name, marketplace: plugin.marketplace })}><Download size={16}/></IconButton>}
           </div>)}

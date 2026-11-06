@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "consumer": { "kind": "json-file-v1", "server": "text" },
+  "groups": [
+    {
+      "id": "output",
+      "title": "清单输出",
+      "fields": [
+        { "id": "heading", "label": "清单标题", "type": "text", "default": "整理结果", "maxLength": 60, "help": "留空不加标题。仅清单工具使用，统计不会受影响。" },
+        {
+          "id": "style", "label": "清单格式", "type": "enum", "default": "bullet", "required": true,
+          "options": [
+            { "value": "bullet", "label": "项目符号" },
+            { "value": "numbered", "label": "编号清单" },
+            { "value": "checklist", "label": "待办清单" }
+          ]
+        },
+        { "id": "max_items", "label": "最多输出条数", "type": "number", "default": 50, "min": 1, "max": 200, "required": true, "help": "填写 1 到 200 的整数；超出时会明确提示省略条数。" }
+      ]
+    },
+    {
+      "id": "cleanup",
+      "title": "文本处理",
+      "fields": [
+        { "id": "deduplicate", "label": "合并重复行", "type": "boolean", "default": true, "help": "去掉首尾空白后按原文精确比较，区分大小写，不删除原有清单标记。" },
+        {
+          "id": "order", "label": "排列顺序", "type": "enum", "default": "original", "required": true,
+          "options": [
+            { "value": "original", "label": "保持原顺序" },
+            { "value": "ascending", "label": "字符升序" },
+            { "value": "descending", "label": "字符降序" }
+          ],
+          "help": "字符排序不是中文拼音或自然数字排序，不会改变每行正文。"
+        }
+      ]
+    }
+  ]
+}

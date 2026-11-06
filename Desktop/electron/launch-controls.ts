@@ -17,6 +17,17 @@ export class LaunchControls {
   async set(worker: SessionRuntime, mode: LaunchMode, enabled: boolean) {
     await this.pool.readLaunch(worker);
     worker.launch ??= emptyLaunch();
+    if (mode === 'review') {
+      if (worker.submissions) throw new Error('Wait for the current prompt submission');
+      if (worker.state?.desktopCompletionReview !== 1) throw new Error('This runtime does not support completion review');
+      if (enabled && (worker.launch.plan || worker.launch.goalArmed || worker.launch.goal?.status === 'active'
+        || worker.launch.ultracode || worker.launch.ultracodeArmed))
+        throw new Error('Completion review is only available for ordinary main tasks');
+      worker.launch.reviewArmed = enabled;
+      this.pool.publishLaunch(worker);
+      return;
+    }
+    if (enabled && worker.launch.reviewArmed) throw new Error('Disable completion review before selecting another task mode');
     await this.supports(worker, [mode === 'ultracode' ? 'ultraloop' : mode]);
     if (mode === 'ultracode') {
       worker.launch.ultracodeArmed = enabled;

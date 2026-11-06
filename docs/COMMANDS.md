@@ -60,7 +60,7 @@ retains a selectable slash, so selecting transcript text does not remove it.
 | `/plugin`, `/plugin browse`, `/plugin marketplace` | Open installed plugins, Discover or marketplace sources in Desktop settings | Isolated real-runtime management and Electron acceptance cover install/uninstall; mutating commands only prepare a page for explicit confirmation |
 | `/skills`, `/mcp` | Open the dedicated Skills or MCP settings | Configuration is distinct from live-session availability; changes require a new session or explicit restart |
 | `/feedback` | Existing upstream feedback flow, requiring a configured endpoint | Real category dialog cancelled against a loopback endpoint; no logs, conversation or feedback uploaded |
-| `/init` | Upstream submits an initialization task through the normal agent path | Loopback model verifies the AGENTS.md instruction arrives and the turn ends; no real AGENTS.md generation claimed |
+| `/init` | Desktop checks the selected project: create AI working rules if AGENTS.md is absent, otherwise review existing rules without changing them | Isolated native runtime verifies exclusive creation and blocked review writes; real project content quality remains user acceptance |
 | `/trust` | Existing Desktop project-trust confirmation | Existing focused trust tests retained |
 | Skills and prompt templates | Runtime-discovered entries, existing expansion/dispatch | Source icons preserved; arbitrary installed resources are not all validated |
 
@@ -73,6 +73,40 @@ ordinary prose while a task is running.
 BTW requires a connected existing conversation, can run beside the main task,
 and never consumes launch choices or the main send queue. Its usage is shown
 separately and is not yet included in local Usage totals or cost estimates.
+
+### Project AI Working Rules
+
+`/init` is available in new-session drafts as well as connected sessions. Its
+Chinese menu title is `创建 AI 工作规范` or `检查 AI 工作规范`, based on the
+selected project's `AGENTS.md`. The complete description stays visible:
+creation writes one project-specific rules file; checking only proposes
+supported changes, with a separate explicit user instruction required to apply
+them. This is not a new configuration page, project scaffolder or generic README
+generator. Documentation and static-page folders do not require Git or a build.
+
+The main process performs a bounded status query without requesting a model;
+the renderer receives only the mode. No selected folder asks the user to choose
+one, and failed reads never imply a missing file. Execution rechecks the project
+instead of trusting the earlier menu state. Linked, oversized or ambiguous
+case-variant files require manual resolution.
+
+An isolated Desktop-owned extension uses the existing model task path. After
+model/auth preflight, checking makes write, shell, delegation and other mutating
+tools unavailable and blocks them at execution. Creation adds only an exclusive
+`AGENTS.md` tool, which cannot replace an existing file or edit other project
+files. Normal tools are restored after final settlement, not between native
+retry or compaction attempts. Later user-approved updates use the ordinary task
+and permission flow; this candidate does not add an automatic Apply action.
+
+Bare attachment-free `/init` requires an idle session and cannot replace a
+queued message or consume a preselected Goal. Transcript display, copy, editing
+and titles retain `/init`, not its internal model instructions. Parameterized
+input and attached/quoted messages retain their existing routing.
+Read failures retain the draft and can be retried after resolving the file.
+New session records persist only `/init`; bounded, source-confirmed projection
+also keeps legacy internal templates out of search without rewriting history.
+If the original excerpt cannot be confirmed within the read bounds, the search
+match remains navigable with a neutral unavailable-preview notice.
 
 ## Desktop Adaptation Backlog
 
@@ -116,8 +150,8 @@ separately and is not yet included in local Usage totals or cost estimates.
   后续与 Usage 主线协调，不另造统计页面。
 - [ ] `/plan`、`/goal`、`/ultracode` 保留现有模式适配，补齐各自操作场景验收，
   不能因只测过状态查询就宣称全流程可用，也不能整体标为未映射。
-- [ ] `/init` 已走正常 Agent 任务链路；真实项目生成结果仍需验收，
-  不应为此另造配置页面。
+- [ ] `/init` 已接项目文件检测、创建／只读检查和准确的中文说明；真实项目规则
+  内容质量仍需验收，不应为此另造配置页面。
 - [ ] 技能和提示模板按运行时来源保留动态入口；逐项资源验收与内置指令映射分开。
 
 `/status`、模型、权限、MCP、`/compact`、`/trust` 等已有 Desktop 映射，
@@ -157,6 +191,17 @@ raw spelling has been blocked at the runtime.
   matching, argument handling, attachments and quotes.
 - `Desktop/tests/slash-runtime.test.ts`: real fixed-bundle read-only handlers,
   dialog cancellation and loopback `/init` delivery with isolated credentials.
+- `Desktop/tests/project-instructions.test.ts` and
+  `project-instructions-runtime.test.ts`: filesystem decisions, exclusive
+  creation, prompt projection, native read-only enforcement and tool restoration.
+- `Desktop/scripts/verify-project-instructions-electron.mjs`: real typed
+  preload/IPC, draft discovery, owner checks, execution-time detection and
+  Goal/queue boundaries with an isolated loopback provider.
+- `Desktop/scripts/verify-project-instructions-preview.mjs`: the production
+  application loaded through `src/main.tsx`, with only its data/IPC boundary
+  simulated. Checks native single-line menu rows and full-description tooltips,
+  grouped skills, composer/toolbar/footer, writable caret restoration,
+  model/permission controls and narrow/light/dark/reduced-motion layouts.
 - `Desktop/scripts/verify-composer-menu.mjs`: real Electron menu and transcript
   icons, inline editing, clipboard/transport and light/dark/narrow layouts.
 - `Desktop/scripts/verify-command-dispatch.mjs`: real Electron UI with mocked IPC

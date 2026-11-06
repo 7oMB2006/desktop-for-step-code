@@ -171,9 +171,40 @@ try {
   await history.getByRole('button', { name: /失败记录/ }).waitFor();
   await page.evaluate(() => window.taskProgressFixture.language('en'));
   await history.getByRole('button', { name: /Plan history/ }).waitFor();
+  for (const scenario of ['first full snapshot', 'task-set replacement']) {
+    await page.evaluate(scenario => window.taskProgressFixture.snapshot({
+      sessionId: 'other-session', plan: { id: 'mount-plan', title: '挂载回归' }, mcp: [], skillCount: 0,
+      tasks: scenario === 'first full snapshot' ? [] : [
+        { id: 'retired', subject: '旧任务', status: 'completed' },
+        { id: 'remaining', subject: '剩余任务', status: 'in_progress' },
+      ],
+    }, [], true), scenario);
+    if (scenario === 'first full snapshot') await progress.waitFor({ state: 'detached' });
+    else await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuemax') === '2');
+    const soundBeforeMount = await page.evaluate(() => window.audioCalls.length);
+    await page.evaluate(() => window.taskProgressFixture.snapshot({
+      sessionId: 'other-session', plan: { id: 'mount-plan', title: '挂载回归' }, mcp: [], skillCount: 0,
+      tasks: [{ id: 'remaining', subject: '剩余任务', status: 'completed' }],
+    }, [], true));
+    await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '1'
+      && document.querySelector('[role=progressbar]')?.getAttribute('aria-valuemax') === '1');
+    assert.equal(await progress.getAttribute('data-phase'), 'running', `${scenario}: full tasks must wait for round completion`);
+    assert.equal(await page.evaluate(() => window.audioCalls.length), soundBeforeMount, `${scenario}: mounting cannot play completion sound`);
+    await page.evaluate(() => window.taskProgressFixture.complete('preview-runtime', 'other-session'));
+    await page.waitForFunction(() => document.querySelector('.sb-task-progress')?.dataset.phase === 'complete');
+    assert.equal(await page.evaluate(() => window.audioCalls.length), soundBeforeMount + 1, `${scenario}: real completion plays once`);
+    await page.evaluate(() => { window.taskProgressFixture.idle(); window.taskProgressFixture.visible(false); });
+    await progress.waitFor({ state: 'detached' });
+    await page.evaluate(() => window.taskProgressFixture.visible(true));
+    await progress.waitFor();
+    assert.equal(await progress.getAttribute('data-phase'), 'complete', `${scenario}: idle full snapshot stays complete on reopen`);
+    assert.equal(await page.evaluate(() => window.audioCalls.length), soundBeforeMount + 1, `${scenario}: reopen cannot replay completion`);
+  }
+  await page.evaluate(() => window.taskProgressFixture.language('en'));
+  await page.getByRole('heading', { name: 'Task plan', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(errors, []);
-  console.log('Task progress verified: motion/audio, delayed snapshot, scope, top-anchored history, cross-turn counts, reopen, archives, English and narrow dark/reduced motion.');
+  console.log('Task progress verified: motion/audio, delayed snapshot, scope, top-anchored history, cross-turn counts, full busy mounts/re-mounts, reopen, archives, English and narrow dark/reduced motion.');
 } finally {
   await browser?.close();
   await server.close();

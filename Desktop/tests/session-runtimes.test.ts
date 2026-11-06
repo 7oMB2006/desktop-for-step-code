@@ -48,6 +48,7 @@ test('live background lanes retain their host without blocking foreground messag
       method: 'setStatus', statusKey: 'desktop-subagents', statusText: JSON.stringify({ version: 1, lanes }) });
     notify([{ id: 'lane_12345678', status: 'running' }]);
     assert.deepEqual(host.backgroundLanes, [{ id: 'lane_12345678', status: 'running' }]);
+    assert.deepEqual(pool.summaries()[0].background, { status: 'known', lanes: [{ id: 'lane_12345678', status: 'running' }] });
     assert.equal(pool.summaries()[0].backgroundCount, 1);
     transports[0].receive({ type: 'agent_start' });
     transports[0].receive({ type: 'agent_end', messages: host.messages });
@@ -67,6 +68,7 @@ test('live background lanes retain their host without blocking foreground messag
     notify([{ id: 'lane_12345678', status: 'settling' }]);
     assert.equal(pool.running, true, 'Final notification delivery retains the host too');
     notify([]);
+    assert.deepEqual(pool.summaries().find(runtime => runtime.runtimeId === host.id)?.background, { status: 'known', lanes: [] });
     assert.equal(pool.summaries().find(runtime => runtime.runtimeId === host.id)?.backgroundCount, 0);
     await new Promise(resolve => setImmediate(resolve));
     await pool.recycle();
@@ -87,6 +89,7 @@ test('historical lanes and stale transports cannot revive live background owners
     assert.equal(pool.running, true, 'Unknown live state fails closed');
     receive({ type: 'desktop_exit' });
     assert.equal(host.backgroundLanes, undefined);
+    assert.deepEqual(pool.summaries()[0].background, { status: 'unavailable' });
     assert.equal(pool.summaries()[0].backgroundCount, undefined);
     receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'desktop-subagents',
       statusText: JSON.stringify({ version: 1, lanes: [{ id: 'lane_12345678', status: 'running' }] }) });

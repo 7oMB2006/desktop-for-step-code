@@ -13,6 +13,14 @@ test('Move errors distinguish live hosts, associated tasks and unavailable owner
   assert.doesNotMatch(sessionMoveError(wrapped('MOVE_CRON_UNAVAILABLE: runtime'), false), /remote method/);
 });
 
+test('Move errors identify unavailable background verification without blaming the destination folder', () => {
+  for (const message of ['Background agent output safety is unavailable', 'Background agent snapshot unavailable', 'Background ownership changed; try again']) {
+    assert.match(sessionMoveError(new Error(message), false), /background.*verif|runtime/i);
+    assert.doesNotMatch(sessionMoveError(new Error(message), false), /destination folder/i);
+    assert.match(sessionMoveError(new Error(message), true), /后台.*核验|运行时/);
+  }
+});
+
 test('Move errors retain existing busy, directory, goal and background guidance', () => {
   assert.match(sessionMoveError(new Error('Pause active goal'), false), /Pause/);
   assert.match(sessionMoveError(new Error('Wait for background agents'), false), /Background/);

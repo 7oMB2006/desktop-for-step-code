@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { expectCronBlockedMove } from './expect-cron-blocked-move.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-session-move-')));
 const root = join(profile, 'step-runtime');
@@ -257,7 +258,7 @@ try {
   const tomorrow = new Date(Date.now() + 86400000);
   await page.evaluate(input => window.desktop.cronCreate(input), { runtimeId: restarted.runtimeId,
     cron: `0 9 ${tomorrow.getDate()} ${tomorrow.getMonth() + 1} *`, prompt: 'Move guard fixture', recurring: false, durable: false });
-  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-one', destination), projects[0]), /scheduled|Cron/i);
+  await expectCronBlockedMove(page, 'move-one', projects[0]);
   const cron = await page.evaluate(() => window.desktop.cronList());
   const jobs = cron.tasks.filter(task => task.runtimeId === restarted.runtimeId);
   assert.ok(jobs.length);
@@ -285,7 +286,7 @@ try {
   assert.equal(await readFile(join(projects[0], '.stepcode', 'cron', 'tasks.json'), 'utf8'), savedCronBytes);
   const foreignSource = await page.evaluate(destination => window.desktop.moveSessionToProject('move-three', destination), projects[1]);
   assert.equal(foreignSource.sessions.find(session => session.id === 'move-three').cwd, projects[1]);
-  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-two', destination), projects[1]), /Cron|scheduled/i);
+  await expectCronBlockedMove(page, 'move-two', projects[1]);
   const scoped = await page.evaluate(() => window.desktop.navigateSession('move-one'));
   await page.evaluate(input => window.desktop.cronCreate(input), { runtimeId: scoped.runtimeId,
     cron: `0 10 ${tomorrow.getDate()} ${tomorrow.getMonth() + 1} *`, prompt: 'New moved-session task', recurring: false, durable: true });
@@ -307,7 +308,7 @@ try {
   await mkdir(join(profile, 'cron-bindings'), { recursive: true });
   await writeFile(join(profile, 'cron-bindings', `${createHash('sha256').update(bindingKey).digest('hex')}.json`),
     JSON.stringify({ sessionId: 'move-one', source: 'created', at: Date.now() }));
-  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-one', destination), projects[1]), /Cron|scheduled/i);
+  await expectCronBlockedMove(page, 'move-one', projects[1]);
   console.log('Session move: unrelated source/destination schedules stay with their original host; associated jobs still block movement');
   await closeDesktopFixture(app); app = undefined;
   await writeFile(join(projects[0], '.stepcode', 'cron', 'tasks.json'), '');
@@ -319,21 +320,29 @@ try {
   assert.equal(coldMove.sessions.find(session => session.id === 'move-two').cwd, projects[1]);
   console.log('Session move: moving a cold conversation preserves the active draft');
   for (const id of ['move-background', 'move-background-queued']) {
-    const beforeBlocked = await snapshot(page);
-    assert.equal(beforeBlocked.runtimes.some(runtime => runtime.sessionId === id), false);
-    await assert.rejects(page.evaluate(({ id, destination }) => window.desktop.moveSessionToProject(id, destination),
-      { id, destination: projects[1] }), /background agents/);
-    const afterBlocked = await snapshot(page);
-    assert.deepEqual(afterBlocked.preferences.workspaceSessionRedirects, beforeBlocked.preferences.workspaceSessionRedirects);
-    assert.equal(afterBlocked.draftId, beforeBlocked.draftId);
-    assert.equal(afterBlocked.runtimeId, beforeBlocked.runtimeId);
-    assert.equal(afterBlocked.runtimes.length, beforeBlocked.runtimes.length, 'failed cold move removes its candidate runtime');
+    const beforeMove = await snapshot(page);
+    assert.equal(beforeMove.runtimes.some(runtime => runtime.sessionId === id), false);
+    const historyPath = join(root, 'sessions', `${id}.jsonl`);
+    const historical = await readFile(historyPath, 'utf8');
+    const requestCount = requests.length;
+    const movedHistory = await page.evaluate(({ id, destination }) => window.desktop.moveSessionToProject(id, destination),
+      { id, destination: projects[1] });
+    assert.equal(movedHistory.sessions.find(session => session.id === id).cwd, projects[1]);
+    assert.equal(movedHistory.preferences.workspaceSessionRedirects[id], projects[1]);
+    assert.equal(movedHistory.draftId, beforeMove.draftId);
+    assert.equal(movedHistory.runtimeId, beforeMove.runtimeId);
+    assert.ok((await readFile(historyPath, 'utf8')).startsWith(historical), 'saved background history is never rewritten to invent a terminal state');
+    assert.equal(requests.length, requestCount, 'moving cold background history never resumes a model task');
   }
-  console.log('Session move: cold running and queued background work blocks movement without changing the draft or association');
+  console.log('Session move: cold running and queued records do not own processes; verified idle runtimes permit movement');
   const backgroundOwner = await page.evaluate(() => window.desktop.navigateSession('move-background'));
   assert.equal(backgroundOwner.state.isStreaming, false);
-  await assert.rejects(page.evaluate(destination => window.desktop.moveSessionToProject('move-background', destination), projects[0]), /background agents/);
-  console.log('Session move: unsettled structured background work blocks an otherwise idle owner');
+  assert.deepEqual(backgroundOwner.runtimes.find(runtime => runtime.runtimeId === backgroundOwner.runtimeId).background,
+    { status: 'known', lanes: [] });
+  const movedOwner = await page.evaluate(destination => window.desktop.moveSessionToProject('move-background', destination), projects[0]);
+  assert.equal(movedOwner.state.sessionId, 'move-background');
+  assert.equal(movedOwner.sessions.find(session => session.id === 'move-background').cwd, projects[0]);
+  console.log('Session move: authoritative empty background registry permits movement of unresolved historical records');
   assert.deepEqual(errors, []);
   await writeFile('test-results/session-move.json', JSON.stringify({ profile, passed: true, modelRequests: requests.length }, null, 2));
   console.log('Session move: background movement preserves the viewed chat; relaunch preserves the new cwd and history');

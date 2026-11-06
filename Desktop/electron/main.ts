@@ -76,7 +76,7 @@ import { StartupWindow } from './startup-window';
 import { FirstRun } from './first-run';
 import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } from '../src/contracts';
 import type { BrowserAction } from '../src/contracts';
-import { backgroundSubagentStates, conversationEntries } from '../src/conversation-presentation';
+import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
 import type { Message, Model, PermissionPreset, Preferences, Session, SessionReading, Snapshot } from '../src/contracts';
 import { validateSidebarPreferences } from '../src/sidebar-order';
@@ -337,6 +337,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (consumed) pendingMessages.publish(queueWorker!);
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
+  backgroundAvailable: () => runtimeManifest.patches?.includes('desktop-subagent-redaction') === true,
   event: (worker, event) => {
     try {
       cronHistory.event(worker, event);
@@ -1179,9 +1180,11 @@ async function handle(method: string, args: any[]) {
       return backgroundAgents.read(text(args[0], 80), text(args[1], 200));
     case 'stopBackgroundAgent':
       return backgroundAgents.stop(text(args[0], 80), text(args[1], 200), text(args[2], 40));
-    case 'replyBackgroundAgent':
+    case 'replyBackgroundAgent': {
       if (args[0]?.runtimeId !== runtimes.activeId) throw new Error('Session is not selected');
-      return backgroundAgents.reply(args[0]);
+      const worker = runtimes.require(text(args[0]?.runtimeId, 80));
+      return runtimes.withBackgroundAction(worker, () => backgroundAgents.reply(args[0]));
+    }
     case 'summary': {
       const worker = runtimes.require(text(args[0], 80));
       const sessionId = worker.state?.sessionId;
@@ -1386,10 +1389,7 @@ async function handle(method: string, args: any[]) {
           if (worker.cron?.status === 'unavailable') throw new Error('MOVE_CRON_UNAVAILABLE');
           if (hasScheduledCron(worker.cron))
             throw new Error(`MOVE_CRON_HOST: ${worker.cron?.jobs.map(job => job.id).join(', ') || 'unavailable'}`);
-          await runtimes.assertIdle(worker, { stopHost: true });
-          if (worker.status === 'connected' && [...backgroundSubagentStates(worker.messages).values()]
-            .some(status => status === 'running' || status === 'queued'))
-            throw new Error('Wait for background agents to finish before moving this conversation');
+          await runtimes.assertBackgroundIdle(worker, { allowDisconnected: true });
         }
         const target = (await listSessions()).find(session => session.id === id);
         if (!target?.path) throw new Error('Save this conversation before moving it');
@@ -1421,7 +1421,7 @@ async function handle(method: string, args: any[]) {
         prepared.mutating = true;
         if (prepared.state?.sessionId !== id || prepared.permissionPreset !== 'ask')
           throw new Error('Could not verify the destination conversation and approval policy');
-        await runtimes.assertIdle(prepared, { stopHost: true });
+        await runtimes.assertBackgroundIdle(prepared);
         await restoreSelectedModel(prepared, source?.state?.model, preferences.language);
         if (source?.state?.thinkingLevel) {
           const { levels } = await prepared.rpc.request('get_available_thinking_levels');
@@ -1429,9 +1429,6 @@ async function handle(method: string, args: any[]) {
             await prepared.rpc.request('set_thinking_level', { level: source.state.thinkingLevel });
         }
         await runtimes.read(prepared);
-        if ([...backgroundSubagentStates(prepared.messages).values()]
-          .some(status => status === 'running' || status === 'queued'))
-          throw new Error('Wait for background agents to finish before moving this conversation');
         const previous = preferences;
         preferences = moveSessionToWorkspace(preferences, target, destination);
         if (wasActive) preferences.workspace = canonical;

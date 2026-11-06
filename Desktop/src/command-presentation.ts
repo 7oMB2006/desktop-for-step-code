@@ -3,6 +3,7 @@ import { CompactContextIcon, OrganizeContextIcon, WorkingContextIcon } from './C
 import { McpIcon } from './McpIcon';
 import type { ComposerCommand } from './composer-commands';
 import type { SessionStats } from './contracts';
+import { projectInstructionsCopy, type ProjectInstructionsStatus } from './project-instructions';
 
 const contextDescriptions = {
   compact: ['Compact · 压缩当前对话上下文，可补充保留重点', 'Compact · Compress conversation context with optional retention instructions'],
@@ -22,7 +23,7 @@ const builtins = {
   ultracode: { labels: ['多代理编排', 'Ultracode'], description: '开启、关闭或查看多代理编排', Icon: Network },
   ultraloop: { labels: ['多代理编排', 'Ultraloop'], description: '开启、关闭或查看多代理编排', Icon: Network },
   compact: { labels: ['压缩上下文', 'Compact context'], description: '压缩当前对话，可补充保留重点', Icon: CompactContextIcon },
-  init: { labels: ['项目指引', 'Project instructions'], description: '创建或更新项目 AGENTS.md', Icon: FileText },
+  init: { labels: ['AI 工作规范', 'AI project rules'], description: '创建项目规则，或检查已有规则并提出建议', Icon: FileText },
   cron: { labels: ['定时任务', 'Scheduled tasks'], description: '打开定时任务；带参数时使用运行时指令', Icon: Clock3 },
   plugin: { labels: ['插件', 'Plugins'], description: '查看与管理 Step Code 插件', Icon: Plug },
   skills: { labels: ['技能', 'Skills'], description: '查看与管理已安装技能', Icon: BookOpen },
@@ -35,19 +36,20 @@ const builtins = {
   feedback: { labels: ['反馈', 'Feedback'], description: '向 Step Code 提交反馈；提交前确认上传内容', Icon: MessageSquare },
 } as const;
 
-export function commandPresentation(command: ComposerCommand, zh: boolean, usage?: SessionStats['contextUsage']) {
+export function commandPresentation(command: ComposerCommand, zh: boolean, usage?: SessionStats['contextUsage'], instructions?: ProjectInstructionsStatus) {
   const sourceIcon = command.source === 'skill' ? BookOpen : command.source === 'prompt' ? Sparkles : undefined;
   const builtin = sourceIcon ? undefined : builtins[command.name as keyof typeof builtins];
   const contextDetail = builtin && contextDescriptions[command.name as keyof typeof contextDescriptions];
+  const projectRules = builtin && command.name === 'init' ? projectInstructionsCopy(instructions, zh) : undefined;
   const percent = usage?.percent;
   const known = typeof percent === 'number' && Number.isFinite(percent);
   const used = known ? Math.round(Math.max(0, Math.min(100, percent))) : undefined;
   const contextLabel = known ? (zh ? `当前上下文已用 ${used}%` : `${used}% of current context used`)
     : (zh ? '当前上下文用量未知' : 'Current context usage unknown');
   return {
-    title: builtin?.labels[zh ? 0 : 1] ?? command.name,
-    detail: contextDetail ? `${contextDetail[zh ? 0 : 1]} · ${contextLabel}`
-      : zh ? builtin?.description ?? command.description ?? '' : command.description ?? '',
+    title: projectRules?.title ?? builtin?.labels[zh ? 0 : 1] ?? command.name,
+    detail: projectRules?.detail ?? (contextDetail ? `${contextDetail[zh ? 0 : 1]} · ${contextLabel}`
+      : zh ? builtin?.description ?? command.description ?? '' : command.description ?? ''),
     Icon: sourceIcon ?? builtin?.Icon ?? Command,
   };
 }

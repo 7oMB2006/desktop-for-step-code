@@ -1,5 +1,160 @@
 # Verification
 
+## Project Rules Latest Main Synchronization (2026-11-06)
+
+This branch now integrates main `12c1317`, including #202's update-cache and
+launch diagnostics and #204's plugin classification. Only this document
+conflicted; every original verification section from both parents is retained.
+The incoming cache, plugin and diagnostic implementations remain unchanged.
+
+Typecheck, production build and 93 focused project-rules, fixture, questionnaire,
+Goal, plugin and update-cache tests pass. Real Windows Electron project-rules
+and Question drawer acceptance also pass using isolated loopback profiles and
+the existing shared runtime, without restaging it. The earlier `5fca71d` cloud
+checks were green; they do not establish cloud acceptance for this new merge.
+
+## Project Rules CI Snapshot Polling (2026-11-06)
+
+The first macOS candidate passed source runtime acceptance but its packaged
+`/init` check asserted zero provider requests before dispatch completed.
+Playwright's browser-side poll checks the Promise returned by an async predicate,
+not its resolved boolean. The fixture now polls resolved IPC snapshots in Node
+for response completion, streaming start and idle settlement. Request-count,
+read-only tool and file-preservation assertions remain unchanged.
+
+All 17 focused project-rules and fixture tests pass, including delayed snapshots,
+async false predicates, bounded timeout and IPC error propagation. Typecheck and
+the real Windows Electron `/init` fixture pass with three loopback model requests.
+The existing shared runtime was not restaged; these local results do not replace
+current-main macOS source/package acceptance in cloud CI.
+
+## Project Rules Main Synchronization (2026-11-06)
+
+This branch integrates main `e9102aa`. Conflict resolution retains main's
+completion-review reservation/rollback, canonical template-input provenance and
+the full plugin/runtime acceptance inventory alongside the project-rules changes.
+Bare `/init` preserves a preselected completion review for the next ordinary
+task; the actual IPC-handler regression verifies both submissions and consent.
+
+After synchronization, typecheck, production build and all 144 focused
+project-rules, review, command, queue, session, search and input-projection tests
+pass. CI policy/inventory/runner checks pass 39 cases with one platform skip.
+The actual-application installed-Edge preview passes its light/dark/Burgundy,
+Chinese/English and 1280/390/320px matrix without page or console errors.
+
+The full-suite and native Electron receipts below predate this synchronization.
+The existing shared local runtime lacks the full current-main patch set; it was
+not overwritten or represented as a fresh main-runtime acceptance. Complete
+native source/package checks remain for the PR's cloud CI. No installer, merge,
+release, profile change or historical-artifact deletion is performed.
+
+## Question Drawer Drag Dismissal (2026-11-06, Local Candidate)
+
+The Question drawer now follows the merged Plan drawer's downward gesture:
+release more than 90px down at the compact-height boundary to defer the question.
+This calls Answer later, never cancel or submit. Short drags retain size snapping;
+cancelled gestures and lost pointer capture reset dragging without deferring.
+Reopening retains the current question page, selected options and freeform draft.
+
+Windows typecheck, production build and six focused questionnaire/Plan tests pass.
+The actual Electron question acceptance passes with the isolated loopback provider,
+including compact/expanded dismissal, short-drag snapback, cancelled/lost gestures,
+the unchanged pending request and provider-call count, focus/composer restoration,
+retained answers, narrow light-theme reduced motion and the existing submit/retry,
+Plan gating, cancel and abort flows. The reopened narrow view is recorded in
+`Desktop/test-results/questions-drag-reopened-narrow-light.png`.
+No installer, cloud CI or native macOS acceptance is claimed.
+
+## Project AI Working Rules (2026-11-06, Local Candidate)
+
+Bare `/init` now detects the selected project's `AGENTS.md` and presents accurate
+Chinese create/check descriptions through the existing command menu. Drafts can
+discover the entry without starting a model or session; no selected folder asks
+for one. The typed IPC exposes only the detected mode for the exact draft or
+session owner. Failed reads are not treated as missing files.
+
+The main process rechecks the file at dispatch and returns read failures through
+IPC. Its idle check owns the mutation lock before awaiting runtime state; bare
+`/init` is rejected at queue enqueue, edit and dispatch boundaries. A
+Desktop-owned extension restricts tools only after model/auth preflight, through
+`before_agent_start`. Create mode permits project reads and one bounded,
+exclusive `AGENTS.md` creation tool. Check mode allows read tools only; write,
+shell, delegation and unknown mutating tools are blocked even if a provider
+returns a forbidden tool call. Ordinary tools restore at `agent_settled`, not an
+intermediate `agent_end` during retry or compaction. Applying suggested updates
+is a separate, explicitly approved ordinary task. The upstream pin and overlays
+are unchanged.
+
+Local Windows typecheck and production build pass. The complete serial Desktop
+suite after the review fixes collects 910 tests: 896 pass, 14 platform skips and
+zero failures in 265.8 seconds. Its log is
+`Desktop/test-results/project-instructions/fixes-serial-tests.log`.
+
+The real pinned-runtime test creates a file through the native tool path without
+a permission override, blocks a misbehaving review provider's overwrite, retains
+the file and restores ordinary tools for the next turn. Real Electron acceptance
+passes using the actual preload, IPC and staged extension with a loopback
+provider: draft discovery, ownership rejection, execution-time re-detection,
+zero-model status queries, preserved Goal selection, rejected queued `/init`
+replacement, visible errors with restored drafts, and successful retry after
+fixing an unreadable rule file. Native regressions exercise an actual provider
+503 retry and confirm the read-only guard survives it. Model/auth preflight
+failures do not arm the guard. Main-handler regressions cover the async idle
+race, lock/counter recovery and retry. The actual handler rejects bare `/init`
+queue edits while preserving image/file-attached queue edits.
+
+Internal instructions move into the current run's system prompt. Native
+`message_end` replacement leaves only `/init` in agent state and authoritative
+JSONL, including new SQLite search results. Legacy search confirms exact
+envelopes from bounded canonical histories before projecting `/init`; internal
+template-only hits are removed without rewriting JSONL or hiding ordinary prose
+that merely resembles a template fragment. When a source cannot be confirmed,
+the match retains its navigation identity with an unavailable excerpt rather
+than disappearing or exposing unconfirmed template text. Each query has a
+24 MiB source-read budget and retains the shared 12 MiB per-file bound.
+Regressions cover large, missing, out-of-profile and mismatched sources, shared
+budget exhaustion and source caching. Stale-index regressions also cover
+removed entries, same-ID content replacement and obsolete session excerpts;
+ordinary excerpts must match the current source before crossing IPC.
+Both native SQLite and degraded JSONL fallback regressions pass.
+
+CI policy, inventory, runner and summary tests pass under staged Node 24.16.0
+with serial execution: 39 passes and one platform skip. The initial concurrent
+system-Node run failed two process-tree termination checks and retained
+test-owned children; only those verified children were stopped before rerunning.
+This rerun does not establish a general fix for the initial termination failure.
+
+The revised browser preview loads the actual `src/main.tsx` application inside
+an independent viewport, with no preview CSS overriding application components.
+The outer scenario controls are separate; only the data/IPC boundary is simulated.
+The menu retains its original 34px single-line rows, right-aligned descriptions
+and full native title tooltips, including grouped commands and skills.
+The composer, attachments entry, permission/model/effort controls, context meter,
+animated send/stop icon, transcript and performance footer are production UI.
+The brand assets resolve from the public root rather than the fixture directory.
+
+Installed-Edge acceptance passes 1280/390/320-pixel layouts in Original Light,
+Original Dark and Burgundy, both languages, all four project states, multiline
+drafts, IME/keyboard handling, inline command icons, simulated create-to-review
+transition, read/selection failures retaining the draft, toolbar interactions,
+full focus extents against clipping ancestors and reduced motion, without page
+or console errors. Actual-app previewing also exposed React restoring a focused
+editor through its getter-only selection properties. Both caret properties now
+support canonical ProseMirror selection writes without changing the draft;
+the browser regression covers range, collapse and backward-selection updates.
+The latest typecheck/build, complete serial suite, actual-application browser
+matrix and native Electron project-instructions, composer and fulltext-search
+verifiers pass. The actual search component retains all unconfirmed matches and
+their open/location controls in light/dark and narrow layouts without console
+errors. Screenshots and logs are in
+`Desktop/test-results/project-instructions/`.
+
+The existing staged runtime (117.03 MiB), rebuilt Desktop output (9.79 MiB) and
+focused evidence (1.46 MiB) remain needed for local inspection. No installer or
+historical package was created or deleted. These checks do not prove real-model
+project-rule quality, native macOS, cloud CI, installer or release acceptance.
+The installed app and personal Step Code profile were not modified.
+
 ## PR #202 Packaged Goal-Clear Failure Diagnostics (2026-11-06)
 
 PR head `2749ee5` passes all Windows groups and macOS candidate preparation,

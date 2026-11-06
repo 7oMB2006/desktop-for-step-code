@@ -1,8 +1,9 @@
 import { activeHistory, type HistoryEntry } from './session-branching';
 import { emptyLaunch, goalStatuses, type GoalState, type LaunchState } from '../src/launch-state';
+import { completionReview, reviewActive } from '../src/completion-review';
 
 export function projectLaunch(entries: HistoryEntry[], leafId: string | null, sessionId: string, previous = emptyLaunch()): LaunchState {
-  const next: LaunchState = { ...previous, plan: false, goal: undefined };
+  const next: LaunchState = { ...previous, plan: false, goal: undefined, review: undefined };
   let user: GoalState['completion'];
   const completions = new Map<string, NonNullable<GoalState['completion']>>();
   for (const entry of activeHistory(entries, leafId)) {
@@ -15,6 +16,12 @@ export function projectLaunch(entries: HistoryEntry[], leafId: string | null, se
     }
     if (custom.type !== 'custom') continue;
     const value = custom.data;
+    if (custom.customType === 'desktop-completion-review') {
+      const review = completionReview(value);
+      if (review?.sessionId === sessionId) next.review = reviewActive(review)
+        ? previous.review?.id === review.id ? previous.review : { ...review, status: 'cancelled', reason: 'rebound' }
+        : review;
+    }
     if (custom.customType === 'step-plan' && typeof value?.enabled === 'boolean') next.plan = value.enabled;
     if (custom.customType !== 'step-goal' || value?.sessionId !== sessionId) continue;
     if (value.cleared === true) { next.goal = undefined; completions.clear(); continue; }

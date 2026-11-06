@@ -1,5 +1,47 @@
 # Verification
 
+## Plugin Center Completion Review Main Synchronization (2026-11-06)
+
+The authorized PR #195 synchronization now includes main `5c3fd21` and #199's
+one-shot completion review. The three merge conflicts preserve both staging
+capability sets, both TODO entries and both verification histories. The
+task-progress mount-race fix in `8994a1b` is retained. No runtime pin upgrade,
+test timeout increase, assertion removal or acceptance inventory exclusion is
+part of this merge.
+
+The production patch applier replays all 19 shared patches from clean pin
+`81e79bc4`. All 45 Windows postimages match. Applying the Darwin additions
+matches all 46 combined postimages; those additions are reversed before the
+Windows build. This is source verification, not native macOS acceptance.
+The fresh physical application mirror
+`D:/DFSC-Preview-QA/plugin-review-sync-20261106-final/` and upstream checkout
+`plugin-review-sync-20261106-upstream/` rebuild and stage with Node 24.16.0,
+without writing through the workspace's shared dependency/runtime junctions.
+
+Typecheck, production application/runtime builds and 199 targeted upstream
+tests pass. CI policy/inventory/runner tests pass 39 cases with one platform
+skip; they run in the Git checkout because the physical source mirror has
+no Git metadata. The complete serial Desktop suite exits normally and
+unassisted: 1003 total, 989 passed, 14 platform skips, zero failures or
+cancellations, about 366 seconds. The log is
+`D:/DFSC-Preview-QA/plugin-review-sync-20261106-full-unit.log`.
+
+Three production-component browser verifiers pass: PluginCenter, input/MCP
+and task-progress motion. Eight isolated Electron verifiers pass: completion
+review, update-installer UI, capabilities, background follow-ups, BTW, quotes,
+task progress and first-run lifecycle. Desktop and narrow screenshots are
+reviewed. These use isolated profiles and loopback fixtures, not paid models.
+The previous macOS packaged updater fixture's early exit was not reproduced
+on Windows; its cause remains unconfirmed and current-head native cloud
+results are recorded separately in PR #195.
+
+Excluding junction targets, the new application mirror occupies about
+206 MiB and its upstream checkout 52 MiB. The downloaded prior macOS interface
+diagnostics occupy about 44 MiB. These are inventoried, not deleted.
+No new installer, shortcut change, daily-profile mutation, application restart,
+merge, release or public marketplace submission is included. The previously
+delivered `8df1683` Windows package remains unchanged.
+
 ## Plugin Center Main Synchronization (2026-11-06)
 
 The owner authorized synchronizing current main into PR #195 after the metadata
@@ -630,6 +672,60 @@ acceptance are represented. Plan ASR retains the existing BVR dedicated-model
 route on the selected Plan endpoint; real-account ASR availability and billing
 have not been retested in this integration. Abort cannot undo a request already
 accepted by a provider.
+## PR #199 Main Integration (2026-11-06)
+
+Merge main `33abd6c` (PR #197) into the completion-review candidate without
+rewriting either branch. Both background follow-up and completion-review
+capabilities remain registered. Their RPC patches share an insertion point;
+the review patch now targets the background-reply postimage, with updated patch
+and combined RPC source hashes. Neither the pin nor upstream overlays change.
+The production applier succeeds from a clean pinned checkout with all 18 shared
+patches and 45 postimages. Darwin additions also replay with matching hashes;
+this source check is not native macOS execution.
+
+The combined runtime is rebuilt/restaged. Upstream workspace type checking and
+89 focused subagent/RPC tests pass, as do Desktop type checking and production
+build. Complete serial Desktop regression collects 913 tests: 899 pass,
+14 platform skips, zero failures in 180.5 seconds. Evidence is
+`Desktop/test-results/completion-review/merged-serial-tests.log`. All four staging
+tests pass independently, as do 34 CI policy/runner/summary tests (33 passes,
+one platform skip).
+
+Real Windows Electron review, background-replies, background-controls and
+launch-mode verifiers all pass against this combined runtime with isolated
+loopback providers. Coverage retains one-shot preflight reservation/rollback,
+completion deduplication, queued and continued child work, lost-receipt
+deduplication, parent/peer independence and non-inherited task-mode consent.
+These local results do not establish current-head cloud, native macOS,
+installer or real-account acceptance.
+
+No installer is generated or installed, and no package is deleted. The reused
+isolated source (0.04 GiB), new replay (0.02 GiB), staged runtime (0.11 GiB) and
+reused Desktop build (0.01 GiB) remain needed for verification and evidence;
+dependency junction targets are excluded from these sizes.
+
+## PR #199 One-Shot Review Reservation (2026-11-06)
+
+The main-process prompt handler now reserves the one-shot review choice before
+its first attachment/preparation/RPC await. Concurrent follow-ups capture their
+own unarmed payload. Enqueue/RPC acceptance commits the choice; rejection returns
+it to the original session without changing queued snapshots or enabling review
+on a replaced runtime/session or an incompatible task mode.
+
+Typecheck, production build and 63 focused review/runtime/queue/launch/timing
+tests pass locally. Native Windows Electron acceptance holds a real RPC
+preflight through an isolated input extension. A second prompt queues while the
+choice is reserved; after acceptance both ordinary tasks finish with exactly
+two model requests and no inherited review. A malformed-input fault injected
+after the same gate exercises native preflight rejection: the choice returns,
+the separate queued follow-up remains recoverable, and no model request occurs.
+The existing menu, provenance, ownership, completion, theme/narrow-layout and
+reduced-motion assertions remain intact. Runtime patches, pin and installed
+application are unchanged. Existing native launch-mode acceptance also passes,
+including Goal image attachments, one-shot Ultracode and queue steering.
+This focused result is not a new full-suite, cloud,
+installer or real-account acceptance claim.
+
 ## PR #197 Confirmed Non-delivery Retry (2026-11-06)
 
 The P2 review finding is reproduced against the previous staged runtime:
@@ -7134,3 +7230,47 @@ CI inventory/policy/runner checks passed 39 tests with one platform skip.
 Typecheck, production build, real Electron background controls and Workflow
 acceptance passed again after integration. These local results do not replace
 the new PR's cloud CI, native macOS or installer acceptance.
+
+## Completion Self-Review (2026-11-05)
+
+The existing task-options menu adds a default-off, one-shot completion
+self-review for the next ordinary main task. A hashed Desktop RPC patch reuses
+the native same-session feedback without enabling CLI-only flags, upgrading the
+pin, requiring a Git commit or creating an independent reviewer.
+Plan, Goal, Ultracode, Cron, BTW and child-agent automatic tasks are excluded.
+Queued tasks retain their own choice; rejected direct submissions do not
+consume it. Cancellation, errors, terminating denials and approval handoff
+block automatic continuation. New input skips a still-pending review but queues
+behind an already-started review.
+
+Local Windows source verification uses isolated profiles and loopback model
+providers through the real typed preload, IPC and pinned RPC. Native tests cover
+default-off behavior, exactly one extra prompt with a real tool continuation,
+the same model/credential route, exact once-only token totals, persisted
+structured provenance, queued input, cancellation and mutation guards.
+Fault injection covers each history-write phase: a failed store still emits one
+failed terminal event and releases task ownership, without a completion claim.
+Error, cancellation and handoff reasons cannot be masked by an earlier input
+skip or a later successful response.
+
+Electron verifies the production menu, one-shot consumption, automatic input
+without a fake human bubble, uninterrupted ownership across both native runs,
+one final completion event and light/dark/narrow/reduced-motion presentation.
+An ended review cannot label a later Plan. The existing launch-mode Electron
+acceptance also passes for Plan, Goal, Ultracode, draft options and queue steering.
+The original completion sound uses that final event; total task timing spans
+both runs. Review endings remain neutral, not "verification passed."
+The 24 focused controller/RPC, projection, queue and timing tests pass.
+The final complete serial Desktop suite passes 896 tests: 882 passed and 14
+platform skips, with no failures. The local log is
+`Desktop/test-results/completion-review/desktop-suite-final.log`.
+Desktop typecheck and production build, runtime build/typecheck using
+`tsconfig.build.json`, and clean patch replay with all 44 postimage hashes pass.
+CI policy, inventory and platform runners pass 30 tests with one platform skip;
+the new native verifier is assigned to the shared sessions group.
+
+The active staged runtime and replay evidence are isolated under
+`D:\Desktop Runtime Builds\completion-review-20261105`; the installed application
+and existing installer are unchanged. This is local source acceptance, not
+real-account/billing, native macOS, current cloud CI or installer acceptance.
+See [the implementation contract](COMPLETION_REVIEW.md).

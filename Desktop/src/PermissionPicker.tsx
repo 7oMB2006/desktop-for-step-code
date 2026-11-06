@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Goal, Hand, ShieldAlert, ShieldCheck, Shield, Lightbulb, Network } from 'lucide-react';
+import { Check, Goal, Hand, ShieldAlert, ShieldCheck, Shield, Lightbulb, Network, ScanLine } from 'lucide-react';
 import type { PermissionPreset } from './contracts';
 import { emptyLaunch, type LaunchMode, type LaunchState } from './launch-state';
 
@@ -18,7 +18,7 @@ interface Props {
   onSelect: (preset: PermissionPreset) => Promise<unknown>;
   onReview?: () => void;
   launch?: LaunchState;
-  launchSupported?: Record<LaunchMode, boolean>;
+  launchSupported?: Partial<Record<LaunchMode, boolean>>;
   busy?: boolean;
   onLaunch?: (mode: LaunchMode, enabled: boolean) => Promise<unknown>;
 }
@@ -72,11 +72,17 @@ export function PermissionPicker({ preset, language, disabled, supported, onSele
           { id: 'plan', Icon: Lightbulb, zh: '计划模式', en: 'Plan', selected: Boolean(launch.planArmed) },
           { id: 'goal', Icon: Goal, zh: '目标模式', en: 'Goal', selected: launch.goalArmed },
           { id: 'ultracode', Icon: Network, zh: 'Ultracode', en: 'Ultracode', selected: Boolean(launch.ultracodeArmed) },
+          { id: 'review', Icon: ScanLine, zh: '完成后自查', en: 'Review after task', selected: Boolean(launch.reviewArmed) },
         ] as const).map(({ id, Icon, selected, ...item }) => <button type="button" role="menuitemcheckbox" aria-checked={selected}
           key={id} className="permission-launch-option" disabled={pending || !launchSupported?.[id]
+            || id !== 'review' && launch.reviewArmed
+            || id === 'review' && (launch.plan || launch.goalArmed || launch.goal?.status === 'active' || launch.ultracode || launch.ultracodeArmed)
             || id === 'goal' && (Boolean(launch.goal && launch.goal.status !== 'complete') || busy)}
+          aria-label={id === 'review' ? zh ? item.zh : item.en : undefined}
+          data-tooltip={id === 'review' && !launchSupported?.review ? (zh ? '当前运行时不支持完成自查' : 'Completion review unavailable') : undefined}
           onClick={async () => { setOpen(false); setPending(true); try { await onLaunch(id, !selected); } finally { setPending(false); } }}>
-          <Icon size={17}/><span className="permission-option"><strong>{zh ? item.zh : item.en}</strong></span>
+          <Icon size={17}/><span className="permission-option"><strong>{zh ? item.zh : item.en}</strong>
+            {id === 'review' && <small>{zh ? '仅下次普通任务，同会话补验证与修复，额外消耗 Token' : 'Next ordinary task only. Same-session checks and fixes use extra tokens.'}</small>}</span>
           {selected && <Check size={15}/>}
         </button>)}
         <div className="permission-launch-divider" role="separator"/>

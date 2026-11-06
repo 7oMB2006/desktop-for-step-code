@@ -1,5 +1,55 @@
 # Verification
 
+## Context Maintenance Settings (2026-11-07, Local Implementation)
+
+Settings > General now edits the Desktop-owned global compaction thresholds
+through a narrow typed bridge and an isolated management-process adapter.
+The default ratio is 90%, bounded to 50-95%. Advanced settings expose one
+global token ceiling and per-model ratios keyed by `provider/id`; the pinned
+runtime does not support a separate token ceiling per model. Configured ratios
+remain distinct from effective thresholds and trusted project overrides.
+
+Writes use the pinned upstream TOML parser, lock and atomic update function.
+A revision checked inside that lock prevents stale threshold overwrites without
+rejecting unrelated MCP edits. Reset removes only this editor's three threshold
+fields. CLM/projection, enabled state, explicit reserves, permissions, credentials
+and unknown options remain untouched. Legacy policy migration is explicit;
+invalid TOML and linked Desktop roots fail closed. No raw document, private path
+or credential is projected to the renderer.
+
+Nine focused tests pass, including two real pinned management processes,
+persisted TOML consumed by the native settings manager, stale writers,
+provider-qualified model identities, trusted project overrides, reset isolation,
+invalid configuration and linked-profile rejection. Typecheck and production
+build pass. Browser acceptance uses the production component and checks
+auto-save, keyboard focus retention, model inheritance, defaults, failed reads
+and writes, conflicts, legacy policy, light/dark, Chinese/English, narrow windows,
+four-sided focus clearance and reduced motion. The new verifier is registered
+in the shared interface CI inventory.
+
+The full serial Desktop suite passes 1068 cases with 14 platform skips,
+zero failures/cancellations, across 1082 cases in about 398 seconds.
+CI policy/inventory/runner/summary checks pass 39 cases with one platform skip.
+
+The existing Windows Electron settings-dialog acceptance also saves and reads
+the real configuration through preload, resets it and confirms the current
+draft/runtime/messages are unchanged. Existing settings navigation, themes,
+narrow windows and draft retention still pass. Tests use temporary profiles,
+without paid models or real account credentials.
+
+Runtime verification uses the existing prepared v0.1.7 bundle at pin `29eb460`
+through read-only runtime references, with current management helpers built into
+this worktree's physical runtime root. The source pin and upstream patches are
+unchanged; this is not a fresh complete source-staging or packaged acceptance.
+There is no threshold hot-update RPC at this pin. Saving never reloads or
+restarts resident workers, including reused empty workers; new runtime starts
+and explicit manual restarts read the saved global values. Installer,
+installed-profile changes and cloud acceptance are outside these local receipts.
+The local artifact audit, excluding junction targets, records about 10.1 MiB
+in `Desktop/dist`, 0.13 MiB in the physical runtime adapter root, 63.0 MiB
+in the terminal runtime and under 1 MiB of Electron screenshots. These are current
+development/verification inputs; no historical package is produced or deleted.
+
 ## Upstream v0.1.7 Local Migration (2026-11-06)
 
 The `codex/upstream-v017` worktree, based on main `1979ee7`, migrates the

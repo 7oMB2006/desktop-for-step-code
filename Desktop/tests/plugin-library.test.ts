@@ -35,6 +35,34 @@ test('versioned metadata bounds lists and derives tutorial platform from URL', (
     { schemaVersion: 1, links: [{ title: 'A', url: 'https://user:password@example.com' }] }])
     assert.throws(() => parsePresentation(value));
 });
+test('classification metadata is bounded without freezing the host category vocabulary', () => {
+  const parsed = parsePresentation({ schemaVersion: 1, categories: ['research', 'audio-video', 'future-category'],
+    keywords: ['视频研究', ' ASR '] });
+  assert.deepEqual(parsed.categories, ['research', 'audio-video', 'future-category']);
+  assert.deepEqual(parsed.keywords, ['视频研究', 'ASR']);
+  assert.equal(parsePresentation({ schemaVersion: 1 }).categories, undefined, 'Old packages do not acquire guessed categories');
+  for (const categories of ['research', [null], [1], [''], [' '], ['Research'], ['audio/video'], ['audio_video'],
+    ['two words'], ['research', ' research '], ['a'.repeat(49)], ['a', 'b', 'c', 'd']])
+    assert.throws(() => parsePresentation({ schemaVersion: 1, categories }), 'Invalid categories must be rejected');
+  for (const keywords of ['ASR', [null], [1], [''], [' '], ['two\nlines'], ['x'.repeat(49)],
+    ['ASR', ' ASR '], ['a', 'b', 'c', 'd', 'e', 'f']])
+    assert.throws(() => parsePresentation({ schemaVersion: 1, keywords }), 'Invalid keywords must be rejected');
+});
+test('installed and marketplace classification comes from each own presentation file', async t => {
+  const { library, root, directory, catalog } = await fixture(t);
+  const market = join(root, 'marketplaces', 'community', 'example');
+  await mkdir(market, { recursive: true });
+  await writeFile(join(market, 'step.plugin.json'), '{"id":"same-id","version":"1.0.0"}');
+  await writeFile(join(directory, 'dfsc.plugin.json'), JSON.stringify({ schemaVersion: 1, categories: ['text-documents'], keywords: ['local'] }));
+  await writeFile(join(market, 'dfsc.plugin.json'), JSON.stringify({ schemaVersion: 1, categories: ['research'], keywords: ['market'] }));
+  const projected = await library.project({ ...await catalog(), available: [{ name: 'example', marketplace: 'community', installed: false,
+    packageDescriptor: { root: market, fingerprint: await files.packageFingerprint(market), id: 'same-id',
+      kind: 'available', provenance: 'recorded', source: 'community' } } as never] });
+  assert.deepEqual(projected.plugins[0].package?.categories, ['text-documents']);
+  assert.deepEqual(projected.plugins[0].package?.keywords, ['local']);
+  assert.deepEqual(projected.available[0].package?.categories, ['research']);
+  assert.deepEqual(projected.available[0].package?.keywords, ['market']);
+});
 test('localized presentation is bounded and only existing same-package documents become readable', async t => {
   const { library, directory, catalog } = await fixture(t);
   const value = { schemaVersion: 1, locales: {

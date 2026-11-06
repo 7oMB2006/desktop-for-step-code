@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
-index 918ba9c..7e4dec2 100644
+index f8c2721..433b5ce 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
 @@ -34,6 +34,7 @@ import { type Theme, theme } from "../../theme/theme.ts";
@@ -10,10 +10,10 @@ index 918ba9c..7e4dec2 100644
  import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
  import type {
  	RpcCommand,
-@@ -95,6 +96,15 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
- 		return { id, type: "response", command, success: false, error: message };
- 	};
- 	const btw = new DesktopBtw(() => session, output);
+@@ -100,6 +101,15 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 	let replyOwner: object | undefined;
+ 	let replySessionId: string | undefined;
+ 	const backgroundReplies = new Map<string, { digest: string; promise?: Promise<RpcResponse> }>();
 +	let desktopUltracode = false;
 +	let desktopBackgroundWork = false;
 +	const review = new DesktopCompletionReview(() => session, output, () => {
@@ -26,7 +26,7 @@ index 918ba9c..7e4dec2 100644
  
  	// Pending extension UI requests waiting for response
  	const pendingExtensionRequests = new Map<
-@@ -189,6 +199,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+@@ -194,6 +204,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  		},
  
  		setStatus(key: string, text: string | undefined): void {
@@ -38,7 +38,7 @@ index 918ba9c..7e4dec2 100644
  			// Fire and forget - no response needed
  			output({
  				type: "extension_ui_request",
-@@ -339,6 +354,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+@@ -344,6 +359,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  
  	const rebindSession = async (): Promise<void> => {
  		btw.reset();
@@ -48,7 +48,7 @@ index 918ba9c..7e4dec2 100644
  		const nextSession = runtimeHost.session;
  		// Bind output listeners before extension session_start handlers run. This
  		// keeps events emitted during replacement observable to RPC clients.
-@@ -414,8 +432,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+@@ -419,8 +437,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  	// Handle a single command
  	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
  		const id = command.id;
@@ -63,7 +63,7 @@ index 918ba9c..7e4dec2 100644
  			case "desktop_btw": {
  				if (command.action === "ask") btw.start(command);
  				else if (command.action === "cancel") await btw.cancel(command.requestId, command.scopeId);
-@@ -428,21 +452,25 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+@@ -433,21 +457,25 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  			// =================================================================
  
  			case "prompt": {
@@ -94,7 +94,7 @@ index 918ba9c..7e4dec2 100644
  					.catch((e) => {
  						if (!preflightSucceeded) {
  							output(error(id, "prompt", e.message));
-@@ -452,16 +480,19 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+@@ -457,16 +485,19 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  			}
  
  			case "steer": {
@@ -114,7 +114,7 @@ index 918ba9c..7e4dec2 100644
  				await session.abort();
  				return success(id, "abort");
  			}
-@@ -734,9 +765,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+@@ -815,9 +846,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  			}
  			case "get_state": {
  				const state: RpcSessionState = {
@@ -126,7 +126,7 @@ index 918ba9c..7e4dec2 100644
  					isCompacting: session.isCompacting,
  					steeringMode: session.steeringMode,
  					followUpMode: session.followUpMode,
-@@ -1003,6 +1035,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+@@ -1084,6 +1116,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
  
  	async function shutdown(exitCode = 0, signal?: NodeJS.Signals): Promise<never> {
  		btw.reset();
@@ -135,7 +135,7 @@ index 918ba9c..7e4dec2 100644
  			process.exit(exitCode);
  		}
 diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
-index 0956dbd..9f50c71 100644
+index 253187f..5be771e 100644
 --- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
 +++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
 @@ -22,7 +22,8 @@ export type RpcCommand =
@@ -148,7 +148,7 @@ index 0956dbd..9f50c71 100644
  	| { id?: string; type: "steer"; message: string; images?: ImageContent[] }
  	| { id?: string; type: "follow_up"; message: string; images?: ImageContent[] }
  	| { id?: string; type: "abort" }
-@@ -118,6 +119,7 @@ export interface RpcSlashCommand {
+@@ -120,6 +121,7 @@ export interface RpcSlashCommand {
  // ============================================================================
  
  export interface RpcSessionState {

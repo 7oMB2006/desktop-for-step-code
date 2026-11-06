@@ -242,6 +242,15 @@ Artifact and web-reference entry points also close the right panel when it alrea
 
 Resizable inspectors share a subtle single-line grip centered on their left boundary, with a larger invisible pointer target and no tooltip. Drag geometry follows the pointer and release snaps to existing presets; a long drag may cross multiple presets. Closing requires dragging at least 100px beyond standard width. Browser, file and terminal use standard/wide/fullscreen; context, changes and subagent use standard/fullscreen. Conversation navigation is excluded. Click opens an anchored in-app size menu; keyboard left/right expands/contracts. The browser yields its native surface while the menu is open. Reduced-motion preferences disable the settling transition.
 
+Current-runtime single background-agent details offer a compact follow-up
+composer using the actual ComposerInput, composer surface and ComposerActionIcon.
+The native current turn is not interrupted; retained completed children continue
+their original conversation. Per-lane drafts stay separate from the parent.
+Queued/started are delivery receipts, never completion claims. Stale,
+disconnected, settling, missing and parallel/chain records cannot send.
+Unconfirmed delivery retains the draft without automatic retry. The composite
+focus ring keeps its full four-pixel gutter inside the scrolling inspector.
+
 The thinking fader animates one inherited position and resistance value for both
 the thumb center and gradient fill edge. Their geometry uses the same inner
 travel distance, including borders and well insets; neither element runs an

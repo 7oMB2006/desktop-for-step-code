@@ -61,4 +61,13 @@
 .background-agents-loading i { height: 12px; width: 70%; background: var(--surface); border-radius: 3px; }
 .background-agents-loading i:nth-last-child(2) { width: 92%; }
 .background-agents-loading i:last-child { width: 48%; }
+.background-agent-follow-up { margin-top: 18px; padding: 4px; min-width: 0; scroll-margin-block: 8px; }
+.background-agent-follow-up-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.background-agent-follow-up-heading h4 { margin: 0; font-size: 12px; font-weight: 600; }
+.background-agent-follow-up-heading > span { color: var(--muted); font-size: 10px; min-height: 16px; }
+.background-agent-follow-up-composer { min-width: 0; }
+.background-agent-follow-up-composer .composer-input { min-height: 56px; max-height: 180px; font-size: 12px; }
+.background-agent-follow-up-composer .composer-tools { padding: 0 8px 6px; min-height: 32px; }
+.background-agent-follow-up-composer:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.background-agent-follow-up .background-agent-error { margin-bottom: 0; }
 @media (prefers-reduced-motion: reduce) { .background-agent-chevron { transition: none; } }

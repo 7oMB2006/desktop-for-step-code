@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { ArrowLeft, ArrowUpRight, Bot, CircleHelp, RefreshCw, Square, Timer } from 'lucide-react';
-import type { BackgroundAgentClient, BackgroundAgentLane, BackgroundAgentSelection, BackgroundAgentSnapshot, BackgroundAgentStep } from './background-agents';
+import { MAX_BACKGROUND_REPLY_LENGTH, type BackgroundAgentClient, type BackgroundAgentLane, type BackgroundAgentReplyReceipt,
+  type BackgroundAgentSelection, type BackgroundAgentSnapshot, type BackgroundAgentStep } from './background-agents';
 import { DisclosureChevron } from './DisclosureChevron';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import { ElapsedLabel } from './ElapsedLabel';
@@ -8,7 +9,70 @@ import { Text } from './ConversationMessages';
 import { toolPresentation } from './conversation-presentation';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
 import { AppMenu } from './AppMenu';
+import { ComposerInput } from './ComposerInput';
+import { ComposerActionIcon } from './ComposerActionIcon';
 import './background-agents.css';
+
+interface ReplyDraft {
+  text: string;
+  requestId?: string;
+  pending?: boolean;
+  error?: boolean;
+  receipt?: BackgroundAgentReplyReceipt;
+}
+function FollowUpComposer({ draft, disabled, running, language, onChange, onSend }: {
+  draft: ReplyDraft; disabled: boolean; running: boolean; language: 'zh' | 'en';
+  onChange: (value: string) => void; onSend: () => void;
+}) {
+  const zh = language === 'zh';
+  const form = useRef<HTMLFormElement>(null);
+  useLayoutEffect(() => {
+    const element = form.current;
+    if (!element) return;
+    const reveal = () => {
+      if (element.contains(document.activeElement)) element.scrollIntoView({ block: 'nearest' });
+    };
+    const observer = new ResizeObserver(reveal);
+    observer.observe(element);
+    if (element.parentElement) observer.observe(element.parentElement);
+    return () => observer.disconnect();
+  }, []);
+  const tooLong = draft.text.length > MAX_BACKGROUND_REPLY_LENGTH;
+  const unavailable = disabled || Boolean(draft.pending) || !draft.text.trim() || tooLong;
+  return <form ref={form} className="background-agent-follow-up"
+    onFocusCapture={event => event.currentTarget.scrollIntoView({ block: 'nearest' })}
+    onSubmit={event => { event.preventDefault(); if (!unavailable) onSend(); }}>
+    <div className="background-agent-follow-up-heading">
+      <h4 data-tooltip={zh ? '继续使用此子代理，可能执行工具并产生用量。' : 'Continues this subagent. Tools and model usage may be involved.'}>
+        {zh ? '追加任务' : 'Follow-up task'}</h4>
+      <span role="status">{draft.pending ? zh ? '正在发送' : 'Sending'
+        : draft.receipt ? draft.receipt.delivery === 'queued' ? zh ? '已排队' : 'Queued' : zh ? '已启动' : 'Started'
+          : running ? zh ? '当前轮结束后执行' : 'After the current turn' : zh ? '接着原任务继续' : 'Continue this task'}</span>
+    </div>
+    <div className="composer background-agent-follow-up-composer">
+      <ComposerInput value={draft.text} disabled={disabled || Boolean(draft.pending)} language={language}
+        label={zh ? '追加任务内容' : 'Follow-up task text'} placeholder={zh ? '补充任务…' : 'Add a task…'}
+        onChange={onChange} onPaste={() => {}}
+        onKeyDown={event => {
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing
+            && event.nativeEvent.keyCode !== 229 && !event.repeat) {
+            event.preventDefault(); if (!unavailable) onSend();
+          }
+        }}/>
+      <div className="composer-tools"><span className="spacer"/><button type="submit"
+        className="icon-button composer-action-button" data-action="send" disabled={unavailable}
+        aria-label={zh ? '发送追加任务' : 'Send follow-up task'}
+        data-tooltip={zh ? '发送给此子代理，不打断当前轮' : 'Send to this subagent without interrupting its current turn'}>
+        <ComposerActionIcon stop={false}/>
+      </button></div>
+    </div>
+    {tooLong && <p className="background-agent-error" role="alert">{zh
+      ? '追加任务不能超过 8000 字符。' : 'Follow-up tasks cannot exceed 8,000 characters.'}</p>}
+    {draft.error && <p className="background-agent-error" role="alert">{zh
+      ? '发送结果未确认，内容已保留，未自动重试。可先核对任务状态；原文再次提交会复用同一请求编号。'
+      : 'Delivery unconfirmed. Your text is retained; no automatic retry. Check the task before resubmitting the same request.'}</p>}
+  </form>;
+}
 
 export type BackgroundAgentStepProps = { step: BackgroundAgentStep; live: boolean; language: 'zh' | 'en'; showIdentity?: boolean }
   & Pick<Parameters<typeof Text>[0], 'openImage' | 'onError'>;
@@ -159,7 +223,9 @@ export function BackgroundAgentsView({ open, runtimeId, sessionId, connected, se
   const [refreshing, setRefreshing] = useState(false);
   const [actionError, setActionError] = useState(false);
   const [stopping, setStopping] = useState<Set<string>>(new Set());
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, ReplyDraft>>({});
   const stopLocks = useRef(new Set<string>());
+  const replyLocks = useRef(new Set<string>());
   const refresh = useRef<() => void>(() => {});
   const list = useRef<HTMLDivElement>(null);
   const listScroll = useRef(0);
@@ -172,7 +238,9 @@ export function BackgroundAgentsView({ open, runtimeId, sessionId, connected, se
   const zh = language === 'zh';
   useEffect(() => {
     setSnapshot(undefined); setFailed(false); setActionError(false); setStopping(new Set());
+    setReplyDrafts({});
     stopLocks.current = new Set();
+    replyLocks.current = new Set();
   }, [identity]);
   useEffect(() => { owner.current = identity; return () => { owner.current = undefined; }; }, [identity]);
   useLayoutEffect(() => {
@@ -222,7 +290,7 @@ export function BackgroundAgentsView({ open, runtimeId, sessionId, connected, se
   }, [open, connected, runtimeId, sessionId, client]);
   const stop = async (lane: BackgroundAgentLane) => {
     if (!open || !connected || failed || !client || !runtimeId || !sessionId || lane.status !== 'running'
-      || lane.settling || stopLocks.current.has(lane.id)) return;
+      || lane.settling || stopLocks.current.has(lane.id) || replyLocks.current.has(lane.id)) return;
     const locks = stopLocks.current;
     locks.add(lane.id);
     setStopping(value => new Set([...value, lane.id])); setActionError(false);
@@ -232,6 +300,28 @@ export function BackgroundAgentsView({ open, runtimeId, sessionId, connected, se
         setActionError(true);
         setStopping(value => new Set([...value].filter(id => id !== lane.id)));
       }
+    } finally {
+      locks.delete(lane.id);
+      if (owner.current === identity) refresh.current();
+    }
+  };
+  const reply = async (lane: BackgroundAgentLane) => {
+    const draft = replyDrafts[lane.id];
+    if (!open || !connected || failed || !client || !runtimeId || !sessionId || !snapshot?.replyAvailable
+      || lane.mode !== 'single' || lane.settling || stopping.has(lane.id) || stopLocks.current.has(lane.id)
+      || replyLocks.current.has(lane.id) || !draft?.text.trim() || draft.text.length > MAX_BACKGROUND_REPLY_LENGTH) return;
+    const requestId = draft.requestId ?? crypto.randomUUID(), prompt = draft.text;
+    const locks = replyLocks.current;
+    locks.add(lane.id);
+    setReplyDrafts(value => ({ ...value, [lane.id]: { text: prompt, requestId, pending: true } }));
+    try {
+      const receipt = await client.replyBackgroundAgent({ runtimeId, sessionId, laneId: lane.id, requestId, prompt });
+      if (receipt.sessionId !== sessionId || receipt.laneId !== lane.id || receipt.requestId !== requestId
+        || !['queued', 'started'].includes(receipt.delivery)) throw new Error('Unconfirmed reply');
+      if (owner.current === identity) setReplyDrafts(value => ({ ...value, [lane.id]: { text: '', receipt } }));
+    } catch {
+      if (owner.current === identity) setReplyDrafts(value => ({ ...value,
+        [lane.id]: { text: prompt, requestId, error: true } }));
     } finally {
       locks.delete(lane.id);
       if (owner.current === identity) refresh.current();
@@ -300,6 +390,13 @@ export function BackgroundAgentsView({ open, runtimeId, sessionId, connected, se
             <p className="background-agent-task">{selectedStep.task || (zh ? '无任务描述' : 'No task description')}</p>
             <Step step={selectedStep} live={live} language={language} showIdentity={false} {...props}/>
             <p className="background-agent-source">{zh ? '运行时快照 · 输出片段' : 'Runtime snapshot · Output excerpt'}</p>
+            {snapshot?.replyAvailable && selectedLane?.mode === 'single' && <FollowUpComposer
+              draft={replyDrafts[selectedLane.id] ?? { text: '' }}
+              disabled={!live || selectedLane.settling || stopping.has(selectedLane.id)}
+              running={selectedLane.status === 'running'} language={language}
+              onChange={text => setReplyDrafts(value => ({ ...value, [selectedLane.id]: { text,
+                requestId: text === value[selectedLane.id]?.text ? value[selectedLane.id]?.requestId : undefined } }))}
+              onSend={() => void reply(selectedLane)}/>}
           </>}
     </div>}
   </div>;

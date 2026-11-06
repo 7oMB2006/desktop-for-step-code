@@ -397,7 +397,8 @@ const pendingMessages = new PendingMessages(worker => {
 const runtimeManifest = JSON.parse(readFileSync(join(runtimeRoot, 'manifest.json'), 'utf8'));
 const backgroundAgents = new BackgroundAgents(runtimes.workers,
   () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending,
-  runtimeManifest.patches?.includes('desktop-subagent-redaction') === true);
+  runtimeManifest.patches?.includes('desktop-subagent-redaction') === true,
+  runtimeManifest.patches?.includes('desktop-background-reply') === true);
 const launchControls = new LaunchControls(runtimes);
 const cronBindings = new CronBindings(join(app.getPath('userData'), 'cron-bindings'));
 const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
@@ -1178,6 +1179,9 @@ async function handle(method: string, args: any[]) {
       return backgroundAgents.read(text(args[0], 80), text(args[1], 200));
     case 'stopBackgroundAgent':
       return backgroundAgents.stop(text(args[0], 80), text(args[1], 200), text(args[2], 40));
+    case 'replyBackgroundAgent':
+      if (args[0]?.runtimeId !== runtimes.activeId) throw new Error('Session is not selected');
+      return backgroundAgents.reply(args[0]);
     case 'summary': {
       const worker = runtimes.require(text(args[0], 80));
       const sessionId = worker.state?.sessionId;

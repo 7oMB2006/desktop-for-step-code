@@ -68,6 +68,24 @@ installer upgrades and real-account/model checks remain unconfirmed.
 No commit, push, PR, installed-app change, public release or version bump is
 part of this local implementation. See [integration boundaries](UPSTREAM_V017.md).
 
+### PR #203 Command Outcome Acceptance Follow-up
+
+The first cloud run builds the ARM64 candidate successfully, but Windows
+command acceptance still expects a nonzero exit to be an invocation error,
+and macOS native `then_run` acceptance still expects deadlines to throw.
+The current source intentionally returns command facts in `details.execution`
+instead. Acceptance now checks nonzero exit codes and structured timeout
+status separately from invocation failure. A deadline may retain the native
+executor's exit code; it is not forced to null.
+
+Both corrected Windows verifiers pass against the local packaged candidate.
+They retain missing-shell/no-fallback checks, timeout diagnostics, applied
+file receipts, output truncation/no-rerun checks, descendant cancellation and
+concurrent-shell isolation. The `then_run` RPC/UI checks also pass, including
+permission denial and history reload. These are isolated fixture checks,
+not real-account acceptance. Fresh current-head cloud checks and the final
+committed-head package remain pending; PR #203 is not merged.
+
 ## Plugin Center Background History Main Synchronization (2026-11-06)
 
 PR #195 now integrates main `af52f41`, including #198's background-history

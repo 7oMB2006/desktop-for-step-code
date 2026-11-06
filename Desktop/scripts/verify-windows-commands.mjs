@@ -176,7 +176,13 @@ for (const mode of ['default', 'path-install', 'explicit', 'missing-explicit', '
       assert.match(text(results[0].content), /NATIVE_WORKSPACE_OK/);
       assert.match(text(results[0].content), /STDERR_OK/);
       if (mode !== 'default') assert.match(text(results[0].content), /Developer Tools\/Portable Git/);
-      assert.equal(results[1].isError, true);
+      assert.equal(results[1].isError, false, 'A nonzero command exit is not an invocation failure');
+      const execution = results[1].details.execution;
+      assert.equal(execution.status, 'exited');
+      assert.equal(execution.exitCode, 7);
+      assert.equal(execution.signal, null);
+      assert.equal(execution.timedOut, false);
+      assert.equal(execution.aborted, false);
       assert.match(text(results[1].content), /code 7/);
       assert.match(text(results[1].content), /EXPECTED_FAILURE/);
       const details = results[2].details;

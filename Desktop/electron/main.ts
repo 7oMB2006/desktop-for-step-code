@@ -1180,9 +1180,11 @@ async function handle(method: string, args: any[]) {
       return backgroundAgents.read(text(args[0], 80), text(args[1], 200));
     case 'stopBackgroundAgent':
       return backgroundAgents.stop(text(args[0], 80), text(args[1], 200), text(args[2], 40));
-    case 'replyBackgroundAgent':
+    case 'replyBackgroundAgent': {
       if (args[0]?.runtimeId !== runtimes.activeId) throw new Error('Session is not selected');
-      return backgroundAgents.reply(args[0]);
+      const worker = runtimes.require(text(args[0]?.runtimeId, 80));
+      return runtimes.withBackgroundAction(worker, () => backgroundAgents.reply(args[0]));
+    }
     case 'summary': {
       const worker = runtimes.require(text(args[0], 80));
       const sessionId = worker.state?.sessionId;

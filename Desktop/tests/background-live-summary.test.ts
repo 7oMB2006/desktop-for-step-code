@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionRuntimes, type WorkerTransport } from '../electron/session-runtimes';
+import { BackgroundAgents } from '../electron/background-agents';
 
 class Transport implements WorkerTransport {
   reads = 0;
@@ -90,6 +91,43 @@ test('structured notifications and agent_send results invalidate earlier observa
       assert.equal(host.backgroundLanes, undefined);
     } finally { await f.pool.stopAll(); }
   }
+});
+
+test('manual replies discard pre-action observations and never release live ownership', async () => {
+  const f = fixture();
+  try {
+    const host = await f.pool.open('node', 'step', 'workspace', {});
+    await f.pool.readBackground(host);
+    let release!: (value: unknown) => void;
+    const original = f.transport().request.bind(f.transport());
+    f.transport().request = async (type: string, args?: Record<string, unknown>) => {
+      if (type === 'desktop_subagents' && args?.action === 'reply') return new Promise(resolve => { release = resolve; });
+      return original(type);
+    };
+    const client = new BackgroundAgents(f.pool.workers, undefined, true, true);
+    const replying = f.pool.withBackgroundAction(host, () => client.reply({ runtimeId: host.id, sessionId: 'session-a',
+      laneId: 'lane_12345678', requestId: '12345678-1234-1234-1234-123456789abc', prompt: 'Continue' }));
+    assert.deepEqual(f.pool.summaries()[0].background, { status: 'unavailable' });
+    release({ sessionId: 'session-a', laneId: 'lane_12345678', requestId: '12345678-1234-1234-1234-123456789abc', delivery: 'started' });
+    await replying;
+    assert.deepEqual(f.pool.summaries()[0].background, { status: 'unavailable' });
+    assert.equal(host.backgroundActive, false);
+    assert.equal(host.backgroundLanes, undefined);
+  } finally { await f.pool.stopAll(); }
+});
+
+test('unconfirmed manual replies invalidate any observations taken during delivery', async () => {
+  const f = fixture();
+  try {
+    const host = await f.pool.open('node', 'step', 'workspace', {});
+    const failure = new Error('Unconfirmed reply');
+    await assert.rejects(f.pool.withBackgroundAction(host, async () => {
+      await f.pool.readBackground(host);
+      throw failure;
+    }), error => error === failure);
+    assert.deepEqual(f.pool.summaries()[0].background, { status: 'unavailable' });
+    assert.equal(host.backgroundActive, false);
+  } finally { await f.pool.stopAll(); }
 });
 
 test('internal observation works under mutation locks without granting live ownership', async () => {

@@ -120,6 +120,12 @@ export class SessionRuntimes {
     this.backgroundVersions.set(worker, (this.backgroundVersions.get(worker) ?? 0) + 1);
     this.backgroundObservations.delete(worker);
   }
+  async withBackgroundAction<T>(worker: SessionRuntime, action: () => Promise<T>): Promise<T> {
+    this.invalidateBackground(worker);
+    this.publish();
+    try { return await action(); }
+    finally { this.invalidateBackground(worker); this.publish(); }
+  }
   private observeBackground(worker: SessionRuntime, snapshot: BackgroundAgentSnapshot, revision: number) {
     if (this.workers.get(worker.id) !== worker || worker.status !== 'connected'
       || worker.state?.sessionId !== snapshot.sessionId || worker.revision !== revision) return;

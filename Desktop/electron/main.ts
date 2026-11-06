@@ -11,6 +11,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
+import { inspectProjectInstructions, projectInstructionsMessage } from './project-instructions';
+import { isProjectInstructionsCommand, projectInstructionsInput } from '../src/project-instructions';
 import { hasBackgroundWork } from './background-work';
 import { BtwRequests } from './btw';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
@@ -375,7 +377,11 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     const expected = history ? savedSessionModel(history.entries ?? [], history.leafId ?? null) : preferences.preferredModel;
     await restoreSelectedModel(worker, expected, preferences.language);
   },
-  launch: worker => { usageEstimates.attach(worker); return collaboration.attach(worker); },
+  launch: worker => {
+    usageEstimates.attach(worker);
+    const launch = collaboration.attach(worker);
+    return { ...launch, args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs')] };
+  },
   dispose: worker => {
     btw.dispose(worker);
     conversationTiming.event(worker, { type: 'desktop_exit' });
@@ -542,7 +548,8 @@ let sessionCatalog: Session[] = [];
 async function listSessions(): Promise<Session[]> {
   const upstream: Session[] = await admin.request('sessions');
   const sessions: Session[] = upstream
-    .filter(session => !isChildSession(String(session.id ?? '')));
+    .filter(session => !isChildSession(String(session.id ?? '')))
+    .map(session => ({ ...session, firstMessage: projectInstructionsInput(session.firstMessage) ?? session.firstMessage }));
   // Empty upstream sessions are persisted lazily, but must remain navigable.
   for (const worker of runtimes.workers.values()) {
     const id = worker.state?.sessionId;
@@ -1553,7 +1560,7 @@ async function handle(method: string, args: any[]) {
       if (worker.id !== runtimes.activeId || worker.mutating || worker.operations) throw new Error('Session operation in progress');
       const entryId = text(args[0], 80);
       const message = text(args[1]);
-      if (/^\s*\/_desktop_retry\b/.test(message)) throw new Error('Reserved Desktop command');
+      if (/^\s*\/_desktop_(?:retry|goal_input|init)\b/.test(message)) throw new Error('Reserved Desktop command');
       worker.mutating = true;
       try { await runtimes.retryLatest(worker, entryId, message); }
       finally { worker.mutating = false; }
@@ -1627,6 +1634,25 @@ async function handle(method: string, args: any[]) {
       await usageEstimates.remove(target.id);
       return true;
     }
+    case 'projectInstructions': {
+      const owner = args[0];
+      if (transition || sessionNavigation.busy || !owner || typeof owner !== 'object') throw new Error('Project selection is changing');
+      if (owner.draftId !== undefined) {
+        if (!sessionDraft || sessionDraft.id !== text(owner.draftId, 80) || owner.runtimeId !== undefined || owner.sessionId !== undefined)
+          throw new Error('This session draft is no longer active');
+        const draft = sessionDraft;
+        if (!draft.workspace) return { mode: 'choose-project' };
+        const { mode } = await inspectProjectInstructions(draft.workspace);
+        if (sessionDraft !== draft) throw new Error('Project selection changed');
+        return { mode };
+      }
+      const worker = runtimes.require(text(owner.runtimeId, 80));
+      if (worker.state?.sessionId !== text(owner.sessionId, 256)) throw new Error('Session selection changed');
+      const sessionId = worker.state.sessionId;
+      const { mode } = await inspectProjectInstructions(worker.cwd);
+      if (runtimes.require(worker.id) !== worker || worker.state?.sessionId !== sessionId) throw new Error('Session selection changed');
+      return { mode };
+    }
     case 'command': {
       const type = text(args[0], 80); const data = args[1] ?? {};
       // Obsolete navigation preparation still locks shared account/settings
@@ -1665,6 +1691,8 @@ async function handle(method: string, args: any[]) {
       const runtimeId = args[2] === undefined ? runtimes.activeId : text(args[2], 80);
       const worker = ['queue_edit', 'queue_remove'].includes(type) ? runtimes.workers.get(runtimeId!) : runtimes.require(runtimeId);
       if (!worker) throw new Error('This session runtime is unavailable');
+      const projectRules = type === 'prompt' && typeof data.message === 'string'
+        && isProjectInstructionsCommand(data.message, (data.files?.length ?? 0) + (data.images?.length ?? 0));
       if (worker.stopping && ['prompt', 'queue_steer', 'queue_steer_first', 'abort'].includes(type))
         throw new Error('Wait for this session to stop');
       if (worker.mutating && !['abort', 'extension_ui_response', 'get_commands', 'get_available_thinking_levels', 'get_session_stats'].includes(type)) throw new Error('Session operation in progress');
@@ -1677,11 +1705,13 @@ async function handle(method: string, args: any[]) {
             : 'Project trust saved. Restart the runtime to apply; existing sessions were not restarted.' });
         return result;
       }
-      const mutating = ['set_permission_preset', 'set_launch_mode', 'goal_action', 'disable_standing_ultracode', 'compact', 'queue_recover'].includes(type);
+      const mutating = projectRules || ['set_permission_preset', 'set_launch_mode', 'goal_action', 'disable_standing_ultracode', 'compact', 'queue_recover'].includes(type);
       if (mutating) worker.mutating = true;
-      const wasStreaming = promptNeedsQueue(worker);
-      if (type === 'prompt') worker.submissions++;
+      let submitted = false;
       try {
+        if (projectRules) await runtimes.assertIdle(worker);
+        const wasStreaming = promptNeedsQueue(worker);
+        if (type === 'prompt') { worker.submissions++; submitted = true; }
         const rpc = worker.rpc;
         const pendingUI = worker.pendingUI;
         if (type === 'set_launch_mode') {
@@ -1744,7 +1774,11 @@ async function handle(method: string, args: any[]) {
           if (!Number.isInteger(data.version) || data.version < 0) throw new Error('Invalid queued message version');
           if (type === 'queue_edit') {
             const message = text(data.message);
-            if (/^\s*\/_desktop_(?:retry|goal_input)\b/.test(message)) throw new Error('Reserved Desktop command');
+            if (/^\s*\/_desktop_(?:retry|goal_input|init)\b/.test(message)) throw new Error('Reserved Desktop command');
+            if (isProjectInstructionsCommand(message,
+              pendingMessages.list(worker).find(entry => entry.id === id)?.attachmentCount ?? 0)) throw new Error(preferences.language === 'zh'
+              ? '请等待当前任务结束后单独运行 /init，不能将排队消息改成此指令。'
+              : 'Run /init separately after the current task finishes; it cannot replace a queued message.');
             pendingMessages.edit(worker, id, data.version, message);
           } else if (type === 'queue_remove') pendingMessages.remove(worker, id, data.version);
           else await pendingMessages.steer(worker, id, data.version);
@@ -1775,7 +1809,7 @@ async function handle(method: string, args: any[]) {
         let filePaths: string[] = [];
         if (type === 'prompt') {
           payload.message = text(data.message);
-          if (/^\s*\/_desktop_(?:retry|goal_input)\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
+          if (/^\s*\/_desktop_(?:retry|goal_input|init)\b/.test(payload.message as string)) throw new Error('Reserved Desktop command');
           if (data.files !== undefined) {
             if (!Array.isArray(data.files) || data.files.length > MAX_ATTACHMENTS || new Set(data.files).size !== data.files.length) throw new Error('Invalid attachments');
             const paths = await Promise.all(data.files.map(async (id: unknown) => {
@@ -1814,7 +1848,7 @@ async function handle(method: string, args: any[]) {
         if (type === 'prompt') runtimes.publish();
         try {
           let response;
-          if (type === 'prompt' && promptLaunch?.goalArmed) {
+          if (type === 'prompt' && promptLaunch?.goalArmed && !projectRules) {
             launchControls.consume(worker);
             await runtimes.preparePrompt(worker, payload.message as string);
             if (!await launchControls.startGoal(worker, payload, promptLaunch)) throw new Error('Goal state changed before submission');
@@ -1824,6 +1858,10 @@ async function handle(method: string, args: any[]) {
               payload = launchControls.input(worker, payload, promptLaunch);
               launchControls.consume(worker);
               await runtimes.preparePrompt(worker, payload.message as string);
+            }
+            if (projectRules) {
+              await runtimes.preparePrompt(worker, '/init');
+              payload.message = await projectInstructionsMessage(worker.cwd, '/init');
             }
             const submission = rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
             response = await submission;
@@ -1845,7 +1883,7 @@ async function handle(method: string, args: any[]) {
       } finally {
         if (mutating) worker.mutating = false;
         if (type === 'abort') worker.stopping = false;
-        if (type === 'prompt') { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }
+        if (submitted) { worker.submissions--; runtimes.publish(); void pendingMessages.drain(worker); }
         if (type === 'set_model' || type === 'set_thinking_level') void pendingMessages.drain(worker);
       }
     }

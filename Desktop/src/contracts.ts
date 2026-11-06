@@ -97,6 +97,7 @@ export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
 export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient {
+  projectInstructions(owner: import('./project-instructions').ProjectInstructionsOwner): Promise<import('./project-instructions').ProjectInstructionsStatus>;
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;

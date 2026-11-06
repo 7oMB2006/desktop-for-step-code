@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { reconcileStepPageServers, prepareStepPageServers } from './steppage-config.mjs';
 import { readSessionHistory } from './session-history.mjs';
 import { createDesktopSessionSearch } from './session-search.mjs';
+import { projectInstructionsInput, projectInstructionsSnippetCandidate } from './project-instructions.mjs';
 
 // Management lives in a separate process so Step globals never enter Electron.
 const root = dirname(fileURLToPath(import.meta.url));
@@ -16,7 +17,8 @@ const upstream = await import(pathToFileURL(join(root, 'step/dist/bundle/index.j
 const authPath = process.env.STEPCODE_AUTH_PATH;
 const sessions = process.env.STEP_CODING_AGENT_SESSION_DIR;
 const agentDir = process.env.STEP_CODING_AGENT_DIR;
-const sessionSearch = createDesktopSessionSearch(upstream, { storageRoot: process.env.STEPCODE_STORAGE_ROOT_DIR, agentDir, sessions });
+const sessionSearch = createDesktopSessionSearch(upstream, { storageRoot: process.env.STEPCODE_STORAGE_ROOT_DIR, agentDir, sessions,
+  projectInput: projectInstructionsInput, projectedSnippet: projectInstructionsSnippetCandidate });
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 let login;
 let stepModelCache;

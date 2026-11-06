@@ -31,8 +31,8 @@ export function selectComposer(view: EditorView, start: number, end = start, dir
 }
 export interface ComposerInputElement extends HTMLDivElement {
   readonly value: string;
-  readonly selectionStart: number;
-  readonly selectionEnd: number;
+  selectionStart: number;
+  selectionEnd: number;
   readonly disabled: boolean;
   setSelectionRange(start: number, end: number, direction?: string): void;
 }

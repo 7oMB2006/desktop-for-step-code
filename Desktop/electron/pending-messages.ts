@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Message, PendingMessage, RuntimeEvent } from '../src/contracts';
 import type { SessionRuntime } from './session-runtimes';
 import { isUltracodeInput, ultracodeInput } from '../src/ultracode-input';
+import { isProjectInstructionsCommand } from '../src/project-instructions';
 
 interface Entry extends PendingMessage { payload: Record<string, unknown>; files: string[]; bytes: number }
 export function promptNeedsQueue(worker: Pick<SessionRuntime, 'busy' | 'submissions' | 'state'>) {
@@ -27,6 +28,7 @@ export class PendingMessages {
     this.changed(worker);
   }
   enqueue(worker: SessionRuntime, message: string, payload: Record<string, unknown>, files: string[] = []) {
+    this.assertQueueable(message, payload, files);
     const entries = this.entries.get(worker) ?? [];
     const bytes = Buffer.byteLength(JSON.stringify(payload));
     if (entries.length >= 20 || entries.reduce((sum, entry) => sum + entry.bytes, 0) + bytes > 32 * 1024 * 1024)
@@ -42,6 +44,7 @@ export class PendingMessages {
   }
   edit(worker: SessionRuntime, id: string, version: number, message: string) {
     const entry = this.require(worker, id, version);
+    this.assertQueueable(message, entry.payload, entry.files);
     if (!message.trim() && !entry.attachmentCount) throw new Error('Message is empty');
     const formatted = this.format(message, entry.files);
     const payload = { ...entry.payload, message: isUltracodeInput(String(entry.payload.message ?? '')) ? ultracodeInput(formatted) : formatted };
@@ -112,6 +115,7 @@ export class PendingMessages {
     finally { this.draining.delete(worker); }
   }
   private async dispatch(worker: SessionRuntime, entry: Entry, steer: boolean) {
+    this.assertQueueable(entry.message, entry.payload, entry.files);
     entry.sending = true; entry.steered = steer && worker.busy; worker.submissions++; worker.operations++; this.publish(worker);
     try {
       if (!worker.busy) await this.beforePrompt(worker, String(entry.payload.message ?? ''));
@@ -125,5 +129,10 @@ export class PendingMessages {
       if (!worker.busy && !worker.interrupted && !worker.failed && !this.paused.has(worker))
         setTimeout(() => void this.drain(worker), 0).unref();
     }
+  }
+  private assertQueueable(message: string, payload: Record<string, unknown>, files: string[]) {
+    const attachments = files.length + (Array.isArray(payload.images) ? payload.images.length : 0);
+    if (isProjectInstructionsCommand(message, attachments) || isProjectInstructionsCommand(String(payload.message ?? ''), attachments))
+      throw new Error('Run /init separately after the current task finishes; it cannot be queued');
   }
 }

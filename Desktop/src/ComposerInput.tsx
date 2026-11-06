@@ -79,8 +79,11 @@ export function ComposerInput(props: Props) {
     view.current = editor;
     Object.defineProperties(element, {
       value: { configurable: true, get: () => editor.state.doc.textContent },
-      selectionStart: { configurable: true, get: () => composerSelection(editor.state).start },
-      selectionEnd: { configurable: true, get: () => composerSelection(editor.state).end },
+      // React restores selection through these properties after moving a focused editor.
+      selectionStart: { configurable: true, get: () => composerSelection(editor.state).start,
+        set: (start: number) => selectComposer(editor, start, Math.max(start, composerSelection(editor.state).end)) },
+      selectionEnd: { configurable: true, get: () => composerSelection(editor.state).end,
+        set: (end: number) => selectComposer(editor, Math.min(composerSelection(editor.state).start, end), end) },
       disabled: { configurable: true, get: () => latest.current.disabled },
       setSelectionRange: { configurable: true, value: (start: number, end: number, direction?: string) => selectComposer(editor, start, end, direction) },
     });

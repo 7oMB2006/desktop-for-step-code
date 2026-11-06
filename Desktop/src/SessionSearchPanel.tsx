@@ -215,7 +215,9 @@ export function SessionSearchPanel({ active, request, returnRequest = 0, bridge,
                       <span>{projectLabel(session.workspacePath ?? session.cwd)}</span></header>
                       {entries.map(hit => <button className="fulltext-hit" data-search-key={hitKey(hit)} key={hitKey(hit)} onClick={() => void openHit(hit)}>
                         <span className="fulltext-role">{hit.entryId === null ? t('会话', 'Conversation') : hit.role === 'user' ? t('你', 'You') : hit.role === 'assistant' ? 'Step Code' : t('记录', 'Record')}</span>
-                        <span className="fulltext-snippet">{snippetParts(hit.snippet).map((part, index) => part.matched ? <mark key={index}>{part.text}</mark> : part.text)}</span>
+                        <span className="fulltext-snippet">{hit.snippet
+                          ? snippetParts(hit.snippet).map((part, index) => part.matched ? <mark key={index}>{part.text}</mark> : part.text)
+                          : t('匹配摘要暂不可预览，请打开会话查看。', 'Match preview unavailable. Open the conversation to inspect.')}</span>
                         <time>{date(hit.timestamp)}</time><ArrowRight size={14}/></button>)}
                     </section>;
                   })}

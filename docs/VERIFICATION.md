@@ -1,5 +1,69 @@
 # Verification
 
+## PR #198 full-progress mount regression (2026-11-06)
+
+Head `5bcd1b2` passes all three Windows groups. macOS candidate preparation,
+interface and sessions groups pass, including source and packaged session-move.
+The runtime source group passes; its packaged group fails at
+`verify-task-progress-electron.mjs:127` after 30 seconds, with progress `1/1`
+and no `data-phase`. The final receipt gate consequently rejects that candidate.
+The older background complete scenario passes this run in 9.2 seconds through
+acknowledgment, idle and cleanup; this does not establish the old timeout's cause.
+
+The task-progress script is byte-identical to main `5c3fd214`. An actual production
+component experiment deterministically reproduces the missing phase: replace a
+running `2/1` component with a full `1/1` component while `busy` remains true.
+Both initialization branches are skipped because the previous busy/scope refs
+already equal mount-time props. SummaryBoard keys progress on the task IDs, so
+changed task sets can remount a full progress bar. The exact cloud event ordering
+is not captured, but this is a verified product defect matching the failing state,
+not a reason to increase the timeout or retry the acceptance.
+
+The narrow fix initializes an absent phase to running only while busy. Existing
+settling/complete feedback, buffered completion, scope changes and idle full
+snapshots remain unchanged. Formal motion regression cases exercise full initial
+snapshots and task-set replacements, no premature sound, real completion and idle
+reopen without replay. The new formal regression fails on the old component with
+`null !== 'running'` and passes with the fix. The independent actual-component
+experiment also changes from null to running; it does not copy the state machine.
+
+The former diagnostic `busy` field read `.conversation[aria-busy]`, which is
+navigation state, not foreground run state. It is now named `navigationBusy`.
+Bounded DOM fields and a one-second snapshot observation separately report the
+working indicator and native `isStreaming`/runtime status. Observation failure
+never replaces the original exception. It is not valid to infer early model
+termination from the older navigation field.
+
+Local typecheck, production build and 127 focused summary/runtime/background/
+review/helper tests pass. Formal motion acceptance and task-progress Electron,
+history-liveness, background-replies and completion-review acceptances pass.
+Ordinary Electron startup currently exits before the fixture on this Windows
+host; only assertion-preserving isolated scripts use `--no-sandbox`. The motion
+script uses an isolated Vite cache because the shared dependency cache rejects
+unlink. Neither adjustment changes production/CI launch settings, assertions or
+deadlines; these results are not native macOS packaged acceptance.
+
+The first full serial attempt stalls inside capabilities tests and is stopped
+without a final count or success claim. Per-file serial verification executes all
+135 test files: 129 pass and six fail. Capabilities exceeds the 180-second outer
+deadline; the other failures are project-trust junction unlink (EPERM), StepPage
+linked-storage classification, linked undo, installer redirects (three assertions)
+and workflow-catalog junction cleanup (ENOTEMPTY). An independent exact `5bcd1b2`
+baseline reproduces the same seven failed assertions across the latter five files
+(53 tests: 43 pass, seven fail, three skips). This establishes they are not newly
+introduced by this task-progress change, not that their underlying causes are
+resolved or safe. The capabilities timeout remains separately unlocated.
+
+All 31 CI runner/inventory/receipt tests run from the actual Git worktree: 30 pass
+and one platform skip. The mirror has no Git metadata and is not a valid location
+for the receipt CLI's Git identity test. The bounded diagnostic observation is
+also fault-tested with a never-settling read; it returns unavailable and rethrows
+the original failure. All 843 candidate inputs match the validation mirror.
+Local full verification is not green and is not compared as an exact test count
+to the previous one-process run because capabilities did not finish. Replacement
+current-head cloud gates remain required. Runtime pin, overlays, all 18 patches
+and postimages are unchanged; no installer, release or personal profile is modified.
+
 ## PR #198 main integration and acceptance corrections (2026-11-06)
 
 Main `5c3fd214` (#197 background replies and #199 completion review) is merged

@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { PluginCenter, type PluginCenterBridge } from '../../src/PluginCenter';
 import type { PluginPresentation } from '../../src/PluginDocumentation';
 import { SidebarTaskActions } from '../../src/ScheduledTasks';
-import type { CapabilityCatalog } from '../../src/capabilities';
+import type { CapabilityCatalog, PluginPackage } from '../../src/capabilities';
 import type { PluginConfiguration } from '../../src/capabilities';
 import exampleReadme from '../../../examples/plugins/config-starter/plugins/dfsc-config-example/README.md?raw';
 import exampleConsumer from '../../../examples/plugins/config-starter/plugins/dfsc-config-example/docs/consumer.md?raw';
@@ -17,9 +17,10 @@ import '../../src/layout.css';
 import '../../src/theme.css';
 
 applyTheme('light', false);
-const presentations: Record<string, PluginPresentation> = {
+const presentations: Record<string, PluginPresentation & Pick<PluginPackage, 'categories' | 'keywords'>> = {
   'bilibili-video-research': {
     author: 'BVR contributors', maintainer: 'DFSC 社区', license: 'MIT',
+    categories: ['research', 'audio-video'], keywords: ['视频研究', '字幕', '语音转写'],
     stars: { count: 18, checkedAt: '2026-11-04' },
     tutorials: [{ title: '让 Agent 帮你研究视频', creator: '7oMB', source: '哔哩哔哩', kind: 'community',
       url: 'https://www.bilibili.com/video/BV1dPeP6REwM/' }],
@@ -78,6 +79,7 @@ https://www.bilibili.com/video/BV1dPeP6REwM/
   },
   playwright: {
     author: 'Microsoft', license: 'Apache-2.0',
+    categories: ['development', 'automation'], keywords: ['browser', 'testing'],
     readme: `## 浏览器自动化
 
 通过 MCP 为 Agent 提供浏览器交互能力。服务连接后，可在对话中提出页面检查、表单操作或界面验证请求。
@@ -100,18 +102,23 @@ let catalog: CapabilityCatalog = {
       installationSource: { status: 'recorded', marketplaces: ['builtin'] }, repository: 'https://github.com/microsoft/playwright-mcp',
       mcpServers: ['browser'], warnings: [], icon: { kind: 'step' } },
     { id: 'fixture-long-name', name: 'LongNamePluginWithoutALogoForLayoutVerification', version: '0.1.0',
-      description: '本地文件检索与索引', mcpServers: [], warnings: [] },
+      description: '本地文件检索与索引', mcpServers: [], warnings: [],
+      package: { ref: 'fixture-future', provenance: 'unknown', documentation: {}, tutorials: [], links: [], warnings: [],
+        categories: ['future-category'], keywords: ['long-keyword-without-spaces-for-layout-checking'] } },
     { id: 'dfsc-config-example', name: 'DFSC Configuration Example', version: '0.1.0',
       marketplace: 'fixture-community',
       description: '本地便笺格式化；字段来自随包清单。', mcpServers: ['notes'], warnings: [],
       package: { ref: 'fixture-config', provenance: 'recorded', documentation: { readme: 'README.md' }, configurationAvailable: true,
-        tutorials: [], links: [], warnings: [], author: 'Desktop for Step Code contributors', license: 'MIT' } },
+        tutorials: [], links: [], warnings: [], author: 'Desktop for Step Code contributors', license: 'MIT',
+        categories: ['text-documents'], keywords: ['notes', 'formatting'] } },
   ],
-  available: [{ name: 'fixture', marketplace: 'fixture-community', displayName: 'Fixture plugin', description: '用于安装验收', installed: false },
+  available: [{ name: 'fixture', marketplace: 'fixture-community', displayName: 'Fixture plugin', description: '用于安装验收', installed: false,
+    package: { ref: 'fixture-market', provenance: 'recorded', documentation: {}, tutorials: [], links: [], warnings: [],
+      categories: ['development', 'automation', 'knowledge'], keywords: ['catalog acceptance'] } },
     { name: 'dfsc-config-example', marketplace: 'fixture-community', displayName: 'DFSC Configuration Example',
       installed: true, installedId: 'dfsc-config-example',
       package: { ref: 'fixture-market-config', provenance: 'recorded', documentation: {}, configurationAvailable: false,
-        tutorials: [], links: [], warnings: [] } }],
+        tutorials: [], links: [], warnings: [], categories: ['text-documents'], keywords: ['notes', 'formatting'] } }],
   marketplaces: [{ name: 'fixture-community', kind: 'git', origin: 'https://github.com/7oMB2006/dfsc-community-plugins' }],
   mcp: [{ name: 'bilibili-video-research__bvr', source: 'plugin', pluginId: 'bilibili-video-research', transport: 'stdio', enabled: true, configurable: true },
     { name: 'playwright__browser', source: 'plugin', pluginId: 'playwright', transport: 'stdio', enabled: true, configurable: true },
@@ -125,6 +132,7 @@ for (const plugin of catalog.plugins) {
     maintainer: content.maintainer, license: content.license, documentation: {
       ...(content.readme ? { readme: 'README.md' } : {}), ...(content.changelog ? { changelog: 'CHANGELOG.md' } : {}),
     }, tutorials: content.tutorials ?? [], links: content.links ?? [], warnings: [],
+    categories: content.categories, keywords: content.keywords,
     stars: { status: 'unknown' },
     locales: plugin.id === 'bilibili-video-research' ? {
       en: { description: 'Research public videos using transcripts, audio and frames.', documentation: { readme: 'README.en.md' } },

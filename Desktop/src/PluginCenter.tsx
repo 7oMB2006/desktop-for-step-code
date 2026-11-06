@@ -9,7 +9,7 @@ import { PluginConfigurationForm } from './PluginConfigurationForm';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { StepPageSettings } from './StepPageSettings';
 import { PluginDocumentation, PluginDocumentReader, PluginStars } from './PluginDocumentation';
-import { pluginPresentation, pluginSourceLabel } from './plugin-presentation';
+import { pluginCategoryLabel, pluginClassificationText, pluginPresentation, pluginSourceLabel } from './plugin-presentation';
 import './capability-settings.css';
 import './plugin-center.css';
 
@@ -17,6 +17,17 @@ export type PluginCenterBridge = CapabilityBridge & BvrSettingsBridge & Pick<imp
   'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'>;
 type Entry = { key: string; name: string; description?: string; version?: string; repository?: string;
   icon?: CapabilityPlugin['icon']; source?: string; installed?: CapabilityPlugin; available?: MarketplacePlugin; package?: PluginPackage };
+function PluginCategoryTags({ pkg, language, compact = false }: { pkg?: PluginPackage; language: string; compact?: boolean }) {
+  const categories = (pkg?.categories ?? []).map(id => ({ id, label: pluginCategoryLabel(id, language) }));
+  const visible = compact ? categories.filter(category => category.label) : categories;
+  if (!visible.length) return null;
+  return <span className="pc-category-tags" role="list" aria-label={language === 'zh' ? '插件分类' : 'Plugin categories'}>
+    {(compact ? visible.slice(0, 2) : visible).map(category =>
+      <span className="pc-category-tag" role="listitem" key={category.id}>{category.label ?? category.id}</span>)}
+    {compact && visible.length > 2 && <span className="pc-category-tag pc-category-more" role="listitem"
+      aria-label={language === 'zh' ? `另有 ${visible.length - 2} 个分类` : `${visible.length - 2} more categories`}>+{visible.length - 2}</span>}
+  </span>;
+}
 function ProjectLink({ entry, language }: { entry: Entry; language: string }) {
   if (!entry.repository || !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/u.test(entry.repository)) return null;
   return <a className="icon-button pc-project-link" href={entry.repository} target="_blank" rel="noopener noreferrer"
@@ -211,7 +222,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     return !owned.length ? t('无 MCP 服务', 'No MCP services') : owned.every(server => server.enabled) ? t('服务已启用', 'Services enabled')
       : owned.every(server => !server.enabled) ? t('服务已停用', 'Services disabled') : t('部分服务启用', 'Some services enabled');
   };
-  const matches = (item: Entry) => `${item.name} ${item.description ?? ''} ${item.installed?.id ?? item.available?.name ?? ''} ${item.source ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
+  const matches = (item: Entry) => `${item.name} ${item.description ?? ''} ${item.installed?.id ?? item.available?.name ?? ''} ${item.source ?? ''} ${pluginClassificationText(item.package)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const shown = (tab === 'installed' ? installed : available).filter(matches);
   const repositoryEntries = entry ? [entry] : tab === 'sources' ? [] : shown;
   const repositoryKey = JSON.stringify(repositoryEntries.filter(item => item.repository && item.package)
@@ -296,7 +307,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
             <div className="pc-plugin-grid">{shown.map(item => <article className="pc-plugin-row" key={item.key}>
               <button className="pc-card-open" aria-label={t(`查看 ${item.name} 使用说明`, `Read ${item.name} guide`)} onClick={event => choose(item, event.currentTarget, 'about')}>
                 <span className="pc-card-heading"><CapabilityPluginIconView icon={item.icon}/><span><strong>{item.name}</strong><span>{item.version ? `v${item.version}` : item.installed?.id ?? item.available?.name}</span></span></span>
-                <span className="pc-card-description">{item.description}</span><span className="pc-card-meta"><span>{item.source}</span>
+                <span className="pc-card-description">{item.description}</span>
+                <PluginCategoryTags pkg={item.package} language={language} compact/>
+                <span className="pc-card-meta"><span>{item.source}</span>
                   <PluginStars value={item.repository && item.package ? item.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
                   </span>
               </button>
@@ -322,7 +335,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         <header className="pc-plugin-header"><div className="pc-plugin-identity"><CapabilityPluginIconView icon={entry.icon}/><div className="pc-plugin-title">
           <h2 ref={heading} tabIndex={-1}>{entry.name}</h2><p><span>{entry.version ? `v${entry.version}` : ''}</span><span>{entry.source}</span></p>
           {entry.package?.author && <p className="pc-plugin-byline">{entry.package.author}</p>}</div></div>
-          <div className="pc-plugin-summary"><p>{entry.description}</p>{entry.installed && <span className="pc-status">{status(entry.installed)}</span>}</div>
+          <div className="pc-plugin-summary"><p>{entry.description}</p><PluginCategoryTags pkg={entry.package} language={language}/>
+            {entry.installed && <span className="pc-status">{status(entry.installed)}</span>}</div>
           <div className="pc-header-actions"><span className="pc-repository"><ProjectLink entry={entry} language={language}/><PluginStars value={entry.repository && entry.package ? entry.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
             {entry.repository && entry.package && <button className="icon-button" disabled={repositoryPending} aria-label={t('刷新仓库信息', 'Refresh repository information')}
               onClick={() => void refreshRepository()}><RefreshCw size={13} className={repositoryPending ? 'pc-spin' : undefined}/></button>}</span>{entry.installed ? <>
@@ -369,6 +383,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
             </> : <p className="pc-body-copy">{t('安装后查看运行时发现的能力。', 'Install to view runtime-discovered capabilities.')}</p>}
           </div>
           <div id={`${id}-about-panel`} role="tabpanel" aria-labelledby={`${id}-detail-about`} hidden={detailTab !== 'about'}>
+            {!!entry.package?.keywords?.length && <dl className="pc-plugin-keywords"><dt>{t('关键词', 'Keywords')}</dt>
+              <dd>{entry.package.keywords.join(' · ')}</dd></dl>}
             <PluginDocumentation presentation={entry.package} description={entry.description} version={entry.version} language={language}
               fileName={entry.package?.documentation.readme}
               reader={active && detailTab === 'about' && entry.package?.documentation.readme

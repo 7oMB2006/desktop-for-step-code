@@ -23,6 +23,8 @@ test('native market, presentation, settings and actual consumer agree without ho
   assert.equal(native.repository, undefined);
   assert.deepEqual(presentation.tutorials, []);
   assert.deepEqual(presentation.links, []);
+  assert.deepEqual(presentation.categories, ['text-documents']);
+  assert.deepEqual(presentation.keywords, ['plain text', 'text cleanup']);
   assert.equal(presentation.documentation.readme, 'docs/GUIDE.md');
   const defaults = Object.fromEntries(settings.groups.flatMap(group => group.fields).map(field => [field.id, field.default]));
   for (const field of settings.groups.flatMap(group => group.fields))

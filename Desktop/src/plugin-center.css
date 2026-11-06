@@ -72,6 +72,15 @@
 .pc-card-heading strong { font-size: 14px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
 .pc-card-heading > span > span { color: var(--muted); font-size: 11px; }
 .pc-card-description { display: block; min-height: 44px; margin: 19px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.pc-category-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; margin-bottom: 12px; }
+.pc-card-open > .pc-category-tags { margin-top: auto; }
+.pc-card-open > .pc-category-tags + .pc-card-meta { margin-top: 0; }
+.pc-category-tag { display: inline-block; min-width: 0; max-width: 100%; padding: 2px 7px; border: 1px solid var(--border); border-radius: 4px; background: color-mix(in srgb,var(--ink) 4%,transparent); color: var(--ink); font-size: 10px; font-weight: 400; line-height: 1.6; overflow-wrap: anywhere; }
+.pc-category-more { color: var(--muted); font-variant-numeric: tabular-nums; }
+.pc-plugin-summary .pc-category-tags { margin-bottom: 8px; }
+.pc-plugin-keywords { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 8px 14px; margin: 0 0 20px; font-size: 11px; line-height: 1.8; }
+.pc-plugin-keywords dt { color: var(--muted); }
+.pc-plugin-keywords dd { margin: 0; overflow-wrap: anywhere; }
 .pc-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; justify-content: space-between; color: var(--muted); font-size: 10px; line-height: 1.7; padding-bottom: 16px; margin-top: auto; }
 .pc-card-meta > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .pc-stars { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); }

@@ -73,7 +73,15 @@ export function PlanReview({ plan, feedback, open, requestId, zh, onLater, onRes
       disabled={pending} onClick={event => { if (event.detail === 0) setExpanded(v => !v); }}
       onPointerDown={event => { if (event.button !== 0) return; event.preventDefault(); event.currentTarget.focus(); drag.current = { y: event.clientY, height: actualHeight }; setDragHeight(actualHeight); setDragging(true); event.currentTarget.setPointerCapture(event.pointerId); }}
       onPointerMove={event => { if (drag.current) setDragHeight(Math.max(compact, Math.min(large, drag.current.height + drag.current.y - event.clientY))); }}
-      onPointerUp={event => { if (!drag.current) return; const distance = drag.current.y - event.clientY; const next = Math.max(compact, Math.min(large, drag.current.height + distance)); setExpanded(Math.abs(distance) < 5 ? !expanded : next >= (compact + large) / 2); drag.current = undefined; setDragging(false); event.currentTarget.releasePointerCapture(event.pointerId); }}
+      onPointerUp={event => {
+        if (!drag.current) return;
+        const down = event.clientY - drag.current.y;
+        const next = Math.max(compact, Math.min(large, drag.current.height - down));
+        drag.current = undefined; setDragging(false);
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        if (down > 90 && next <= compact + 8) onLater();
+        else setExpanded(Math.abs(down) < 5 ? !expanded : next >= (compact + large) / 2);
+      }}
       onLostPointerCapture={() => { drag.current = undefined; setDragging(false); }}
       onKeyDown={event => { if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) { event.preventDefault(); setExpanded(event.key === 'ArrowUp' || event.key === 'End'); } }}><span/></button>
     <header className="approval-drawer-heading"><ClipboardCheck size={18}/><h2>{content.feedback ? t('修改计划', 'Refine plan') : t('批阅计划', 'Review plan')}</h2></header>

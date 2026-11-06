@@ -1,8 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, Bot, Check, CircleHelp, FileDiff, GitBranch, Layers3, ListTodo, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Check, FileDiff, GitBranch, Layers3, ListTodo, X } from 'lucide-react';
 import { SummaryMcp } from './SummaryMcp';
 import type { Message, RepositoryDiff, SessionSummary, SummaryPlan, SummaryTask } from './contracts';
-import type { SubagentTask } from './conversation-presentation';
+import type { SubagentDisplayTask } from './conversation-presentation';
 import { summaryActivity, summaryAgents } from './summary-activity';
 import { DisclosureChevron } from './DisclosureChevron';
 import { DiffCount } from './DiffCount';
@@ -51,10 +51,10 @@ function TaskHistory({ plans, partial, language }: { plans: SummaryPlan[]; parti
   </div>;
 }
 
-export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], busy = false, onOpenSubagent, onOpenWorkflow, onClose,
+export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], backgroundActivity, busy = false, onOpenSubagent, onOpenWorkflow, onClose,
   mcpBusy = busy, capabilityRevision, onMcpChanged, onRestart, onManageMcp }: {
   runtimeId?: string; sessionId?: string; language: 'zh' | 'en'; onOpenChanges: () => void;
-  messages?: Message[]; busy?: boolean; onOpenSubagent?: (task: SubagentTask) => void; onOpenWorkflow?: (id: string) => void; onClose?: () => void;
+  messages?: Message[]; backgroundActivity?: import('./contracts').BackgroundLaneActivity; busy?: boolean; onOpenSubagent?: (task: SubagentDisplayTask) => void; onOpenWorkflow?: (id: string) => void; onClose?: () => void;
   mcpBusy?: boolean; capabilityRevision?: number; onMcpChanged?: () => Promise<void>; onRestart?: () => Promise<void>; onManageMcp?: () => void;
 }) {
   const [model, setModel] = useState<SessionSummary>();
@@ -124,7 +124,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
     const timer = setTimeout(() => setRecent([]), 1100);
     return () => clearTimeout(timer);
   }, [recent]);
-  const agents = useMemo(() => sessionId ? summaryAgents(messages, busy) : [], [messages, busy, sessionId]);
+  const agents = useMemo(() => sessionId ? summaryAgents(messages, busy, backgroundActivity) : [], [messages, busy, backgroundActivity, sessionId]);
   const activity = summaryActivity(model ? tasks : undefined, agents, failed, busy);
   const done = tasks.filter(task => task.status === 'completed');
   const root = repository?.root?.replace(/\\/g, '/').split('/').at(-1);
@@ -175,7 +175,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
           disabled={agent.target.type === 'subagent' ? !onOpenSubagent : !onOpenWorkflow}
           aria-label={`${t('查看代理记录', 'Open agent record')}: ${label}, ${agent.task || agent.agent}`}
           onClick={() => agent.target.type === 'subagent' ? onOpenSubagent?.(agent.target.task) : onOpenWorkflow?.(agent.target.id)}>
-          <Bot size={14}/>{state === 'unknown' ? <CircleHelp size={16} aria-hidden="true"/> : <SubagentStatusIcon state={state} language={language}/>}
+          <Bot size={14}/><SubagentStatusIcon state={state} language={language}/>
           <span className="sb-agent-text"><span><strong>{agent.agent || t('子代理', 'Subagent')}</strong><small>{label}</small></span>
             <span>{agent.task || t('无任务描述', 'No task description')}</span></span>
           <span className="sb-agent-chevron"><DisclosureChevron/></span>

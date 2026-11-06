@@ -201,30 +201,45 @@ try {
 } catch (error) {
   page ??= app && await app.firstWindow().catch(() => undefined);
   if (page) {
-    const diagnostic = await page.evaluate(async () => {
-      const snapshot = await window.desktop.snapshot();
-      const summary = snapshot.runtimeId ? await window.desktop.summary(snapshot.runtimeId) : undefined;
-      return {
-        status: snapshot.status, sessionId: snapshot.state?.sessionId,
-        conversationBusy: document.querySelector('.conversation')?.getAttribute('aria-busy'),
-        composerDisabled: document.querySelector('.composer > .composer-input')?.disabled,
-        composerValue: document.querySelector('.composer > .composer-input')?.value,
+    const state = await page.evaluate(() => ({
+      navigationBusy: document.querySelector('.conversation')?.getAttribute('aria-busy'),
+      working: !!document.querySelector('.working'),
+      composerDisabled: document.querySelector('.composer > .composer-input')?.disabled,
+      composerValue: document.querySelector('.composer > .composer-input')?.value,
+      progress: [...document.querySelectorAll('.sb-task-progress')].map(root => ({
+        now: root.getAttribute('aria-valuenow'), max: root.getAttribute('aria-valuemax'), phase: root.dataset.phase,
+        className: root.className,
+      })),
+      taskText: document.querySelector('.sb-steps')?.textContent,
+      toolStates: [...document.querySelectorAll('[data-tool-state]')].map(element => element.dataset.toolState).slice(-8),
+    })).catch(error => ({ diagnosticError: String(error) }));
+    const runtime = await page.evaluate(async () => {
+      const observe = async request => {
+        let timer;
+        try {
+          return await Promise.race([
+            request,
+            new Promise(resolve => { timer = setTimeout(() => resolve(undefined), 1000); }),
+          ]);
+        } finally { clearTimeout(timer); }
+      };
+      const snapshot = await observe(window.desktop.snapshot());
+      if (!snapshot) return { unavailable: true };
+      const summary = snapshot.runtimeId ? await observe(window.desktop.summary(snapshot.runtimeId)) : undefined;
+      const active = snapshot.runtimes?.find(runtime => runtime.runtimeId === snapshot.runtimeId);
+      return { status: snapshot.status, sessionId: snapshot.state?.sessionId,
+        isStreaming: snapshot.state?.isStreaming, runtimeStatus: active?.status,
         tasks: summary?.tasks, plan: summary?.plan,
         messages: snapshot.messages?.map(message => ({
           role: message.role, timestamp: message.timestamp, toolName: message.toolName,
           toolCallId: message.toolCallId, isError: message.isError,
         })),
-        progress: [...document.querySelectorAll('.sb-task-progress')].map(root => ({
-          now: root.getAttribute('aria-valuenow'), max: root.getAttribute('aria-valuemax'), phase: root.dataset.phase,
-        })),
-        taskText: document.querySelector('.sb-steps')?.textContent,
-        toolStates: [...document.querySelectorAll('[data-tool-state]')].map(element => element.dataset.toolState),
       };
     }).catch(error => ({ diagnosticError: String(error) }));
     const evidence = { taskUpdateRequests, taskSummaryRequests, nextTurnRequests,
-      answerPending: typeof finishTaskAnswer === 'function', errors, ...diagnostic };
+      answerPending: typeof finishTaskAnswer === 'function', errors, state, runtime };
     console.error('Task progress failure diagnostic:', JSON.stringify(evidence));
-    await writeFile('test-results/task-progress-electron-failure.json', JSON.stringify(evidence, null, 2));
+    await writeFile('test-results/task-progress-electron-failure.json', JSON.stringify(evidence, null, 2)).catch(() => {});
     await page.screenshot({ path: 'test-results/task-progress-electron-failure.png' }).catch(() => {});
   }
   throw error;

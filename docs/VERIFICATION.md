@@ -1,5 +1,40 @@
 # Verification
 
+## Plugin Center Background History Main Synchronization (2026-11-06)
+
+PR #195 now integrates main `af52f41`, including #198's background-history
+liveness and #200's Plan drawer drag dismissal. Four conflicts preserve the
+real SummaryMcp controls alongside runtime-owned background presentation,
+both progress-regression histories and both verification records. Failure
+diagnostics retain bounded snapshot/summary reads, distinguish navigation from
+run activity and rethrow the original acceptance error even if evidence fails.
+Four fault-injection cases execute the actual catch block, including
+never-settling snapshot/summary reads and a rejected RPC.
+
+Typecheck and the isolated production build pass. The complete serial Desktop
+suite exits normally: 1029 total, 1015 passed, 14 platform skips, zero failures
+or cancellations, about 335 seconds. CI policy/inventory/runner tests pass 39
+cases with one platform skip. All 773 tracked Desktop inputs match the new
+physical mirror `D:/DFSC-Preview-QA/plugin-conflict-sync-20261106-final/`.
+The complete test log is `plugin-conflict-sync-20261106-full-unit.log` under
+the same QA root.
+
+Three production browser verifiers pass: PluginCenter, input/MCP and task
+progress. Seven isolated Electron verifiers pass: background-history liveness,
+summary runtime, task progress, background replies, Plan review, completion
+review and capability management. Desktop/narrow summary and progress screenshots
+are inspected. These use temporary profiles and loopback providers, not paid
+models. Vite's cache is isolated in the QA mirror.
+
+The runtime patch chain, overlays, pin and staging inputs are unchanged.
+The previously isolated runtime is reused only after its exact pin, all 45
+source postimages and all ten staged helper files match current inputs.
+No runtime rebuild, installer, shortcut change, daily-profile mutation,
+application restart, artifact deletion, PR merge or release is included.
+Fresh cloud checks must validate the new head; previous green checks do not.
+The new mirror occupies about 102.5 MiB excluding its two junction targets.
+No application or runtime process remains under this QA path; nothing is deleted.
+
 ## Plugin Center Completion Review Main Synchronization (2026-11-06)
 
 The authorized PR #195 synchronization now includes main `5c3fd21` and #199's
@@ -672,6 +707,245 @@ acceptance are represented. Plan ASR retains the existing BVR dedicated-model
 route on the selected Plan endpoint; real-account ASR availability and billing
 have not been retested in this integration. Abort cannot undo a request already
 accepted by a provider.
+## PR #198 full-progress mount regression (2026-11-06)
+
+Head `5bcd1b2` passes all three Windows groups. macOS candidate preparation,
+interface and sessions groups pass, including source and packaged session-move.
+The runtime source group passes; its packaged group fails at
+`verify-task-progress-electron.mjs:127` after 30 seconds, with progress `1/1`
+and no `data-phase`. The final receipt gate consequently rejects that candidate.
+The older background complete scenario passes this run in 9.2 seconds through
+acknowledgment, idle and cleanup; this does not establish the old timeout's cause.
+
+The task-progress script is byte-identical to main `5c3fd214`. An actual production
+component experiment deterministically reproduces the missing phase: replace a
+running `2/1` component with a full `1/1` component while `busy` remains true.
+Both initialization branches are skipped because the previous busy/scope refs
+already equal mount-time props. SummaryBoard keys progress on the task IDs, so
+changed task sets can remount a full progress bar. The exact cloud event ordering
+is not captured, but this is a verified product defect matching the failing state,
+not a reason to increase the timeout or retry the acceptance.
+
+The narrow fix initializes an absent phase to running only while busy. Existing
+settling/complete feedback, buffered completion, scope changes and idle full
+snapshots remain unchanged. Formal motion regression cases exercise full initial
+snapshots and task-set replacements, no premature sound, real completion and idle
+reopen without replay. The new formal regression fails on the old component with
+`null !== 'running'` and passes with the fix. The independent actual-component
+experiment also changes from null to running; it does not copy the state machine.
+
+The former diagnostic `busy` field read `.conversation[aria-busy]`, which is
+navigation state, not foreground run state. It is now named `navigationBusy`.
+Bounded DOM fields and a one-second snapshot observation separately report the
+working indicator and native `isStreaming`/runtime status. Observation failure
+never replaces the original exception. It is not valid to infer early model
+termination from the older navigation field.
+
+Local typecheck, production build and 127 focused summary/runtime/background/
+review/helper tests pass. Formal motion acceptance and task-progress Electron,
+history-liveness, background-replies and completion-review acceptances pass.
+Ordinary Electron startup currently exits before the fixture on this Windows
+host; only assertion-preserving isolated scripts use `--no-sandbox`. The motion
+script uses an isolated Vite cache because the shared dependency cache rejects
+unlink. Neither adjustment changes production/CI launch settings, assertions or
+deadlines; these results are not native macOS packaged acceptance.
+
+The first full serial attempt stalls inside capabilities tests and is stopped
+without a final count or success claim. Per-file serial verification executes all
+135 test files: 129 pass and six fail. Capabilities exceeds the 180-second outer
+deadline; the other failures are project-trust junction unlink (EPERM), StepPage
+linked-storage classification, linked undo, installer redirects (three assertions)
+and workflow-catalog junction cleanup (ENOTEMPTY). An independent exact `5bcd1b2`
+baseline reproduces the same seven failed assertions across the latter five files
+(53 tests: 43 pass, seven fail, three skips). This establishes they are not newly
+introduced by this task-progress change, not that their underlying causes are
+resolved or safe. The capabilities timeout remains separately unlocated.
+
+All 31 CI runner/inventory/receipt tests run from the actual Git worktree: 30 pass
+and one platform skip. The mirror has no Git metadata and is not a valid location
+for the receipt CLI's Git identity test. The bounded diagnostic observation is
+also fault-tested with a never-settling read; it returns unavailable and rethrows
+the original failure. All 843 candidate inputs match the validation mirror.
+Local full verification is not green and is not compared as an exact test count
+to the previous one-process run because capabilities did not finish. Replacement
+current-head cloud gates remain required. Runtime pin, overlays, all 18 patches
+and postimages are unchanged; no installer, release or personal profile is modified.
+
+## PR #198 main integration and acceptance corrections (2026-11-06)
+
+Main `5c3fd214` (#197 background replies and #199 completion review) is merged
+without rewriting the published PR ancestry. Four conflicts retain both
+background-observation invalidation and completion-review event/ownership
+handling, both renderer imports, all verifier registrations and both dated
+verification records. The reply capability, request deduplication, selected
+session gate and one-shot review reservation remain intact. None of main's
+18 runtime patches, its pinned commit, upstream overlays or postimages changes
+in this Desktop state fix.
+
+The latest old-head Windows sessions job `127410474542` fails in
+`verify-session-move.mjs` with `page is not defined`: its module-level Cron
+assertion helper referenced a page local to the test's try block. The previous
+copied-function simulation did not exercise this scope and was insufficient
+verification. The helper is now an actual imported module with an explicit page
+parameter. Success throws outside the error-classification catch, so it cannot
+be misaccepted as a Cron rejection. Only the exact preflight
+`Session operation in progress` error is retried, at most five 500-ms waits;
+other errors propagate unchanged. Eight tests call the real helper and cover
+page selection, rejection, exhaustion, unexpected success and non-preflight
+operation errors. The old implementation's missing binding is reproduced by
+executing its actual extracted function, not a copied approximation.
+
+Old-head macOS prepare job `127410346947` times out in the native background
+complete scenario at 60 seconds. That failure has no execution-phase evidence,
+so it is not attributed to graceful shutdown, runner capacity or a resolved
+flake. The parameterized fixture now records allowlisted execution/cleanup
+phases and bounded failure state before rethrowing its original error. Cleanup
+releases every fixture gate and closes HTTP connections before awaiting the
+runtime pool; server closure runs even when pool shutdown fails. Three local
+complete-scenario runs pass, but this does not reproduce or prove resolution of
+the native macOS timeout. The original per-test and CI deadlines remain intact.
+
+Manual replies do not append parent `agent_send` tool results. To keep the new
+observation cache from surviving those actions, the selected-session reply
+handler invalidates display observations before and after the existing native
+reply service, including unconfirmed delivery. Tests exercise the actual
+BackgroundAgents service and preserve its receipt/error result. Invalidation
+never modifies event-owned lane state, dispatches a second prompt or changes
+reply deduplication. Completion-review busy/consent and completion-notification
+guards are unchanged.
+
+The combined 18-patch runtime replays from a clean pinned checkout and builds
+offline. Node 24.16.0 staging matches all 45 shared postimages and advertises
+both background-reply and completion-review capabilities. Both Darwin additions
+also apply and match 46 combined postimages on Windows; this is not native macOS
+acceptance. Desktop typecheck and production build pass. The focused combined
+runtime/state/review suite passes 71 tests before the additional exact-operation
+helper case; the final helper suite passes all eight cases. History-liveness,
+background-replies, completion-review, background-controls and hidden-messages
+Electron acceptances pass with isolated loopback providers.
+
+Final combined local verification collects 939 serial Desktop tests: 924 pass,
+14 platform skips and one pre-existing file-URL marketplace clone failure.
+Typecheck and production build pass; 843 candidate inputs match the validation
+mirror byte-for-byte. CI inventory/policy/runner checks pass 30 tests with one
+platform skip. The complete native session-move script still stops earlier at a
+missing command-generated file in this Windows environment; its original
+file/command assertions are retained. Replacement current-head Windows/macOS
+checks remain required, including the native completion scenario and complete
+source/packaged session-move acceptance. No package, shortcut, personal profile
+or original dirty worktree is changed.
+
+## Background transcript state and live activity (2026-11-05, local uncommitted candidate)
+
+The candidate starts from main `7c349b73`, including #196's BTW boundary update.
+It does not import the open background-reply PR #197 or modify any of the 16
+runtime patches, their pin, overlays, source postimages, or capability IDs.
+The current patch chain is replayed from a fresh pinned checkout and built
+completely offline. Node 24.16.0 staging matches all 43 Windows postimages.
+
+Two isolated native RPC probes first demonstrate the defects: a retained lane
+restarted by native `agent_send reply` has a real array-shaped running result
+while the old transcript projection remains completed; after suspending an
+active child and reopening its saved session, the native registry is empty and
+the host idle while old history still reports running and blocks relocation.
+The native lifecycle forbids progress after a terminal event in the same turn,
+but a legal reply can reuse the lane ID for another turn. Therefore the fix does
+not impose a permanent terminal-state lock or infer lifecycle from result prose.
+
+Desktop now consumes validated, bounded array-shaped control results while
+retaining the old object-shaped history. Current lane activity is projected
+separately: native live status events remain the sole process-ownership source,
+while registry observations are display-only and invalidate on transport,
+session, generation or structured lifecycle changes. A stale observation cannot
+release a newer running/settling owner. Only a validated current roster revises
+the display; an unavailable registry means "not observed yet", so the
+history-derived running status persists instead of being downgraded, and
+unknown registry state still fails closed for relocation. Old unresolved
+transcript status alone no longer owns the host. No child transcript is loaded
+to invent a missing final outcome.
+
+The five native RPC scenarios pass, including actual follow-up execution and
+suspend/reopen. Pre-existing journal entries retain their exact bytes. Native
+reopening appends resource-discovery records in this environment, so tests check
+that bounded allowed initialization separately; subsequent lane observations
+leave the reopened file unchanged. The dedicated Electron verifier passes
+unknown chat/Agent/summary presentation, actual relocation with zero model
+requests, unchanged historical running status, and refusal to relocate a real
+running child. Existing subagent status, background controls, chain/safety and
+BTW native Electron verifiers also pass against the rebuilt current-main
+runtime. These remain loopback/source evidence, not native macOS, packaged,
+real-account or release acceptance.
+
+The first macOS cloud run of the previous head failed only the reopen test's
+frozen-snapshot assertion: after a graceful posix shutdown the runtime records
+the interrupted lane's terminal outcome, so the reopened history reads `failed`
+instead of the frozen `running` that Windows keeps. Both are recorded facts, and
+the test now accepts either while asserting the product invariants that matter:
+the projected status is never running/queued after a known-empty roster, the
+known-empty downgrade still applies to a frozen running snapshot, the journal
+prefix is preserved, and no model call is made.
+
+The next head's macOS run passed the source-mode sessions group in full,
+including the complete session-move acceptance, but the packaged-candidate run
+failed session-move with `Session operation in progress` where the Cron
+ownership rejection was expected: the cron-host worker was still draining its
+navigation/status reads when the move was attempted, so the transient-operation
+guard fired before the Cron guard. This is a native acceptance timing race, not
+a Cron-guard or relocation regression. All three Cron-rejection assertions now
+retry only that transient operation race with a bounded wait and still require
+the Cron rejection as the final outcome; an unexpected success or any other
+error still fails the acceptance, and no product guard, deadline or assertion
+is weakened.
+
+The earlier existing session-move verifier fails before reaching this regression
+on both the previous candidate and unchanged main (dialog-close timeout on one
+run; a missing fixture-generated file on the control run). Those failures are
+not called product regressions or proven flaky. Its final historical-only
+blocking assertions are updated to the demonstrated current-registry contract,
+with existing active-task, queue, approval, Cron and directory checks retained.
+Complete current-input results and remaining verification failures are
+recorded below; no deadline or assertion is relaxed for an environmental
+failure. The final review identified disconnected source-host
+compatibility: an explicitly disconnected source skips querying its dead
+transport after the normal task/queue checks, while the prepared destination
+always verifies its live registry. This distinction has a red/green regression.
+Structured notifications and subagent control results also invalidate prior
+display observations; the cache does not own or release a process.
+
+First cloud execution of the previous head exposed a display-semantics
+regression: the projection downgraded history-derived running/queued records to
+unknown whenever the current roster was unavailable, but the native lifecycle
+and the existing background acceptance both require that stale/unavailable
+current state keeps the history-derived status until a validated roster says
+otherwise (a mocked main process never observes, so the downgrade became
+permanent). `verify-background-subagents.mjs` and `verify-hidden-messages.mjs`
+timed out waiting for `running` after reload on Windows sessions/runtime. The
+fix restricts the downgrade to a validated known roster, with the reversed unit
+assertion added first. Movement still fails closed on unavailable registries;
+this is display-only. Both scripts were reproduced locally against the same
+mirror and re-run after the fix.
+
+Final local candidate verification: typecheck and production build pass; the
+complete serial Desktop suite collects 894 tests, with 879 passes, 14 platform
+skips and one file-URL Git marketplace clone failure. It remains the same local
+marketplace failure recorded during #193, not a passing full-suite result.
+The complete session-move acceptance again stops earlier at its missing
+fixture-generated `moved-cwd.txt`, before reaching the changed historical-lane
+assertions. An original-flow diagnostic confirms that the `run_command` was
+issued once, returned `isError: true`, and reported Bash
+`NtCreateDirectoryObject(...): 0xC0000022` with exit code `3221225794`.
+The missing file is a consequence of that native initialization failure, not
+successful command execution or a demonstrated relocation regression. The
+original command/file assertions are retained; no runtime failure is converted
+into success. The focused native RPC and new liveness Electron verifiers pass.
+CI inventory/policy/runner checks pass 30 tests with one platform skip. All
+831 candidate inputs match the isolated validation mirror byte-for-byte.
+Independent bounded read-only reviews find no confirmed blocker after the
+message-invalidation and disconnected-source regressions are added; they do not
+replace cloud execution. The original 16 patch manifest and all 43 staged
+source postimages remain unchanged. No commit, push, PR, package, shortcut or
+personal-profile change is made by this local verification.
+
 ## PR #199 Main Integration (2026-11-06)
 
 Merge main `33abd6c` (PR #197) into the completion-review candidate without

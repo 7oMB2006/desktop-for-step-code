@@ -105,7 +105,7 @@ import type { FilePreviewData, FileTarget } from './contracts';
 import { SubagentPanel } from './SubagentPanel';
 import { backgroundAgentPresentation } from './BackgroundAgentPresentation';
 import type { BackgroundAgentSelection } from './background-agents';
-import type { SubagentTask, SubagentTaskKey } from './conversation-presentation';
+import type { SubagentDisplayTask, SubagentTaskKey } from './conversation-presentation';
 import { findSubagentTask } from './conversation-presentation';
 import { currentTurnWorkflows, workflowsFromMessages, workflowIsActive } from './workflow-state';
 import { WorkflowCatalogPanel } from './WorkflowCatalogPanel';
@@ -346,10 +346,12 @@ function App() {
     setSelectedWorkflow(id); setSubagentView('overview'); setDetails(''); setRightPanel(same ? null : 'subagent');
   }, [rightPanel, details, subagentView, selectedWorkflow]);
   const [repositoryRequest, setRepositoryRequest] = useState<{ runtimeId?: string; sequence: number }>();
-  // The panel reads from live messages, so a subagent that finishes while it stays open keeps
-  // updating instead of freezing on the status captured when the row was clicked.
-  const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent), [data.messages, selectedSubagent]);
-  const openSubagent = useCallback((task: SubagentTask) => {
+  const activeRuntime = data.runtimes?.find(runtime => runtime.runtimeId === data.runtimeId && runtime.sessionId === data.state?.sessionId);
+  const backgroundActivity = useMemo(() => activeRuntime?.background ?? { status: 'unavailable' as const }, [activeRuntime?.background]);
+  // The panel reads from live messages and the runtime-owned lane snapshot, so a selected record
+  // cannot keep spinning after its host is replaced or miss an agent_send follow-up.
+  const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent, backgroundActivity), [data.messages, selectedSubagent, backgroundActivity]);
+  const openSubagent = useCallback((task: SubagentDisplayTask) => {
     const alreadyOpen = rightPanel === 'subagent' && !details && subagentView === 'agent' && !selectedWorkflowAgent && !selectedBackgroundAgent
       && selectedSubagent?.toolCallId === task.toolCallId && selectedSubagent?.taskIndex === task.taskIndex
       && selectedSubagent?.agent === task.agent && selectedSubagent.task === task.task;
@@ -1794,7 +1796,7 @@ function App() {
             onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
             <QuestionContext.Provider value={{ pending: requests.flatMap(request => { const q = questionnaire(request); return q ? [q] : []; }), open: openQuestion }}>
-              <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
+              <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} backgroundActivity={backgroundActivity} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
                 searchTarget={searchLocation && searchLocation.sessionId === data.state?.sessionId ? { ...searchLocation, requestId: searchLocateRequest } : undefined}
                 interfaceSettings={interfaceSettings} interfaceRevision={interfaceRevision} settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
             </QuestionContext.Provider>
@@ -2048,7 +2050,7 @@ function App() {
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <SummaryBoard key={`${data.runtimeId ?? 'empty'}:${data.state?.sessionId ?? ''}`} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
-            messages={data.messages} busy={busy} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow} onClose={closeRightPanel}
+            messages={data.messages} backgroundActivity={backgroundActivity} busy={busy} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow} onClose={closeRightPanel}
             mcpBusy={anyBusy || busy || loading || !connected} capabilityRevision={capabilityRevision}
             onMcpChanged={async () => { setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1); }}
             onManageMcp={() => { setCapabilityTarget(undefined); setTab('mcp'); void openSettings(); }}

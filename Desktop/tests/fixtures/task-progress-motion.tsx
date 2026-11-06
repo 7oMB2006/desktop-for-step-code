@@ -53,10 +53,10 @@ function Harness() {
     emit('tool_execution_end', 'preview-runtime', session);
   };
   Object.assign(window, { taskProgressFixture: {
-    snapshot: (value: SessionSummary, history: Message[] = []) => {
+    snapshot: (value: SessionSummary, history: Message[] = [], active = false) => {
       summary = value;
       setMessages(history);
-      setBusy(false);
+      setBusy(active);
       emit('tool_execution_end', 'preview-runtime', scope);
     },
     language: setLanguage,

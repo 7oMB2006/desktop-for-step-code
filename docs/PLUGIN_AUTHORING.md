@@ -22,7 +22,7 @@ BVR 的账户桥也不是可按插件名称自动继承的通用能力。
 ```text
 插件
   已安装 / 发现 / 市场来源                          搜索、刷新
-  插件卡片：图标、名称、版本、简介、来源
+  插件卡片：图标、名称、版本、简介、分类 Tag、来源
             服务开关                     GitHub、设置齿轮
 
   二级详情
@@ -139,6 +139,8 @@ BVR 的账户桥也不是可按插件名称自动继承的通用能力。
   "authors": [{ "name": "Your project contributors" }],
   "maintainers": [{ "name": "Your package maintainer" }],
   "license": "MIT",
+  "categories": ["text-documents"],
+  "keywords": ["plain text", "formatting"],
   "documentation": { "readme": "README.md", "changelog": "CHANGELOG.md" },
   "tutorials": [],
   "links": []
@@ -167,6 +169,40 @@ Markdown 每份 256 KiB；相对 Markdown 链接在同包内导航并支持返�
 打开插件中心后，宿主异步查询已展示插件的公开 GitHub 星标，最多同时查询两个仓库，
 使用六小时缓存及失败冷却；不阻塞目录展示，也不调用模型。作者清单不能填写计数。
 查询中显示省略号，失败或限流显示未知状态，不伪造为零；有旧快照则保留并标注时间。
+
+### 分类与关键词
+
+`categories` 是可选的用途分类，通常 1–2 项、最多 3 项。使用稳定英文 ID，
+宿主按界面语言显示名称；首批试行词表如下，不代表永久完备的分类树。
+
+| ID | 中文 | English |
+| --- | --- | --- |
+| `development` | 开发辅助 | Development |
+| `research` | 搜索研究 | Search & research |
+| `text-documents` | 文本与文档 | Text & documents |
+| `knowledge` | 知识管理 | Knowledge management |
+| `audio-video` | 音视频 | Audio & video |
+| `image-design` | 图像与设计 | Images & design |
+| `automation` | 效率自动化 | Automation |
+| `themes` | 界面主题 | Themes |
+
+`keywords` 是作者原文短词，最多 5 项，每项最多 48 字符，不自动翻译。
+分类 ID 同样最多 48 字符，使用小写英文、数字和单连字符，不重复声明。
+关键词去除首尾空白后也不能重复。卡片在简介下、来源上方显示最多两个已知分类，
+更多分类用 `+N` 提示；点击卡片进入详情查看完整分类与关键词。
+当前搜索同时匹配分类 ID、中英文名称与关键词，不新增分类树或独立筛选控件。
+
+作者按实际交付用途声明，市场审核准确性；`MCP`、技能、命令是能力类型，
+市场名是来源，依赖与费用另行说明，不能混作用途分类。
+例如 BVR 可声明 `research`、`audio-video`，配合「视频研究」「字幕」「语音转写」；
+工程规范资源不因提到协作就宣称能自动派工，文本工具也不暗示支持 Word/PDF。
+
+未声明时不显示 Tag、不按名称推测。结构合法的未知分类 ID 保留并参与搜索，
+仅在详情显示原 ID，不冒充已知分类，也不阻断安装。
+宿主结构校验不把试行词表冻结为永久枚举；新增分类需由市场与宿主明确协调。
+分类只描述用途，不证明插件已配置、已连接或通过运行验收。
+这些是新增的可选展示字段；旧宿主可能忽略它们，旧的严格 schema/投稿校验器
+也可能拒绝未知字段。投稿前须核对目标宿主和市场校验器版本，不假定所有旧版本兼容。
 
 ### 语言与来源
 

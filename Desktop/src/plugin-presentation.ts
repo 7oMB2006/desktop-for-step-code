@@ -1,5 +1,24 @@
 import type { CapabilityPlugin, PluginPackage } from './capabilities';
 
+const categoryLabels: Record<string, readonly [string, string]> = {
+  development: ['开发辅助', 'Development'],
+  research: ['搜索研究', 'Search & research'],
+  'text-documents': ['文本与文档', 'Text & documents'],
+  knowledge: ['知识管理', 'Knowledge management'],
+  'audio-video': ['音视频', 'Audio & video'],
+  'image-design': ['图像与设计', 'Images & design'],
+  automation: ['效率自动化', 'Automation'],
+  themes: ['界面主题', 'Themes'],
+};
+export function pluginCategoryLabel(category: string, language: string): string | undefined {
+  return Object.hasOwn(categoryLabels, category) ? categoryLabels[category][language === 'zh' ? 0 : 1] : undefined;
+}
+export function pluginClassificationText(pkg?: Pick<PluginPackage, 'categories' | 'keywords'>): string {
+  return [...(pkg?.categories ?? []).flatMap(category =>
+    [category, pluginCategoryLabel(category, 'zh') ?? '', pluginCategoryLabel(category, 'en') ?? '']),
+    ...(pkg?.keywords ?? [])].join(' ');
+}
+
 // Translate bundled legacy copy by exact text, never by a third-party plugin's ID.
 const legacyDescriptions = new Map([
   ['Evidence-aware Bilibili research. Follow the DFSC session account/model with confirmation, or choose independent configuration. Requires a separately installed BVR runtime.',

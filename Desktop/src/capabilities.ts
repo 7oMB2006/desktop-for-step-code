@@ -6,6 +6,7 @@ export interface PluginLocale {
 export interface PluginPackage {
   ref: string; provenance: 'recorded' | 'unknown' | 'conflict';
   author?: string; maintainer?: string; license?: string;
+  categories?: string[]; keywords?: string[];
   documentation: { readme?: string; changelog?: string };
   tutorials: { title: string; creator: string; source: string; url: string; kind: 'author' | 'community' }[];
   links: { title: string; url: string }[]; warnings: string[];

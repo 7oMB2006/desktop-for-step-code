@@ -137,10 +137,29 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       await new Promise(resolve => setTimeout(resolve, 20));
     }
   };
+  const PHASES = ['start', 'open', 'parent dispatched', 'child held', 'child released',
+    'ownership cleared', 'ack', 'idle', 'cleanup-server', 'runtime'] as const;
+  let phase: typeof PHASES[number] = 'start';
+  // Bounded, redacted progress output: only these allow-listed phase names ever
+  // leave the fixture, so a CI timeout names the stalled phase without leaking
+  // logs, environment, requests or credentials.
+  const bump = (next: typeof PHASES[number]) => {
+    phase = next;
+    console.error(`background-runtime[${outcome}] phase=${next}`);
+  };
+  const diagnostics = () => [
+    `phase=${phase}`,
+    `workers=${[...pool.workers.values()].map(worker => `${worker.id}:${worker.status}:busy=${pool.isBusy(worker)}:bg=${worker.backgroundActive === true}:lanes=${worker.backgroundLanes?.length ?? '-'}`).join(',') || 'none'}`,
+    `lastEvents=${events.map(event => event.type).slice(-15).join('>')}`,
+    `child=${childRequested} other=${otherRequested} parent=${parentRequested} slots=${slots.size} failures=${failures.length}`,
+  ].join(' | ');
   try {
+    bump('open');
     const host = await pool.open(node, entry, workspace, env);
+    bump('parent dispatched');
     await host.rpc.request('prompt', { message: 'BACKGROUND-PARENT' });
     await waitFor(() => childRequested && host.backgroundActive === true && !pool.isBusy(host) && text(host.messages.at(-1)) === 'PARENT-IDLE');
+    bump('child held');
     assert.equal(pool.running, true);
     assert.equal(quitReasons(pool, false).runningTasks, 1);
     await assert.rejects(pool.assertAllIdle(), /background/i);
@@ -148,6 +167,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
     if (outcome === 'retry') {
       const sessionId = host.state!.sessionId!;
       const controls = new BackgroundAgents(pool.workers, undefined, true, true);
+      bump('child released');
       releaseChild();
       await waitFor(() => !host.backgroundActive && !pool.isBusy(host));
       const first = (await controls.read(host.id, sessionId)).lanes[0];
@@ -172,6 +192,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       await assert.rejects(reply({ prompt: 'DIFFERENT-TEXT' }), /identity was reused/);
       for (const release of slots.values()) release();
       await waitFor(() => !host.backgroundActive && !pool.isBusy(host));
+      bump('idle');
       await pool.assertAllIdle();
       assert.deepEqual(failures, []);
       return;
@@ -181,6 +202,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       const controls = new BackgroundAgents(pool.workers, undefined, true, true);
       await host.rpc.request('prompt', { message: 'BACKGROUND-START-OTHER' });
       await waitFor(() => otherRequested && !pool.isBusy(host));
+      bump('child held');
       const beforeFile = await readFile(host.state!.sessionFile!, 'utf8');
       const beforeMessages = await host.rpc.request('get_messages');
       const requests = modelRequests;
@@ -209,6 +231,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
         assert.deepEqual(await host.rpc.request('get_messages'), beforeMessages);
         assert.equal(modelRequests, requests);
         assert.equal((await controls.read(host.id, sessionId)).lanes.find(lane => lane.id === second.id)?.status, 'running');
+        bump('child released');
         releaseChild();
         await waitFor(() => followUps.length === 1 && !pool.isBusy(host)
           && host.backgroundLanes?.length === 1);
@@ -226,6 +249,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
         assert.equal(mainMessages.some((message: any) => message.role === 'user'
           && ['BACKGROUND-FOLLOW-UP', 'BACKGROUND-CONTINUE'].includes(text(message))), false);
         releaseReply(); releaseOther();
+        bump('ownership cleared');
         await waitFor(() => !host.backgroundActive && !pool.isBusy(host));
         assert.deepEqual(followUps, ['BACKGROUND-FOLLOW-UP', 'BACKGROUND-CONTINUE']);
         await host.rpc.request('prompt', { message: 'BACKGROUND-PARALLEL' });
@@ -235,6 +259,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
         assert.ok(parallel);
         await assert.rejects(controls.reply({ ...next, laneId: parallel.id,
           requestId: '34567890-1234-1234-1234-123456789abc' }), /Single background lane/);
+        bump('idle');
         await pool.assertAllIdle();
         assert.deepEqual(failures, []);
         return;
@@ -250,13 +275,16 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       releaseParent();
       await waitFor(() => !pool.isBusy(host));
       releaseOther();
+      bump('child released');
       await waitFor(() => !host.backgroundActive && !pool.isBusy(host));
+      bump('ownership cleared');
       current = await controls.read(host.id, sessionId);
       assert.equal(current.lanes.find(lane => lane.id === first.id)?.status, 'aborted');
       assert.equal(current.lanes.find(lane => lane.id === second.id)?.status, 'completed');
       const native = await host.rpc.request('desktop_subagents', { sessionId, action: 'list' });
       assert.doesNotMatch(JSON.stringify(native), /private-value|sessionFile|activeToolArgs|messages/);
       assert.ok(current.lanes.find(lane => lane.id === second.id)?.steps.some(step => step.output.includes('BACKGROUND-OTHER-DONE')));
+      bump('idle');
       await pool.assertAllIdle();
       return;
     }
@@ -267,6 +295,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
     assert.equal(pool.activeId, other.id);
     if (outcome === 'suspend') {
       await pool.suspend([host]);
+      bump('ownership cleared');
       assert.equal(host.status, 'disconnected');
       assert.equal(host.backgroundActive, false);
       assert.equal(pool.running, false);
@@ -275,24 +304,38 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       assert.equal(pool.activeId, other.id);
       return;
     }
+    bump('child released');
     releaseChild();
     await waitFor(() => !host.backgroundActive && !pool.isBusy(host)
       && host.messages.some(message => text(message).includes('BACKGROUND-ACKNOWLEDGED')));
+    bump('ack');
     assert.deepEqual(failures, []);
     assert.equal(pool.activeId, other.id, 'Background wake-up does not navigate the user');
     const completed = events.filter(event => event.type === 'desktop_task_completed');
     assert.equal(completed.length, 1);
     assert.equal(completed[0].runtimeId, host.id);
     assert.equal(pool.unreadSessionIds.has(host.state!.sessionId!), true);
+    bump('idle');
     await pool.assertAllIdle();
     assert.equal(quitReasons(pool, false).runningTasks, 0);
+  } catch (error) {
+    // Bounded failure diagnostics only: current phase, worker status booleans and the
+    // last event types. Full logs, environment, requests and credentials are never
+    // printed, and the original failure is rethrown unchanged.
+    console.error(`background-runtime[${outcome}] failed: ${diagnostics()}`);
+    throw error;
   } finally {
+    bump('cleanup-server');
     releaseChild();
     releaseOther(); releaseParent(); releaseReply();
     for (const release of slots.values()) release();
-    await pool.stopAll();
     server.closeAllConnections();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    bump('runtime');
+    try {
+      await pool.stopAll();
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
   }
 });
 }

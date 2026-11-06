@@ -23,6 +23,7 @@ import { backgroundLaneStates, backgroundState, hasBackgroundWork, type Backgrou
 import { completionReview, reviewActive } from '../src/completion-review';
 
 export interface WorkerTransport {
+  readonly pid?: number;
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
   request(type: string, args?: Record<string, unknown>, timeout?: number): Promise<any>;
   respond(value: Record<string, unknown>): void;

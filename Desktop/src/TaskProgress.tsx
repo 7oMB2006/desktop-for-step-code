@@ -99,8 +99,8 @@ export function TaskProgress(props: ProgressProps) {
       stop.current?.(); stop.current = null;
       root.current.dataset.phase = 'running';
       root.current.querySelector<HTMLElement>('.task-progress-green')!.style.maskImage = '';
-    } else if (!stop.current && !busy) {
-      root.current.dataset.phase = 'complete';
+    } else if (!stop.current) {
+      root.current.dataset.phase = busy ? 'running' : 'complete';
     }
     previousBusy.current = busy;
     previousScope.current = { runtimeId, sessionId };

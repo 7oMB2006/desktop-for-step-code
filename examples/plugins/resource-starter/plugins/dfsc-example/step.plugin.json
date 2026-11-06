@@ -1,0 +1,8 @@
+{
+  "id": "dfsc-example",
+  "name": "DFSC Example",
+  "description": "Turn supplied text into a short, evidence-aware checklist. No external service or automatic installation.",
+  "version": "0.1.0",
+  "skills": ["skills"],
+  "commands": ["commands"]
+}

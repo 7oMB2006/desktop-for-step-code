@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "consumer": { "kind": "json-file-v1", "server": "notes" },
+  "groups": [{
+    "id": "format",
+    "title": "Note formatting",
+    "fields": [
+      { "id": "prefix", "label": "Prefix", "type": "text", "default": "Note: ", "maxLength": 80 },
+      { "id": "uppercase", "label": "Uppercase text", "type": "boolean", "default": false },
+      { "id": "limit", "label": "Maximum characters", "type": "number", "default": 160, "min": 1, "max": 4000, "required": true }
+    ]
+  }]
+}

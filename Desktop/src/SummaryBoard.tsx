@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Bot, Check, FileDiff, GitBranch, Layers3, ListTodo, X } from 'lucide-react';
-import { McpIcon } from './McpIcon';
+import { SummaryMcp } from './SummaryMcp';
 import type { Message, RepositoryDiff, SessionSummary, SummaryPlan, SummaryTask } from './contracts';
 import type { SubagentDisplayTask } from './conversation-presentation';
 import { summaryActivity, summaryAgents } from './summary-activity';
@@ -51,19 +51,19 @@ function TaskHistory({ plans, partial, language }: { plans: SummaryPlan[]; parti
   </div>;
 }
 
-export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], backgroundActivity, busy = false, onOpenSubagent, onOpenWorkflow, onClose }: {
+export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], backgroundActivity, busy = false, onOpenSubagent, onOpenWorkflow, onClose,
+  mcpBusy = busy, capabilityRevision, onMcpChanged, onRestart, onManageMcp }: {
   runtimeId?: string; sessionId?: string; language: 'zh' | 'en'; onOpenChanges: () => void;
   messages?: Message[]; backgroundActivity?: import('./contracts').BackgroundLaneActivity; busy?: boolean; onOpenSubagent?: (task: SubagentDisplayTask) => void; onOpenWorkflow?: (id: string) => void; onClose?: () => void;
+  mcpBusy?: boolean; capabilityRevision?: number; onMcpChanged?: () => Promise<void>; onRestart?: () => Promise<void>; onManageMcp?: () => void;
 }) {
   const [model, setModel] = useState<SessionSummary>();
   const [repository, setRepository] = useState<RepositoryDiff>();
   const [failed, setFailed] = useState(false);
   const [completedOpen, setCompletedOpen] = useState(false);
-  const [mcpOpen, setMcpOpen] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
   const previous = useRef(new Map<string, string>());
   const hasSnapshot = useRef(false);
-  const mcpId = useId();
   const taskView = useMemo(() => summaryTasks(model, messages), [model, messages]);
   const tasks = taskView.tasks;
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
@@ -127,7 +127,6 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
   const agents = useMemo(() => sessionId ? summaryAgents(messages, busy, backgroundActivity) : [], [messages, busy, backgroundActivity, sessionId]);
   const activity = summaryActivity(model ? tasks : undefined, agents, failed, busy);
   const done = tasks.filter(task => task.status === 'completed');
-  const connected = model?.mcp.filter(server => server.status === 'connected').length ?? 0;
   const root = repository?.root?.replace(/\\/g, '/').split('/').at(-1);
   const activityLabel = activity === 'running' ? busy ? t('会话运行中', 'Conversation running') : t('任务或代理进行中', 'Task or agent running')
     : activity === 'completed' ? t('任务与代理已全部完成', 'All tasks and agents completed')
@@ -184,19 +183,8 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
       })}</ul>
       {!agents.length && <p className="sb-state">{t(sessionId ? '本轮暂无代理记录' : '请先打开一个会话', sessionId ? 'No agent records this turn' : 'Open a session first')}</p>}
     </section>
-    <section className="sb-mcp">
-      <button className="sb-mcp-trigger" type="button" aria-expanded={mcpOpen} aria-controls={mcpId} onClick={() => setMcpOpen(!mcpOpen)}>
-        <McpIcon size={14}/><span>MCP</span><span className={`sb-fold-icon${mcpOpen ? ' is-open' : ''}`}><DisclosureChevron/></span>
-        <span className="sb-mcp-count">{model ? `${connected} / ${model.mcp.length}` : '--'}</span>
-      </button><div id={mcpId} className={`sb-disclosure${mcpOpen ? ' is-open' : ''}`} aria-hidden={!mcpOpen} inert={!mcpOpen}><div><ul className="sb-mcp-list">
-        {model?.mcp.map(server => <li key={server.name} className={`sb-mcp-server is-${server.status}`}>
-          <span className={`sb-service-switch${server.status !== 'disabled' ? ' is-enabled' : ''}`} aria-hidden="true"><i/></span>
-          <span className="sb-server-name">{server.name}</span><span className="sb-server-status">{({
-            connected: t('已连接', 'Connected'), connecting: t('连接中', 'Connecting'), failed: t('连接失败', 'Failed'), disabled: t('已关闭', 'Disabled'),
-          })[server.status]}</span>
-        </li>)}{model && !model.mcp.length && <li className="sb-state">{t('没有已配置的服务', 'No configured servers')}</li>}
-      </ul></div></div>
-    </section>
+    <SummaryMcp servers={model?.mcp} language={language} busy={mcpBusy} revision={capabilityRevision}
+      onChanged={onMcpChanged} onRestart={onRestart} onManage={onManageMcp}/>
     <section className="sb-skills"><Layers3 size={14}/><span>{t('可用 Skills', 'Available Skills')}</span><strong>{model?.skillCount ?? '--'}</strong></section>
   </div></div></>;
 }

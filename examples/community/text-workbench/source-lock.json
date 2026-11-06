@@ -1,0 +1,84 @@
+{
+  "format": "local-sha256-v1",
+  "plugin": "text-workbench",
+  "version": "0.1.0",
+  "published": false,
+  "gitCommit": null,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "size": 334,
+      "sha256": "2689bc4aaf679613b88e3bd8b2eea8fc1662687adb4ae3194388f4a6d6b708b5"
+    },
+    {
+      "path": "LICENSE",
+      "size": 1159,
+      "sha256": "23554ae16d228315b8dc10e8d0493bbb8b6442386744ac0de0891ac1d313b42f"
+    },
+    {
+      "path": "README.md",
+      "size": 691,
+      "sha256": "232b098a7021f07e61d9f0ecdf60d0841ac3f2d558a6bbd408c7724263b4d456"
+    },
+    {
+      "path": "assets/icon.png",
+      "size": 346,
+      "sha256": "1418cf4198c9d78e83d6278f1f5c68ac150f3f3be92a204a47ca8bae9346a9bb"
+    },
+    {
+      "path": "commands/tidy-text.md",
+      "size": 678,
+      "sha256": "66d50ff213595eb32549d83363a3b49a6036f581097a0e971de860146c5fa51f"
+    },
+    {
+      "path": "dfsc.plugin.json",
+      "size": 284,
+      "sha256": "b6272e6cd457b501ed699ca5bbbcf5d9d9309cc52d55d9c6a52b7c195a9a8d9c"
+    },
+    {
+      "path": "dfsc.settings.json",
+      "size": 1700,
+      "sha256": "3c38e9e6d3c86b1e16430a46ad0898daab53a9056cd8b1309a8dfee34197745d"
+    },
+    {
+      "path": "docs/GUIDE.md",
+      "size": 3045,
+      "sha256": "2d219498ca9d4dfc92bc20fc451962e60eee434d52ad4d5b44777827de709726"
+    },
+    {
+      "path": "docs/SETTINGS.md",
+      "size": 1212,
+      "sha256": "c42576de057df8c23138d55f088d058c18eafa00ee6cecd76aa592fc88b1caa7"
+    },
+    {
+      "path": "server/configuration.mjs",
+      "size": 5619,
+      "sha256": "0228969c84d2b7f8943b41e0b14522b1b20dc2d374ea06ab603cd339a2e65c79"
+    },
+    {
+      "path": "server/protocol.mjs",
+      "size": 3549,
+      "sha256": "b2fc757000cc0cd4c7cf2da88c6dfcc0e306390cf7bc1f1c4e7bf4bd209420dc"
+    },
+    {
+      "path": "server/stdio.mjs",
+      "size": 833,
+      "sha256": "b759bc47051c7cecd8ed9bbbfb43d9e8bc8ede5976cad1d1c5ed02640c65f4ad"
+    },
+    {
+      "path": "server/text.mjs",
+      "size": 2965,
+      "sha256": "92884f5018b81855cb2dbc854e82d295cce9957faf3ad5d1bed424964648f043"
+    },
+    {
+      "path": "skills/text-workbench/SKILL.md",
+      "size": 1108,
+      "sha256": "fd61ee3fe1c4c886e45737e5b1717c0bcca0113ea5b2eb937f5afc9de556ef7f"
+    },
+    {
+      "path": "step.plugin.json",
+      "size": 472,
+      "sha256": "99535eade7a6ee0c28edb19b6b6c29cd9795d3ff52d236641e96b9e263c297d6"
+    }
+  ]
+}

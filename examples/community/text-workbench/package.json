@@ -1,0 +1,13 @@
+{
+  "name": "dfsc-text-workbench-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test tests/text.test.mjs tests/package.test.mjs",
+    "icon": "node scripts/generate-icon.mjs",
+    "lock": "node scripts/lock-package.mjs"
+  }
+}

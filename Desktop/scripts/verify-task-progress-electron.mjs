@@ -75,13 +75,14 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 let app;
+let page;
+const errors = [];
 try {
   app = await electron.launch({ ...(executablePath ? { executablePath } : {}),
     args: [...(executablePath ? [] : [resolve('.')]), '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding', '--disable-features=CalculateNativeWinOcclusion'],
     env, timeout: 60000 });
-  const page = await app.firstWindow();
-  const errors = [];
+  page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
@@ -198,32 +199,49 @@ try {
   assert.deepEqual(errors, []);
   console.log('Real Electron task progress verified: runtime tasks, round event, sound/impact/sweep, next-turn retirement, history and renderer reload.');
 } catch (error) {
-  const page = app && await app.firstWindow().catch(() => undefined);
-  await page?.screenshot({ path: 'test-results/task-progress-electron-failure.png' }).catch(() => {});
-  console.error('Task progress diagnostic:', {
-    taskUpdateRequests, taskSummaryRequests, nextTurnRequests,
-    state: await page?.evaluate(() => ({
-      phase: document.querySelector('.sb-task-progress')?.dataset.phase,
-      value: document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow'),
-      max: document.querySelector('[role=progressbar]')?.getAttribute('aria-valuemax'),
+  page ??= app && await app.firstWindow().catch(() => undefined);
+  if (page) {
+    const state = await page.evaluate(() => ({
       navigationBusy: document.querySelector('.conversation')?.getAttribute('aria-busy'),
       working: !!document.querySelector('.working'),
-      progressClass: document.querySelector('[role=progressbar]')?.className,
+      composerDisabled: document.querySelector('.composer > .composer-input')?.disabled,
+      composerValue: document.querySelector('.composer > .composer-input')?.value,
+      progress: [...document.querySelectorAll('.sb-task-progress')].map(root => ({
+        now: root.getAttribute('aria-valuenow'), max: root.getAttribute('aria-valuemax'), phase: root.dataset.phase,
+        className: root.className,
+      })),
+      taskText: document.querySelector('.sb-steps')?.textContent,
       toolStates: [...document.querySelectorAll('[data-tool-state]')].map(element => element.dataset.toolState).slice(-8),
-    })).catch(() => undefined),
-    runtime: await page?.evaluate(async () => {
-      let timer;
-      try {
-        const snapshot = await Promise.race([
-          window.desktop.snapshot(),
-          new Promise(resolve => { timer = setTimeout(() => resolve(undefined), 1000); }),
-        ]);
-        if (!snapshot) return { unavailable: true };
-        const active = snapshot.runtimes?.find(runtime => runtime.runtimeId === snapshot.runtimeId);
-        return { isStreaming: snapshot.state?.isStreaming, status: active?.status };
-      } finally { clearTimeout(timer); }
-    }).catch(() => undefined),
-  });
+    })).catch(error => ({ diagnosticError: String(error) }));
+    const runtime = await page.evaluate(async () => {
+      const observe = async request => {
+        let timer;
+        try {
+          return await Promise.race([
+            request,
+            new Promise(resolve => { timer = setTimeout(() => resolve(undefined), 1000); }),
+          ]);
+        } finally { clearTimeout(timer); }
+      };
+      const snapshot = await observe(window.desktop.snapshot());
+      if (!snapshot) return { unavailable: true };
+      const summary = snapshot.runtimeId ? await observe(window.desktop.summary(snapshot.runtimeId)) : undefined;
+      const active = snapshot.runtimes?.find(runtime => runtime.runtimeId === snapshot.runtimeId);
+      return { status: snapshot.status, sessionId: snapshot.state?.sessionId,
+        isStreaming: snapshot.state?.isStreaming, runtimeStatus: active?.status,
+        tasks: summary?.tasks, plan: summary?.plan,
+        messages: snapshot.messages?.map(message => ({
+          role: message.role, timestamp: message.timestamp, toolName: message.toolName,
+          toolCallId: message.toolCallId, isError: message.isError,
+        })),
+      };
+    }).catch(error => ({ diagnosticError: String(error) }));
+    const evidence = { taskUpdateRequests, taskSummaryRequests, nextTurnRequests,
+      answerPending: typeof finishTaskAnswer === 'function', errors, state, runtime };
+    console.error('Task progress failure diagnostic:', JSON.stringify(evidence));
+    await writeFile('test-results/task-progress-electron-failure.json', JSON.stringify(evidence, null, 2)).catch(() => {});
+    await page.screenshot({ path: 'test-results/task-progress-electron-failure.png' }).catch(() => {});
+  }
   throw error;
 } finally {
   if (app) await closeDesktopFixture(app);

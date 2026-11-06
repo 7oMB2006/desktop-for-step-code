@@ -25,6 +25,20 @@ try {
   await progress.waitFor();
   assert.equal(await progress.getAttribute('aria-valuenow'), '4');
   assert.equal(await progress.getAttribute('data-phase'), 'running');
+  await page.evaluate(() => window.taskProgressFixture.visible(false));
+  await progress.waitFor({ state: 'detached' });
+  await page.evaluate(() => {
+    window.taskProgressFixture.update(5);
+    window.taskProgressFixture.visible(true);
+  });
+  await progress.waitFor();
+  assert.equal(await progress.getAttribute('aria-valuenow'), '5');
+  assert.equal(await progress.getAttribute('data-phase'), 'running',
+    'Mounting a full checklist during an active round must initialize the flowing phase');
+  assert.equal(await page.evaluate(() => window.audioCalls.length), 0, 'Mounting full tasks cannot announce completion');
+  assert.equal(await progress.evaluate(element => element.getAnimations().length), 0, 'Mounting cannot replay impact');
+  await page.evaluate(() => window.taskProgressFixture.update(4));
+  await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '4');
   await page.evaluate(() => window.taskProgressFixture.update(5));
   await page.waitForFunction(() => document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === '5');
   await page.waitForTimeout(400);

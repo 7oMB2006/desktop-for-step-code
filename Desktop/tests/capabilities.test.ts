@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -9,10 +9,10 @@ import { CapabilityService } from '../electron/capability-service';
 import { isolatedEnvironment } from '../electron/runtime';
 import type { CapabilityMutation } from '../src/capabilities';
 
-const runtime = resolve('runtime');
+const runtime = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
 const iconPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jCj0AAAAASUVORK5CYII=', 'base64');
 async function fixture(t: test.TestContext) {
-  const folder = await mkdtemp(join(tmpdir(), 'desktop-capabilities-'));
+  const folder = await realpath(await mkdtemp(join(tmpdir(), 'desktop-capabilities-')));
   const root = join(folder, 'desktop');
   await mkdir(join(root, 'agent'), { recursive: true });
   const service = new CapabilityService({
@@ -132,6 +132,49 @@ test('plugin MCP disable uses an override and enable removes only that override'
   await service.mutate({ action: 'mcp-toggle', name: 'example__tools', enabled: true });
   assert.equal((await service.catalog()).mcp.find(server => server.name === 'example__tools')?.enabled, true);
   assert.doesNotMatch(await readFile(join(root, 'config.toml'), 'utf8'), /example__tools/);
+});
+
+test('plugin service switch toggles all exact-owned servers atomically and preserves private overrides', async t => {
+  const { folder, root, service } = await fixture(t);
+  const source = await marketplace(folder);
+  const manifestPath = join(source, 'example', 'step.plugin.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  manifest.repository = { url: 'git+https://github.com/example/research.git' };
+  manifest.mcpServers.second = { command: 'fixture-never-run' };
+  await writeFile(manifestPath, JSON.stringify(manifest));
+  await service.mutate({ action: 'marketplace-add', source });
+  await service.mutate({ action: 'plugin-install', name: 'example', marketplace: 'fixture-community' });
+  await writeFile(join(root, 'config.toml'), `
+[mcp_servers.example__tools]
+command = "private-command"
+tool_timeout_sec = 82
+[mcp_servers.example__tools.env]
+PRIVATE_KEY = "preserve-private-value"
+[mcp_servers.example__extra__tools]
+command = "unrelated-command"
+enabled = true
+`);
+  const initial = await service.catalog();
+  assert.equal(initial.plugins[0].repository, 'https://github.com/example/research');
+  assert.equal(initial.available.find(plugin => plugin.name === 'example')?.installedId, 'example');
+  assert.equal(initial.mcp.find(server => server.name === 'example__tools')?.pluginId, 'example');
+  await service.mutate({ action: 'plugin-toggle', id: 'example', enabled: false });
+  const disabled = await service.catalog();
+  assert.equal(disabled.mcp.filter(server => server.pluginId === 'example' && !server.enabled).length, 2);
+  assert.equal(disabled.mcp.find(server => server.name === 'example__extra__tools')?.enabled, true);
+  await service.mutate({ action: 'plugin-toggle', id: 'example', enabled: true });
+  assert.equal((await service.catalog()).mcp.filter(server => server.pluginId === 'example' && server.enabled).length, 2);
+  const saved = await readFile(join(root, 'config.toml'), 'utf8');
+  assert.match(saved, /preserve-private-value/); assert.match(saved, /tool_timeout_sec = 82/);
+  assert.doesNotMatch(JSON.stringify(await service.catalog()), /preserve-private-value/);
+});
+
+test('project links accept only credential-free HTTPS GitHub repositories', async () => {
+  const { pluginRepository } = await import(pathToFileURL(resolve('electron/capability-settings.mjs')).href);
+  assert.equal(pluginRepository('git+https://github.com/example/repo.git'), 'https://github.com/example/repo');
+  for (const value of ['https://user:secret@github.com/a/b', 'javascript:alert(1)', 'https://github.com/a/b?key=secret',
+    'https://github.com/a/b#secret', 'https://evil.example/a/b', 'https://github.com/a/b/issues'])
+    assert.equal(pluginRepository(value), undefined);
 });
 
 test('MCP toggle preserves credentials, allowlists, headers, and timeouts', async t => {

@@ -15,6 +15,38 @@ the focus extent against clipping ancestors, not just the input's border box.
 
 ## Existing Components
 
+Expanded slash templates retain a versioned runtime record of the original input.
+Transcript rendering, copy/edit text and navigation previews use that record;
+the model and canonical history retain the expanded content. Never infer command
+provenance from English template wording or rewrite unmarked historical messages.
+
+Summary MCP switches edit the same persistent per-server configuration as Settings.
+Live connection counts remain runtime-owned. Saved changes show Restart pending
+until an explicit idle-session restart applies them; running work and scheduled
+hosts keep their existing restart guards. Switches have no tooltip, retain their
+compact footprint and expose a larger invisible hit target.
+
+Plugins use a main-view catalog and a separate detail level, not a split sidebar
+or a small settings modal. Installed, Discover and Marketplaces share existing
+theme tokens and cubic/reduced-motion disclosure behavior. Installed cards have
+an MCP service switch without a tooltip, a verified GitHub link and an icon-only
+configuration gear. A service switch does not claim to unload skills or commands.
+Details retain an accessible back action, sticky tabs, a shared trackless thumb
+and a persistent save/restart footer. Main navigation preserves local plugin
+configuration and conversation drafts; leaving a dirty plugin detail requires
+confirmation. BVR has independent address/key/model fields for its main model
+and ASR connection. Saved keys are never loaded into renderer inputs. Generic
+plugins may declare bounded settings with a verified native configuration consumer;
+unsupported plugins retain raw MCP controls in technical Settings. Arbitrary
+plugin frontends are not executed. Package Markdown and images are read on demand
+through opaque references, never renderer filesystem access. Tutorials and
+authorship remain author declarations; GitHub Stars are host-queried snapshots.
+
+Plugin authoring, fixed layout, control/copy conventions and the BVR mapping
+are documented in `docs/PLUGIN_AUTHORING.md`. `examples/plugins` separates a
+native-installable resource starter from a host-owned React field template;
+neither declares a third-party frontend SDK.
+
 First-run setup is a separate bootstrap surface, not a settings dialog layered
 over the conversation. Only a fresh Desktop profile enters it. Reuse the native
 project chooser, provider form, language menu, model/thinking and permission

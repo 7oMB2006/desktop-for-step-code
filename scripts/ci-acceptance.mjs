@@ -18,6 +18,8 @@ export const acceptanceGroups = {
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',
     'verify-capabilities.mjs',
+    'verify-plugin-center.mjs',
+    'verify-plugin-input-mcp.mjs',
     'verify-desktop-tray.mjs',
     'verify-composer-menu.mjs',
     'verify-command-dispatch.mjs',
@@ -105,6 +107,16 @@ export const acceptanceGroups = {
 // Local-only checks are explicitly registered rather than silently skipped.
 // A new verify-*.mjs must be explicitly assigned; never silently default to local-only.
 export const localOnly = [
+  // Cross-repository/native fixtures require explicit isolated paths and/or a prepared BVR checkout.
+  // Native plugin protocol and consumer coverage also run in plugin-skeleton-native.test.ts.
+  'verify-bvr-electron.mjs',
+  'verify-bvr-host.mjs',
+  'verify-bvr-settings-electron.mjs',
+  'verify-plugin-starter.mjs',
+  'verify-plugin-center-package.mjs',
+  'verify-plugin-center-manual.mjs',
+  // Design-only preview; the production PluginCenter fixture is self-contained and runs above.
+  'verify-plugin-center-preview.mjs',
   // Comparative startup timings need a quiet machine; navigation correctness runs in CI above.
   'verify-session-navigation-performance.mjs',
   // Real Electron coverage above complements these visual fixture matrices.

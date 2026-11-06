@@ -8,6 +8,28 @@ import { SessionRuntimes, type WorkerTransport } from '../electron/session-runti
 import type { RuntimeEvent } from '../src/contracts';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
+
+test('recovery gaps do not drain queued work and final failure pauses it', async () => {
+  const { worker, queue, requests } = fixture();
+  queue.enqueue(worker, 'next task', { message: 'next task' });
+  worker.busy = false;
+  queue.runtimeEvent(worker, { type: 'agent_end', desktopRecoveryPending: true });
+  await tick();
+  assert.equal(requests.length, 0);
+  worker.failed = true;
+  queue.runtimeEvent(worker, { type: 'agent_settled', desktopRecoverySettled: true,
+    failure: { kind: 'incomplete_turn' } });
+  await tick();
+  assert.equal(requests.length, 0);
+  assert.equal(queue.list(worker)[0].message, 'next task');
+  worker.failed = false;
+  await queue.drain(worker);
+  assert.equal(requests.length, 0, 'Recovery failure keeps the queue paused until an explicit resume');
+  queue.resumed(worker);
+  queue.runtimeEvent(worker, { type: 'agent_settled', desktopRecoverySettled: true });
+  await tick();
+  assert.equal(requests.length, 1);
+});
 test('all queue entry points reject bare init without losing ordinary drafts or attachment semantics', async () => {
   const { worker, queue, requests } = fixture();
   assert.throws(() => queue.enqueue(worker, '/init', { message: '/init' }), /cannot be queued/);

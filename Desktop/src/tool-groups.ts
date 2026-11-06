@@ -9,7 +9,8 @@ const separateTools = new Set(['subagent', 'workflow', 'enter_plan_mode', 'exit_
 export function groupableTool(item: ResponseItem, active: boolean, awaiting: readonly string[]): item is ToolItem {
   return item.type === 'tool' && !item.call?.historical && !item.result?.desktopImported
     && !separateTools.has(item.call?.name ?? '') && !separateTools.has(item.result?.toolName ?? '')
-    && !item.result?.isError && toolPresentation(item.call?.name ?? item.result?.toolName ?? '', item.result, active, 'en').state !== 'failed'
+    && !item.result?.isError && ['running', 'done'].includes(
+      toolPresentation(item.call?.name ?? item.result?.toolName ?? '', item.result, active, 'en', item.call?.arguments).state)
     && Boolean((item.result && !item.result.desktopToolPending) || active)
     && !(item.call?.id && awaiting.includes(item.call.id));
 }

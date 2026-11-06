@@ -110,11 +110,13 @@ export function QuestionReview({ question, requestId, open, zh, drafts, onLater,
       onPointerMove={e => { if (drag.current) setDragHeight(Math.max(compact, Math.min(large, drag.current.height + drag.current.y - e.clientY))); }}
       onPointerUp={e => {
         if (!drag.current) return;
-        const distance = drag.current.y - e.clientY;
-        const nextHeight = Math.max(compact, Math.min(large, drag.current.height + distance));
-        setExpanded(Math.abs(distance) < 5 ? !expanded : nextHeight >= (compact + large) / 2);
+        const down = e.clientY - drag.current.y;
+        const nextHeight = Math.max(compact, Math.min(large, drag.current.height - down));
         drag.current = undefined; setDragHeight(undefined); e.currentTarget.releasePointerCapture(e.pointerId);
+        if (down > 90 && nextHeight <= compact + 8) onLater();
+        else setExpanded(Math.abs(down) < 5 ? !expanded : nextHeight >= (compact + large) / 2);
       }}
+      onPointerCancel={() => { drag.current = undefined; setDragHeight(undefined); }}
       onLostPointerCapture={() => { drag.current = undefined; setDragHeight(undefined); }}
       onKeyDown={e => { if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) { e.preventDefault(); setExpanded(e.key === 'ArrowUp' || e.key === 'End'); } }}><span/></button>
     <header className="approval-drawer-heading"><CircleHelp size={18}/><h2>{t('回答问题', 'Answer questions')}</h2><span className="question-beta">Beta</span></header>

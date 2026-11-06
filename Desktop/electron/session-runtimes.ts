@@ -7,6 +7,7 @@ import { projectLaunch, ultracodeNotification } from './launch-state';
 import { emptyLaunch, type LaunchState } from '../src/launch-state';
 import { isUltracodeInput, visibleInputBlocks } from '../src/ultracode-input';
 import { isUserMessage } from '../src/user-message';
+import { projectInstructionsMessage } from './project-instructions';
 import { desktopSystemPolicy } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
 import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
@@ -632,7 +633,8 @@ export class SessionRuntimes {
     this.publish();
     try {
       await this.preparePrompt(worker, message);
-      await worker.rpc.request('prompt', { message, ...(images.length ? { images } : {}) }, 600000);
+      await worker.rpc.request('prompt', { message: await projectInstructionsMessage(worker.cwd, message, images.length),
+        ...(images.length ? { images } : {}) }, 600000);
     } catch (error) {
       const current = await worker.rpc.request('get_entries');
       // A rejected submission may not append anything. Restore the saved leaf

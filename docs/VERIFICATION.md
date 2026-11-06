@@ -86,6 +86,297 @@ permission denial and history reload. These are isolated fixture checks,
 not real-account acceptance. Fresh current-head cloud checks and the final
 committed-head package remain pending; PR #203 is not merged.
 
+## Project Rules Latest Main Synchronization (2026-11-06)
+
+This branch now integrates main `12c1317`, including #202's update-cache and
+launch diagnostics and #204's plugin classification. Only this document
+conflicted; every original verification section from both parents is retained.
+The incoming cache, plugin and diagnostic implementations remain unchanged.
+
+Typecheck, production build and 93 focused project-rules, fixture, questionnaire,
+Goal, plugin and update-cache tests pass. Real Windows Electron project-rules
+and Question drawer acceptance also pass using isolated loopback profiles and
+the existing shared runtime, without restaging it. The earlier `5fca71d` cloud
+checks were green; they do not establish cloud acceptance for this new merge.
+
+## Project Rules CI Snapshot Polling (2026-11-06)
+
+The first macOS candidate passed source runtime acceptance but its packaged
+`/init` check asserted zero provider requests before dispatch completed.
+Playwright's browser-side poll checks the Promise returned by an async predicate,
+not its resolved boolean. The fixture now polls resolved IPC snapshots in Node
+for response completion, streaming start and idle settlement. Request-count,
+read-only tool and file-preservation assertions remain unchanged.
+
+All 17 focused project-rules and fixture tests pass, including delayed snapshots,
+async false predicates, bounded timeout and IPC error propagation. Typecheck and
+the real Windows Electron `/init` fixture pass with three loopback model requests.
+The existing shared runtime was not restaged; these local results do not replace
+current-main macOS source/package acceptance in cloud CI.
+
+## Project Rules Main Synchronization (2026-11-06)
+
+This branch integrates main `e9102aa`. Conflict resolution retains main's
+completion-review reservation/rollback, canonical template-input provenance and
+the full plugin/runtime acceptance inventory alongside the project-rules changes.
+Bare `/init` preserves a preselected completion review for the next ordinary
+task; the actual IPC-handler regression verifies both submissions and consent.
+
+After synchronization, typecheck, production build and all 144 focused
+project-rules, review, command, queue, session, search and input-projection tests
+pass. CI policy/inventory/runner checks pass 39 cases with one platform skip.
+The actual-application installed-Edge preview passes its light/dark/Burgundy,
+Chinese/English and 1280/390/320px matrix without page or console errors.
+
+The full-suite and native Electron receipts below predate this synchronization.
+The existing shared local runtime lacks the full current-main patch set; it was
+not overwritten or represented as a fresh main-runtime acceptance. Complete
+native source/package checks remain for the PR's cloud CI. No installer, merge,
+release, profile change or historical-artifact deletion is performed.
+
+## Question Drawer Drag Dismissal (2026-11-06, Local Candidate)
+
+The Question drawer now follows the merged Plan drawer's downward gesture:
+release more than 90px down at the compact-height boundary to defer the question.
+This calls Answer later, never cancel or submit. Short drags retain size snapping;
+cancelled gestures and lost pointer capture reset dragging without deferring.
+Reopening retains the current question page, selected options and freeform draft.
+
+Windows typecheck, production build and six focused questionnaire/Plan tests pass.
+The actual Electron question acceptance passes with the isolated loopback provider,
+including compact/expanded dismissal, short-drag snapback, cancelled/lost gestures,
+the unchanged pending request and provider-call count, focus/composer restoration,
+retained answers, narrow light-theme reduced motion and the existing submit/retry,
+Plan gating, cancel and abort flows. The reopened narrow view is recorded in
+`Desktop/test-results/questions-drag-reopened-narrow-light.png`.
+No installer, cloud CI or native macOS acceptance is claimed.
+
+## Project AI Working Rules (2026-11-06, Local Candidate)
+
+Bare `/init` now detects the selected project's `AGENTS.md` and presents accurate
+Chinese create/check descriptions through the existing command menu. Drafts can
+discover the entry without starting a model or session; no selected folder asks
+for one. The typed IPC exposes only the detected mode for the exact draft or
+session owner. Failed reads are not treated as missing files.
+
+The main process rechecks the file at dispatch and returns read failures through
+IPC. Its idle check owns the mutation lock before awaiting runtime state; bare
+`/init` is rejected at queue enqueue, edit and dispatch boundaries. A
+Desktop-owned extension restricts tools only after model/auth preflight, through
+`before_agent_start`. Create mode permits project reads and one bounded,
+exclusive `AGENTS.md` creation tool. Check mode allows read tools only; write,
+shell, delegation and unknown mutating tools are blocked even if a provider
+returns a forbidden tool call. Ordinary tools restore at `agent_settled`, not an
+intermediate `agent_end` during retry or compaction. Applying suggested updates
+is a separate, explicitly approved ordinary task. The upstream pin and overlays
+are unchanged.
+
+Local Windows typecheck and production build pass. The complete serial Desktop
+suite after the review fixes collects 910 tests: 896 pass, 14 platform skips and
+zero failures in 265.8 seconds. Its log is
+`Desktop/test-results/project-instructions/fixes-serial-tests.log`.
+
+The real pinned-runtime test creates a file through the native tool path without
+a permission override, blocks a misbehaving review provider's overwrite, retains
+the file and restores ordinary tools for the next turn. Real Electron acceptance
+passes using the actual preload, IPC and staged extension with a loopback
+provider: draft discovery, ownership rejection, execution-time re-detection,
+zero-model status queries, preserved Goal selection, rejected queued `/init`
+replacement, visible errors with restored drafts, and successful retry after
+fixing an unreadable rule file. Native regressions exercise an actual provider
+503 retry and confirm the read-only guard survives it. Model/auth preflight
+failures do not arm the guard. Main-handler regressions cover the async idle
+race, lock/counter recovery and retry. The actual handler rejects bare `/init`
+queue edits while preserving image/file-attached queue edits.
+
+Internal instructions move into the current run's system prompt. Native
+`message_end` replacement leaves only `/init` in agent state and authoritative
+JSONL, including new SQLite search results. Legacy search confirms exact
+envelopes from bounded canonical histories before projecting `/init`; internal
+template-only hits are removed without rewriting JSONL or hiding ordinary prose
+that merely resembles a template fragment. When a source cannot be confirmed,
+the match retains its navigation identity with an unavailable excerpt rather
+than disappearing or exposing unconfirmed template text. Each query has a
+24 MiB source-read budget and retains the shared 12 MiB per-file bound.
+Regressions cover large, missing, out-of-profile and mismatched sources, shared
+budget exhaustion and source caching. Stale-index regressions also cover
+removed entries, same-ID content replacement and obsolete session excerpts;
+ordinary excerpts must match the current source before crossing IPC.
+Both native SQLite and degraded JSONL fallback regressions pass.
+
+CI policy, inventory, runner and summary tests pass under staged Node 24.16.0
+with serial execution: 39 passes and one platform skip. The initial concurrent
+system-Node run failed two process-tree termination checks and retained
+test-owned children; only those verified children were stopped before rerunning.
+This rerun does not establish a general fix for the initial termination failure.
+
+The revised browser preview loads the actual `src/main.tsx` application inside
+an independent viewport, with no preview CSS overriding application components.
+The outer scenario controls are separate; only the data/IPC boundary is simulated.
+The menu retains its original 34px single-line rows, right-aligned descriptions
+and full native title tooltips, including grouped commands and skills.
+The composer, attachments entry, permission/model/effort controls, context meter,
+animated send/stop icon, transcript and performance footer are production UI.
+The brand assets resolve from the public root rather than the fixture directory.
+
+Installed-Edge acceptance passes 1280/390/320-pixel layouts in Original Light,
+Original Dark and Burgundy, both languages, all four project states, multiline
+drafts, IME/keyboard handling, inline command icons, simulated create-to-review
+transition, read/selection failures retaining the draft, toolbar interactions,
+full focus extents against clipping ancestors and reduced motion, without page
+or console errors. Actual-app previewing also exposed React restoring a focused
+editor through its getter-only selection properties. Both caret properties now
+support canonical ProseMirror selection writes without changing the draft;
+the browser regression covers range, collapse and backward-selection updates.
+The latest typecheck/build, complete serial suite, actual-application browser
+matrix and native Electron project-instructions, composer and fulltext-search
+verifiers pass. The actual search component retains all unconfirmed matches and
+their open/location controls in light/dark and narrow layouts without console
+errors. Screenshots and logs are in
+`Desktop/test-results/project-instructions/`.
+
+The existing staged runtime (117.03 MiB), rebuilt Desktop output (9.79 MiB) and
+focused evidence (1.46 MiB) remain needed for local inspection. No installer or
+historical package was created or deleted. These checks do not prove real-model
+project-rule quality, native macOS, cloud CI, installer or release acceptance.
+The installed app and personal Step Code profile were not modified.
+
+## PR #202 Packaged Goal-Clear Failure Diagnostics (2026-11-06)
+
+PR head `2749ee5` passes all Windows groups and macOS candidate preparation,
+interface and runtime source/package groups. macOS sessions job `127849966760`
+passes its source inventory and packaged session-move, then fails at
+`verify-launch-modes.mjs:279`: after the Clear goal click, the trigger remains
+for the original 30-second wait. The failure snapshot still contains the complete
+Goal; it does not record the click target, action error or clear-command receipt.
+The final receipt gate correctly rejects that candidate.
+
+The unchanged local launch workflow passes against the exact staged runtime.
+Additional isolated runs extend the disclosure animation, use narrow geometry
+and delay pointer release while recording click/IPC outcomes. Those runs also
+pass with a real clear receipt. They do not reproduce or identify the native
+macOS failure; no production Goal change, retry or timeout increase is justified
+by this evidence. Early generated probes that did not match CRLF source are not
+counted as instrumentation; later probes assert the actual hook was installed.
+
+The verifier now observes only the clear command at its existing IPC handler,
+forwarding the same request/result or original rejection without dispatching an
+extra action. Bounded target-only pointer records, finite clear receipts and
+allowlisted UI/runtime fields distinguish no-click, rejected/unconfirmed command
+and stale display. Raw messages, Goal objectives, request payloads, provider
+configuration and environment values are not printed. Main/page observations
+are bounded in the test process, so a never-settling read cannot hide the first
+failure; cleanup restores only the observer's own IPC wrapper and listeners.
+All original UI clicks, Goal ownership/no-inherited-consent assertions and test
+limits remain unchanged.
+
+Five tests execute the actual callback bodies in separate main/renderer contexts:
+exact forwarding, rejection preservation/redaction, ownership-safe restoration,
+non-settling timeout and unavailable reads. Two real Electron fault probes execute
+the verifier's actual catch path with a non-settling or rejected snapshot; both
+retain the original failure and bounded timeout/unavailable evidence. The actual observer also
+captures one resolved IPC receipt and a clear click in the successful real UI
+path; the Goal and trigger disappear. Typecheck, production build, full local
+launch acceptance and 116 focused Goal/runtime/cache/diagnostic tests pass.
+Complete per-file verification executes 148 files: 142 pass and the same six
+local files fail (capabilities timeout, project-trust, StepPage, template-input
+runtime, undo and workflow-catalog); no failure is filtered or marked passed.
+CI runner/inventory/receipt checks pass 30 tests with one platform skip.
+Local Electron still uses an assertion-preserving
+no-sandbox entry; this is not native macOS package acceptance. The original
+macOS Clear goal root cause remains unconfirmed. New current-head source/package
+CI evidence is required; a subsequent green run must not be called a diagnosed
+flake or a confirmed product fix.
+
+## Update Cache Junction Boundary Investigation (2026-11-06, local candidate)
+
+This candidate starts from main `e9102aa`, including #195, #198 and #200 and the
+owner's v0.1.7 TODOs. Final synchronization advances to `1979ee7`, which changes
+only TODO completion records; the verified application/runtime inputs are unchanged.
+The newly open owner #201 does not touch the update-cache module. This candidate
+does not upgrade the runtime pin or duplicate that migration. Update-cache and
+installer files are unchanged by those merges. This is routine maintenance of
+the existing update-cache boundary, not a version bump or release-readiness claim.
+
+Real Windows junctions created by both Node and the native directory tool carry
+reparse tag `0xa0000003`. On this host, their targets have a `Global` substitute
+prefix: `lstat().isSymbolicLink()` returns false and `readlink()` rejects with
+EINVAL, while parent directory entries identify them as links and asynchronous
+`realpath` resolves their targets. Consequently the previous lstat-only guard
+accepts redirected cache paths. The isolated probe and actual tests establish
+three distinct facts: preflight creates missing directories outside a redirected
+root; startup cleanup removes an outside download-cache through a redirected
+ancestor; file verification accepts an outside file if the redirected cache
+itself is supplied as its trusted root. No actual installer is executed.
+
+New tests verify the real fixture identity before exercising the production
+helpers. On the old implementation they fail for external creation, missing
+rejection and a deleted sentinel read directly through its outside path. The
+narrow change inspects directory entries as well as lstat, checks existing
+ancestors before recursive mkdir, rejects links during bounded cache traversal
+and validates the file-verification root. Cleanup retains the existing behavior
+for a redirected cache itself: preserve it without deleting its marker or target.
+The check/use interval remains; this is not a claim to eliminate concurrent
+adversarial path replacement or all Windows reparse-point behaviors.
+
+Directory listings can omit short aliases or filesystem-normalized spellings.
+The fallback validates canonical parent ownership and an ordinary target entry,
+then rejects sibling links to the same target. Only lstat ENOENT is tolerated
+while checking a missing root; a failed sibling target lookup cannot skip the
+rest of the guard. Actual Windows 8.3 aliases pass normal prepare/hash/cleanup,
+while a same-parent junction short alias is rejected before creation. A dangling
+sibling does not block the ordinary alias or admit the redirect. Three formal
+Windows tests now exercise ordinary short aliases and same-parent/outside short
+redirects beside dangling links. Their helper restricts the input to the isolated
+fixture and confirms canonical target identity before using the returned alias.
+The same formal tests are run against the unmodified `e9102aa` cache module:
+the ordinary path passes and both redirects fail because outside directories are
+created. All three pass with the candidate and actually execute on this volume;
+volumes without distinct short aliases report explicit skips, not coverage.
+An earlier short-path edit was blocked by the local security hook. It was not
+written through another tool; the constrained helper and tests described here
+are separately accepted Write/Edit candidates, not a claim to have disabled or
+cleared that earlier scanner finding.
+
+Typecheck and production build pass. The latest focused update/cache/driver suite
+passes 46 tests with five native-macOS-only skips (51 total). The real NSIS
+fixture passes normal download, metadata refusal, corrupt hash refusal,
+cancellation and retry, including removal of network hooks; it does not execute
+an installer. Only its local assertion-preserving copy uses --no-sandbox because
+normal Electron startup fails on this Windows host. Production and CI launch
+settings are unchanged. macOS case/Unicode normalization is covered by the
+canonical fallback design but has not been executed on native macOS here.
+
+For combination validation, all 19 current shared patches replay from clean pin
+`81e79bc4`; the complete runtime builds and stages with Node 24.16.0. All 45
+source postimages and ten copied helper files match current inputs. The first
+full-suite attempt is stopped after discovering that the mirror had no runtime;
+its partial results do not establish acceptance. The replacement per-file serial
+run executes all 147 files: 141 pass and six fail. After adding the three formal
+short-alias tests, a second complete per-file run has the same 141/6 file result;
+the final focused run requires a distinct short alias for the last directory
+component and executes all three cases without skipping. Capabilities exceeds the
+180-second outer deadline; the other failures are project-trust junction unlink,
+StepPage linked-storage classification, template-input persisted metadata, linked
+undo classification and workflow-catalog junction cleanup. An independent exact
+`e9102aa` baseline with the same staged runtime reproduces those five files and
+the three old update-cache failures (54 tests: 43 pass, eight fail, three skips).
+The candidate removes the old update-cache failures; neither this comparison nor
+the verified source hashes establish the causes of the remaining failures.
+The capabilities timeout remains unlocated. Full local acceptance is not green.
+
+All 31 CI runner/inventory/receipt tests execute from the real Git worktree:
+30 pass and one platform skip. A bounded independent review checks the local
+cache guard, missing-root handling and short-alias fallback; the identified
+ENOENT catch-scope and dangling-sibling issues are corrected and rechecked.
+A follow-up bounded review of the constrained short-path helper and formal tests
+finds no blocking issues; dangling junction entries are asserted preserved as
+well as their moved targets. The isolated helper has finite subprocess/output
+bounds and validates canonical identity before returning a short alias.
+No native macOS candidate or new cloud checks execute for this uncommitted
+change. No commit, push, PR, installer, release, shortcut or personal-profile
+change is part of this local candidate.
+
 ## Plugin Center Background History Main Synchronization (2026-11-06)
 
 PR #195 now integrates main `af52f41`, including #198's background-history

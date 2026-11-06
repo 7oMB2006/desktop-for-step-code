@@ -78,6 +78,7 @@ export const acceptanceGroups = {
     'verify-cron-transcript-electron.mjs',
     'verify-quit-confirmation-electron.mjs',
     'verify-project-trust.mjs',
+    'verify-project-instructions-electron.mjs',
     'verify-permission-approval.mjs',
     'verify-permission-tiers.mjs',
     'verify-conversation-timing.mjs',
@@ -107,6 +108,8 @@ export const acceptanceGroups = {
 // Local-only checks are explicitly registered rather than silently skipped.
 // A new verify-*.mjs must be explicitly assigned; never silently default to local-only.
 export const localOnly = [
+  // Menu state/copy preview; native creation/read-only enforcement also has runtime tests.
+  'verify-project-instructions-preview.mjs',
   // Cross-repository/native fixtures require explicit isolated paths and/or a prepared BVR checkout.
   // Native plugin protocol and consumer coverage also run in plugin-skeleton-native.test.ts.
   'verify-bvr-electron.mjs',

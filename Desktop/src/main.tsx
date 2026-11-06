@@ -1844,6 +1844,8 @@ function App() {
           scope={data.state?.sessionId ?? data.draftId ?? ''} disabled={!connected || loading || Boolean(navigationTarget)}
           referencesOpen={referencesOpen} setReferencesOpen={setReferencesOpen} messages={data.messages}
           canAddFiles={attachments.length < 10}
+          inspectProjectInstructions={() => bridge!.projectInstructions(data.draftId ? { draftId: data.draftId }
+            : { runtimeId: data.runtimeId, sessionId: data.state?.sessionId })}
           permissionsSupported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')}
           onFiles={async () => {
             const scope = view.current.sessionId ?? view.current.draftId;

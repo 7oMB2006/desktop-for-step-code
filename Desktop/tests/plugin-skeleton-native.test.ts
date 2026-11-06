@@ -27,6 +27,9 @@ test('native installation preserves provenance and blocks two package names decl
   const { folder, service, market, root } = await fixture();
   try {
     await service.mutate({ action: 'marketplace-add', source: market });
+    const available = (await service.catalog()).available.find(plugin => plugin.name === 'dfsc-config-example');
+    assert.deepEqual(available?.package?.categories, ['text-documents']);
+    assert.deepEqual(available?.package?.keywords, ['notes', 'formatting']);
     const installs = await Promise.allSettled(Array.from({ length: 2 }, () =>
       service.mutate({ action: 'plugin-install', name: 'dfsc-config-example', marketplace: 'dfsc-config-example-local' })));
     assert.equal(installs.filter(result => result.status === 'fulfilled').length, 1);
@@ -35,6 +38,8 @@ test('native installation preserves provenance and blocks two package names decl
     const plugin = catalog.plugins[0], ref = plugin.package!.ref;
     assert.equal(plugin.package?.provenance, 'recorded');
     assert.equal(plugin.package?.configurationAvailable, true);
+    assert.deepEqual(plugin.package?.categories, ['text-documents']);
+    assert.deepEqual(plugin.package?.keywords, ['notes', 'formatting']);
     assert.deepEqual(plugin.installationSource, { status: 'recorded', marketplaces: ['dfsc-config-example-local'] });
     assert.doesNotMatch(JSON.stringify(catalog), /packageDescriptor|installations\.json/);
     assert.match((await service.document({ ref, path: 'README.md' })).text, /DFSC Configuration Example/);

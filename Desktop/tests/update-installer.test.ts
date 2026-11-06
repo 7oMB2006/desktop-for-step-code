@@ -2,13 +2,14 @@ import { realpathSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, symlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, mkdir, writeFile, readFile, symlink, readdir, realpath, access, rename } from 'node:fs/promises';
+import { join, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { UpdateInstaller, InstallerFailure, validateInstallerMetadata, isUpdateRequestAllowed, isUpdateResponseAllowed, type UpdateDriver } from '../electron/update-installer';
 import { cleanInstalledUpdate, verifyInstallerFile, prepareUpdateCache } from '../electron/update-cache';
 import { createUpdateManifest, parseUpdateManifest, RELEASES_URL } from '../electron/app-updates';
 import type { AppRelease, UpdateTransfer } from '../src/contracts';
+import { windowsShortPath } from './fixtures/windows-short-path';
 
 const release: AppRelease = { version: '0.5.0', tag: 'v0.5.0', name: 'Release', notes: '', url: `${RELEASES_URL}/tag/v0.5.0`,
   installer: { name: 'Desktop.for.Step.Code.Setup.0.5.0.exe', url: `${RELEASES_URL}/download/v0.5.0/Desktop.for.Step.Code.Setup.0.5.0.exe`, size: 128, inApp: true } };
@@ -230,6 +231,122 @@ test('cache preparation and cleanup reject a redirected parent directory', async
   await assert.rejects(prepareUpdateCache(root), InstallerFailure);
   await assert.rejects(cleanInstalledUpdate(root, '0.5.0'), InstallerFailure);
   assert.equal(await readFile(join(root, 'download-cache', 'keep.exe'), 'utf8'), 'preserve');
+});
+
+test('cache preflight rejects a redirected ancestor before creating a missing update root', async () => {
+  const parent = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-no-create-'));
+  const outside = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-no-create-outside-'));
+  const link = join(parent, 'redirect');
+  await writeFile(join(outside, 'keep.txt'), 'preserve');
+  await symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal(await realpath(link), await realpath(outside), 'Fixture must redirect to the outside directory');
+  const entry = (await readdir(parent, { withFileTypes: true })).find(entry => entry.name === 'redirect');
+  assert.equal(entry?.isSymbolicLink(), true, 'Fixture must be a real redirected directory entry');
+  const root = join(link, 'missing', 'app-updates');
+  const result = await prepareUpdateCache(root).then(() => undefined, error => error);
+  assert.deepEqual(await readdir(outside), ['keep.txt'], 'Rejected preflight must not create directories outside its root');
+  assert.ok(result instanceof InstallerFailure);
+  assert.equal(result.kind, 'integrity');
+  assert.equal(await readFile(join(outside, 'keep.txt'), 'utf8'), 'preserve');
+});
+test('cache traversal rejects a same-parent redirect and preserves its target', async () => {
+  const root = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-same-parent-'));
+  const cache = join(root, 'download-cache'); await mkdir(cache);
+  const outside = join(cache, 'target'); await mkdir(outside);
+  await writeFile(join(outside, 'keep.txt'), 'preserve');
+  const link = join(cache, 'pending');
+  await symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal(await realpath(link), await realpath(outside));
+  assert.equal((await readdir(cache, { withFileTypes: true })).find(entry => entry.name === 'pending')?.isSymbolicLink(), true);
+  await assert.rejects(prepareUpdateCache(root), InstallerFailure);
+  assert.equal(await readFile(join(outside, 'keep.txt'), 'utf8'), 'preserve');
+});
+test('a redirected parent cannot clean an outside update cache or its marker', async () => {
+  const parent = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-no-clean-'));
+  const outside = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-no-clean-outside-'));
+  const link = join(parent, 'redirect');
+  await symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+  const root = join(link, 'app-updates');
+  await mkdir(join(outside, 'app-updates', 'download-cache'), { recursive: true });
+  await writeFile(join(root, 'download-cache', 'keep.txt'), 'preserve');
+  const marker = JSON.stringify({ version: '0.5.0' });
+  await writeFile(join(root, 'installed.json'), marker);
+  assert.equal(await realpath(link), await realpath(outside), 'Fixture must redirect to the outside directory');
+  assert.equal((await readdir(parent, { withFileTypes: true })).find(entry => entry.name === 'redirect')?.isSymbolicLink(), true);
+  const result = await cleanInstalledUpdate(root, '0.5.0').then(() => undefined, error => error);
+  assert.equal(await readFile(join(outside, 'app-updates', 'download-cache', 'keep.txt'), 'utf8'), 'preserve');
+  assert.equal(await readFile(join(outside, 'app-updates', 'installed.json'), 'utf8'), marker);
+  assert.ok(result instanceof InstallerFailure);
+});
+
+test('installer verification cannot adopt a redirected cache root', async () => {
+  const parent = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-verify-link-'));
+  const outside = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-verify-outside-'));
+  const cache = join(parent, 'download-cache');
+  await writeFile(join(outside, 'installer.exe'), 'fixture');
+  await symlink(outside, cache, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal(await realpath(cache), await realpath(outside));
+  assert.equal((await readdir(parent, { withFileTypes: true })).find(entry => entry.name === 'download-cache')?.isSymbolicLink(), true);
+  await assert.rejects(verifyInstallerFile(join(cache, 'installer.exe'), cache, 7, digest), InstallerFailure);
+  assert.equal(await readFile(join(outside, 'installer.exe'), 'utf8'), 'fixture');
+});
+
+test('a dangling cache redirect is rejected without recreating its target', async () => {
+  const root = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-dangling-'));
+  const outside = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-dangling-outside-'));
+  const target = join(outside, 'target'); await mkdir(target);
+  const cache = join(root, 'download-cache');
+  await symlink(target, cache, process.platform === 'win32' ? 'junction' : 'dir');
+  await rename(target, join(outside, 'moved-target'));
+  assert.equal((await readdir(root, { withFileTypes: true })).find(entry => entry.name === 'download-cache')?.isSymbolicLink(), true);
+  await assert.rejects(prepareUpdateCache(root));
+  await assert.rejects(access(target));
+  assert.deepEqual(await readdir(outside), ['moved-target']);
+});
+
+test('Windows short aliases keep ordinary cache operations working beside dangling links', { skip: process.platform !== 'win32' }, async t => {
+  const folder = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-short-normal-'));
+  const root = join(folder, 'ordinary-long-directory'); await mkdir(root);
+  const danglingTarget = join(folder, 'dangling-target'); await mkdir(danglingTarget);
+  await symlink(danglingTarget, join(folder, 'a-dangling'), 'junction');
+  await rename(danglingTarget, join(folder, 'moved-target'));
+  const short = await windowsShortPath(root, folder);
+  if (basename(short).toLowerCase() === basename(root).toLowerCase()) { t.skip('Volume has no distinct short alias for the final directory'); return; }
+  await prepareUpdateCache(short);
+  const file = join(short, 'download-cache', 'installer.exe');
+  await writeFile(file, 'fixture');
+  await verifyInstallerFile(file, join(short, 'download-cache'), 7, digest);
+  await writeFile(join(short, 'installed.json'), JSON.stringify({ version: '0.5.0' }));
+  await cleanInstalledUpdate(short, '0.5.0');
+  await assert.rejects(access(join(root, 'download-cache')));
+  await assert.rejects(access(join(root, 'installed.json')));
+  await assert.rejects(access(danglingTarget));
+  assert.equal((await readdir(folder, { withFileTypes: true })).find(entry => entry.name === 'a-dangling')?.isSymbolicLink(), true);
+});
+for (const location of ['sibling', 'outside']) test(`Windows short redirect to ${location} remains rejected beside a dangling link`, { skip: process.platform !== 'win32' }, async t => {
+  const folder = await mkdtemp(join(realpathSync(tmpdir()), 'step-update-short-redirect-'));
+  const parent = join(folder, 'parent'); await mkdir(parent);
+  const target = join(location === 'sibling' ? parent : folder, 'ordinary-target'); await mkdir(target);
+  const danglingTarget = join(parent, 'dangling-target'); await mkdir(danglingTarget);
+  await symlink(danglingTarget, join(parent, 'a-dangling'), 'junction');
+  await rename(danglingTarget, join(parent, 'moved-target'));
+  const link = join(parent, 'z-long-redirect-directory'); await symlink(target, link, 'junction');
+  const short = await windowsShortPath(link, folder);
+  if (basename(short).toLowerCase() === basename(link).toLowerCase()) { t.skip('Volume has no distinct short alias for the final redirect'); return; }
+  assert.equal((await readdir(parent, { withFileTypes: true })).find(entry => entry.name === 'z-long-redirect-directory')?.isSymbolicLink(), true);
+  await writeFile(join(target, 'keep.txt'), 'preserve');
+  const result = await prepareUpdateCache(join(short, 'missing', 'app-updates')).then(() => undefined, error => error);
+  assert.deepEqual(await readdir(target), ['keep.txt'], 'Short redirect must not create outside cache directories');
+  assert.ok(result instanceof InstallerFailure);
+  assert.equal(result.kind, 'integrity');
+  await mkdir(join(target, 'download-cache'));
+  await writeFile(join(target, 'download-cache', 'installer.exe'), 'fixture');
+  await writeFile(join(target, 'installed.json'), JSON.stringify({ version: '0.5.0' }));
+  await assert.rejects(verifyInstallerFile(join(short, 'download-cache', 'installer.exe'), join(short, 'download-cache'), 7, digest), InstallerFailure);
+  await assert.rejects(cleanInstalledUpdate(short, '0.5.0'), InstallerFailure);
+  assert.equal(await readFile(join(target, 'download-cache', 'installer.exe'), 'utf8'), 'fixture');
+  assert.equal(await readFile(join(target, 'installed.json'), 'utf8'), JSON.stringify({ version: '0.5.0' }));
+  assert.equal((await readdir(parent, { withFileTypes: true })).find(entry => entry.name === 'a-dangling')?.isSymbolicLink(), true);
 });
 
 test('platform preflight completes before runtime shutdown and cleans staging when busy', async () => {

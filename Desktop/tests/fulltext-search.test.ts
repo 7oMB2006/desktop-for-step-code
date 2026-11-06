@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -11,6 +11,7 @@ import type { FulltextQuery } from '../src/fulltext-search';
 import type { Session } from '../src/contracts';
 import { parseHTML } from 'linkedom';
 import { searchMessageElement } from '../src/search-location';
+import { projectInstructionsInput, projectInstructionsPrompt, projectInstructionsSnippetCandidate } from '../src/project-instructions';
 // @ts-expect-error Staged Node ESM adapter.
 import { createDesktopSessionSearch } from '../electron/session-search.mjs';
 
@@ -146,6 +147,118 @@ test('search creates only the Desktop agent directory and rejects storage outsid
   assert.equal(existsSync(join(personal, 'agent')), false);
 });
 
+test('unconfirmed legacy-shaped hits remain navigable without exposing excerpts or reading unsafe sources', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'desktop-fulltext-unconfirmed-')));
+  const sessions = join(root, 'sessions');
+  await mkdir(sessions);
+  const oversized = join(sessions, 'large.jsonl');
+  const handle = await open(oversized, 'w');
+  try { await handle.truncate(13 * 1024 * 1024); } finally { await handle.close(); }
+  const outside = join(root, 'outside.jsonl');
+  const wrong = join(sessions, 'wrong.jsonl');
+  await writeFile(outside, 'untrusted outside source');
+  await writeFile(wrong, JSON.stringify({ type: 'session', id: 'different', version: 3, cwd: root }));
+  let reads = 0;
+  const hits = [oversized, outside, wrong, join(sessions, 'missing.jsonl')].map((sessionPath, n) => ({
+    ...hit, sessionPath, sessionId: `unconfirmed-${n}`, entryId: `entry-${n}`, role: 'user',
+    snippet: n % 2 ? 'Desktop project AI instructions (/init).' : 'AGENTS.md',
+  }));
+  const search = createDesktopSessionSearch({
+    CURRENT_SESSION_VERSION: 3,
+    parseSessionEntries: (text: string) => { reads++; return [JSON.parse(text)]; },
+    openSessionIndex: async () => ({ close: async () => {} }),
+    createSessionSearchService: () => ({
+      async *searchQuery() { yield { hits }; },
+      indexStatus: async () => index,
+    }),
+  }, { storageRoot: root, agentDir: join(root, 'agent'), sessions,
+    projectInput: projectInstructionsInput, projectedSnippet: projectInstructionsSnippetCandidate });
+  t.after(async () => { await search.close(); await rm(root, { recursive: true, force: true }); });
+  const result = await search.query({ ...query, text: 'AGENTS.md' });
+  assert.equal(result.hits.length, hits.length, 'Unconfirmed ordinary records must not disappear');
+  assert.deepEqual(result.hits.map((value: any) => [value.sessionId, value.entryId]), hits.map(value => [value.sessionId, value.entryId]));
+  assert.ok(result.hits.every((value: any) => value.snippet === ''), 'No unconfirmed template text may cross the boundary');
+  assert.equal(reads, 1, 'Only the small in-profile file reaches the parser');
+  const projected = projectFulltextResult(result, { ...query, text: 'AGENTS.md' },
+    hits.map(value => ({ ...session, id: value.sessionId, path: value.sessionPath })), {});
+  assert.equal(projected.hits.length, hits.length, 'Empty excerpts retain their navigation identities through IPC projection');
+});
+
+test('legacy projection has a shared source budget and preserves matches after it is exhausted', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'desktop-fulltext-budget-')));
+  const sessions = join(root, 'sessions');
+  await mkdir(sessions);
+  const hits: (typeof hit)[] = [];
+  let reads = 0;
+  for (let n = 0; n < 3; n++) {
+    const id = `budget-${n}`, sessionPath = join(sessions, `${id}.jsonl`);
+    await writeFile(sessionPath, [JSON.stringify({ type: 'session', id, version: 3, cwd: root }),
+      JSON.stringify({ type: 'message', id: 'user', parentId: null,
+        message: { role: 'user', content: 'AGENTS.md', timestamp: 1 } }), ''].join('\n'));
+    if (n < 2) {
+      const handle = await open(sessionPath, 'r+');
+      try { await handle.truncate(12 * 1024 * 1024); } finally { await handle.close(); }
+    }
+    hits.push({ ...hit, sessionId: id, sessionPath, entryId: 'user', role: 'user', snippet: 'AGENTS.md' });
+  }
+  const search = createDesktopSessionSearch({
+    CURRENT_SESSION_VERSION: 3,
+    parseSessionEntries: (text: string) => {
+      reads++;
+      return text.split('\n').flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } });
+    },
+    migrateSessionEntries() {},
+    buildSessionContext: (entries: any[]) => ({ messages: entries.map(entry => entry.message) }),
+    openSessionIndex: async () => ({ close: async () => {} }),
+    createSessionSearchService: () => ({
+      async *searchQuery() { yield { hits: [...hits, hits[0]] }; },
+      indexStatus: async () => index,
+    }),
+  }, { storageRoot: root, agentDir: join(root, 'agent'), sessions,
+    projectInput: projectInstructionsInput, projectedSnippet: projectInstructionsSnippetCandidate });
+  t.after(async () => { await search.close(); await rm(root, { recursive: true, force: true }); });
+  const result = await search.query({ ...query, text: 'AGENTS.md' });
+  assert.equal(reads, 2, 'The 24 MiB per-query budget is shared; repeated hits reuse confirmed sources');
+  assert.equal(result.hits.length, 4);
+  assert.deepEqual(result.hits.map((value: any) => value.snippet), ['AGENTS.md', 'AGENTS.md', '', 'AGENTS.md']);
+});
+
+test('legacy projection confirms the exact current message instead of trusting stale index excerpts', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'desktop-fulltext-stale-')));
+  const sessions = join(root, 'sessions'), sessionPath = join(sessions, 'stale.jsonl');
+  await mkdir(sessions);
+  const entries = [
+    { type: 'session', id: 'stale', version: 3, cwd: root },
+    { type: 'message', id: 'replaced', parentId: null, message: { role: 'user', content: 'An unrelated replacement', timestamp: 1 } },
+    { type: 'message', id: 'ordinary', parentId: 'replaced', message: { role: 'user', content: 'Read AGENTS.md before editing', timestamp: 2 } },
+  ];
+  const original = entries.map(entry => JSON.stringify(entry)).join('\n');
+  await writeFile(sessionPath, original);
+  const hits = [
+    { entryId: 'removed', snippet: 'Desktop project AI instructions (/init).' },
+    { entryId: 'replaced', snippet: 'Mode: review, read-only.' },
+    { entryId: 'ordinary', snippet: '\u0002AGENTS.md\u0003' },
+    { entryId: null, snippet: 'Desktop project AI instructions (/init).' },
+  ].map(value => ({ ...hit, sessionId: 'stale', sessionPath, role: 'user', ...value }));
+  const search = createDesktopSessionSearch({
+    CURRENT_SESSION_VERSION: 3,
+    parseSessionEntries: (text: string) => text.split('\n').map(line => JSON.parse(line)),
+    migrateSessionEntries() {},
+    buildSessionContext: (values: any[]) => ({ messages: values.map(entry => entry.message) }),
+    openSessionIndex: async () => ({ close: async () => {} }),
+    createSessionSearchService: () => ({
+      async *searchQuery() { yield { hits }; },
+      indexStatus: async () => index,
+    }),
+  }, { storageRoot: root, agentDir: join(root, 'agent'), sessions,
+    projectInput: projectInstructionsInput, projectedSnippet: projectInstructionsSnippetCandidate });
+  t.after(async () => { await search.close(); await rm(root, { recursive: true, force: true }); });
+  const result = await search.query({ ...query, text: 'AGENTS.md' });
+  assert.deepEqual(result.hits.map((value: any) => value.snippet), ['', '', '\u0002AGENTS.md\u0003', '']);
+  assert.deepEqual(result.hits.map((value: any) => value.entryId), ['removed', 'replaced', 'ordinary', null]);
+  assert.equal(await readFile(sessionPath, 'utf8'), original);
+});
+
 const bundle = resolve('runtime/step/dist/bundle/index.js');
 test('native index searches real Desktop and imported messages, excludes tools/children, and refreshes appends/deletes', { skip: !existsSync(bundle) }, async t => {
   const upstream = await import(pathToFileURL(bundle).href);
@@ -154,9 +267,9 @@ test('native index searches real Desktop and imported messages, excludes tools/c
   await mkdir(imported, { recursive: true });
   await mkdir(join(root, 'agent'));
   const stamp = new Date().toISOString();
-  const make = (id: string, text: string) => [
+  const make = (id: string, text: string, firstMessage = 'initial prompt') => [
     { type: 'session', id, version: 3, cwd: resolve('project'), timestamp: stamp },
-    { type: 'message', id: 'user', parentId: null, timestamp: stamp, message: { role: 'user', content: 'initial prompt', timestamp: 1 } },
+    { type: 'message', id: 'user', parentId: null, timestamp: stamp, message: { role: 'user', content: firstMessage, timestamp: 1 } },
     { type: 'message', id: 'answer', parentId: 'user', timestamp: stamp,
       message: { role: 'assistant', content: [{ type: 'text', text }], timestamp: 2 } },
     { type: 'message', id: 'tool', parentId: 'answer', timestamp: stamp,
@@ -166,10 +279,15 @@ test('native index searches real Desktop and imported messages, excludes tools/c
   await writeFile(file, make('one', 'native_search_needle 命中结果正文'));
   await writeFile(join(imported, 'two.jsonl'), make('two', 'imported_search_needle'));
   await writeFile(join(sessions, 'child.jsonl'), make('subagent-1', 'child_private_needle'));
+  const legacyFile = join(sessions, 'legacy-init.jsonl');
+  const legacyBytes = make('legacy-init', 'Legacy result', projectInstructionsPrompt('review'));
+  await writeFile(legacyFile, legacyBytes);
+  await writeFile(join(sessions, 'literal.jsonl'), make('literal', 'Ordinary result', 'Mode: review, read-only.'));
   await mkdir(join(root, 'agent', 'sessions'));
   await writeFile(join(root, 'agent', 'sessions', 'personal.jsonl'), make('private', 'personal_private_needle'));
   const before = await readFile(file);
-  const search = createDesktopSessionSearch(upstream, { storageRoot: root, agentDir: join(root, 'agent'), sessions });
+  const search = createDesktopSessionSearch(upstream, { storageRoot: root, agentDir: join(root, 'agent'), sessions,
+    projectInput: projectInstructionsInput, projectedSnippet: projectInstructionsSnippetCandidate });
   t.after(async () => { await search.close(); await rm(root, { recursive: true, force: true }); });
   let result;
   for (let attempt = 0; attempt < 80; attempt++) {
@@ -180,6 +298,14 @@ test('native index searches real Desktop and imported messages, excludes tools/c
   assert.equal(result.index.state, 'ready', 'The staged bundle must run SQLite, not silently fall back');
   assert.equal(result.hits[0].entryId, 'answer');
   assert.equal(result.sessionOnly, false);
+  const init = await search.query({ ...query, text: '/init' });
+  assert.ok(init.hits.some((hit: any) => hit.sessionId === 'legacy-init' && hit.entryId === 'user' && hit.snippet === '/init'));
+  assert.ok(init.hits.every((hit: any) => !hit.snippet.includes('Desktop project AI instructions')));
+  assert.equal((await search.query({ ...query, text: 'Desktop project AI instructions' })).hits.length, 0);
+  const literal = await search.query({ ...query, text: 'review' });
+  assert.ok(literal.hits.some((hit: any) => hit.sessionId === 'literal' && hit.entryId === 'user' && hit.snippet.includes('review')),
+    'Ordinary prose matching a template fragment is not rewritten');
+  assert.equal(await readFile(legacyFile, 'utf8'), legacyBytes, 'Legacy search projection never rewrites authoritative JSONL');
   assert.equal((await search.query({ ...query, text: 'imported_search_needle' })).hits.length, 1);
   assert.equal((await search.query({ ...query, text: 'PRIVATE_TOOL_NEEDLE' })).hits.length, 0);
   assert.equal((await search.query({ ...query, text: 'child_private_needle' })).hits.length, 0);
@@ -196,13 +322,17 @@ test('native index searches real Desktop and imported messages, excludes tools/c
   await writeFile(blocked, 'not a directory');
   const fallback = createDesktopSessionSearch({
     ...upstream, openSessionIndex: (options: object) => upstream.openSessionIndex({ ...options, dbPath: join(blocked, 'search.db') }),
-  }, { storageRoot: root, agentDir: join(root, 'agent'), sessions });
+  }, { storageRoot: root, agentDir: join(root, 'agent'), sessions,
+    projectInput: projectInstructionsInput, projectedSnippet: projectInstructionsSnippetCandidate });
   t.after(() => fallback.close());
   const degraded = await fallback.query({ ...query, text: 'imported_search_needle' });
   assert.equal(degraded.index.state, 'degraded');
   assert.equal(degraded.sessionOnly, true);
   assert.equal(degraded.hits.length, 1);
   assert.equal(degraded.hits[0].entryId, null, 'Native JSONL fallback cannot promise a message location');
+  const legacyFallback = await fallback.query({ ...query, text: '/init' });
+  assert.ok(legacyFallback.hits.some((hit: any) => hit.sessionId === 'legacy-init' && hit.snippet === '/init'));
+  assert.equal((await fallback.query({ ...query, text: 'Desktop project AI instructions' })).hits.length, 0);
   assert.equal((await fallback.query({ ...query, text: 'personal_private_needle' })).hits.length, 0);
   await fallback.close();
 });

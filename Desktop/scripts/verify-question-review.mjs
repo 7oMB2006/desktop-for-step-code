@@ -73,6 +73,30 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.evaluate(() => window.desktop.snapshot());
   const dialog = page.getByRole('dialog', { name: '回答问题', exact: true });
+  const grip = dialog.getByRole('button', { name: '调整提问高度', exact: true });
+  const dragGrip = async (distance, interrupt) => {
+    await settleLayout(dialog);
+    const handle = await grip.boundingBox();
+    const x = handle.x + handle.width / 2, y = handle.y + handle.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.waitForFunction(() => document.querySelector('.question-review-drawer')?.dataset.dragging === 'true');
+    await page.mouse.move(x, y + distance, { steps: 8 });
+    if (interrupt) await grip.dispatchEvent(interrupt);
+    await page.mouse.up();
+  };
+  const assertStillPending = async (before, calls) => {
+    const after = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(after.requests[0]?.id, before.requests[0].id, 'Dragging retains the exact pending question');
+    assert.equal(after.state.isStreaming, true, 'Dragging does not cancel the pending turn');
+    assert.equal(payloads.length, calls, 'Dragging never submits answers or resumes the model');
+  };
+  const reopen = async () => {
+    await questionStatus.click();
+    await dialog.waitFor();
+    assert.equal(await dialog.getByRole('textbox', { name: '你的回答', exact: true }).inputValue(),
+      'Retain this draft', 'Reopening retains the answer and question page');
+  };
   const send = async (prompt, approval = false) => {
     await page.waitForFunction(() => document.querySelector('.composer-action-button')?.getAttribute('data-action') === 'send');
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(prompt);
@@ -143,6 +167,61 @@ try {
   await page.waitForTimeout(300);
   await dialog.getByRole('radio', { name: /Small change/ }).click();
   await dialog.getByRole('textbox', { name: '你的回答', exact: true }).fill('Retain this draft');
+  const beforeDrag = await page.evaluate(() => window.desktop.snapshot());
+  const callsBeforeDrag = payloads.length;
+  await grip.press('Home');
+  await dragGrip(60);
+  await settleLayout(dialog);
+  assert.equal(await dialog.isVisible(), true, 'A short downward drag does not dismiss the question');
+  assert.equal(await dialog.getAttribute('data-size'), 'compact');
+  await dragGrip(110, 'pointercancel');
+  await settleLayout(dialog);
+  assert.equal(await dialog.isVisible(), true, 'A cancelled gesture does not dismiss the question');
+  assert.equal(await dialog.getAttribute('data-dragging'), 'false');
+  await dragGrip(110, 'lostpointercapture');
+  await settleLayout(dialog);
+  assert.equal(await dialog.isVisible(), true, 'Losing capture does not dismiss the question');
+  assert.equal(await dialog.getAttribute('data-dragging'), 'false');
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  await dragGrip(110);
+  await dialog.waitFor({ state: 'hidden' });
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  assert.equal(await page.evaluate(() => document.activeElement?.matches('.question-review-trigger')),
+    true, 'Dismissal returns focus to the question entry');
+  assert.equal(await page.locator('.composer-underlay').evaluate(el => getComputedStyle(el).visibility),
+    'visible', 'Dragging restores the composer without answering the question');
+  await reopen();
+  await grip.press('Home');
+  await settleLayout(dialog);
+  const compactHeight = (await dialog.boundingBox()).height;
+  await grip.press('End');
+  await settleLayout(dialog);
+  const expandedHeight = (await dialog.boundingBox()).height;
+  assert.ok(expandedHeight > compactHeight * 1.5);
+  await dragGrip((expandedHeight - compactHeight) * .75);
+  await settleLayout(dialog);
+  assert.equal(await dialog.isVisible(), true, 'Resizing above the compact boundary does not dismiss');
+  assert.equal(await dialog.getAttribute('data-size'), 'compact');
+  await grip.press('End');
+  await dragGrip(expandedHeight - compactHeight + 20);
+  await dialog.waitFor({ state: 'hidden' });
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  await reopen();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 740));
+  await page.waitForFunction(() => innerWidth === 900 && innerHeight <= 740);
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await grip.press('Home');
+  await dragGrip(110);
+  await dialog.waitFor({ state: 'hidden' });
+  await assertStillPending(beforeDrag, callsBeforeDrag);
+  await reopen();
+  await settleLayout(dialog);
+  assert.equal(await dialog.evaluate(el => getComputedStyle(el).animationName), 'none');
+  await page.screenshot({ path: 'test-results/questions-drag-reopened-narrow-light.png' });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await dialog.getByRole('button', { name: '稍后回答', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
   await page.screenshot({ path: 'test-results/questions-approval-status-dark.png' });
@@ -264,7 +343,7 @@ try {
   await dialog.getByRole('button', { name: '提交回答', exact: true }).click();
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   assert.deepEqual(errors, []); assert.deepEqual(fixtureErrors, []);
-  console.log('Clarification Beta: real RPC tool, single/multi-question draft, validation/retry, Plan gating, cancel and abort passed.');
+  console.log('Clarification Beta: real RPC tool, drag defer/reopen with retained answers, single/multi-question draft, validation/retry, Plan gating, cancel and abort passed.');
 } catch (error) {
   const page = await app.firstWindow().catch(() => undefined);
   await page?.screenshot({ path: 'test-results/questions-failure.png' }).catch(() => {});

@@ -1,5 +1,6 @@
 import type { Content, Message } from './contracts';
 import { manualClmInput } from './manual-clm-input';
+import { projectInstructionsInput } from './project-instructions';
 import { originalTemplateInput } from './template-input';
 
 const prefix = 'ultracode:\n\n';
@@ -15,6 +16,6 @@ export function visibleInputBlocks(message: Message): Content[] {
     if (block.type !== 'text' || !firstText) return block;
     firstText = false;
     const text = block.text ?? '';
-    return { ...block, text: original ?? manualClmInput(text) ?? originalUltracodeInput(text) };
+    return { ...block, text: original ?? projectInstructionsInput(text) ?? manualClmInput(text) ?? originalUltracodeInput(text) };
   });
 }

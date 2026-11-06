@@ -40,6 +40,16 @@ try {
     assert.match(await cards.nth(2).locator('.pc-card-meta').innerText(), /来源未确认/);
     assert.match(await cards.nth(3).locator('.pc-card-meta').innerText(), /市场 · fixture-community/);
     assert.match(await cards.nth(1).locator('.pc-card-description').innerText(), /浏览器自动化/);
+    assert.deepEqual(await cards.nth(0).locator('.pc-category-tag').allTextContents(), ['搜索研究', '音视频']);
+    assert.deepEqual(await cards.nth(1).locator('.pc-category-tag').allTextContents(), ['开发辅助', '效率自动化']);
+    assert.equal(await cards.nth(2).locator('.pc-category-tags').count(), 0, 'Unknown categories are not advertised as known card tags');
+    assert.deepEqual(await cards.nth(3).locator('.pc-category-tag').allTextContents(), ['文本与文档']);
+    assert.equal(await cards.nth(0).evaluate(element => {
+      const description = element.querySelector('.pc-card-description').getBoundingClientRect();
+      const tags = element.querySelector('.pc-category-tags').getBoundingClientRect();
+      const source = element.querySelector('.pc-card-meta').getBoundingClientRect();
+      return tags.top >= description.bottom && tags.bottom <= source.top;
+    }), true, 'Category tags sit between the description and the source, not inside the service footer');
     assert.equal(await cards.nth(0).locator('.pc-stars').getAttribute('aria-busy'), 'true');
     assert.equal(await cards.nth(0).locator('.pc-stars > span').innerText(), '...');
     await metadata.getByRole('button', { name: '查看 Bilibili Video Research 使用说明', exact: true }).click();
@@ -53,6 +63,9 @@ try {
     await metadata.getByRole('heading', { name: 'Video research', exact: true }).waitFor();
     assert.equal(await metadata.locator('.pc-plugin-summary > p').innerText(), 'Research public videos using transcripts, audio and frames.');
     assert.match(await metadata.locator('.pc-plugin-title').innerText(), /Matching marketplace · bvr-local-preview/);
+    assert.deepEqual(await metadata.locator('.pc-plugin-summary .pc-category-tag').allTextContents(), ['Search & research', 'Audio & video']);
+    assert.equal(await metadata.locator('.pc-plugin-keywords dd').innerText(), '视频研究 · 字幕 · 语音转写',
+      'Author keywords are not silently translated with the UI');
     assert.equal(await metadata.locator('.pc-documentation .pc-document-heading > span').last().innerText(), 'v0.1.0 · README.en.md');
     await metadata.evaluate(() => window.pluginCenterTest.language('zh'));
     await metadata.locator('.pc-document-markdown table').waitFor();
@@ -66,7 +79,52 @@ try {
     await metadata.waitForFunction(() => document.querySelector('[aria-label="启用 Bilibili Video Research 服务"]')?.getAttribute('aria-checked') === 'false');
     assert.equal(await cards.nth(0).locator('.pc-stars > span').innerText(), '18',
       'A capability refresh must not reset an already fetched star snapshot');
-    console.log('Cold-cache repository lookups, truthful installation sources and live locale switching passed.');
+    const search = metadata.getByLabel('搜索插件', { exact: true });
+    for (const [query, name] of [['语音转写', 'Bilibili Video Research'], ['Audio & video', 'Bilibili Video Research'],
+      ['text-documents', 'DFSC Configuration Example'], ['文本与文档', 'DFSC Configuration Example']]) {
+      await search.fill(query);
+      await metadata.getByRole('button', { name: `查看 ${name} 使用说明`, exact: true }).waitFor();
+      assert.equal(await cards.count(), 1, `Classification search: ${query}`);
+    }
+    await search.fill('future-category');
+    await metadata.getByRole('button', { name: '查看 LongNamePluginWithoutALogoForLayoutVerification 使用说明', exact: true }).click();
+    assert.deepEqual(await metadata.locator('.pc-plugin-summary .pc-category-tag').allTextContents(), ['future-category']);
+    assert.equal(await metadata.locator('.pc-plugin-keywords dd').innerText(), 'long-keyword-without-spaces-for-layout-checking');
+    await metadata.getByRole('button', { name: '全部插件', exact: true }).click();
+    await search.fill('');
+    await metadata.getByRole('tab', { name: '发现', exact: true }).click();
+    assert.deepEqual(await cards.first().locator('.pc-category-tag').allTextContents(), ['开发辅助', '效率自动化', '+1']);
+    assert.equal(await cards.first().locator('.pc-category-more').getAttribute('aria-label'), '另有 1 个分类');
+    await metadata.getByRole('button', { name: '查看 Fixture plugin 使用说明', exact: true }).click();
+    assert.deepEqual(await metadata.locator('.pc-plugin-summary .pc-category-tag').allTextContents(), ['开发辅助', '效率自动化', '知识管理'],
+      'Opening a card shows every declared category');
+    await metadata.getByRole('button', { name: '全部插件', exact: true }).click();
+    await metadata.getByRole('tab', { name: /^已安装/ }).click();
+    await metadata.evaluate(() => window.pluginCenterTest.language('en'));
+    await metadata.getByRole('tab', { name: /^Installed/ }).waitFor();
+    assert.deepEqual(await cards.nth(0).locator('.pc-category-tag').allTextContents(), ['Search & research', 'Audio & video']);
+    for (const theme of ['light', 'dark']) {
+      await metadata.evaluate(theme => window.pluginCenterTest.theme(theme), theme);
+      for (const [width, height] of [[1440, 980], [1008, 887], [640, 720], [390, 760]]) {
+        await metadata.setViewportSize({ width, height });
+        await metadata.waitForTimeout(280);
+        assert.deepEqual(await metadata.locator('.pc-category-tags,.pc-category-tag,.pc-plugin-row,.pc-card-open').evaluateAll(elements =>
+          elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.className)), [],
+        `${theme}/${width}: English category tags wrap within the card`);
+        assert.ok(await cards.first().evaluate(element => {
+          const tags = element.querySelector('.pc-category-tags').getBoundingClientRect();
+          const source = element.querySelector('.pc-card-meta').getBoundingClientRect();
+          return Math.abs(source.top - tags.bottom - 12) < 1;
+        }), 'Tags stay anchored above source metadata even when a neighboring description wraps');
+        await metadata.screenshot({ path: `${output}/${theme}-${width}-tags-en.png` });
+        await metadata.getByRole('button', { name: 'Read LongNamePluginWithoutALogoForLayoutVerification guide', exact: true }).click();
+        assert.deepEqual(await metadata.locator('.pc-plugin-summary,.pc-category-tag,.pc-plugin-keywords,.pc-plugin-keywords dd').evaluateAll(elements =>
+          elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.className)), [],
+        `${theme}/${width}: future category and long author keywords remain readable`);
+        await metadata.getByRole('button', { name: 'All plugins', exact: true }).click();
+      }
+    }
+    console.log('Cold-cache repository lookups, installation sources, localized classification tags and keyword search passed.');
   } finally { await metadata.close(); }
   const race = await browser.newPage({ viewport: { width: 1440, height: 980 } });
   try {
@@ -97,6 +155,8 @@ try {
     assert.equal(await runtime.inputValue(), 'D:\\Unsaved\\BVR', 'Discard protection remains active');
     await race.getByRole('button', { name: '全部插件', exact: true }).click();
     await race.getByRole('button', { name: '确认', exact: true }).click();
+    assert.equal(await race.getByRole('button', { name: '查看 StepPage 使用说明', exact: true }).locator('.pc-category-tags').count(), 0,
+      'Legacy plugins without classification metadata remain usable and do not receive inferred tags');
     await race.getByRole('button', { name: '配置 StepPage', exact: true }).click();
     assert.match(await race.locator('.pc-save-state').innerText(), /已保存.*重启/);
     assert.deepEqual(await race.evaluate(() => {
@@ -140,7 +200,8 @@ try {
       await page.waitForTimeout(280);
       const icons = await verifyIconSizes('.pc-card-heading .cap-plugin-icon', width <= 740 ? 64 : 72);
       assert.deepEqual(icons.map(icon => icon.kind), ['png', 'step', 'fallback', 'fallback']);
-      const overflow = await page.locator('.pc-plugin-row,.pc-card-heading').evaluateAll(elements =>
+      assert.deepEqual(await page.locator('.pc-plugin-row').first().locator('.pc-category-tag').allTextContents(), ['搜索研究', '音视频']);
+      const overflow = await page.locator('.pc-plugin-row,.pc-card-heading,.pc-category-tags,.pc-category-tag').evaluateAll(elements =>
         elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.className));
       assert.deepEqual(overflow, [], `${theme}/${width}: logo and long-name layout`);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);

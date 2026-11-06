@@ -6,14 +6,14 @@ test('Desktop discovers the pinned core CLM commands absent from upstream get_co
   const original = [{ name: 'goal', source: 'extension' }, { name: 'daily', source: 'prompt' },
     { name: 'skill:review', source: 'skill' }, { name: '_desktop_retry', source: 'extension' }];
   const result = desktopCommands(original);
-  assert.deepEqual(result.map(command => command.name), ['goal', 'daily', 'skill:review', 'status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact', 'btw']);
+  assert.deepEqual(result.map(command => command.name), ['goal', 'daily', 'skill:review', 'status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact', 'btw', 'init']);
   assert.ok(result.filter(command => command.name.startsWith('clm')).every(command => command.source === 'core'));
   assert.equal(original.length, 4, 'Catalog projection does not mutate the runtime reply');
 });
 
 test('Core CLM handlers take precedence over same-name catalog entries without duplicates', () => {
   const result = desktopCommands([{ name: 'clm', source: 'prompt' }, { name: 'clm-compact', source: 'extension' }]);
-  assert.deepEqual(result.map(command => command.name), ['status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact', 'btw']);
+  assert.deepEqual(result.map(command => command.name), ['status', 'plugin', 'mcp', 'skills', 'clm', 'clm-compact', 'trust', 'compact', 'btw', 'init']);
   assert.ok(result.filter(command => command.name.startsWith('clm')).every(command => command.source === 'core'));
   assert.deepEqual(desktopCommands(result), result, 'Repeated projection remains idempotent');
   result[0].description = 'changed';
@@ -72,4 +72,14 @@ test('capability management commands are discoverable without a runtime and repl
     assert.equal(catalog.find(command => command.name === name)?.source, 'desktop');
   }
   assert.deepEqual(desktopCommands(catalog), catalog);
+});
+
+test('project rules are discoverable in drafts without duplicating or changing a discovered source', () => {
+  assert.equal(desktopCommands([]).find(command => command.name === 'init')?.source, 'desktop');
+  for (const source of ['extension', 'prompt', 'skill']) {
+    const discovered = { name: 'init', source, description: 'Discovered init' };
+    const catalog = desktopCommands([discovered]);
+    assert.deepEqual(catalog.filter(command => command.name === 'init'), [discovered]);
+    assert.deepEqual(desktopCommands(catalog), catalog);
+  }
 });

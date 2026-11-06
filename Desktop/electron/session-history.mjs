@@ -6,7 +6,7 @@ export const MAX_HISTORY_PREVIEW_BYTES = 12 * 1024 * 1024;
 
 // The upstream open/load helpers may migrate or repair files. Preview only reads
 // bytes and uses the upstream in-memory migration and context projection.
-export async function readSessionHistory(upstream, root, file, sessionId) {
+export async function readSessionHistory(upstream, root, file, sessionId, maxBytes = MAX_HISTORY_PREVIEW_BYTES) {
   if (!root || typeof file !== 'string' || typeof sessionId !== 'string') throw new Error('Invalid history request');
   const [directory, canonical] = await Promise.all([realpath(root), realpath(file)]);
   const rel = relative(directory, canonical);
@@ -15,7 +15,7 @@ export async function readSessionHistory(upstream, root, file, sessionId) {
   const handle = await open(canonical, 'r');
   try {
     const before = await handle.stat();
-    if (!before.isFile() || before.size > MAX_HISTORY_PREVIEW_BYTES) return null;
+    if (!before.isFile() || before.size > Math.min(maxBytes, MAX_HISTORY_PREVIEW_BYTES)) return null;
     const buffer = Buffer.alloc(before.size + 1);
     let length = 0;
     while (length < buffer.length) {

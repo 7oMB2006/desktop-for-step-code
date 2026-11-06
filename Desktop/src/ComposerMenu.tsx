@@ -8,16 +8,17 @@ import { composerInput } from './composer-input';
 import { McpIcon } from './McpIcon';
 import { commandPresentation } from './command-presentation';
 import { CommandContextUsage } from './ContextCommandIcon';
+import type { ProjectInstructionsStatus } from './project-instructions';
 
 import type { ComposerCommand } from './composer-commands';
 export type { ComposerCommand } from './composer-commands';
 const terminalOnly = new Set(['exit', 'quit', 'theme', 'llama', 'clear', 'new']);
 
-export function commandRows(commands: ComposerCommand[], zh: boolean, usage?: SessionStats['contextUsage']) {
+export function commandRows(commands: ComposerCommand[], zh: boolean, usage?: SessionStats['contextUsage'], instructions?: ProjectInstructionsStatus) {
   const groupOrder = (source?: string) => source === 'skill' ? 2 : source === 'prompt' ? 1 : 0;
   return commands.filter(c => !terminalOnly.has(c.name) && !c.name.startsWith('_') && !(c.name === 'ultraloop' && commands.some(other => other.name === 'ultracode')))
     .sort((a, b) => groupOrder(a.source) - groupOrder(b.source)).map(c => ({
-    id: `command:${c.name}`, ...commandPresentation(c, zh, usage), keyword: `/${c.name}`,
+    id: `command:${c.name}`, ...commandPresentation(c, zh, usage, instructions), keyword: `/${c.name}`,
     group: c.source === 'skill' ? (zh ? '技能' : 'Skills') : c.source === 'prompt' ? (zh ? '提示模板' : 'Prompts') : (zh ? '指令' : 'Commands'),
     command: c.name,
   }));
@@ -28,6 +29,7 @@ interface Props {
   language: 'zh' | 'en'; scope: string; disabled: boolean; referencesOpen: boolean; setReferencesOpen: (open: boolean) => void;
   messages: Message[]; onFiles: () => Promise<boolean>; onQuote: (index: number) => boolean;
   canAddFiles: boolean; permissionsSupported: boolean;
+  inspectProjectInstructions?: () => Promise<ProjectInstructionsStatus>;
   onAction: (action: 'model' | 'permissions' | 'mcp') => void;
 }
 export function ComposerMenu(props: Props) {
@@ -36,6 +38,9 @@ export function ComposerMenu(props: Props) {
   const [token, setToken] = useState<{ mode: '/' | '@'; start: number; end: number; query: string } | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [selected, setSelected] = useState(0);
+  const [instructions, setInstructions] = useState<ProjectInstructionsStatus>({ mode: 'loading' });
+  const inspect = useRef(props.inspectProjectInstructions);
+  inspect.current = props.inspectProjectInstructions;
   const zh = language === 'zh';
   const { usage: contextUsage } = useContext(CommandContextUsage);
   const input = () => root.current ? composerInput(root.current) : null;
@@ -67,7 +72,7 @@ export function ComposerMenu(props: Props) {
   ];
   const rows: Row[] = mode === '/' ? [
     ...actions.filter(row => row.id !== 'permissions' || props.permissionsSupported),
-    ...commandRows(commands, zh, contextUsage).filter(c => !['mcp', 'model', 'permissions'].includes(c.command)).map(c => ({ ...c, activate: () => consumeToken(`/${c.command} `) })),
+    ...commandRows(commands, zh, contextUsage, instructions).filter(c => !['mcp', 'model', 'permissions'].includes(c.command)).map(c => ({ ...c, activate: () => consumeToken(`/${c.command} `) })),
   ] : [
     { id: 'files', title: zh ? '文件和图片' : 'Files and images', detail: props.canAddFiles ? (zh ? '添加本地附件' : 'Add local attachments') : (zh ? '附件已达上限' : 'Attachment limit reached'), disabled: !props.canAddFiles, Icon: Paperclip, group: zh ? '添加' : 'Add', activate: () => {
       if (!props.canAddFiles) return;
@@ -82,6 +87,23 @@ export function ComposerMenu(props: Props) {
   const filtered = rows.filter(row => !query || `${row.title} ${row.keyword ?? row.id} ${row.detail}`.toLowerCase().includes(query));
   const active = Math.min(selected, Math.max(0, filtered.length - 1));
   const open = !props.disabled && !dismissed && Boolean(mode);
+  useEffect(() => {
+    if (!open || mode !== '/' || !commands.some(command => command.name === 'init')) return;
+    let cancelled = false, revision = 0;
+    const read = async () => {
+      const request = ++revision;
+      setInstructions({ mode: 'loading' });
+      try {
+        const next = await inspect.current?.() ?? { mode: 'unavailable' as const };
+        if (!cancelled && request === revision) setInstructions(next);
+      } catch {
+        if (!cancelled && request === revision) setInstructions({ mode: 'unavailable' });
+      }
+    };
+    void read();
+    window.addEventListener('focus', read);
+    return () => { cancelled = true; window.removeEventListener('focus', read); };
+  }, [open, mode, props.scope]);
   useEffect(() => {
     const textarea = input(); if (!textarea) return;
     textarea.setAttribute('aria-autocomplete', 'list');

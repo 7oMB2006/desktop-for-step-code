@@ -26,6 +26,12 @@ const markdownPath = value => {
   if (!/\.md$/iu.test(value)) throw new PluginFileError('invalid-path');
   return value;
 };
+const terms = (value, max, category = false) => {
+  const items = list(value, max).map(item => bounded(item, 48));
+  if (new Set(items).size !== items.length || category && items.some(item => !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(item)))
+    throw new PluginFileError('invalid-presentation');
+  return items;
+};
 export function parsePresentation(value) {
   if (!object(value) || value.schemaVersion !== 1) throw new PluginFileError('invalid-presentation');
   const names = items => list(items).map(item => {
@@ -70,6 +76,8 @@ export function parsePresentation(value) {
   });
   return { author: names(value.authors), maintainer: names(value.maintainers),
     license: value.license === undefined ? undefined : bounded(value.license, 128), documentation, tutorials, links,
+    ...(value.categories !== undefined ? { categories: terms(value.categories, 3, true) } : {}),
+    ...(value.keywords !== undefined ? { keywords: terms(value.keywords, 5) } : {}),
     ...(Object.keys(locales).length ? { locales } : {}) };
 }
 async function fileExists(root, path) {

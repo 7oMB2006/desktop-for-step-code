@@ -1,5 +1,52 @@
 # Verification
 
+## PR #202 Packaged Goal-Clear Failure Diagnostics (2026-11-06)
+
+PR head `2749ee5` passes all Windows groups and macOS candidate preparation,
+interface and runtime source/package groups. macOS sessions job `127849966760`
+passes its source inventory and packaged session-move, then fails at
+`verify-launch-modes.mjs:279`: after the Clear goal click, the trigger remains
+for the original 30-second wait. The failure snapshot still contains the complete
+Goal; it does not record the click target, action error or clear-command receipt.
+The final receipt gate correctly rejects that candidate.
+
+The unchanged local launch workflow passes against the exact staged runtime.
+Additional isolated runs extend the disclosure animation, use narrow geometry
+and delay pointer release while recording click/IPC outcomes. Those runs also
+pass with a real clear receipt. They do not reproduce or identify the native
+macOS failure; no production Goal change, retry or timeout increase is justified
+by this evidence. Early generated probes that did not match CRLF source are not
+counted as instrumentation; later probes assert the actual hook was installed.
+
+The verifier now observes only the clear command at its existing IPC handler,
+forwarding the same request/result or original rejection without dispatching an
+extra action. Bounded target-only pointer records, finite clear receipts and
+allowlisted UI/runtime fields distinguish no-click, rejected/unconfirmed command
+and stale display. Raw messages, Goal objectives, request payloads, provider
+configuration and environment values are not printed. Main/page observations
+are bounded in the test process, so a never-settling read cannot hide the first
+failure; cleanup restores only the observer's own IPC wrapper and listeners.
+All original UI clicks, Goal ownership/no-inherited-consent assertions and test
+limits remain unchanged.
+
+Five tests execute the actual callback bodies in separate main/renderer contexts:
+exact forwarding, rejection preservation/redaction, ownership-safe restoration,
+non-settling timeout and unavailable reads. Two real Electron fault probes execute
+the verifier's actual catch path with a non-settling or rejected snapshot; both
+retain the original failure and bounded timeout/unavailable evidence. The actual observer also
+captures one resolved IPC receipt and a clear click in the successful real UI
+path; the Goal and trigger disappear. Typecheck, production build, full local
+launch acceptance and 116 focused Goal/runtime/cache/diagnostic tests pass.
+Complete per-file verification executes 148 files: 142 pass and the same six
+local files fail (capabilities timeout, project-trust, StepPage, template-input
+runtime, undo and workflow-catalog); no failure is filtered or marked passed.
+CI runner/inventory/receipt checks pass 30 tests with one platform skip.
+Local Electron still uses an assertion-preserving
+no-sandbox entry; this is not native macOS package acceptance. The original
+macOS Clear goal root cause remains unconfirmed. New current-head source/package
+CI evidence is required; a subsequent green run must not be called a diagnosed
+flake or a confirmed product fix.
+
 ## Update Cache Junction Boundary Investigation (2026-11-06, local candidate)
 
 This candidate starts from main `e9102aa`, including #195, #198 and #200 and the

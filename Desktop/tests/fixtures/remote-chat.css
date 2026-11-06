@@ -105,6 +105,12 @@ img { display: block; object-fit: contain; }
 .fc-approval { display: flex; gap: 8px; padding: 0 17px 14px; flex-wrap: wrap; }
 .fc-approval button { background: transparent; border: 1px solid var(--fc-line); padding: 7px 12px; font-size: 12px; }
 .fc-approval button:first-child { color: var(--fc-blue); }
+.fc-question-form { display: grid; gap: 10px; padding: 0 17px 14px; min-width: 0; }
+.fc-question-form .fc-card-body { padding: 6px 0; min-height: 0; }
+.fc-question-form .fc-approval { padding: 0; }
+.fc-question-form select, .fc-question-form textarea { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--fc-line); border-radius: 4px; background: var(--fc-chat); color: var(--fc-text); font: inherit; }
+.fc-question-form select:focus-visible { outline: 2px solid var(--fc-focus); outline-offset: 2px; }
+.fc-question-form textarea { resize: vertical; }
 .fc-expired { align-self: center; font-size: 11px; color: var(--fc-muted); }
 .fc-preview-error { margin: 0; padding: 10px 18px; border-bottom: 1px solid var(--fc-line); overflow-wrap: anywhere; }
 .fc-composer { border-top: 1px solid var(--fc-line); padding: 15px 26px 18px; min-width: 0; }

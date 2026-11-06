@@ -5,6 +5,8 @@ import type { SessionRuntime } from '../electron/session-runtimes';
 import type { RuntimeEvent, UIRequest } from '../src/contracts';
 import { remoteWorkspaceLimit, type RemoteSession } from '../src/remote';
 import type { RemotePersistence, SavedRemote } from '../electron/remote-store';
+import { QUESTION_TITLE } from '../src/questionnaire';
+import { submitAnswer, cancelAnswer } from '../electron/remote-form.mjs';
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 function deferred() {
@@ -97,6 +99,134 @@ function approval(worker: SessionRuntime, id = 'approval'): UIRequest {
   worker.pendingUI.set(id, request);
   return request;
 }
+function questions(worker: SessionRuntime, id = 'questions'): UIRequest {
+  const callId = 'clarify-12345678';
+  worker.messages.push({ role: 'assistant', content: [{ type: 'toolCall', id: callId, name: 'clarify_user', arguments: { question: 'Choose a scope' } }] });
+  const request: UIRequest = { type: 'extension_ui_request', runtimeId: worker.id, method: 'input', id,
+    title: QUESTION_TITLE + JSON.stringify({ version: 1, callId, questions: [
+      { id: 'scope', label: 'Scope', question: 'Choose a scope', options: [
+        { label: 'Tests', value: 'unit-test', description: 'Run unit tests' }, { label: 'UI', value: 'ui-test' },
+      ], allowFreeform: true },
+      { id: 'notes', label: 'Notes', question: 'What else?', options: [], allowFreeform: true },
+    ] }) };
+  worker.pendingUI.set(id, request);
+  return request;
+}
+function planRequest(worker: SessionRuntime, id = 'plan'): UIRequest {
+  worker.messages.push({ role: 'assistant', content: [{ type: 'toolCall', id: 'plan-call', name: 'exit_plan_mode', arguments: {} }] });
+  const request: UIRequest = { type: 'extension_ui_request', runtimeId: worker.id, method: 'select', id,
+    title: 'Desktop Plan review\nworkspace-a/plan.md\n\nReview this exact proposal.',
+    options: ['Approve plan', 'Request refinements', 'Keep planning'] };
+  worker.pendingUI.set(id, request);
+  return request;
+}
+
+test('question permission is explicitly not an answer or command authorization', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown()); await f.connect(); const bindingId = await f.bind();
+  const worker = f.workers[0], request = approval(worker);
+  const content = worker.messages.at(-1)!.content;
+  assert.ok(Array.isArray(content));
+  content[0].name = 'clarify_user'; content[0].arguments = { question: 'Choose a scope', options: [{ label: 'Tests' }] };
+  request.title = request.title!.replace('run_command', 'clarify_user');
+  request.message = request.message!.replace('run_command', 'clarify_user');
+  f.manager.runtimeEvent(worker, request); await tick();
+  const card = f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args;
+  assert.match(card.title, /Allow a question/);
+  assert.match(card.text, /does not answer/);
+  assert.doesNotMatch(card.text, /"question"|can modify the workspace/);
+  f.receive('decision', { bindingId, token: card.actions.token, option: 'Allow once / 允许一次' });
+  assert.deepEqual(f.answers, []);
+  f.receive('decision', { bindingId, token: card.actions.token, option: 'Allow question / 允许提问' });
+  assert.deepEqual(f.answers, [{ id: request.id, confirmed: true }]);
+  const question = questions(worker);
+  f.manager.runtimeEvent(worker, question); await tick();
+  assert.equal(worker.pendingUI.has(question.id), true, 'Allowing the question does not select an answer');
+});
+test('structured questions map selected values and freeform into the original RPC contract exactly once', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown()); await f.connect(); const bindingId = await f.bind();
+  const worker = f.workers[0], request = questions(worker);
+  f.manager.runtimeEvent(worker, request); await tick();
+  const card = f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args;
+  assert.equal(card.form.length, 2);
+  assert.deepEqual(card.actions.options, [submitAnswer, cancelAnswer]);
+  const respond = (form: unknown, option = submitAnswer) => f.receive('decision', { bindingId, token: card.actions.token, option, form });
+  for (const form of [{}, { q0: '9', c1: 'notes' }, { q0: 'custom', c0: ' ', c1: 'notes' },
+    { q0: '0', c0: 'unintended extra answer', c1: 'notes' }, { q0: '0', c1: 'notes', injected: 'yes' },
+    { q0: '0', c1: 'x'.repeat(1001) }]) respond(form);
+  respond(undefined, 'Allow once / 允许一次');
+  assert.deepEqual(f.answers, []);
+  respond({ q0: '1', c0: '', c1: '  Do not package  ' });
+  assert.equal(f.answers.length, 1);
+  assert.deepEqual(JSON.parse(String((f.answers as Record<string, unknown>[])[0].value)), [
+    { id: 'scope', value: 'ui-test', wasCustom: false }, { id: 'notes', value: 'Do not package', wasCustom: true },
+  ]);
+  respond({ q0: '0', c1: 'replay' });
+  assert.equal(f.answers.length, 1);
+});
+test('question cancellation and stale local answers never become confirmation or guessed responses', async t => {
+  for (const action of ['cancel', 'local', 'changed', 'expired'] as const) {
+    const f = fixture(); t.after(() => f.manager.shutdown()); await f.connect(); const bindingId = await f.bind();
+    const worker = f.workers[0], request = questions(worker);
+    f.manager.runtimeEvent(worker, request); await tick();
+    const card = f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args;
+    if (action === 'local') { worker.pendingUI.delete(request.id); f.manager.runtimeEvent(worker, { type: 'desktop_ui_expired' }); }
+    if (action === 'changed') request.title = request.title!.replace('ui-test', 'changed-opaque-value');
+    if (action === 'expired') f.now(Date.now() + 601000);
+    f.receive('decision', { bindingId, token: card.actions.token, option: action === 'cancel' ? cancelAnswer : submitAnswer,
+      form: { q0: '0', c1: 'notes' } });
+    assert.deepEqual(f.answers, action === 'cancel' ? [{ id: request.id, cancelled: true }] : []);
+  }
+});
+test('plan decisions keep their three distinct meanings and refinement input is never an approval', async t => {
+  for (const [option, value] of [
+    ['Approve plan / 批准计划', 'Approve plan'], ['Request refinements / 要求修改', 'Request refinements'],
+    ['Keep planning / 继续规划', 'Keep planning'],
+  ]) {
+    const f = fixture(); t.after(() => f.manager.shutdown()); await f.connect(); const bindingId = await f.bind();
+    const worker = f.workers[0], request = planRequest(worker);
+    f.manager.runtimeEvent(worker, request); await tick();
+    const card = f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args;
+    assert.match(card.text, /Review this exact proposal/);
+    f.receive('decision', { bindingId, token: card.actions.token, option: 'Allow once / 允许一次' });
+    assert.deepEqual(f.answers, []);
+    f.receive('decision', { bindingId, token: card.actions.token, option });
+    assert.deepEqual(f.answers, [{ id: request.id, value }]);
+    if (value === 'Request refinements') {
+      const next: UIRequest = { type: 'extension_ui_request', runtimeId: worker.id, method: 'input', id: 'feedback', title: 'Desktop Plan refinements' };
+      worker.pendingUI.set(next.id, next);
+      f.manager.runtimeEvent(worker, next); await tick();
+      const feedback = f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args;
+      f.receive('decision', { bindingId, token: feedback.actions.token, option: submitAnswer, form: { c0: '  Add regression tests  ' } });
+      assert.deepEqual(f.answers[1], { id: next.id, value: 'Add regression tests' });
+    }
+  }
+});
+test('unknown, finished, ambiguous, cross-runtime and oversized question or plan envelopes stay local', () => {
+  for (const create of [questions, planRequest]) {
+    const f = fixture(), worker = f.workers[0], request = create(worker);
+    assert.ok(remoteDecision(request, worker));
+    assert.equal(remoteDecision({ ...request, runtimeId: 'another-worker' }, worker), undefined);
+    const content = worker.messages[0].content;
+    assert.ok(Array.isArray(content));
+    worker.messages.push({ role: 'toolResult', toolCallId: content[0].id, content: 'done' });
+    assert.equal(remoteDecision(request, worker), undefined);
+    worker.messages.pop();
+    worker.messages.push(worker.messages[0]);
+    assert.equal(remoteDecision(request, worker), undefined);
+    worker.messages.pop();
+    request.title += 'x'.repeat(6000);
+    assert.equal(remoteDecision(request, worker), undefined);
+  }
+});
+test('a plan card cannot approve a mutated proposal under the same request identity', async t => {
+  const f = fixture(); t.after(() => f.manager.shutdown()); await f.connect(); const bindingId = await f.bind();
+  const worker = f.workers[0], request = planRequest(worker);
+  f.manager.runtimeEvent(worker, request); await tick();
+  const card = f.channels[0].calls.filter(call => call.type === 'card').at(-1)!.args;
+  request.title += '\nChanged proposal';
+  f.receive('decision', { bindingId, token: card.actions.token, option: 'Approve plan / 批准计划' });
+  assert.deepEqual(f.answers, []);
+});
 
 test('malformed selection fails closed but unrelated invalid commands do not lock the current target', async t => {
   const f = fixture(); t.after(() => f.manager.shutdown());

@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { Check, CheckCheck, ChevronDown, Code2, ImagePlus, MessageSquare, Moon, Pause, Play, RotateCcw, Send, Sun, Undo2 } from 'lucide-react';
 import { AppMenu } from '../../src/AppMenu';
 import { AppTooltip } from '../../src/AppTooltip';
-import { remoteCard, type RemoteCardDocument } from '../../electron/remote-card.mjs';
+import { remoteCard, remoteCardElements, type RemoteCardDocument, type RemoteFormElement } from '../../electron/remote-card.mjs';
 import { RemoteChatPreview, scenes, sessionLabel, type ChatMessage, type Scene } from './remote-chat-model';
 import '../../src/theme.css';
 import './remote-chat.css';
@@ -39,29 +39,48 @@ function Markdown({ text }: { text: string }) {
   }}>{text}</ReactMarkdown>;
 }
 function Card({ document, message, decide }: {
-  document: RemoteCardDocument; message: ChatMessage; decide: (allow: boolean) => void;
+  document: RemoteCardDocument; message: ChatMessage; decide: (option: string, form?: Record<string, unknown>) => void;
 }) {
+  const render = (element: RemoteFormElement, index: number): ReactNode => {
+    if (element.tag === 'markdown') return <div className="fc-card-body" key={index}><Markdown text={element.content}/></div>;
+    if (element.tag === 'form') {
+      const submit = element.elements.find(item => item.tag === 'button' && item.form_action_type === 'submit');
+      return <form className="fc-question-form" key={`${message.token}-${index}`} onSubmit={event => {
+        event.preventDefault();
+        if (submit?.tag === 'button') decide(submit.behaviors[0].value.option, Object.fromEntries(new FormData(event.currentTarget)));
+      }}>{element.elements.map(render)}</form>;
+    }
+    if (element.tag === 'select_static') return <select key={index} name={element.name}
+      aria-label={`问题 ${Number(element.name.slice(1)) + 1} 的答案`} required={element.required} defaultValue="">
+      <option value="" disabled>选择答案</option>
+      {element.options.map(option => <option key={option.value} value={option.value}>{option.text.content}</option>)}</select>;
+    if (element.tag === 'input') return <textarea key={index} name={element.name} rows={3} maxLength={element.max_length}
+      required={element.required} aria-label={`问题 ${Number(element.name.slice(1)) + 1} 的自行填写`} placeholder="自行填写答案"/>;
+    if (element.tag === 'button') return <div className="fc-approval" key={index}>
+      <button type={element.form_action_type === 'submit' ? 'submit' : 'button'} disabled={message.approval !== 'pending'}
+        onClick={element.form_action_type === 'submit' ? undefined : () => decide(element.behaviors[0].value.option)}>
+        {element.text.content.split(' / ').at(-1)}</button></div>;
+    if (element.tag === 'div' && element.element_id === 'source') return <footer key={index}>{element.text.content}</footer>;
+    if (element.tag === 'div') return <div className={element.element_id === 'progress' ? 'fc-tool-progress' : 'fc-card-body'}
+      data-testid={element.element_id === 'progress' ? 'tool-progress' : undefined}
+      title={element.element_id === 'progress' ? element.text.content : undefined}
+      key={index}>{element.text.tag === 'lark_md' ? <Markdown text={element.text.content}/> : <p className="fc-literal">{element.text.content}</p>}</div>;
+    if (element.tag === 'note') return <footer key={index} data-interrupted={message.card?.reply === 'interrupted'}>
+      {element.elements.map((item, index) => <span key={index}>{item.content}</span>)}</footer>;
+    return <div className="fc-approval" key={index}>{element.actions.map((action, index) =>
+      <button key={index} disabled={message.approval !== 'pending'} onClick={() => decide(action.value.option)}>
+        {message.approval === 'allowed' && index === 0 ? '已允许一次' : message.approval === 'denied' && index === 1
+          ? '已拒绝' : action.text.content.split(' / ').at(-1)}</button>)}
+      {message.approval === 'expired' && <span className="fc-expired">审批已失效</span>}</div>;
+  };
   return <div className="fc-card" data-reply={message.card?.reply} data-approval={message.approval}
     data-status={message.card?.status} data-overview={Boolean(message.card?.overview)} data-testid="bot-card">
     {document.header && <header>{document.header.title.content}</header>}
-    {document.elements.map((element, index) => element.tag === 'div'
-      ? <div className={message.card?.reply && element.text.tag === 'plain_text' ? 'fc-tool-progress' : 'fc-card-body'}
-        data-testid={message.card?.reply && element.text.tag === 'plain_text' ? 'tool-progress' : undefined}
-        title={message.card?.reply && element.text.tag === 'plain_text' ? element.text.content : undefined}
-        key={index}>{element.text.tag === 'lark_md'
-        ? <Markdown text={element.text.content}/> : <p className="fc-literal">{element.text.content}</p>}</div>
-      : element.tag === 'note' ? <footer key={index} data-interrupted={message.card?.reply === 'interrupted'}>
-        {element.elements.map((item, index) => <span key={index}>{item.content}</span>)}</footer>
-        : <div className="fc-approval" key={index}>{element.actions.map((action, index) =>
-          <button key={index} disabled={message.approval !== 'pending'}
-            onClick={() => decide(action.value.option === 'Allow once / 允许一次')}>
-            {message.approval === 'allowed' && index === 0 ? '已允许一次' : message.approval === 'denied' && index === 1
-              ? '已拒绝' : action.text.content.split(' / ').at(-1)}</button>)}
-          {message.approval === 'expired' && <span className="fc-expired">审批已失效</span>}</div>)}
+    {remoteCardElements(document).map(render)}
   </div>;
 }
 function Message({ message, mode, decide, recall, connected }: {
-  message: ChatMessage; mode: 'new' | 'old'; decide: (allow: boolean) => void; recall: () => void; connected: boolean;
+  message: ChatMessage; mode: 'new' | 'old'; decide: (option: string, form?: Record<string, unknown>) => void; recall: () => void; connected: boolean;
 }) {
   const actions = message.actions ?? [];
   const value = message.card && mode === 'old' && message.card.reply ? {
@@ -186,7 +205,7 @@ function Preview({ onReset }: { onReset: () => void }) {
           <div className="fc-date">今天</div>
           {state.messages.map(message => <Message key={message.id} message={message} mode={mode}
             connected={state.connected} recall={() => run(controller.recall(message.id))}
-            decide={allow => run(controller.decide(message.id, allow))}/>)}
+            decide={(option, form) => run(controller.choose(message.id, option, form))}/>)}
         </div>
         <form className="fc-composer" onSubmit={event => { event.preventDefault(); send(); }}>
           <textarea ref={editor} aria-label="发送给飞书机器人的模拟消息" value={draft} maxLength={12000}

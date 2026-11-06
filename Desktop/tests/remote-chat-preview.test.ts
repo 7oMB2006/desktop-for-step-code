@@ -1,7 +1,8 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { inflateSync } from 'node:zlib';
-import { remoteCard } from '../electron/remote-card.mjs';
+import { remoteCard, remoteCardElements } from '../electron/remote-card.mjs';
+import { submitAnswer } from '../electron/remote-form.mjs';
 import { RemoteChatPreview, simulatedImage, type Scene } from './fixtures/remote-chat-model';
 
 async function fixture(t: TestContext, scene: Scene = 'reply') {
@@ -381,7 +382,7 @@ test('actual synthetic tool events yield one progress row and truncation on the 
   const working = preview.snapshot().messages.find(message => message.id === reply.id)!;
   assert.match(working.card!.progress!, /Active: 1.*command.*Returned: 1.*read/);
   const document = remoteCard(working.card!);
-  assert.equal(document.elements.filter(element => element.tag === 'div' && element.text.tag === 'plain_text').length, 1);
+  assert.equal(remoteCardElements(document).filter(element => element.tag === 'div' && element.element_id === 'progress').length, 1);
   assert.deepEqual(preview.toolEvents.map(event => [event.type, event.toolName]), [
     ['tool_execution_start', 'read_file'], ['tool_execution_end', 'read_file'], ['tool_execution_start', 'run_command'],
   ]);
@@ -511,7 +512,7 @@ test('handled approval replaces actions with shared status and never answers the
   assert.equal(handled.actions, undefined);
   const document = remoteCard(handled.card!, handled.actions);
   assert.match(JSON.stringify(document), /Handled \/ 已处理/);
-  assert.equal(document.elements.some(element => element.tag === 'action'), false);
+  assert.equal(remoteCardElements(document).some(element => element.tag === 'action'), false);
   await preview.decide(approval.id, false);
   assert.equal(preview.answers.length, 1);
 });
@@ -537,4 +538,54 @@ test('expired approval is button-free and status refreshes the same card with a 
   await preview.decide(refreshed.id, false);
   assert.equal(preview.answers.length, 1);
   assert.equal(preview.answers[0].allowed, false);
+});
+test('question preview separates permission from real selected/freeform answers through the production core', async t => {
+  const preview = await fixture(t, 'questions');
+  await preview.demo(); await preview.advance(1500);
+  const gate = lastBot(preview);
+  assert.match(gate.card!.title, /允许 Agent 提问/);
+  assert.equal(gate.card?.form, undefined);
+  await preview.decide(gate.id, true);
+  const question = lastBot(preview);
+  assert.match(question.card!.title, /请回答问题/);
+  assert.equal(question.card!.form!.length, 2);
+  assert.equal(preview.answers.length, 1);
+  await preview.finish();
+  assert.equal(preview.snapshot().jobs.length, 1, 'Permission alone cannot complete the question');
+  await preview.choose(question.id, submitAnswer, { q0: '1', c1: '不要打包' });
+  assert.equal(preview.answers.length, 2);
+  assert.deepEqual(JSON.parse(String(preview.answers[1].value)), [
+    { id: 'validation', value: 'ui', wasCustom: false }, { id: 'notes', value: '不要打包', wasCustom: true },
+  ]);
+  await preview.choose(question.id, submitAnswer, { q0: '0', c1: 'replay' });
+  assert.equal(preview.answers.length, 2);
+});
+test('plan preview maps refinement selection and notes without confirming workspace permissions', async t => {
+  const preview = await fixture(t, 'plan');
+  await preview.demo(); await preview.advance(1500);
+  const plan = lastBot(preview);
+  await preview.choose(plan.id, 'Request refinements / 要求修改');
+  const feedback = lastBot(preview);
+  assert.match(feedback.card!.title, /计划修改意见/);
+  await preview.choose(feedback.id, submitAnswer, { c0: '补充测试' });
+  assert.deepEqual(preview.answers.map(answer => answer.value), ['Request refinements', '补充测试']);
+  assert.ok(preview.answers.every(answer => !answer.allowed), 'Feedback never approves implementation');
+  const revised = lastBot(preview);
+  assert.match(revised.card!.text, /补充测试/);
+  assert.match(revised.card!.title, /审阅计划/);
+  await preview.finish();
+  assert.equal(preview.snapshot().jobs.length, 1, 'A revised plan still needs an explicit approval');
+  await preview.choose(revised.id, 'Approve plan / 批准计划');
+  assert.equal(preview.answers.at(-1)?.allowed, true);
+  await preview.finish();
+  assert.equal(preview.snapshot().jobs.length, 0);
+});
+test('keeping planning ends only the simulated response, without approving implementation', async t => {
+  const preview = await fixture(t, 'plan');
+  await preview.demo(); await preview.advance(1500);
+  await preview.choose(lastBot(preview).id, 'Keep planning / 继续规划');
+  assert.equal(preview.answers.at(-1)?.allowed, false);
+  const reply = preview.snapshot().messages.filter(message => message.card?.reply === 'completed').at(-1);
+  assert.match(reply!.text, /计划尚未批准，也未开始实施/);
+  assert.equal(preview.snapshot().jobs.length, 0);
 });

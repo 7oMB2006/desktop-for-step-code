@@ -11,8 +11,9 @@ right of Settings; channel selection and channel configuration are separate.
 This Desktop Beta supports one locally authorized human private chat with a
 locally approved project scope and a separately selected current session.
 It supports remote session listing, selection and creation, text and opt-in image input,
-bounded assistant-text cards, explicit workspace image delivery, task stopping, and known one-time tool permission
-confirmations. It does not expose a Web URL, public
+bounded assistant-text cards, explicit workspace image delivery, task stopping,
+known one-time tool permission confirmations, structured questions and Desktop
+Plan review/refinement. It does not expose a Web URL, public
 listener, tunnel, mobile application, group chat, arbitrary file transport, remote
 login, arbitrary extension forms, permission-tier changes or project trust.
 It does not fulfill the separate self-hosted Windows/Linux Web Remote TODO.
@@ -179,18 +180,32 @@ pending tool approvals immediately, without backfilling existing prose.
   encrypted snapshot. Manual disconnect deletes it; normal uninstall removes
   it and update installation retains it. Same-user malware is outside this
   at-rest protection boundary.
-- Only the known native permission `confirm` envelope, tied to the exact pending
-  tool call and runtime, becomes an Allow once / Deny card. Unknown forms,
-  clarifications, login, project trust and permission-level acknowledgments stay
-  local. Actionable cards recover the complete, redacted tool input from that
+- The known native permission `confirm` envelope, tied to the exact pending
+  tool call and runtime, becomes an Allow once / Deny card. For `clarify_user`,
+  that permission card instead says Allow question / Deny question: it only
+  permits asking, never selects an answer or authorizes workspace mutation.
+  Actionable permission cards recover the complete, redacted tool input from that
   call, not the upstream's shortened summary. Unrecoverable inputs and details
   exceeding the card's 5,000-character limit stay local rather than offering
   approval for clipped content. Existing native permission policy still applies.
+- A known structured Desktop clarification becomes a native answer form only
+  while its exact `clarify_user` call is pending. It preserves the original
+  question IDs and option values, supports 1-12 questions with at most eight
+  options each, and limits each permitted custom answer to 1,000 characters.
+  Nothing is preselected; incomplete, conflicting or oversized answers cannot
+  settle the request. Cancel is explicit and never implies an answer.
+- Desktop Plan review offers Approve plan, Request refinements and Keep planning,
+  with the complete bounded proposal. Approval alone may exit Plan; refinement
+  opens a feedback form and does not approve implementation. The exact pending
+  `exit_plan_mode` call and native reviewed-snapshot gate still apply.
+  Unknown extension forms, login, project trust and permission-level
+  acknowledgments stay local. Oversized or malformed known forms also stay local.
 - Both ends answer the same pending request. The first valid response wins.
   Remote tokens are opaque, single-use, bound to the chat, valid for at most ten
   minutes, and revoked on local completion, expiry or unbinding. A token never
-  grants a standing permission or answers a replacement request.
-  Expired or handled cards lose their actionable buttons and show their state.
+  grants a standing permission or answers a replacement request. The complete
+  request and exact live tool call are revalidated before any remote response.
+  Expired or handled cards lose their inputs/buttons and show their state.
   `/status s1` can refresh only the exact original request if it remains pending,
   with a fresh single-use token on the same card. It cannot revive an answered,
   replaced or changed tool request.
@@ -239,7 +254,11 @@ Old approval buttons and obsolete Stop callbacks cannot act on a restarted proce
 Assistant text is coalesced into updates to one card per round, with a bounded
 5,000-character visible budget. Truncated replies explicitly identify that only
 the tail is visible; the full answer remains in Desktop, with no remote paging
-or task rerun. Normal replies show Markdown body text and a
+or task rerun. Normal replies use JSON 2.0 Markdown components for headings,
+lists, tables, inline code and fenced code, splitting after four tables per
+component. Model-supplied raw HTML, mentions and embedded images are rendered
+literally instead of invoking platform features; non-HTTP(S) links are disabled.
+Explicit native image delivery remains separate. Replies show a
 small plain-text session-source footer, without Working or Completed headers.
 Before text arrives, the same card shows a replying placeholder; an empty
 finished response explicitly says that no text was returned. Interrupted
@@ -314,6 +333,8 @@ It rejects a different pin, modified adapter sources or an unexpected SDK.
 `stage-runtime.mjs` includes this step. The existing whole-runtime packaging
 rule includes the helper, adapter and bundled dependency notices. No runtime
 pin upgrade or change to the upstream checkout is part of this feature.
+Desktop-owned form/card helpers and the bundled Markdown parser are staged
+alongside the adapter and load offline, without exposing Node to the renderer.
 
 From `Desktop/`, with the fixed runtime staged:
 
@@ -342,6 +363,7 @@ preview with illustrative data, not proof of a working platform connection.
 Run `node scripts/preview-remote-chat.mjs` from `Desktop/` to open the local
 `tests/fixtures/remote-chat.html` chat fixture. It supports editable simulated
 messages, normal/empty/interrupted replies, pairing acknowledgment, approvals,
+two-stage questions, Plan review/refinement, Markdown tables/code,
 pause/speed/completion controls and an illustrative old-layout comparison.
 The fixture reuses `remote-card.mjs` for the outgoing card document and the
 production `remote-manager-core.ts` for slash commands, selection, receipts and
@@ -379,7 +401,12 @@ must explicitly perform real platform authorization; automated tests do not.
 4. Request a harmless tool operation that requires Ask. Answer locally and then
    remotely, and repeat in the opposite order. Exactly one original request
    may settle; old cards must not authorize subsequent operations. Verify that
-   clarification, login and project trust remain local.
+   login, project trust and unknown forms remain local. For `clarify_user`,
+   separately test permission to ask and the subsequent real answer form:
+   allowing the question must not choose an answer. Test grouped options,
+   permitted custom answers, incomplete submission, cancellation and competing
+   local/remote answers. For Plan, test approval, refinement feedback and keeping
+   planning; only explicit approval of the current proposal may exit Plan.
 5. Start a harmless task in A, switch remotely to another session, then answer
    A's approval card or `/stop s1`. It must still act on A, not the newly selected
    session. An old round's approval or queued `/stop` must not act on the next round.
@@ -412,6 +439,8 @@ must explicitly perform real platform authorization; automated tests do not.
 10. Check one-line coalesced tool counts on a streaming reply, with no thinking,
     raw inputs/outputs or extra progress messages. Long output must say that
     only the tail is visible and point to Desktop without rerunning the task.
+    Verify a native table, inline code, fenced code and literal model-supplied
+    mention/image tags on both mobile and desktop Feishu clients.
 11. Check the staged resources in a newly built installer and run the same
    acceptance against that exact package. Native macOS and cloud CI are
    separate gates.

@@ -4,6 +4,8 @@ import type { RemoteCardButton, RemoteCardValue } from '../../electron/remote-ca
 import type { RuntimeEvent, UIRequest } from '../../src/contracts';
 import type { RemoteImage, RemoteSession, RemoteSnapshot } from '../../src/remote';
 import type { RemoteListSession } from '../../src/remote-session-list';
+import { submitAnswer, remoteFormAnswers, type RemoteFormField } from '../../electron/remote-form.mjs';
+import { QUESTION_TITLE } from '../../src/questionnaire';
 
 export const scenes = [
   { id: 'reply', name: '正常回复', prompt: '帮我看看会话切换的边界，整理成一份清单。' },
@@ -14,6 +16,9 @@ export const scenes = [
   { id: 'empty', name: '无文字结果', prompt: '执行这项任务，不需要文字回复。' },
   { id: 'tasks', name: '任务与撤回', prompt: '/tasks' },
   { id: 'images', name: '图片收发', prompt: '查看这张模拟图片，并回传测试图片。' },
+  { id: 'questions', name: '提问与回答', prompt: '开始之前，先问我希望采用哪种验证方式。' },
+  { id: 'plan', name: '计划审阅', prompt: '先制定计划，等我确认后再实施。' },
+  { id: 'markdown', name: 'Markdown 格式', prompt: '看看当前目录有什么，按表格和分类清单整理。' },
 ] as const;
 export type Scene = typeof scenes[number]['id'];
 type DecisionStatus = 'handled' | 'expired' | 'unavailable';
@@ -31,7 +36,7 @@ export interface ChatMessage {
 export interface PreviewJob {
   input: number; queueId: string; session: string; scene: Scene; elapsed: number; approved?: boolean;
 }
-interface Job extends PreviewJob { emitted: string; approvalId?: string; toolPhase?: number; imageSent?: boolean }
+interface Job extends PreviewJob { emitted: string; approvalId?: string; toolPhase?: number; imageSent?: boolean; callId?: string }
 interface Resident { worker: SessionRuntime; active?: Job; queue: Job[] }
 export interface ChatState {
   messages: ChatMessage[]; events: string[]; jobs: PreviewJob[]; queue: PreviewJob[];
@@ -62,6 +67,14 @@ export const sampleAnswer = [
   '可以先在一个会话里发起任务，再切换到另一个会话检查。', '',
   '```text', '/session s2', '/status s1', '```',
 ].join('\n');
+export const markdownAnswer = [
+  '当前目录 `D:\\阶跃测试` 的内容如下：', '', '### 目录（3 个）', '',
+  '| 目录 | 内容 |', '| --- | --- |', '| `.stepcode/` | StepCode 配置与状态 |',
+  '| `2026-10-07-Step5/` | `index.html`、`README.md` |',
+  '| `emergence-site/` | `app.js`、`index.html`、`styles.css` |', '',
+  '### 文件', '', '- **调研/报告类**：`阶段报告.md`、`morning-brief.md`',
+  '- **网页/脚本**：`notes.html`、`timer.html`', '', '```powershell', 'Get-ChildItem -LiteralPath .', '```',
+].join('\n');
 const approvalAnswer = '我先运行测试，确认结果。\n\n测试已经完成，**全部通过**。\n\n修改保持在当前分支，还没有打包或发布。';
 interface OutgoingCard extends PreviewCardValue {
   bindingId: string; key: string; sessionKey?: string; actions?: { token: string; options: string[] };
@@ -75,7 +88,7 @@ class PreviewChannel implements RemoteChannel {
   private candidate?: string;
   private scopes = new Map<string, { active: boolean }>();
   private inputs = new Map<number, string[]>();
-  private tokens = new Map<string, { options: string[]; expiresAt: number; sessionKey?: string; scope?: object }>();
+  private tokens = new Map<string, { options: string[]; expiresAt: number; sessionKey?: string; scope?: object; form?: RemoteFormField[] }>();
   constructor(private receive: (event: RuntimeEvent) => void, private preview: RemoteChatPreview) {}
   async request(type: string, args: Record<string, any> = {}) {
     if (this.closed) throw new Error('Preview channel closed');
@@ -103,7 +116,7 @@ class PreviewChannel implements RemoteChannel {
     } else if (type === 'card') {
       this.requireBinding(args.bindingId, args.sessionKey);
       if (args.actions) this.tokens.set(args.actions.token,
-        { options: args.actions.options, expiresAt: this.preview.now() + 600000,
+        { options: args.actions.options, form: args.form, expiresAt: this.preview.now() + 600000,
           sessionKey: args.sessionKey, scope: this.scopes.get(args.sessionKey) });
       this.preview.present(args as OutgoingCard);
     } else if (type === 'reaction') {
@@ -158,15 +171,17 @@ class PreviewChannel implements RemoteChannel {
       if (this.binding) this.receive({ type: 'remote_channel', kind: 'decisionExpired', bindingId: this.binding, token });
     }
   }
-  callback(token: string, option: string) {
+  callback(token: string, option: string, form?: Record<string, unknown>) {
     const decision = this.tokens.get(token);
     this.expire();
     if (this.closed || !this.binding || !decision || decision.expiresAt <= this.preview.now()
       || decision.sessionKey !== undefined && this.scopes.get(decision.sessionKey) !== decision.scope
       || !decision.options.includes(option)) return;
+    if (decision.form && option === submitAnswer && !remoteFormAnswers(decision.form, form))
+      throw new Error('请完整作答；自行填写时请选择对应选项。');
     this.tokens.delete(token);
     this.preview.revoke(token, 'handled');
-    this.receive({ type: 'remote_channel', kind: 'decision', bindingId: this.binding, token, option });
+    this.receive({ type: 'remote_channel', kind: 'decision', bindingId: this.binding, token, option, form });
   }
   async stop() {
     this.closed = true; this.binding = undefined; this.arm = undefined; this.candidate = undefined;
@@ -199,7 +214,7 @@ export class RemoteChatPreview {
   readonly inputs: { session: string; text: string; queueId: string; images?: RemoteImage[] }[] = [];
   readonly imageLoads: { messageId: string; keys: string[] }[] = [];
   readonly starts: { session: string; input: number }[] = [];
-  readonly answers: { session: string; id: string; allowed: boolean }[] = [];
+  readonly answers: { session: string; id: string; allowed: boolean; value?: unknown; cancelled?: boolean }[] = [];
   readonly toolEvents: RuntimeEvent[] = [];
   constructor(readonly scene: Scene = 'reply') {
     this.messages = scene === 'pairing' ? [] : [
@@ -266,12 +281,32 @@ export class RemoteChatPreview {
       respond: (worker, answer) => {
         const id = String(answer.id), resident = this.residents.get(worker.state!.sessionId!)!;
         const job = resident.active;
-        if (!worker.pendingUI.has(id) || !job || job.approvalId !== id) throw new Error('Preview request expired');
+        const request = worker.pendingUI.get(id);
+        if (!request || !job || job.approvalId !== id) throw new Error('Preview request expired');
         worker.pendingUI.delete(id);
-        job.approved = answer.confirmed === true; job.elapsed = 1800;
-        this.answers.push({ session: job.session, id, allowed: job.approved });
+        job.approved = job.scene === 'plan' ? answer.value === 'Approve plan'
+          : answer.confirmed === true || answer.value !== undefined;
+        job.elapsed = 1800;
+        this.answers.push({ session: job.session, id, allowed: job.approved,
+          ...(answer.value !== undefined ? { value: answer.value } : {}), ...(answer.cancelled ? { cancelled: true } : {}) });
         this.manager.runtimeEvent(worker, { type: 'desktop_ui_expired' });
-        this.log(job.approved ? '允许一次 · 原始审批已结算' : '拒绝 · 原始审批已结算');
+        if (job.scene === 'questions' && request.method === 'confirm' && answer.confirmed === true) {
+          job.approved = false; this.askQuestion(resident); return;
+        }
+        if (job.scene === 'plan' && answer.value === 'Request refinements') {
+          this.dialog(resident, { method: 'input', title: 'Desktop Plan refinements' }); return;
+        }
+        if (job.scene === 'plan') {
+          if (request.method === 'input' && typeof answer.value === 'string') {
+            this.log('已提交修改意见 · 仍在规划，等待再次审阅');
+            this.reviewPlan(resident, answer.value); return;
+          }
+          this.log(job.approved ? '已批准计划 · 可以开始实施' : '保留规划模式 · 未批准实施');
+          if (!job.approved) this.end(resident, false, '继续保留规划模式，计划尚未批准，也未开始实施。');
+          return;
+        }
+        this.log(job.scene === 'questions' ? job.approved ? '已提交答案 · 不是工具授权' : '已取消提问或回答'
+          : job.approved ? '允许一次 · 原始审批已结算' : '拒绝 · 原始审批已结算');
         if (!job.approved) this.end(resident, true);
       },
       open: async () => { throw new Error('External navigation is disabled in the preview'); },
@@ -339,7 +374,7 @@ export class RemoteChatPreview {
     const message: ChatMessage = {
       id: previous?.id ?? this.messageId++, key: card.key, role: 'bot', text: card.text,
       card: { title: card.title, text: card.text, ...(card.reply ? { reply: card.reply } : {}),
-        progress: card.progress, truncated: card.truncated, overview: card.overview,
+        progress: card.progress, truncated: card.truncated, overview: card.overview, form: card.form,
         ...(!actions.length && previous?.card?.status ? { status: previous.card.status } : {}) },
       ...(actions.length ? { actions, token: card.actions!.token,
         approval: previous?.token === card.actions!.token ? previous.approval ?? 'pending' : 'pending' }
@@ -436,14 +471,19 @@ export class RemoteChatPreview {
     this.publish();
   }
   async decide(id: number, allow: boolean) {
+    const message = this.messages.find(message => message.id === id);
+    const option = message?.actions?.[allow ? 0 : 1]?.value.option;
+    if (option) await this.choose(id, option);
+  }
+  async choose(id: number, option: string, form?: Record<string, unknown>) {
     if (this.disposed) return;
     const message = this.messages.find(message => message.id === id);
-    const action = message?.actions?.find(action => action.value.option === (allow ? 'Allow once / 允许一次' : 'Deny / 拒绝'));
+    const action = message?.actions?.find(action => action.value.option === option);
     if (!action) return;
     const count = this.answers.length;
-    this.channel?.callback(action.value.token, action.value.option);
+    this.channel?.callback(action.value.token, action.value.option, form);
     if (this.answers.length > count) this.messages = this.messages.map(message => message.id === id
-      ? { ...message, approval: allow ? 'allowed' : 'denied' } : message);
+      ? { ...message, approval: this.answers.at(-1)?.allowed ? 'allowed' : 'denied' } : message);
     await this.flush();
   }
   private prepare(sessionId: string) {
@@ -487,15 +527,41 @@ export class RemoteChatPreview {
   }
   private ask(resident: Resident) {
     const job = resident.active!, id = this.uuid(), callId = `call-${id.slice(-8)}`;
-    job.approvalId = id;
+    job.callId = callId;
+    const name = job.scene === 'questions' ? 'clarify_user' : job.scene === 'plan' ? 'exit_plan_mode' : 'run_command';
     resident.worker.messages.push({ role: 'assistant',
-      content: [{ type: 'toolCall', id: callId, name: 'run_command', arguments: { command: 'pnpm test' } }] });
-    const request: UIRequest = { type: 'extension_ui_request', runtimeId: resident.worker.id, method: 'confirm', id,
-      title: `Approve run_command [${callId.slice(-8)}]`,
-      message: `Call: ${callId}\nrun_command can modify the workspace or execute a command\n\npnpm test\n\nBatch calls may ask separately\nbefore approved tools begin running.` };
+      content: [{ type: 'toolCall', id: callId, name, arguments: name === 'clarify_user'
+        ? { question: '希望采用哪种验证方式？', options: [{ label: '只跑单元测试' }, { label: '同时做界面验收' }] }
+        : name === 'exit_plan_mode' ? {} : { command: 'pnpm test' } }] });
+    if (job.scene === 'plan') {
+      this.reviewPlan(resident); return;
+    }
+    this.dialog(resident, { method: 'confirm', title: `Approve ${name} [${callId.slice(-8)}]`,
+      message: `Call: ${callId}\n${name} can modify the workspace or execute a command\n\npnpm test\n\nBatch calls may ask separately\nbefore approved tools begin running.` });
+  }
+  private reviewPlan(resident: Resident, feedback?: string) {
+    this.dialog(resident, { method: 'select',
+      title: 'Desktop Plan review\n/preview/desktop/plan.md\n\n1. 检查消息路由。\n2. 修复提问映射。\n3. 运行测试，不提前打包。'
+        + (feedback ? `\n4. 按修改意见补充验证：${feedback}` : ''),
+      options: ['Approve plan', 'Request refinements', 'Keep planning'] });
+  }
+  private askQuestion(resident: Resident) {
+    this.dialog(resident, { method: 'input', title: QUESTION_TITLE + JSON.stringify({
+      version: 1, callId: resident.active!.callId, questions: [
+        { id: 'validation', label: '验证范围', question: '希望采用哪种验证方式？', allowFreeform: true,
+          options: [{ label: '只跑单元测试', value: 'unit' }, { label: '同时做界面验收', value: 'ui' }] },
+        { id: 'notes', label: '补充要求', question: '还有什么需要注意的？', allowFreeform: true, options: [] },
+      ],
+    }) });
+    this.log('允许提问后，等待真实答案；授权本身不代选');
+  }
+  private dialog(resident: Resident, fields: Pick<UIRequest, 'method' | 'title' | 'options' | 'message'>) {
+    const id = this.uuid();
+    resident.active!.approvalId = id;
+    const request: UIRequest = { type: 'extension_ui_request', runtimeId: resident.worker.id, id, ...fields };
     resident.worker.pendingUI.set(id, request);
     this.manager.runtimeEvent(resident.worker, request);
-    this.log(`${sessionLabel(job.session)} · 等待原始工具审批`);
+    this.log(`${sessionLabel(resident.active!.session)} · 等待本次输入`);
   }
   private tool(resident: Resident, type: 'tool_execution_start' | 'tool_execution_end', name: string, id: string, isError = false) {
     const event: RuntimeEvent = { type, toolName: name, toolCallId: id,
@@ -507,7 +573,7 @@ export class RemoteChatPreview {
   private end(resident: Resident, interrupted = false, finalText?: string) {
     const job = resident.active;
     if (!job) return;
-    const text = interrupted ? job.emitted : finalText ?? (job.scene === 'empty' ? '' : job.scene === 'approval' ? approvalAnswer : sampleAnswer);
+    const text = interrupted ? job.emitted : finalText ?? (job.scene === 'empty' ? '' : job.scene === 'markdown' ? markdownAnswer : job.scene === 'approval' ? approvalAnswer : sampleAnswer);
     resident.worker.pendingUI.clear();
     const message = { role: 'assistant' as const, content: text, ...(interrupted ? { stopReason: 'aborted' } : {}) };
     resident.worker.messages.push(message);
@@ -546,10 +612,10 @@ export class RemoteChatPreview {
         catch { failed = true; this.log('模拟图片回传未获确认，未自动重试'); }
         this.tool(resident, 'tool_execution_end', 'desktop_send_image', `preview-image-${job.queueId}`, failed);
       }
-      if (job.scene === 'approval' && !job.approvalId && job.elapsed >= 1300) {
+      if (['approval', 'questions', 'plan'].includes(job.scene) && !job.approvalId && job.elapsed >= 1300) {
         this.text(resident, '我先运行测试，确认结果。\n\n'); this.ask(resident); continue;
       }
-      const answer = job.scene === 'approval' ? approvalAnswer : sampleAnswer;
+      const answer = job.scene === 'approval' ? approvalAnswer : job.scene === 'markdown' ? markdownAnswer : sampleAnswer;
       if (job.elapsed >= 650) this.text(resident, job.scene === 'empty' ? ''
         : answer.slice(0, Math.floor(Math.max(0, job.elapsed - 1500) / 6500 * answer.length)));
       if (job.scene === 'interrupted' && job.elapsed >= 5400) this.end(resident, true);
@@ -560,7 +626,8 @@ export class RemoteChatPreview {
   async finish(sessionId = this.manager.snapshot().binding?.sessionId, text?: string) {
     if (this.disposed || !sessionId) return;
     const resident = this.residents.get(sessionId);
-    if (resident?.active && !(resident.active.scene === 'approval' && !resident.active.approved)) this.end(resident, false, text);
+    if (resident?.active && !resident.worker.pendingUI.size
+      && !(['approval', 'questions', 'plan'].includes(resident.active.scene) && !resident.active.approved)) this.end(resident, false, text);
     await this.flush();
   }
   async dispose() {

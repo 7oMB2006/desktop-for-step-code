@@ -154,6 +154,18 @@ test('project trust is scoped to its runtime and is not presented as a tool appr
   assert.match(waiting({ ...trust, projectTrust: undefined, title: 'Trust this project?' }).label, /待本机输入.*Local input/);
 });
 
+test('permission to ask is distinct from both tool approval and waiting for the answer', () => {
+  const callId = 'clarify-call-12345678';
+  const approval = request({ method: 'confirm', title: 'Approve clarify_user [12345678]',
+    message: `Call: ${callId}\nclarify_user can modify the workspace or execute a command\n\nPRIVATE QUESTION\n\nBatch calls may ask separately\nbefore approved tools begin running.` });
+  const status = remoteWorkerStatus(worker({ pendingUI: new Map([[approval.id, approval]]), messages: [
+    { role: 'assistant', content: [{ type: 'toolCall', id: callId, name: 'clarify_user',
+      arguments: { question: 'PRIVATE QUESTION', options: [{ label: 'Tests' }] } }] },
+  ] }));
+  assertStatus(status, { kind: 'waiting', queue: 0, attention: true }, /待允许提问.*Question permission/);
+  assert.doesNotMatch(status.label, /Approval|PRIVATE/);
+});
+
 test('validated single questions and multi-question forms have distinct labels', () => {
   const question = { id: 'scope', label: 'Scope', question: 'PRIVATE QUESTION', allowFreeform: true, options: [] };
   for (const questions of [[question], [question, { ...question, id: 'extra' }]]) {

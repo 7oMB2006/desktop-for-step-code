@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 const { RemoteConnection } = await import(new URL('../electron/remote-channel-core.mjs', import.meta.url).href);
 const { remoteCard } = await import(new URL('../electron/remote-card.mjs', import.meta.url).href);
+import { remoteMarkdown } from '../electron/remote-markdown.mjs';
+import { submitAnswer, cancelAnswer, remoteAnswerLimit } from '../electron/remote-form.mjs';
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 function message(text: string, patch: Record<string, unknown> = {}, actor = 'human') {
   return { sender: { sender_type: 'user', sender_id: { open_id: actor } },
@@ -71,8 +73,8 @@ function fixture() {
     arm(); handlers['im.message.receive_v1'](message('12345678'));
     connection.command('bind', { armId: 'arm', candidateId: events.slice().reverse().find(event => event.kind === 'candidate').candidateId, bindingId: 'binding' });
   };
-  const callback = (value: any, actor = 'human', chat = 'chat', createdAt: number | undefined = now + 1) => handlers['card.action.trigger']({
-    create_time: createdAt, operator: { open_id: actor }, context: { open_chat_id: chat }, action: { value },
+  const callback = (value: any, actor = 'human', chat = 'chat', createdAt: number | undefined = now + 1, form?: unknown) => handlers['card.action.trigger']({
+    create_time: createdAt, operator: { open_id: actor }, context: { open_chat_id: chat }, action: { value, form_value: form },
   });
   return { connection, events, cards, updates, reactions, connect, arm, bind, callback,
     inbound: (value: unknown) => handlers['im.message.receive_v1'](value),
@@ -99,6 +101,91 @@ function fixture() {
     holdReady: () => { holdReady = true; }, advance: (ms: number) => { now += ms; } };
 }
 
+test('reply cards use native Markdown 2.0 for tables, headings, inline code and fenced code', async t => {
+  const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
+  const text = '### 目录\n\n| 目录 | 内容 |\n| --- | --- |\n| `.stepcode/` | `README.md` |\n\n- **文件**：`notes.html`\n\n```powershell\nGet-ChildItem\n```';
+  await f.connection.command('card', { bindingId: 'binding', key: 'markdown', title: 's1', text, reply: 'working' });
+  const card = f.cards.at(-1).card;
+  assert.equal(card.schema, '2.0');
+  assert.equal(card.elements, undefined, 'Do not mix legacy and 2.0 card structures');
+  assert.deepEqual(card.body.elements[0], { tag: 'markdown', content: text });
+  await f.connection.command('card', { bindingId: 'binding', key: 'markdown', title: 's1', text, reply: 'completed' });
+  assert.equal(f.updates.at(-1).card.schema, '2.0');
+  assert.equal(f.cards.length, 1);
+});
+test('Markdown keeps literal code but disables model-supplied Feishu tags, images and unsafe links', () => {
+  const text = [
+    '<at id=all></at>', '', '<person id="ou_private"></person>',
+    '', '![remote image](https://untrusted.invalid/image.png)', '', '[run](javascript:alert%281%29)',
+    '', '```html', '<at id=all></at>', '```', '', '`<person id="ou_private"></person>`',
+    '', '[safe](https://example.com)', '', '> A quote',
+  ].join('\n');
+  const [content] = remoteMarkdown(text);
+  assert.ok(content.includes('&lt;at id=all&gt;&lt;/at&gt;'));
+  assert.ok(content.includes('```html\n<at id=all></at>\n```'));
+  assert.ok(content.includes('`<person id="ou_private"></person>`'));
+  assert.doesNotMatch(content, /!\[|https:\/\/untrusted/);
+  assert.ok(content.includes('&#91;run&#93;'));
+  assert.ok(content.includes('[safe](https://example.com)'));
+});
+test('native Markdown limits tables per component without losing any rows or corrupting partial code', () => {
+  const table = (index: number) => `| Directory | Content |\n| --- | --- |\n| folder${index} | \`file${index}.md\` |`;
+  const text = Array.from({ length: 5 }, (_, index) => table(index)).join('\n\n');
+  const chunks = remoteMarkdown(text);
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks.join(''), text);
+  assert.equal(chunks[0].match(/\| Directory \|/g)?.length, 4);
+  assert.ok(chunks[1].includes('folder4'));
+  assert.deepEqual(remoteMarkdown('```html\n<at id=all>'), ['```html\n<at id=all>']);
+});
+test('native question form validates all fields before consuming the actor/chat scoped capability', async t => {
+  const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
+  const form = [
+    { text: 'Pick one', options: ['Tests', 'UI'], custom: true },
+    { text: 'Notes', options: [], custom: true },
+  ];
+  await f.connection.command('card', { bindingId: 'binding', key: 'question', title: 'Answer questions', text: 'Not approval', form,
+    actions: { token: 'question-token', options: [submitAnswer, cancelAnswer] } });
+  const document = f.cards.at(-1).card;
+  assert.equal(document.schema, '2.0');
+  const container = document.body.elements.find((item: any) => item.tag === 'form');
+  assert.ok(container);
+  const submit = container.elements.find((item: any) => item.form_action_type === 'submit');
+  assert.equal(submit.behaviors[0].value.token, 'question-token');
+  assert.equal(container.elements.find((item: any) => item.tag === 'select_static').initial_option, undefined);
+  const inputs = container.elements.filter((item: any) => item.tag === 'input');
+  assert.equal(inputs.length, 2);
+  assert.ok(inputs.every((input: any) => input.max_length === remoteAnswerLimit && input.max_length <= 1000 && input.rows === 3));
+  const callback = (data: unknown, actor = 'human', chat = 'chat') =>
+    f.callback({ token: 'question-token', option: submitAnswer }, actor, chat, f.now() + 1, data);
+  callback({ q0: '0', c1: 'notes' }, 'other');
+  callback({ q0: '0', c1: 'notes' }, 'human', 'other');
+  for (const data of [undefined, {}, { q0: '0', c1: 'notes', injected: 'yes' }, { q0: 'custom', c0: ' ', c1: 'notes' }]) {
+    assert.equal(callback(data).toast.type, 'error');
+  }
+  assert.equal(f.events.some(event => event.kind === 'decision'), false);
+  const data = { q0: '1', c1: 'Do not package' };
+  callback(data); callback(data);
+  assert.deepEqual(f.events.filter(event => event.kind === 'decision'), [
+    { type: 'remote_channel', kind: 'decision', bindingId: 'binding', token: 'question-token', option: submitAnswer, form: data },
+  ]);
+  await tick();
+  const settled = JSON.stringify(f.updates.at(-1).card);
+  assert.doesNotMatch(settled, /"tag":"form"|"tag":"input"|"tag":"button"/);
+  assert.match(settled, /Handled/);
+});
+test('question cancellation carries no guessed form values and expired forms cannot answer', async t => {
+  for (const expired of [false, true]) {
+    const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
+    await f.connection.command('card', { bindingId: 'binding', key: 'question', title: 'Answer questions', text: 'Not approval',
+      form: [{ text: 'Notes', options: [], custom: true }], actions: { token: 'question-token', options: [submitAnswer, cancelAnswer] } });
+    if (expired) f.advance(601000);
+    f.callback({ token: 'question-token', option: cancelAnswer });
+    assert.deepEqual(f.events.filter(event => event.kind === 'decision'), expired ? [] : [
+      { type: 'remote_channel', kind: 'decision', bindingId: 'binding', token: 'question-token', option: cancelAnswer },
+    ]);
+  }
+});
 test('saved credentials reconnect without registration and keep private snapshots out of events', async t => {
   const first = fixture(); await first.connect(); first.bind();
   const saved = first.connection.command('snapshot');
@@ -226,13 +313,14 @@ test('streaming updates one card without an unsolicited Stop button', async t =>
   const card = { bindingId: 'binding', key: 'run', title: 's1 · Session', text: '**one**', reply: 'working' };
   await f.connection.command('card', card);
   assert.equal(f.cards[0].card.header, undefined);
-  assert.deepEqual(f.cards[0].card.elements[0], { tag: 'div', text: { tag: 'lark_md', content: '**one**' } });
-  assert.deepEqual(f.cards[0].card.elements[1], { tag: 'note', elements: [{ tag: 'plain_text', content: 's1 · Session' }] });
-  assert.equal(f.cards[0].card.elements.some((element: any) => element.tag === 'action'), false);
+  assert.equal(f.cards[0].card.schema, '2.0');
+  assert.deepEqual(f.cards[0].card.body.elements[0], { tag: 'markdown', content: '**one**' });
+  assert.deepEqual(f.cards[0].card.body.elements[1], { tag: 'div', text: { tag: 'plain_text', content: 's1 · Session', text_size: 'notation' }, element_id: 'source' });
+  assert.equal(f.cards[0].card.body.elements.some((element: any) => element.tag === 'action'), false);
   const text = '**Answer**\n\n- First\n- Second\n\n`code`';
   await f.connection.command('card', { ...card, text });
-  assert.equal(f.updates[0].card.elements[0].text.content, text);
-  assert.equal(f.updates[0].card.elements.some((element: any) => element.tag === 'action'), false);
+  assert.equal(f.updates[0].card.body.elements[0].content, text);
+  assert.equal(f.updates[0].card.body.elements.some((element: any) => element.tag === 'action'), false);
   await f.connection.command('card', { ...card, text, reply: 'completed' });
   assert.equal(f.updates[1].card.header, undefined);
   assert.doesNotMatch(JSON.stringify(f.updates[1].card), /Completed|已完成|Working|正在处理/);
@@ -244,14 +332,14 @@ test('empty replies distinguish waiting from no text, while interruption keeps t
   const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
   const card = { bindingId: 'binding', key: 'run', title: 's2 · Session', text: '', reply: 'working' };
   await f.connection.command('card', card);
-  assert.match(f.cards[0].card.elements[0].text.content, /Replying/);
+  assert.match(f.cards[0].card.body.elements[0].content, /Replying/);
   await f.connection.command('card', { ...card, reply: 'completed' });
-  assert.match(f.updates[0].card.elements[0].text.content, /No text response/);
+  assert.match(f.updates[0].card.body.elements[0].content, /No text response/);
   assert.doesNotMatch(JSON.stringify(f.updates[0].card), /Replying|Completed/);
   await f.connection.command('card', { ...card, reply: 'interrupted', text: 'Partial **answer**' });
   assert.equal(f.updates[1].card.header, undefined);
-  assert.equal(f.updates[1].card.elements[0].text.content, 'Partial **answer**');
-  assert.match(f.updates[1].card.elements[1].elements[0].content, /Reply interrupted · s2 · Session/);
+  assert.equal(f.updates[1].card.body.elements[0].content, 'Partial **answer**');
+  assert.match(f.updates[1].card.body.elements[1].text.content, /Reply interrupted · s2 · Session/);
 });
 test('system notices and approvals retain literal content, and malformed reply kinds cannot register actions', async t => {
   const f = fixture(); t.after(() => f.connection.close()); await f.connect(); f.bind();
@@ -702,25 +790,25 @@ test('reply cards reserve a visible source, progress row and truncation notice o
   const text = 'a'.repeat(11000) + 'THE END';
   await f.connection.command('card', { bindingId: 'binding', key: 'run', title: 's1 · Session', text,
     reply: 'working', progress: 'Reading files', truncated: true });
-  const elements = f.cards[0].card.elements;
+  const elements = f.cards[0].card.body.elements;
   assert.equal(elements.filter((element: any) => element.tag === 'div').length, 2);
   assert.equal(elements[1].text.content, 'Reading files');
-  assert.match(elements[0].text.content, /THE END$/);
-  assert.match(elements.at(-1).elements[0].content, /s1 · Session.*truncated/);
-  assert.match(elements.at(-1).elements[0].content, /full text in Desktop \/ 全文见 Desktop/);
-  const visible = elements.map((element: any) => element.text?.content ?? element.elements?.[0].content ?? '').join('');
+  assert.match(elements[0].content, /THE END$/);
+  assert.match(elements.at(-1).text.content, /s1 · Session.*truncated/);
+  assert.match(elements.at(-1).text.content, /full text in Desktop \/ 全文见 Desktop/);
+  const visible = elements.map((element: any) => element.content ?? element.text?.content ?? '').join('');
   assert.ok(visible.length <= 5000);
   for (const text of ['a'.repeat(12000), 'Short but upstream-truncated']) {
     const card = remoteCard({ title: 's'.repeat(200), text, reply: 'completed', progress: 'p'.repeat(200),
       detail: 'd'.repeat(200), truncated: true });
-    const footer = card.elements.at(-1).elements[0].content;
+    const footer = card.body.elements.at(-1).text.content;
     assert.match(footer, /full text in Desktop \/ 全文见 Desktop$/);
-    const visible = card.elements.map((element: any) => element.text?.content ?? element.elements?.[0].content ?? '').join('');
+    const visible = card.body.elements.map((element: any) => element.content ?? element.text?.content ?? '').join('');
     assert.ok(visible.length <= 5000);
   }
   const settled = remoteCard({ title: 's1 · Session', text: '', reply: 'interrupted', detail: 'Cancelled locally' });
-  assert.match(settled.elements[0].text.content, /Reply interrupted; no text response/);
-  assert.match(settled.elements.at(-1).elements[0].content, /Cancelled locally/);
+  assert.match(settled.body.elements[0].content, /Reply interrupted; no text response/);
+  assert.match(settled.body.elements.at(-1).text.content, /Cancelled locally/);
   await assert.rejects(f.connection.command('card', { bindingId: 'binding', key: 'bad', title: 'Bad', text: '', progress: 'x'.repeat(201) }), /Invalid card/);
   await assert.rejects(f.connection.command('card', { bindingId: 'binding', key: 'bad', title: 'Bad', text: '', truncated: 'yes' }), /Invalid card/);
 });

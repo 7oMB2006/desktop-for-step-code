@@ -103,7 +103,8 @@ const server = createServer(async (request, response) => {
     for await (const chunk of request) { raw += chunk; assert.ok(raw.length < 8 * 1024 * 1024); }
     const body = JSON.parse(raw);
     const text = message => typeof message.content === 'string' ? message.content : message.content?.filter(block => block.type === 'text').map(block => block.text).join('\n');
-    const task = text(body.messages.findLast(message => message.role === 'user'));
+    const task = text(body.messages.findLast(message => message.role === 'user'
+      && !text(message).includes('This is runtime state, not an additional user message.')));
     if (task === 'REMOTE-IMAGE-INPUT') imageInputs.push(body.messages.findLast(message => message.role === 'user').content);
     received.push(task);
     response.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -111,6 +112,33 @@ const server = createServer(async (request, response) => {
       model: body.model, created: 1, choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
     send({ role: 'assistant', content: '' });
     if (task === 'REMOTE-HOLD') { held = response; return; }
+    const done = id => body.messages.some(message => message.role === 'tool' && message.tool_call_id === id);
+    const tool = (id, name, args) => {
+      send({ tool_calls: [{ index: 0, id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls');
+      response.end('data: [DONE]\n\n');
+    };
+    if (task === 'REMOTE-QUESTION') {
+      if (!done('remote-question-call')) return tool('remote-question-call', 'clarify_user', { questions: [
+        { id: 'scope', label: '范围', question: '采用哪种验证方式？', options: [
+          { label: '单元测试', value: 'unit' }, { label: '界面验收', value: 'ui' },
+        ], allow_freeform: true },
+        { id: 'notes', label: '备注', question: '还有哪些要求？', allow_freeform: true },
+      ] });
+      const result = body.messages.find(message => message.role === 'tool' && message.tool_call_id === 'remote-question-call');
+      assert.match(text(result), /answer: ui/);
+      assert.match(text(result), /No packaging/);
+    }
+    if (task === 'REMOTE-PLAN' || task === 'REMOTE-PLAN-REFINE') {
+      const context = body.messages.map(text).join('\n');
+      if (!done(`${task}-write`)) {
+        const path = /Write the proposal to (.*)\. Only this proposal/.exec(context)?.[1];
+        assert.ok(path, 'The real runtime provides the active proposal path');
+        return tool(`${task}-write`, 'write_file', { path, content: '# Remote proposal\n\nInspect the message mapping.\nRun regression tests before packaging.' });
+      }
+      if (!done(`${task}-submit`)) return tool(`${task}-submit`, 'exit_plan_mode', {});
+      if (task === 'REMOTE-PLAN') assert.doesNotMatch(context, /\[Desktop Plan mode active\]/, 'Only explicit Plan approval exits planning');
+      else { assert.match(context, /\[Desktop Plan mode active\]/); assert.match(context, /Add regression coverage/); }
+    }
     const toolDone = body.messages.some(message => message.role === 'tool' && message.tool_call_id === 'remote-call-12345678');
     if (task === 'REMOTE-APPROVAL' && !toolDone) send({ tool_calls: [{ index: 0, id: 'remote-call-12345678', type: 'function',
       function: { name: 'run_command', arguments: '{"command":"echo remote-approved"}' } }] }, 'tool_calls');
@@ -363,6 +391,37 @@ try {
   await inject('decision', { token: approval.actions.token, option: 'Deny / 拒绝' });
   await inject('decision', { token: approval.actions.token, option: 'Allow once / 允许一次' });
   await waitRuntimeIdle(owner.runtimeId);
+  await inject('input', { id: 'question-input', text: 'REMOTE-QUESTION' });
+  const questionPermission = await waitCard(card => card.actions?.options.includes('Allow question / 允许提问'));
+  assert.match(questionPermission.title, /Allow a question/);
+  assert.doesNotMatch(questionPermission.text, /"questions"\s*:/, 'Question permission shows prose, not raw tool JSON');
+  await inject('decision', { token: questionPermission.actions.token, option: 'Allow question / 允许提问' });
+  const question = await waitCard(card => card.form?.length === 2);
+  assert.match(question.title, /Answer questions/);
+  assert.equal(question.sessionKey, owner.state.sessionId);
+  await inject('decision', { token: question.actions.token, option: 'Submit answers / 提交答案',
+    form: { q0: '1', c1: 'No packaging' } });
+  await waitCard(card => card.reply === 'completed' && card.sessionKey === owner.state.sessionId
+    && card.key !== firstReply.key && card.text.includes('REMOTE-FIXTURE-ANSWER'));
+  await waitRuntimeIdle(owner.runtimeId);
+  await page.evaluate(async runtimeId => {
+    await window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, runtimeId);
+    await window.desktop.command('set_launch_mode', { mode: 'plan', enabled: true }, runtimeId);
+  }, owner.runtimeId);
+  await inject('input', { id: 'plan-refine-input', text: 'REMOTE-PLAN-REFINE' });
+  const planRefine = await waitCard(card => card.actions?.options.includes('Request refinements / 要求修改'));
+  assert.match(planRefine.text, /Remote proposal/);
+  await inject('decision', { token: planRefine.actions.token, option: 'Request refinements / 要求修改' });
+  const feedback = await waitCard(card => card.title.startsWith('计划修改意见'));
+  await inject('decision', { token: feedback.actions.token, option: 'Submit answers / 提交答案',
+    form: { c0: 'Add regression coverage' } });
+  await waitRuntimeIdle(owner.runtimeId);
+  await inject('input', { id: 'plan-input', text: 'REMOTE-PLAN' });
+  const plan = await waitCard(card => card.actions?.options.includes('Approve plan / 批准计划') && card.key !== planRefine.key);
+  assert.match(plan.text, /Remote proposal/);
+  await inject('decision', { token: plan.actions.token, option: 'Approve plan / 批准计划' });
+  await waitRuntimeIdle(owner.runtimeId);
+  await page.evaluate(runtimeId => window.desktop.command('set_permission_preset', { preset: 'ask' }, runtimeId), owner.runtimeId);
   assert.equal((await state()).imagesAllowed, false, 'Legacy and ordinary bindings have no image grant');
   await page.evaluate(() => window.desktop.remoteAction({ type: 'images', allowed: true }));
   assert.equal((await state()).imagesAllowed, true);
@@ -538,7 +597,7 @@ try {
   }
   assert.deepEqual(errors, []);
   assert.deepEqual(failures, []);
-  console.log(`Remote Beta acceptance passed: staged SDK/helper, scoped slash routing, cold/new sessions without inference, actual runtime image input, permission-tool native image delivery and caption, queued-only recall, tasks queue counts, detach retaining local work, original-task stop, approvals, dedup, encrypted grants, local draft/focus and light/dark narrow UI.${executablePath ? ' Restart injection is source-only.' : ' Actual quit/relaunch recovery and forget-on-disconnect passed.'}`);
+  console.log(`Remote Beta acceptance passed: staged SDK/helper, scoped slash routing, cold/new sessions without inference, actual runtime image input, permission-tool native image delivery and caption, question permission followed by original structured answers, Plan refinements and explicit proposal approval, queued-only recall, tasks queue counts, detach retaining local work, original-task stop, approvals, dedup, encrypted grants, local draft/focus and light/dark narrow UI.${executablePath ? ' Restart injection is source-only.' : ' Actual quit/relaunch recovery and forget-on-disconnect passed.'}`);
 } finally {
   held?.destroy();
   if (app) await closeDesktopFixture(app);

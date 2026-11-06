@@ -1,5 +1,50 @@
 # Verification
 
+## Remote Questions, Plan And Markdown (2026-11-07)
+
+Remote now distinguishes permission to ask from the subsequent structured
+answer form. Known questions retain their original IDs and opaque option
+values; custom answers are limited to 1,000 characters. Plan review preserves
+approval, refinement and continued planning as separate decisions. Full pending
+request/tool-call identity, first-response ownership and expiry are rechecked;
+unknown, stale, malformed or oversized actionable content remains local.
+
+Assistant replies use JSON 2.0 Markdown components rather than legacy
+`div.text.lark_md`, with native tables, inline/fenced code and a separate
+plain-text source footer. Model-supplied platform tags, embedded images and
+unsafe links do not acquire platform behavior. The helper bundles its Markdown
+parser for offline loading; the upstream pin and adapter remain unchanged.
+
+Local checks passed:
+
+- Typecheck, `git diff --check` and all 192 focused Remote tests.
+- Complete unit coverage in two explicit groups: the three background-runtime
+  cases and the remaining 1,169 tests. Total: 1,158 passed, fourteen skipped,
+  zero failed. Logs are `background-runtime-question-markdown-rerun.log` and
+  `full-tests-question-markdown-final-shard.log` in the reused isolated snapshot.
+- Isolated production build, adapter staging and offline helper imports.
+- Source Electron acceptance through the actual patched runtime: permission to
+  ask, grouped selected/custom answers, Plan refinement and explicit approval,
+  alongside existing Remote, image, queue and quit/relaunch recovery checks.
+- Edge chat-simulation acceptance: shared outgoing card documents, question
+  forms, Plan decisions, Markdown tables/code, light/dark 320-1440px layouts,
+  focus and reduced motion, with no external requests. Generated screenshots
+  were inspected.
+
+The source workspace's shared runtime has an older BTW patch hash and still
+fails its newer tool-rejection test; it was not overwritten. The isolated
+runtime matches the current manifest and passes that test. A later
+single-invocation suite stalled after three passing background-runtime cases
+because its child processes remained alive. Only that verifier's process tree
+was stopped; both explicit groups then exited normally without force-exit flags
+or weakened assertions. A pristine single-invocation full run is not claimed.
+
+The existing isolated artifacts total approximately 218 MiB across runtime,
+dist, terminal runtime and acceptance evidence. No artifact was deleted.
+No installer, installed application, shortcut, shared output, upstream pin,
+commit or remote PR was changed. Real Feishu rendering/callbacks, packaged,
+macOS and current-head cloud acceptance remain separate gates.
+
 ## Remote Overview Readability (2026-11-06)
 
 The `/tasks` payload now has a bounded structured presentation shared by the

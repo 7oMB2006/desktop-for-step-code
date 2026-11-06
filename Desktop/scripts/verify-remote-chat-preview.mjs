@@ -339,6 +339,57 @@ try {
       }), true);
       await screenshot(`12-simulated-images-${theme}-${width}`);
     }
+    await page.goto(`${base}tests/fixtures/remote-chat.html?theme=${theme}&scene=questions`);
+    await ready();
+    await button('播放一轮').click();
+    await button('允许提问').waitFor();
+    assert.equal(await page.locator('.fc-question-form').count(), 0, 'Permission is not the questionnaire');
+    await button('允许提问').click();
+    const question = page.locator('.fc-question-form');
+    await question.waitFor();
+    const choice = question.getByRole('combobox', { name: '问题 1 的答案' });
+    const notes = question.getByRole('textbox', { name: '问题 2 的自行填写' });
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 950 });
+      await notes.evaluate(element => element.scrollIntoView({ block: 'center' }));
+      await notes.focus();
+      await checkOverflow();
+      assert.equal(await notes.evaluate(element => {
+        const box = element.getBoundingClientRect(), container = element.closest('.fc-transcript').getBoundingClientRect();
+        return box.left - 4 >= container.left && box.right + 4 <= container.right
+          && box.top - 4 >= container.top && box.bottom + 4 <= container.bottom;
+      }), true, 'Question answer focus stays visible in the scroll area');
+      await screenshot(`13-questions-${theme}-${width}`);
+    }
+    await choice.selectOption('1');
+    await notes.fill('不要打包，只验收');
+    await button('提交答案').click();
+    await question.waitFor({ state: 'detached' });
+    await page.setViewportSize({ width: 1440, height: 950 });
+    await page.goto(`${base}tests/fixtures/remote-chat.html?theme=${theme}&scene=plan`);
+    await ready();
+    await button('播放一轮').click();
+    await button('批准计划').waitFor();
+    await screenshot(`14-plan-${theme}`);
+    await button('要求修改').click();
+    const feedback = page.locator('.fc-question-form');
+    await feedback.waitFor();
+    await feedback.getByRole('textbox').fill('补充验证步骤');
+    await button('提交答案').click();
+    await feedback.waitFor({ state: 'detached' });
+    await page.goto(`${base}tests/fixtures/remote-chat.html?theme=${theme}&scene=markdown`);
+    await ready();
+    await button('播放一轮').click();
+    await button('立即完成当前回复').click();
+    await page.locator('.fc-card-body table').waitFor();
+    assert.equal(await page.locator('.fc-card-body tbody tr').count(), 3);
+    assert.ok(await page.locator('.fc-card-body :not(pre) > code').count() >= 7);
+    assert.equal(await page.locator('.fc-card-body pre').count(), 1);
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 950 });
+      await checkOverflow();
+      await screenshot(`15-markdown-${theme}-${width}`);
+    }
   }
   await page.goto(`${base}tests/fixtures/remote-chat.html`);
   await ready();
@@ -351,7 +402,7 @@ try {
   assert.equal(await button('选择演示场景').evaluate(element => element === document.activeElement), true);
   assert.deepEqual(errors, []);
   assert.deepEqual(external, []);
-  console.log('Remote chat simulation passed: production RemoteManager commands/routing/approval capabilities, tasks and queued-only recall, structured tool-event progress, image opt-in with explicitly simulated PNG bytes, button-free approval status replacements, first-new handles, scoped lists, disconnect gates, parallel sessions, FIFO, shared cards, focus, 320–1440px light/dark and reduced motion; no external requests.');
+  console.log('Remote chat simulation passed: production routing, two-stage question permission/answers, Plan review/refinements, native Markdown 2.0 tables/code, tasks, queued-only recall, progress, images, status replacements, focus, 320–1440px light/dark and reduced motion; no external requests.');
 } finally {
   await browser?.close();
   await server?.close();

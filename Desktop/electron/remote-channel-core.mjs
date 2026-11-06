@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { remoteCard, validRemoteOverview } from './remote-card.mjs';
 import { RemoteMediaChannel, imageKey, mediaHttpInstance } from './remote-media-channel.mjs';
+import { submitAnswer, cancelAnswer, validRemoteForm, remoteFormAnswers } from './remote-form.mjs';
 
 const silentLogger = { error() {}, warn() {}, info() {}, debug() {}, trace() {} };
 const record = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -86,7 +87,7 @@ export class RemoteConnection {
       const dispatcher = new a.EventDispatcher({ logger: silentLogger, loggerLevel: a.LoggerLevel.error }).register({
         'im.message.receive_v1': event => { this.message(event); return {}; },
         'im.message.recalled_v1': event => { this.recalled(event); return {}; },
-        'card.action.trigger': event => { this.callback(event); return {}; },
+        'card.action.trigger': event => this.callback(event) ?? {},
       });
       await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('Transport unavailable')), 15000);
@@ -368,8 +369,12 @@ export class RemoteConnection {
     const token = this.tokens.get(value.token);
     if (!token || token.status !== 'active' || !this.validFence(token.fence) || !token.options.includes(value.option)) return;
     if (token.expiresAt <= this.now()) { this.expireToken(token); return; }
+    const form = record(event.action).form_value;
+    if (token.form && value.option === submitAnswer && !remoteFormAnswers(token.form, form))
+      return { toast: { type: 'error', content: '请完整作答；自行填写时请选择对应选项。 / Complete every answer; select Custom when writing your own.' } };
     void this.settleToken(token, 'handled').catch(() => {});
-    this.event('decision', { bindingId: this.bound.id, token: value.token, option: value.option });
+    this.event('decision', { bindingId: this.bound.id, token: value.token, option: value.option,
+      ...(token.form && value.option === submitAnswer ? { form: structuredClone(form) } : {}) });
   }
   expireToken(token) {
     if (token.status !== 'active') return;
@@ -392,6 +397,8 @@ export class RemoteConnection {
       || value.detail !== undefined && (typeof value.detail !== 'string' || value.detail.length > 200)
       || value.truncated !== undefined && typeof value.truncated !== 'boolean'
       || value.overview !== undefined && (!validRemoteOverview(value.overview) || value.reply !== undefined || value.actions !== undefined)
+      || value.form !== undefined && (!validRemoteForm(value.form) || value.reply !== undefined || value.overview !== undefined
+        || value.actions?.options?.join('\0') !== [submitAnswer, cancelAnswer].join('\0'))
       || typeof value.text !== 'string' || value.text.length > 12000) throw new Error('Invalid card');
     const fence = this.captureFence(value.bindingId, value.sessionKey);
     let entry = this.cards.get(value.key);
@@ -407,7 +414,8 @@ export class RemoteConnection {
         || choices.options.includes(refreshOption) && (choices.options.length !== 1 || entry?.status !== 'expired'))
         throw new Error('Invalid card action');
       const previous = this.tokens.get(choices.token);
-      if (previous && (previous.card !== entry || previous.options.join('\0') !== choices.options.join('\0')))
+      if (previous && (previous.card !== entry || previous.options.join('\0') !== choices.options.join('\0')
+        || JSON.stringify(previous.form) !== JSON.stringify(value.form)))
         throw new Error('Decision token already used');
       if (!previous && (this.tokens.size >= 4096 || [...this.tokens.values()].filter(token => token.status === 'active').length >= 128))
         throw new Error('Decision limit reached');
@@ -426,12 +434,14 @@ export class RemoteConnection {
     if (previous && previous.id !== choices?.token) { clearTimeout(previous.timer); previous.status = 'unavailable'; }
     entry.value = { title: value.title, text: value.text, reply: value.reply,
       progress: value.progress, detail: value.detail, truncated: value.truncated,
+      ...(value.form !== undefined ? { form: structuredClone(value.form) } : {}),
       ...(value.overview !== undefined ? { overview: structuredClone(value.overview) } : {}) };
     if (choices) {
       let token = this.tokens.get(choices.token);
       if (!token) {
         token = { id: choices.token, fence, card: entry, status: 'active',
-          expiresAt: this.now() + 600000, options: [...choices.options] };
+          expiresAt: this.now() + 600000, options: [...choices.options],
+          ...(value.form !== undefined ? { form: structuredClone(value.form) } : {}) };
         this.tokens.set(token.id, token);
         token.timer = setTimeout(() => this.expireToken(token), 600000);
         token.timer.unref?.();
@@ -455,6 +465,7 @@ export class RemoteConnection {
     const actions = token?.status === 'active' && token.expiresAt > this.now() && this.validFence(token.fence)
       ? token.options.map(option => ({ tag: 'button', text: { tag: 'plain_text', content: option }, value: { token: token.id, option } })) : [];
     const card = remoteCard({ ...entry.value, status: entry.status }, actions);
+    if (Buffer.byteLength(JSON.stringify(card)) > 28000) throw new Error('Card is too large');
     const pending = (async () => {
       try {
         if (entry.failed) throw new Error('Card delivery failed');

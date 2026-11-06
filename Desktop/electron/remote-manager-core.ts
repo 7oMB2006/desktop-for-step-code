@@ -9,6 +9,9 @@ import { remoteIdentity, remotePeer, remoteSessionRefLimit, savedRemote, type Re
 import type { QueueReceiptEvent } from './pending-messages';
 import { RemoteToolProgress, remoteWorkerStatus } from './remote-progress';
 import { remoteOverviewLimit, type RemoteOverview } from './remote-card.mjs';
+import { questionnaire, serializeAnswers } from '../src/questionnaire';
+import { planReview } from '../src/plan-review';
+import { submitAnswer, cancelAnswer, validRemoteForm, remoteFormAnswers, type RemoteFormField } from './remote-form.mjs';
 
 export interface RemotePlatform {
   uuid(): string;
@@ -56,7 +59,7 @@ interface Binding {
   selectionRevision?: number;
   unconfirmed?: boolean;
 }
-interface Decision { target: Target; id: string; request: UIRequest; text: string; key: string; expiresAt: number; expired?: boolean; timer?: NodeJS.Timeout }
+interface Decision { target: Target; id: string; request: UIRequest; signature: string; key: string; expiresAt: number; expired?: boolean; timer?: NodeJS.Timeout }
 interface InputReceipt {
   target: Target; queueId?: string; state: 'receiving' | 'queued' | 'dispatching' | 'delivered' | 'unknown' | 'removed';
   recalled?: boolean;
@@ -68,6 +71,7 @@ interface Card {
   progress?: string;
   truncated?: boolean;
   overview?: RemoteOverview;
+  form?: RemoteFormField[];
 }
 export function parseRemoteAction(value: unknown): RemoteAction {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid Remote action');
@@ -100,20 +104,72 @@ function assistantText(message?: Message) {
   return redactApprovalText(typeof message.content === 'string' ? message.content
     : message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n'));
 }
-export function remoteDecision(request: UIRequest, worker: SessionRuntime) {
+function liveCall(worker: SessionRuntime, name: string, id?: string) {
+  const finished = new Set(worker.messages.filter(message => message.role === 'toolResult').map(message => message.toolCallId));
+  const calls = worker.messages.flatMap(message => message.role === 'assistant' && Array.isArray(message.content)
+    ? message.content.filter(block => block.type === 'toolCall' && block.name === name && block.id
+      && !finished.has(block.id) && (id === undefined || block.id === id)) : []);
+  return calls.length === 1 ? calls[0] : undefined;
+}
+export function remoteDecision(request: UIRequest, worker: SessionRuntime): {
+  title: string; text: string; options: string[]; signature: string; form?: RemoteFormField[];
+} | undefined {
   if (request.runtimeId !== worker.id || request.projectTrust || request.messageStyle || (request.message?.length ?? 0) > 8000) return;
+  const question = questionnaire(request), plan = planReview(request);
+  const refinements = request.method === 'input' && request.title === 'Desktop Plan refinements';
+  if (question || plan || refinements) {
+    const call = liveCall(worker, question ? 'clarify_user' : 'exit_plan_mode', question?.callId);
+    if (!call) return;
+    const signature = JSON.stringify({ request, call });
+    if (plan) {
+      const text = `批准后将退出规划并开始实施；不是普通工具授权。\nApproving exits planning and starts implementation.\n\n${plan.path}\n\n${plan.content}`;
+      if (!plan.content.trim() || text.length > 5000) return;
+      return { title: '审阅计划 / Review plan', text, signature,
+        options: ['Approve plan / 批准计划', 'Request refinements / 要求修改', 'Keep planning / 继续规划'] };
+    }
+    const form: RemoteFormField[] = question ? question.questions.map((item, index) => ({
+      text: redactApprovalText([`${index + 1}. ${item.label}`, item.question, item.reason,
+        ...item.options.map((option, index) => `${index + 1}. ${option.label}${option.description ? `: ${option.description}` : ''}`)].filter(Boolean).join('\n')),
+      options: item.options.map(option => redactApprovalText(option.label)), custom: item.allowFreeform,
+    })) : [{ text: '需要如何修改计划？ / What should change in the plan?', options: [], custom: true }];
+    if (!validRemoteForm(form)) return;
+    return { title: question ? '请回答问题 / Answer questions' : '计划修改意见 / Plan refinements',
+      text: question ? '这是正式回答，不是权限批准。 / Submit your answers, not a tool approval.'
+        : '提交修改意见不会批准计划。 / Submitting feedback does not approve the plan.',
+      signature, form, options: [submitAnswer, cancelAnswer] };
+  }
   const parsed = permissionApprovalPresentation(request, worker.messages, 'en', worker.id);
   if (!parsed) return;
-  const call = worker.messages.some(message => message.role === 'assistant' && Array.isArray(message.content)
-    && message.content.some(block => block.type === 'toolCall' && block.id === parsed.callId && block.name === parsed.toolName));
-  const finished = worker.messages.some(message => message.role === 'toolResult' && message.toolCallId === parsed.callId);
-  if (!call || finished || parsed.inputKind === 'summary') return;
-  const text = [parsed.reason, `Tool: ${parsed.toolName}\nCall: ${parsed.callId}`,
+  const call = liveCall(worker, parsed.toolName, parsed.callId);
+  if (!call || parsed.inputKind === 'summary') return;
+  const asking = parsed.operation === 'question';
+  const text = asking ? [
+    '当前权限设置要求先允许 Agent 提问。此操作不选择答案，也不批准命令或文件修改。',
+    'This only permits asking; it does not answer the question or authorize workspace changes.',
+    parsed.preview, ...(parsed.choices ?? []).map(choice => `${choice.label}${choice.description ? `: ${choice.description}` : ''}`),
+  ].filter(Boolean).join('\n\n') : [parsed.reason, `Tool: ${parsed.toolName}\nCall: ${parsed.callId}`,
     parsed.target ? `Target: ${parsed.target}` : undefined, parsed.input, parsed.otherParameters,
     parsed.verificationCommand ? `Then run:\n${parsed.verificationCommand}` : undefined].filter(Boolean).join('\n\n');
   // Actionable cards must contain the exact recovered input, never a clipped summary.
   if (text.length > 5000) return;
-  return { title: parsed.title, text };
+  return { title: asking ? '允许 Agent 提问？ / Allow a question?' : parsed.title, text,
+    options: asking ? ['Allow question / 允许提问', 'Deny question / 拒绝提问'] : ['Allow once / 允许一次', 'Deny / 拒绝'],
+    signature: JSON.stringify({ request, call }) };
+}
+
+function remoteAnswer(request: UIRequest, parsed: NonNullable<ReturnType<typeof remoteDecision>>, option: string, form: unknown) {
+  if (!parsed.options.includes(option)) return;
+  if (request.method === 'confirm') return { id: request.id, confirmed: option === parsed.options[0] };
+  if (planReview(request)) return { id: request.id, value: request.options![parsed.options.indexOf(option)] };
+  if (!parsed.form) return;
+  if (option === cancelAnswer) return { id: request.id, cancelled: true };
+  const answers = remoteFormAnswers(parsed.form, form);
+  if (!answers) return;
+  const question = questionnaire(request);
+  return { id: request.id, value: question ? serializeAnswers(question, answers.map((answer, index) => ({
+    id: question.questions[index].id, wasCustom: answer.custom !== undefined,
+    value: answer.custom ?? question.questions[index].options[answer.index!].value,
+  }))) : answers[0].custom };
 }
 
 // Main owns routing and approvals. The network helper never owns an agent or transcript.
@@ -940,13 +996,15 @@ export class RemoteManager {
           this.probe = undefined; this.state.approvalReady = true; this.publish(); return;
         }
         const decision = this.decisions.get(event.token);
-        if (!decision || !['Allow once / 允许一次', 'Deny / 拒绝'].includes(event.option)) return;
+        if (!decision) return;
         if (decision.expired || decision.expiresAt <= this.now()) { this.expireDecision(event.token); return; }
         try {
           const { worker } = this.current(decision.target);
-          if (worker.pendingUI.get(decision.id) !== decision.request
-            || remoteDecision(decision.request, worker)?.text !== decision.text) return;
-          this.host.respond(worker, { id: decision.id, confirmed: event.option === 'Allow once / 允许一次' });
+          const parsed = remoteDecision(decision.request, worker);
+          if (worker.pendingUI.get(decision.id) !== decision.request || parsed?.signature !== decision.signature) return;
+          const answer = remoteAnswer(decision.request, parsed, event.option, event.form);
+          if (!answer) return;
+          this.host.respond(worker, answer);
           clearTimeout(decision.timer);
           this.decisions.delete(event.token); this.state.approvalReady = true; this.publish();
           void this.channel?.request('revoke', { token: event.token, status: 'handled' }).catch(() => {});
@@ -1038,7 +1096,7 @@ export class RemoteManager {
     const target = [...this.binding?.targets.values() ?? []].find(item => item.worker === worker);
     if (!target || target.worker !== worker) return;
     for (const [token, decision] of this.decisions) if (decision.target === target && (worker.pendingUI.get(decision.id) !== decision.request
-      || remoteDecision(decision.request, worker)?.text !== decision.text)) {
+      || remoteDecision(decision.request, worker)?.signature !== decision.signature)) {
       clearTimeout(decision.timer); this.decisions.delete(token);
       void this.channel?.request('revoke', { token, status: 'handled' }).catch(() => {});
     }
@@ -1056,10 +1114,11 @@ export class RemoteManager {
       const token = this.platform.uuid();
       const key = this.approvalKeys.get(request) ?? token;
       this.approvalKeys.set(request, key);
-      const decision: Decision = { target, id, request, text: parsed.text, key, expiresAt: this.now() + 600000 };
+      const decision: Decision = { target, id, request, signature: parsed.signature, key, expiresAt: this.now() + 600000 };
       decision.timer = setTimeout(() => this.expireDecision(token), 600000); decision.timer.unref?.();
       this.decisions.set(token, decision);
-      this.send({ key, sessionKey: target.session.sessionId, ...parsed, title: `${parsed.title} · ${this.label(target)}`, actions: { token, options: ['Allow once / 允许一次', 'Deny / 拒绝'] } });
+      this.send({ key, sessionKey: target.session.sessionId, title: `${parsed.title} · ${this.label(target)}`,
+        text: parsed.text, form: parsed.form, actions: { token, options: parsed.options } });
     }
   }
   runtimeEvent(worker: SessionRuntime, event: RuntimeEvent) {

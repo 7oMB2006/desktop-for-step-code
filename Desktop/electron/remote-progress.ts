@@ -18,7 +18,8 @@ export interface RemoteWorkerStatus {
 function waitingLabel(request: UIRequest, worker: RemoteWorkerState): string {
   if (request.runtimeId !== undefined && request.runtimeId !== worker.id) return '待本机输入 / Local input';
   const approval = permissionApprovalPresentation(request, worker.messages, 'en', worker.id);
-  if (approval) return approval.operation === 'project' ? '待项目授权 / Project trust' : '待审批 / Approval';
+  if (approval) return approval.operation === 'project' ? '待项目授权 / Project trust'
+    : approval.operation === 'question' ? '待允许提问 / Question permission' : '待审批 / Approval';
   const question = questionnaire(request);
   if (question) return question.questions.length > 1 ? '待表单 / Form' : '待回答 / Question';
   if (planReview(request)) return '待计划审批 / Plan approval';

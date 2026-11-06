@@ -1,5 +1,18 @@
 import assert from 'node:assert/strict';
 
+// Playwright's browser-side polling treats a Promise itself as truthy.
+// Poll IPC snapshots in Node so each resolved value is actually checked.
+export async function waitForSessionFixtureSnapshot(page, predicate, label, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const snapshot = await page.evaluate(() => window.desktop.snapshot());
+    if (await predicate(snapshot)) return snapshot;
+    if (Date.now() >= deadline) break;
+    await new Promise(resolve => setTimeout(resolve, 40));
+  } while (Date.now() < deadline);
+  assert.fail(`Timed out waiting for ${label}`);
+}
+
 // Fresh-profile checks must explicitly exercise the onboarding escape hatch.
 export async function skipFirstRunFixture(page) {
   await page.getByRole('heading', { name: '连接模型服务', exact: true }).waitFor({ timeout: 60000 });

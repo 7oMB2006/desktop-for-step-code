@@ -1,5 +1,20 @@
 # Verification
 
+## Project Rules CI Snapshot Polling (2026-11-06)
+
+The first macOS candidate passed source runtime acceptance but its packaged
+`/init` check asserted zero provider requests before dispatch completed.
+Playwright's browser-side poll checks the Promise returned by an async predicate,
+not its resolved boolean. The fixture now polls resolved IPC snapshots in Node
+for response completion, streaming start and idle settlement. Request-count,
+read-only tool and file-preservation assertions remain unchanged.
+
+All 17 focused project-rules and fixture tests pass, including delayed snapshots,
+async false predicates, bounded timeout and IPC error propagation. Typecheck and
+the real Windows Electron `/init` fixture pass with three loopback model requests.
+The existing shared runtime was not restaged; these local results do not replace
+current-main macOS source/package acceptance in cloud CI.
+
 ## Project Rules Main Synchronization (2026-11-06)
 
 This branch integrates main `e9102aa`. Conflict resolution retains main's

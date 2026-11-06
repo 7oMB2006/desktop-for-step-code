@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-init-electron-'));
@@ -79,11 +79,10 @@ try {
       .filter(message => message.role === 'assistant' && JSON.stringify(message.content).includes('RUNTIME INIT CHECK COMPLETE')).length);
     await input.press('Escape');
     await page.locator('.composer-action-button').click();
-    await page.waitForFunction(async previous => {
-      const state = await window.desktop.snapshot();
+    await waitForSessionFixtureSnapshot(page, state => {
       return state.messages.filter(message => message.role === 'assistant' &&
         JSON.stringify(message.content).includes('RUNTIME INIT CHECK COMPLETE')).length > previous && !state.state?.isStreaming;
-    }, previous);
+    }, 'the submitted /init response and an idle session');
   };
   await openMenu();
   await page.getByRole('option', { name: /创建 AI 工作规范/ }).waitFor();
@@ -120,7 +119,7 @@ try {
     window.initBusyTurn = window.desktop.command('prompt', { message: 'HOLD INIT QUEUE CHECK' }, id)
       .then(() => undefined, error => error.message);
   }, owner.runtimeId);
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).state?.isStreaming);
+  await waitForSessionFixtureSnapshot(page, state => state.state?.isStreaming, 'the held model turn to start');
   const queued = await page.evaluate(id => window.desktop.command('prompt', { message: 'KEEP QUEUED MESSAGE' }, id), owner.runtimeId);
   assert.equal(queued.queued, true);
   const editError = await page.evaluate(async ({ runtimeId, queued }) => {
@@ -136,7 +135,7 @@ try {
   holdModel = false;
   releaseModel?.();
   await page.evaluate(() => window.initBusyTurn);
-  await page.waitForFunction(async () => !(await window.desktop.snapshot()).state?.isStreaming);
+  await waitForSessionFixtureSnapshot(page, state => !state.state?.isStreaming, 'the held model turn to finish');
   assert.equal(await readFile(file, 'utf8'), original);
   await rm(file);
   await mkdir(file);
@@ -152,7 +151,7 @@ try {
   await page.locator('.app-error-banner button').click();
   await input.fill('/init');
   await send();
-  await page.waitForFunction(async () => !(await window.desktop.snapshot()).state?.isStreaming);
+  await waitForSessionFixtureSnapshot(page, state => !state.state?.isStreaming, 'the retried /init turn to finish');
   assert.equal(requests.length, beforeReadFailure + 1, 'The user can retry after fixing an unreadable rule file');
   assert.equal(await readFile(file, 'utf8'), original);
   assert.deepEqual(errors, []);

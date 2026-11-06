@@ -40,6 +40,24 @@ separately in PR #195. No installer, shortcut change, daily-profile mutation,
 application restart, PR merge, release or marketplace submission is part of
 this synchronization; the previously delivered local package remains unchanged.
 
+### Task Progress Mount Race (2026-11-06)
+
+Cloud macOS runtime acceptance on `9824b73` captured a full task bar without a
+phase while the final response was held. Retiring earlier completed tasks can
+change the bar's key and mount it with every remaining task already completed
+during an active round. That initial state did not enter either layout-effect
+branch. A deterministic production-component browser regression fails on the
+old code with a missing phase, then passes after initializing the non-animating
+bar to `running` while busy or `complete` while idle. Mounting still emits no
+completion sound or impact; the live completion event remains authoritative.
+
+Typecheck, the isolated production build, 20 focused completion/summary tests,
+the complete browser motion verifier and real Electron progress/history
+acceptance pass locally. The regression retains delayed snapshots, scope
+isolation, reduced motion and no-replay assertions. No timeout, inventory,
+runtime pin, installed package or shortcut is changed. Current-head cloud
+results are recorded in PR #195 rather than inferred from this local pass.
+
 ## Plugin Metadata Windows Package (2026-11-06)
 
 The owner requested a fresh Windows package after the metadata fixes and

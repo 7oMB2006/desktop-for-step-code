@@ -854,7 +854,11 @@ async function performProviderSettings() {
   await guardIdle();
   await capabilityService.recover();
   const workers = [...runtimes.workers.values()];
-  const draft = sessionDraft;
+  const drafts = new Map<string, { surface: Surface; draft: NonNullable<typeof sessionDraft> }>();
+  for (const surface of ['main', 'mini'] as const) {
+    const draft = selectedDraft(surface);
+    if (draft && !drafts.has(draft.id)) drafts.set(draft.id, { surface, draft });
+  }
   try {
   await projectProviders(dataRoot, authData);
   appliedAuthData = authData;
@@ -867,17 +871,19 @@ async function performProviderSettings() {
     if (worker.pendingModel && !worker.models.some(m => m.provider === worker.pendingModel?.model.provider && m.id === worker.pendingModel?.model.id))
       worker.pendingModel = undefined;
   }
-  if (draft) {
-    await beginSession(draft.workspace);
-    if (sessionDraft) {
-      sessionDraft.id = draft.id;
-      const selected = sessionDraft.models?.find(model => model.id === draft.model?.id && model.provider === draft.model?.provider);
+  for (const { surface, draft } of drafts.values()) {
+    await beginSession(draft.workspace, surface);
+    const refreshed = selectedDraft(surface);
+    if (refreshed) {
+      refreshed.id = draft.id;
+      const selected = refreshed.models?.find(model => model.id === draft.model?.id && model.provider === draft.model?.provider);
       if (selected) {
-        sessionDraft.model = selected; sessionDraft.modelChanged = draft.modelChanged;
-        sessionDraft.thinkingLevel = draft.thinkingLevel; sessionDraft.thinkingChanged = draft.thinkingChanged;
+        refreshed.model = selected; refreshed.modelChanged = draft.modelChanged;
+        refreshed.thinkingLevel = draft.thinkingLevel; refreshed.thinkingChanged = draft.thinkingChanged;
       }
-      sessionDraft.permissionPreset = draft.permissionPreset; sessionDraft.permissionChanged = draft.permissionChanged;
-      sessionDraft.launch = draft.launch;
+      refreshed.permissionPreset = draft.permissionPreset; refreshed.permissionChanged = draft.permissionChanged;
+      refreshed.launch = draft.launch;
+      selectDraft(surface, refreshed);
     }
   }
   providerSettingsPending = false;
@@ -885,6 +891,7 @@ async function performProviderSettings() {
   } catch (error) {
     // A partial refresh must never leave old and new configurations runnable together.
     sessionDraft = undefined;
+    miniView.draft = undefined;
     await runtimes.suspend(workers);
     await admin.stop();
     admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());

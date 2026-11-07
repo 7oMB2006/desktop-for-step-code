@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { ComposerStore } from '../electron/composer-store';
+import { modelPreference, preferredModel } from '../electron/model-preference';
 import type { SessionRuntime } from '../electron/session-runtimes';
 import type { Model, Preferences, Snapshot } from '../src/contracts';
 import { draftLaunchChanges, emptyLaunch } from '../src/launch-state';
@@ -23,7 +24,7 @@ function deferred() {
 async function fixture() {
   const source = ts.createSourceFile('main.ts', await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8'),
     ts.ScriptTarget.Latest, true);
-  const names = ['handle', 'beginSession', 'connect', 'replaceMiniRuntime',
+  const names = ['handle', 'beginSession', 'connect', 'replaceMiniRuntime', 'performProviderSettings',
     'selectedDraft', 'selectDraft', 'selectedRuntime', 'selectRuntime'];
   const declarations = names.map(name => {
     const declaration = source.statements.find(node =>
@@ -36,6 +37,7 @@ async function fixture() {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const model: Model = { provider: 'fixture', id: 'selected-model', name: 'Selected model' };
+  let availableModels = [model];
   const draft = { id: 'shared-draft', workspace: projectA, model, models: [model],
     modelChanged: true, launch: emptyLaunch() };
   type Draft = typeof draft;
@@ -61,6 +63,7 @@ async function fixture() {
     selectedDraft: (surface: Surface) => Draft | undefined;
     selectedRuntime: (surface: Surface) => string | undefined;
     selectRuntime: (surface: Surface, value: SessionRuntime) => void;
+    performProviderSettings: () => Promise<void>;
   };
   const prepare = async (_node: string, _entry: string, cwd: string) => {
     assert.equal(cwd, projectA);
@@ -79,6 +82,8 @@ async function fixture() {
     activate(value: SessionRuntime) { this.activeId = value.id; this.publish(); },
     publish() { observedMainDrafts.push(api.selectedDraft('main')?.workspace); },
     recycle: async () => {},
+    refresh: async () => {},
+    suspend: async () => {},
     isBusy: () => false,
     remove: async (value: SessionRuntime) => {
       removed.push(value.id); workers.delete(value.id);
@@ -98,16 +103,18 @@ async function fixture() {
     sessionDraft: draft as Draft | undefined, miniView, runtimes, preferences,
     creatingDrafts, createdDrafts, composers, snapshot, transition: false, deletingArchived: false,
     updateInstalling: false, status: 'ready', sessionNavigation: { busy: false },
+    providerSettingsPending: true, canApplyProviders: () => true, guardIdle: async () => {},
+    projectProviders: async () => {}, authData: {}, dataRoot: 'fixture-data',
     text: (value: string) => value, pathKey: (value: string) => value.toLowerCase(),
     workspaceDirectory: async (value: string) => value,
     samePath: async (a: string, b: string) => a === b,
-    admin: { request: async (method: string, args: { cwd: string }) => {
+    admin: { stop: async () => {}, start: () => {}, request: async (method: string, args: { cwd: string }) => {
       assert.equal(method, 'session_options'); sessionOptions.push(args.cwd);
-      return { model, models: [model], permissionPreset: 'ask' };
+      return { model: availableModels[0], models: availableModels, permissionPreset: 'ask' };
     } },
     app: { getPath: () => 'C:/mini-chat-fixture/documents' },
     randomUUID: () => `new-draft-${++sequence}`,
-    preferredModel: (models: Model[]) => models[0], modelPreference: (value: Model) => value,
+    preferredModel, modelPreference,
     emptyLaunch, draftLaunchChanges, emit: () => {}, savePreferences: async () => {},
     nodePath: 'fixture-node', runtimeRoot: 'fixture-runtime', independentRoot: 'fixture-independent', join,
     authEnvironment: () => ({}), movedSessionEnvironment: () => ({}), crashLog: { setPhase() {} },
@@ -126,7 +133,7 @@ async function fixture() {
     rememberModel: async () => {}, promptNeedsQueue: () => false, isProjectTrustInput: () => false,
     pendingMessages: { drain() {} },
   };
-  api = runInNewContext(javascript + '\n({ handle, selectedDraft, selectedRuntime, selectRuntime })', context);
+  api = runInNewContext(javascript + '\n({ handle, selectedDraft, selectedRuntime, selectRuntime, performProviderSettings })', context);
   const start = async (surface: Surface) => {
     const creation = api.handle('createDraftSession', [draft.id], surface);
     await Promise.race([setupStarted.promise, creation.then(() => assert.fail('Model setup was not held'))]);
@@ -145,7 +152,48 @@ async function fixture() {
     return { started: removalStarted.promise, release: removal.resolve };
   };
   return { api, draft, worker, miniView, runtimes, setup, composers, creatingDrafts, createdDrafts,
-    observedMainDrafts, sessionOptions, removed, start, navigateAway, holdRemoval };
+    observedMainDrafts, sessionOptions, removed, start, navigateAway, holdRemoval,
+    setModels: (models: Model[]) => { availableModels = models; } };
+}
+
+for (const mode of ['shared', 'mini-only', 'separate'] as const) {
+  test(`provider refresh updates ${mode} drafts without losing composer input`, async () => {
+    const f = await fixture();
+    const owner = { draftId: f.draft.id };
+    f.composers.write({ owner, revision: 0, value: {
+      text: 'Keep this unsent question', quotes: [], attachments: [],
+    } });
+    f.draft.launch = { ...emptyLaunch(), reviewArmed: true };
+    if (mode !== 'shared') f.navigateAway('main');
+    if (mode === 'separate') await f.api.handle('beginSession', [projectB], 'main');
+    const mainDraftId = f.api.selectedDraft('main')?.id;
+    const alternative: Model = { provider: 'replacement', id: 'replacement-model', name: 'Replacement model' };
+    f.setModels([alternative]);
+    await f.api.performProviderSettings();
+    const mini = f.api.selectedDraft('mini');
+    assert.ok(mini);
+    assert.equal(mini.id, f.draft.id);
+    assert.equal(mini.model?.provider, 'fixture', 'provider edits cannot silently switch the selected model');
+    assert.deepEqual(mini.models, [alternative]);
+    assert.equal(mini.launch.reviewArmed, true);
+    assert.equal(f.composers.read(owner).value.text, 'Keep this unsent question');
+    if (mode === 'mini-only') {
+      assert.equal(f.api.selectedDraft('main'), undefined);
+      assert.equal(f.api.selectedRuntime('main'), 'worker-B');
+    } else if (mode === 'separate') {
+      const main = f.api.selectedDraft('main');
+      assert.ok(main);
+      assert.equal(main.id, mainDraftId);
+      assert.notEqual(main.id, mini.id);
+      assert.equal(main.workspace, projectB);
+      assert.equal(main.model?.provider, 'replacement', 'an unselected default follows the refreshed catalog');
+    } else {
+      assert.equal(f.api.selectedDraft('main'), mini, 'both windows must share the refreshed draft object');
+      assert.equal(f.sessionOptions.length, 1, 'one shared draft needs exactly one catalog refresh');
+    }
+    await f.api.handle('command', ['set_model', { provider: 'replacement', modelId: 'replacement-model' }], 'mini');
+    assert.equal(f.api.selectedDraft('mini')?.model?.provider, 'replacement', 'the refreshed catalog permits an explicit replacement choice');
+  });
 }
 
 test('shared draft project changes reject during post-connect setup and promote the original project', async () => {

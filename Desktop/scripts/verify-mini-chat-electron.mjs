@@ -363,11 +363,31 @@ try {
   await main.waitForFunction(async () => (await window.desktop.snapshot()).launch.reviewArmed === true);
   await main.evaluate(() => window.desktop.command('set_launch_mode', { mode: 'review', enabled: false }));
   await mini.waitForFunction(async () => (await window.desktop.snapshot()).launch.reviewArmed === false);
+  const draftQuestion = '/btw Keep this question until a session exists';
+  const beforeInvalidQuestions = requests.length;
+  await editor.fill(draftQuestion); await editor.press('Enter');
+  await mini.getByRole('alert').getByText('请在已连接的会话中发起旁问，整理上下文时暂不可用。', { exact: true }).waitFor();
+  await main.waitForFunction(text => document.querySelector('main .composer-input')?.value === text, draftQuestion);
+  assert.equal(await editor.evaluate(element => element.value), draftQuestion);
+  assert.equal((await mini.evaluate(() => window.desktop.miniChatState())).open, true);
+  assert.equal(requests.length, beforeInvalidQuestions);
   await editor.fill('MINI-FIRST-MESSAGE'); await editor.press('Enter');
   await mini.getByText('Completed MINI-FIRST-MESSAGE.', { exact: true }).waitFor();
+  await mini.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   const afterDraft = await Promise.all([main.evaluate(() => window.desktop.snapshot()), mini.evaluate(() => window.desktop.snapshot())]);
   assert.equal(afterDraft[0].runtimeId, afterDraft[1].runtimeId);
   assert.equal(afterDraft[0].draftId, undefined);
+  const oversizedQuestion = '/btw ' + 'x'.repeat(8001);
+  await editor.fill(oversizedQuestion); await editor.press('Enter');
+  await mini.getByRole('alert').getByText('旁问内容不能超过 8000 字符。', { exact: true }).waitFor();
+  await main.waitForFunction(text => document.querySelector('main .composer-input')?.value === text, oversizedQuestion);
+  assert.equal(await editor.evaluate(element => element.value), oversizedQuestion);
+  assert.equal(requests.length, beforeInvalidQuestions + 1, 'Rejected side questions never consume input or invoke the provider');
+  await editor.fill('/btw MINI-SIDE-QUESTION'); await editor.press('Enter');
+  await main.locator('#btw-panel[aria-hidden="false"]').waitFor();
+  await main.locator('#btw-panel .response-text').getByText(/Completed[\s\S]*MINI-SIDE-QUESTION/).waitFor();
+  await reopenMini();
+  await main.getByRole('button', { name: '关闭旁问', exact: true }).click();
   const fileWorkspace = await realpath(afterDraft[1].runtimes.find(runtime => runtime.runtimeId === afterDraft[1].runtimeId).cwd);
   const fixtureRelative = relative(profile, fileWorkspace);
   assert.ok(fixtureRelative && !fixtureRelative.startsWith('..') && !isAbsolute(fixtureRelative), 'Write only inside this isolated fixture');
@@ -434,6 +454,41 @@ try {
   assert.equal(requests.length, beforeLinkRequests, 'Reopening the same link neither hides its panel nor submits input');
   await main.getByRole('button', { name: 'MiniChat', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').showInactive());
+  // Provider edits must refresh a draft held only by MiniChat, not change main's session.
+  const mainSessionBeforeProvider = (await main.evaluate(() => window.desktop.snapshot())).state.sessionId;
+  await mini.evaluate(path => window.desktop.beginSession(path), workspace);
+  await mini.reload();
+  await editor.waitFor();
+  await main.evaluate(address => window.desktop.saveProvider({
+    id: '', name: 'Mini provider refresh', baseUrl: address, api: 'openai-completions', enabled: true, keyless: true,
+    models: [{ id: 'mini-deleted-model', name: 'Temporary Mini model', reasoning: false, vision: false,
+      contextWindow: 65536, maxTokens: 2048 }],
+  }), `http://127.0.0.1:${server.address().port}/v1`);
+  const providerId = await main.evaluate(async () => (await window.desktop.settings()).providers.find(provider => provider.name === 'Mini provider refresh').id);
+  await mini.waitForFunction(id => window.desktop.snapshot().then(value => value.models.some(model => model.provider === id)), providerId);
+  await mini.evaluate(provider => window.desktop.command('set_model', { provider, modelId: 'mini-deleted-model' }), providerId);
+  await mini.evaluate(() => window.desktop.command('set_launch_mode', { mode: 'review', enabled: true }));
+  await editor.fill('Keep provider-refresh draft');
+  const providerDraft = (await mini.evaluate(() => window.desktop.snapshot())).draftId;
+  const beforeProviderRequests = requests.length;
+  await main.evaluate(id => window.desktop.deleteProvider(id), providerId);
+  await mini.waitForFunction(({ id, draftId }) => window.desktop.snapshot().then(value =>
+    value.draftId === draftId && value.models.every(model => model.provider !== id)
+      && value.models.some(model => model.provider === 'fixture')),
+  { id: providerId, draftId: providerDraft });
+  assert.equal(await editor.textContent(), 'Keep provider-refresh draft');
+  assert.equal((await mini.evaluate(() => window.desktop.snapshot())).launch.reviewArmed, true);
+  assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.sessionId, mainSessionBeforeProvider);
+  assert.equal(requests.length, beforeProviderRequests);
+  await mini.locator('.model-effort-trigger').click();
+  await mini.getByRole('button', { name: '选择模型', exact: true }).click();
+  await mini.locator('.model-picker-select').filter({ hasText: 'Mini fixture' }).click();
+  await mini.waitForFunction(() => window.desktop.snapshot().then(value => value.state?.model?.provider === 'fixture'));
+  await editor.press('Escape');
+  await mini.evaluate(() => window.desktop.command('set_launch_mode', { mode: 'review', enabled: false }));
+  await editor.fill('MINI-PROVIDER-REFRESH'); await editor.press('Enter');
+  await mini.getByText('Completed MINI-PROVIDER-REFRESH.', { exact: true }).waitFor();
+  await mini.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   await main.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
   await mini.getByRole('button', { name: 'Switch MiniChat conversation', exact: true }).waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').setSize(380, 400));
@@ -465,7 +520,7 @@ try {
   await mini.screenshot({ path: join(output, 'native-stellar-narrow.png') });
   assert.deepEqual(errors, []);
   await writeFile(join(output, 'result.json'), JSON.stringify({ profile, requests: requests.length, errors, verified: true }, null, 2));
-  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, repeated subagent/file handoff, web-link handoff/reopen with preserved draft and native browser, fullscreen bottom-terminal collapse with live PTY on workflow/todos/web handoff, deletion guard, draft promotion, pin, narrow light/en/focus, read-only Stellar scene/poster with decoded background and blocked plugin mutation.');
+  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, repeated subagent/file handoff, web-link handoff/reopen with preserved draft and native browser, fullscreen bottom-terminal collapse with live PTY on workflow/todos/web handoff, draft/oversize side-question rejection preserves input and valid handoff, provider refresh retains independent draft/options and first send succeeds, deletion guard, draft promotion, pin, narrow light/en/focus, read-only Stellar scene/poster with decoded background and blocked plugin mutation.');
 } catch (error) {
   console.error('Native windows at failure', await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({
     title: window.getTitle(), url: window.webContents.getURL(),

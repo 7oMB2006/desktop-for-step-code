@@ -1254,25 +1254,25 @@ function App() {
     }
     const local = desktopCommand(draft, attachments.length, quotes.length);
     if (!navigationPending.current && !loading && local) {
-      if (isMini && local.name !== 'compact') {
-        setDraft(value => value === draft ? '' : value);
-        await run(() => handoff(local.name === 'usage' && local.args === 'account' ? 'settings' : local.name,
-          local.name === 'btw' ? { question: local.args } : undefined));
-        return;
-      }
       if (local.name === 'btw') {
         if (!connected || !data.runtimeId || !data.state?.sessionId || data.state.isCompacting || firstSend.current
           || settingsOpen || usageOpen || scheduledOpen || fulltextOpen || inspectorExpanded || requests.length) {
           setError(t('请在已连接的会话中发起旁问，整理上下文时暂不可用。', 'Open a connected conversation first. Side questions are unavailable during context maintenance.'));
           return;
         }
-        if (local.args.length > 8000) {
+        if (local.args.length > MAX_BTW_PROMPT_LENGTH) {
           setError(t('旁问内容不能超过 8000 字符。', 'Side questions are limited to 8,000 characters.'));
           return;
         }
         setDraft(value => value === draft ? '' : value);
+        if (isMini) { await run(() => handoff('btw', { question: local.args })); return; }
         setDetails(''); setRightPanel('btw');
         setBtwRequest({ runtimeId: data.runtimeId, sessionId: data.state.sessionId, id: ++btwSequence.current, question: local.args });
+        return;
+      }
+      if (isMini && local.name !== 'compact') {
+        setDraft(value => value === draft ? '' : value);
+        await run(() => handoff(local.name === 'usage' && local.args === 'account' ? 'settings' : local.name));
         return;
       }
       if (local.name === 'compact') {

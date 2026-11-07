@@ -28,6 +28,15 @@ MiniChat can read validated installed theme scenes and posters, but cannot mutat
 plugins. Native acceptance copies the repository's Stellar pack into its isolated
 profile, verifies both loaders, a ready scene or decoded poster, and rejected
 uninstalled themes and plugin changes.
+Side-question commands use the same availability and length checks in both
+windows before clearing shared input. Native checks retain rejected new-session
+and oversized questions, then exercise a valid main-window side-question handoff.
+Provider refresh updates each distinct main/MiniChat draft and rebinds shared
+identities after restoring options. Unit cases cover shared, MiniChat-only and
+separate drafts; native acceptance deletes a selected loopback provider while
+only MiniChat holds a draft and checks replacement models, input, task options
+and successful first submission after an explicit model-picker selection,
+without moving the main conversation or silently changing the billing route.
 
 Windows startup now uses the same native `normal` topmost level as MiniChat;
 source startup acceptance verifies the actual OS topmost state and disposal.

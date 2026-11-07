@@ -100,6 +100,29 @@ POSIX/macOS, package, installer, real-account or release acceptance is claimed.
 No commit, push, PR, merge, old-tree cleanup or personal-profile operation is
 performed.
 
+## Windows CI Workflow Failure Forensics (2026-11-08)
+
+The first CI run of this branch failed once in the Windows runtime group at
+`verify-workflow-runtime.mjs`: the child-B model stream failed client-side
+before reaching the fixture (the fixture's `childHeld` flag is set the moment
+a child-B request arrives, so the failure means the request never arrived),
+FINAL then asserted with a null output, and the one-slot wait timed out. The
+same commit passes the identical verifier on macOS source and package
+acceptance, the same Windows group passes for #211 and #213 on the same base,
+and the verifier plus workflow runtime are untouched by this diff. Local
+verification on this machine required restoring the shared node_modules'
+missing Electron 44.4.5 binary (a local install artifact that had triggered
+a binary download) and an assertion-preserving external `--no-sandbox` copy,
+because the unmodified executable's default-sandbox launch exits on this
+machine. With those local-only provisions the verifier passes end to end:
+parallel/chain, restart, stop/drain/resume, content-addressed replay,
+forced-crash recovery, partial failure with selective retry, structured
+errors and real HTTP 429 recovery, with both child requests served.
+
+The evidence supports a single runner-environment or timing failure, not a
+regression from this branch: no assertion is relaxed, no deadline is extended
+and the verifier is unchanged. This documentation update retriggers CI.
+
 The preceding CrashLog result (175 files, 166 pass/nine fail) remains intact.
 These equal file counts are different inventories: this separate tree adds
 artifact-cleanup.test.ts and does not contain the uncommitted crash-log.test.ts.

@@ -6,6 +6,21 @@ import { tmpdir } from 'node:os';
 import { CronHistory } from '../electron/cron-history';
 import type { SessionRuntime } from '../electron/session-runtimes';
 
+test('Cron journals keep recovery in progress and retain its final failed outcome', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'cron-incomplete-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const history = new CronHistory(root);
+  const worker = { id: 'host', cwd: 'D:/project', state: { sessionId: 'chat' }, messages: [] } as unknown as SessionRuntime;
+  history.event(worker, { type: 'message_start', message: { role: 'custom', customType: 'step-cron', display: true } });
+  history.event(worker, { type: 'message_start', message: { role: 'assistant', content: [] } });
+  worker.messages = [{ role: 'assistant', content: [], stopReason: 'stop', incomplete: 'no_visible_output' }];
+  history.event(worker, { type: 'agent_end', desktopRecoveryPending: true });
+  assert.equal(history.list(worker.cwd)[0].state, 'running');
+  worker.failed = true;
+  history.event(worker, { type: 'agent_settled', desktopRecoverySettled: true });
+  assert.equal(history.list(worker.cwd)[0].state, 'failed');
+});
+
 test('Cron journal distinguishes delivery, execution, approval and authoritative completion without private content', async t => {
   const root = await mkdtemp(join(tmpdir(), 'cron-history-'));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -50,13 +50,15 @@ export function turnChanges(items: IndexedMessage[], platform: string = 'win32')
     if (message.role === 'assistant' && Array.isArray(message.content)) {
       for (const part of message.content) if (part.type === 'toolCall' && part.id) calls.set(part.id, part);
     }
-    if (message.role !== 'toolResult' || message.isError || !message.toolCallId || seen.has(message.toolCallId)) continue;
+    if (message.role !== 'toolResult' || message.desktopToolPending || !message.toolCallId || seen.has(message.toolCallId)) continue;
     seen.add(message.toolCallId);
     const call = calls.get(message.toolCallId);
     if (!call || !/^(edit|edit_file|apply_patch|write|write_file)$/.test(call.name ?? '')) continue;
     const args = call.arguments;
     const path = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>).path : undefined;
     const edit = parseToolPatch(message.details?.patch, message.toolCallId ?? String(index));
+    // A final patch is an applied-mutation receipt even when a later check failed.
+    if (message.details?.changed === false || message.isError && !edit && message.details?.changed !== true) continue;
     if (typeof path !== 'string' || !path.trim() || path.length > 4096 || !edit || totalRows + edit.rows.length > 10000) {
       incomplete = true; continue;
     }

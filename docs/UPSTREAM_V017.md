@@ -47,6 +47,28 @@ not approval. A later ordinary question keeps planning active. Fresh review
 still requires resubmitting the current proposal. Command execution retains
 normal permissions, so Plan is not a comprehensive read-only sandbox.
 
+## Result Presentation
+
+The Desktop outcome stage reads validated `details.execution` and
+`details.thenRun.execution`. Process exit, timeout, signal, cancellation and
+unknown outcomes are separate from tool invocation errors. Structured status
+is authoritative over redundant flags and legacy check fields. Legacy
+`thenRun` metadata remains supported; imported tool history keeps its own
+provenance. Command output text is not parsed to invent an execution outcome.
+
+Final applied patches remain in the existing turn-change surface even when
+the surrounding call fails after mutation. Pending results and imported
+records do not become applied changes; missing snapshots are not synthesized.
+No-op mutation receipts do not create partial-diff warnings.
+
+An assistant's native `incomplete` classification prevents a provider `stop`
+from being treated as success. Once incomplete recovery is observed, ownership,
+timing and completion notification wait for `agent_settled`, including all
+intermediate `agent_end` events and recovery starts. Queued work does not drain
+in the recovery gap; final failure pauses it. Explicit cancellation takes
+precedence. Recovery prompts remain hidden, and the original provider stop
+reason is retained. Desktop does not initiate another recovery or rerun tools.
+
 ## Acceptance Boundaries
 
 Source patch replay and Windows local simulated-provider tests do not establish

@@ -97,10 +97,10 @@ export class CronHistory {
     else if (event.type === 'extension_ui_request' && ['select', 'confirm', 'input', 'editor'].includes(event.method)) state = 'waiting';
     else if (event.type === 'tool_execution_start') state = 'running';
     else if (event.type === 'desktop_exit') state = 'unknown';
-    else if (event.type === 'agent_end') {
+    else if (event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled) {
       const last = worker.messages.at(-1);
       state = worker.interrupted || last?.stopReason === 'aborted' ? 'interrupted'
-        : worker.failed || last?.stopReason === 'error' ? 'failed'
+        : worker.failed || last?.stopReason === 'error' || last?.incomplete ? 'failed'
         : this.assistantStarted.has(worker.id) && last?.role === 'assistant' && last.stopReason === 'stop' ? 'completed' : 'unknown';
     }
     if (!state) return;

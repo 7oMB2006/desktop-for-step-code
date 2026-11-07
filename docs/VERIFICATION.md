@@ -21,6 +21,9 @@ Returning from MiniChat also restores an expanded bottom terminal to its dock
 before revealing requested content. Native workflow, `/todos` and web-link
 handoffs verify the requested panel is visible, the conversation is not inert,
 and the existing terminal process remains running.
+Repeated file and individual subagent handoffs also explicitly reveal their
+selected content; they do not inherit the main-window click-to-collapse behavior.
+Native verification opens the same real Markdown file and subagent record twice.
 
 Windows startup now uses the same native `normal` topmost level as MiniChat;
 source startup acceptance verifies the actual OS topmost state and disposal.
@@ -31,7 +34,8 @@ event preference acknowledgements, and allow the macOS MiniChat button while
 still rejecting Windows-style window controls. No script is excluded and no
 runtime pin, product animation or preference synchronization is disabled.
 The draft-clear check waits for the actual editor state and main-owned value
-before reload, and the animation sample includes a complete greeting cycle.
+before reload, using editor keyboard transactions rather than DOM-only clearing;
+the animation sample includes a complete greeting cycle.
 Command dispatch retains mouse submission coverage, using Enter while overlay
 inspectors may cover the send button on constrained native displays.
 

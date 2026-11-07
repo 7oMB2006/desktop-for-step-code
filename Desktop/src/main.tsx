@@ -379,7 +379,7 @@ function App() {
   // The panel reads from live messages and the runtime-owned lane snapshot, so a selected record
   // cannot keep spinning after its host is replaced or miss an agent_send follow-up.
   const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent, backgroundActivity), [data.messages, selectedSubagent, backgroundActivity]);
-  const openSubagent = useCallback((task: SubagentDisplayTask) => {
+  const openSubagent = useCallback((task: SubagentDisplayTask, toggle = true) => {
     if (isMini) { void handoff('subagent', task); return; }
     const alreadyOpen = rightPanel === 'subagent' && !details && subagentView === 'agent' && !selectedWorkflowAgent && !selectedBackgroundAgent
       && selectedSubagent?.toolCallId === task.toolCallId && selectedSubagent?.taskIndex === task.taskIndex
@@ -387,7 +387,7 @@ function App() {
     setSelectedSubagent({ agent: task.agent, task: task.task, toolCallId: task.toolCallId, taskIndex: task.taskIndex });
     setSubagentView('agent'); setSelectedWorkflowAgent(null); setSelectedBackgroundAgent(undefined);
     setDetails('');
-    setRightPanel(alreadyOpen ? null : 'subagent');
+    setRightPanel(toggle && alreadyOpen ? null : 'subagent');
   }, [rightPanel, details, selectedSubagent, subagentView, selectedWorkflowAgent, selectedBackgroundAgent]);
   const [summarySpace, setSummarySpace] = useState(false);
   const appLayout = useRef<HTMLDivElement>(null);
@@ -1698,9 +1698,9 @@ function App() {
     else if (event.action === 'usage') openUsage();
     else if (event.action === 'cron') openScheduled();
     else if (event.action === 'plugins') openPlugins(event.payload);
-    else if (event.action === 'file') await openFile(event.payload?.target, event.payload?.destination);
+    else if (event.action === 'file') await openFile(event.payload?.target, event.payload?.destination, false);
     else if (event.action === 'web') await openWeb(event.payload?.address, false);
-    else if (event.action === 'subagent') openSubagent(event.payload);
+    else if (event.action === 'subagent') openSubagent(event.payload, false);
     else if (event.action === 'workflows') {
       if (typeof event.payload === 'string') { setWorkflowCatalogRequest(null); openWorkflow(event.payload, false); }
       else setWorkflowCatalogRequest({ runtimeId: value.runtimeId, sessionId: value.state?.sessionId, id: ++workflowCatalogSequence.current });

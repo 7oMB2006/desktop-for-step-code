@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
@@ -12,6 +12,7 @@ const root = join(profile, 'step-runtime'), workspace = join(profile, 'project')
 const output = resolve('test-results/mini-chat-native');
 await mkdir(join(root, 'sessions'), { recursive: true }); await mkdir(workspace); await mkdir(output, { recursive: true });
 const timestamp = new Date().toISOString();
+const subagentTask = { agent: 'review', task: 'Selected Mini subagent', status: 'completed', messages: [] };
 for (const id of ['one', 'two', 'three']) {
   const lines = [{ type: 'session', version: 3, id, cwd: workspace, timestamp }];
   let parentId = null;
@@ -20,6 +21,7 @@ for (const id of ['one', 'two', 'three']) {
       const entry = `${id}-${role}-${index}`;
       const workflow = id === 'one' && [4, 5].includes(index) && role === 'assistant'
         ? { callId: `workflow-${index}`, name: index === 4 ? 'Selected Mini workflow' : 'Latest Mini workflow' } : undefined;
+      const subagent = id === 'one' && index === 6 && role === 'assistant';
       lines.push({ type: 'message', id: entry, parentId, timestamp, message: {
         role, timestamp: Date.now() + index,
         content: role === 'user' ? `Question ${index} in ${id}` : [
@@ -27,6 +29,9 @@ for (const id of ['one', 'two', 'three']) {
           { type: 'text', text: `## Answer ${index}\n\nNative MiniChat reuses the actual conversation and composer.\n\n`
             + 'Readable text remains available when switching windows.\n\n'.repeat(3) + '```ts\nconst shared = "one runtime";\n```' },
           ...(workflow ? [{ type: 'toolCall', id: workflow.callId, name: 'workflow', arguments: { name: workflow.name, script: 'fixture' } }] : []),
+          ...(subagent ? [{ type: 'toolCall', id: 'mini-subagent', name: 'subagent', arguments: {
+            tasks: [{ agent: subagentTask.agent, task: subagentTask.task }],
+          } }] : []),
         ], ...(role === 'assistant' ? { stopReason: 'stop', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } } } : {}),
       } });
       parentId = entry;
@@ -36,6 +41,14 @@ for (const id of ['one', 'two', 'three']) {
           role: 'toolResult', toolName: 'workflow', toolCallId: workflow.callId, content: [{ type: 'text', text: 'Completed fixture workflow' }],
           details: { schemaVersion: 1, runId: `wf_mini_${index}`, name: workflow.name, status: 'completed',
             agents: [], totalAgents: 0, completedAgents: 0 }, isError: false, timestamp: Date.now() + index,
+        } });
+        parentId = resultId;
+      }
+      if (subagent) {
+        const resultId = `${entry}-result`;
+        lines.push({ type: 'message', id: resultId, parentId, timestamp, message: {
+          role: 'toolResult', toolName: 'subagent', toolCallId: 'mini-subagent', content: '',
+          details: { results: [subagentTask] }, isError: false, timestamp: Date.now() + index,
         } });
         parentId = resultId;
       }
@@ -68,6 +81,7 @@ const server = createServer(async (request, response) => {
     held.set(label, response); response.write(chunk({ role: 'assistant', content: 'Mini streaming is live.' }));
   } else response.end(chunk({ role: 'assistant', content: label.includes('MINI-WEB-LINK')
     ? `[MiniChat local page](http://127.0.0.1:${server.address().port}/mini-link)`
+    : label.includes('MINI-FILE-LINK') ? '[MiniChat local file](./handoff.md)'
     : `Completed ${label || 'MINI-SEND'}.` }, 'stop') + 'data: [DONE]\n\n');
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -161,6 +175,17 @@ try {
     assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.sessionId, 'one');
     assert.equal(await main.locator('#workflow-catalog-panel[aria-hidden="false"]').count(), 0);
     if (terminal) await verifyTerminalRestored(terminal);
+  }
+  await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
+  await reopenMini();
+  const subagentArticle = mini.locator('article.message.assistant').filter({ hasText: 'Answer 6' });
+  await subagentArticle.locator('.historical-agents > summary').click();
+  for (let repeat = 0; repeat < 2; repeat++) {
+    if (repeat) await reopenMini();
+    await subagentArticle.locator('.lane-row[data-lane-agent="review"]').click();
+    const description = main.locator('#subagent-panel[aria-hidden="false"] .subagent-task');
+    await description.waitFor();
+    assert.equal(await description.textContent(), subagentTask.task);
   }
   await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
   await reopenMini();
@@ -342,6 +367,27 @@ try {
   const afterDraft = await Promise.all([main.evaluate(() => window.desktop.snapshot()), mini.evaluate(() => window.desktop.snapshot())]);
   assert.equal(afterDraft[0].runtimeId, afterDraft[1].runtimeId);
   assert.equal(afterDraft[0].draftId, undefined);
+  const fileWorkspace = afterDraft[1].runtimes.find(runtime => runtime.runtimeId === afterDraft[1].runtimeId).cwd;
+  const fixtureRelative = relative(profile, fileWorkspace);
+  assert.ok(fixtureRelative && !fixtureRelative.startsWith('..') && !isAbsolute(fixtureRelative), 'Write only inside this isolated fixture');
+  await writeFile(join(fileWorkspace, 'handoff.md'), '# MiniChat file handoff\n\nA real read-only file preview.');
+  await editor.fill('MINI-FILE-LINK'); await editor.press('Enter');
+  const fileLink = mini.getByRole('link', { name: 'MiniChat local file', exact: true });
+  await fileLink.waitFor();
+  await mini.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await editor.fill('Keep this draft during file handoff');
+  const beforeFileRequests = requests.length;
+  for (let repeat = 0; repeat < 2; repeat++) {
+    if (repeat) await reopenMini();
+    await fileLink.click();
+    await main.locator('#file-panel[aria-hidden="false"] .file-preview-markdown h1').waitFor();
+    assert.equal(await main.locator('.file-preview-markdown h1').textContent(), 'MiniChat file handoff');
+    await main.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Keep this draft during file handoff');
+    assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.sessionId, afterDraft[1].state.sessionId);
+    assert.equal(requests.length, beforeFileRequests, 'Repeated file handoff keeps its preview open without sending the draft');
+  }
+  await main.getByRole('button', { name: '关闭文件预览', exact: true }).click();
+  await reopenMini();
   // A real message link transfers the selected conversation and draft to main,
   // then opens its native browser. MiniChat must not gain browser-layout IPC.
   await editor.fill('MINI-WEB-LINK'); await editor.press('Enter');
@@ -409,7 +455,7 @@ try {
   await mini.screenshot({ path: join(output, 'native-light-narrow.png') });
   assert.deepEqual(errors, []);
   await writeFile(join(output, 'result.json'), JSON.stringify({ profile, requests: requests.length, errors, verified: true }, null, 2));
-  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, web-link handoff/reopen with preserved draft and native browser, fullscreen bottom-terminal collapse with live PTY on workflow/todos/web handoff, deletion guard, draft promotion, pin, narrow light/en/focus.');
+  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, repeated subagent/file handoff, web-link handoff/reopen with preserved draft and native browser, fullscreen bottom-terminal collapse with live PTY on workflow/todos/web handoff, deletion guard, draft promotion, pin, narrow light/en/focus.');
 } catch (error) {
   console.error('Native windows at failure', await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({
     title: window.getTitle(), url: window.webContents.getURL(),

@@ -142,7 +142,8 @@ try {
   assert.equal(await input.textContent(), 'A draft preserved while choosing a project', 'reload preserves the main-owned draft');
   // A restored nonempty draft deliberately pauses the greeting. Test typing on
   // a fresh empty presentation instead of interpreting that pause as lost motion.
-  await input.fill('');
+  await input.press('ControlOrMeta+A');
+  await input.press('Backspace');
   await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '');
   await page.waitForFunction(async () => {
     const snapshot = await window.desktop.snapshot();
@@ -170,7 +171,9 @@ try {
   }), 'complete text is centered independently of the cursor');
   await page.waitForTimeout(7200);
   assert.equal(await page.locator('.terminal-heading-output').textContent(), nextText, 'composing keeps the complete greeting still');
-  await input.fill('');
+  await input.press('ControlOrMeta+A');
+  await input.press('Backspace');
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '');
   assert.ok((await snapshot()).draftId);
   assert.equal((await snapshot()).runtimeId, undefined);
   // Switching away discards the proposed session without touching saved history.

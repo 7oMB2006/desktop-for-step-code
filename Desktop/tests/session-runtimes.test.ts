@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { SessionRuntimes, taskOutcome, type WorkerTransport } from '../electron/session-runtimes';
+import { SessionRuntimes, taskOutcome, type WorkerTransport, type RuntimeStartupDiagnostic, type SessionRuntime } from '../electron/session-runtimes';
 import { WORKSPACE_POLICY, DESKTOP_SYSTEM_POLICY, DESKTOP_CRON_POLICY, desktopSystemPolicy } from '../electron/workspace-policy';
 import type { RuntimeEvent } from '../src/contracts';
 import { QUESTION_TITLE } from '../src/questionnaire';
@@ -215,7 +215,8 @@ test('background notification handoff retains the host before the parent emits a
 });
 
 test('startup diagnostics separate process, restoration, snapshot and model phases without session content', async () => {
-  const { pool, open } = fixture();
+  const progress: RuntimeStartupDiagnostic[] = [];
+  const { pool, open, events } = fixture({ startup: diagnostic => progress.push(diagnostic) });
   try {
     const worker = await open();
     const timing = worker.startupTiming!;
@@ -223,9 +224,302 @@ test('startup diagnostics separate process, restoration, snapshot and model phas
       ['modelRestoreMs', 'processReadyMs', 'sessionRestoreMs', 'snapshotMs', 'totalMs']);
     assert.ok(Object.values(timing).every(value => Number.isFinite(value) && value >= 0));
     assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs - timing.snapshotMs - timing.modelRestoreMs) < .001);
+    assert.deepEqual(progress.map(({ phase, status }) => `${phase}:${status}`),
+      ['launch:starting', 'process:starting', 'session:starting', 'snapshot:starting', 'model:starting', 'model:ready']);
+    assert.ok(progress.every(sample => sample.runtimeId === worker.id && sample.elapsedMs >= sample.phaseMs && sample.phaseMs >= 0));
+    assert.ok(!events.some(event => 'phaseMs' in event), 'Startup diagnostics stay in the main process');
     pool.activate(worker);
     assert.equal(worker.startupTiming, timing, 'Resident activation does not claim a new cold startup');
+    assert.equal(progress.length, 6);
   } finally { await pool.stopAll(); }
+});
+
+for (const phase of ['launch', 'process', 'session', 'snapshot', 'model'] as const) {
+  test(`failed ${phase} startup preserves bounded diagnostics and clears its pending approvals`, async () => {
+    const progress: RuntimeStartupDiagnostic[] = [];
+    const original = new Error('private-error-content');
+    let worker!: SessionRuntime, transport!: Transport, observedBeforeDisposal = false;
+    const fail = () => {
+      transport.receive({ type: 'extension_ui_request', method: 'confirm', id: 'private-request',
+        message: 'private-message', timeout: 60000 });
+      throw original;
+    };
+    const pool = new SessionRuntimes(() => {}, receive => {
+      transport = new Transport(receive, 'private-session');
+      const request = transport.request.bind(transport);
+      transport.request = async (type, args) => {
+        if (type === { launch: '', process: 'get_state', session: 'switch_session', snapshot: 'get_messages', model: '' }[phase])
+          fail();
+        return request(type, args);
+      };
+      return transport;
+    }, {
+      launch: current => { worker = current; if (phase === 'launch') fail(); return { env: {}, args: [] }; },
+      initializeModel: async () => { if (phase === 'model') fail(); },
+      startup: diagnostic => {
+        progress.push(diagnostic);
+        if (diagnostic.status === 'failed') observedBeforeDisposal = pool.workers.has(diagnostic.runtimeId);
+      },
+    });
+    try {
+      await assert.rejects(pool.open('node', 'private-entry', 'private-workspace',
+        { API_KEY: 'private-credential' }, 'private-session.jsonl'), error => error === original);
+      assert.equal(observedBeforeDisposal, true);
+      assert.equal(progress.at(-1)?.phase, phase);
+      assert.equal(progress.at(-1)?.status, 'failed');
+      assert.ok(!progress.some(sample => sample.status === 'ready'));
+      assert.doesNotMatch(JSON.stringify(progress), /private-/);
+      assert.deepEqual(Object.keys(progress.at(-1)!).sort(), ['elapsedMs', 'phase', 'phaseMs', 'pid', 'runtimeId', 'status']);
+      assert.equal(pool.workers.size, 0);
+      assert.equal(worker.pendingUI.size, 0);
+      assert.equal(worker.uiTimers.size, 0);
+      assert.equal(transport.stopped, true);
+    } finally { await pool.stopAll(); }
+  });
+}
+
+for (const phase of ['snapshot', 'model'] as const) {
+  test(`failed ${phase} startup and shutdown retain cleanup ownership without incomplete recovery activity`, async () => {
+    const events: RuntimeEvent[] = [];
+    const startupError = new Error('restoration failed'), stopError = new Error('termination failed');
+    let worker!: SessionRuntime, transport!: Transport, failStop = true, attempts = 0, disposed = 0;
+    const fail = () => {
+      transport.receive({ type: 'agent_start' });
+      transport.receive({ type: 'message_end', message: { role: 'assistant', content: [],
+        incomplete: 'no_visible_output', stopReason: 'stop' } });
+      transport.receive({ type: 'agent_end' });
+      transport.receive({ type: 'auto_compaction_start' });
+      transport.receive({ type: 'extension_ui_request', method: 'confirm', id: 'startup-request',
+        message: 'Confirm', timeout: 60000 });
+      worker.state = { ...worker.state!, pendingMessageCount: 1 };
+      worker.backgroundActive = true;
+      worker.backgroundLanes = [{ id: 'lane_12345678', status: 'running' }];
+      throw startupError;
+    };
+    const pool = new SessionRuntimes(event => events.push(event), receive => {
+      transport = new Transport(receive, 'startup-session');
+      const request = transport.request.bind(transport), stop = transport.stop.bind(transport);
+      transport.request = async (type, args) => {
+        if (phase === 'snapshot' && type === 'get_messages') fail();
+        return request(type, args);
+      };
+      transport.stop = async () => {
+        attempts++;
+        if (failStop) throw stopError;
+        await stop();
+      };
+      return transport;
+    }, {
+      launch: current => { worker = current; return { env: {}, args: [] }; },
+      initializeModel: async () => { if (phase === 'model') fail(); },
+      dispose: () => { disposed++; },
+    });
+    try {
+      await assert.rejects(pool.open('node', 'step', 'workspace', {}), error => error === stopError);
+      assert.equal(pool.workers.get(worker.id), worker);
+      assert.equal(worker.rpc, transport);
+      assert.equal(worker.status, 'disconnected');
+      assert.equal(worker.busy, false);
+      assert.equal(worker.runActive, false);
+      assert.equal(worker.failed, true);
+      assert.equal(worker.state?.isStreaming, false);
+      assert.equal(worker.state?.isCompacting, false);
+      assert.equal(worker.state?.pendingMessageCount, 0);
+      assert.equal(worker.backgroundActive, false);
+      assert.equal(worker.backgroundLanes, undefined);
+      assert.equal(worker.pendingUI.size, 0);
+      assert.equal(worker.uiTimers.size, 0);
+      assert.equal(disposed, 1);
+      assert.equal(pool.activeId, undefined);
+      assert.equal(pool.running, false);
+      await pool.assertAllIdle();
+      const revision = worker.revision;
+      transport.receive({ type: 'agent_settled' });
+      transport.receive({ type: 'agent_start' });
+      assert.equal(worker.revision, revision, 'Late recovery cannot revive a failed startup');
+      assert.equal(pool.running, false);
+      assert.ok(!events.some(event => event.type === 'desktop_task_completed'));
+      assert.equal(attempts, 1, 'Only explicit cleanup retries termination');
+      failStop = false;
+      await pool.stopAll();
+      assert.equal(attempts, 2);
+      assert.equal(transport.stopped, true);
+      assert.equal(pool.workers.size, 0);
+    } finally {
+      failStop = false;
+      await pool.stopAll();
+    }
+  });
+}
+
+for (const replacement of ['worker', 'transport'] as const) {
+  test(`failed startup cleanup cannot overwrite a newer ${replacement} owner`, async () => {
+    let worker!: SessionRuntime, transport!: Transport, entered!: () => void, release!: () => void;
+    const stopping = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const stopError = new Error('termination failed');
+    const pool = new SessionRuntimes(() => {}, receive => {
+      transport = new Transport(receive, 'startup-session');
+      transport.stop = async () => { entered(); await gate; throw stopError; };
+      return transport;
+    }, {
+      launch: current => { worker = current; return { env: {}, args: [] }; },
+      initializeModel: async () => { throw new Error('restoration failed'); },
+    });
+    const opening = pool.open('node', 'step', 'workspace', {});
+    const rejected = assert.rejects(opening, error => error === stopError);
+    try {
+      await stopping;
+      const nextTransport = new Transport(() => {}, 'replacement-session');
+      const next = replacement === 'worker' ? { ...worker } : worker;
+      next.rpc = nextTransport;
+      next.status = 'connected';
+      next.busy = true;
+      next.runActive = true;
+      next.failed = false;
+      pool.workers.set(worker.id, next);
+      release();
+      await rejected;
+      assert.equal(pool.workers.get(worker.id), next);
+      assert.equal(next.rpc, nextTransport);
+      assert.equal(next.status, 'connected');
+      assert.equal(next.busy, true);
+      assert.equal(next.runActive, true);
+      assert.equal(next.failed, false);
+    } finally {
+      release();
+      await Promise.allSettled([opening, rejected]);
+      transport.stop = async () => { transport.stopped = true; };
+      await transport.stop();
+      await pool.stopAll();
+    }
+  });
+}
+
+test('a failed diagnostic observer cannot fail or retain a healthy runtime', async () => {
+  const { pool, open, transports } = fixture({ startup: () => { throw new Error('sink failed'); } });
+  try {
+    const worker = await open();
+    assert.equal(pool.active, worker);
+    assert.equal(worker.status, 'connected');
+  } finally { await pool.stopAll(); }
+  assert.equal(transports[0].stopped, true);
+});
+
+for (const phase of ['process', 'session', 'snapshot', 'model'] as const) {
+  test(`stopping during ${phase} startup cannot activate a disposed worker`, async () => {
+    let reached!: () => void, release!: () => void;
+    const pending = new Promise<void>(resolve => { reached = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const hold = async () => { reached(); await gate; };
+    const transports: Transport[] = [];
+    let disposed = 0;
+    const pool = new SessionRuntimes(() => {}, receive => {
+      const transport = new Transport(receive, 'startup-session');
+      const request = transport.request.bind(transport);
+      transport.request = async (type, args) => {
+        if (type === { process: 'get_state', session: 'new_session', snapshot: 'get_messages', model: '' }[phase])
+          await hold();
+        return request(type, args);
+      };
+      transports.push(transport);
+      return transport;
+    }, { initializeModel: phase === 'model' ? hold : undefined, dispose: () => { disposed++; } });
+    const opening = pool.open('node', 'step', 'workspace', {});
+    const rejected = assert.rejects(opening, /stopped during startup/);
+    try {
+      await pending;
+      await pool.stopAll();
+      release();
+      await rejected;
+      assert.equal(pool.activeId, undefined);
+      assert.equal(pool.workers.size, 0);
+      assert.equal(disposed, 1, 'Startup cleanup does not dispose the stopped worker twice');
+      assert.equal(transports[0].stopped, true);
+      if (phase === 'process') assert.ok(!transports[0].calls.includes('new_session'));
+    } finally {
+      release();
+      await Promise.allSettled([opening, rejected]);
+      await pool.stopAll();
+    }
+  });
+}
+
+test('closing during empty-worker model refresh cannot reactivate the removed session', async () => {
+  let reached!: () => void, release!: () => void, count = 0;
+  const pending = new Promise<void>(resolve => { reached = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const { pool, open } = fixture({ initializeModel: async () => {
+    if (++count > 1) { reached(); await gate; }
+  } });
+  await open('workspace');
+  const opening = open('workspace');
+  const rejected = assert.rejects(opening, /stopped during startup/);
+  try {
+    await pending;
+    await pool.stopAll();
+    release();
+    await rejected;
+    assert.equal(pool.activeId, undefined);
+    assert.equal(pool.workers.size, 0);
+  } finally {
+    release();
+    await Promise.allSettled([opening, rejected]);
+    await pool.stopAll();
+  }
+});
+
+test('failed removal retains a disconnected cleanup handle without retrying or reactivating it', async () => {
+  const { pool, open, transports } = fixture();
+  const worker = await open();
+  const stop = transports[0].stop.bind(transports[0]);
+  const error = new Error('termination failed');
+  let attempts = 0;
+  transports[0].stop = async () => { attempts++; throw error; };
+  worker.backgroundActive = true;
+  try {
+    await assert.rejects(pool.remove(worker), failure => failure === error);
+    assert.equal(pool.workers.get(worker.id), worker);
+    assert.equal(pool.activeId, undefined);
+    assert.equal(worker.status, 'disconnected');
+    assert.equal(pool.running, false);
+    assert.equal(attempts, 1, 'Only an explicit cleanup may retry termination');
+    const next = await open(worker.cwd);
+    assert.notEqual(next, worker, 'A failed transport cannot be reused');
+    assert.equal(pool.active, next);
+    transports[0].stop = stop;
+    await pool.stopAll();
+    assert.equal(pool.workers.size, 0);
+    assert.equal(transports[0].stopped, true);
+  } finally {
+    transports[0].stop = stop;
+    await pool.stopAll();
+  }
+});
+
+test('failed stopAll retains only failed transports for explicit cleanup without reviving activity', async () => {
+  const { pool, open, transports } = fixture();
+  const host = await open();
+  await open();
+  host.backgroundActive = true;
+  const stop = transports[0].stop.bind(transports[0]);
+  const error = new Error('termination failed');
+  transports[0].stop = async () => { throw error; };
+  try {
+    await assert.rejects(pool.stopAll(), failure => failure === error);
+    assert.deepEqual([...pool.workers.keys()], [host.id]);
+    assert.equal(pool.activeId, undefined);
+    assert.equal(host.status, 'disconnected');
+    assert.equal(pool.running, false);
+    assert.equal(transports[1].stopped, true, 'A failed peer does not prevent other stops');
+    transports[0].stop = stop;
+    await pool.stopAll();
+    assert.equal(pool.workers.size, 0);
+    assert.equal(transports[0].stopped, true);
+  } finally {
+    transports[0].stop = stop;
+    await pool.stopAll();
+  }
 });
 
 test('idle retention grows within its cap, shrinks under pressure and still expires old sessions', async () => {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { JsonLines, RpcProcess, RpcCommandError, isolatedEnvironment } from '../electron/runtime';
@@ -88,10 +88,48 @@ test('POSIX stop force-kills a child that ignores SIGTERM and waits for its exit
   } finally { await rpc.stop(); }
 });
 
-test('real POSIX Step runtime has exited before stop resolves and can then restart', { skip: process.platform === 'win32', timeout: 60000 }, async () => {
+for (const helper of ['where.exe', 'cmd.exe']) {
+test(`Windows ${helper} cannot pretend to terminate a runtime tree`, { skip: process.platform !== 'win32', timeout: 15000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rpc-stop-helper-'));
+  const entry = join(root, 'fixture.cjs');
+  await writeFile(entry, `
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const command = JSON.parse(line);
+      process.stdout.write(JSON.stringify({ type: 'response', id: command.id, success: true }) + '\\n');
+    });
+  `);
+  // Exercise both a helper rejection and an exit-zero helper that kills nothing.
+  await copyFile(join(process.env.SystemRoot!, 'System32', helper), join(root, 'taskkill.exe'));
+  const path = process.env.PATH;
+  const rpc = new RpcProcess(() => {});
+  let child: ChildProcessWithoutNullStreams | undefined;
+  try {
+    rpc.start(process.execPath, entry, root, isolatedEnvironment(root));
+    await rpc.request('ready');
+    child = (rpc as unknown as { child: ChildProcessWithoutNullStreams }).child;
+    process.env.PATH = root;
+    await assert.rejects(rpc.stop(), /process-tree termination/);
+    assert.equal(rpc.pid, child.pid, 'Failed disposal retains its owner for explicit cleanup');
+    assert.equal(child.exitCode, null);
+    await assert.rejects(rpc.request('ready'), /not connected/);
+    assert.throws(() => rpc.start(process.execPath, entry, root, isolatedEnvironment(root)), /already started/);
+  } finally {
+    process.env.PATH = path;
+    if (child && child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise<void>(resolve => child!.once('exit', () => resolve()));
+      child.kill();
+      await exited;
+    }
+    await rpc.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+}
+
+test('real Step runtime has exited before stop resolves and can then restart', { timeout: 60000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rpc-real-stop-'));
   const rpc = new RpcProcess(() => {});
-  const node = resolve('runtime/node/node');
+  const node = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
   const entry = resolve('runtime/step/dist/bundle/step.js');
   try {
     rpc.start(node, entry, root, isolatedEnvironment(root));

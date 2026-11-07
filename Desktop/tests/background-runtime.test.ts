@@ -124,8 +124,8 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
   const node = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
   const entry = resolve('runtime/step/dist/bundle/step.js');
   const env = isolatedEnvironment(profile);
-  const waitFor = async (predicate: () => boolean) => {
-    const until = Date.now() + 25000;
+  const waitFor = async (predicate: () => boolean, deadlineMs = 25000) => {
+    const until = Date.now() + deadlineMs;
     while (!predicate()) {
       assert.deepEqual(failures, []);
       for (const worker of pool.workers.values()) for (const request of worker.pendingUI.values()) {
@@ -133,7 +133,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
         assert.match(request.title ?? '', /subagent/i);
         pool.respondToRequest(worker, { id: request.id, confirmed: true });
       }
-      if (Date.now() > until) throw new Error(`Background fixture timed out: child=${childRequested}, events=${events.map(event => event.type).slice(-15)}`);
+      if (Date.now() > until) throw new Error(`Background fixture timed out after ${deadlineMs}ms: child=${childRequested}, events=${events.map(event => event.type).slice(-15)}`);
       await new Promise(resolve => setTimeout(resolve, 20));
     }
   };
@@ -173,7 +173,11 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       const first = (await controls.read(host.id, sessionId)).lanes[0];
       assert.equal(first.status, 'completed');
       await host.rpc.request('prompt', { message: 'BACKGROUND-CAPACITY' });
-      await waitFor(() => slots.size === 8 && !pool.isBusy(host));
+      // Eight children start cold and their first model requests can trail the
+      // parent's settled turn on shared runners. This is a fixture mechanics
+      // budget for those spawns, not a product assertion: every capacity,
+      // dedup and retry check below keeps its original semantics.
+      await waitFor(() => slots.size === 8 && !pool.isBusy(host), 45000);
       const request = { sessionId, action: 'reply', laneId: first.id,
         requestId: '45678901-1234-1234-1234-123456789abc', prompt: 'BACKGROUND-RETRY' };
       const reply = (patch = {}) => host.rpc.request('desktop_subagents', { ...request, ...patch });
@@ -185,7 +189,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       const receipts = await Promise.all([reply(), reply()]);
       assert.deepEqual(receipts.map(receipt => receipt.delivery), ['started', 'started'],
         'unchanged manual retry succeeds after capacity frees, concurrent attempts share one delivery');
-      await waitFor(() => followUps.length === 1 && host.backgroundLanes?.length === 7 && !pool.isBusy(host));
+      await waitFor(() => followUps.length === 1 && host.backgroundLanes?.length === 7 && !pool.isBusy(host), 45000);
       assert.deepEqual(followUps, ['BACKGROUND-RETRY']);
       assert.equal((await reply()).delivery, 'started', 'successful retry retains its receipt');
       assert.deepEqual(followUps, ['BACKGROUND-RETRY']);

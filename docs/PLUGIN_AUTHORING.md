@@ -25,6 +25,15 @@ BVR 的账户桥也不是可按插件名称自动继承的通用能力。
 这尚不是通用宿主模型 API，也不代表已发布包已经切换策略。
 兼容迁移和组合发布门槛见 [MCP 账户凭据默认隔离](MCP_CREDENTIAL_ISOLATION.md)。
 
+### 官方 SDK 与通用授权候选
+
+不在用户安装时运行 npm/pip，不等于作者只能零依赖。
+[官方 MCP SDK 打包示例](../examples/plugins/sdk-host-starter/README.md)
+包含固定依赖、真实 bundle、许可证与无 `node_modules` 的原生握手验收。
+需要跟随账户的作者参考 [宿主模型协议候选](PLUGIN_HOST_CONTRACT.md)；
+这份声明、client 和参考提交器尚未接入生产 broker，不表示旧宿主已支持。
+不用宿主模型的插件继续沿用原来的资源和声明式配置协议。
+
 ## 固定布局
 
 ```text

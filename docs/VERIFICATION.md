@@ -9182,3 +9182,29 @@ The active staged runtime and replay evidence are isolated under
 and existing installer are unchanged. This is local source acceptance, not
 real-account/billing, native macOS, current cloud CI or installer acceptance.
 See [the implementation contract](COMPLETION_REVIEW.md).
+
+## 插件宿主协议候选与 SDK 示例 (2026-11-08)
+
+本轮实现未接入生产的声明解析、主进程模式提交参考、窄 host client，
+以及使用官方 MCP SDK 的自包含作者示例。没有修改 runtime pin，
+没有接入启动器、通用 broker、确认 UI、提供商接口或真实账户。
+候选说明见 [插件宿主模型协议](PLUGIN_HOST_CONTRACT.md)。
+
+本地 Windows 源码验证通过：
+
+- 56 项插件相关测试全部通过，其中 14 项为新增候选协议测试。
+  覆盖无独立 Key 跟随、独立配置修订、过期与撤销、并发保存、
+  孤立快照、损坏或带多余字段的指针/快照、安装身份及 junction 越界。
+- SDK 示例冻结依赖安装通过，5 项测试全部通过。
+  可安装快照复制到不含 `node_modules` 的新目录后，由官方 MCP client
+  完成真实 stdio 握手和工具调用；缺少宿主时明确不可用，不回退环境 Key。
+  离线授权前拒绝、授权后结果、撤销及原生后代环境删除均已验证。
+- 连续两次作者构建生成相同 bundle 和许可证 SHA-256；
+  发布物包含 8 份实际打包依赖的许可证记录。
+- Desktop 类型检查、生产构建通过；CI 策略和平台 runner 测试
+  39 项通过、1 项平台跳过。新增 Windows/macOS 示例工作流 YAML 已解析。
+
+模拟宿主的 provider 调用数始终为零；音频 MIME 测试不证明真实语音可用。
+本轮未运行完整 Desktop/Electron 验收，未生成安装包、更新桌面快捷方式，
+也未修改用户账户或日用 profile。本地检查不替代新 PR 的云端 CI、
+原生 macOS 验收、市场固定 SHA 同步或真实模型/计费验收。

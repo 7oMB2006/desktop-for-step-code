@@ -182,8 +182,10 @@ try {
     }));
     assert.ok(icons.length > 0);
     for (const icon of icons) {
-      assert.equal(icon.width, size, 'Logo width must not shrink in flex layouts');
-      assert.equal(icon.height, size);
+      // Wrapper boxes are layout-rounded on some runners (72.000015 at 100%
+      // zoom); the media checks below already carry the same tolerance.
+      assert.ok(Math.abs(icon.width - size) < .1, 'Logo width must not shrink in flex layouts');
+      assert.ok(Math.abs(icon.height - size) < .1);
       assert.equal(icon.basis, `${size}px`);
       assert.ok(icon.loaded, 'PNG logos must load');
       const mediaSize = icon.kind === 'png' ? size : size * 2 / 3;

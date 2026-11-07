@@ -113,6 +113,24 @@ new budget, the diagnosis continues into the runtime child startup path with the
 recorded phases. No product code, pin, patch or acceptance inventory changes in
 this follow-up.
 
+## PR #205 Plugin-Center Subpixel Assertion (2026-11-07)
+
+The second CI run's Windows interface group fails only
+`verify-plugin-center.mjs` at the icon height assertion: the wrapper box
+measures 72.00001525878906 instead of exactly 72. `getBoundingClientRect()`
+values are layout-rounded on some runners, and the same function already
+compares the media measurements with a `.1` tolerance; only the wrapper
+assertions used strict equality. The script's last change predates this branch
+(owner PR #204), and the first CI run of head `0871aa5` passed this exact
+Windows interface group, so the failure is runner rendering variance, not this
+branch's change. The fix aligns the wrapper width/height assertions with the
+existing `.1` tolerance and a comment; the `flexBasis` computed-style string
+stays exact, and the logo-must-not-shrink invariant is unchanged. Local
+verification on the merged mirror with the host Edge browser passes the full
+plugin-center acceptance (cold-cache lookups, installation sources, localized
+tags, keyword search, late StepPage preparation preserving navigation and the
+BVR draft). This is a test-only robustness change; no product code is modified.
+
 ## PR #207 macOS Undo Acceptance
 
 Head `b1fe638` passes all Windows gates, but macOS run `42347395061` fails

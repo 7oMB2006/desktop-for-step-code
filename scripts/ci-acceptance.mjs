@@ -121,6 +121,32 @@ export const localOnly = [
   'verify-plugin-center-manual.mjs',
   // Design-only preview; the production PluginCenter fixture is self-contained and runs above.
   'verify-plugin-center-preview.mjs',
+  // Local theme visual matrix; optional geometry comparison uses a captured baseline.
+  'verify-theme-materials.mjs',
+  'verify-stellar-chrome.mjs',
+  'verify-stellar-records.mjs',
+  'verify-stellar-decisions.mjs',
+  'verify-stellar-navigation.mjs',
+  'verify-stellar-controls.mjs',
+  'verify-stellar-surfaces.mjs',
+  'verify-stellar-settings.mjs',
+  'verify-stellar-search.mjs',
+  'verify-stellar-feedback.mjs',
+  'verify-stellar-decision-stress.mjs',
+  'verify-stellar-statuses.mjs',
+  'verify-stellar-lettering.mjs',
+  'verify-stellar-brand.mjs',
+  'verify-stellar-emblem.mjs',
+  'verify-theme-composition.mjs',
+  'verify-theme-finishing.mjs',
+  'verify-theme-idle.mjs',
+  'verify-theme-navigation.mjs',
+  'verify-theme-packs.mjs',
+  'verify-theme-workspace.mjs',
+  // Requires an explicitly prepared isolated Electron build and runtime.
+  'verify-theme-pack-electron.mjs',
+  'verify-stellar-pencil.mjs',
+  'verify-stellar-reading.mjs',
   // Comparative startup timings need a quiet machine; navigation correctness runs in CI above.
   'verify-session-navigation-performance.mjs',
   // Real Electron coverage above complements these visual fixture matrices.

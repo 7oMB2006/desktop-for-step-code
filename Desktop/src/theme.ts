@@ -1,11 +1,11 @@
-export type ThemeId = 'light' | 'paper' | 'dark' | 'blue' | 'wine' | 'jade' | 'original-light' | 'original-dark';
+export type ThemeId = 'light' | 'paper' | 'dark' | 'blue' | 'wine' | 'jade' | 'original-light' | 'original-dark' | `plugin:${string}`;
 export type ThemePreference = 'system' | ThemeId;
 export type ColorScheme = 'light' | 'dark';
 
 export interface ThemePalette {
   id: ThemeId;
   scheme: ColorScheme;
-  group: 'classic' | 'color' | 'original';
+  group: 'classic' | 'color' | 'original' | 'plugin';
   name: readonly [string, string];
   title: readonly [string, string];
   mood: readonly [string, string];
@@ -21,7 +21,7 @@ export interface ThemePalette {
 
 // Color families reference Oh-DSH's Deep Current, Ember Dusk and Jade Circuit.
 // Paper combines the supplied StepFun page's warm paper with a quieter canvas.
-export const themes: readonly ThemePalette[] = [
+export let themes: readonly ThemePalette[] = [
   { id: 'light', scheme: 'light', group: 'classic', name: ['亮', 'Light'], title: ['天光初霁', 'Morning Light'], mood: ['清透晨光', 'Clear morning'],
     bg: '#f4f7fa', side: '#e4ebf2', surface: '#ffffff', ink: '#293849', muted: '#57697b', border: '#d2dce6', code: '#eaf0f5', accent: '#6388aa' },
   { id: 'paper', scheme: 'light', group: 'classic', name: ['素', 'Paper'], title: ['素笺留白', 'Quiet Paper'], mood: ['温润纸色', 'Soft paper'],
@@ -39,6 +39,11 @@ export const themes: readonly ThemePalette[] = [
   { id: 'original-dark', scheme: 'dark', group: 'original', name: ['原版深色', 'Original Dark'], title: ['原版深色', 'Original Dark'], mood: ['纯净黑白', 'Neutral monochrome'],
     bg: '#141414', side: '#0d0d0d', surface: '#1f1f1f', ink: '#e8e8e8', muted: '#a4a4a4', border: '#303030', code: '#101010', accent: '#de4672' },
 ];
+
+const builtins = themes;
+export function registerPluginThemes(packs: readonly import('./theme-packs').ThemePack[]) {
+  themes = [...builtins, ...packs.map(pack => pack.palette)];
+}
 
 export function normalizeTheme(value: unknown): ThemePreference {
   return value === 'system' || themes.some(theme => theme.id === value) ? value as ThemePreference : 'system';

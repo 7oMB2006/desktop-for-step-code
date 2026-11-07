@@ -1,0 +1,233 @@
+/* Native decision surfaces: command, document and answer sheet share one material. */
+:root[data-theme-material=stellar] .approval-drawer {
+  --stellar-decision: var(--stellar-metal);
+  border-top-color: var(--stellar-decision);
+}
+:root[data-theme-material=stellar] .permission-approval:has(.approval-drawer-heading.hazardous) {
+  --stellar-decision: var(--danger);
+}
+:root[data-theme-material=stellar] .permission-approval:has(.approval-drawer-heading.uncertain) {
+  --stellar-decision: var(--stellar-gold);
+}
+:root[data-theme-material=stellar] .approval-drawer-heading {
+  position: relative;
+}
+:root[data-theme-material=stellar] .approval-drawer-heading::after {
+  content: ""; position: absolute; pointer-events: none;
+  bottom: 0; left: 20px; right: 20px; height: 1px; background: var(--stellar-section-rule);
+}
+:root[data-theme-material=stellar] .approval-drawer-heading > code {
+  color: var(--stellar-record-muted); background: transparent;
+}
+:root[data-theme-material=stellar] .permission-approval-content {
+  scroll-padding-block: 8px;
+}
+:root[data-theme-material=stellar] .permission-approval > .permission-approval-content { padding-top: 10px; }
+:root[data-theme-material=stellar] .permission-approval-target {
+  align-items: baseline; padding-bottom: 8px; border-bottom: 1px solid var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .permission-approval-target span { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .permission-approval-target code { background: transparent; }
+:root[data-theme-material=stellar] .permission-approval-input-heading {
+  color: var(--stellar-metal); font-size: 11px;
+}
+:root[data-theme-material=stellar] :is(.permission-approval-input, .permission-approval-parameters, .permission-approval-raw) {
+  border: 0; border-left: 2px solid var(--stellar-decision); border-radius: 0;
+  background: var(--stellar-record-paper); color: var(--stellar-record-ink);
+  box-shadow: inset 0 1px var(--stellar-rule), inset 0 -1px var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .permission-approval-reason {
+  color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .permission-approval-reason:is(.hazardous, .uncertain) {
+  color: var(--stellar-decision); border-left: 2px solid currentColor; padding-left: 10px;
+}
+:root[data-theme-material=stellar] .permission-approval-disclosure {
+  color: var(--stellar-record-muted); border-radius: 2px;
+}
+:root[data-theme-material=stellar] .permission-approval-disclosure[aria-expanded=true] { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .permission-approval-disclosure > svg { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .permission-approval-agent-note > span { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] :is(.permission-approval > .button-row, .plan-review-actions, .question-review-actions) {
+  background: var(--stellar-control);
+  border-top-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .approval-drawer .button-row button:not(.primary) {
+  background: transparent; border-color: var(--stellar-frame); color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .approval-drawer .button-row button:not(.primary):hover:not(:disabled) {
+  background: var(--stellar-raised); color: var(--ink);
+}
+:root[data-theme-material=stellar] .approval-drawer .button-row .primary {
+  box-shadow: none; border-radius: 3px;
+}
+:root[data-theme-material=stellar] .approval-drawer :is(button, pre):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+/* Keep the grip's original, compact focus affordance. */
+:root[data-theme-material=stellar] .approval-drawer .approval-drawer-grip:focus-visible { outline: none; }
+
+/* A plan stays a document. Native ordered lists supply the numbers, not fake task states. */
+:root[data-theme-material=stellar] .plan-review-path {
+  padding: 8px 0 10px; border-bottom: 1px solid var(--stellar-rule); background: transparent;
+}
+:root[data-theme-material=stellar] .plan-review-content .markdown :is(h1, h2, h3) { line-height: 1.45; }
+:root[data-theme-material=stellar] .plan-review-content .markdown h1 { font-size: 20px; margin-block: 8px 20px; }
+:root[data-theme-material=stellar] .plan-review-content .markdown h2 {
+  font-size: 15px; margin-top: 20px; padding-bottom: 8px; border-bottom: 1px solid var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .plan-review-content .markdown ol {
+  padding-left: 34px; list-style-type: decimal-leading-zero;
+}
+:root[data-theme-material=stellar] .plan-review-content .markdown ol > li {
+  position: relative; padding: 9px 0 9px 8px; border-left: 1px solid var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .plan-review-content .markdown ol > li::before {
+  content: ""; position: absolute; pointer-events: none;
+  left: -3px; top: 18px; width: 5px; height: 5px;
+  background: var(--stellar-metal); transform: rotate(45deg);
+}
+:root[data-theme-material=stellar] .plan-review-content .markdown li::marker { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .plan-review-content .markdown blockquote {
+  margin-inline: 0; padding-left: 12px; border-left: 1px solid var(--stellar-metal); color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .plan-review-content .markdown pre {
+  background: var(--stellar-record-paper);
+  box-shadow: inset 0 1px var(--stellar-record-hairline), inset 0 -1px var(--stellar-record-hairline);
+}
+:root[data-theme-material=stellar] .plan-review-content .markdown :not(pre) > code {
+  background: var(--stellar-record-gutter);
+}
+:root[data-theme-material=stellar] .plan-review-content .markdown :is(th, td) {
+  border-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .plan-review-content .markdown th {
+  background: var(--stellar-record-paper);
+}
+:root[data-theme-material=stellar] :is(.plan-review-content, .question-review-content) textarea {
+  background: var(--stellar-record-paper); color: var(--stellar-record-ink); border-radius: 3px;
+}
+
+/* Question options are rows on an answer sheet, not a grid of glowing cards. */
+:root[data-theme-material=stellar] .question-review-content h3 { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .question-reason {
+  color: var(--stellar-record-muted);
+  overflow-wrap: anywhere;
+}
+:root[data-theme-material=stellar] .question-beta { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .question-option {
+  border-radius: 0; border-color: transparent transparent var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .question-option:has(input:checked) {
+  border-color: transparent transparent var(--stellar-rule);
+  background: var(--stellar-raised); box-shadow: inset 2px 0 var(--primary);
+}
+:root[data-theme-material=stellar] .question-option-letter {
+  background: transparent; border-color: var(--stellar-frame); color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .question-option:has(input:focus-visible) {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+:root[data-theme-material=stellar] .question-option small { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .question-navigation {
+  font-family: "Cascadia Code", Consolas, monospace; color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .question-navigation button { border-radius: 2px; }
+
+/* References and queued drafts use the same numbered margins as process records. */
+:root[data-theme-material=stellar] :is(.quote-chip, .queue-trigger) {
+  border-radius: 2px 6px 2px 6px; border-color: var(--stellar-rule); background: var(--stellar-control);
+}
+:root[data-theme-material=stellar] .quote-chip:has([aria-expanded=true]),
+:root[data-theme-material=stellar] .queue-trigger[aria-expanded=true] {
+  border-color: var(--stellar-metal); box-shadow: inset 0 1px var(--stellar-metal);
+}
+:root[data-theme-material=stellar] :is(.quote-chip > button:first-child, .queue-trigger) { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] :is(.quote-chip > button[aria-expanded=true], .queue-trigger[aria-expanded=true]) { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] :is(.quote-popover, .queue-popover) {
+  background: var(--stellar-control); border-color: var(--stellar-frame);
+  border-bottom-color: var(--stellar-metal); border-radius: 2px 8px 2px 8px;
+  box-shadow: 0 8px 20px #0006;
+}
+:root[data-theme-material=stellar] .quote-popover:popover-open {
+  animation: stellar-reference-open 200ms cubic-bezier(.215, .61, .355, 1);
+}
+@keyframes stellar-reference-open {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+:root[data-theme-material=stellar] .composer-quote + .composer-quote { border-top-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] :is(.quote-number, .queue-order, .queue-total) {
+  font-family: "Cascadia Code", Consolas, monospace; color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .quote-excerpt {
+  padding-left: 9px; border-left: 1px solid var(--stellar-rule); color: var(--stellar-record-ink);
+}
+:root[data-theme-material=stellar] .quote-annotation-editor { border-top-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .quote-annotation-editor > span { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .quote-annotation-editor textarea {
+  background: var(--stellar-record-paper); border-color: var(--stellar-rule); border-radius: 2px;
+}
+:root[data-theme-material=stellar] :is(.selection-toolbar, .annotation-footnote-panel) {
+  border-color: var(--stellar-frame); border-radius: 2px 7px 2px 7px;
+  background: var(--stellar-control); box-shadow: 0 6px 16px #0005;
+}
+:root[data-theme-material=stellar] .annotation-footnote {
+  border-radius: 2px; border-color: var(--stellar-metal); background: var(--stellar-control); color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .annotation-footnote[aria-expanded=true] {
+  background: var(--stellar-record-gutter); border-color: var(--primary); color: var(--primary);
+}
+:root[data-theme-material=stellar] .annotation-source-excerpt {
+  border-left: 1px solid var(--stellar-metal); padding-left: 8px;
+}
+:root[data-theme-material=stellar] :is(.selection-annotation, .annotation-footnote-panel) textarea:focus {
+  outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 2px; box-shadow: none;
+}
+:root[data-theme-material=stellar] .queue-heading { color: var(--stellar-metal); border-bottom-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .queue-heading small { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .queue-row + .queue-row { border-top-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .queue-row:focus-within,
+:root[data-theme-material=stellar] .queue-row:hover { background: #bca98708; }
+:root[data-theme-material=stellar] .queue-actions button { border-radius: 2px; }
+:root[data-theme-material=stellar] .queue-full-quotes blockquote {
+  border-radius: 0; background: transparent; border-left: 1px solid var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .queue-full textarea {
+  border-radius: 2px; background: var(--stellar-record-paper);
+}
+:root[data-theme-material=stellar] :is(.quote-popover, .queue-popover) :is(button, textarea, [tabindex="0"]):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+:root[data-theme-material=stellar] .queue-full textarea:focus,
+:root[data-theme-material=stellar] .quote-annotation-editor textarea:focus {
+  outline: 2px solid var(--primary); outline-offset: -2px; box-shadow: none;
+}
+:root[data-theme-material=stellar] .attachment-card {
+  border-radius: 2px 7px 2px 7px; border-color: var(--stellar-frame); background: var(--stellar-record-paper);
+}
+:root[data-theme-material=stellar] .attachment-card.file {
+  border-color: var(--stellar-section-rule); border-radius: 3px;
+}
+:root[data-theme-material=stellar] .attachment-card.file:is(:hover, :focus-within) { border-color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .attachment-file > svg { color: var(--stellar-metal); stroke-width: 1.4; }
+:root[data-theme-material=stellar] .attachment-file > span { color: var(--stellar-record-ink); font-weight: 600; }
+:root[data-theme-material=stellar] .attachment-file small { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .attachments .attachment-remove {
+  border-radius: 3px; border-color: var(--stellar-frame); background: var(--stellar-control);
+}
+:root[data-theme-material=stellar] .attachments :is(.attachment-open, .attachment-remove):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+@media (max-width: 640px) {
+  :root[data-theme-material=stellar] .approval-drawer-heading::after { left: 12px; right: 12px; }
+  :root[data-theme-material=stellar] .composer-context-bar.has-queue {
+    flex-wrap: wrap; height: auto; min-height: 34px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme-material=stellar] .quote-popover:popover-open { animation: none; }
+}
+@media (forced-colors: active) {
+  :root[data-theme-material=stellar] .question-option:has(input:checked) { border-color: Highlight; }
+}

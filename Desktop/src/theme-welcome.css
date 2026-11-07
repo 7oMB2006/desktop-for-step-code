@@ -1,0 +1,11 @@
+.theme-welcome { position: relative; isolation: isolate; width: 100%; min-height: 540px; height: 100%; overflow: hidden; background: var(--bg); }
+.theme-stellar-stage { position: absolute; inset: 0; }
+.theme-stellar-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.theme-stellar-stage canvas { position: relative; display: block; width: 100%; height: 100%; }
+.theme-stellar-stage canvas:not([data-ready=true]) { visibility: hidden; }
+.theme-stellar-stage canvas[hidden] { display: none; }
+.theme-welcome-content { position: relative; min-height: inherit; height: 100%; pointer-events: none; display: grid; align-items: center; }
+.theme-welcome-content .new-session { background: radial-gradient(ellipse at center, var(--bg) 0%, transparent 70%); }
+.theme-welcome-content button, .theme-welcome-content a, .theme-welcome-content input { pointer-events: auto; }
+.theme-welcome-content h1, .theme-welcome-content .community-note { text-shadow: 0 1px 8px var(--bg), 0 0 20px var(--bg); }
+@media (max-width: 600px) { .theme-welcome { min-height: 460px; } }

@@ -1,0 +1,12 @@
+html, body, #root { margin: 0; width: 100%; height: 100%; }
+body { background: var(--bg); color: var(--ink); }
+.theme-preview { height: 100%; display: flex; flex-direction: column; }
+.theme-preview > header, .theme-preview > footer { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: var(--side); }
+.theme-preview > main { flex: 1; display: block; min-height: 0; overflow: auto; }
+.theme-preview .empty-state { text-align: center; display: flex; align-items: center; flex-direction: column; }
+.theme-preview-message { padding: 80px; }
+.theme-preview-backdrop { position: fixed; inset: 0; z-index: 20; background: #0008; display: grid; place-items: center; padding: 16px; }
+.theme-preview-backdrop > section { width: min(700px, 100%); max-height: 90vh; overflow: auto; padding: 24px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.theme-preview-backdrop header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.theme-preview-backdrop h2 { margin: 0; font-size: 18px; }
+@media (max-width: 600px) { .theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .theme-preview-backdrop > section { padding: 16px; } }

@@ -44,6 +44,8 @@ const bridge: DesktopBridge = {
   pluginConfiguration: input => invoke('pluginConfiguration', input),
   pluginSaveConfiguration: input => invoke('pluginSaveConfiguration', input),
   pluginChoosePath: input => invoke('pluginChoosePath', input),
+  themeScene: id => invoke('themeScene', id),
+  themePoster: id => invoke('themePoster', id),
   capabilityMutate: input => invoke('capabilityMutate', input),
   capabilityImportSkill: () => invoke('capabilityImportSkill'),
   bvrConfiguration: () => invoke('bvrConfiguration'),
@@ -165,6 +167,9 @@ const bridge: DesktopBridge = {
 };
 contextBridge.exposeInMainWorld('desktop', bridge);
 const theme: DesktopTheme = {
+  themePacks: resolvedTheme.themePacks,
+  themeMotion: resolvedTheme.themeMotion,
+  themeBrightness: resolvedTheme.themeBrightness,
   preference: resolvedTheme.preference,
   accentColor: resolvedTheme.accentColor,
   palette: resolvedTheme.palette,

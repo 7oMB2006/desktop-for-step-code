@@ -1,0 +1,113 @@
+/* Reading positions and agent phases use real records, not decorative topology. */
+:root[data-theme-material=stellar] .conversation-nav-panel nav {
+  padding-inline: 8px; scroll-padding-block: 8px;
+}
+:root[data-theme-material=stellar] .conversation-nav-panel nav button {
+  position: relative; border-radius: 2px; border-bottom-color: var(--stellar-rule);
+  transition: background-color 180ms cubic-bezier(.215, .61, .355, 1);
+}
+:root[data-theme-material=stellar] .conversation-nav-panel nav button::before {
+  content: ""; position: absolute; pointer-events: none;
+  top: 0; bottom: 0; left: 22px; width: 1px; background: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .nav-turn-number {
+  position: relative; align-self: flex-start; background: var(--stellar-panel-fill);
+  color: var(--stellar-metal); font-family: "Cascadia Code", Consolas, monospace;
+}
+:root[data-theme-material=stellar] .conversation-nav-panel nav button[aria-current=location] {
+  background: var(--stellar-raised); box-shadow: inset 2px 0 var(--primary);
+}
+:root[data-theme-material=stellar] .conversation-nav-panel [aria-current=location] .nav-turn-number {
+  color: var(--primary); background: var(--stellar-raised);
+}
+:root[data-theme-material=stellar] .conversation-nav-panel nav button:hover .nav-turn-number { background: var(--surface); }
+:root[data-theme-material=stellar] .nav-turn-time {
+  font-family: "Cascadia Code", Consolas, monospace; color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .turn-marker span {
+  background: var(--stellar-metal); height: 1px; opacity: .85;
+}
+:root[data-theme-material=stellar] .turn-marker.active span {
+  background: var(--primary); height: 2px;
+}
+:root[data-theme-material=stellar] .turn-marker.active span::after {
+  content: ""; display: block; width: 5px; height: 5px; margin-top: -2px;
+  background: var(--primary); transform: rotate(45deg);
+}
+:root[data-theme-material=stellar] .turn-marker-preview {
+  background: var(--stellar-control); border-color: var(--stellar-frame);
+  border-left-color: var(--stellar-metal); border-radius: 2px 7px 2px 7px;
+  box-shadow: 0 4px 8px #0005;
+}
+:root[data-theme-material=stellar] .turn-marker-preview time { display: block; margin-top: 7px; }
+
+/* A phase is a group, not evidence of execution order or agent dependencies. */
+:root[data-theme-material=stellar] .workflow-tabs {
+  border-bottom-color: var(--stellar-rule); background: var(--stellar-control);
+}
+:root[data-theme-material=stellar] .workflow-tabs button {
+  border-radius: 2px; transition: background-color 180ms cubic-bezier(.215, .61, .355, 1);
+}
+:root[data-theme-material=stellar] .workflow-tabs button[aria-pressed=true] {
+  background: var(--stellar-raised); box-shadow: inset 0 -1px var(--stellar-metal); color: var(--ink);
+}
+:root[data-theme-material=stellar] .workflow-run-picker { border-bottom-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .workflow-overview-heading {
+  padding-bottom: 10px; border-bottom: 1px solid var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .workflow-overview-heading strong { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .workflow-inline-meta { padding-block: 8px; gap: 8px 16px; }
+:root[data-theme-material=stellar] :is(.workflow-count, .workflow-elapsed, .subagent-meta) {
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+:root[data-theme-material=stellar] .workflow-phase h3 {
+  padding: 6px 0 6px 10px; border-left: 2px solid var(--stellar-metal);
+  color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .workflow-agent {
+  --agent-signal: var(--stellar-metal);
+  border-radius: 0; box-shadow: inset 0 -1px var(--stellar-rule);
+}
+:root[data-theme-material=stellar] :is(.workflow-agent, .subagent-body)[data-agent-state=completed] { --agent-signal: var(--green); }
+:root[data-theme-material=stellar] :is(.workflow-agent, .subagent-body)[data-agent-state=running] { --agent-signal: var(--primary); }
+:root[data-theme-material=stellar] :is(.workflow-agent, .subagent-body)[data-agent-state=failed] { --agent-signal: var(--danger); }
+:root[data-theme-material=stellar] :is(.workflow-agent, .subagent-body)[data-agent-state=aborted] { --agent-signal: var(--stellar-gold); }
+:root[data-theme-material=stellar] .workflow-agent.is-selected {
+  background: var(--stellar-raised);
+  box-shadow: inset 2px 0 var(--agent-signal), inset 0 -1px var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .workflow-agent-copy strong { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .workflow-agent-copy > span:not(.workflow-agent-issue):not(.workflow-retry) {
+  color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .workflow-cached {
+  padding: 2px 4px; border: 1px solid var(--stellar-rule); border-radius: 2px; color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .subagent-head {
+  position: relative; flex-wrap: wrap; border-bottom: 1px solid var(--stellar-rule); margin-bottom: 10px;
+}
+:root[data-theme-material=stellar] .subagent-head::after {
+  content: ""; position: absolute; bottom: -1px; left: 0; width: 28px; height: 1px;
+  background: var(--agent-signal, var(--stellar-metal)); pointer-events: none;
+}
+:root[data-theme-material=stellar] .subagent-head .lane-type { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .subagent-task {
+  padding: 8px 0 12px; color: var(--stellar-record-ink); overflow-wrap: anywhere;
+}
+:root[data-theme-material=stellar] .subagent-note {
+  padding: 6px 0 6px 10px; border: 0; border-left: 1px solid var(--stellar-rule);
+  border-radius: 0; color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .subagent-transcript {
+  margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .workflow-detail-phase {
+  color: var(--stellar-metal); font-variant-numeric: tabular-nums;
+}
+:root[data-theme-material=stellar] .subagent-panel :is(button, summary):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+:root[data-theme-material=stellar] .workflow-pane { scroll-padding-block: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme-material=stellar] :is(.conversation-nav-panel nav button, .workflow-tabs button) { transition: none; }
+}

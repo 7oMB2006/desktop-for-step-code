@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "name": "星辰巡航",
+  "author": "7oMB2006",
+  "cover": "cover.png",
+  "renderer": "stellar-v1",
+  "scene": "scene.json",
+  "scheme": "dark",
+  "colors": {
+    "bg": "#18191b",
+    "side": "#111214",
+    "surface": "#252629",
+    "ink": "#ededea",
+    "muted": "#b0b1b4",
+    "border": "#3b3d41",
+    "code": "#111214",
+    "accent": "#74d9d0"
+  }
+}

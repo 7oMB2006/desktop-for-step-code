@@ -15,6 +15,7 @@ if (process.platform === 'darwin') execFileSync('/usr/bin/xcrun', ['swiftc', '-t
 for (const name of ['file-associations.cs', 'file-associations.ps1'])
   await cp(`electron/${name}`, `dist/file-opening/${name}`);
 for (const [source, name] of [
+  ['three/LICENSE', 'three.txt'],
   ['@number-flow/react/LICENSE.md', 'number-flow-react.txt'],
   ['react-colorful/LICENSE', 'react-colorful.txt'],
   ['number-flow/LICENSE.md', 'number-flow.txt'],

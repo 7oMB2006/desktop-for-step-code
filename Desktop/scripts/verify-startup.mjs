@@ -1,12 +1,18 @@
 import { _electron as electron, chromium } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 await mkdir('test-results/startup', { recursive: true });
-const profile = await mkdtemp(join(tmpdir(), 'step-startup-window-'));
+const root = await realpath(await mkdtemp(join(tmpdir(), 'step-startup-window-')));
+const physical = join(root, 'physical'), alias = join(root, 'alias');
+await mkdir(physical);
+await symlink(physical, alias, process.platform === 'win32' ? 'junction' : 'dir');
+const profile = join(alias, 'profile');
+await mkdir(profile);
+assert.notEqual(profile, await realpath(profile), 'Exercise a temporary profile reached through a parent alias');
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', DESKTOP_TEST_STARTUP_WINDOW: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -21,6 +27,8 @@ try {
   const timeout = setTimeout(() => release(), 5000);
   await app.context().route('**/assets/*.js', async route => { await gate; await route.continue(); });
   const splash = await app.firstWindow();
+  assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), await realpath(profile),
+    'Canonicalize the trusted test profile before plugin update recovery');
   await splash.waitForURL('**/startup-logo.html', { timeout: 10000 });
   assert.ok(splash.url().includes('startup-logo.html'), 'first window must be the isolated splash');
   const state = await app.evaluate(({ BrowserWindow, screen }) => {

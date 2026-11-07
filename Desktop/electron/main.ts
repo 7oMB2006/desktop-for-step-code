@@ -4,7 +4,7 @@ import { statusBuild } from './session-status';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
 import { freemem, homedir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -98,7 +98,8 @@ if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplat
     { type: 'separator' }, { role: 'togglefullscreen' }] },
   { role: 'windowMenu' },
 ]));
-if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
+// Hosted runners may expose temporary profiles through /var or Windows short-path aliases.
+if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', realpathSync(resolve(process.env.DESKTOP_TEST_USER_DATA)));
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
 const workflowBindings = new WorkflowBindings(join(app.getPath('userData'), 'workflow-bindings'));

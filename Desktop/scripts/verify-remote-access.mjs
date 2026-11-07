@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { prepareSessionFixture } from './session-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { planContext, planPath } from './plan-context.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const resources = executablePath ? (process.platform === 'darwin' ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
@@ -40,7 +41,7 @@ while (!stdout.includes('"smoke"')) {
 assert.deepEqual(JSON.parse(stdout.trim()), { type: 'response', id: 'smoke', success: false, error: 'Remote operation unavailable' });
 helper.stdin.end(); await helperClosed; assert.equal(stderr, '');
 
-const profile = await mkdtemp(join(tmpdir(), 'step-remote-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-remote-')));
 const root = join(profile, 'step-runtime');
 await mkdir(root, { recursive: true });
 const fixtureHelper = join(profile, 'remote-fixture.mjs');
@@ -274,6 +275,9 @@ try {
     assert.deepEqual(issues, [], 'Production focus outline must be visible on all four sides');
   };
   const checkSteps = async () => {
+    const steps = page.locator('.remote-setup-steps');
+    await steps.scrollIntoViewIfNeeded();
+    await settleLayout(steps);
     const geometry = await page.locator('.remote-setup-steps > button').evaluateAll(elements => elements.map(element => {
       const rect = element.getBoundingClientRect(), style = getComputedStyle(element), marker = element.firstElementChild.getBoundingClientRect();
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height,
@@ -286,7 +290,7 @@ try {
       assert.ok(Math.abs(rect.width - geometry[0].width) < 1 && Math.abs(rect.y - geometry[0].y) < 1);
       assert.equal(rect.paddingTop, rect.paddingBottom, 'Hit area has symmetric vertical padding');
       assert.ok(Math.abs(rect.center - rect.controlCenter) < 1, 'Step marker is vertically centered');
-      assert.equal(rect.hit, true, 'The whole step column is the hit target');
+      assert.equal(rect.hit, true, `The whole step column is the hit target: ${JSON.stringify(rect)}`);
     }
   };
   await page.locator('.composer > .composer-input').fill('Draft stays local');
@@ -338,6 +342,7 @@ try {
   const probe = await waitCard(card => card.key === 'probe');
   await inject('decision', { token: probe.actions.token, option: 'Verify / 验证' });
   await waitState(current => current.approvalReady);
+  await panel.locator('.remote-setup-footer').scrollIntoViewIfNeeded();
   await checkSteps();
   await panel.locator('.remote-setup-steps button').first().hover();
   await checkFocus(panel.locator('.remote-setup-steps button').first());

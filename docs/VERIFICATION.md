@@ -34,6 +34,25 @@ under `ci-fix-*`. Full-suite, replacement cloud/macOS and updated packaged
 acceptance remain separate gates. The already delivered `e5918c2` package and
 desktop shortcut are not silently replaced by this CI repair.
 
+The complete local suite subsequently exits normally: 1,390 tests, 1,376
+passed, fourteen platform skips, zero failures, 419.1 seconds. Source Electron
+Plan review, completion review and general window/RPC/isolation acceptance also
+pass. The execution-outcome visual matrix passes all twenty-four cases using
+installed Edge; the local bundled Chromium is unavailable.
+
+Replacement cloud runs pass the image tests and expose two later fixture
+assumptions. The Windows Remote restart fixture creates an empty project under
+an aliased temporary parent, which the unchanged canonical-project guard
+correctly rejects. Canonicalize its profile before creating projects. A local
+junction-parent invocation reproduces the same restart failure before this
+change, then passes the full source Remote fixture after it, including actual
+quit/relaunch recovery. On macOS, the step-column hit probe can run outside the scrolled
+viewport; reveal the actual navigation and await shared layout settlement
+before measuring it. The fixture explicitly visits its footer first and keeps
+all width, padding, marker alignment and hit-target assertions. No product
+authorization guard or CI inventory is relaxed. Replacement cloud results
+remain a separate gate.
+
 ## PR #194 Main And v0.1.7 Synchronization (2026-11-07)
 
 Merge main `4318d6e` into the Remote Beta without rewriting either branch.

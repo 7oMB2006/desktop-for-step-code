@@ -1,5 +1,27 @@
 # Verification
 
+## MiniChat Review And CI Follow-up (2026-11-07)
+
+HTTP(S) message links in MiniChat now transfer its conversation, reading state
+and pending draft to main before opening the existing native browser. MiniChat
+does not gain browser listing/layout IPC. Reopening the same link explicitly
+reveals the panel instead of toggling it closed. The real-runtime verifier uses
+a loopback page and checks main navigation away from Remote, exact selected
+session, retained input, native view visibility, repeated opening and no model
+request caused by the handoff.
+
+The old CI assertions now distinguish a restored nonempty draft (which pauses
+the greeting) from an empty draft's per-character animation, hold both RPC and
+event preference acknowledgements, and allow the macOS MiniChat button while
+still rejecting Windows-style window controls. No script is excluded and no
+runtime pin, product animation or preference synchronization is disabled.
+
+Local typecheck, production build, browser MiniChat, native MiniChat,
+new-session and appearance checks pass. All 28 draft/composer/greeting tests
+pass; the 21 CI-runner tests have 20 passes and one platform skip.
+These receipts do not substitute for current-head cloud, native macOS,
+packaged or real-account acceptance.
+
 ## MiniChat Main Synchronization (2026-11-07, Local Candidate)
 
 The candidate integrates main `e419143`, retaining Remote, Stellar presentation,

@@ -138,6 +138,18 @@ try {
   await page.reload();
   await heading.waitFor();
   await waitForNewSessionButton(page);
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.textContent === 'A draft preserved while choosing a project');
+  assert.equal(await input.textContent(), 'A draft preserved while choosing a project', 'reload preserves the main-owned draft');
+  // A restored nonempty draft deliberately pauses the greeting. Test typing on
+  // a fresh empty presentation instead of interpreting that pause as lost motion.
+  await input.fill('');
+  await page.waitForFunction(async () => {
+    const snapshot = await window.desktop.snapshot();
+    return (await window.desktop.composerRead({ draftId: snapshot.draftId })).value.text === '';
+  });
+  await page.reload();
+  await heading.waitFor();
+  await waitForNewSessionButton(page);
   const openingText = await heading.getAttribute('aria-label');
   await page.waitForFunction(text => document.querySelector('.terminal-heading-output')?.textContent === text, openingText);
   const frames = await page.evaluate(() => window.headingFrames);

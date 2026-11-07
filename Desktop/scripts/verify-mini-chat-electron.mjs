@@ -40,6 +40,11 @@ const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({ id: 'mi
   choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
 const textOf = content => typeof content === 'string' ? content : content?.map(block => block.text ?? '').join('\n') ?? '';
 const server = createServer(async (request, response) => {
+  if (request.method === 'GET') {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><title>MiniChat link handoff</title><p>Opened in the main window.</p>');
+    return;
+  }
   let body = ''; for await (const part of request) body += part;
   const payload = JSON.parse(body); requests.push(payload);
   const label = textOf(payload.messages.findLast(message => message.role === 'user' && /MINI-/.test(textOf(message.content)))?.content);
@@ -49,7 +54,9 @@ const server = createServer(async (request, response) => {
       function: { name: 'write_file', arguments: JSON.stringify({ path: 'mini-approved.txt', content: 'Explicit MiniChat approval' }) } }] }, 'tool_calls') + 'data: [DONE]\n\n');
   } else if (label.includes('MINI-HOLD')) {
     held.set(label, response); response.write(chunk({ role: 'assistant', content: 'Mini streaming is live.' }));
-  } else response.end(chunk({ role: 'assistant', content: `Completed ${label || 'MINI-SEND'}.` }, 'stop') + 'data: [DONE]\n\n');
+  } else response.end(chunk({ role: 'assistant', content: label.includes('MINI-WEB-LINK')
+    ? `[MiniChat local page](http://127.0.0.1:${server.address().port}/mini-link)`
+    : `Completed ${label || 'MINI-SEND'}.` }, 'stop') + 'data: [DONE]\n\n');
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
@@ -68,9 +75,10 @@ try {
     env, timeout: 60000 });
   const main = await app.firstWindow();
   main.setDefaultTimeout(30000); main.on('pageerror', error => errors.push(error.message));
-  await app.evaluate(({ BrowserWindow }) => {
+  const mainWindowId = await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1320, 880);
+    return window.id;
   });
   await main.getByRole('button', { name: 'Mini one', exact: true }).click();
   await main.waitForFunction(async () => {
@@ -243,6 +251,49 @@ try {
   const afterDraft = await Promise.all([main.evaluate(() => window.desktop.snapshot()), mini.evaluate(() => window.desktop.snapshot())]);
   assert.equal(afterDraft[0].runtimeId, afterDraft[1].runtimeId);
   assert.equal(afterDraft[0].draftId, undefined);
+  // A real message link transfers the selected conversation and draft to main,
+  // then opens its native browser. MiniChat must not gain browser-layout IPC.
+  await editor.fill('MINI-WEB-LINK'); await editor.press('Enter');
+  const link = mini.getByRole('link', { name: 'MiniChat local page', exact: true });
+  await link.waitFor();
+  await mini.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await editor.fill('Keep this draft during web handoff');
+  await main.evaluate(() => window.desktop.navigateSession('two'));
+  await main.reload();
+  await main.getByRole('button', { name: '远程访问', exact: true }).click();
+  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor();
+  const beforeLinkRequests = requests.length;
+  await link.click();
+  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
+  await main.locator('#browser-panel[aria-hidden="false"]').waitFor();
+  const linkUrl = `http://127.0.0.1:${server.address().port}/mini-link`;
+  const waitForLinkedBrowser = async () => {
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      const browser = await main.evaluate(() => window.desktop.browserList());
+      const loaded = browser.tabs.some(tab => tab.id === browser.activeId && tab.url === linkUrl
+        && tab.title === 'MiniChat link handoff' && !tab.loading);
+      const visible = await app.evaluate(({ BrowserWindow }, { id, url }) => BrowserWindow.fromId(id).contentView.children
+        .some(view => view.getVisible() && view.webContents?.getURL() === url), { id: mainWindowId, url: linkUrl });
+      if (loaded && visible) return;
+      await main.waitForTimeout(50);
+    }
+    assert.fail('The linked native browser never finished loading in the visible main panel');
+  };
+  await waitForLinkedBrowser();
+  assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.sessionId, afterDraft[1].state.sessionId);
+  await main.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Keep this draft during web handoff');
+  assert.equal(requests.length, beforeLinkRequests, 'Opening a link does not submit the preserved draft');
+  await assert.rejects(mini.evaluate(() => window.desktop.browserList()), /main window/);
+  await main.getByRole('button', { name: 'MiniChat', exact: true }).click();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').showInactive());
+  await mini.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Keep this draft during web handoff');
+  await link.click();
+  await main.locator('#browser-panel[aria-hidden="false"]').waitFor();
+  await waitForLinkedBrowser();
+  assert.equal(requests.length, beforeLinkRequests, 'Reopening the same link neither hides its panel nor submits input');
+  await main.getByRole('button', { name: 'MiniChat', exact: true }).click();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').showInactive());
   await main.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
   await mini.getByRole('button', { name: 'Switch MiniChat conversation', exact: true }).waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').setSize(380, 400));
@@ -265,7 +316,7 @@ try {
   await mini.screenshot({ path: join(output, 'native-light-narrow.png') });
   assert.deepEqual(errors, []);
   await writeFile(join(output, 'result.json'), JSON.stringify({ profile, requests: requests.length, errors, verified: true }, null, 2));
-  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, deletion guard, draft promotion, pin, narrow light/en/focus.');
+  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, web-link handoff/reopen with preserved draft and native browser, deletion guard, draft promotion, pin, narrow light/en/focus.');
 } catch (error) {
   console.error('Native windows at failure', await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({
     title: window.getTitle(), url: window.webContents.getURL(),

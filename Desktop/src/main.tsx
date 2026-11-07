@@ -334,11 +334,12 @@ function App() {
       setRightPanel(toggle && same && rightPanel === 'browser' && !details ? null : 'browser');
     }
   }, [rightPanel, details, previewFile]);
-  const openWeb = useCallback(async (address: string) => {
+  const openWeb = useCallback(async (address: string, toggle = true) => {
+    if (isMini) { await handoff('web', { address }); return; }
     if (!bridge) throw new Error('Desktop unavailable');
     const sequence = ++openingSequence.current;
     const before = await bridge.browserList();
-    if (rightPanel === 'browser' && !details && before.tabs.find(tab => tab.id === before.activeId)?.url === address) {
+    if (toggle && rightPanel === 'browser' && !details && before.tabs.find(tab => tab.id === before.activeId)?.url === address) {
       setRightPanel(null); return;
     }
     await bridge.browserOpenLink(address);
@@ -1698,6 +1699,7 @@ function App() {
     else if (event.action === 'cron') openScheduled();
     else if (event.action === 'plugins') openPlugins(event.payload);
     else if (event.action === 'file') await openFile(event.payload?.target, event.payload?.destination);
+    else if (event.action === 'web') await openWeb(event.payload?.address, false);
     else if (event.action === 'subagent') openSubagent(event.payload);
     else if (event.action === 'workflows') setWorkflowCatalogRequest({ runtimeId: value.runtimeId, sessionId: value.state?.sessionId, id: ++workflowCatalogSequence.current });
     else if (event.action === 'todos') {

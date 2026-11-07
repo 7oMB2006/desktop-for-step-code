@@ -1121,7 +1121,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
       return;
     }
     case 'miniChatMainAction': {
-      if (surface !== 'mini' || !['settings', 'usage', 'cron', 'todos', 'workflows', 'status', 'clm', 'btw', 'plugins', 'file', 'subagent'].includes(args[0]))
+      if (surface !== 'mini' || !['settings', 'usage', 'cron', 'todos', 'workflows', 'status', 'clm', 'btw', 'plugins', 'file', 'web', 'subagent'].includes(args[0]))
         throw new Error('Unsupported main-window action');
       // Transfer the viewed conversation before opening a larger tool.
       const owner = miniView.draft ? { draftId: miniView.draft.id }

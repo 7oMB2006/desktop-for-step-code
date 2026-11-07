@@ -364,12 +364,12 @@ function App() {
   const [taskStatusOpen, setTaskStatusOpen] = useState(false);
   useEffect(() => { setTaskStatusOpen(false); }, [data.runtimeId]);
   const turnUltracode = Boolean(busy && (data.launch?.ultracodeTurn || currentGoal?.status === 'active' && currentGoal.ultracode));
-  const openWorkflow = useCallback((id: string) => {
+  const openWorkflow = useCallback((id: string, toggle = true) => {
     if (isMini) { void handoff('workflows', id); return; }
     const same = rightPanel === 'subagent' && !details && subagentView === 'overview' && selectedWorkflow === id;
     if (selectedWorkflow !== id) setSelectedWorkflowAgent(null);
     setSelectedBackgroundAgent(undefined);
-    setSelectedWorkflow(id); setSubagentView('overview'); setDetails(''); setRightPanel(same ? null : 'subagent');
+    setSelectedWorkflow(id); setSubagentView('overview'); setDetails(''); setRightPanel(toggle && same ? null : 'subagent');
   }, [rightPanel, details, subagentView, selectedWorkflow]);
   const [repositoryRequest, setRepositoryRequest] = useState<{ runtimeId?: string; sequence: number }>();
   const [tasksRequest, setTasksRequest] = useState<{ runtimeId?: string; sessionId?: string; draftId?: string; sequence: number }>();
@@ -1701,7 +1701,10 @@ function App() {
     else if (event.action === 'file') await openFile(event.payload?.target, event.payload?.destination);
     else if (event.action === 'web') await openWeb(event.payload?.address, false);
     else if (event.action === 'subagent') openSubagent(event.payload);
-    else if (event.action === 'workflows') setWorkflowCatalogRequest({ runtimeId: value.runtimeId, sessionId: value.state?.sessionId, id: ++workflowCatalogSequence.current });
+    else if (event.action === 'workflows') {
+      if (typeof event.payload === 'string') { setWorkflowCatalogRequest(null); openWorkflow(event.payload, false); }
+      else setWorkflowCatalogRequest({ runtimeId: value.runtimeId, sessionId: value.state?.sessionId, id: ++workflowCatalogSequence.current });
+    }
     else if (event.action === 'todos') {
       setRightPanel('summary'); setTasksRequest({ runtimeId: value.runtimeId, sessionId: value.state?.sessionId,
         draftId: value.draftId, sequence: ++tasksSequence.current });

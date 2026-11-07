@@ -143,6 +143,7 @@ try {
   // A restored nonempty draft deliberately pauses the greeting. Test typing on
   // a fresh empty presentation instead of interpreting that pause as lost motion.
   await input.fill('');
+  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '');
   await page.waitForFunction(async () => {
     const snapshot = await window.desktop.snapshot();
     return (await window.desktop.composerRead({ draftId: snapshot.draftId })).value.text === '';
@@ -152,13 +153,14 @@ try {
   await waitForNewSessionButton(page);
   const openingText = await heading.getAttribute('aria-label');
   await page.waitForFunction(text => document.querySelector('.terminal-heading-output')?.textContent === text, openingText);
+  await page.waitForFunction(() => document.querySelector('.terminal-heading-output')?.textContent.length < 7, undefined, { timeout: 12000 });
+  await page.waitForFunction(text => document.querySelector('.new-session h1')?.getAttribute('aria-label') !== text, openingText, { timeout: 12000 });
+  const nextText = await page.locator('.new-session h1').getAttribute('aria-label');
+  await page.waitForFunction(text => document.querySelector('.terminal-heading-output')?.textContent === text, nextText);
   const frames = await page.evaluate(() => window.headingFrames);
   const textLengths = [...new Set(frames.map(frame => frame.text.length))];
   assert.ok(textLengths.some(length => length > 0 && length < 7) && textLengths.includes(7), 'headline reveals individual characters');
   assert.ok(frames.every(frame => Math.abs(frame.width - frames[0].width) < .5), 'headline typing cannot shift its width');
-  await page.waitForFunction(() => document.querySelector('.terminal-heading-output')?.textContent.length < 7, undefined, { timeout: 12000 });
-  await page.waitForFunction(text => document.querySelector('.new-session h1')?.getAttribute('aria-label') !== text, openingText, { timeout: 12000 });
-  const nextText = await page.locator('.new-session h1').getAttribute('aria-label');
   await input.fill('Pause the greeting while composing');
   await page.waitForFunction(text => document.querySelector('.terminal-heading-output')?.textContent === text, nextText);
   assert.ok(await page.locator('.terminal-heading-space').evaluate(element => {
@@ -265,6 +267,9 @@ try {
   assert.equal((await snapshot()).preferences.workspace, undefined);
 } catch (error) {
   await page?.screenshot({ path: 'test-results/new-session-failure.png' }).catch(() => {});
+  console.error('Greeting frames:', await page?.evaluate(() => ({ frames: window.headingFrames,
+    reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+    draft: document.querySelector('.composer-input')?.textContent })).catch(() => undefined));
   throw error;
 } finally {
   await writeFile('test-results/new-session-layout.json', JSON.stringify({ nativeHeightLimit, pickerLayouts, errors }, null, 2));

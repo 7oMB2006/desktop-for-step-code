@@ -18,15 +18,27 @@ for (const id of ['one', 'two', 'three']) {
   for (let index = 0; index < 12; index++) {
     for (const role of ['user', 'assistant']) {
       const entry = `${id}-${role}-${index}`;
+      const workflow = id === 'one' && [4, 5].includes(index) && role === 'assistant'
+        ? { callId: `workflow-${index}`, name: index === 4 ? 'Selected Mini workflow' : 'Latest Mini workflow' } : undefined;
       lines.push({ type: 'message', id: entry, parentId, timestamp, message: {
         role, timestamp: Date.now() + index,
         content: role === 'user' ? `Question ${index} in ${id}` : [
           { type: 'thinking', thinking: `Reasoning ${index}: retain manually opened details.` },
           { type: 'text', text: `## Answer ${index}\n\nNative MiniChat reuses the actual conversation and composer.\n\n`
             + 'Readable text remains available when switching windows.\n\n'.repeat(3) + '```ts\nconst shared = "one runtime";\n```' },
+          ...(workflow ? [{ type: 'toolCall', id: workflow.callId, name: 'workflow', arguments: { name: workflow.name, script: 'fixture' } }] : []),
         ], ...(role === 'assistant' ? { stopReason: 'stop', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } } } : {}),
       } });
       parentId = entry;
+      if (workflow) {
+        const resultId = `${entry}-result`;
+        lines.push({ type: 'message', id: resultId, parentId, timestamp, message: {
+          role: 'toolResult', toolName: 'workflow', toolCallId: workflow.callId, content: [{ type: 'text', text: 'Completed fixture workflow' }],
+          details: { schemaVersion: 1, runId: `wf_mini_${index}`, name: workflow.name, status: 'completed',
+            agents: [], totalAgents: 0, completedAgents: 0 }, isError: false, timestamp: Date.now() + index,
+        } });
+        parentId = resultId;
+      }
     }
   }
   lines.push({ type: 'session_info', id: `${id}-name`, parentId, timestamp, name: `Mini ${id}` });
@@ -109,6 +121,35 @@ try {
   assert.equal(await mini.evaluate(() => typeof window.require), 'undefined');
   await assert.rejects(mini.evaluate(() => window.desktop.browserLayout({})), /main window/);
   await assert.rejects(mini.evaluate(() => window.desktop.preferences({ language: 'en' })), /main window/);
+  // The clicked historical workflow, not the latest run or saved catalog, wins.
+  await main.evaluate(() => window.desktop.navigateSession('two'));
+  await main.reload();
+  await mini.locator('article.message.assistant').filter({ hasText: 'Answer 4' }).locator('.historical-agents > summary').click();
+  const workflowCard = mini.locator('.workflow-heading').filter({ hasText: 'Selected Mini workflow' });
+  const reopenMini = async () => {
+    await main.getByRole('button', { name: 'MiniChat', exact: true }).click();
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').showInactive());
+  };
+  for (let repeat = 0; repeat < 2; repeat++) {
+    if (repeat) await reopenMini();
+    await workflowCard.click();
+    const overview = main.locator('#subagent-panel[aria-hidden="false"] .workflow-overview-heading strong');
+    await overview.waitFor();
+    assert.equal(await overview.textContent(), 'Selected Mini workflow');
+    assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.sessionId, 'one');
+    assert.equal(await main.locator('#workflow-catalog-panel[aria-hidden="false"]').count(), 0);
+  }
+  await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
+  await reopenMini();
+  await editor.fill('/workflows'); await editor.press('Escape'); await editor.press('Enter');
+  await main.locator('#workflow-catalog-panel[aria-hidden="false"]').waitFor();
+  assert.equal(await main.locator('#subagent-panel[aria-hidden="false"]').count(), 0, 'Bare workflows opens the saved catalog, not run details');
+  await main.keyboard.press('Escape');
+  await main.locator('#workflow-catalog-panel[aria-hidden="false"]').waitFor({ state: 'detached' });
+  assert.equal(requests.length, 0, 'Inspecting workflows never sends a model request');
+  await reopenMini();
+  await editor.fill('Shared from mini');
+  await main.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Shared from mini');
   const quote = { id: 'shared-quote', entryId: 'one-assistant-0', messageIndex: 1, role: 'assistant',
     text: 'Native MiniChat', markdown: 'Native MiniChat', startOffset: 0, endOffset: 15 };
   await main.evaluate(async quote => {
@@ -175,7 +216,28 @@ try {
   // Two windows compete for exactly the same input; only the winner may prompt.
   await editor.fill('MINI-SEND-ONCE');
   await main.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'MINI-SEND-ONCE');
+  // Both clicks must reach take before either button changes from Send to Stop.
+  await app.evaluate(({ ipcMain }) => {
+    const handler = ipcMain._invokeHandlers.get('desktop');
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    globalThis.miniSendGate = { handler, release, attempts: 0 };
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      if (method === 'composerTake') { globalThis.miniSendGate.attempts++; await gate; }
+      return handler(event, method, ...args);
+    });
+  });
   await Promise.all([main.locator('main .composer-action-button').click(), mini.locator('main .composer-action-button').click()]);
+  assert.equal(await app.evaluate(async ({ ipcMain }) => {
+    const deadline = Date.now() + 5000;
+    while (globalThis.miniSendGate.attempts < 2 && Date.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 20));
+    const { handler, release, attempts } = globalThis.miniSendGate;
+    ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', handler);
+    release(); delete globalThis.miniSendGate;
+    return attempts;
+  }), 2, 'Both send attempts compete at the real compare-and-swap boundary');
   await mini.getByText(/Completed [\s\S]*MINI-SEND-ONCE/).waitFor();
   assert.equal(requests.filter(request => JSON.stringify(request.messages).includes('MINI-SEND-ONCE')).length, 1);
   await mini.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
@@ -316,7 +378,7 @@ try {
   await mini.screenshot({ path: join(output, 'native-light-narrow.png') });
   assert.deepEqual(errors, []);
   await writeFile(join(output, 'result.json'), JSON.stringify({ profile, requests: requests.length, errors, verified: true }, null, 2));
-  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, web-link handoff/reopen with preserved draft and native browser, deletion guard, draft promotion, pin, narrow light/en/focus.');
+  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, web-link handoff/reopen with preserved draft and native browser, deletion guard, draft promotion, pin, narrow light/en/focus.');
 } catch (error) {
   console.error('Native windows at failure', await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({
     title: window.getTitle(), url: window.webContents.getURL(),
@@ -326,6 +388,12 @@ try {
     console.error(`window ${index}`, await page.locator('body').innerText().catch(() => ''), errors);
   }
   console.error('Isolated profile:', profile);
+  console.error('Fixture model request count:', requests.length);
+  console.error('Mini runtime at failure:', await mini?.evaluate(async () => {
+    const snapshot = await window.desktop.snapshot();
+    return { runtimeId: snapshot.runtimeId, state: snapshot.state,
+      lastMessages: snapshot.messages.slice(-3), requests: snapshot.requests.map(request => ({ id: request.id, method: request.method })) };
+  }).catch(() => undefined));
   throw error;
 } finally {
   for (const response of held.values()) response.destroy();

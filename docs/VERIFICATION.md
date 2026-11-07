@@ -10,15 +10,32 @@ a loopback page and checks main navigation away from Remote, exact selected
 session, retained input, native view visibility, repeated opening and no model
 request caused by the handoff.
 
+Specific workflow cards transfer their tool-call identity and reveal that run's
+overview, including historical runs and repeated clicks. Bare `/workflows` still
+opens the read-only saved catalog. Native verification checks both paths after
+main navigates to another conversation. Its simultaneous-send check gates the
+real draft-consumption IPC until both clicks arrive, preventing an automation
+click from accidentally hitting a button that has already changed to Stop.
+
+Windows startup now uses the same native `normal` topmost level as MiniChat;
+source startup acceptance verifies the actual OS topmost state and disposal.
+
 The old CI assertions now distinguish a restored nonempty draft (which pauses
 the greeting) from an empty draft's per-character animation, hold both RPC and
 event preference acknowledgements, and allow the macOS MiniChat button while
 still rejecting Windows-style window controls. No script is excluded and no
 runtime pin, product animation or preference synchronization is disabled.
+The draft-clear check waits for the actual editor state and main-owned value
+before reload, and the animation sample includes a complete greeting cycle.
+Command dispatch retains mouse submission coverage, using Enter while overlay
+inspectors may cover the send button on constrained native displays.
 
 Local typecheck, production build, browser MiniChat, native MiniChat,
 new-session and appearance checks pass. All 28 draft/composer/greeting tests
-pass; the 21 CI-runner tests have 20 passes and one platform skip.
+pass; the 21 CI-runner tests have 20 passes and one platform skip. The complete
+unit suite after main synchronization finished with 1,469 passes, 19 platform
+skips and zero failures (1,488 tests). Workflow handoff and startup follow-ups
+have additional native checks; that complete run predates those final edits.
 These receipts do not substitute for current-head cloud, native macOS,
 packaged or real-account acceptance.
 

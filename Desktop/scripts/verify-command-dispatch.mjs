@@ -87,7 +87,8 @@ try {
   await page.reload();
   const input = page.locator('.composer > .composer-input');
   await page.waitForFunction(() => document.querySelector('.composer-input')?.getAttribute('contenteditable') === 'true');
-  const send = async (text, keyboard = false) => {
+  // Overlay inspectors may cover the send button on short native displays.
+  const send = async (text, keyboard = true) => {
     await input.fill(text);
     await page.waitForFunction(text => document.querySelector('.composer-input')?.value === text, text);
     await input.press('Escape');
@@ -95,7 +96,7 @@ try {
     else await page.locator('.composer-action-button').click();
   };
   const calls = type => app.evaluate((_electron, type) => globalThis.dispatchCalls.filter(call => call.type === type), type);
-  await send('/workflows');
+  await send('/workflows', false);
   await page.getByRole('region', { name: '工作流', exact: true }).getByText('验收工作流').waitFor();
   assert.deepEqual((await calls('workflows'))[0].args, [snapshot.runtimeId, snapshot.state.sessionId]);
   assert.equal((await calls('prompt')).length, 0, 'Workflow catalog does not send a model prompt');

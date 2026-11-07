@@ -15,6 +15,20 @@ the focus extent against clipping ancestors, not just the input's border box.
 
 ## Existing Components
 
+MiniChat is a native view of a normal conversation, not BTW or a second agent.
+Reuse the actual conversation/composer/queue/approval components and shared
+tokens; omit unrelated rails and the performance footer. The titlebar entry
+sits immediately before Minimize. A draggable compact header provides the
+shared session menu, pin, Return and Close. Close hides without affecting work;
+reopen resumes the mini selection, and Return explicitly transfers it to main.
+Draft text, quotes/annotations and attachments are session-owned. Presentation
+state is per window/session; streaming must not pull an older reader to the
+tail. Use the shared return-to-bottom action, message anchors and stable
+disclosure identities. Keep real approvals and failure/stop states intact.
+Settings and larger tools return to main rather than fitting parallel control
+surfaces into the mini window. Reserve the complete four-pixel composer focus
+gutter in narrow and low-height layouts.
+
 Expanded slash templates retain a versioned runtime record of the original input.
 Transcript rendering, copy/edit text and navigation previews use that record;
 the model and canonical history retain the expanded content. Never infer command

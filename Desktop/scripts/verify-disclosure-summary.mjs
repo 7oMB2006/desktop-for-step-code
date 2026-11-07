@@ -184,8 +184,39 @@ try {
   await page.waitForFunction(() => document.querySelector('.sb-header-title'));
   assert.equal(await page.locator('.sb-header-title').innerText(), 'Summary');
   await page.getByRole('progressbar', { name: 'Task completion' }).waitFor();
+  for (const memory of [false, true]) {
+    await page.goto(url + (memory ? '?memory=1' : ''));
+    await page.waitForFunction(() => window.disclosureFixture);
+    await load('thought');
+    await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.running !== 'true');
+    await thought.locator('summary').click();
+    await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.expanded === 'true');
+    await page.evaluate(() => {
+      window.originalThought = document.querySelector('.thinking');
+      const f = window.disclosureFixture;
+      f.load([{ ...f.thought, entryId: 'saved-thought' }, f.command, f.result]);
+    });
+    await page.waitForFunction(() => document.querySelector('.compact-process')?.dataset.single === 'false');
+    assert.equal(await page.evaluate(() => window.originalThought === document.querySelector('.thinking')), true);
+    assert.equal(await thought.getAttribute('data-expanded'), 'true', 'adopting a saved ID keeps the same thought expanded');
+    assert.equal(await heading.getAttribute('aria-expanded'), 'true', 'adopting a saved group ID keeps the manual group choice');
+    await page.evaluate(() => {
+      const f = window.disclosureFixture;
+      f.load([{ ...f.thought, entryId: 'different-thought' }]);
+    });
+    await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.expanded === 'false');
+    if (memory) {
+      await thought.locator('summary').click();
+      await page.evaluate(() => window.disclosureFixture.remount());
+      assert.equal(await thought.getAttribute('data-expanded'), 'true', 'a saved-ID disclosure survives remounting');
+      await page.evaluate(() => window.disclosureFixture.resetDisclosures());
+      await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.expanded === 'false');
+      await page.evaluate(() => window.disclosureFixture.remount());
+      assert.equal(await thought.getAttribute('data-expanded'), 'false', 'explicit settings resets still invalidate old disclosure memory');
+    }
+  }
   assert.deepEqual(errors, []);
-  console.log('Disclosure/Summary: singleton identity and focus, native details motion, lazy body, keyboard, record navigation, canonical progress, activity semantics, zh/en, themes and 320/390px passed.');
+  console.log('Disclosure/Summary: saved-ID adoption, remount and explicit-reset memory, singleton identity and focus, native details motion, lazy body, keyboard, record navigation, canonical progress, activity semantics, zh/en, themes and 320/390px passed.');
 } finally {
   await browser?.close();
   await server.close();

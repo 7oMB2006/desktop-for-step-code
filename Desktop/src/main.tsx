@@ -4,9 +4,9 @@ import { BarChart3, MessageCircleQuestion, Plug } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, CircleHelp, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, ArrowRightLeft, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
+import { Plus, Folder, FolderOpen, MessageSquare, CircleHelp, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, ArrowRightLeft, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import { McpIcon } from './McpIcon';
-import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary, Model } from './contracts';
+import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary, RuntimeEvent, Model } from './contracts';
 import { fullAccessRiskPresentation } from './full-access-risk';
 import { pendingPlanReview, planReview } from './plan-review';
 import { conversationEntries } from './conversation-presentation';
@@ -25,6 +25,11 @@ import './model-picker-list.css';
 import { applyMessageEvent, applyToolResult } from './message-events';
 import { MessageRevision } from './message-revision';
 import { SessionReadingCache, captureReadingPosition, restoreReadingPosition, type ReadingPosition, type SessionReading } from './session-reading';
+import { ScrollToBottomButton } from './ScrollToBottomButton';
+import { MiniChatFrame } from './MiniChatFrame';
+import { ConversationDisclosureMemory, type ConversationDisclosureState } from './ConversationDisclosureState';
+import { useWindowComposer } from './use-window-composer';
+import { composerErrorText, composerKey, composerOwner, type ComposerOwner, type ComposerReceipt, type WindowPresentation } from './window-conversation';
 import './session-navigation.css';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
@@ -123,6 +128,8 @@ import { QuitConfirmation } from './QuitConfirmation';
 import type { QuitReviewState } from './quit-confirmation';
 
 const bridge = window.desktop;
+const isMini = bridge?.surface === 'mini';
+document.documentElement.dataset.windowSurface = isMini ? 'mini' : 'main';
 // Seed the placeholder with the main-process-resolved theme so the first React
 // write matches the bootstrap instead of flipping to a system guess before the
 // real snapshot arrives.
@@ -197,19 +204,24 @@ function App() {
   const notifiedMcp = useRef(new Set<string>());
   const sessionActivity = useRef(new Map<string, RuntimeSummary['status']>());
   const nextNoticeId = useRef(0);
-  const [draft, setDraft] = useState('');
+  const composer = useWindowComposer(bridge, message => setError(composerErrorText(message, data.preferences.language)));
+  const { text: draft, quotes, attachments } = composer.value;
+  const { setDraft, setQuotes, setAttachments } = composer;
+  const [miniState, setMiniState] = useState({ open: false, pinned: false });
+  const savePresentationRef = useRef<() => void>(() => {});
+  const disclosuresByOwner = useRef(new Map<string, ConversationDisclosureState>());
+  const [disclosures, setDisclosures] = useState<ConversationDisclosureState>(() => new Map());
   const [workflowCatalogRequest, setWorkflowCatalogRequest] = useState<{ runtimeId?: string; sessionId?: string; id: number } | null>(null);
   const workflowCatalogSequence = useRef(0);
   const [btwRequest, setBtwRequest] = useState<BtwOpenRequest & { runtimeId: string; sessionId: string }>();
   const btwSequence = useRef(0);
   useEffect(() => { setBtwRequest(undefined); }, [data.runtimeId, data.state?.sessionId]);
   const [referencesOpen, setReferencesOpen] = useState(false);
-  const [quotes, setQuotes] = useState<ChatQuote[]>([]);
   const [focusedQuoteId, setFocusedQuoteId] = useState<string | null>(null);
   const quoteScope = `${data.preferences.workspace ?? ''}:${data.state?.sessionId ?? ''}`;
   const quoteScopeRef = useRef(quoteScope);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
+  attachmentsRef.current = attachments;
   const queueSend = useRef<Promise<{ queued?: boolean; id?: string; version?: number }> | null>(null);
   const [preview, setPreview] = useState<{ name: string; src: string } | null>(null);
   const [imageMenu, setImageMenu] = useState<ImageMenuTarget | null>(null);
@@ -295,6 +307,7 @@ function App() {
   const [handleBlocked, setHandleBlocked] = useState(false);
   const openingSequence = useRef(0);
   const openFile = useCallback(async (target?: FileTarget, destination?: string, toggle = true) => {
+    if (isMini) { await handoff('file', { target, destination }); return; }
     if (!bridge) throw new Error('Desktop unavailable');
     const sequence = ++openingSequence.current;
     const before = rightPanel === 'browser' ? await bridge.browserList() : undefined;
@@ -340,18 +353,22 @@ function App() {
   useEffect(() => { setTaskStatusOpen(false); }, [data.runtimeId]);
   const turnUltracode = Boolean(busy && (data.launch?.ultracodeTurn || currentGoal?.status === 'active' && currentGoal.ultracode));
   const openWorkflow = useCallback((id: string) => {
+    if (isMini) { void handoff('workflows', id); return; }
     const same = rightPanel === 'subagent' && !details && subagentView === 'overview' && selectedWorkflow === id;
     if (selectedWorkflow !== id) setSelectedWorkflowAgent(null);
     setSelectedBackgroundAgent(undefined);
     setSelectedWorkflow(id); setSubagentView('overview'); setDetails(''); setRightPanel(same ? null : 'subagent');
   }, [rightPanel, details, subagentView, selectedWorkflow]);
   const [repositoryRequest, setRepositoryRequest] = useState<{ runtimeId?: string; sequence: number }>();
+  const [tasksRequest, setTasksRequest] = useState<{ runtimeId?: string; sessionId?: string; draftId?: string; sequence: number }>();
+  const tasksSequence = useRef(0);
   const activeRuntime = data.runtimes?.find(runtime => runtime.runtimeId === data.runtimeId && runtime.sessionId === data.state?.sessionId);
   const backgroundActivity = useMemo(() => activeRuntime?.background ?? { status: 'unavailable' as const }, [activeRuntime?.background]);
   // The panel reads from live messages and the runtime-owned lane snapshot, so a selected record
   // cannot keep spinning after its host is replaced or miss an agent_send follow-up.
   const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent, backgroundActivity), [data.messages, selectedSubagent, backgroundActivity]);
   const openSubagent = useCallback((task: SubagentDisplayTask) => {
+    if (isMini) { void handoff('subagent', task); return; }
     const alreadyOpen = rightPanel === 'subagent' && !details && subagentView === 'agent' && !selectedWorkflowAgent && !selectedBackgroundAgent
       && selectedSubagent?.toolCallId === task.toolCallId && selectedSubagent?.taskIndex === task.taskIndex
       && selectedSubagent?.agent === task.agent && selectedSubagent.task === task.task;
@@ -429,6 +446,7 @@ function App() {
     follow.current = true;
     setAwayFromBottom(false);
     viewport?.scrollTo({ top: viewport.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    document.querySelector<HTMLElement>('main .composer-input')?.focus({ preventScroll: true });
   };
   const viewId = useRef<string | undefined>(undefined);
   const switching = useRef(false);
@@ -438,6 +456,7 @@ function App() {
   const changeComposerDraft = (text: string) => {
     const pending = navigationPending.current;
     if (!pending) { setDraft(text); return; }
+    composer.client.update({ sessionId: pending.session.id }, value => ({ ...value, text }));
     const saved = composerBySession.current.get(pending.session.id);
     composerBySession.current.set(pending.session.id, {
       quotes: [], attachments: [], follow: true, top: 0, ...saved, draft: text,
@@ -489,12 +508,12 @@ function App() {
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
   const bottomTerminalExpanded = terminalDock === 'bottom' && bottomTerminalOpen && expandedRightPanel === 'terminal'
     && !usageOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && !details;
-  const visibleRightPanel = usageOpen || scheduledOpen || pluginsOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+  const visibleRightPanel = isMini || usageOpen || scheduledOpen || pluginsOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = bottomTerminalExpanded || expandedRightPanel === visibleRightPanel && !details &&
     (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw');
-  const terminalOpen = !usageOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && (terminalDock === 'bottom'
+  const terminalOpen = !isMini && !usageOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && (terminalDock === 'bottom'
     ? bottomTerminalOpen && (!inspectorExpanded || bottomTerminalExpanded)
     : visibleRightPanel === 'terminal' && !details);
   useEffect(() => {
@@ -605,8 +624,8 @@ function App() {
   const activeTitle = sessionTitle(navigationTarget?.session ?? current ?? (data.state?.sessionName ? { name: data.state.sessionName, firstMessage: '' } : undefined), t('新会话', 'New session'));
   const turns = useMemo(() => conversationTurns(data.messages, data.preferences.language), [data.messages, data.preferences.language]);
   const workspaceTitle = (path: string) => data.preferences.workspaceNames?.[workspaceKey(path)] || basename(path);
-  const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(String(e instanceof Error ? e.message : e)); } };
-  const rememberView = () => {
+  const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(composerErrorText(e, latestData.current.preferences.language)); } };
+  const rememberView = (persist = true) => {
     const previous = view.current;
     if (previous.sessionId) composerBySession.current.set(previous.sessionId, {
       draft: previous.draft, quotes: previous.quotes, attachments: previous.attachments,
@@ -614,16 +633,64 @@ function App() {
     });
     const session = latestData.current.sessions.find(session => session.id === previous.sessionId);
     if (session) readingCache.current.set(session, latestData.current.messages, latestData.current.modelChanges);
+    if (persist) saveWindowPresentation();
+  };
+  const currentPresentation = (): WindowPresentation => ({
+    position: captureReadingPosition(scroll.current, latestData.current.messages, follow.current),
+    disclosures: [...(disclosuresByOwner.current.get(composerKey(composerOwner(latestData.current))) ?? disclosures)].slice(-512),
+  });
+  const saveWindowPresentation = () => {
+    if (navigationPending.current || switching.current) return;
+    const owner = composerOwner(latestData.current);
+    if (owner && bridge?.windowPresentation) void bridge.windowPresentation(owner, currentPresentation()).catch(() => {});
+  };
+  savePresentationRef.current = saveWindowPresentation;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const save = () => savePresentationRef.current();
+    const schedule = () => { clearTimeout(timer); timer = setTimeout(save, 180); };
+    window.addEventListener('blur', save);
+    window.addEventListener('pagehide', save);
+    document.addEventListener('scroll', schedule, true);
+    document.addEventListener('click', schedule, true);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('blur', save); window.removeEventListener('pagehide', save);
+      document.removeEventListener('scroll', schedule, true); document.removeEventListener('click', schedule, true);
+    };
+  }, []);
+  const handoff = async (action?: string, payload?: unknown) => {
+    await composer.client.flush();
+    const owner = composerOwner(latestData.current);
+    if (owner) await bridge!.windowPresentation(owner, currentPresentation());
+    if (action) await bridge!.miniChatMainAction(action, payload);
+    else await bridge!.miniChatReturn(currentPresentation());
+  };
+  const restoreWindowPresentation = (value: Snapshot, navigationPosition?: ReadingPosition) => {
+    const key = composerKey(composerOwner(value));
+    let memory = disclosuresByOwner.current.get(key);
+    if (value.windowPresentation) memory = new Map(value.windowPresentation.disclosures);
+    if (!memory) memory = new Map();
+    disclosuresByOwner.current.delete(key); disclosuresByOwner.current.set(key, memory);
+    while (disclosuresByOwner.current.size > 64) disclosuresByOwner.current.delete(disclosuresByOwner.current.keys().next().value!);
+    setDisclosures(memory);
+    const position = navigationPosition ?? value.windowPresentation?.position;
+    if (position) {
+      follow.current = position.follow;
+      readingRestore.current = { runtimeId: value.runtimeId, position };
+      setAwayFromBottom(!position.follow);
+    }
   };
   const installSnapshot = (value: Snapshot) => {
     acceptQuitReview(value.quitReview);
     if (!messageRevision.current.acceptSnapshot(value)) return false;
     const previous = view.current;
-    if (previous.runtimeId !== value.runtimeId || navigationPending.current) {
+    const changedOwner = composerKey(composerOwner(value)) !== composerKey(previous.draftId ? { draftId: previous.draftId }
+      : previous.sessionId ? { sessionId: previous.sessionId } : undefined);
+    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current) {
       if (!navigationPending.current) rememberView();
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
-      setDraft(saved?.draft ?? ''); setQuotes(saved?.quotes ?? []);
-      setAttachments(saved?.attachments ?? []); attachmentsRef.current = saved?.attachments ?? [];
+      composer.client.select(composerOwner(value));
       setArrivingUser(null); setError(value.state?.sessionId ? errorsBySession.current.get(value.state.sessionId) ?? '' : ''); setNotice(value => value?.icon ? value : null); setDetails('');
       if (value.state?.sessionId) errorsBySession.current.delete(value.state.sessionId);
       stoppingRef.current = false; setStopping(false);
@@ -632,8 +699,10 @@ function App() {
       touchY.current = undefined;
       setAwayFromBottom(!follow.current);
       readingRestore.current = saved && !saved.follow ? { runtimeId: value.runtimeId, position: saved } : undefined;
+      restoreWindowPresentation(value, navigationPending.current?.reading ? saved : undefined);
     }
     viewId.current = value.runtimeId;
+    composer.client.select(composerOwner(value));
     setUnavailableWorkspace(value.workspaceIssue ?? null);
     readingCache.current.retain(value.sessions);
     setData(value); setBusy(Boolean(value.state?.isStreaming));
@@ -670,12 +739,12 @@ function App() {
     setUsageOpen(false);
     if (!cronRuntimeId) setScheduledOpen(false);
     if (!bridge || switching.current && !navigationPending.current) return false;
-    if (!cronRuntimeId && !navigationPending.current && session.id === view.current.sessionId) return true;
+    if (!cronRuntimeId && !navigationPending.current && session.id === view.current.sessionId && data.status === 'connected') return true;
     if (!navigationPending.current) rememberView();
     const sequence = ++navigationSequence.current;
     const reading = readingCache.current.get(session);
     navigationPending.current = { sequence, session, reading };
-    setNavigationDraft(composerBySession.current.get(session.id)?.draft ?? '');
+    setNavigationDraft(composer.client.peek({ sessionId: session.id })?.text ?? '');
     previewPosition.current = composerBySession.current.get(session.id) ?? { follow: true, top: 0 };
     readingRestore.current = undefined;
     switching.current = true; setLoading(true);
@@ -733,15 +802,39 @@ function App() {
     return result;
   };
   const command = async (type: string, args?: Record<string, unknown>) => run(() => rawCommand(type, args));
+  const mainActionRef = useRef<(event: RuntimeEvent) => Promise<void>>(async () => {});
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
-    prepareCompletionSound();
+    if (!isMini) prepareCompletionSound();
+    void bridge.miniChatState?.().then(value => { if (value?.open !== undefined) setMiniState(value); }).catch(() => {});
     const unsubscribe = bridge.onEvent(event => {
+      if (event.type === 'desktop_capture_presentation') { saveWindowPresentation(); return; }
+      if (event.type === 'desktop_mini_chat') { setMiniState(event.state); return; }
+      if (event.type === 'desktop_preferences') {
+        setData(value => ({ ...value, preferences: { ...event.preferences, workspace: value.preferences.workspace } })); return;
+      }
+      if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
+        void run(async () => {
+          rememberView(false);
+          const value = await bridge.snapshot();
+          installSnapshot(value);
+          if (event.restorePresentation) restoreWindowPresentation(value);
+        }); return;
+      }
+      if (event.type === 'desktop_draft_created' && event.draftId === view.current.draftId && !switching.current) {
+        void run(refresh); return;
+      }
+      if (event.type === 'desktop_draft_changed' && event.draftId === view.current.draftId && !switching.current) {
+        void run(refresh); return;
+      }
+      if (event.type === 'desktop_main_action' && !isMini) {
+        void run(() => mainActionRef.current(event)); return;
+      }
       if (event.type === 'desktop_quit_review') { acceptQuitReview(event.state); return; }
       if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') {
-        playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId });
+        if (!isMini) playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId });
         return;
       }
       if (event.type === 'desktop_runtime_replaced') {
@@ -780,15 +873,12 @@ function App() {
         }
       }
       if (event.type === 'extension_ui_request' && event.method === 'set_editor_text') {
+        if (isMini) return;
         if (!switching.current && (!event.runtimeId || event.runtimeId === viewId.current)) {
           view.current = { ...view.current, draft: event.text };
           setDraft(event.text);
         } else if (event.sessionId) {
-          const saved = composerBySession.current.get(event.sessionId);
-          composerBySession.current.set(event.sessionId, {
-            draft: event.text, quotes: saved?.quotes ?? [], attachments: saved?.attachments ?? [],
-            follow: saved?.follow ?? true, top: saved?.top ?? 0,
-          });
+          if (!isMini) composer.client.update({ sessionId: event.sessionId }, value => ({ ...value, text: event.text }));
         }
         return;
       }
@@ -1026,6 +1116,7 @@ function App() {
     else setSettingsClosing(true);
   };
   const openUsage = () => {
+    if (isMini) { void run(() => handoff('usage')); return; }
     setFulltextOpen(false);
     finishSettingsClose();
     setPluginsOpen(false);
@@ -1034,11 +1125,13 @@ function App() {
     setCompactSidebarOpen(false);
   };
   const openScheduled = () => {
+    if (isMini) { void run(() => handoff('cron')); return; }
     if (!bridge) return;
     setFulltextOpen(false); setUsageOpen(false); setPluginsOpen(false); setDetails(''); setExpandedRightPanel(null);
     setScheduledOpen(true); setCompactSidebarOpen(false);
   };
   const openPlugins = (target?: CapabilityTarget) => {
+    if (isMini) { void run(() => handoff('plugins', target)); return; }
     if (!bridge) return;
     finishSettingsClose(); setFulltextOpen(false); setScheduledOpen(false); setUsageOpen(false);
     setDetails(''); setExpandedRightPanel(null); setCompactSidebarOpen(false);
@@ -1070,6 +1163,7 @@ function App() {
     return () => { window.clearTimeout(timer); motion.removeEventListener('change', reduce); document.removeEventListener('keydown', containKeyboard, true); };
   }, [settingsClosing, finishSettingsClose]);
   const openSettings = async () => {
+    if (isMini) { await run(() => handoff('settings', tab)); return; }
     mcpEditRequestRevision.current++;
     const request = ++settingsRequestRevision.current;
     const selection = loginProfileRevision.current;
@@ -1082,14 +1176,12 @@ function App() {
   const addAttachments = (added: ComposerAttachment[], id = view.current.sessionId ?? view.current.draftId) => {
     const background = id && id !== (view.current.sessionId ?? view.current.draftId);
     if (background && !latestData.current.sessions.some(session => session.id === id)) return;
-    const saved = background ? composerBySession.current.get(id) : undefined;
-    const previous = background ? saved?.attachments ?? [] : attachmentsRef.current;
+    const owner: ComposerOwner | undefined = id ? latestData.current.sessions.some(session => session.id === id)
+      ? { sessionId: id } : { draftId: id } : undefined;
+    const previous = background && owner ? composer.client.peek(owner)?.attachments ?? [] : attachmentsRef.current;
     const next = [...previous, ...added];
     if (next.length > 10 || next.filter(item => item.kind === 'image').length > 5) throw new Error(t('最多添加 10 个附件，其中图片最多 5 张', 'Maximum 10 attachments, including 5 images'));
-    if (background) composerBySession.current.set(id, {
-      draft: saved?.draft ?? '', quotes: saved?.quotes ?? [], attachments: next,
-      follow: saved?.follow ?? true, top: saved?.top ?? 0,
-    });
+    if (background && owner) composer.client.update(owner, value => ({ ...value, attachments: [...value.attachments, ...added] }));
     else { attachmentsRef.current = next; setAttachments(next); }
   };
   const importFiles = async (files: File[]) => run(async () => {
@@ -1125,13 +1217,20 @@ function App() {
   const send = async () => {
     const capability = capabilityCommand(draft, attachments.length, quotes.length);
     if (!navigationPending.current && !loading && capability) {
-      setDraft('');
+      setDraft(value => value === draft ? '' : value);
+      if (isMini) { await run(() => handoff(capability.page === 'plugins' ? 'plugins' : 'settings', capability.page === 'plugins' ? capability : capability.page)); return; }
       if (capability.page === 'plugins') openPlugins(capability);
       else { setCapabilityTarget(capability); setTab(capability.page); void openSettings(); }
       return;
     }
     const local = desktopCommand(draft, attachments.length, quotes.length);
     if (!navigationPending.current && !loading && local) {
+      if (isMini && local.name !== 'compact') {
+        setDraft(value => value === draft ? '' : value);
+        await run(() => handoff(local.name === 'usage' && local.args === 'account' ? 'settings' : local.name,
+          local.name === 'btw' ? { question: local.args } : undefined));
+        return;
+      }
       if (local.name === 'btw') {
         if (!connected || !data.runtimeId || !data.state?.sessionId || data.state.isCompacting || firstSend.current
           || settingsOpen || usageOpen || scheduledOpen || fulltextOpen || inspectorExpanded || requests.length) {
@@ -1142,7 +1241,7 @@ function App() {
           setError(t('旁问内容不能超过 8000 字符。', 'Side questions are limited to 8,000 characters.'));
           return;
         }
-        setDraft('');
+        setDraft(value => value === draft ? '' : value);
         setDetails(''); setRightPanel('btw');
         setBtwRequest({ runtimeId: data.runtimeId, sessionId: data.state.sessionId, id: ++btwSequence.current, question: local.args });
         return;
@@ -1163,11 +1262,16 @@ function App() {
         } finally { setLoading(false); }
         return;
       }
-      setDraft('');
+      setDraft(value => value === draft ? '' : value);
       if (local.name === 'usage') {
         if (local.args === 'account') { setTab('account'); await openSettings(); }
         else openUsage();
       } else if (local.name === 'cron') openScheduled();
+      else if (local.name === 'todos') {
+        setDetails(''); setExpandedRightPanel(null); setWorkflowCatalogRequest(null); setRightPanel('summary');
+        setTasksRequest({ runtimeId: data.runtimeId, sessionId: data.state?.sessionId, draftId: data.draftId,
+          sequence: ++tasksSequence.current });
+      }
       else if (local.name === 'workflows') setWorkflowCatalogRequest({
         runtimeId: data.runtimeId, sessionId: data.state?.sessionId, id: ++workflowCatalogSequence.current,
       });
@@ -1185,7 +1289,18 @@ function App() {
       setError(t('消息与引用合计过长，请减少引用或分次发送', 'Message and quotes are too long; remove quotes or send in smaller parts'));
       return;
     }
-    const restoreInput = (error?: unknown) => {
+    let receipt: ComposerReceipt | undefined;
+    let submittedReceipt = false;
+    firstSend.current = true;
+    try { receipt = await composer.client.take({ text: message, quotes: sentQuotes, attachments: attached }); }
+    catch (error) { setError(composerErrorText(error, data.preferences.language)); return; }
+    finally { firstSend.current = false; }
+    const restoreInput = async (error?: unknown) => {
+      if (receipt) {
+        if (!submittedReceipt) await composer.client.restore(receipt);
+        if (error !== undefined && sessionId) errorsBySession.current.set(sessionId, String(error instanceof Error ? error.message : error));
+        return quoteScopeRef.current === deliveryScope;
+      }
       if (quoteScopeRef.current !== deliveryScope) {
         if (sessionId) {
           const saved = composerBySession.current.get(sessionId);
@@ -1204,7 +1319,7 @@ function App() {
       setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
       return true;
     };
-    setDraft(''); setQuotes([]); setAttachments([]); attachmentsRef.current = []; scrollIntent.current = undefined; follow.current = true; setAwayFromBottom(false);
+    attachmentsRef.current = []; scrollIntent.current = undefined; follow.current = true; setAwayFromBottom(false);
     await run(async () => {
       try {
         if (data.draftId) {
@@ -1219,18 +1334,21 @@ function App() {
             switching.current = false;
             if (data.permissionPreset === 'full-access') {
               const permission = await bridge!.command('set_permission_preset', { preset: 'full-access' }, id);
-              if (permission?.cancelled) { restoreInput(); return; }
+              if (permission?.cancelled) { await restoreInput(); return; }
               await refresh();
             }
           } finally {
             firstSend.current = false; switching.current = false; setLoading(false);
           }
         }
-        const submission = bridge!.command('prompt', { message: prompt, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
+        submittedReceipt = Boolean(receipt);
+        const submission = bridge!.command('prompt', { message: prompt, composerReceipt: receipt?.token, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
         if (composerBusy) queueSend.current = submission;
-        try { await submission; } finally { if (queueSend.current === submission) queueSend.current = null; }
+        try {
+          await submission;
+        } finally { if (queueSend.current === submission) queueSend.current = null; }
       } catch (e) {
-        if (restoreInput(e)) throw e;
+        if (await restoreInput(e)) throw e;
       }
     });
   };
@@ -1543,6 +1661,26 @@ function App() {
       language={data.preferences.language} disabled={!connected || loading}
       onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
       onAction={(action, value) => rawCommand('goal_action', { action, value })}/> };
+  mainActionRef.current = async event => {
+    const value = await bridge!.snapshot();
+    installSnapshot(value); restoreWindowPresentation(value);
+    if (event.action === 'settings') { setTab(typeof event.payload === 'string' ? event.payload : 'account'); await openSettings(); }
+    else if (event.action === 'usage') openUsage();
+    else if (event.action === 'cron') openScheduled();
+    else if (event.action === 'plugins') openPlugins(event.payload);
+    else if (event.action === 'file') await openFile(event.payload?.target, event.payload?.destination);
+    else if (event.action === 'subagent') openSubagent(event.payload);
+    else if (event.action === 'workflows') setWorkflowCatalogRequest({ runtimeId: value.runtimeId, sessionId: value.state?.sessionId, id: ++workflowCatalogSequence.current });
+    else if (event.action === 'todos') {
+      setRightPanel('summary'); setTasksRequest({ runtimeId: value.runtimeId, sessionId: value.state?.sessionId,
+        draftId: value.draftId, sequence: ++tasksSequence.current });
+    } else if (event.action === 'btw') {
+      if (!value.runtimeId || !value.state?.sessionId) return;
+      setRightPanel('btw');
+      setBtwRequest({ runtimeId: value.runtimeId, sessionId: value.state.sessionId, id: ++btwSequence.current,
+        question: event.payload?.question ?? '', quote: event.payload?.quote });
+    } else { setContextView(event.action === 'clm' ? 'clm' : 'status'); setRightPanel('context'); }
+  };
   return <CommandContextUsage.Provider value={{ usage: navigationTarget ? undefined : data.stats?.contextUsage, language: data.preferences.language }}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''} ${terminalDock === 'bottom' && terminalOpen && !bottomTerminalExpanded ? 'has-bottom-terminal' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
@@ -1557,12 +1695,27 @@ function App() {
       x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
   }}>
     <AppTooltip/>
-    {quitReview.request && <QuitConfirmation key={quitReview.request.id}
+    {!isMini && quitReview.request && <QuitConfirmation key={quitReview.request.id}
       reasons={quitReview.request.reasons} language={data.preferences.language}
       stopping={quitReview.request.phase === 'stopping'}
       onCancel={() => bridge!.quitRespond(quitReview.request!.id, false)}
       onConfirm={() => bridge!.quitRespond(quitReview.request!.id, true)}/>}
-    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}/>
+    {isMini ? <MiniChatFrame language={data.preferences.language}
+      session={{ id: data.state?.sessionId ?? data.draftId ?? '', title: activeTitle, project: data.independent ? undefined : basename(data.preferences.workspace ?? '') }}
+      sessions={data.sessions.filter(session => !data.preferences.archivedSessionIds?.includes(session.id)).map(session => ({
+        id: session.id, title: sessionTitle(session, t('新会话', 'New session')),
+      }))}
+      pinned={miniState.pinned} onPinned={pinned => void run(async () => setMiniState(await bridge!.miniChatPin(pinned)))}
+      onSession={id => { const session = latestData.current.sessions.find(item => item.id === id); if (session) void navigateSession(session); }}
+      onNewSession={() => void newSession()}
+      onReturn={() => void run(() => handoff())}
+      onClose={() => { saveWindowPresentation(); void run(() => bridge!.windowControl('close')); }}>{null}</MiniChatFrame>
+      : <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}
+        miniChat={{ open: miniState.open, disabled: loading || Boolean(navigationTarget), onOpen: () => void run(async () => {
+          if (navigationPending.current || switching.current) return;
+          await composer.client.flush(); saveWindowPresentation();
+          setMiniState(await bridge!.miniChatOpen());
+        }) }}/>}
     {sessionMove && <SessionMoveDialog session={sessionMove.session} preferences={data.preferences} platform={bridge?.platform}
       initialDestination={sessionMove.destination} onCancel={() => setSessionMove(null)}
       onConfirm={async destination => {
@@ -1627,8 +1780,8 @@ function App() {
       </>}
     </div>}
     {error && (settingsOpen || removeProject || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{reviewErrorText(error, zh)}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
-    {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
-    <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
+    {!isMini && compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
+    {!isMini && <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
           aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
       <SidebarTaskActions selected={scheduledOpen} pluginsSelected={pluginsOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
@@ -1660,7 +1813,7 @@ function App() {
         {!searchingSessions && !workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void openProject()}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
       </nav>
       <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
-    </aside>
+    </aside>}
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
     {scheduledOpen && bridge && <main inert={settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
@@ -1709,10 +1862,16 @@ function App() {
           return opened;
         }} openImage={openImage}/>
     </main>}
+    <ConversationDisclosureMemory.Provider value={navigationTarget ? undefined : disclosures}>
     <main hidden={scheduledOpen || pluginsOpen || fulltextOpen} inert={scheduledOpen || pluginsOpen || fulltextOpen || settingsOpen || Boolean(removeProject)}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
+      {composer.conflict && <div className="composer-conflict" role="alert">
+        <span>{t('另一窗口也修改了这份输入，请选择要保留的版本。', 'This draft changed in another window. Choose which version to keep.')}</span>
+        <button onClick={() => void run(() => composer.client.resolveConflict(true))}>{t('保留本窗草稿', 'Keep this draft')}</button>
+        <button onClick={() => void run(() => composer.client.resolveConflict(false))}>{t('采用另一窗口', 'Use other window')}</button>
+      </div>}
       {(error || unavailableWorkspace) && !settingsOpen && !removeProject && !mcpEdit && !requests.length && <div className="app-error-banner" role="alert">
         <AlertCircle size={16}/><span>{unavailableWorkspace
           ? t(`项目目录不可用，可能已改名或移动：${unavailableWorkspace}`, `Project directory unavailable; it may have been renamed or moved: ${unavailableWorkspace}`) : reviewErrorText(error, zh)}</span>
@@ -1827,7 +1986,8 @@ function App() {
           remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}
           reveal={quote => {
             readingRestore.current = undefined;
-            const source = transcript.current?.querySelector<HTMLElement>(`[data-message-index="${quote.messageIndex}"]`);
+            const index = quote.entryId ? data.messages.findIndex(message => message.entryId === quote.entryId) : quote.messageIndex;
+            const source = transcript.current?.querySelector<HTMLElement>(`[data-message-index="${index}"]`);
             if (source) {
               handleScrollIntent('backward');
               source.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
@@ -1838,7 +1998,7 @@ function App() {
           connected={connected} disabled={loading || stopping || settingsOpen || Boolean(preview) || requests.length > 0} onAction={queueAction}/>
         <LiveTurnChanges key={`changes-${data.runtimeId}`} messages={data.messages} busy={busy} language={data.preferences.language}
           docked={queuedMessages.length > 0} onOpenChange={setLiveChangesOpen}/>
-        {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={returnToBottom}><ArrowDown size={17}/></IconButton>}
+        {awayFromBottom && <ScrollToBottomButton language={data.preferences.language} onClick={returnToBottom}/>}
         </ComposerContextBar>}
         <ComposerMenu key={navigationTarget?.session.id ?? data.state?.sessionId ?? data.draftId ?? ''} draft={navigationTarget ? navigationDraft : draft} setDraft={changeComposerDraft} commands={commands} language={data.preferences.language}
           scope={data.state?.sessionId ?? data.draftId ?? ''} disabled={!connected || loading || Boolean(navigationTarget)}
@@ -1858,10 +2018,10 @@ function App() {
             if (quotes.length >= MAX_QUOTES || text.length > MAX_QUOTE_LENGTH || text.length + draft.length + quotes.reduce((sum, quote) => sum + quote.markdown.length, 0) > MAX_PROMPT_LENGTH - 1000) {
               setError(t('引用过多或内容过长，请选取较短的片段', 'Too many quotes or too much content; select a shorter excerpt')); return false;
             }
-            setQuotes(value => [...value, { id: crypto.randomUUID(), messageIndex: index, role: message.role === 'user' ? 'user' : 'assistant', text, markdown: text, startOffset: 0, endOffset: text.length }]); return true;
+            setQuotes(value => [...value, { id: crypto.randomUUID(), entryId: message.entryId, messageIndex: index, role: message.role === 'user' ? 'user' : 'assistant', text, markdown: text, startOffset: 0, endOffset: text.length }]); return true;
           }}
           onAction={action => {
-            if (action === 'mcp') { setTab('mcp'); void openSettings(); }
+            if (action === 'mcp') { if (isMini) void run(() => handoff('settings', 'mcp')); else { setTab('mcp'); void openSettings(); } }
             else requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(action === 'model' ? '.model-effort-trigger' : '.permission-trigger')?.click());
           }}>
         <div className={`composer ${draggingFiles ? 'composer-file-drop' : ''}`}
@@ -1901,13 +2061,16 @@ function App() {
               onAction={(action, value) => rawCommand('goal_action', { action, value })}/>
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
-            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
+            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => {
+              if (isMini) void run(() => handoff('settings', 'providers'));
+              else { setTab('providers'); void openSettings(); }
+            }}/>
             <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
-              disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}
+              disabled={!connected || loading || composer.conflict && action.mode !== 'stop' || (action.mode === 'stop' ? stopping : !action.hasContent)}
               onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
-        </div></ComposerMenu>{interfaceSettings.performanceVisible && <PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>}
+        </div></ComposerMenu>{!isMini && interfaceSettings.performanceVisible && <PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>}
         </div>
         <PermissionApproval key={data.runtimeId ?? 'empty'} requestId={requests[0]?.id} presentation={permissionApproval} open={Boolean(permissionApproval && approvalOpen && !navigationTarget)}
           language={data.preferences.language} onLater={() => setApprovalOpen(false)} onRespond={respond}/>
@@ -1921,7 +2084,7 @@ function App() {
         sessionId={data.state?.sessionId} messageCount={data.messages.length} onScrollIntent={handleScrollIntent}/>
       <div ref={terminalBottomHost} className="terminal-bottom-slot"/>
       </div>
-    </main>
+    </main></ConversationDisclosureMemory.Provider>
     <QuoteAnnotations root={transcript} scope={quoteScope} language={data.preferences.language}
       remove={id => setQuotes(value => value.filter(item => item.id !== id))}
       focusedId={focusedQuoteId}
@@ -1937,6 +2100,7 @@ function App() {
             'This quote exceeds the 8,000-character side-question limit. Select a shorter excerpt.'));
           return false;
         }
+        if (isMini) { void run(() => handoff('btw', { quote })); return true; }
         setDetails(''); setRightPanel('btw');
         setBtwRequest({ runtimeId: data.runtimeId, sessionId: data.state.sessionId,
           id: ++btwSequence.current, question: '', quote });
@@ -1960,7 +2124,7 @@ function App() {
         setQuotes(value => [...value, quote]); return true;
       }}/>
     {details && !usageOpen && !pluginsOpen && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
-    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
+    {!isMini && <><ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
       overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { handleScrollIntent('backward'); scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
     <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
@@ -2052,6 +2216,9 @@ function App() {
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <SummaryBoard key={`${data.runtimeId ?? 'empty'}:${data.state?.sessionId ?? ''}`} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
+            tasksRequest={tasksRequest?.runtimeId === data.runtimeId && tasksRequest?.sessionId === data.state?.sessionId
+              && tasksRequest?.draftId === data.draftId ? tasksRequest?.sequence : undefined}
+            onTasksRequestHandled={sequence => setTasksRequest(value => value?.sequence === sequence ? undefined : value)}
             messages={data.messages} backgroundActivity={backgroundActivity} busy={busy} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow} onClose={closeRightPanel}
             mcpBusy={anyBusy || busy || loading || !connected} capabilityRevision={capabilityRevision}
             onMcpChanged={async () => { setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1); }}
@@ -2106,7 +2273,7 @@ function App() {
           setDetails(''); setRightPanel('subagent');
         }}><Bot size={18}/></IconButton>
       <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-controls="conversation-navigation-panel" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
-    </nav>
+    </nav></>}
     {preview && <div className="attachment-preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>
       <div className="attachment-preview" ref={previewPanel} role="dialog" aria-modal="true" aria-label={t(`预览 ${preview.name}`, `Preview ${preview.name}`)}>
         <div className="attachment-preview-toolbar"><span>{preview.name}</span><IconButton title={t('缩小', 'Zoom out')} tooltip={false} disabled={previewZoom <= .5} onClick={() => changePreviewZoom(previewZoom - .25)}><ZoomOut size={17}/></IconButton><span>{Math.round(previewZoom * 100)}%</span><IconButton title={t('放大', 'Zoom in')} tooltip={false} disabled={previewZoom >= 5} onClick={() => changePreviewZoom(previewZoom + .25)}><ZoomIn size={17}/></IconButton><IconButton title={t('关闭预览', 'Close preview')} tooltip={false} onClick={closePreview}><X size={19}/></IconButton></div>

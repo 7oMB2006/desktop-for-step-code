@@ -1,5 +1,190 @@
 # Verification
 
+## Native MiniChat (2026-11-07, Local Candidate)
+
+The titlebar entry now opens one native, frameless Electron window with real
+resize, drag and OS pinning. It loads the same application, conversation,
+composer, tool cards, queue and approval components. Navigation and transient
+editor UI remain independent; the selected session has one runtime, including
+simultaneous cold opens from both windows. Closing only hides the view.
+Reopening resumes its selection; explicit Return transfers selection,
+message-anchored reading position and disclosure choices to main. Larger tools
+and settings hand off to the main window instead of duplicating their surfaces.
+
+Main owns revision-checked draft text, references/annotations and attachments.
+Two-window sends consume a draft once. Genuine concurrent edits retain the
+local version for an explicit conflict choice; failed delivery restores sent
+input alongside newer input, even after renderer reload. Text-only updates
+omit unchanged image payloads. Draft creation promotes both views to the same
+session without losing pending input or selected task options. Unsubmitted
+takes belong to the issuing renderer and are restored on reload/crash; already
+submitted receipts remain main-owned and cannot be restored twice. First-send
+setup locks changes to that shared draft's project/options, while independent
+navigation remains possible. Failure cleanup rechecks selection after removal.
+
+Runtime work and approvals are not owned by the window. Hide/reload cannot
+approve, cancel or restart them. Pending decisions still use the current
+runtime request, and completion sound is delivered only by the primary
+renderer. MiniChat-selected workers are not reused/recycled behind the view;
+viewed-session deletion is guarded and runtime replacement reconciles the
+mini selection. Account changes that retire its transport retain readable
+history and input but do not label a missing transport connected or successful.
+That conversation requires an explicit reopen before further execution.
+
+The mini renderer remains sandboxed with context isolation and no Node access.
+Its IPC surface is allowlisted; account/configuration changes and unrelated
+browser/terminal layout operations stay in main. Window geometry/pin is saved
+under Desktop userData, clamped to display bounds; conversation drafts and
+reading/disclosure memory survive window hide/reload, not application exit.
+Editor caret/undo remains local to each editor. Windows pinning uses native
+topmost placement without taskbar-relative repositioning; default floating
+placement lost topmost status in the local minimal-window probe.
+
+`scripts/verify-mini-chat-electron.mjs` uses an isolated profile and a loopback
+model provider with the pinned real runtime. It covers coalesced startup,
+independent navigation, shared drafts/references/options, once-only send/sound,
+stream/stop, real write-file approval, hide/reopen/reload, anchor transfer,
+restart, deletion guards, first-message promotion, OS pin state and a focused
+380x400 English/light layout. Native screenshots and the result receipt are in
+`Desktop/test-results/mini-chat-native/`. This does not establish cloud,
+macOS native, packaged/installer or real-account acceptance.
+
+Local verification passed typecheck, production build and `git diff --check`.
+The complete test suite ran with concurrency 2: 1,136 tests, 1,123 passed,
+13 platform skips and no failures. Native MiniChat, session navigation,
+composer editing/menu, command dispatch and task-progress Electron checks
+passed, as did the browser MiniChat and disclosure/summary regressions.
+The initial high-concurrency suite hit an unrelated terminal cleanup timeout;
+its unchanged six-test terminal suite and the bounded complete rerun passed.
+Local review added eleven regressions for rejected concurrent writes,
+abandoned/claimed submissions and draft setup/promotion/failure interleavings.
+
+## MiniChat Frontend Preview (2026-11-07)
+
+`Desktop/tests/fixtures/mini-chat.html` previews the titlebar entry immediately
+before Minimize and a compact conversation window. `WindowBar` uses an
+optional action; the native candidate now wires that action in the normal app.
+The reusable frame uses existing tokens, icons and the native shared menu.
+Conversation bodies, tool/thinking disclosures, timestamps, selection actions,
+quotes, composer, permission and model/effort pickers are the real components.
+
+The isolated fixture uses synthetic sessions and replies, with no model,
+profile or filesystem access. Browser-local dragging, resizing and pin state
+do not establish native-window or OS always-on-top support. Switching the mini
+selection leaves the main selection alone; return explicitly selects the mini
+conversation in the main surface, retaining its draft and pending quotes.
+The isolated preview itself does not change the runtime pin, preload or main;
+native integration is recorded separately above.
+
+Reading continuity reuses `session-reading` message anchors. Each surface/session
+keeps its own reading position and opt-in disclosure memory; return explicitly
+transfers the mini position and disclosure choices even when main already shows
+that conversation. Closing/reopening resumes the mini selection. Thinking,
+tool/group and nested input/output choices survive remounting without retaining
+mounted transcripts. Disclosure memory is bounded to 512 entries per surface/session;
+records without stable message/call identity are not matched by array position.
+Streaming and settlement do not pull an older reader to the tail, while readers
+at the tail continue following. Position memory is browser-session-local, not
+cross-launch persistence or native-window geometry support.
+
+The main conversation and preview now share `ScrollToBottomButton` and its
+existing composer-context-row style. It appears while reading older content,
+resumes following the moving tail on activation, restores editor focus and
+honors reduced motion. Wheel, keyboard and touch intents reuse the main
+conversation's scroll policy; an upward gesture pauses even near the bottom.
+Stopping a simulated response does not reset reading position.
+
+The local-review fixes preserve manual disclosure choices when a live message
+first receives its saved entry ID, including without opt-in memory. Different
+known identities and explicit settings resets still invalidate old choices.
+Preview retry-editing refuses to overwrite pending text or reference-only
+drafts. Quote and annotation removal uses the latest shared state; clearing one
+kind preserves the other. Whole-message Markdown references locate their saved
+source identity rather than trying to match rendered text to Markdown offsets.
+Composer menus have instance-specific option/ARIA IDs and only the focused
+editor discovers a synchronized draft token. Moving between the add-reference
+button and editor retains explicit reference keyboard navigation.
+
+Typecheck, production build and `scripts/verify-mini-chat-preview.mjs` pass.
+Browser verification covers entry placement/no-drag behavior, session switching,
+draft/reference handoff, simulated streaming, menu and quote interaction,
+dragging, focus restoration, reduced motion, light/dark and Chinese/English at
+1440, 760, 440 and 390px. Four-sided composer focus gutters and picker widths
+are checked. Low-height 900x400 light/dark and 390x400 dark cases cover eight-line
+drafts plus a quote, visible Send/Stop and header, real send/stop clicks and
+drag-then-resize recovery. The editor height follows the mini frame's available
+block size; normal-window dimensions remain unchanged.
+`?stress=reading` exercises long transcripts, independent disclosure
+choices, same-session main handoff, per-session scroll restoration, close/reopen
+during streaming, no duplicate requests, return-to-bottom with keyboard focus,
+gesture-aware pause/resume, stopped-response reading position and tail following.
+The button is checked in light/dark, narrow, English and reduced-motion layouts.
+The shared `verify-disclosure-summary.mjs` regression and 61 focused navigation,
+presentation, scrolling, grouping, command and quote unit tests also pass.
+The rebuilt isolated Electron composer-menu verifier passes, including reference
+selection at the attachment limit after focus returns to the editor.
+`verify-project-instructions-preview.mjs` also passes against the main application
+at 1280/390/320px in Chinese/English, light/dark and the Wine palette.
+Screenshots are in `Desktop/test-results/mini-chat-preview/`.
+An additional real-RPC timing test was attempted but failed at Windows runtime
+cleanup with `Runtime process-tree termination failed (1)` and was interrupted
+after its test server remained open. It is not counted as passing runtime acceptance.
+This is a design preview, not native Electron, installer, cloud or account
+acceptance. The existing `/todos` work remains a separate implementation.
+
+### MiniChat State Ownership
+
+The native candidate implements this contract within the local acceptance
+boundary above; the synthetic preview independently exercises presentation.
+
+| State | Ownership and restoration |
+| --- | --- |
+| Messages, thinking/execution/compaction, stopped/failed/completed results | One authoritative runtime per session, observed by both windows. Reopen reads the current snapshot; a disconnected or missing runtime is not inferred to be successful or still running. |
+| Pending tool/Plan approvals | Keep the real request and reviewed version. Closing a view neither approves nor cancels; a decision is validated once against the current request. |
+| Draft text, quotes/annotations, attachments | Main-owned session draft, not a second independent task. Revision-checked writes and once-only submission receipts protect newer input and recover rejected delivery. |
+| Selected conversation, scroll/follow, expanded details | Per window/session presentation memory. Explicit return transfers the reading state; casual background updates do not steal it. Saves during navigation cannot attribute a target preview to the previous session. |
+| Window bounds/pin and editor caret/undo | Native geometry/pin preferences survive application restart. Caret/undo belong to each editor; opaque editor history is not copied between windows. Browser preview pinning is only a simulation. |
+| Menus, hover, selection toolbar, copied checkmark | Transient UI closes when its view closes; pending quoted text/annotations remain draft data. |
+| Completion motion/sound/notifications | Event-owned and deduplicated per real run. Remounting or restoring historical UI must not replay completion signals. |
+
+## Desktop Task-plan Shortcut (2026-11-07, Local Candidate)
+
+Based on main `7fdfc76` (merged PR #208), standalone `/todos` now opens the
+existing Summary board and reveals its task heading. The request is scoped to
+the current worker, session and draft, then consumed once. Repeating it on an
+open board retains task/history disclosures and the mounted progress animation;
+ordinary polling cannot steal the composer's focus. No runtime pin, IPC or
+canonical task/history storage is changed.
+
+Typecheck and the production build pass. All 44 focused tests pass, covering
+command recognition/catalog deduplication, source icons, composer behavior,
+native slash handlers and task/agent history projection. Parameters, prose,
+code, attachments and quotes do not acquire the new local shortcut.
+
+The rebuilt isolated Electron command-dispatch verifier passes a real fresh
+draft with no worker/session creation, then controlled summary data for empty
+plans, folded history, current counts, repeated focus/scroll, retained manual
+disclosures and failed-read retries. Four Chinese/English, light/dark and
+desktop/narrow combinations include reduced-motion checks and complete focus
+outline bounds. Screenshots under `Desktop/test-results/todos/` were inspected.
+The expanded verifier uses keyboard submission in narrow overlays, where the
+existing Summary surface can cover the main composer's send button.
+
+The pinned real-runtime task-progress verifier passes through `/todos` both
+before and during a task. It confirms no shortcut message in native history,
+no queued input or premature sound/settlement, and the existing completion
+impact, green sweep, sound, next-turn retirement and renderer-reload behavior.
+All model responses are from an isolated deterministic loopback provider.
+The existing Electron composer-menu verifier also passes filtering, icons,
+selection, IME, cancellation, quotes, model controls and narrow layouts.
+
+No acceptance installer, shortcut update, installed-app change, public release
+or paid-model test is part of this work. Cloud/native macOS and packaged
+acceptance remain separate; the complete Desktop suite was not rerun for this
+renderer-only shortcut. Excluding junction targets, current QA inputs occupy
+10.13 MiB in `dist`, 62.96 MiB in `terminal-runtime`, 0.10 MiB in the runtime
+facade and 2.60 MiB in `test-results`; no historical package is deleted.
+
 ## Upstream v0.1.7 Runtime Stability (2026-11-07, Local Candidate)
 
 This candidate starts from main `4318d6e` (merged PR #203) and retains the

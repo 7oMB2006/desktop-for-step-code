@@ -3,6 +3,8 @@ import type { SessionImportBridge } from './session-import';
 import type { BtwBridge } from './btw';
 import type { LaunchState } from './launch-state';
 import type { BackgroundAgentClient } from './background-agents';
+import type { WindowConversationBridge, WindowPresentation } from './window-conversation';
+export interface Snapshot { windowPresentation?: WindowPresentation }
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
 export interface Message { desktopInput?: { version: 1; text: string } }
@@ -100,7 +102,7 @@ export interface CronCreateInput { runtimeId: string; cron: string; prompt: stri
 export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
-export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient {
+export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge {
   projectInstructions(owner: import('./project-instructions').ProjectInstructionsOwner): Promise<import('./project-instructions').ProjectInstructionsStatus>;
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;

@@ -272,9 +272,7 @@ try {
     'Busy task inspection does not stop, queue, steer or otherwise command the runtime');
   assert.equal((await calls('prompt')).length, 5, 'Busy task inspection does not submit a main prompt');
   assert.equal(await page.locator('.composer-action-button').getAttribute('data-action'), 'stop');
-  await input.fill('/compact');
-  await input.press('Escape');
-  await input.press('Enter');
+  await send('/compact');
   await page.getByText(/请等待当前任务结束/).waitFor();
   assert.equal((await calls('compact')).length, 2, 'Busy compact is not sent or queued as prose');
   assert.equal(await input.evaluate(element => element.value), '/compact');

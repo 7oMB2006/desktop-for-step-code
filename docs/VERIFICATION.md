@@ -1,5 +1,50 @@
 # Verification
 
+## MCP 凭据默认隔离候选（2026-11-08）
+
+候选基于 main `6995910`，是宿主能力计划 #212 的一个独立实施切片，
+不是整个阶段 [Ⅰ] 或通用授权桥的完成声明。固定 runtime pin 仍为
+`29eb460780489801ce8afc8bffc1a2efae7cbded`。新增补丁只关闭 stdio MCP
+在环境白名单之后读取 Step 登录存储、自动补入 `STEPFUN_API_KEY` 的兜底，
+保留服务显式配置的独立 Key，并使管理诊断遵守同一策略。
+
+全新隔离 checkout 完整重放补丁链成功，全部 51 项共享后像匹配；
+实际 staging 校验同一组源文件哈希，声明 24 个能力标记，其中包含
+`desktop-mcp-credential-isolation`。Node 为 24.16.0，其实际 SHA-256 与
+runtime manifest 匹配。隔离源码的离线构建、上游根目录 `check`、
+Desktop 类型检查与生产构建通过，依赖锁文件和上游 pin 均未改动。
+根目录检查没有改写本轮源文件或其他既有补丁的后像。
+
+本地 Desktop 全量串行协议回归正常结束：1,480 项，1,467 通过、
+13 项平台跳过、零失败、零取消，耗时 608.8 秒。随后针对最新管理诊断断言，
+重跑实际 MCP、staging、runtime 与 BVR：共 43 项，41 通过、两项 POSIX
+跳过、零失败。新增用例使用假 OAuth/API Key 和一次性配置，实际完成六种
+服务声明的 MCP 握手，验证父进程及后代不获得宿主账户、显式独立 Key 保留、
+账户文件不变、事件/摘要无凭据、模型请求为零；真实管理 worker 不再提示
+通过 `/login` 补足插件环境。相同 native 用例在未修改的 runtime 上两项
+均失败，检测到 `accountPresent` 和 `stepfunPresent`，未输出原始凭据。
+
+上游 MCP 源码测试单独运行 15 项全部通过；相关 doctor 源码测试定向运行
+两项通过。此前两文件合跑的候选结果为 39 通过、三项失败，未修改源码对照
+为 38 通过、相同三项失败，分别涉及 Windows 路径、用户技能发现和 CRLF。
+该合跑不是全绿，未修改或过滤这些无关测试来获得通过结果。
+本机 Node 24.15.0 的 Vitest 启动遇到 `#module-evaluator` 导入错误，
+改用已有的 24.16.0 可正常执行；没有为此更新依赖或修改测试框架。
+
+真实 Windows 源码 Electron 默认启动验收通过，包括真实 RPC、MCP、
+renderer 隔离、设置、窄窗口、新旧 profile 和关闭后重开；
+StepPage 注册验收八类场景全部通过。没有使用 `--no-sandbox`、
+修改产品沙箱设置或访问日用 profile。CI 策略与 runner 测试共 40 项，
+39 通过、一项平台跳过。日志在本隔离工作树的 `Desktop/test-results/`
+下，以 `mcp-credentials-` 开头；补丁重放目录也保留用于复核。
+
+云 CI、原生 macOS、打包与真实账户调用仍是独立门槛。本轮未打包、
+更换快捷方式、重启日用应用或调用真实模型，也未实现 SDK、授权界面、
+通用 broker、BVR 迁移或首次安装风险确认。旧的 StepPage 准备进程和远程
+MCP 环境引用仍需后续审查；本轮不是完整宿主环境隔离或本地代码沙箱。
+依赖隐式 Step 登录的服务有兼容风险，不能将本草稿单独作为破坏性升级发布；
+组合发布前必须完成通用授权入口、迁移和可操作的升级提示。
+
 ## CrashLog Latest-Main Synchronization (2026-11-07, local candidate)
 
 The previous CrashLog candidate starts at `a8533cf`. This combination starts at

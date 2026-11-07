@@ -23,9 +23,14 @@
     "step-code-desktop-subagent-redaction.patch": "3aef6f0dfbbc16a4ebeaa48fde3e5f656cfd7357",
     "step-code-desktop-background-reply.patch": "a8e8d7b19cdcf186575041388933dfcca32bdf40",
     "step-code-desktop-completion-review.patch": "760a44aa097f5777587243e4b8eb22d15485f987",
-    "step-code-desktop-v017.patch": "8ea430ad9a01b20a98af88ad98b7100f2213f56f"
+    "step-code-desktop-v017.patch": "8ea430ad9a01b20a98af88ad98b7100f2213f56f",
+    "step-code-desktop-mcp-credentials.patch": "1fbd6267db3d54e4c109c633f6ab832d94880106"
   },
   "sources": {
+    "packages/coding-agent/src/step/mcp-environment.ts": "d46ee0c3e07fbcd2432b43bd355080e52e3aca50",
+    "packages/coding-agent/src/step/mcp.test.ts": "8c4e61c5c8dcf94b0a75209dd140cf6dcf1342b0",
+    "packages/coding-agent/src/step/plugins.ts": "c4f5242cc8ad259d7d3b462eedb94efc2c02159a",
+    "packages/coding-agent/test/step-plugins.test.ts": "8d244d6081a706c1fd0872c016879b173ab4f496",
     "packages/coding-agent/src/core/agent-session.ts": "0d9a6d490a8c7f9e1b63faf3febb05d379d65959",
     "packages/coding-agent/src/core/auth-storage.ts": "b7d72e885b80c53e17920a405ec7ce9612a3e2e7",
     "packages/coding-agent/src/core/extensions/types.ts": "07d8d9490ceec176dd2fa7a010da85437293fb72",
@@ -66,6 +71,10 @@
     "packages/coding-agent/test/suite/plan-storage.test.ts": "7bcae1c63e37190a30c925daf39ecd881524005f"
   },
   "patchedSources": {
+    "packages/coding-agent/src/step/mcp-environment.ts": "322aae08a9223421d936ac50e420f8599a3a796c",
+    "packages/coding-agent/src/step/mcp.test.ts": "2c9b7dabd1f9fac013d959427fda2abd8527c5ee",
+    "packages/coding-agent/src/step/plugins.ts": "23d2d63ab6a30698371b2b4dd756079a766154b1",
+    "packages/coding-agent/test/step-plugins.test.ts": "6568fa6648df747f2612f208e19ddb422d8cb797",
     "packages/coding-agent/docs/session-import.md": "c1ec33543cde4f61a187469474cda92e312fbf77",
     "packages/coding-agent/src/core/agent-session.ts": "c786077177d506b3fa5d3ec16d4bfd8002440240",
     "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",

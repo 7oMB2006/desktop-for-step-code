@@ -60,6 +60,7 @@ export function CompactionSettings({ bridge, language, models, model }: {
   const draftRef = useRef(draft);
   const confirmed = useRef(value);
   const saving = useRef(false);
+  const retryUseRatioPolicy = useRef(false);
   const focusAfterSave = useRef<HTMLElement | null>(null);
   const alive = useRef(false);
   const generation = useRef(0);
@@ -76,6 +77,7 @@ export function CompactionSettings({ bridge, language, models, model }: {
   }, [busy]);
   const stage = (next: CompactionConfiguration) => { draftRef.current = next; setDraft(next); };
   const install = (next: SettingsValue) => {
+    retryUseRatioPolicy.current = false;
     confirmed.current = next; setValue(next); stage(configuration(next));
     setShownModels(current => [...new Set([...current, ...Object.keys(next.modelTriggerRatios)])]);
   };
@@ -93,6 +95,7 @@ export function CompactionSettings({ bridge, language, models, model }: {
   const persist = async (next: CompactionConfiguration, useRatioPolicy = false) => {
     const current = confirmed.current;
     if (!current || saving.current) return;
+    retryUseRatioPolicy.current = useRatioPolicy;
     if (!useRatioPolicy && !current.invalidConfiguration && equal(next, current)) {
       stage(next); setError(''); setSaved(false);
       return;
@@ -233,7 +236,7 @@ export function CompactionSettings({ bridge, language, models, model }: {
           : error ? t('保存未确认，当前修改仍保留。', 'Save was not confirmed. Your changes are retained.')
           : saved ? t('已保存，现有会话未更改。', 'Saved. Existing sessions were not changed.') : ''}
         {error && <div className="compaction-retry-actions">
-          {error === 'save' && <button disabled={busy} onClick={() => void persist(draftRef.current)}>{t('重试保存', 'Retry save')}</button>}
+          {error === 'save' && <button disabled={busy} onClick={() => void persist(draftRef.current, retryUseRatioPolicy.current)}>{t('重试保存', 'Retry save')}</button>}
           <button disabled={busy} onClick={() => void load()}>{t('重新读取', 'Reload settings')}</button>
         </div>}
       </div>

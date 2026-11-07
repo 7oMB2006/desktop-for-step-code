@@ -26,7 +26,7 @@ let sequence = 0;
 let readCount = 0;
 let saveCount = 0;
 let stored: SettingsValue = { ...defaultCompactionConfiguration(), revision: String(sequence).padStart(64, '0'),
-  policy: params.has('legacy') ? 'legacy' : 'v2', enabled: !params.has('disabled'), invalidConfiguration: false };
+  policy: params.has('legacy') ? 'legacy' : 'v2', enabled: !params.has('disabled'), invalidConfiguration: params.has('invalid') };
 const pause = () => new Promise(resolve => setTimeout(resolve, Number(params.get('delay') ?? 120)));
 const bridge: Pick<DesktopBridge, 'compactionSettings' | 'saveCompactionSettings'> = {
   compactionSettings: async () => {
@@ -43,8 +43,9 @@ const bridge: Pick<DesktopBridge, 'compactionSettings' | 'saveCompactionSettings
       throw new Error('compaction:conflict');
     }
     if (update.revision !== stored.revision) throw new Error('compaction:conflict');
+    if (stored.policy === 'legacy' && !update.useRatioPolicy) throw new Error('compaction:legacy');
     stored = { ...stored, ...update.configuration, revision: String(++sequence).padStart(64, '0'),
-      policy: update.useRatioPolicy ? 'v2' : stored.policy };
+      policy: update.useRatioPolicy ? 'v2' : stored.policy, invalidConfiguration: false };
     return structuredClone(stored);
   },
 };

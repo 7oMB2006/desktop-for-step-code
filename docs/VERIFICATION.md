@@ -27,6 +27,13 @@ and writes, conflicts, legacy policy, light/dark, Chinese/English, narrow window
 four-sided focus clearance and reduced motion. The new verifier is registered
 in the shared interface CI inventory.
 
+PR #207's save retry retains explicit legacy-to-ratio migration intent until
+the operation succeeds, settings are reloaded successfully, or another edit
+replaces it. Browser regression first reproduced the no-op retry, then passed
+for valid and invalid legacy thresholds, ordinary saves and reload without
+implicit migration. Typecheck, all nine focused tests, production build and
+the real Windows Electron settings-dialog acceptance pass again.
+
 The full serial Desktop suite passes 1068 cases with 14 platform skips,
 zero failures/cancellations, across 1082 cases in about 398 seconds.
 CI policy/inventory/runner/summary checks pass 39 cases with one platform skip.

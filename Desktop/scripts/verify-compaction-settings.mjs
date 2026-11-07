@@ -60,6 +60,30 @@ try {
   assert.equal(await page.getByRole('slider').inputValue(), '90');
   assert.equal(await page.locator('.compaction-save-status').innerText(), '');
 
+  for (const invalid of [false, true]) {
+    await page.goto(`${base}?legacy=1&saveError=1${invalid ? '&invalid=1' : ''}`);
+    const migrate = page.getByRole('button', { name: '使用比例触发策略', exact: true });
+    await migrate.waitFor();
+    assert.equal(await ratio().isDisabled(), true, 'Legacy policy requires explicit migration');
+    await migrate.click();
+    await page.getByRole('button', { name: '重试保存', exact: true }).click();
+    await migrate.waitFor({ state: 'hidden', timeout: 5000 });
+    await saved();
+    assert.equal(await ratio().isDisabled(), false, 'Retry must actually migrate the policy');
+    assert.equal(await ratio().inputValue(), '90');
+    assert.equal(await page.getByText('原配置含无效阈值，以下显示回退值；保存时会修正这些阈值。', { exact: true }).count(), 0);
+    await ratio().fill('80'); await ratio().press('Enter'); await saved();
+    assert.equal(await ratio().inputValue(), '80');
+  }
+  await page.goto(`${base}?legacy=1&saveError=1`);
+  await page.getByRole('button', { name: '使用比例触发策略', exact: true }).click();
+  await page.getByRole('button', { name: '重试保存', exact: true }).waitFor();
+  await page.getByRole('button', { name: '重新读取', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.compaction-save-status')?.textContent === '');
+  assert.equal(await ratio().isDisabled(), true, 'Reload must not migrate the policy');
+  await page.getByRole('button', { name: '使用比例触发策略', exact: true }).click(); await saved();
+  assert.equal(await ratio().isDisabled(), false);
+
   for (const mode of ['readError', 'saveError', 'conflict', 'legacy', 'disabled']) {
     await page.goto(`${base}?${mode}=1`);
     if (mode === 'readError') {
@@ -119,7 +143,7 @@ try {
   assert.equal(await page.locator('.compaction-advanced').getAttribute('open'), null);
   assert.equal(await page.locator('.compaction-advanced > div').evaluate(el => el.getAnimations().length), 0);
   assert.deepEqual(errors, []);
-  console.log('Compaction settings: persistence boundary, thresholds, model inheritance, reset, errors/conflicts, legacy policy, themes, focus and reduced motion passed.');
+  console.log('Compaction settings: persistence boundary, thresholds, model inheritance, reset, errors/conflicts, legacy policy migration/retry/reload, themes, focus and reduced motion passed.');
 } finally {
   await browser?.close();
   await server?.close();

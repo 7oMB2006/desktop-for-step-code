@@ -58,6 +58,52 @@ was probed before a final storage/hash recheck. No native macOS source/package
 acceptance or real-account validation is claimed. This local candidate contains
 no commit, push, PR, installer, shortcut, release or version change.
 
+## PR #205 First CI Failure Forensics and Acceptance Robustness (2026-11-07)
+
+Head `0871aa5`'s first CI run keeps every StepPage gate green: macOS source and
+packaged `verify-steppage-registration`, all StepPage unit tests inside the
+Windows protocol run, interface and sessions groups on both platforms. Two
+failures occur in background scenarios this PR does not touch.
+
+Windows runtime protocol tests fail one case: the background-runtime retry
+scenario times out waiting for all eight capacity slots, with `slots=7`,
+`failures=0` and the parent turn settled — one of eight concurrently spawned
+cold children did not complete its first model request inside the 25-second
+fixture budget. The same head passes this scenario locally five times and it
+passed in earlier CI runs.
+
+macOS packaged runtime fails `verify-background-agent-replies.mjs:196`: the
+failure screenshot in the diagnostics artifact shows the multiline draft still
+present and selection-highlighted with an enabled send button — Playwright
+`fill('')` selected the draft but its delete step did not reach the ProseMirror
+commit on the slow packaged launch. The same script's source run passed on the
+same head minutes earlier, and the verifier passes locally on Windows with the
+#201 selection setters. #201's composer diff only adds selection accessors and
+does not change disabled/value semantics.
+
+Both are timing-sensitive acceptance mechanics, not introduced by this PR. No
+evidence supports a flake label, an automatic rerun, or attributing them to the
+StepPage change, so no assertion is weakened or removed. The fixes are test-only:
+
+- The replies verifier clears the draft through the editor's real input path
+  (select-all and Delete keys, ProseMirror's actual key handling) and then
+  asserts the original invariant through a bounded 30-second condition wait: an
+  empty draft must never be sendable. A genuinely uncleared editor or an enabled
+  send button still fails the test. The failure screenshot remains.
+- The background-runtime wait helper accepts an explicit deadline. Only the two
+  waits that depend on concurrently cold-starting children (eight slots, and the
+  respawned retry child) use a 45-second mechanics budget with an explanatory
+  comment, and the timeout message carries the actual budget. The default 25
+  seconds and every capacity, dedup, identity and retry assertion are unchanged.
+
+Local verification on the v0.1.7 physical runtime: the background-runtime suite
+passes seven of seven and typecheck passes; the replies verifier passes end to
+end with the keyboard clearing. The CI-side timing distribution (runner load
+during child startup) is still not fully located; if a failure recurs beyond the
+new budget, the diagnosis continues into the runtime child startup path with the
+recorded phases. No product code, pin, patch or acceptance inventory changes in
+this follow-up.
+
 ## Upstream v0.1.7 Local Migration (2026-11-06)
 
 The `codex/upstream-v017` worktree, based on main `1979ee7`, migrates the

@@ -17,6 +17,11 @@ main navigates to another conversation. Its simultaneous-send check gates the
 real draft-consumption IPC until both clicks arrive, preventing an automation
 click from accidentally hitting a button that has already changed to Stop.
 
+Returning from MiniChat also restores an expanded bottom terminal to its dock
+before revealing requested content. Native workflow, `/todos` and web-link
+handoffs verify the requested panel is visible, the conversation is not inert,
+and the existing terminal process remains running.
+
 Windows startup now uses the same native `normal` topmost level as MiniChat;
 source startup acceptance verifies the actual OS topmost state and disposal.
 

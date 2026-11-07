@@ -45,7 +45,7 @@ for (const id of ['one', 'two', 'three']) {
   await writeFile(join(root, 'sessions', `${id}.jsonl`), lines.map(value => JSON.stringify(value)).join('\n') + '\n');
 }
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspace, workspaces: [workspace] }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspace, workspaces: [workspace], terminalDock: 'bottom' }));
 const requests = [];
 const held = new Map();
 const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({ id: 'mini-fixture', object: 'chat.completion.chunk', model: 'fixture',
@@ -121,6 +121,27 @@ try {
   assert.equal(await mini.evaluate(() => typeof window.require), 'undefined');
   await assert.rejects(mini.evaluate(() => window.desktop.browserLayout({})), /main window/);
   await assert.rejects(mini.evaluate(() => window.desktop.preferences({ language: 'en' })), /main window/);
+  const expandMainTerminal = async () => {
+    const panel = main.locator('#terminal-panel');
+    if (await panel.getAttribute('aria-hidden') !== 'false')
+      await main.locator('.right-tool-rail').getByRole('button', { name: '终端', exact: true }).click();
+    await main.locator('#terminal-panel[aria-hidden="false"]').waitFor();
+    await main.waitForFunction(() => document.querySelector('#terminal-panel .terminal-footer')?.textContent.includes('运行中'));
+    const owner = (await main.evaluate(() => window.desktop.snapshot())).runtimeId;
+    const terminals = await main.evaluate(id => window.desktop.terminalList(id), owner);
+    assert.ok(terminals.length);
+    await panel.getByRole('button', { name: '全屏查看', exact: true }).click();
+    await main.waitForFunction(() => document.querySelector('.main-content')?.inert === true);
+    return { owner, terminalId: terminals[0].id };
+  };
+  const verifyTerminalRestored = async ({ owner, terminalId }) => {
+    await main.waitForFunction(() => document.querySelector('.main-content')?.inert === false);
+    assert.equal(await main.locator('#terminal-panel').evaluate(element => element.classList.contains('is-expanded')), false);
+    assert.ok((await main.evaluate(id => window.desktop.terminalList(id), owner))
+      .some(terminal => terminal.id === terminalId && terminal.status === 'running'), 'Handoff collapses the terminal without stopping its PTY');
+    await main.locator('.right-tool-rail').getByRole('button', { name: '终端', exact: true }).click();
+    await main.locator('#terminal-panel[aria-hidden="true"]').waitFor({ state: 'attached' });
+  };
   // The clicked historical workflow, not the latest run or saved catalog, wins.
   await main.evaluate(() => window.desktop.navigateSession('two'));
   await main.reload();
@@ -131,6 +152,7 @@ try {
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').showInactive());
   };
   for (let repeat = 0; repeat < 2; repeat++) {
+    const terminal = repeat ? undefined : await expandMainTerminal();
     if (repeat) await reopenMini();
     await workflowCard.click();
     const overview = main.locator('#subagent-panel[aria-hidden="false"] .workflow-overview-heading strong');
@@ -138,6 +160,7 @@ try {
     assert.equal(await overview.textContent(), 'Selected Mini workflow');
     assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.sessionId, 'one');
     assert.equal(await main.locator('#workflow-catalog-panel[aria-hidden="false"]').count(), 0);
+    if (terminal) await verifyTerminalRestored(terminal);
   }
   await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
   await reopenMini();
@@ -146,6 +169,12 @@ try {
   assert.equal(await main.locator('#subagent-panel[aria-hidden="false"]').count(), 0, 'Bare workflows opens the saved catalog, not run details');
   await main.keyboard.press('Escape');
   await main.locator('#workflow-catalog-panel[aria-hidden="false"]').waitFor({ state: 'detached' });
+  const taskTerminal = await expandMainTerminal();
+  await reopenMini();
+  await editor.fill('/todos'); await editor.press('Escape'); await editor.press('Enter');
+  await main.getByRole('heading', { name: '推进清单', exact: true }).waitFor();
+  await verifyTerminalRestored(taskTerminal);
+  await main.locator('.summary-board').getByRole('button', { name: '关闭侧栏', exact: true }).click();
   assert.equal(requests.length, 0, 'Inspecting workflows never sends a model request');
   await reopenMini();
   await editor.fill('Shared from mini');
@@ -322,12 +351,11 @@ try {
   await editor.fill('Keep this draft during web handoff');
   await main.evaluate(() => window.desktop.navigateSession('two'));
   await main.reload();
-  await main.getByRole('button', { name: '远程访问', exact: true }).click();
-  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor();
+  const webTerminal = await expandMainTerminal();
   const beforeLinkRequests = requests.length;
   await link.click();
-  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
   await main.locator('#browser-panel[aria-hidden="false"]').waitFor();
+  await verifyTerminalRestored(webTerminal);
   const linkUrl = `http://127.0.0.1:${server.address().port}/mini-link`;
   const waitForLinkedBrowser = async () => {
     const deadline = Date.now() + 30000;
@@ -350,7 +378,10 @@ try {
   await main.getByRole('button', { name: 'MiniChat', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').showInactive());
   await mini.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Keep this draft during web handoff');
+  await main.getByRole('button', { name: '远程访问', exact: true }).click();
+  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor();
   await link.click();
+  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
   await main.locator('#browser-panel[aria-hidden="false"]').waitFor();
   await waitForLinkedBrowser();
   assert.equal(requests.length, beforeLinkRequests, 'Reopening the same link neither hides its panel nor submits input');
@@ -378,7 +409,7 @@ try {
   await mini.screenshot({ path: join(output, 'native-light-narrow.png') });
   assert.deepEqual(errors, []);
   await writeFile(join(output, 'result.json'), JSON.stringify({ profile, requests: requests.length, errors, verified: true }, null, 2));
-  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, web-link handoff/reopen with preserved draft and native browser, deletion guard, draft promotion, pin, narrow light/en/focus.');
+  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, web-link handoff/reopen with preserved draft and native browser, fullscreen bottom-terminal collapse with live PTY on workflow/todos/web handoff, deletion guard, draft promotion, pin, narrow light/en/focus.');
 } catch (error) {
   console.error('Native windows at failure', await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({
     title: window.getTitle(), url: window.webContents.getURL(),

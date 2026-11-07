@@ -832,7 +832,7 @@ function App() {
         if (!isMini && event.restorePresentation) {
           finishSettingsClose();
           setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false);
-          setPluginsOpen(false); setFulltextOpen(false); setDetails('');
+          setPluginsOpen(false); setFulltextOpen(false); setDetails(''); setExpandedRightPanel(null);
         }
         void run(async () => {
           rememberView(false);

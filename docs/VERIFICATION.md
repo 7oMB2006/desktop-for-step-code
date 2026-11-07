@@ -37,6 +37,14 @@ separate drafts; native acceptance deletes a selected loopback provider while
 only MiniChat holds a draft and checks replacement models, input, task options
 and successful first submission after an explicit model-picker selection,
 without moving the main conversation or silently changing the billing route.
+Project relocation refuses drafts held only by MiniChat until they return to
+main, retaining their project, input and launch options. Unit cases cover an
+independently selected main conversation or draft; native acceptance verifies
+the actual IPC rejection without opening a folder dialog.
+Cron authorization replacement retries transient file-sharing errors a bounded
+number of times without deleting the previous file. Injected filesystem tests
+cover successful retry, exhausted locks and non-retryable errors; failures still
+surface and cannot start a host.
 
 Windows startup now uses the same native `normal` topmost level as MiniChat;
 source startup acceptance verifies the actual OS topmost state and disposal.

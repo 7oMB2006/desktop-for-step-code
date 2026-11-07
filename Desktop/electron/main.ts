@@ -1655,7 +1655,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
     case 'relocateWorkspace': {
       if (transition || deletingArchived || sessionNavigation.busy) throw new Error('Workspace operation in progress');
       const path = text(args[0], 2048);
-      if (miniView.worker && pathKey(miniView.worker.cwd) === pathKey(path) && miniView.runtimeId !== runtimes.activeId)
+      if (miniView.worker && pathKey(miniView.worker.cwd) === pathKey(path) && miniView.runtimeId !== runtimes.activeId
+        || miniView.draft?.workspace && pathKey(miniView.draft.workspace) === pathKey(path) && miniView.draft !== sessionDraft)
         throw new Error(preferences.language === 'zh' ? '请先将该项目的小窗会话返回主窗口，再重新定位项目' : 'Return this project’s MiniChat conversation to main before relocating it');
       if (!preferences.workspaces.some(value => pathKey(value) === pathKey(path))) throw new Error('Unknown workspace');
       const peers = () => [...runtimes.workers.values()].filter(worker => pathKey(worker.cwd) === pathKey(path));

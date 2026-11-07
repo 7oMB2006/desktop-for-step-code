@@ -156,6 +156,27 @@ async function fixture() {
     setModels: (models: Model[]) => { availableModels = models; } };
 }
 
+for (const mode of ['mini-only', 'separate'] as const) {
+  test(`workspace relocation rejects a ${mode} MiniChat project draft without losing input or options`, async () => {
+    const f = await fixture();
+    const owner = { draftId: f.draft.id };
+    f.composers.write({ owner, revision: 0, value: {
+      text: 'Keep this project question', quotes: [], attachments: [],
+    } });
+    f.draft.launch = { ...emptyLaunch(), reviewArmed: true };
+    f.navigateAway('main');
+    if (mode === 'separate') await f.api.handle('beginSession', [projectB], 'main');
+    const mainDraft = f.api.selectedDraft('main');
+    await assert.rejects(f.api.handle('relocateWorkspace', [projectA], 'main'), /MiniChat.*before relocating/i);
+    assert.equal(f.api.selectedDraft('mini'), f.draft);
+    assert.equal(f.draft.workspace, projectA);
+    assert.equal(f.draft.launch.reviewArmed, true);
+    assert.equal(f.api.selectedDraft('main'), mainDraft);
+    assert.equal(f.composers.read(owner).value.text, 'Keep this project question');
+    assert.deepEqual(f.sessionOptions, mode === 'separate' ? [projectB] : []);
+  });
+}
+
 for (const mode of ['shared', 'mini-only', 'separate'] as const) {
   test(`provider refresh updates ${mode} drafts without losing composer input`, async () => {
     const f = await fixture();

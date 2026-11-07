@@ -471,6 +471,13 @@ try {
   await editor.fill('Keep provider-refresh draft');
   const providerDraft = (await mini.evaluate(() => window.desktop.snapshot())).draftId;
   const beforeProviderRequests = requests.length;
+  await assert.rejects(main.evaluate(path => window.desktop.relocateWorkspace(path), workspace), /小窗会话返回主窗口/);
+  assert.equal((await mini.evaluate(() => window.desktop.snapshot())).draftId, providerDraft);
+  assert.equal((await mini.evaluate(() => window.desktop.snapshot())).preferences.workspace, workspace);
+  assert.equal(await editor.textContent(), 'Keep provider-refresh draft');
+  assert.equal((await mini.evaluate(() => window.desktop.snapshot())).launch.reviewArmed, true);
+  assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.sessionId, mainSessionBeforeProvider);
+  assert.equal(requests.length, beforeProviderRequests, 'Rejected project relocation never starts a runtime or submits input');
   await main.evaluate(id => window.desktop.deleteProvider(id), providerId);
   await mini.waitForFunction(({ id, draftId }) => window.desktop.snapshot().then(value =>
     value.draftId === draftId && value.models.every(model => model.provider !== id)

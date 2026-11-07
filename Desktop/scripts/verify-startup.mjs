@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 await mkdir('test-results/startup', { recursive: true });
-const root = await realpath(await mkdtemp(join(tmpdir(), 'step-startup-window-')));
+const root = await mkdtemp(join(tmpdir(), 'step-startup-window-'));
 const physical = join(root, 'physical'), alias = join(root, 'alias');
 await mkdir(physical);
 await symlink(physical, alias, process.platform === 'win32' ? 'junction' : 'dir');

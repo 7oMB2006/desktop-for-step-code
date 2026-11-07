@@ -98,8 +98,8 @@ if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplat
     { type: 'separator' }, { role: 'togglefullscreen' }] },
   { role: 'windowMenu' },
 ]));
-// Hosted runners may expose temporary profiles through /var or Windows short-path aliases.
-if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', realpathSync(resolve(process.env.DESKTOP_TEST_USER_DATA)));
+// Native resolution also expands Windows 8.3 names, unlike the JS realpathSync implementation.
+if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', realpathSync.native(resolve(process.env.DESKTOP_TEST_USER_DATA)));
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
 const workflowBindings = new WorkflowBindings(join(app.getPath('userData'), 'workflow-bindings'));

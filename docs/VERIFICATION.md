@@ -1,5 +1,24 @@
 # Verification
 
+## PR #207 macOS Packaged Reply Acceptance
+
+Head `ba58e70` passes the Windows gates and macOS source runtime checks, but
+macOS run `42344506919` fails packaged runtime acceptance at the background-reply
+empty-draft assertion. The fixture used `fill('')` and immediately read the send
+button before confirming the controlled ProseMirror draft had cleared.
+
+The fixture now uses the editor's native select-all/Backspace transactions,
+waits for both model value and controlled empty state, and retains the disabled
+send assertion. It also checks that the nonempty draft was sendable and clearing
+it makes no follow-up request. The initial parent-idle poll now awaits the
+resolved IPC snapshot rather than a browser-side Promise. No production code,
+assertion requirement, deadline or CI inventory is removed or relaxed.
+
+All 31 focused background-agent, composer and snapshot-polling tests pass.
+Three Windows Electron reply replays and the composer-editing acceptance pass.
+Fresh macOS source/package and current-head cloud results remain required;
+the local Windows checks do not establish that the failing platform passed.
+
 ## Compaction Settings Main Synchronization (2026-11-07)
 
 PR #207 integrates main `ff2f3b02`, including #206's execution-outcome and

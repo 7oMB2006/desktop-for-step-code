@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { verifyCrashRecords } from './crash-record-fixture.mjs';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const profile = await mkdtemp(join(tmpdir(), 'desktop-crash-log-'));
@@ -39,6 +40,7 @@ await writeFile(join(dataRoot, 'auth.json'), JSON.stringify({
 let app = await launch();
 try {
   await ready(app);
+  await verifyCrashRecords(app, profile);
 } finally { await app.close(); }
 
 const encrypted = await readFile(join(dataRoot, 'auth.dpapi'));

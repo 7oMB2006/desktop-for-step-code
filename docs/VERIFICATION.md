@@ -1,5 +1,107 @@
 # Verification
 
+## Upstream v0.1.7 Runtime Stability (2026-11-07, Local Candidate)
+
+This candidate starts from main `4318d6e` (merged PR #203) and retains the
+`29eb460780489801ce8afc8bffc1a2efae7cbded` runtime pin. It does not implement
+the parallel command-result presentation or automatic-compaction settings.
+
+Startup now checks worker and transport ownership after asynchronous RPC,
+snapshot and model restoration, including reuse of an empty worker. Closing
+during startup cannot reactivate the removed session. An optional main-only
+diagnostic hook distinguishes launch, process, session, snapshot and model
+phases. The native background fixture preserves these observations before
+cleanup, including on timeout. Diagnostics contain only a runtime UUID, validated
+PID and timing/status fields, never paths, prompts, errors or environment values.
+
+Windows shutdown no longer silently accepts an unsuccessful process-tree
+termination helper or falls back to stopping only the parent. Helper success
+must be followed by observing the captured child's exit. Exit code 128 is
+accepted only when that exact child exits, covering the natural-exit race.
+A failed shutdown retains a disconnected cleanup handle for explicit later
+cleanup, both for single-worker removal and stop-all; it does not retry,
+reactivate the worker or prevent peers from stopping. POSIX termination
+semantics remain unchanged. Failure-injection and startup/close-interleaving
+tests reproduce the defects before the fixes and pass afterwards.
+
+The pinned native RPC fixture also covers a held background child completing
+during Plan review: its result remains available without another parent model
+turn or a premature completion notification. Cancelling the review keeps Plan
+mode and does not release the background wake-up. Closing/reopening the session
+restores Plan without restoring an approval or starting a request; an ordinary
+follow-up remains a question in Plan, not an approval.
+
+Typecheck and production build pass. The final serial Desktop suite completes
+1089 cases: 1076 passed, 13 platform skips, zero failures or cancellations,
+in 383.3 seconds. CI policy, inventory, runner, summary and motion-helper
+tests pass 54 cases with one platform skip; 22 upstream Plan approval,
+barrier and storage tests also pass. The rebuilt isolated real Electron Plan
+verifier passes approval snapshots, drag dismissal, refinement, cancellation,
+stale proposals, restart, expiry and fresh review. All nine native hosts
+recorded by the background fixture have exited after the suite.
+
+Final receipts are under this worktree's `Desktop/test-results/`:
+`v017-regressions-suite-verified.log`,
+`v017-regressions-build-verified.log`,
+`v017-regressions-ci-policy-verified.log` and
+`v017-regressions-plan-electron-verified.log`.
+
+The first Electron attempt fails before a model call because the borrowed
+runtime lacks main's Desktop-owned `project-instructions.mjs` extension.
+The corrected local acceptance directory copies current Desktop adapters and
+builds that extension, while linking the unchanged upstream bundle and Node
+read-only. No shared runtime is restaged. This QA setup correction is not a
+product fix or evidence about the historical macOS failure.
+
+Excluding junction targets, this worktree owns 10.12 MiB of application build
+output, 62.96 MiB of terminal runtime, 0.10 MiB of Desktop runtime adapters and
+about 1 MiB of verification logs/screenshots. These remain current QA inputs
+and evidence, not historical installers; no existing package is removed.
+
+The earlier macOS background-runtime timeout still has no established root
+cause; its successful rerun and the new diagnostics do not establish a fix.
+Fresh cloud/native macOS execution, packaged/installer acceptance and real
+account/model checks remain pending. All local native/GUI checks use isolated
+temporary profiles and deterministic loopback models. No installed application,
+shortcut, renderer contract, public release or version is changed.
+
+### Main Synchronization Before PR
+
+This branch now integrates main `ff2f3b02` (merged PR #206). Only this document
+conflicted; both verification records are preserved. Incoming incomplete-turn
+recovery and result presentation remain unchanged alongside the startup and
+shutdown guards.
+
+After synchronization, typecheck, production build and all 201 focused cases
+complete: 199 passed, two platform skips, zero failures or cancellations.
+The rebuilt Electron Plan verifier passes again; CI policy, inventory, runner,
+summary and motion-helper tests pass 54 cases with one platform skip. Receipts
+are `Desktop/test-results/v017-regressions-main-sync-{build,tests,plan,policy}.log`.
+The complete 1089-case suite above predates this synchronization; it is not a
+current-combination full-suite or cloud/native macOS acceptance claim.
+
+### Local Review Follow-up
+
+Local review reproduced a combined failure: incomplete-response recovery leaves
+run ownership active during startup, then restoration and process termination
+both fail. The startup catch retained its disconnected cleanup handle without
+clearing that activity, blocking account and provider idle guards. Startup
+cleanup now shares the failed-stop normalization used by removal and stop-all,
+while preserving both worker and transport ownership checks.
+
+Four new regressions cover snapshot/model restoration plus failed termination,
+late recovery events, pending approval/timer cleanup, explicit later cleanup,
+and replacement worker/transport ownership. Both combined-failure cases fail
+before the fix; all four pass afterwards. Final-source typecheck, production
+build and the rebuilt isolated Electron Plan verifier pass again. No runtime
+restaging, installed application change or acceptance package is involved.
+
+The complete current-combination serial Desktop suite now finishes 1108 cases:
+1095 passed, 13 platform skips, zero failures or cancellations, in 423.9 seconds.
+Receipts are `Desktop/test-results/v017-startup-cleanup-{suite,build,plan}.log`.
+Current-head cloud/native macOS, packaged and real-account acceptance remain
+separate from these local checks.
+
 ## Upstream v0.1.7 Result Presentation (2026-11-07, Local Candidate)
 
 This stage leaves the runtime pin and patch manifests unchanged. Existing

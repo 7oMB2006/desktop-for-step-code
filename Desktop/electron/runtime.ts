@@ -139,9 +139,25 @@ export class RpcProcess {
   }
   private async terminate(child: ChildProcessWithoutNullStreams) {
     if (process.platform === 'win32' && child.pid) {
-      await new Promise<void>(resolve => {
+      const code = await new Promise<number | null>((resolve, reject) => {
         const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-        killer.on('error', () => { child.kill(); resolve(); }); killer.on('exit', () => resolve());
+        killer.on('error', () => reject(new Error('Runtime process-tree termination failed: helper unavailable')));
+        killer.on('exit', (code, signal) => {
+          if (code === 0 || code === 128) resolve(code);
+          else reject(new Error(`Runtime process-tree termination failed (${code ?? signal ?? 'unknown'})`));
+        });
+      });
+      // A broken pipe can end the child before taskkill finds it (128).
+      // Accept that race only after observing this exact child's exit.
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      await new Promise<void>((resolve, reject) => {
+        const exited = () => { clearTimeout(timer); resolve(); };
+        const timer = setTimeout(() => {
+          child.off('exit', exited);
+          reject(new Error(code === 0 ? 'Runtime did not exit after process-tree termination'
+            : 'Runtime process-tree termination failed (128)'));
+        }, 2000);
+        child.once('exit', exited);
       });
     } else {
       if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;

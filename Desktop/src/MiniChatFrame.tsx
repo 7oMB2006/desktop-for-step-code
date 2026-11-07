@@ -1,35 +1,37 @@
 import { useCallback, useId, useRef, useState, type PointerEventHandler, type ReactNode } from 'react';
-import { ExternalLink, FolderOpen, GitBranch, MessagesSquare, Pin, PinOff, Plus, X } from 'lucide-react';
-import { AppMenu } from './AppMenu';
+import { ExternalLink, FolderOpen, GitBranch, MessagesSquare, Pin, PinOff, X } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
+import { MiniChatSessionPicker } from './MiniChatSessionPicker';
+import { MINI_INDEPENDENT_PROJECT, type MiniChatProject, type MiniChatSession } from './mini-chat-sessions';
 import './mini-chat.css';
 
-export type MiniChatSession = { id: string; title: string; project?: string; branch?: string };
+export type { MiniChatSession } from './mini-chat-sessions';
 
-export function MiniChatFrame({ language, session, sessions, pinned, onPinned, onSession, onReturn, onClose, onNewSession,
+export function MiniChatFrame({ language, session, projects, sessions, pinned, onPinned, onSession, onReturn, onClose, onNewSession,
   onDragStart, children }: {
-  language: 'zh' | 'en'; session: MiniChatSession; sessions: MiniChatSession[]; pinned: boolean;
+  language: 'zh' | 'en'; session: MiniChatSession; projects: MiniChatProject[]; sessions: MiniChatSession[]; pinned: boolean;
   onPinned: (pinned: boolean) => void; onSession: (id: string) => void;
   onReturn: () => void; onClose: () => void; onDragStart?: PointerEventHandler<HTMLElement>;
-  onNewSession?: () => void;
+  onNewSession?: (project: string) => void;
   children: ReactNode;
 }) {
   const zh = language === 'zh';
   const heading = useId();
+  const pickerId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const [switching, setSwitching] = useState(false);
   const closeMenu = useCallback(() => setSwitching(false), []);
   return <section className="mini-chat-frame" aria-labelledby={heading}>
     <header className="mini-chat-header" onPointerDown={onDragStart}>
       <img className="mini-chat-mark" src={location.protocol === 'file:' ? './StepCode.svg' : '/StepCode.svg'} width="19" height="19" alt="" draggable={false}/>
-      <button ref={trigger} type="button" className="mini-chat-session" aria-haspopup="menu"
+      <button ref={trigger} type="button" className="mini-chat-session" aria-haspopup="dialog" aria-controls={switching ? pickerId : undefined}
         aria-expanded={switching} aria-label={zh ? '切换小窗会话' : 'Switch MiniChat conversation'}
         onClick={() => setSwitching(value => !value)}>
         <span className="mini-chat-session-copy">
           <strong id={heading} data-tooltip={session.title}>{session.title}</strong>
           <span className="mini-chat-project">
-            {session.project && <span><FolderOpen size={11}/>{session.project}</span>}
-            {session.branch && <span><GitBranch size={11}/>{session.branch}</span>}
+            {session.project && <span>{session.projectId === MINI_INDEPENDENT_PROJECT ? <MessagesSquare size={11}/> : <FolderOpen size={11}/>}<span>{session.project}</span></span>}
+            {session.branch && <span><GitBranch size={11}/><span>{session.branch}</span></span>}
           </span>
         </span>
         <DisclosureChevron/>
@@ -45,10 +47,8 @@ export function MiniChatFrame({ language, session, sessions, pinned, onPinned, o
           data-tooltip={zh ? '关闭小窗' : 'Close MiniChat'} onClick={onClose}><X size={16}/></button>
       </div>
     </header>
-    <AppMenu anchor={trigger} open={switching} label={zh ? '小窗会话' : 'MiniChat conversations'}
-      items={[...(onNewSession ? [{ id: '__new__', label: zh ? '新会话' : 'New session', icon: <Plus size={15}/> }] : []),
-        ...sessions.map(item => ({ id: item.id, label: item.title, icon: <MessagesSquare size={15}/> }))]}
-      selected={session.id} onSelect={id => { if (id === '__new__') onNewSession?.(); else onSession(id); }} onClose={closeMenu} maxVisibleItems={8}/>
+    <MiniChatSessionPicker id={pickerId} anchor={trigger} open={switching} session={session} projects={projects} sessions={sessions}
+      language={language} onSelect={onSession} onCreate={onNewSession} onClose={closeMenu}/>
     <div className="mini-chat-content">{children}</div>
   </section>;
 }

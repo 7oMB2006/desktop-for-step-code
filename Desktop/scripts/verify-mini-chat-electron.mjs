@@ -6,16 +6,20 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { verifyTooltipLayer } from './verify-tooltip-layer.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-mini-chat-')));
 const root = join(profile, 'step-runtime'), workspace = join(profile, 'project');
+const webLocal = join(profile, 'local', 'web-app'), webClient = join(profile, 'client', 'web-app'), scratch = join(profile, 'scratch');
 const output = resolve('test-results/mini-chat-native');
 await mkdir(join(root, 'sessions'), { recursive: true }); await mkdir(workspace); await mkdir(output, { recursive: true });
+for (const path of [webLocal, webClient, scratch]) await mkdir(path, { recursive: true });
 await cp(resolve('../theme-marketplace/plugins/stellar-cruise'), join(root, 'plugins/stellar-cruise'), { recursive: true });
 const timestamp = new Date().toISOString();
 const subagentTask = { agent: 'review', task: 'Selected Mini subagent', status: 'completed', messages: [] };
-for (const id of ['one', 'two', 'three']) {
-  const lines = [{ type: 'session', version: 3, id, cwd: workspace, timestamp }];
+for (const [id, cwd] of [['one', workspace], ['two', workspace], ['three', workspace],
+  ['web-local', webLocal], ['web-client', webClient], ['independent', scratch]]) {
+  const lines = [{ type: 'session', version: 3, id, cwd, timestamp }];
   let parentId = null;
   for (let index = 0; index < 12; index++) {
     for (const role of ['user', 'assistant']) {
@@ -55,11 +59,12 @@ for (const id of ['one', 'two', 'three']) {
       }
     }
   }
-  lines.push({ type: 'session_info', id: `${id}-name`, parentId, timestamp, name: `Mini ${id}` });
+  lines.push({ type: 'session_info', id: `${id}-name`, parentId, timestamp, name: id.startsWith('web-') ? 'Configuration checks' : `Mini ${id}` });
   await writeFile(join(root, 'sessions', `${id}.jsonl`), lines.map(value => JSON.stringify(value)).join('\n') + '\n');
 }
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspace, workspaces: [workspace], terminalDock: 'bottom' }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspace,
+  workspaces: [workspace, webLocal, webClient], terminalDock: 'bottom' }));
 const requests = [];
 const held = new Map();
 const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({ id: 'mini-fixture', object: 'chat.completion.chunk', model: 'fixture',
@@ -136,6 +141,179 @@ try {
   assert.equal(await mini.evaluate(() => typeof window.require), 'undefined');
   await assert.rejects(mini.evaluate(() => window.desktop.browserLayout({})), /main window/);
   await assert.rejects(mini.evaluate(() => window.desktop.preferences({ language: 'en' })), /main window/);
+  const miniScroll = mini.locator('#conversation-scroll');
+  const miniTrack = mini.locator('.conversation-scroll-track');
+  const scrollEvidence = [];
+  for (const [width, theme] of [[360, 'dark'], [900, 'light'], [1600, 'dark']]) {
+    await main.evaluate(theme => window.desktop.preferences({ theme }), theme);
+    const size = await app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat');
+      window.setContentSize(width, 680);
+      return window.getContentSize();
+    }, width);
+    await mini.waitForFunction(([width, height]) => innerWidth === width && innerHeight === height, size);
+    await settleLayout(mini.locator('.app'));
+    const geometry = await mini.evaluate(() => {
+      const box = selector => {
+        const { x, y, width, height, right, bottom } = document.querySelector(selector).getBoundingClientRect();
+        return { x, y, width, height, right, bottom };
+      };
+      const messages = document.querySelector('.messages');
+      const actions = document.querySelector('.mini-chat-window-actions');
+      const trigger = box('.mini-chat-session');
+      const gapX = (trigger.right + actions.getBoundingClientRect().left) / 2;
+      const gapY = trigger.y + trigger.height / 2;
+      const gap = document.elementFromPoint(gapX, gapY);
+      return { width: innerWidth, scroll: box('.conversation'), track: box('.conversation-scroll-track'),
+        ruler: box('.turn-marker-layer'), trigger, actions: box('.mini-chat-window-actions'),
+        gapIsHeader: gap?.matches('.mini-chat-header') === true,
+        gapRegion: gap ? getComputedStyle(gap).webkitAppRegion : '',
+        textRight: messages.getBoundingClientRect().right - parseFloat(getComputedStyle(messages).paddingRight) };
+    });
+    scrollEvidence.push({ theme, geometry });
+    assert.ok(geometry.scroll.right - geometry.track.right <= 4, `${width}: scroll handle stays at the window edge`);
+    assert.ok(geometry.scroll.right - geometry.ruler.right <= 22, `${width}: turns stay at the window edge`);
+    assert.ok(geometry.track.y >= geometry.scroll.y && geometry.track.bottom <= geometry.scroll.bottom,
+      `${width}: the scroll handle cannot extend over the composer or header`);
+    assert.ok(geometry.textRight <= geometry.ruler.x - 4, `${width}: text does not overlap turn markers`);
+    assert.ok(geometry.trigger.width <= 360 && geometry.trigger.width <= geometry.width * .6,
+      `${width}: the conversation switcher does not fill the titlebar`);
+    if (width >= 900) {
+      assert.ok(geometry.actions.x - geometry.trigger.right >= 150, `${width}: spare titlebar remains draggable`);
+      assert.ok(geometry.gapIsHeader && geometry.gapRegion === 'drag', `${width}: spare titlebar is not a switcher hit target`);
+    }
+    await mini.getByRole('button', { name: '切换小窗会话', exact: true }).click();
+    const menu = mini.getByRole('dialog', { name: '小窗会话', exact: true });
+    await menu.waitFor();
+    const menuBox = await menu.boundingBox();
+    assert.ok(menuBox.x >= 0 && menuBox.x + menuBox.width <= geometry.width, `${width}: session menu stays on screen`);
+    await mini.keyboard.press('Escape');
+    for (const selector of ['.conversation', '.turn-marker.active', '.conversation-scroll-track']) {
+      await miniTrack.focus();
+      await mini.keyboard.press('End');
+      await mini.waitForFunction(() => {
+        const element = document.querySelector('#conversation-scroll');
+        return element.scrollHeight - element.clientHeight - element.scrollTop <= 1;
+      });
+      const before = await miniScroll.evaluate(element => element.scrollTop);
+      await mini.locator(selector).hover();
+      await mini.mouse.wheel(0, -64);
+      await mini.waitForFunction(before => document.querySelector('#conversation-scroll').scrollTop < before - 20, before);
+      await mini.getByRole('button', { name: '回到底部', exact: true }).waitFor();
+      scrollEvidence.push({ width, selector, before, after: await miniScroll.evaluate(element => element.scrollTop) });
+    }
+    const thumb = await miniTrack.locator('.conversation-scroll-thumb').boundingBox();
+    const beforeDrag = await miniScroll.evaluate(element => element.scrollTop);
+    await mini.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2);
+    await mini.mouse.down();
+    await mini.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2 - 36, { steps: 5 });
+    await mini.mouse.up();
+    assert.ok(await miniScroll.evaluate(element => element.scrollTop) < beforeDrag - 20, `${width}: handle dragging scrolls the transcript`);
+    const markerLabel = await mini.locator('.turn-marker').first().getAttribute('aria-label');
+    const question = /Question (\d+) in one/.exec(markerLabel)[1];
+    await mini.locator('.turn-marker').first().click();
+    await mini.waitForFunction(question => {
+      const viewport = document.querySelector('#conversation-scroll');
+      const message = viewport.querySelector(`[data-message-entry-id="one-user-${question}"]`);
+      return message && Math.abs(message.getBoundingClientRect().top - viewport.getBoundingClientRect().top) <= 1;
+    }, question);
+    await mini.screenshot({ path: join(output, `native-scroll-${theme}-${width}.png`) });
+  }
+  await writeFile(join(output, 'scroll-geometry.json'), JSON.stringify(scrollEvidence, null, 2));
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').setSize(470, 680));
+  await main.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
+  await miniTrack.focus();
+  await mini.keyboard.press('End');
+  const mainBeforePicker = await main.evaluate(() => window.desktop.snapshot());
+  const nativePicker = mini.getByRole('dialog', { name: '小窗会话', exact: true });
+  const nativeSearch = nativePicker.getByRole('searchbox', { name: '搜索小窗会话', exact: true });
+  const openPicker = async () => {
+    await mini.getByRole('button', { name: '切换小窗会话', exact: true }).click();
+    await nativeSearch.waitFor();
+    await settleLayout(nativePicker);
+    assert.equal(await nativeSearch.evaluate(element => element === document.activeElement), true);
+  };
+  await openPicker();
+  const projectPlus = nativePicker.locator('.mini-session-group').first().getByRole('button');
+  await projectPlus.hover();
+  await verifyTooltipLayer(mini, nativePicker);
+  assert.equal(await nativeSearch.evaluate(element => element === document.activeElement), true, 'Tooltip does not move native picker focus');
+  await mini.screenshot({ path: join(output, 'native-picker-tooltip.png') });
+  await nativePicker.evaluate(element => element.hidePopover());
+  await mini.locator('.app-tooltip').waitFor({ state: 'detached' });
+  await nativePicker.waitFor({ state: 'hidden' });
+  await openPicker();
+  assert.equal(await nativePicker.locator('.mini-session-group').count(), 4);
+  assert.match(await nativePicker.locator('.mini-session-group').first().innerText(), /project/);
+  assert.equal(await nativePicker.locator('summary[aria-expanded="true"]').count(), 1, 'Only the current project starts expanded');
+  await nativePicker.locator('.mini-session-group').first().locator('summary').click();
+  await mini.waitForFunction(() => document.querySelector('.mini-session-group details')?.open === false);
+  assert.equal(await nativePicker.isVisible(), true, 'Collapsing the current project cannot dismiss the native picker');
+  const localProject = nativePicker.getByRole('region', { name: webLocal, exact: true });
+  const localSummary = localProject.locator('summary');
+  await localSummary.focus(); await mini.keyboard.press('Space');
+  await localProject.getByRole('option', { name: 'Configuration checks', exact: true }).waitFor();
+  await mini.keyboard.press('Enter');
+  await mini.waitForFunction(path => {
+    const group = [...document.querySelectorAll('.mini-session-group')].find(element => element.getAttribute('aria-label') === path);
+    return group?.querySelector('details')?.open === false;
+  }, webLocal);
+  assert.equal(await nativePicker.isVisible(), true, 'Keyboard collapse of another project cannot dismiss the native picker');
+  await mini.keyboard.press('Space');
+  await localProject.getByRole('option', { name: 'Configuration checks', exact: true }).click();
+  await mini.waitForFunction(async () => (await window.desktop.snapshot()).state?.sessionId === 'web-local');
+  await mini.locator('.composer-wrap[aria-busy="false"]').waitFor();
+  await openPicker();
+  await nativeSearch.fill('Configuration checks');
+  assert.equal(await nativePicker.getByRole('option').count(), 2);
+  for (const path of [webLocal, webClient])
+    assert.equal(await nativePicker.getByRole('region', { name: path, exact: true }).getByRole('option').count(), 1);
+  await mini.screenshot({ path: join(output, 'native-picker-duplicate-projects.png') });
+  await nativePicker.getByRole('region', { name: webClient, exact: true }).getByRole('option').click();
+  await mini.waitForFunction(async () => (await window.desktop.snapshot()).state?.sessionId === 'web-client');
+  await mini.locator('.composer-wrap[aria-busy="false"]').waitFor();
+  await mini.locator('.mini-chat-session-copy strong').getByText('Configuration checks', { exact: true }).waitFor();
+  assert.equal((await main.evaluate(() => window.desktop.snapshot())).runtimeId, mainBeforePicker.runtimeId);
+  await openPicker();
+  await nativeSearch.fill(webLocal);
+  await settleLayout(nativePicker);
+  const localPlus = nativePicker.getByRole('region', { name: webLocal, exact: true }).getByRole('button', { name: `在 ${webLocal} 新建会话`, exact: true });
+  await localPlus.focus();
+  await verifyTooltipLayer(mini, nativePicker);
+  assert.equal(await localPlus.evaluate(element => element === document.activeElement), true);
+  await mini.screenshot({ path: join(output, 'native-picker-tooltip-path.png') });
+  await localPlus.click();
+  await mini.locator('.app-tooltip').waitFor({ state: 'detached' });
+  await mini.waitForFunction(async path => {
+    const snapshot = await window.desktop.snapshot();
+    return snapshot.draftId && !snapshot.independent && snapshot.preferences.workspace === path;
+  }, webLocal);
+  await mini.locator('.mini-chat-session-copy strong').getByText('新会话', { exact: true }).waitFor();
+  await mini.locator('.composer-wrap[aria-busy="false"]').waitFor();
+  await editor.fill('Keep this project-specific MiniChat draft');
+  const projectDraft = (await mini.evaluate(() => window.desktop.snapshot())).draftId;
+  await openPicker();
+  await nativeSearch.fill('独立会话');
+  await nativePicker.getByRole('button', { name: '新建独立会话', exact: true }).click();
+  await mini.waitForFunction(async () => {
+    const snapshot = await window.desktop.snapshot();
+    return snapshot.draftId && snapshot.independent;
+  });
+  await mini.locator('.composer-wrap[aria-busy="false"]').waitFor();
+  const independentDraft = await mini.evaluate(() => window.desktop.snapshot());
+  assert.equal(independentDraft.draftId, projectDraft, 'Retargeting an unsubmitted draft preserves its identity');
+  assert.equal(await editor.textContent(), 'Keep this project-specific MiniChat draft', 'Retargeting an unsubmitted draft keeps its input');
+  assert.ok(independentDraft.independent);
+  const mainAfterPicker = await main.evaluate(() => window.desktop.snapshot());
+  assert.equal(mainAfterPicker.runtimeId, mainBeforePicker.runtimeId);
+  assert.deepEqual(mainAfterPicker.preferences.collapsedWorkspaces, mainBeforePicker.preferences.collapsedWorkspaces);
+  assert.deepEqual(mainAfterPicker.preferences.workspaces, mainBeforePicker.preferences.workspaces);
+  assert.equal(mainAfterPicker.preferences.workspace, mainBeforePicker.preferences.workspace);
+  await openPicker();
+  await nativeSearch.fill('Mini one');
+  await nativePicker.getByRole('option', { name: 'Mini one', exact: true }).click();
+  await mini.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Shared from mini');
+  assert.equal(requests.length, 0, 'Project search, navigation and draft creation never invoke the model');
   const expandMainTerminal = async () => {
     const panel = main.locator('#terminal-panel');
     if (await panel.getAttribute('aria-hidden') !== 'false')
@@ -216,11 +394,11 @@ try {
   await mini.screenshot({ path: join(output, 'native-dark.png') });
   const selected = await main.evaluate(() => window.desktop.snapshot());
   await mini.getByRole('button', { name: '切换小窗会话' }).click();
-  await mini.getByRole('menuitemradio', { name: 'Mini two', exact: true }).click();
+  await mini.getByRole('option', { name: 'Mini two', exact: true }).click();
   await mini.waitForFunction(async () => (await window.desktop.snapshot()).state?.sessionId === 'two');
   assert.equal((await main.evaluate(() => window.desktop.snapshot())).runtimeId, selected.runtimeId);
   await mini.getByRole('button', { name: '切换小窗会话' }).click();
-  await mini.getByRole('menuitemradio', { name: 'Mini one', exact: true }).click();
+  await mini.getByRole('option', { name: 'Mini one', exact: true }).click();
   await mini.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Shared from mini');
   await mini.locator('.quote-chip').waitFor();
   // Reload between atomic take and prompt restores the abandoned unsent input.
@@ -242,7 +420,7 @@ try {
   assert.equal(cold[0].runtimes.filter(worker => worker.sessionId === 'three').length, 1);
   await Promise.all([main.reload(), mini.reload()]);
   await mini.getByRole('button', { name: '切换小窗会话' }).click();
-  await mini.getByRole('menuitemradio', { name: 'Mini one', exact: true }).click();
+  await mini.getByRole('option', { name: 'Mini one', exact: true }).click();
   await mini.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Shared from mini');
   assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.sessionId, 'three');
   await assert.rejects(main.evaluate(() => window.desktop.deleteSession('one')), /both windows|主窗口和小窗/);
@@ -527,8 +705,9 @@ try {
   await mini.screenshot({ path: join(output, 'native-stellar-narrow.png') });
   assert.deepEqual(errors, []);
   await writeFile(join(output, 'result.json'), JSON.stringify({ profile, requests: requests.length, errors, verified: true }, null, 2));
-  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, repeated subagent/file handoff, web-link handoff/reopen with preserved draft and native browser, fullscreen bottom-terminal collapse with live PTY on workflow/todos/web handoff, draft/oversize side-question rejection preserves input and valid handoff, provider refresh retains independent draft/options and first send succeeds, deletion guard, draft promotion, pin, narrow light/en/focus, read-only Stellar scene/poster with decoded background and blocked plugin mutation.');
+  console.log('PASS native MiniChat: grouped cross-project search, same-name path disambiguation, project/independent draft IPC and main-preference isolation, coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, repeated subagent/file handoff, web-link handoff/reopen with preserved draft and native browser, fullscreen bottom-terminal collapse with live PTY on workflow/todos/web handoff, draft/oversize side-question rejection preserves input and valid handoff, provider refresh retains independent draft/options and first send succeeds, deletion guard, draft promotion, pin, narrow light/en/focus, read-only Stellar scene/poster with decoded background and blocked plugin mutation.');
 } catch (error) {
+  console.error('Native MiniChat failure:', error);
   console.error('Native windows at failure', await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({
     title: window.getTitle(), url: window.webContents.getURL(),
   }))).catch(() => []));

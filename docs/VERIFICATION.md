@@ -1,5 +1,57 @@
 # Verification
 
+## MiniChat Project Picker (2026-11-08, Local)
+
+The titlebar conversation picker now uses an anchored native popover with
+project groups, cross-project search and a separate independent-session group.
+Current-project expansion, counts, duplicate project paths and project-specific
+Plus actions use existing catalog/typed IPC. Search and disclosure state are
+local to MiniChat; archives, session order and pinned project order are retained.
+Retargeting an unsubmitted draft preserves its identity, input and options.
+Popover dismissal only handles its own `toggle` event, not nested project
+`details` events. Browser regressions collapse both current and other projects,
+then select another project's session using mouse and keyboard in light/dark,
+narrow/short and reduced-motion layouts. Native Electron repeats current-project
+mouse collapse, another-project keyboard collapse and cross-project selection.
+
+Shared text tooltips now use a manual native popover, keeping project Plus
+hints above the picker without changing focus or intercepting clicks. Layer
+acceptance compares decoded screenshot pixels with/without the tooltip over
+the actual parent popover. Browser coverage includes light/dark, narrow/short
+windows, hover/keyboard focus, duplicate-project paths, Esc, programmatic parent
+closure, trigger removal and successful Plus clicks. Native checks repeat the
+paint probe for hover and a keyboard-focused long temporary-project path.
+Intrinsic width remains stable when switching from short to multiline hints;
+focus-driven scrolling settles before tooltip placement. The shared Context
+inspector regression also exercises ordinary multiline hover/focus hints.
+
+Local typecheck, production build, 32 focused unit tests and the complete browser
+and native MiniChat acceptance pass. The native fixture registers three actual
+temporary projects (two named `web-app`) and independent history, selects a
+same-title session by its project, creates a draft in an exact project, retargets
+it to independent, and verifies the main worker and sidebar preferences remain
+unchanged without invoking the model. Browser acceptance adds searchable long
+lists, temporary expansion/restoration, empty results, keyboard/IME, outside/Esc
+dismissal, light/dark/English, narrow/short windows and complete search focus
+gutters. Screenshots are under `Desktop/test-results/mini-chat-preview/` and
+`Desktop/test-results/mini-chat-native/`. These are local source receipts, not
+packaged, cloud-CI, native macOS or real-account acceptance.
+
+## MiniChat Navigation Geometry (2026-11-08, Local)
+
+The native verifier reproduces the old scroll handle extending over the composer.
+The fixed MiniChat keeps its scroll handle and turn ruler at the full-width
+transcript's right edge, reserves space for text and bounds the session switcher
+without consuming the header's drag region.
+Native acceptance covers 360-, 900- and 1600-pixel windows, light/dark appearance,
+wheel input over prose/markers/handle, handle dragging, exact turn location and
+session-menu placement. Existing native MiniChat and main-conversation scroll
+acceptance pass, alongside typecheck, build and 14 focused unit tests.
+The browser fixture now includes the actual shared navigation components; its
+complete acceptance passes using installed Chrome because the matching Playwright
+headless-shell revision is unavailable. These are local source receipts, not a
+new package, cloud-CI result or macOS acceptance.
+
 ## MiniChat Review And CI Follow-up (2026-11-07)
 
 HTTP(S) message links in MiniChat now transfer its conversation, reading state

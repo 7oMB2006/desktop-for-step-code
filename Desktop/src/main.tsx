@@ -28,6 +28,7 @@ import { MessageRevision } from './message-revision';
 import { SessionReadingCache, captureReadingPosition, restoreReadingPosition, type ReadingPosition, type SessionReading } from './session-reading';
 import { ScrollToBottomButton } from './ScrollToBottomButton';
 import { MiniChatFrame } from './MiniChatFrame';
+import { MINI_INDEPENDENT_PROJECT, miniChatCatalog } from './mini-chat-sessions';
 import { ConversationDisclosureMemory, type ConversationDisclosureState } from './ConversationDisclosureState';
 import { useWindowComposer } from './use-window-composer';
 import { composerErrorText, composerKey, composerOwner, type ComposerOwner, type ComposerReceipt, type WindowPresentation } from './window-conversation';
@@ -1460,6 +1461,11 @@ function App() {
   const archivedSessions = data.sessions.filter(session => archived.has(session.id));
   const independentSessions = visibleSessions.filter(session => session.independent ?? !workspaceGroups.has(sessionWorkspaceKey(session)));
   for (const session of visibleSessions) if (!independentSessions.includes(session)) workspaceGroups.get(sessionWorkspaceKey(session))?.sessions.push(session);
+  const miniCatalog = useMemo(() => isMini ? miniChatCatalog(data.sessions, data.preferences, bridge?.platform) : undefined,
+    [data.sessions, data.preferences]);
+  const miniProjectId = miniCatalog?.sessions.find(session => session.id === data.state?.sessionId)?.projectId
+    ?? (data.independent ? MINI_INDEPENDENT_PROJECT : workspaceKey(current?.workspacePath ?? data.preferences.workspace ?? ''));
+  const miniProject = miniCatalog?.projects.find(project => project.id === miniProjectId);
   const showContext = (event: React.MouseEvent, type: 'session' | 'workspace', id: string) => {
     event.preventDefault();
     setContextMenu({ type, id, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 206)),
@@ -1739,13 +1745,15 @@ function App() {
       onCancel={() => bridge!.quitRespond(quitReview.request!.id, false)}
       onConfirm={() => bridge!.quitRespond(quitReview.request!.id, true)}/>}
     {isMini ? <MiniChatFrame language={data.preferences.language}
-      session={{ id: data.state?.sessionId ?? data.draftId ?? '', title: activeTitle, project: data.independent ? undefined : basename(data.preferences.workspace ?? '') }}
-      sessions={data.sessions.filter(session => !data.preferences.archivedSessionIds?.includes(session.id)).map(session => ({
-        id: session.id, title: sessionTitle(session, t('新会话', 'New session')),
-      }))}
+      session={{ id: data.state?.sessionId ?? data.draftId ?? '', title: activeTitle, projectId: miniProject?.id ?? MINI_INDEPENDENT_PROJECT,
+        project: miniProject?.name }}
+      projects={miniCatalog!.projects} sessions={miniCatalog!.sessions}
       pinned={miniState.pinned} onPinned={pinned => void run(async () => setMiniState(await bridge!.miniChatPin(pinned)))}
       onSession={id => { const session = latestData.current.sessions.find(item => item.id === id); if (session) void navigateSession(session); }}
-      onNewSession={() => void newSession()}
+      onNewSession={id => {
+        const project = miniCatalog?.projects.find(item => item.id === id);
+        if (project && bridge && !loading && !navigationPending.current) void applySnapshot(() => bridge.beginSession(project.path));
+      }}
       onReturn={() => void run(() => handoff())}
       onClose={() => { saveWindowPresentation(); void run(() => bridge!.windowControl('close')); }}>{null}</MiniChatFrame>
       : <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}
@@ -2031,6 +2039,8 @@ function App() {
         </div>
         {!navigationTarget && <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}
           onNavigate={() => handleScrollIntent('backward')}/>}
+        {isMini && <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
+          sessionId={data.state?.sessionId} messageCount={data.messages.length} onScrollIntent={handleScrollIntent}/>}
       </div>
       <div className={`composer-wrap${navigationTarget ? ' session-navigation-pending' : ''}`} aria-busy={Boolean(navigationTarget)}>
         <div className="composer-underlay" inert={Boolean(permissionApproval && approvalOpen)}>
@@ -2136,8 +2146,8 @@ function App() {
           open={Boolean(reviewQuestion && approvalOpen && !navigationTarget)} zh={data.preferences.language === 'zh'}
           drafts={questionDrafts.current} onLater={() => setApprovalOpen(false)} onRespond={respondQuestion}/>
       </div>
-      <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
-        sessionId={data.state?.sessionId} messageCount={data.messages.length} onScrollIntent={handleScrollIntent}/>
+      {!isMini && <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
+        sessionId={data.state?.sessionId} messageCount={data.messages.length} onScrollIntent={handleScrollIntent}/>}
       <div ref={terminalBottomHost} className="terminal-bottom-slot"/>
       </div>
     </main></ConversationDisclosureMemory.Provider>

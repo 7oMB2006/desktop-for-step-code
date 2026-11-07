@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { verifyTooltipLayer } from './verify-tooltip-layer.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const output = process.env.MINI_CHAT_PREVIEW_OUTPUT || 'test-results/mini-chat-preview';
 await mkdir(output, { recursive: true });
@@ -36,15 +38,189 @@ try {
   await pin.click();
   await mini.getByRole('button', { name: '置顶窗口', exact: true }).click();
 
+  const switcher = mini.getByRole('button', { name: '切换小窗会话', exact: true });
+  const conversations = page.getByRole('dialog', { name: '小窗会话', exact: true });
+  const pickerSearch = conversations.getByRole('searchbox', { name: '搜索小窗会话', exact: true });
+  const projectGroup = id => conversations.locator(`[data-project-id="${id}"]`);
+  const sidebarState = () => page.locator('.mini-preview-sidebar [data-preview-project]').evaluateAll(groups =>
+    groups.map(group => [group.dataset.previewProject, group.querySelector('button').getAttribute('aria-expanded')]));
+  const openTooltipPicker = async () => {
+    await switcher.click();
+    await pickerSearch.waitFor();
+    await settleLayout(conversations);
+    assert.equal(await pickerSearch.evaluate(element => element === document.activeElement), true);
+  };
+  const showTooltip = async (anchor, keyboard = false) => {
+    if (!keyboard) await anchor.scrollIntoViewIfNeeded();
+    await settleLayout(conversations);
+    if (keyboard) await anchor.focus();
+    else { await page.mouse.move(0, 0); await anchor.hover(); }
+    await page.locator('.app-tooltip').waitFor();
+  };
+  for (const [theme, width, height, keyboard] of [['light', 1440, 940, false], ['dark', 390, 844, true], ['light', 900, 400, true]]) {
+    await page.setViewportSize({ width, height });
+    await page.goto(`${url}?open=1&theme=${theme}`);
+    await openTooltipPicker();
+    const plus = projectGroup('desktop').getByRole('button', { name: '在 Desktop For Step Code 新建会话', exact: true });
+    await showTooltip(plus, keyboard);
+    await verifyTooltipLayer(page, conversations);
+    assert.equal(await pickerSearch.evaluate(element => element === document.activeElement), !keyboard,
+      'Showing a tooltip cannot steal focus from its trigger or search field');
+    await page.screenshot({ path: `${output}/picker-tooltip-${theme}-${width}.png` });
+    await pickerSearch.fill('web-app');
+    const longPlus = projectGroup('web-client').getByRole('button', { name: '在 D:\\Clients\\web-app 新建会话', exact: true });
+    await showTooltip(longPlus, keyboard);
+    await verifyTooltipLayer(page, conversations);
+    await page.screenshot({ path: `${output}/picker-tooltip-path-${theme}-${width}.png` });
+    await conversations.evaluate(element => element.hidePopover());
+    await page.locator('.app-tooltip').waitFor({ state: 'detached' });
+    await conversations.waitFor({ state: 'hidden' });
+    await openTooltipPicker();
+    await pickerSearch.fill('web-app');
+    await showTooltip(longPlus);
+    await pickerSearch.fill('nothing-matches-this');
+    await page.locator('.app-tooltip').waitFor({ state: 'detached' });
+    await pickerSearch.fill('web-app');
+    await showTooltip(longPlus);
+    await page.keyboard.press('Escape');
+    await page.locator('.app-tooltip').waitFor({ state: 'detached' });
+    await conversations.waitFor({ state: 'hidden' });
+    await openTooltipPicker();
+    await pickerSearch.fill('web-app');
+    await showTooltip(longPlus);
+    await longPlus.click();
+    await conversations.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('.app-tooltip').count(), 0, 'Tooltip cannot intercept the new-session click');
+    assert.match(await mini.locator('.mini-preview-empty').innerText(), /web-app/);
+    await switcher.click();
+    await pickerSearch.waitFor();
+    assert.equal(await conversations.locator('.mini-session-group').first().getAttribute('data-project-id'), 'web-client');
+    await pickerSearch.press('Escape');
+  }
+  await openTooltipPicker();
+  const removedAnchor = projectGroup('web-client').getByRole('button');
+  await showTooltip(removedAnchor);
+  await removedAnchor.evaluate(element => element.remove());
+  await page.locator('.app-tooltip').waitFor({ state: 'detached' });
+  for (const [name, width, height, theme, reducedMotion, keyboard] of [
+    ['mouse-light', 1440, 940, 'light', 'no-preference', false],
+    ['keyboard-dark', 1440, 940, 'dark', 'no-preference', true],
+    ['mouse-narrow', 390, 844, 'dark', 'reduce', false],
+    ['keyboard-short', 900, 400, 'light', 'reduce', true],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ reducedMotion });
+    await page.goto(`${url}?open=1&stress=turns&theme=${theme}`);
+    await switcher.click();
+    await pickerSearch.waitFor();
+    const desktopSummary = projectGroup('desktop').locator('summary');
+    if (keyboard) { await desktopSummary.focus(); await page.keyboard.press('Enter'); }
+    else await desktopSummary.locator('.mini-session-chevron').click();
+    await page.waitForFunction(() => document.querySelector('.mini-session-group[data-project-id="desktop"] details')?.open === false);
+    assert.equal(await switcher.getAttribute('aria-expanded'), 'true', `${name}: collapsing the current project keeps the picker open`);
+    assert.equal(await conversations.isVisible(), true);
+    const otherSummary = projectGroup('xiucore').locator('summary');
+    if (keyboard) { await otherSummary.focus(); await page.keyboard.press('Space'); }
+    else await otherSummary.click();
+    await projectGroup('xiucore').getByRole('option', { name: '配置检查', exact: true }).waitFor();
+    if (keyboard) await page.keyboard.press('Enter'); else await otherSummary.click();
+    await page.waitForFunction(() => document.querySelector('.mini-session-group[data-project-id="xiucore"] details')?.open === false);
+    assert.equal(await switcher.getAttribute('aria-expanded'), 'true', `${name}: collapsing another project keeps the picker open`);
+    if (keyboard) await page.keyboard.press('Space'); else await otherSummary.click();
+    const target = projectGroup('xiucore').getByRole('option', { name: '配置检查', exact: true });
+    await target.waitFor();
+    await page.screenshot({ path: `${output}/picker-collapse-${name}.png` });
+    if (keyboard) { await target.focus(); await page.keyboard.press('Enter'); } else await target.click();
+    await conversations.waitFor({ state: 'hidden' });
+    assert.equal(await mini.locator('.mini-chat-session-copy strong').innerText(), '配置检查');
+    assert.match(await mini.locator('.mini-chat-project').innerText(), /XiuCore/);
+    assert.match(await page.locator('.window-session-title').innerText(), /插件市场/);
+  }
+  await page.setViewportSize({ width: 1440, height: 940 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto(`${url}?open=1`);
+  await editor.waitFor();
+  const mainProjects = await sidebarState();
+  await switcher.click();
+  await pickerSearch.waitFor();
+  assert.equal(await pickerSearch.evaluate(element => element === document.activeElement), true);
+  assert.equal(await switcher.getAttribute('aria-controls'), await conversations.getAttribute('id'));
+  assert.equal(await conversations.locator('.mini-session-group').count(), 5);
+  assert.equal(await projectGroup('desktop').locator('summary').getAttribute('aria-expanded'), 'true');
+  assert.equal(await projectGroup('xiucore').locator('summary').getAttribute('aria-expanded'), 'false');
+  assert.equal(await projectGroup('desktop').locator('.mini-session-count').innerText(), '13');
+  assert.equal(await projectGroup('web-local').locator('small').first().innerText(), 'C:\\Projects\\web-app');
+  assert.equal(await projectGroup('web-client').locator('small').first().innerText(), 'D:\\Clients\\web-app');
+  const groupScroll = conversations.locator('.mini-session-groups');
+  assert.ok(await groupScroll.evaluate(element => element.scrollHeight > element.clientHeight), 'long lists scroll inside the picker');
+  await groupScroll.hover();
+  await page.mouse.wheel(0, 500);
+  await page.waitForFunction(() => document.querySelector('.mini-session-groups').scrollTop > 100);
+  await projectGroup('xiucore').locator('summary').click();
+  await pickerSearch.fill('配置检查');
+  assert.equal(await conversations.getByRole('option').count(), 3, 'search crosses collapsed projects without merging duplicate titles');
+  assert.deepEqual(await conversations.locator('summary').evaluateAll(items => items.map(item => item.getAttribute('aria-expanded'))),
+    ['true', 'true', 'true']);
+  await pickerSearch.dispatchEvent('keydown', { key: 'Enter', keyCode: 229, isComposing: true, bubbles: true });
+  assert.equal(await switcher.getAttribute('aria-expanded'), 'true', 'IME confirmation cannot select a conversation');
+  await page.screenshot({ path: `${output}/picker-search-duplicates-light.png` });
+  await conversations.getByRole('button', { name: '清除搜索', exact: true }).click();
+  assert.equal(await projectGroup('xiucore').locator('summary').getAttribute('aria-expanded'), 'true',
+    'clearing search restores manual disclosure choices');
+  assert.equal(await projectGroup('web-local').locator('summary').getAttribute('aria-expanded'), 'false');
+  await pickerSearch.fill('nothing-matches-this');
+  await conversations.getByRole('status').getByText('没有匹配的会话', { exact: true }).waitFor();
+  await pickerSearch.press('Enter');
+  assert.equal(await switcher.getAttribute('aria-expanded'), 'true', 'empty results cannot navigate');
+  await pickerSearch.fill('配置检查');
+  await pickerSearch.press('ArrowDown');
+  assert.equal(await page.locator(':focus').getAttribute('data-mini-session'), 'xiu-config');
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await page.locator(':focus').getAttribute('data-mini-session'), 'web-config');
+  await page.keyboard.press('End');
+  assert.equal(await page.locator(':focus').getAttribute('data-mini-session'), 'client-config');
+  await page.keyboard.press('Enter');
+  await conversations.waitFor({ state: 'hidden' });
+  await switcher.click();
+  await pickerSearch.waitFor();
+  assert.equal(await conversations.locator('.mini-session-group').first().getAttribute('data-project-id'), 'web-client');
+  assert.equal(await conversations.getByRole('option', { selected: true }).getAttribute('data-mini-session'), 'client-config');
+  assert.equal(await pickerSearch.inputValue(), '', 'reopening starts with a fresh search');
+  await pickerSearch.fill('XiuCore');
+  await projectGroup('xiucore').getByRole('button', { name: '在 XiuCore 新建会话', exact: true }).click();
+  await mini.getByRole('heading', { name: '新会话', exact: true }).waitFor();
+  assert.match(await mini.locator('.mini-preview-empty').innerText(), /XiuCore/);
+  await editor.fill('切换草稿目录仍然保留输入。');
+  await switcher.click();
+  await pickerSearch.fill('独立会话');
+  await projectGroup('__independent__').getByRole('button', { name: '新建独立会话', exact: true }).click();
+  await mini.getByRole('heading', { name: '新会话', exact: true }).waitFor();
+  assert.match(await mini.locator('.mini-preview-empty').innerText(), /独立会话/);
+  assert.equal(await editor.innerText(), '切换草稿目录仍然保留输入。');
+  assert.match(await page.locator('.window-session-title').innerText(), /插件市场/);
+  assert.deepEqual(await sidebarState(), mainProjects, 'search, disclosures, navigation and project drafts do not change main sidebar state');
+  await switcher.click();
+  await pickerSearch.waitFor();
+  await pickerSearch.press('Escape');
+  await page.waitForFunction(() => document.activeElement?.matches('.mini-chat-session'));
+  await switcher.click();
+  await pickerSearch.waitFor();
+  await mini.getByRole('button', { name: '取消置顶', exact: true }).click();
+  await conversations.waitFor({ state: 'hidden' });
+  assert.equal(await mini.getByRole('button', { name: '置顶窗口', exact: true }).evaluate(element => element === document.activeElement), true,
+    'outside dismissal does not steal the next control focus');
+  await page.locator('.mini-session-picker').waitFor({ state: 'hidden' });
+  await page.goto(`${url}?open=1`);
+  await editor.waitFor();
+
   await editor.fill('保留这个草稿，不要发送。');
   await mini.getByRole('button', { name: '切换小窗会话' }).click();
-  const conversations = page.getByRole('menu', { name: '小窗会话', exact: true });
-  await conversations.getByRole('menuitemradio', { name: '搜索命中定位', exact: true }).click();
+  await conversations.getByRole('option', { name: '搜索命中定位', exact: true }).click();
   assert.equal(await editor.textContent(), '');
   assert.match(await mini.innerText(), /会话、消息、文字片段/);
   assert.match(await page.locator('.window-session-title').innerText(), /插件市场/);
   await mini.getByRole('button', { name: '切换小窗会话' }).click();
-  await conversations.getByRole('menuitemradio', { name: '插件市场发布检查', exact: true }).click();
+  await conversations.getByRole('option', { name: '插件市场发布检查', exact: true }).click();
   assert.equal(await editor.innerText(), '保留这个草稿，不要发送。');
   const paragraph = mini.locator('.response-text p').last();
   await paragraph.scrollIntoViewIfNeeded();
@@ -71,7 +247,7 @@ try {
 
   await entry.click();
   await mini.getByRole('button', { name: '切换小窗会话' }).click();
-  await conversations.getByRole('menuitemradio', { name: '新会话', exact: true }).click();
+  await conversations.getByRole('option', { name: '新会话', exact: true }).click();
   await mini.getByRole('heading', { name: '新会话', exact: true }).waitFor();
   await editor.fill('请补一段检查结果。');
   await editor.press('Enter');
@@ -89,7 +265,7 @@ try {
   const thought = mini.locator('.thinking');
   const switchMini = async title => {
     await mini.getByRole('button', { name: '切换小窗会话' }).click();
-    await conversations.getByRole('menuitemradio', { name: title, exact: true }).click();
+    await conversations.getByRole('option', { name: title, exact: true }).click();
   };
   const scrollTo = async (locator, top) => {
     const current = await locator.evaluate(element => element.scrollTop);
@@ -213,7 +389,8 @@ try {
   assert.equal(await mini.locator('.message.user').count(), 1, 'a rejected edit does not send a request');
   await editForm.getByRole('button', { name: '取消', exact: true }).click();
   await mini.getByRole('button', { name: '关闭提示', exact: true }).click();
-  await editor.fill('');
+  await editor.press('ControlOrMeta+A');
+  await editor.press('Backspace');
   await page.waitForFunction(() => document.querySelector('[data-surface="mini"] .composer-input')?.value === '');
   const addMenuQuote = async text => {
     await mini.getByRole('button', { name: '添加引用', exact: true }).click();
@@ -332,6 +509,18 @@ try {
     await page.goto(`${url}?open=1${query}`);
     await mini.waitFor();
     await noOverflow();
+    const [headerBox, sessionBox] = await Promise.all([
+      mini.locator('.mini-chat-header').boundingBox(), mini.locator('.mini-chat-session').boundingBox(),
+    ]);
+    assert.ok(sessionBox.width <= 360 && sessionBox.width <= headerBox.width * .6,
+      `${name}: conversation switching has a bounded hit target`);
+    const projectLabel = mini.locator('.mini-chat-project > span:first-child > span');
+    const projectName = await projectLabel.innerText();
+    await projectLabel.evaluate(element => {
+      element.textContent = 'a-very-long-project-name-that-must-not-expand-the-conversation-switcher';
+    });
+    await noOverflow();
+    await projectLabel.evaluate((element, text) => { element.textContent = text; }, projectName);
     // The English editor has the same shared class, but a translated name.
     if (!query.includes('lang=en')) await focusVisible();
     await page.waitForTimeout(350);
@@ -342,6 +531,21 @@ try {
     const pickerBounds = await mini.locator('.model-effort-popover').boundingBox();
     assert.ok(pickerBounds.x >= frameBounds.x && pickerBounds.x + pickerBounds.width <= frameBounds.x + frameBounds.width,
       `${name}: model picker remains inside the mini window`);
+    await page.keyboard.press('Escape');
+    const english = query.includes('lang=en');
+    await mini.getByRole('button', { name: english ? 'Switch MiniChat conversation' : '切换小窗会话', exact: true }).click();
+    const sessionPicker = page.getByRole('dialog', { name: english ? 'MiniChat conversations' : '小窗会话', exact: true });
+    await sessionPicker.waitFor();
+    const sessionBounds = await sessionPicker.boundingBox();
+    assert.ok(sessionBounds.x >= 8 && sessionBounds.x + sessionBounds.width <= width - 8
+      && sessionBounds.y >= 8 && sessionBounds.y + sessionBounds.height <= height - 8, `${name}: grouped picker remains within the viewport`);
+    assert.equal(await sessionPicker.locator('.mini-session-search').evaluate(element => {
+      const box = element.getBoundingClientRect(), outer = element.closest('.mini-session-picker').getBoundingClientRect();
+      return box.left - 4 >= outer.left && box.right + 4 <= outer.right && box.top - 4 >= outer.top && box.bottom + 4 <= outer.bottom;
+    }), true, `${name}: complete search focus outline stays visible`);
+    await sessionPicker.getByRole('searchbox').fill(english ? 'Configuration' : '配置检查');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${output}/picker-${name}.png` });
     await page.keyboard.press('Escape');
     await mini.locator('.permission-trigger').click();
     await mini.locator('.permission-menu').waitFor();
@@ -359,6 +563,12 @@ try {
     await page.goto(`${url}?open=1${query}`);
     await mini.waitFor();
     await page.waitForTimeout(300);
+    await switcher.click();
+    await pickerSearch.waitFor();
+    const shortPicker = await conversations.boundingBox();
+    assert.ok(shortPicker.y >= 8 && shortPicker.y + shortPicker.height <= height - 8,
+      `${name}: project picker stays reachable in low-height windows`);
+    await page.keyboard.press('Escape');
     const assertInViewport = async () => {
       const bounds = await mini.boundingBox();
       const action = await mini.locator('.composer-action-button').boundingBox();
@@ -438,7 +648,10 @@ try {
   await page.waitForFunction(() => document.querySelector('.window-bar [aria-label="MiniChat"]') === document.activeElement);
   assert.deepEqual(errors, []);
   assert.deepEqual(external, []);
-  console.log('MiniChat preview passed: draft-edit protection, atomic quote/annotation clearing, Markdown source location, focused instance-scoped menus, low-height controls, entry placement, draft/reference/reading handoff, independent session scroll and disclosures, close/reopen during streaming, shared return-to-bottom, gesture-aware follow/pause, stop preserves reading, keyboard, menus, pin state, drag, responsive layout, focus gutters and reduced motion.');
+  console.log('MiniChat preview passed: current/other-project collapse remains open for mouse/keyboard and cross-project selection, grouped project/session search, same-name path disambiguation, independent drafts, main-sidebar isolation, keyboard/IME/outside dismissal, bounded picker/focus gutters, draft-edit protection, atomic quote/annotation clearing, Markdown source location, focused instance-scoped menus, low-height controls, entry placement, draft/reference/reading handoff, independent session scroll and disclosures, close/reopen during streaming, shared return-to-bottom, gesture-aware follow/pause, stop preserves reading, keyboard, menus, pin state, drag, responsive layout, focus gutters and reduced motion.');
+} catch (error) {
+  await browser?.contexts()[0]?.pages()[0]?.screenshot({ path: `${output}/failure.png` }).catch(() => {});
+  throw error;
 } finally {
   await browser?.close();
   await server?.close();

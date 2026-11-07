@@ -14,7 +14,8 @@
 }
 .mini-preview-sidebar[hidden] { display: none; }
 .mini-preview-sidebar .sidebar-identity { margin: 0 4px 22px; gap: 12px; }
-.mini-preview-project { display: flex; align-items: center; gap: 7px; padding: 10px 8px; font-size: 12px; }
+.mini-preview-project { display: flex; align-items: center; justify-content: flex-start; gap: 7px; width: 100%; padding: 10px 8px; border: 0; background: transparent; font-size: 12px; }
+.mini-preview-project > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .mini-preview-sidebar-footer { display: flex; align-items: center; gap: 12px; padding: 15px 10px 2px; color: var(--muted); border-top: 1px solid var(--border); }
 .mini-preview-sidebar-footer > span { margin-left: auto; font-size: 10px; }
 .mini-preview-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }

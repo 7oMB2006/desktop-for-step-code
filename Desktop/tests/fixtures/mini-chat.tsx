@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { FolderOpen, Moon, Plus, RotateCcw, Settings, Sun, X } from 'lucide-react';
+import { FolderOpen, MessagesSquare, Moon, Plus, RotateCcw, Settings, Sun, X } from 'lucide-react';
 import { MiniChatFrame, type MiniChatSession } from '../../src/MiniChatFrame';
+import { MINI_INDEPENDENT_PROJECT, type MiniChatProject } from '../../src/mini-chat-sessions';
 import { WindowBar } from '../../src/WindowBar';
 import { ConversationMessages } from '../../src/ConversationMessages';
+import { ConversationMarkers, conversationTurns } from '../../src/ConversationNavigation';
+import { ConversationScrollThumb } from '../../src/ConversationScrollThumb';
 import { ConversationDisclosureMemory, type ConversationDisclosureState } from '../../src/ConversationDisclosureState';
 import { captureReadingPosition, restoreReadingPosition, type ReadingPosition } from '../../src/session-reading';
 import { followAfterScroll, scrollKeyIntent, type ScrollIntent } from '../../src/conversation-scroll';
@@ -36,10 +39,27 @@ const zh = language === 'zh';
 const t = (cn: string, en: string) => zh ? cn : en;
 const model: Model = { id: 'step-5-preview', name: 'step-5-preview', provider: 'step_plan', contextWindow: 256000 };
 const levels = ['low', 'medium', 'high', 'xhigh', 'max'];
+const projects: MiniChatProject[] = [
+  { id: 'desktop', name: 'Desktop For Step Code', path: 'D:\\Desktop For Step Code' },
+  { id: 'xiucore', name: 'XiuCore', path: 'D:\\Projects\\XiuCore' },
+  { id: 'web-local', name: 'web-app', path: 'C:\\Projects\\web-app' },
+  { id: 'web-client', name: 'web-app', path: 'D:\\Clients\\web-app' },
+  { id: MINI_INDEPENDENT_PROJECT, name: t('独立会话', 'Independent sessions') },
+];
 const catalog: MiniChatSession[] = [
-  { id: 'plugins', title: t('插件市场发布检查', 'Plugin marketplace checklist'), project: 'Desktop For Step Code', branch: 'main' },
-  { id: 'search', title: t('搜索命中定位', 'Locate search results'), project: 'Desktop For Step Code', branch: 'search' },
-  { id: 'draft', title: t('新会话', 'New conversation'), project: 'Desktop For Step Code', branch: 'main' },
+  { id: 'plugins', title: t('插件市场发布检查', 'Plugin marketplace checklist'), projectId: 'desktop', project: 'Desktop For Step Code', branch: 'main' },
+  { id: 'search', title: t('搜索命中定位', 'Locate search results'), projectId: 'desktop', project: 'Desktop For Step Code', branch: 'search' },
+  { id: 'draft', title: t('新会话', 'New conversation'), projectId: 'desktop', project: 'Desktop For Step Code', branch: 'main' },
+  ...Array.from({ length: 10 }, (_, index) => ({
+    id: `desktop-history-${index}`, title: t(`发布验收记录 ${index + 1}`, `Release acceptance ${index + 1}`),
+    projectId: 'desktop', project: 'Desktop For Step Code',
+  })),
+  { id: 'xiu-config', title: t('配置检查', 'Configuration checks'), projectId: 'xiucore', project: 'XiuCore', branch: 'main' },
+  { id: 'xiu-memory', title: t('整理上下文', 'Organize context'), projectId: 'xiucore', project: 'XiuCore', branch: 'context' },
+  { id: 'web-config', title: t('配置检查', 'Configuration checks'), projectId: 'web-local', project: 'web-app', branch: 'main' },
+  { id: 'web-layout', title: t('窄屏布局验收', 'Narrow layout acceptance'), projectId: 'web-local', project: 'web-app' },
+  { id: 'client-config', title: t('配置检查', 'Configuration checks'), projectId: 'web-client', project: 'web-app', branch: 'release' },
+  { id: 'independent-note', title: t('随手记', 'Notes'), projectId: MINI_INDEPENDENT_PROJECT, project: t('独立会话', 'Independent sessions') },
 ];
 const now = Date.now() - 90_000;
 const initialMessages = (id: string): Message[] => id === 'draft' ? [] : id === 'search' ? [
@@ -48,6 +68,10 @@ const initialMessages = (id: string): Message[] => id === 'draft' ? [] : id === 
     desktopTiming: { run: { startedAt: now, endedAt: now + 15_000 }, thinking: {} }, content: [{ type: 'text', text: t(
     '可以。定位时要区分 **会话、消息、文字片段**，不能只滚动到整段回复的顶部。\n\n```ts\nconst target = findMessage(entryId);\nrevealTextPage(target, query);\nscrollToMatch(target, query);\n```\n\n如果消息已经因为压缩不在当前上下文里，就保留明确的回退提示，不去猜一个相似位置。',
     'Yes. Locate the **conversation, message and text range**, rather than just the top of an answer.\n\n```ts\nconst target = findMessage(entryId);\nrevealTextPage(target, query);\nscrollToMatch(target, query);\n```\n\nIf compaction removed the message, keep an explicit fallback instead of guessing another location.') }] },
+] : id !== 'plugins' ? [
+  { role: 'user', entryId: `${id}-user`, timestamp: now, content: catalog.find(session => session.id === id)?.title ?? id },
+  { role: 'assistant', entryId: `${id}-answer`, timestamp: now + 1000, stopReason: 'stop',
+    content: [{ type: 'text', text: t('已记录这一轮的检查结果，待确认项保留在当前会话。', 'Recorded the checks for this turn. Open questions remain in this conversation.') }] },
 ] : [
   { role: 'user', entryId: 'plugin-user', timestamp: now, content: t('帮我整理一份插件市场的发布检查清单。', 'Prepare a release checklist for the plugin marketplace.') },
   { role: 'assistant', entryId: 'plugin-think', timestamp: now + 1_000, content: [
@@ -74,6 +98,17 @@ const initialConversation = (id: string): Conversation => {
           'Keep the source, observed result and open questions for each check. Reading position and expanded tools should survive window handoff.')}`,
       })) });
   }
+  if (params.get('stress') === 'turns' && messages.length) {
+    for (let index = 0; index < 16; index++) {
+      messages.push(
+        { role: 'user', entryId: `${id}-turn-user-${index}`, timestamp: now + 30_000 + index * 2000,
+          content: t(`继续核对第 ${index + 1} 项发布检查。`, `Continue with release check ${index + 1}.`) },
+        { role: 'assistant', entryId: `${id}-turn-answer-${index}`, timestamp: now + 31_000 + index * 2000,
+          stopReason: 'stop', content: [{ type: 'text', text: t(
+            `### 检查记录 ${index + 1}\n\n保留这一轮的来源、实际结果和待确认项。\n\n- 权限与配置边界没有变化。\n- 失败与取消保持独立状态。\n- 验收结果仍需人工确认。`,
+            `### Check record ${index + 1}\n\nKeep this turn's sources, observed results and open questions.\n\n- Permission and configuration boundaries are unchanged.\n- Failure and cancellation remain distinct.\n- Acceptance still requires manual confirmation.`) }] });
+    }
+  }
   return { messages, draft: '', quotes: [], busy: false, level: 'high', preset: 'ask' };
 };
 type ReadingState = { position?: ReadingPosition; disclosures: ConversationDisclosureState };
@@ -87,8 +122,8 @@ window.desktop = {
   copyText: (text: string) => navigator.clipboard.writeText(text),
 } as unknown as DesktopBridge;
 
-function ChatSurface({ conversation, reading, scope, update, onSend, onStop }: {
-  conversation: Conversation; reading: ReadingState; scope: string; update: (value: ConversationPatch) => void;
+function ChatSurface({ conversation, project, reading, scope, update, onSend, onStop }: {
+  conversation: Conversation; project: MiniChatProject; reading: ReadingState; scope: string; update: (value: ConversationPatch) => void;
   onSend: () => void; onStop: () => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
@@ -182,9 +217,10 @@ function ChatSurface({ conversation, reading, scope, update, onSend, onStop }: {
     focusEditor(); return true;
   };
   return <div className="mini-preview-chat" ref={root} data-surface={scope}>
-    <div className="conversation" ref={viewport} onWheel={event => {
+    <div className="conversation-shell" onWheelCapture={event => {
       if (!event.ctrlKey && !event.defaultPrevented && event.deltaY) handleScrollIntent(event.deltaY < 0 ? 'backward' : 'forward');
-    }} onKeyDown={event => {
+    }}>
+    <div className="conversation" id={`${scope}-conversation-scroll`} ref={viewport} onKeyDown={event => {
       if (event.defaultPrevented || (event.target as HTMLElement).closest('input,textarea,[contenteditable="true"]')) return;
       const intent = scrollKeyIntent(event);
       if (intent) handleScrollIntent(intent);
@@ -219,7 +255,13 @@ function ChatSurface({ conversation, reading, scope, update, onSend, onStop }: {
         {busy && <div className="working"><WorkingIndicator language={language} mode="responding">
           <span>{t('正在回复', 'Responding')}</span></WorkingIndicator></div>}
       </div> : <div className="mini-preview-empty"><img src="/StepCode.svg" width="38" height="38" alt=""/>
-        <h2>{t('新会话', 'New conversation')}</h2><span><FolderOpen size={13}/>Desktop For Step Code</span></div>}
+        <h2>{t('新会话', 'New conversation')}</h2><span>
+          {project.id === MINI_INDEPENDENT_PROJECT ? <MessagesSquare size={13}/> : <FolderOpen size={13}/>}{project.name}</span></div>}
+    </div>
+    <ConversationMarkers scrollRef={viewport} turns={conversationTurns(messages, language)} language={language}
+      onNavigate={() => handleScrollIntent('backward')}/>
+    <ConversationScrollThumb scrollRef={viewport} language={language} sessionId={scope} messageCount={messages.length}
+      scrollId={`${scope}-conversation-scroll`} onScrollIntent={handleScrollIntent}/>
     </div>
     {error && <div className="mini-preview-error" role="alert"><span>{error}</span>
       <button type="button" className="icon-button" aria-label={t('关闭提示', 'Dismiss notice')} onClick={() => setError('')}><X size={14}/></button></div>}
@@ -277,6 +319,8 @@ function Preview() {
   const [sidebar, setSidebar] = useState(true);
   const [mainSession, setMainSession] = useState('plugins');
   const [miniSession, setMiniSession] = useState('plugins');
+  const [sessions, setSessions] = useState(catalog);
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set(projects.filter(project => project.id !== 'desktop').map(project => project.id)));
   const [mainHandoff, setMainHandoff] = useState(0);
   const [miniHandoff, setMiniHandoff] = useState(0);
   const reading = useRef({ main: new Map<string, ReadingState>(), mini: new Map<string, ReadingState>() });
@@ -296,6 +340,15 @@ function Preview() {
   const recordRef = useRef(records); recordRef.current = records;
   const update = useCallback((id: string, patch: ConversationPatch) =>
     setRecords(value => ({ ...value, [id]: { ...value[id], ...(typeof patch === 'function' ? patch(value[id]) : patch) } })), []);
+  const newMiniSession = (projectId: string) => {
+    const project = projects.find(item => item.id === projectId)!;
+    const reuse = !recordRef.current[miniSession].messages.length;
+    const id = reuse ? miniSession : crypto.randomUUID();
+    setSessions(value => [...value.filter(session => session.id !== id),
+      { id, title: t('新会话', 'New conversation'), projectId, project: project.name }]);
+    if (!reuse) setRecords(value => ({ ...value, [id]: { messages: [], draft: '', quotes: [], busy: false, level: 'high', preset: 'ask' } }));
+    setMiniSession(id); focus('mini');
+  };
   useEffect(() => applyTheme(dark ? 'original-dark' : 'original-light', dark), [dark]);
   useEffect(() => () => { for (const timer of timers.current.values()) clearInterval(timer); }, []);
   useEffect(() => {
@@ -379,6 +432,7 @@ function Preview() {
         onClick={() => { for (const id of timers.current.keys()) stop(id);
           reading.current = { main: new Map(), mini: new Map() };
           setMainHandoff(value => value + 1); setMiniHandoff(value => value + 1);
+          setSessions(catalog); setMainSession('plugins'); setMiniSession('plugins');
           setRecords(Object.fromEntries(catalog.map(session => [session.id, initialConversation(session.id)]))); setPosition(undefined); }}>
         <RotateCcw size={14}/></button>
       <button type="button" className="icon-button" aria-label={t('切换主题', 'Toggle theme')} data-tooltip={t('切换主题', 'Toggle theme')}
@@ -389,7 +443,7 @@ function Preview() {
       { id: 'edit', label: t('编辑', 'Edit'), items: [{ label: t('复制', 'Copy'), action: () => void navigator.clipboard.writeText(window.getSelection()?.toString() ?? '') }] },
       { id: 'view', label: t('视图', 'View'), items: [{ label: 'MiniChat', action: openMini }] },
       { id: 'help', label: t('帮助', 'Help'), items: [{ label: t('文档', 'Documentation'), disabled: true, action: () => {} }] },
-    ]} sessionTitle={catalog.find(session => session.id === mainSession)!.title} miniChat={{ open, onOpen: openMini }}/>
+    ]} sessionTitle={sessions.find(session => session.id === mainSession)!.title} miniChat={{ open, onOpen: openMini }}/>
     <div className={`mini-preview-workspace${sidebar ? '' : ' no-sidebar'}`}>
       <aside className="mini-preview-sidebar" hidden={!sidebar}>
         <div className="sidebar-identity"><img src="/StepCode.svg" width="26" height="26" alt=""/>
@@ -397,23 +451,35 @@ function Preview() {
             <img className="wordmark-dark" src="/wordmark-dark.png" alt="Desktop for Step Code"/></span></div>
         <button type="button" className="new-chat" onClick={() => setMainSession('draft')}><Plus size={16}/>{t('新建会话', 'New conversation')}</button>
         <div className="section-label"><span>{t('项目', 'Projects')}</span></div>
-        <div className="mini-preview-project"><FolderOpen size={15}/>Desktop For Step Code</div>
-        <div className="session-list">{catalog.map(session => <div className={`session-row${mainSession === session.id ? ' selected' : ''}`} key={session.id}>
-          <button type="button" onClick={() => setMainSession(session.id)}><span>{session.title}</span></button></div>)}</div>
+        <div className="session-list">{projects.map(project => <section key={project.id} data-preview-project={project.id}>
+          <button type="button" className="mini-preview-project" aria-expanded={!collapsedProjects.has(project.id)}
+            onClick={() => setCollapsedProjects(current => {
+              const next = new Set(current);
+              if (next.has(project.id)) next.delete(project.id); else next.add(project.id);
+              return next;
+            })}><FolderOpen size={15}/><span>{project.name}</span></button>
+          <div hidden={collapsedProjects.has(project.id)}>{sessions.filter(session => session.projectId === project.id).map(session =>
+            <div className={`session-row${mainSession === session.id ? ' selected' : ''}`} key={session.id}>
+              <button type="button" onClick={() => setMainSession(session.id)}><span>{session.title}</span></button>
+            </div>)}</div>
+        </section>)}</div>
         <div className="mini-preview-sidebar-footer"><Settings size={16}/><span>v0.6.0</span></div>
       </aside>
       <main className="mini-preview-main">
         <ChatSurface key={`${mainSession}:${mainHandoff}`} scope="main" conversation={records[mainSession]} reading={readingFor('main', mainSession)}
+          project={projects.find(project => project.id === sessions.find(session => session.id === mainSession)!.projectId)!}
           update={patch => update(mainSession, patch)} onSend={() => send(mainSession)} onStop={() => stop(mainSession)}/>
       </main>
     </div>
     {open && <div className="mini-preview-floating" ref={floating} data-pinned={pinned}
       style={position ? { left: position.x, '--mini-preview-top': `${position.y}px`, right: 'auto' } as CSSProperties : undefined}
       onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
-      <MiniChatFrame language={language} session={catalog.find(session => session.id === miniSession)!} sessions={catalog}
+      <MiniChatFrame language={language} session={sessions.find(session => session.id === miniSession)!} sessions={sessions} projects={projects}
         pinned={pinned} onPinned={setPinned} onSession={id => { setMiniSession(id); focus('mini'); }}
+        onNewSession={newMiniSession}
         onClose={close} onReturn={returnToMain} onDragStart={dragStart}>
         <ChatSurface key={`${miniSession}:${miniHandoff}`} scope="mini" conversation={records[miniSession]} reading={readingFor('mini', miniSession)}
+          project={projects.find(project => project.id === sessions.find(session => session.id === miniSession)!.projectId)!}
           update={patch => update(miniSession, patch)} onSend={() => send(miniSession)} onStop={() => stop(miniSession)}/>
       </MiniChatFrame>
     </div>}

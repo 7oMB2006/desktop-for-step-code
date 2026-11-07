@@ -759,7 +759,8 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .context-ring:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .composer:focus-within .context-ring-hole { background: var(--side); }
 .context-ring.is-unknown { background: var(--border); }
-.app-tooltip { position: fixed; z-index: 75; max-width: min(300px, calc(100vw - 16px)); padding: 7px 10px; border: 1px solid oklch(.37 0 0); border-radius: 8px; background: oklch(.20 0 0); color: oklch(.96 0 0); box-shadow: 0 5px 18px oklch(0 0 0 / .20); white-space: pre-line; overflow-wrap: anywhere; text-align: center; font-size: 12px; line-height: 1.4; pointer-events: none; animation: app-tooltip-in .14s ease-out; }
+.app-tooltip { position: fixed; inset: auto; margin: 0; z-index: 75; width: max-content; max-width: min(300px, calc(100vw - 16px)); padding: 7px 10px; border: 1px solid oklch(.37 0 0); border-radius: 8px; background: oklch(.20 0 0); color: oklch(.96 0 0); box-shadow: 0 5px 18px oklch(0 0 0 / .20); white-space: pre-line; overflow-wrap: anywhere; text-align: center; font-size: 12px; line-height: 1.4; pointer-events: none; animation: app-tooltip-in .14s ease-out; }
+.app-tooltip::backdrop { background: transparent; pointer-events: none; }
 @keyframes app-tooltip-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 .model-effort { position: relative; min-width: 0; max-width: min(280px, 60%); }
 .model-effort-trigger { display: flex; align-items: center; gap: 8px; height: 29px; min-height: 29px; max-width: 100%; padding: 3px 10px; border: 0; border-radius: 6px; background: var(--surface); font-size: 12px; }

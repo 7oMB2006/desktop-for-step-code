@@ -28,6 +28,26 @@ disclosure identities. Keep real approvals and failure/stop states intact.
 Settings and larger tools return to main rather than fitting parallel control
 surfaces into the mini window. Reserve the complete four-pixel composer focus
 gutter in narrow and low-height layouts.
+MiniChat's scroll handle and turn ruler follow the full-width transcript's right
+edge, not the main window's centered reading column. Their height stays within
+the transcript, with a separate text gutter. The session switcher is content-sized
+and bounded; unused header space remains a native window-drag region.
+Its anchored native popover groups conversations by project with independent
+search/disclosure state, shared session/pinned-project ordering and a separate
+independent-session group. Open the current project first; other projects start
+collapsed with counts. Search temporarily expands matching groups, and same-name
+projects show full paths. Per-project Plus targets that exact workspace without
+changing main selection, sidebar disclosures or preferences. Retargeting an
+unsubmitted draft follows the existing shared draft contract and keeps its input
+and options. Reuse animated disclosures, the downward chevron, composite-field
+focus gutters, keyboard/IME handling and reduced-motion behavior.
+
+Shared text tooltips use a non-focusing manual native popover so they remain
+above native menus and session pickers, without intercepting input or dismissing
+their owner. Preserve the existing appearance and viewport gutter; measure
+intrinsic width independently of the previous tooltip position. Keyboard focus
+waits for its automatic scroll before placement. Closing the owning surface or
+removing its trigger also removes the tooltip.
 
 Context maintenance belongs in Settings > General, not its own category or the
 Context inspector. The main percentage is global; the shared animated advanced

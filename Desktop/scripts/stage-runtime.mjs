@@ -90,6 +90,8 @@ await build({ entryPoints: ['electron/compaction-configuration.ts'], outfile: jo
 await cp('electron/capability-admin.mjs', join(runtime, 'capability-admin.mjs'));
 await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.mjs'));
 await cp('electron/plugin-files.mjs', join(runtime, 'plugin-files.mjs'));
+await cp('electron/plugin-update.mjs', join(runtime, 'plugin-update.mjs'));
+await cp('electron/plugin-configuration.mjs', join(runtime, 'plugin-configuration.mjs'));
 await cp('electron/session-import.mjs', join(runtime, 'session-import.mjs'));
 await cp('electron/session-history.mjs', join(runtime, 'session-history.mjs'));
 await cp('electron/session-search.mjs', join(runtime, 'session-search.mjs'));

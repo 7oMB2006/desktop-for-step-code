@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';
+import { execFileSync } from 'node:child_process';
 import { cp, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { CapabilityService } from '../electron/capability-service';
 import { SessionRuntimes } from '../electron/session-runtimes';
 import { isolatedEnvironment } from '../electron/runtime';
@@ -15,7 +17,7 @@ async function fixture() {
   const runtime = join(folder, 'runtime'), cached = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
   await mkdir(runtime);
   for (const name of ['step', 'node']) await symlink(join(cached, name), join(runtime, name), process.platform === 'win32' ? 'junction' : 'dir');
-  for (const name of ['capability-admin.mjs', 'capability-settings.mjs', 'plugin-files.mjs'])
+  for (const name of ['capability-admin.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs'])
     await copyFile(resolve('electron', name), join(runtime, name));
   const service = new CapabilityService({ root, runtime, node: join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'),
     environment: () => isolatedEnvironment(root) });
@@ -23,6 +25,129 @@ async function fixture() {
   await cp(resolve('../examples/plugins/config-starter'), market, { recursive: true });
   return { folder, root, runtime, service, market };
 }
+test('explicit update check refreshes a real Git marketplace before installing its new pinned package', { timeout: 90000 }, async () => {
+  const { folder, service, market } = await fixture();
+  const git = (...args: string[]) => execFileSync('git', ['-C', market, ...args], { encoding: 'utf8', windowsHide: true });
+  const commit = () => {
+    git('add', '.');
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'Fixture package');
+  };
+  try {
+    git('init', '--initial-branch=main'); commit();
+    await service.mutate({ action: 'marketplace-add', source: pathToFileURL(market).href });
+    const entry = (await service.catalog()).available.find(item => item.name === 'dfsc-config-example')!;
+    await service.mutate({ action: 'plugin-install', name: entry.name, marketplace: entry.marketplace, ref: entry.package!.ref });
+    const manifestPath = join(market, 'plugins/dfsc-config-example/step.plugin.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    await writeFile(manifestPath, JSON.stringify({ ...manifest, version: '0.2.0' })); commit();
+    assert.equal((await service.catalog()).plugins[0].update?.status, 'current', 'Opening a catalog does not pull a remote market');
+    assert.deepEqual(await service.mutate({ action: 'plugin-check-updates' }), { warnings: [] });
+    const plugin = (await service.catalog()).plugins[0];
+    assert.equal(plugin.update?.status, 'available');
+    assert.equal(plugin.update?.version, '0.2.0');
+    assert.equal(plugin.version, manifest.version, 'Checking does not install');
+    await service.mutate({ action: 'plugin-update', id: plugin.id, ref: plugin.package!.ref, candidate: plugin.update!.ref! });
+    assert.equal((await service.catalog()).plugins[0].version, '0.2.0');
+  } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
+});
+test('native update keeps the installation, settings revision, secrets and disabled service overrides', { timeout: 90000 }, async () => {
+  const { folder, service, market, root } = await fixture();
+  try {
+    const schemaPath = join(market, 'plugins/dfsc-config-example/dfsc.settings.json');
+    const schema = JSON.parse(await readFile(schemaPath, 'utf8'));
+    schema.groups[0].fields.push({ id: 'key', label: 'Key', type: 'secret' });
+    await writeFile(schemaPath, JSON.stringify(schema));
+    await service.mutate({ action: 'marketplace-add', source: market });
+    await service.mutate({ action: 'plugin-install', name: 'dfsc-config-example', marketplace: 'dfsc-config-example-local' });
+    const plugin = (await service.catalog()).plugins[0], ref = plugin.package!.ref;
+    const initial = await service.configuration({ ref });
+    const configured = await service.configuration({ ref }, { ref, revision: initial.revision,
+      values: { ...initial.values, prefix: 'Keep this ' }, secrets: { key: { action: 'replace', value: 'private-update-test' } } });
+    await service.mutate({ action: 'plugin-toggle', id: plugin.id, enabled: false });
+    const switches = await readFile(join(root, 'config.toml'));
+    const receiptPath = join(root, 'desktop-plugins/installations.json');
+    const previous = JSON.parse(await readFile(receiptPath, 'utf8')).installations[0];
+    const snapshot = join(root, 'desktop-plugins/settings', previous.instance, `${configured.revision}.json`);
+    const privateBytes = await readFile(snapshot);
+    const sourceName = (await service.catalog()).marketplaces.find(item => item.kind === 'local')!.name;
+    const source = join(root, 'marketplaces', sourceName, 'plugins/dfsc-config-example');
+    const manifest = JSON.parse(await readFile(join(source, 'step.plugin.json'), 'utf8'));
+    const icon = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jCj0AAAAASUVORK5CYII=', 'base64');
+    await writeFile(join(source, 'step.plugin.json'), JSON.stringify({ ...manifest, version: '0.2.0', icon: 'update.png' }));
+    await writeFile(join(source, 'update.png'), icon);
+    await writeFile(join(source, 'README.md'), '# Updated example\n');
+    const catalog = await service.catalog(), candidate = catalog.plugins[0];
+    assert.equal(candidate.update?.status, 'available');
+    assert.equal(candidate.update?.version, '0.2.0');
+    const update = service.mutate({ action: 'plugin-update', id: plugin.id,
+      ref: candidate.package!.ref, candidate: candidate.update!.ref! });
+    const concurrentRead = service.catalog();
+    assert.ok((await update).warnings.every(warning => warning.startsWith('MCP declarations saved for ')));
+    const after = (await concurrentRead).plugins[0];
+    assert.equal(after.version, '0.2.0');
+    assert.deepEqual(after.icon, { kind: 'png', dataUrl: `data:image/png;base64,${icon.toString('base64')}` });
+    assert.equal(after.update?.status, 'current');
+    assert.equal(after.package?.provenance, 'recorded');
+    assert.equal(after.package?.configurationAvailable, true);
+    const current = JSON.parse(await readFile(receiptPath, 'utf8')).installations[0];
+    assert.equal(current.instance, previous.instance);
+    assert.equal(current.source, previous.source);
+    assert.notEqual(current.fingerprint, previous.fingerprint);
+    const saved = await service.configuration({ ref: after.package!.ref });
+    assert.equal(saved.configured, true);
+    assert.equal(saved.revision, configured.revision);
+    assert.equal(saved.values.prefix, 'Keep this ');
+    assert.equal(saved.hasSecret.key, true);
+    assert.ok((await readFile(snapshot)).equals(privateBytes), 'private snapshot remains byte-identical');
+    assert.ok((await readFile(join(root, 'config.toml'))).equals(switches));
+    assert.doesNotMatch(JSON.stringify(await concurrentRead), /private-update-test|expectedFingerprint|desktop-plugins|sourcePath/);
+    await assert.rejects(service.document({ ref, path: 'README.md' }), /stale/);
+    assert.equal((await service.document({ ref: after.package!.ref, path: 'README.md' })).text, '# Updated example\n');
+    await assert.rejects(readFile(join(root, 'desktop-plugins/update-transaction.json')), { code: 'ENOENT' });
+  } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
+});
+test('native update rejects incompatible settings, service changes, stale candidates and non-upgrades', { timeout: 90000 }, async () => {
+  const { folder, service, market, root } = await fixture();
+  try {
+    await service.mutate({ action: 'marketplace-add', source: market });
+    await service.mutate({ action: 'plugin-install', name: 'dfsc-config-example', marketplace: 'dfsc-config-example-local' });
+    const sourceName = (await service.catalog()).marketplaces.find(item => item.kind === 'local')!.name;
+    const source = join(root, 'marketplaces', sourceName, 'plugins/dfsc-config-example');
+    const manifestPath = join(source, 'step.plugin.json');
+    const original = JSON.parse(await readFile(manifestPath, 'utf8'));
+    const receipts = await readFile(join(root, 'desktop-plugins/installations.json'));
+    const updateInput = async () => {
+      const plugin = (await service.catalog()).plugins[0];
+      return { action: 'plugin-update' as const, id: plugin.id, ref: plugin.package!.ref, candidate: plugin.update?.ref ?? 'missing' };
+    };
+    for (const version of [original.version, '0.0.1', 'not-semver']) {
+      await writeFile(manifestPath, JSON.stringify({ ...original, version }));
+      const plugin = (await service.catalog()).plugins[0];
+      assert.notEqual(plugin.update?.status, 'available');
+      await assert.rejects(service.mutate(await updateInput()), /stale/);
+    }
+    await writeFile(manifestPath, JSON.stringify({ ...original, version: '0.2.0' }));
+    const schemaPath = join(source, 'dfsc.settings.json'), schemaBytes = await readFile(schemaPath);
+    await writeFile(schemaPath, Buffer.concat([schemaBytes, Buffer.from('\n')]));
+    await assert.rejects(service.mutate(await updateInput()), /configuration-schema-changed/);
+    await writeFile(schemaPath, schemaBytes);
+    await writeFile(manifestPath, JSON.stringify({ ...original, version: '0.2.0', mcpServers: { ...original.mcpServers,
+      additional: { command: 'node', args: ['new.mjs'] } } }));
+    await assert.rejects(service.mutate(await updateInput()), /update-capabilities-changed/);
+    await writeFile(manifestPath, JSON.stringify({ ...original, version: '0.2.0' }));
+    const stale = await updateInput();
+    await writeFile(join(source, 'README.md'), 'Changed after confirmation');
+    await assert.rejects(service.mutate(stale), /stale/);
+    assert.ok((await readFile(join(root, 'desktop-plugins/installations.json'))).equals(receipts));
+    assert.equal(JSON.parse(await readFile(join(root, 'plugins/dfsc-config-example/step.plugin.json'), 'utf8')).version, original.version);
+    await service.mutate({ action: 'marketplace-remove', name: sourceName });
+    await service.mutate({ action: 'marketplace-add', source: market });
+    const otherSource = join(root, 'marketplaces', sourceName, 'plugins/dfsc-config-example/step.plugin.json');
+    await writeFile(otherSource, JSON.stringify({ ...original, version: '0.3.0' }));
+    assert.equal((await service.catalog()).plugins[0].update?.status, 'unavailable');
+    await assert.rejects(service.mutate(await updateInput()), /stale/);
+  } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
+});
 test('native installation preserves provenance and blocks two package names declaring the same runtime ID', { timeout: 90000 }, async () => {
   const { folder, service, market, root } = await fixture();
   try {

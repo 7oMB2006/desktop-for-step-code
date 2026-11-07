@@ -1037,6 +1037,38 @@ and real-account/model acceptance remain unconfirmed. No commit, push, PR,
 package, installed-app change or historical-package deletion is part of
 this local implementation.
 
+## Explicit Plugin Updates (2026-11-07)
+
+The plugin-update branch adds explicit Git marketplace refresh and same-source
+installed-package upgrades. It does not change the Step Code source pin.
+Local native acceptance uses an isolated profile and the existing staged
+v0.1.7 runtime (`29eb460780489801ce8afc8bffc1a2efae7cbded`), with management
+helpers copied from this checkout, not the daily installation.
+
+The 55 focused tests pass: native Git refresh (without implicit installation),
+strict newer-version selection, staged replacement, icon change, installation
+instance and source retention, byte-identical private settings and secrets,
+service override preservation, stale-reference rejection, schema/service
+compatibility guards, source-generation changes and existing plugin regressions.
+The snapshot-race suite also injects locked-directory/binding/receipt writes and
+replays six journal checkpoints, refusing foreign instances and changed packages.
+Committed updates stay installed if temporary-file cleanup is blocked.
+
+The production PluginCenter browser verifier covers the approved compact update
+button, simulated failure/retry/restart, the native bridge adapter without fake
+percentages, duplicate clicks, delayed catalog publication, localization,
+light/dark themes, narrow layouts and visible focus outlines. The main/preload
+bundle and production renderer build into a separate verification output.
+
+The full capability Electron verifier passes against the isolated build and
+profile using real upstream management APIs. Clicking update replaces version
+1.0.0 with 1.1.0 and its icon, retaining the installation instance and exact MCP
+configuration bytes. An active MCP connection blocks a later replacement through
+the real IPC handler. The existing capability, configuration and navigation
+regressions also pass.
+
+These are local checks, not cloud CI, native macOS, public-market BVR upgrade,
+paid-model acceptance, packaging or replacement of the owner's installed app.
 
 ## Upstream v0.1.7 Local Migration (2026-11-06)
 

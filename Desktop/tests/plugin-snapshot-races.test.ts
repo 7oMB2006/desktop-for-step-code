@@ -177,6 +177,7 @@ function memoryFilesystem() {
     },
     async rm(target) {
       target = resolve(target);
+      hooks.beforeRm?.(target);
       for (const key of nodes.keys()) if (key === target || key.startsWith(target + sep)) nodes.delete(key);
     },
   };
@@ -199,6 +200,8 @@ async function modules(fs) {
   const sources = {
     settings: join(repository, 'Desktop/electron/capability-settings.mjs'),
     files: join(repository, 'Desktop/electron/plugin-files.mjs'),
+    update: join(repository, 'Desktop/electron/plugin-update.mjs'),
+    configuration: join(repository, 'Desktop/electron/plugin-configuration.mjs'),
     reader: join(repository, 'examples/plugins/config-starter/plugins/dfsc-config-example/server/configuration.mjs'),
   };
   const builtins = {
@@ -223,7 +226,9 @@ async function modules(fs) {
     cache.set(key, module);
     await module.link(specifier => {
       if (Object.hasOwn(builtins, specifier)) return load(specifier);
-      if (key === 'settings' && specifier === './plugin-files.mjs') return load('files');
+      if (specifier === './plugin-files.mjs') return load('files');
+      if (specifier === './plugin-update.mjs') return load('update');
+      if (specifier === './plugin-configuration.mjs') return load('configuration');
       throw new Error('Unexpected import: ' + specifier);
     });
     return module;
@@ -543,8 +548,96 @@ async function writeJunctionRace() {
   assert.ok(![...fs.nodes.keys()].some(key => key.endsWith('.tmp')), 'close rejection cannot skip temporary cleanup');
 }
 
+async function updateTransactions() {
+  async function fixture() {
+    const fs = memoryFilesystem(), load = await modules(fs), files = await load('files'), update = await load('update');
+    const transaction = '00000000-0000-4000-8000-000000000000', instance = '11111111-1111-4111-8111-111111111111';
+    const staging = join(root, 'desktop-plugins/update-' + transaction), target = join(root, 'plugins/example');
+    const candidate = join(staging, 'candidate'), backup = join(staging, 'previous');
+    fs.json(join(target, 'step.plugin.json'), { id: 'example', version: '1.0.0' });
+    fs.json(join(candidate, 'step.plugin.json'), { id: 'example', version: '2.0.0' });
+    const previous = { instance, folder: 'example', id: 'example', source: 'source-generation',
+      marketplace: 'community', fingerprint: await files.packageFingerprint(target), state: 'installed' };
+    const next = { ...previous, fingerprint: await files.packageFingerprint(candidate) };
+    const binding = { version: 1, instance, id: 'example', fingerprint: previous.fingerprint,
+      schemaHash: hash('schema'), revision: hash('revision'), contentHash: hash('payload') };
+    const receipts = join(root, 'desktop-plugins/installations.json'), bindingPath = join(root, 'desktop-plugins/bindings/example.json');
+    fs.json(receipts, { version: 1, installations: [previous] }); fs.json(bindingPath, binding);
+    const snapshot = join(root, 'desktop-plugins/settings/' + instance + '/' + binding.revision + '.json');
+    fs.put(snapshot, 'private snapshot must remain byte-identical');
+    const journal = { version: 1, transaction, previous, next, binding, phase: 'prepared' };
+    return { fs, files, update, target, candidate, backup, staging, receipts, bindingPath, snapshot, journal };
+  }
+  for (const checkpoint of ['prepared', 'backup', 'replacement', 'binding', 'receipt', 'committed']) {
+    const f = await fixture(), { fs, journal } = f;
+    if (checkpoint !== 'prepared') await fs.api.rename(f.target, f.backup);
+    if (['replacement', 'binding', 'receipt', 'committed'].includes(checkpoint)) await fs.api.rename(f.candidate, f.target);
+    if (['binding', 'receipt', 'committed'].includes(checkpoint)) fs.json(f.bindingPath, { ...journal.binding, fingerprint: journal.next.fingerprint });
+    if (['receipt', 'committed'].includes(checkpoint)) fs.json(f.receipts, { version: 1, installations: [journal.next] });
+    if (checkpoint === 'committed') journal.phase = 'committed';
+    fs.json(join(root, 'desktop-plugins/update-transaction.json'), journal);
+    const privateBytes = fs.bytes(f.snapshot);
+    await f.update.recoverPluginUpdate(root);
+    const expected = checkpoint === 'committed' ? journal.next : journal.previous;
+    assert.equal(await f.files.packageFingerprint(f.target), expected.fingerprint, checkpoint);
+    assert.deepEqual(JSON.parse(fs.bytes(f.receipts)).installations, [expected], checkpoint);
+    assert.equal(JSON.parse(fs.bytes(f.bindingPath)).fingerprint, expected.fingerprint, checkpoint);
+    assert.ok(fs.bytes(f.snapshot).equals(privateBytes));
+    assert.ok(!fs.nodes.has(f.staging));
+    assert.ok(!fs.nodes.has(join(root, 'desktop-plugins/update-transaction.json')));
+    await f.update.recoverPluginUpdate(root);
+    fs.assertClosed();
+  }
+  for (const failure of ['locked-target', 'publish', 'binding', 'receipt']) {
+    const f = await fixture();
+    let fired = false;
+    f.fs.hooks.beforeRename = (source, destination) => {
+      if (fired) return;
+      if (failure === 'locked-target' && source === f.target
+        || failure === 'publish' && source === f.candidate
+        || failure === 'binding' && destination === f.bindingPath
+        || failure === 'receipt' && destination === f.receipts) {
+        fired = true; throw Object.assign(new Error('Simulated locked update'), { code: 'EACCES' });
+      }
+    };
+    await assert.rejects(f.update.applyPluginUpdate(root, f.journal), error => error.code === 'EACCES');
+    assert.equal(fired, true, failure);
+    assert.equal(await f.files.packageFingerprint(f.target), f.journal.previous.fingerprint, failure);
+    assert.deepEqual(JSON.parse(f.fs.bytes(f.receipts)).installations, [f.journal.previous]);
+    assert.deepEqual(JSON.parse(f.fs.bytes(f.bindingPath)), f.journal.binding);
+    f.fs.assertClosed();
+  }
+  const f = await fixture();
+  await f.fs.api.rename(f.target, f.backup);
+  await f.fs.api.rename(f.candidate, f.target);
+  f.fs.json(join(root, 'desktop-plugins/update-transaction.json'), f.journal);
+  f.fs.json(f.receipts, { version: 1, installations: [{ ...f.journal.previous, instance: '22222222-2222-4222-8222-222222222222' }] });
+  const bytes = f.fs.bytes(f.receipts);
+  await assert.rejects(f.update.recoverPluginUpdate(root), error => error.code === 'update-recovery-required');
+  assert.ok(f.fs.bytes(f.receipts).equals(bytes), 'recovery cannot overwrite another installation instance');
+  assert.ok(f.fs.nodes.has(f.backup), 'failed recovery must preserve the old package');
+  for (const changed of ['target', 'candidate']) {
+    const altered = await fixture();
+    altered.fs.put(join(altered[changed], 'changed.txt'), 'externally changed package');
+    await assert.rejects(altered.update.applyPluginUpdate(root, altered.journal), error => error.code === 'stale');
+    assert.deepEqual(JSON.parse(altered.fs.bytes(altered.receipts)).installations, [altered.journal.previous]);
+    assert.ok(!altered.fs.nodes.has(join(root, 'desktop-plugins/update-transaction.json')));
+  }
+  const leftover = await fixture();
+  leftover.fs.hooks.beforeRm = target => {
+    if (target === leftover.staging) throw Object.assign(new Error('Temporary files locked'), { code: 'EACCES' });
+  };
+  const notes = await leftover.update.applyPluginUpdate(root, leftover.journal);
+  assert.equal(notes.length, 1);
+  assert.equal(await leftover.files.packageFingerprint(leftover.target), leftover.journal.next.fingerprint);
+  assert.ok(!leftover.fs.nodes.has(join(root, 'desktop-plugins/update-transaction.json')));
+  await leftover.update.recoverPluginUpdate(root);
+  assert.equal(await leftover.files.packageFingerprint(leftover.target), leftover.journal.next.fingerprint,
+    'cleanup failure cannot roll back an already committed update or hide it from a later catalog');
+}
+
 const scenarios = { install: installRace, payload: payloadRace, revocation: revocationRace, junction: junctionRace,
-  interrupted: interruptedOperations, removal: removalPreflight, writeJunction: writeJunctionRace };
+  interrupted: interruptedOperations, removal: removalPreflight, writeJunction: writeJunctionRace, update: updateTransactions };
 assert.ok(Object.hasOwn(scenarios, scenario), 'unknown regression scenario');
 await scenarios[scenario]();
 `;
@@ -568,3 +661,4 @@ test('host and reference readers reject parent junction swaps before open and af
 test('interrupted publication and failed uninstall retain incomplete, unauthorized receipts', () => verify('interrupted'));
 test('uninstall preflight rejects foreign bindings, mismatched receipts and replaced installation instances', () => verify('removal'));
 test('private writes reject parent substitution before secrets and erase failed snapshots through the open handle', () => verify('writeJunction'));
+test('plugin replacement rolls back locked writes and recovers every journal checkpoint without losing private settings', () => verify('update'));

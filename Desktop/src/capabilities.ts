@@ -43,6 +43,8 @@ export interface CapabilityPlugin {
   id: string; name: string; version?: string; description?: string;
   mcpServers: string[]; warnings: string[]; icon?: CapabilityPluginIcon; repository?: string; marketplace?: string; package?: PluginPackage;
   installationSource?: { status: 'recorded' | 'matched' | 'unknown' | 'conflict'; marketplaces: string[] };
+  update?: { status: 'available' | 'current' | 'unavailable'; version?: string; ref?: string;
+    reason?: 'source' | 'version' | 'conflict' };
 }
 export interface MarketplacePlugin {
   name: string; marketplace: string; description?: string; installed: boolean; icon?: CapabilityPluginIcon;
@@ -64,9 +66,12 @@ export interface CapabilitySkill {
 export interface CapabilityCatalog {
   plugins: CapabilityPlugin[]; available: MarketplacePlugin[]; marketplaces: CapabilityMarketplace[];
   mcp: CapabilityMcp[]; skills: CapabilitySkill[]; warnings: string[];
+  pluginUpdates?: boolean;
 }
 export type CapabilityMutation =
   | { action: 'plugin-install'; name: string; marketplace: string; ref?: string }
+  | { action: 'plugin-check-updates' }
+  | { action: 'plugin-update'; id: string; ref: string; candidate: string }
   | { action: 'plugin-remove'; id: string }
   | { action: 'plugin-toggle'; id: string; enabled: boolean }
   | { action: 'marketplace-add'; source: string }

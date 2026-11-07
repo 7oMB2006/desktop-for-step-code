@@ -4,6 +4,8 @@ import { lstat, mkdir, mkdtemp, readFile, realpath, readdir, rename, rm, cp, wri
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { installationReceipt, object, optionalFile, packageFingerprint, plainFile, readReceipts, scanInstalled,
   sourceIdentity, writePrivateData, writePrivateJson, writeReceipts } from './plugin-files.mjs';
+import { applyPluginUpdate, recoverPluginUpdate, updateBinding } from './plugin-update.mjs';
+import { PluginConfigurationStore } from './plugin-configuration.mjs';
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -288,6 +290,7 @@ export function createCapabilitySettings(upstream, options) {
     return result;
   }
   async function catalog() {
+    await recoverPluginUpdate(root);
     await plainPath(marketplacesDir);
     const builtin = await upstream.ensureBuiltinMarketplace({ marketplacesDir });
     let receiptWarning = false;
@@ -341,7 +344,9 @@ export function createCapabilitySettings(upstream, options) {
         marketplace: provenance === 'recorded' ? receipt.marketplace : undefined,
         installationSource: { status: provenance === 'unknown' && matchingMarkets.length ? 'matched' : provenance,
           marketplaces: provenance === 'recorded' ? [receipt.marketplace] : matchingMarkets },
-        packageDescriptor: descriptor ? { ...descriptor, provenance, instance: provenance === 'recorded' ? receipt.instance : undefined } : undefined,
+        packageDescriptor: descriptor ? { ...descriptor, provenance, instance: provenance === 'recorded' ? receipt.instance : undefined,
+          source: provenance === 'recorded' ? receipt.source : undefined,
+          marketplace: provenance === 'recorded' ? receipt.marketplace : undefined } : undefined,
       });
     }
     for (const entry of availablePlugins) if (entry.installedId
@@ -386,7 +391,89 @@ export function createCapabilitySettings(upstream, options) {
   }
   async function mutate(input, signal) {
     if (!record(input)) throw new CapabilityError('invalid-input');
+    await recoverPluginUpdate(root);
     switch (input.action) {
+      case 'plugin-check-updates': {
+        const notes = [];
+        for (const source of await sources()) {
+          if (source.kind !== 'git') continue;
+          signal?.throwIfAborted();
+          try {
+            const result = await upstream.updateMarketplaceSource({ name: source.name, marketplacesDir, signal });
+            if (!result.source) throw new CapabilityError('marketplace-failed');
+            notes.push(...warnings(result.warnings));
+          } catch { notes.push(`Marketplace refresh failed: ${capabilityText(source.name, 80)}`); }
+        }
+        return { warnings: notes };
+      }
+      case 'plugin-update': {
+        const id = text(input.id, 128), requested = name(text(input.name, 80)), market = name(text(input.marketplace, 80));
+        const receipts = await readReceipts(root);
+        const previous = receipts.installations.find(item => item.folder === requested && item.id === id && item.state === 'installed');
+        if (!previous || previous.fingerprint !== input.expectedOldFingerprint || previous.source !== input.expectedSource
+          || previous.instance !== input.expectedInstance || previous.marketplace !== market) throw new CapabilityError('stale');
+        const raw = await scanInstalled(root);
+        if (raw.filter(item => item.id === id).length !== 1 || raw.find(item => item.id === id)?.folder !== requested)
+          throw new CapabilityError('plugin-conflict');
+        const target = await plainPath(join(pluginsDir, requested), pluginsDir);
+        if (await packageFingerprint(target) !== previous.fingerprint) throw new CapabilityError('stale');
+        const available = await marketEntries(await sources());
+        const entry = available.entries.find(item => item.name === requested && item.marketplace === market);
+        if (!entry || sourceIdentity(entry.desktopSource) !== previous.source) throw new CapabilityError('stale');
+        if (available.conflicts.has(requested)) throw new CapabilityError('plugin-conflict');
+        await plainPath(entry.sourcePath, marketplacesDir);
+        await rejectLinks(entry.sourcePath);
+        const stagingRoot = await plainPath(join(root, 'desktop-plugins'));
+        const transaction = randomUUID(), transactionRoot = join(stagingRoot, `update-${transaction}`);
+        await mkdir(transactionRoot);
+        let finalized = false;
+        try {
+          const result = await upstream.installMarketplacePlugin(entry, transactionRoot, { provision: false });
+          const snapshot = join(transactionRoot, requested);
+          const checked = await upstream.readStepPluginManifest(snapshot);
+          const old = await upstream.readStepPluginManifest(target);
+          if (!checked.manifest || checked.errors.length || !old.manifest || checked.manifest.id !== id
+            || checked.manifest.version !== input.expectedVersion || old.manifest.version !== input.expectedOldVersion)
+            throw new CapabilityError('stale');
+          const fingerprint = await packageFingerprint(snapshot);
+          const source = (await sources()).find(item => item.name === entry.desktopSource.name);
+          if (!source || sourceIdentity(source) !== previous.source || fingerprint !== input.expectedFingerprint
+            || fingerprint === previous.fingerprint) throw new CapabilityError('stale');
+          const schema = await optionalFile(target, 'dfsc.settings.json', 65536);
+          const nextSchema = await optionalFile(snapshot, 'dfsc.settings.json', 65536);
+          if ((schema?.toString('base64') ?? null) !== (nextSchema?.toString('base64') ?? null))
+            throw new CapabilityError('configuration-schema-changed');
+          const services = async (directory, manifest) => {
+            let servers = manifest.mcpServers;
+            if (typeof servers === 'string') {
+              const parsed = JSON.parse((await plainFile(directory, servers, 256 * 1024)).toString('utf8'));
+              servers = parsed.mcpServers ?? parsed;
+            }
+            return Object.entries(servers ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([key, server]) =>
+              [key, server.url ? 'http' : 'stdio', server.enabled !== false,
+                server.env?.STEPFUN_API_KEY === 'DFSC_INDEPENDENT_PLUGIN']);
+          };
+          if (JSON.stringify(await services(target, old.manifest)) !== JSON.stringify(await services(snapshot, checked.manifest)))
+            throw new CapabilityError('update-capabilities-changed');
+          const binding = await updateBinding(root, previous);
+          if (binding && !binding.revoked) await new PluginConfigurationStore(root).context({
+            kind: 'installed', provenance: 'recorded', instance: previous.instance, id, name: requested,
+            root: target, fingerprint: previous.fingerprint,
+          });
+          signal?.throwIfAborted();
+          await rename(snapshot, join(transactionRoot, 'candidate'));
+          const notes = await applyPluginUpdate(root, { transaction, previous,
+            next: { ...previous, fingerprint }, binding });
+          finalized = true;
+          return { warnings: [...warnings(result.warnings), ...notes] };
+        } finally {
+          // A retained journal owns its rollback files; never erase recovery evidence.
+          if (!finalized && !await optionalFile(root, 'desktop-plugins/update-transaction.json', 65536)) {
+            await plainPath(transactionRoot);
+            await rm(transactionRoot, { recursive: true, force: true, maxRetries: 3 });
+          }
+        }
+      }
       case 'plugin-install': {
         const requested = name(text(input.name, 80));
         const market = name(text(input.marketplace, 80));

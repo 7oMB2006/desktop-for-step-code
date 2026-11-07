@@ -275,7 +275,7 @@ test('tool summaries localize built-in names and aliases without exposing argume
 
 test('tool state is per-call and never mistakes a missing result for success', () => {
   assert.equal(toolPresentation('bash', result('a'), true, 'zh').state, 'done');
-  assert.equal(toolPresentation('bash', result('a', true), true, 'zh').label, '运行命令失败');
+  assert.equal(toolPresentation('bash', result('a', true), true, 'zh').label, '命令工具异常');
   assert.equal(toolPresentation('bash', undefined, false, 'zh').label, '运行命令（未返回）');
   assert.equal(toolPresentation('mcp_custom', undefined, true, 'en').label, 'Calling mcp_custom');
   assert.equal(toolPresentation('mcp_custom', result('a', true), false, 'zh').state, 'failed');

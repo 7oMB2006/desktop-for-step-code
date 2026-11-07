@@ -1437,7 +1437,7 @@ try {
     send({ type: 'message_start', message: { role: 'assistant', content: [{ type: 'text', text: '命令未成功，已经保留失败详情。' }], timestamp: Date.now() } });
   });
   await liveResponse.getByText('命令未成功，已经保留失败详情。', { exact: true }).waitFor();
-  await liveCommand.locator(':scope > summary').getByText('运行命令失败', { exact: true }).waitFor();
+  await liveCommand.locator(':scope > summary').getByText('命令工具异常', { exact: true }).waitFor();
   assert.equal(await liveCommand.getAttribute('data-tool-state'), 'failed');
   assert.equal(await shimmer.evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused');
   await page.waitForFunction(() => {
@@ -1472,7 +1472,7 @@ try {
   await page.waitForFunction(() => !document.querySelector('.message.assistant:last-of-type .thinking')?.open);
   assert.equal(await liveResponse.locator('.assistant-actions').count(), 1);
   assert.equal(await liveResponse.getByText('命令未成功，已经保留失败详情。', { exact: true }).isVisible(), true);
-  assert.equal(await liveCommand.locator(':scope > summary').getByText('运行命令失败', { exact: true }).isVisible(), true);
+  assert.equal(await liveCommand.locator(':scope > summary').getByText('命令工具异常', { exact: true }).isVisible(), true);
   await liveResponse.getByText('读取文件（未返回）', { exact: true }).waitFor();
   assert.equal(await liveResponse.locator('.process-tool.running').count(), 0);
   await liveCommand.locator(':scope > summary').click();

@@ -158,9 +158,11 @@ try {
   const nonzero = result(await finish('THEN-NONZERO'), 'THEN-NONZERO');
   assert.equal(nonzero.isError, false, 'failed verification does not roll back a successful edit');
   assert.equal(nonzero.details.thenRun.exitCode, 7);
+  assert.equal(nonzero.details.thenRun.execution.status, 'exited');
+  assert.equal(nonzero.details.thenRun.execution.exitCode, 7);
   assert.equal(await readFile(join(workspace, 'denied.txt'), 'utf8'), 'after\n');
   assert.match(received.get('THEN-NONZERO'), /CHECK_FAILED[\s\S]*Command exited with code 7/);
-  await page.getByText('修改了文件 · 验证失败', { exact: true }).first().waitFor();
+  await page.getByText('修改了文件 · 验证失败 · 退出码 7', { exact: true }).first().waitFor();
   assert.equal(await approval.count(), 0);
 
   // The destructive rule is exercised only on a named empty fixture directory.
@@ -216,14 +218,16 @@ try {
   assert.equal(await readFile(join(workspace, 'stop.txt'), 'utf8'), 'stop applied\n');
   const stoppedResult = result(stopped, 'THEN-STOP');
   assert.equal(stoppedResult?.isError, true);
+  assert.equal(stoppedResult.details.thenRun.execution.status, 'canceled');
+  await page.locator('.process-tool.stopped').getByText(/写入了文件 · 验证已取消/).first().waitFor();
   assert.match(text(stoppedResult.content), /Wrote 13 chars[\s\S]*then_run:[\s\S]*Command aborted/);
   await writeFile(join(workspace, 'stop-release'), 'release\n');
   await page.waitForTimeout(1000);
   assert.equal(await exists('stop-late'), false, 'stop kills the verification process tree');
   assert.equal(await exists('stop-outer'), false);
   await page.reload();
-  await page.getByText('修改了文件 · 验证失败', { exact: true }).first().waitFor();
-  await page.getByText('文件修改或验证未完成', { exact: true }).first().waitFor();
+  await page.getByText('修改了文件 · 验证失败 · 退出码 7', { exact: true }).first().waitFor();
+  await page.locator('.process-tool.stopped').getByText(/写入了文件 · 验证已取消/).first().waitFor();
   await settleLayout(page.locator('.messages'));
   await page.screenshot({ path: 'test-results/then-run-results.png' });
 

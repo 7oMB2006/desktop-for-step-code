@@ -31,6 +31,7 @@ test('steering retains execution ownership but ordinary next-round input ends it
 test('approval alone is never completion; execution outcomes follow the final assistant', () => {
   assert.equal(planExecution([approval], true)?.state, 'running');
   assert.equal(planExecution([approval], false)?.state, 'interrupted');
+  assert.equal(planExecution([approval, { role: 'assistant', content: [], stopReason: 'stop', incomplete: 'no_visible_output' }], false)?.state, 'failed');
   for (const [stopReason, state] of [['stop', 'completed'], ['error', 'failed'], ['aborted', 'interrupted'], ['toolUse', 'interrupted']]) {
     assert.equal(planExecution([approval, { role: 'assistant', content: 'Result', stopReason }], false)?.state, state);
   }

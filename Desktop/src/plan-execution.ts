@@ -23,7 +23,7 @@ export function planExecution(messages: Message[], active: boolean) {
   if (approvalIndex < 0) return;
   const plan = approvedPlan(messages[approvalIndex])!;
   const last = messages.slice(approvalIndex + 1).reverse().find(message => message.role === 'assistant');
-  const state: PlanExecutionState = active ? 'running' : last?.stopReason === 'error' ? 'failed'
+  const state: PlanExecutionState = active ? 'running' : last?.stopReason === 'error' || last?.incomplete ? 'failed'
     : last?.stopReason === 'stop' ? 'completed' : 'interrupted';
   return { plan, state };
 }

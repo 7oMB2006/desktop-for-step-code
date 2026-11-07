@@ -80,6 +80,7 @@ export function firstUserText(messages: Message[]) {
 export function taskOutcome(messages: Message[]) {
   const last = messages.at(-1);
   if (last?.role !== 'assistant') return 'idle' as const;
+  if (last.incomplete) return 'interrupted' as const;
   if (last.stopReason === 'stop') return 'completed' as const;
   if (['error', 'aborted', 'length'].includes(last.stopReason ?? '')) return 'interrupted' as const;
   return 'idle' as const;
@@ -265,9 +266,22 @@ export class SessionRuntimes {
       ...(existing ? { reviewArmed: false, review: undefined } : {}) };
     let runGeneration = 0;
     let notifiedGeneration = 0;
+    let recoveryPending = false;
     const transport = this.create(event => {
       if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected') return;
-      if (event.type === 'agent_end' && reviewActive(worker.launch?.review)) event = { ...event, desktopReviewPending: true };
+      // An incomplete turn keeps its provider stop reason. Only agent_settled
+      // decides whether the native recovery produced a usable final answer.
+      if (event.type === 'message_end' && event.message?.role === 'assistant' && event.message.incomplete)
+        recoveryPending = true;
+      if (event.type === 'agent_end' && recoveryPending) event = { ...event, desktopRecoveryPending: true };
+      if (event.type === 'agent_start' && recoveryPending && worker.runActive)
+        event = { ...event, desktopRecoveryContinuation: true };
+      if (event.type === 'agent_settled' && recoveryPending) {
+        event = { ...event, desktopRecoverySettled: true };
+        if (event.failure && !worker.interrupted) worker.failed = true;
+      }
+      if ((event.type === 'agent_end' || event.desktopRecoverySettled) && reviewActive(worker.launch?.review))
+        event = { ...event, desktopReviewPending: true };
       if (event.type === 'agent_start' && worker.runActive && reviewActive(worker.launch?.review))
         event = { ...event, desktopReviewContinuation: true };
       event = this.hooks.event?.(worker, event) ?? event;
@@ -300,7 +314,12 @@ export class SessionRuntimes {
         this.publishLaunch(worker);
       }
       const reviewing = reviewActive(worker.launch?.review);
-      if (event.type === 'agent_start') { if (!worker.runActive) runGeneration++; worker.busy = true; worker.runActive = true; worker.failed = false; worker.interrupted = false; if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; } }
+      if (event.type === 'agent_start') {
+        if (!worker.runActive) runGeneration++;
+        worker.busy = true; worker.runActive = true; worker.failed = false;
+        if (!event.desktopRecoveryContinuation) worker.interrupted = false;
+        if (worker.state) { this.unreadSessionIds.delete(worker.state.sessionId!); worker.state = { ...worker.state, isStreaming: true }; }
+      }
       if (event.type === 'agent_settled' && !worker.runActive && !reviewing) {
         worker.busy = false;
         if (worker.state) worker.state = { ...worker.state, isStreaming: false };
@@ -315,7 +334,7 @@ export class SessionRuntimes {
       }
       if (['compaction_start', 'auto_compaction_start', 'auto_clm_start'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: true };
       if (['compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type) && worker.state) worker.state = { ...worker.state, isCompacting: false };
-      if (event.type === 'agent_end' && !reviewing) {
+      if ((event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled) && !reviewing) {
         const completedGeneration = runGeneration;
         const completed = worker.runActive && !worker.failed && !worker.interrupted && taskOutcome(worker.messages) === 'completed';
         worker.runActive = false; worker.busy = false; worker.touched = Date.now();
@@ -339,6 +358,7 @@ export class SessionRuntimes {
           }).catch(() => {});
         }
       }
+      if (event.type === 'agent_settled' || event.type === 'desktop_exit') recoveryPending = false;
       if (event.type === 'tool_execution_end' || event.type === 'agent_end') {
         for (const [id, request] of worker.pendingUI) {
           const question = questionnaire(request);
@@ -349,7 +369,7 @@ export class SessionRuntimes {
           }
         }
       }
-      if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
+      if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'agent_settled', 'desktop_exit'].includes(event.type)) worker.messages = applyMessageEvent(worker.messages, event);
       if (event.type === 'message_end' && event.message?.stopReason === 'error') worker.failed = true;
       if (event.type === 'desktop_exit') {
         worker.status = 'disconnected'; worker.busy = false; worker.runActive = false;
@@ -554,13 +574,13 @@ export class SessionRuntimes {
     if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker) return;
     // Never replace newly received deltas with an older asynchronous snapshot.
     if (revision === worker.revision) {
-      worker.state = state;
+      worker.state = worker.runActive ? { ...state, isStreaming: true } : state;
       // get_messages contains committed history, not the in-flight assistant.
-      if (!state.isStreaming) {
+      if (!state.isStreaming && !worker.runActive) {
         worker.messages = decorated;
         worker.leafId = history.leafId ?? undefined;
       }
-      worker.busy = Boolean(state.isStreaming) || reviewActive(worker.launch?.review);
+      worker.busy = worker.runActive || Boolean(state.isStreaming) || reviewActive(worker.launch?.review);
     }
     worker.models = models;
     if (this.statsVersions.get(worker) === statsVersion) worker.stats = stats;

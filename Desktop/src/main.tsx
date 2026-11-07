@@ -768,14 +768,14 @@ function App() {
         }) }));
         return;
       }
-      if (!event.desktopReviewPending && !event.desktopReviewContinuation && ['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_end', 'message_update', 'message_end', 'agent_end'].includes(event.type)
+      if (!event.desktopReviewPending && !event.desktopReviewContinuation && ['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_end', 'message_update', 'message_end', 'agent_end', 'agent_settled'].includes(event.type)
         || event.type === 'desktop_completion_review' && !reviewActive(event.review)) {
         const receivedAt = performance.now();
         const id = event.sessionId ?? view.current.sessionId;
         if (id) metricsBySession.current.set(id, updateRunMetrics(metricsBySession.current.get(id) ?? null,
           event.type === 'desktop_completion_review' ? { ...event, type: 'agent_end' } : event, receivedAt));
         if (!switching.current && (!event.runtimeId || event.runtimeId === viewId.current)) {
-          if (event.type === 'agent_start') setClock(receivedAt);
+          if (event.type === 'agent_start' && !event.desktopRecoveryContinuation) setClock(receivedAt);
           setRunMetrics(id ? metricsBySession.current.get(id) ?? null : null);
         }
       }
@@ -810,7 +810,7 @@ function App() {
       if (['live_context', 'auto_clm_end', 'agent_end', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
-      if (event.type === 'agent_end' && !event.desktopReviewPending
+      if ((event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled) && !event.desktopReviewPending
         || event.type === 'desktop_completion_review' && !reviewActive(event.review)) {
         setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh);
       }
@@ -825,7 +825,7 @@ function App() {
       if (event.type === 'desktop_error') setError(event.message);
       if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
       if (['message_start', 'message_end'].includes(event.type) && event.message && isUserMessage(event.message)) setArrivingUser(event.message);
-      if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
+      if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'agent_settled', 'desktop_exit'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
       if (event.type === 'tool_execution_update' || event.type === 'tool_execution_end') {
         setData(d => ({ ...d, messages: applyToolResult(d.messages, event) }));
       }

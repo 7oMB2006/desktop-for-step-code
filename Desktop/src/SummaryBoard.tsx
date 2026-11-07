@@ -9,15 +9,29 @@ import { DiffCount } from './DiffCount';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import { TaskProgress } from './TaskProgress';
 import { summaryTasks } from './summary-tasks';
+import { StellarTaskRoute } from './StellarTaskRoute';
 import './summary-board.css';
 
-function TaskRow({ task, visible, language, animateEntrance }: { task: SummaryTask; visible: boolean; language: 'zh' | 'en'; animateEntrance: boolean }) {
+function TaskRow({ task, visible, language, animateEntrance, reveal }: { task: SummaryTask; visible: boolean; language: 'zh' | 'en'; animateEntrance: boolean; reveal?: object }) {
   const [open, setOpen] = useState(false);
   const [entering] = useState(animateEntrance);
   const id = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!reveal) return;
+    setOpen(true);
+    const origin = document.activeElement;
+    // A completed task may need to unfold before its anchor has a scrollable box.
+    const timer = setTimeout(() => {
+      if (document.activeElement !== origin) return;
+      trigger.current?.focus({ preventScroll: true });
+      trigger.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+    }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 260);
+    return () => clearTimeout(timer);
+  }, [reveal]);
   return <li className={`sb-disclosure sb-task-shell${entering ? ' is-new' : ''}${visible ? ' is-open' : ''}`} aria-hidden={!visible} inert={!visible}>
     <div><div className={`sb-step is-${task.status}`}>
-      <button className="sb-step-trigger" type="button" aria-expanded={open} aria-controls={id}
+      <button ref={trigger} className="sb-step-trigger" type="button" aria-expanded={open} aria-controls={id}
         aria-label={`${task.subject} · ${{ pending: language === 'zh' ? '待推进' : 'Pending', in_progress: language === 'zh' ? '进行中' : 'In progress', completed: language === 'zh' ? '已完成' : 'Completed', failed: language === 'zh' ? '已失败' : 'Failed' }[task.status]}`} onClick={() => setOpen(!open)}>
         <span className="sb-step-symbol"><SubagentStatusIcon language={language} state={task.status === 'pending' ? 'pending' : task.status === 'in_progress' ? 'running' : task.status === 'failed' ? 'failed' : 'done'}/></span>
         <span>{task.subject}</span><span className={`sb-fold-icon${open ? ' is-open' : ''}`}><DisclosureChevron/></span>
@@ -51,17 +65,19 @@ function TaskHistory({ plans, partial, language }: { plans: SummaryPlan[]; parti
   </div>;
 }
 
-export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], backgroundActivity, busy = false, onOpenSubagent, onOpenWorkflow, onClose,
+export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], backgroundActivity, busy = false, stellar = false, onOpenSubagent, onOpenWorkflow, onClose,
   mcpBusy = busy, capabilityRevision, onMcpChanged, onRestart, onManageMcp }: {
   runtimeId?: string; sessionId?: string; language: 'zh' | 'en'; onOpenChanges: () => void;
   messages?: Message[]; backgroundActivity?: import('./contracts').BackgroundLaneActivity; busy?: boolean; onOpenSubagent?: (task: SubagentDisplayTask) => void; onOpenWorkflow?: (id: string) => void; onClose?: () => void;
   mcpBusy?: boolean; capabilityRevision?: number; onMcpChanged?: () => Promise<void>; onRestart?: () => Promise<void>; onManageMcp?: () => void;
+  stellar?: boolean;
 }) {
   const [model, setModel] = useState<SessionSummary>();
   const [repository, setRepository] = useState<RepositoryDiff>();
   const [failed, setFailed] = useState(false);
   const [completedOpen, setCompletedOpen] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
+  const [routeTarget, setRouteTarget] = useState<{ id: string }>();
   const previous = useRef(new Map<string, string>());
   const hasSnapshot = useRef(false);
   const taskView = useMemo(() => summaryTasks(model, messages), [model, messages]);
@@ -118,7 +134,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
     if (model) hasSnapshot.current = true;
     if (newlyCompleted.length) setRecent(ids => [...new Set([...ids, ...newlyCompleted])]);
   }, [model, tasks]);
-  useLayoutEffect(() => { setCompletedOpen(false); setRecent([]); }, [taskView.turnKey]);
+  useLayoutEffect(() => { setCompletedOpen(false); setRecent([]); setRouteTarget(undefined); }, [taskView.turnKey]);
   useEffect(() => {
     if (!recent.length) return;
     const timer = setTimeout(() => setRecent([]), 1100);
@@ -149,6 +165,10 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
     </section>}
     <section className="sb-steps" aria-label={t('推进清单', 'Task plan')}>
       <div className="sb-section-heading"><h4>{t('推进清单', 'Task plan')}</h4>{(!model || !!tasks.length) && <span className="sb-step-count">{model ? <><strong>{done.length}</strong> / {tasks.length}</> : '--'}</span>}</div>
+      {stellar && model && <StellarTaskRoute tasks={tasks} language={language} onReveal={task => {
+        if (task.status === 'completed') setCompletedOpen(true);
+        setRouteTarget({ id: `${model.plan?.id ?? ''}:${task.id}` });
+      }}/>}
       {!!taskView.history.length && <TaskHistory key={taskView.turnKey} plans={taskView.history}
         partial={!!tasks.length && taskView.history.some(plan => plan.id === (model?.plan?.id ?? 'legacy-plan'))} language={language}/>}
       {!!tasks.length && model?.plan && <p className="sb-plan-title">{model.plan.title}</p>}
@@ -159,6 +179,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
       </button>}
       <ol>{tasks.map(task =>
         <TaskRow key={`${model?.plan?.id ?? ''}:${task.id}`} task={task} language={language}
+          reveal={stellar && routeTarget?.id === `${model?.plan?.id ?? ''}:${task.id}` ? routeTarget : undefined}
           animateEntrance={hasSnapshot.current && !previous.current.has(`${model?.plan?.id ?? ''}:${task.id}`)}
           visible={task.status !== 'completed' || completedOpen || recent.includes(`${model?.plan?.id ?? ''}:${task.id}`)}/>)}</ol>
       {!!tasks.length && <TaskProgress key={JSON.stringify([model?.plan?.id, tasks.map(task => task.id)])}

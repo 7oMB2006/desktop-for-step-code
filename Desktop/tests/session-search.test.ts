@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Preferences, Session } from '../src/contracts';
-import { filterSessions } from '../src/session-search';
+import { filterSessions, sessionSearchParts } from '../src/session-search';
 
 const preferences: Preferences = {
   theme: 'light', language: 'zh', workspaces: ['D:\\Projects\\App', 'D:\\Projects\\Other'],
@@ -63,4 +63,36 @@ test('large catalogs preserve object identity, order and source data', () => {
   assert.equal(results[0], many[9999]);
   assert.equal(many.length, 10000);
   assert.equal(many[0].name, 'Conversation 0');
+});
+
+test('search highlights preserve text and merge overlapping literal matches', () => {
+  assert.deepEqual(sessionSearchParts('banana', 'ana'), [
+    { text: 'b', match: false }, { text: 'anana', match: true },
+  ]);
+  assert.deepEqual(sessionSearchParts('a.*b', '.*'), [
+    { text: 'a', match: false }, { text: '.*', match: true }, { text: 'b', match: false },
+  ]);
+  assert.deepEqual(sessionSearchParts('unchanged', '  '), [{ text: 'unchanged', match: false }]);
+});
+
+test('highlight normalization matches full-width letters, Windows paths and case', () => {
+  const text = 'ＡＰＩ D:\\Projects\\Stellar';
+  const parts = sessionSearchParts(text, 'api d:/projects');
+  assert.equal(parts.map(part => part.text).join(''), text);
+  assert.deepEqual(parts.filter(part => part.match).map(part => part.text), ['ＡＰＩ', 'D:\\Projects']);
+});
+
+test('normalization expansions and combining characters never split original graphemes', () => {
+  for (const [text, query, expected] of [
+    ['xﬃy', 'fi', 'ﬃ'], ['cafe\u0301', 'É', 'e\u0301'],
+    ['İstanbul', 'i', 'İ'], ['ΟΣ', 'ς', 'Σ'], ['x👩‍💻y', '💻', '👩‍💻'],
+  ]) {
+    const parts = sessionSearchParts(text, query);
+    assert.equal(parts.map(part => part.text).join(''), text);
+    assert.equal(parts.filter(part => part.match).map(part => part.text).join(''), expected);
+  }
+});
+
+test('queries matched in another field leave the displayed text unmarked', () => {
+  assert.deepEqual(sessionSearchParts('修复登录', 'Projects'), [{ text: '修复登录', match: false }]);
 });

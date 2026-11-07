@@ -62,7 +62,7 @@ function DiffFile({ file, repository, source, runtimeId, base, revision, languag
       {repository ? <span className={`review-status status-${repository.status === '?' ? 'new' : repository.status}`}
         title={{ M: zh ? '修改' : 'Modified', A: zh ? '新增' : 'Added', D: zh ? '删除' : 'Deleted', '?': zh ? '未跟踪' : 'Untracked' }[repository.status]}>
         {repository.status}</span> : <FileCode2 size={15}/>}
-      <span className="review-file-name"><b>{normalized.slice(slash + 1)}</b><small title={file.path}>
+      <span className="review-file-name"><b title={normalized.slice(slash + 1)}>{normalized.slice(slash + 1)}</b><small title={file.path}>
         {slash >= 0 ? normalized.slice(0, slash) : './'}
         {source === 'turn' && file.edits.length > 1 ? ` · ${file.edits.length} ${zh ? '次编辑' : 'edits'}` : ''}
       </small></span>

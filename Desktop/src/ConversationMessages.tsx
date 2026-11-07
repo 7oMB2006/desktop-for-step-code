@@ -83,7 +83,7 @@ function CopyButton({ text, getText, language, onError, label }: { text: string;
       onError(String(error instanceof Error ? error.message : error));
     }
   };
-  return <button type="button" className="icon-button" aria-label={label ?? (language === 'zh' ? '复制' : 'Copy')}
+  return <button type="button" className="icon-button copy-button" data-copied={copied} aria-label={label ?? (language === 'zh' ? '复制' : 'Copy')}
     data-tooltip={label ?? (language === 'zh' ? '复制' : 'Copy')}
     disabled={!text} onClick={() => void copy()}>{copied ? <Check size={15}/> : <Copy size={15}/>}</button>;
 }

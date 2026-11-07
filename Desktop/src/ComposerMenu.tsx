@@ -110,7 +110,7 @@ export function ComposerMenu(props: Props) {
     textarea.setAttribute('aria-expanded', String(open));
     if (open) { textarea.setAttribute('aria-controls', 'composer-discovery'); if (filtered.length) textarea.setAttribute('aria-activedescendant', `composer-option-${active}`); else textarea.removeAttribute('aria-activedescendant'); }
     else { textarea.removeAttribute('aria-controls'); textarea.removeAttribute('aria-activedescendant'); }
-  }, [open, active]);
+  }, [open, active, filtered.length]);
   useEffect(() => {
     if (!open) return;
     const outside = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) close(); };
@@ -129,10 +129,10 @@ export function ComposerMenu(props: Props) {
   return <div className={`composer-menu-anchor${open ? ' has-composer-menu' : ''}`} ref={root} onKeyDownCapture={keyboard}
     onSelectCapture={e => { if (e.target === input()) readToken(); }}
     onClickCapture={e => { if (input()?.contains(e.target as Node)) { readToken(); setDismissed(false); } }}>
-    {open && <div className="composer-discovery" id="composer-discovery" role="listbox" aria-label={mode === '/' ? (zh ? '操作与指令' : 'Actions and commands') : (zh ? '附件与引用' : 'Attachments and references')}>
+    {open && <div className="composer-discovery" data-mode={mode === '/' ? 'commands' : 'references'} id="composer-discovery" role="listbox" aria-label={mode === '/' ? (zh ? '操作与指令' : 'Actions and commands') : (zh ? '附件与引用' : 'Attachments and references')}>
       <div className="composer-discovery-scroll">{filtered.length ? filtered.map((row, index) => <div key={row.id}>
         {(index === 0 || filtered[index - 1].group !== row.group) && <div className="composer-discovery-group">{row.group}</div>}
-        <button type="button" id={`composer-option-${index}`} role="option" disabled={row.disabled} aria-selected={index === active} title={row.detail} onMouseMove={() => setSelected(index)} onMouseDown={e => e.preventDefault()} onClick={row.activate}>
+        <button type="button" id={`composer-option-${index}`} role="option" data-kind={row.id.startsWith('quote:') ? 'quote' : row.keyword ? 'command' : 'action'} disabled={row.disabled} aria-selected={index === active} title={row.detail} onMouseMove={() => setSelected(index)} onMouseDown={e => e.preventDefault()} onClick={row.activate}>
           <row.Icon size={16}/><span className="composer-discovery-title">{row.title}</span>{row.keyword && <code>{row.keyword}</code>}<span className="composer-discovery-detail">{row.detail}</span>
         </button>
       </div>) : <div className="composer-discovery-empty">{zh ? '没有匹配的内容' : 'No matches'}</div>}</div>

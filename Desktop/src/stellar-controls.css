@@ -1,0 +1,177 @@
+/* Preserve the fader's mechanics and dimensions; refine its surrounding instrument. */
+:root[data-theme-material=stellar] {
+  --stellar-disabled-ink: #92918b;
+}
+/* Only neutral controls: primary, stop and destructive actions retain their semantics. */
+:root[data-theme-material=stellar] :is(
+  .code-header .icon-button,
+  .right-tool-rail .icon-button,
+  .app-menu > button,
+  .file-preview-empty > button
+):disabled {
+  opacity: 1;
+  color: var(--stellar-disabled-ink);
+  background: transparent;
+  cursor: default;
+}
+:root[data-theme-material=stellar] :is(
+  .code-header .icon-button,
+  .right-tool-rail .icon-button,
+  .app-menu > button,
+  .file-preview-empty > button
+):disabled > svg {
+  color: inherit;
+}
+
+:root[data-theme-material=stellar] .model-effort-popover {
+  background: var(--stellar-control); border-color: var(--stellar-frame);
+  border-bottom-color: var(--stellar-metal); border-radius: 2px 8px 2px 8px;
+  box-shadow: 0 4px 8px #0005;
+  animation-timing-function: cubic-bezier(.215, .61, .355, 1);
+}
+:root[data-theme-material=stellar] .model-effort-heading {
+  background: transparent; border-color: transparent; border-bottom-color: var(--stellar-rule);
+  border-radius: 0; justify-content: flex-start; align-items: flex-end; text-align: left;
+  padding: 14px 10px; font-size: 16px;
+}
+:root[data-theme-material=stellar] .model-effort-heading:hover { background: var(--stellar-raised); }
+:root[data-theme-material=stellar] .model-effort-heading-copy { align-items: flex-start; gap: 10px; max-width: 100%; }
+:root[data-theme-material=stellar] .model-effort-heading-name { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .model-effort-heading-level { font-size: 24px; }
+:root[data-theme-material=stellar] .model-effort-heading-level-stage { min-width: 0; place-items: start; }
+:root[data-theme-material=stellar] .model-effort-provider-brand { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .model-effort-pending { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .model-effort-details-space {
+  border-color: transparent; border-radius: 0; background: transparent; padding-inline: 8px;
+}
+:root[data-theme-material=stellar] .model-effort-details-space:hover { background: var(--stellar-raised); }
+:root[data-theme-material=stellar] .model-effort-preview-modalities { gap: 6px; color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .model-effort-preview-capacity b { font-family: "Cascadia Code", Consolas, monospace; }
+:root[data-theme-material=stellar] .model-effort-preview-capacity small { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .model-effort-fader {
+  border-color: var(--stellar-frame); border-radius: 3px; background: var(--stellar-record-paper);
+  box-shadow: none;
+}
+:root[data-theme-material=stellar] .model-effort-fader-well {
+  border-color: var(--stellar-rule); border-radius: 2px; background: var(--stellar-control); box-shadow: none;
+}
+:root[data-theme-material=stellar] .model-effort-fader-tick { background: var(--stellar-metal); }
+:root[data-theme-material=stellar] .model-effort-fader-thumb {
+  border-radius: 3px; border-color: var(--stellar-metal); background: #d7cbb4;
+  box-shadow: 0 2px 4px #0005;
+}
+:root[data-theme-material=stellar] .model-effort-fader-grip {
+  background: #42413e; box-shadow: 0 -5px #42413e, 0 5px #42413e; opacity: 1;
+}
+:root[data-theme-material=stellar] :is(.model-effort-models-panel, .model-effort-parameters-panel) {
+  background: var(--stellar-control);
+}
+:root[data-theme-material=stellar] .model-effort-back {
+  border-bottom: 1px solid var(--stellar-rule); border-radius: 0; color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .model-effort-list { padding: 5px 3px 3px; scroll-padding-block: 4px; }
+:root[data-theme-material=stellar] .model-effort-list button {
+  border-radius: 0; box-shadow: inset 0 -1px var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .model-effort-list button > span { min-width: 0; }
+:root[data-theme-material=stellar] .model-effort-list button[aria-selected=true] {
+  background: var(--stellar-raised); box-shadow: inset 2px 0 var(--primary), inset 0 -1px var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .model-effort-list button[data-requested=true] {
+  box-shadow: inset 2px 0 var(--stellar-metal), inset 0 -1px var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .model-effort-list button > svg { color: var(--primary); }
+:root[data-theme-material=stellar] .model-effort-list button .model-option-spinner { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .model-provider-name { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .model-parameters-identity {
+  align-items: flex-start; flex-direction: column; gap: 4px;
+}
+:root[data-theme-material=stellar] .model-parameters-identity small { max-width: 100%; color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .model-parameters-modalities > span { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .model-parameters-modalities > .unavailable { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .model-parameters-values { border-color: var(--stellar-rule); gap: 8px; }
+:root[data-theme-material=stellar] .model-parameters-values dd { font-family: "Cascadia Code", Consolas, monospace; }
+:root[data-theme-material=stellar] .model-parameters-values > div + div { padding-left: 12px; border-left: 1px solid var(--stellar-rule); }
+:root[data-theme-material=stellar] .model-parameters-levels > div { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .model-parameters-footer { border-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .model-effort :is(button, [role=slider]):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+
+/* Portal menus keep their native anchors, dimensions and disclosure motion. */
+:root[data-theme-material=stellar] :is(.app-menu, .window-menu-popover, .sidebar-context) {
+  background: var(--stellar-control); border-color: var(--stellar-frame); border-radius: 3px;
+  box-shadow: 0 4px 8px #0005;
+}
+:root[data-theme-material=stellar] :is(.app-menu, .window-menu-popover, .sidebar-context) > button {
+  border-radius: 2px;
+}
+:root[data-theme-material=stellar] :is(.app-menu, .window-menu-popover, .sidebar-context) > button:hover:not(:disabled),
+:root[data-theme-material=stellar] :is(.app-menu, .window-menu-popover, .sidebar-context) > button:focus-visible {
+  background: var(--stellar-raised);
+}
+:root[data-theme-material=stellar] .app-menu > button[aria-checked=true] {
+  background: var(--stellar-record-paper); box-shadow: inset 2px 0 var(--primary);
+}
+:root[data-theme-material=stellar] :is(.app-menu, .window-menu-popover, .sidebar-context) > button:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+:root[data-theme-material=stellar] .sidebar-context .context-separator { background: var(--stellar-rule); }
+
+/* Stable columns keep discovery menus readable as selection and filtering change. */
+:root[data-theme-material=stellar] .composer-discovery {
+  background: var(--stellar-control); border-color: var(--stellar-frame);
+  border-bottom-color: var(--stellar-metal); border-radius: 2px 8px 2px 8px;
+  box-shadow: 0 4px 8px #0005;
+  animation: stellar-discovery-in 180ms cubic-bezier(.215, .61, .355, 1);
+}
+:root[data-theme-material=stellar] .composer-discovery-group {
+  position: relative; color: var(--stellar-metal); padding-left: 14px;
+}
+:root[data-theme-material=stellar] .composer-discovery-group::before {
+  content: ""; position: absolute; left: 5px; top: 12px; width: 2px; height: 9px;
+  background: var(--stellar-metal); pointer-events: none;
+}
+:root[data-theme-material=stellar] .composer-discovery button {
+  display: grid; grid-template-columns: 16px minmax(90px, .85fr) minmax(90px, .8fr) minmax(0, 1.4fr);
+  border-radius: 2px; gap: 9px;
+}
+:root[data-theme-material=stellar] .composer-discovery button > :is(svg, .context-command-icon) {
+  color: var(--stellar-metal); grid-column: 1;
+}
+:root[data-theme-material=stellar] .composer-discovery-title { grid-column: 2; max-width: 100%; min-width: 0; }
+:root[data-theme-material=stellar] .composer-discovery code {
+  grid-column: 3; color: var(--stellar-record-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+:root[data-theme-material=stellar] .composer-discovery-detail {
+  grid-column: 4; margin-left: 0; color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .composer-discovery button[aria-selected=true] {
+  background: var(--stellar-raised); box-shadow: inset 2px 0 var(--primary);
+}
+:root[data-theme-material=stellar] .composer-discovery button[aria-selected=true] > :is(svg, .context-command-icon) { color: var(--primary); }
+:root[data-theme-material=stellar] .composer-discovery button[data-kind=action] .composer-discovery-detail { grid-column: 3 / 5; }
+:root[data-theme-material=stellar] .composer-discovery[data-mode=references] button {
+  grid-template-columns: 16px minmax(0, 1fr) 72px;
+}
+:root[data-theme-material=stellar] .composer-discovery[data-mode=references] .composer-discovery-detail {
+  grid-column: 3; text-align: right; font-size: 11px;
+}
+:root[data-theme-material=stellar] .composer-discovery button:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+@keyframes stellar-discovery-in {
+  from { opacity: .35; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 600px) {
+  :root[data-theme-material=stellar] .composer-discovery button {
+    grid-template-columns: 16px minmax(0, 1fr) minmax(72px, .9fr); gap: 7px;
+  }
+  :root[data-theme-material=stellar] .composer-discovery button[data-kind=command] .composer-discovery-detail { display: none; }
+  :root[data-theme-material=stellar] .composer-discovery button[data-kind=action] .composer-discovery-detail { grid-column: 3; }
+  :root[data-theme-material=stellar] .model-effort-preview-capacity { flex-direction: column; align-items: flex-end; gap: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme-material=stellar] .composer-discovery { animation: none; }
+}

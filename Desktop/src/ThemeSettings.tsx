@@ -1,11 +1,12 @@
 import { Check, Monitor, Palette, RotateCcw } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { HexColorPicker } from 'react-colorful';
-import type { Preferences } from './contracts';
 import { applyTheme, contrastRatio, normalizeAccent, resolveTheme, themes, type ThemePreference } from './theme';
 import './theme-settings.css';
+import { ThemePackCard, type PackPreferences } from './ThemePackCard';
+import type { StellarScene, ThemePack } from './theme-packs';
 
-type ColorPreferences = Pick<Preferences, 'theme' | 'accentColor'>;
+type ColorPreferences = PackPreferences;
 const accents = [
   ['#b62e5d', '玫红', 'Rose'], ['#c46535', '橙', 'Orange'], ['#bd921e', '金', 'Gold'],
   ['#338366', '绿', 'Green'], ['#21849a', '青', 'Cyan'], ['#487bd1', '蓝', 'Blue'],
@@ -56,9 +57,12 @@ function AccentEditor({ preferences, systemDark, onChange, onClose, zh, active }
   </div>;
 }
 
-export function ThemeSettings({ preferences, systemDark, onChange, language }: {
+export function ThemeSettings({ preferences, systemDark, onChange, language, packs = [], loadScene, loadPoster }: {
   preferences: ColorPreferences; systemDark: boolean; language: 'zh' | 'en';
   onChange: (patch: Partial<ColorPreferences>) => void;
+  packs?: ThemePack[];
+  loadScene?: (id: string) => Promise<StellarScene>;
+  loadPoster?: (id: string) => Promise<string | undefined>;
 }) {
   const [editing, setEditing] = useState(false);
   const [editorRevision, setEditorRevision] = useState(0);
@@ -100,11 +104,16 @@ export function ThemeSettings({ preferences, systemDark, onChange, language }: {
               <span className="theme-mini-chat"><i/><i/><i/><span><b/></span></span>
             </span>
             <span className="theme-tile-label"><span><span id={`theme-title-${theme.id}`} className="theme-tile-title">{t(...theme.title)}</span>
-              <span className="theme-tile-caption">{t(...theme.name)} · {t(...theme.mood)}</span></span><Check size={14}/></span>
+              <span className="theme-tile-caption">{theme.group === 'plugin' ? t('动态主题', 'Animated theme') : `${t(...theme.name)} · ${t(...theme.mood)}`}</span></span><Check size={14}/></span>
           </button>;
         })}
       </div>
     </fieldset>)}
+    {packs.length > 0 && <section className="theme-packs" aria-label={t('主题包', 'Theme packs')}>
+      <h4>{t('主题包', 'Theme packs')}</h4>
+      {packs.map(pack => <ThemePackCard key={pack.id} pack={pack} preferences={preferences} zh={zh}
+        onSelect={() => changeTheme(pack.id)} onChange={onChange} loadScene={loadScene} loadPoster={loadPoster}/>)}
+    </section>}
     <div className="accent-heading"><h4>{t('强调色', 'Accent color')}</h4>
       <button type="button" className="icon-button" aria-label={t('恢复主题强调色', 'Reset theme accent')}
         data-tooltip={t('恢复主题强调色', 'Reset theme accent')} disabled={!chosen && !editing}

@@ -37,7 +37,9 @@ import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { normalizePanelPreferences, panelPreferencePatch } from '../src/panel-preferences';
 import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
-import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } from '../src/theme';
+import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch, registerPluginThemes } from '../src/theme';
+import { ThemePacks } from './theme-packs';
+import { themeBrightnessPatch } from '../src/theme-packs';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
@@ -227,6 +229,16 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const firstRun = new FirstRun(app.getPath('userData'));
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
+const themePacks = new ThemePacks(join(dataRoot, 'plugins'));
+async function refreshThemePacks() {
+  await themePacks.refresh();
+  registerPluginThemes(themePacks.packs);
+  if (typeof preferences.theme === 'string' && preferences.theme.startsWith('plugin:') && normalizeTheme(preferences.theme) === 'system') {
+    preferences.theme = 'original-dark';
+    preferences.accentColor = null;
+    await savePreferences();
+  }
+}
 const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
   fetchRepository: (url, options) => net.fetch(url instanceof URL ? url.href : url, { ...options, credentials: 'omit' }),
   environment: () => isolatedEnvironment(dataRoot), validateImage: bytes => {
@@ -607,7 +619,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
     workspaceIssue: unavailableWorkspace,
-    preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, providerSettingsPending,
+    preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
       : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
@@ -2075,11 +2087,19 @@ async function handle(method: string, args: any[]) {
       });
       return selected.canceled ? null : selected.filePaths[0] ?? null;
     }
+    case 'themeScene': {
+      // Installed, validated scenes are also available for read-only appearance previews.
+      return themePacks.scene(args[0]);
+    }
+    case 'themePoster': return themePacks.poster(args[0]);
     case 'capabilityMutate': {
       await guardIdle({ stopHost: false });
       if (args[0]?.action === 'plugin-remove')
         await assertPluginUnused(text(args[0].id, 128), runtimes.workers.values());
-      return capabilityService.mutate(args[0]);
+      const result = await capabilityService.mutate(args[0]);
+      await refreshThemePacks();
+      window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
+      return result;
     }
     case 'capabilityImportSkill': {
       await guardIdle({ stopHost: false });
@@ -2110,6 +2130,8 @@ async function handle(method: string, args: any[]) {
       const colorPatch = themePreferencePatch(patch);
       const favoriteModels = patch.modelFavorite === undefined ? undefined
         : changeFavoriteModel(preferences.favoriteModels, patch.modelFavorite);
+      const themeBrightness = themeBrightnessPatch(patch.themeBrightness);
+      if (patch.themeMotion !== undefined && typeof patch.themeMotion !== 'boolean') throw new Error('Invalid theme motion');
       if (patch.appearance !== undefined) {
         if (!patch.appearance || typeof patch.appearance !== 'object' || Array.isArray(patch.appearance)) throw new Error('Invalid appearance settings');
         preferences.appearance = normalizeAppearance({ ...preferences.appearance, ...patch.appearance });
@@ -2121,6 +2143,8 @@ async function handle(method: string, args: any[]) {
       }
       const sidebarPatch = validateSidebarPreferences(patch, cachedSessions(), preferences.workspaces, pathKey);
       Object.assign(preferences, colorPatch);
+      if (patch.themeMotion !== undefined) preferences.themeMotion = patch.themeMotion;
+      if (themeBrightness !== undefined) preferences.themeBrightness = themeBrightness;
       if (['zh', 'en'].includes(patch.language)) preferences.language = patch.language;
       if (patch.workspaceNames !== undefined) {
         if (!patch.workspaceNames || typeof patch.workspaceNames !== 'object' || Array.isArray(patch.workspaceNames)) throw new Error('Invalid workspace names');
@@ -2281,7 +2305,10 @@ else app.whenReady().then(async () => {
   preferences.favoriteModels = normalizeFavoriteModels(preferences.favoriteModels);
   delete (preferences as Preferences & { recentModels?: unknown }).recentModels;
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
+  await refreshThemePacks();
   preferences.theme = normalizeTheme(preferences.theme);
+  try { preferences.themeBrightness = themeBrightnessPatch(preferences.themeBrightness) ?? 90; }
+  catch { preferences.themeBrightness = 90; }
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;
   preferences.updateChannel = preferences.updateChannel === 'stable' ? 'stable' : 'preview';
   preferences.autoCheckUpdates = preferences.autoCheckUpdates !== false;
@@ -2311,7 +2338,8 @@ else app.whenReady().then(async () => {
   ipcMain.on('desktop:resolved-theme', event => {
     const colors = resolvedColors();
     event.returnValue = { theme: colors.scheme, palette: colors.id, tokens: colors.tokens,
-      preference: preferences.theme, accentColor: preferences.accentColor, systemDark: nativeTheme.shouldUseDarkColors };
+      preference: preferences.theme, accentColor: preferences.accentColor, systemDark: nativeTheme.shouldUseDarkColors,
+      themePacks: themePacks.packs, themeMotion: preferences.themeMotion, themeBrightness: preferences.themeBrightness };
   });
   // The authoritative system value, re-read by the renderer after it subscribes
   // to theme events: a change that lands before that subscription is dropped,

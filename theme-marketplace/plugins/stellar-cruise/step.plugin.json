@@ -1,0 +1,10 @@
+{
+  "id": "stellar-cruise",
+  "name": "星辰巡航",
+  "version": "0.1.0",
+  "icon": "icon.png",
+  "description": "双龙星海动态场景，搭配石墨阅读面板与铅笔细线。需支持 DFSC theme schema 1 和 stellar-v1 的客户端；普通插件市场支持不代表可启用此主题。",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

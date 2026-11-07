@@ -1,0 +1,6 @@
+{
+  "name": "dfsc-themes",
+  "plugins": [
+    { "name": "stellar-cruise", "source": "./plugins/stellar-cruise", "description": "星辰巡航 · DFSC 动态主题" }
+  ]
+}

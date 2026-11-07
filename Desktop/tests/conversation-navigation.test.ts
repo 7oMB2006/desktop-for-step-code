@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { conversationTurns, RULER_STEP, rulerOpacity, turnCursor, turnTime } from '../src/ConversationNavigation';
+import { conversationTurns, readingTurn, RULER_STEP, rulerOpacity, turnCursor, turnTime } from '../src/ConversationNavigation';
 import { thumbMetrics } from '../src/ConversationScrollThumb';
 import type { Message } from '../src/contracts';
 
@@ -64,4 +64,14 @@ test('ruler keeps turns evenly spaced while interpolating the reading position',
   assert.equal(rulerOpacity(2), 1);
   assert.ok(rulerOpacity(8) < rulerOpacity(4));
   assert.equal(rulerOpacity(14), 0);
+});
+
+test('directory reading position keeps the preceding real turn through gaps', () => {
+  const positions = [{ index: 0, top: 100 }, { index: 4, top: 400 }, { index: 9, top: 900 }];
+  assert.equal(readingTurn([], 0), null);
+  assert.equal(readingTurn(positions, 0), 0);
+  assert.equal(readingTurn(positions, 399), 0);
+  assert.equal(readingTurn(positions, 400), 4);
+  assert.equal(readingTurn(positions, 899), 4);
+  assert.equal(readingTurn(positions, 1200), 9);
 });

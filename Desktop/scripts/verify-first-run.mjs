@@ -87,9 +87,12 @@ const server = createServer(async (request, response) => {
     requests.push(body);
     assert.equal(body.model, 'first-run-alternative');
     response.writeHead(200, { 'content-type': 'text/event-stream' });
-    for (const [delta, finish_reason] of [[{ role: 'assistant', content: 'First-run loopback reply.' }, null], [{}, 'stop']])
-      response.write(`data: ${JSON.stringify({ id: 'onboarding', object: 'chat.completion.chunk', created: 1,
-        model: body.model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
+    response.write(`data: ${JSON.stringify({ id: 'onboarding', object: 'chat.completion.chunk', created: 1,
+      model: body.model, choices: [{ index: 0, delta: { role: 'assistant', content: 'First-run loopback reply.' }, finish_reason: null }] })}\n\n`);
+    // Visible streamed text is not yet a committed, restorable assistant reply.
+    await new Promise(resolve => setTimeout(resolve, 300));
+    response.write(`data: ${JSON.stringify({ id: 'onboarding', object: 'chat.completion.chunk', created: 1,
+      model: body.model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
     response.end('data: [DONE]\n\n');
   } catch { if (!response.headersSent) response.writeHead(500); response.end(); }
 });
@@ -284,7 +287,12 @@ try {
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await page.getByText('First-run loopback reply.', { exact: true }).waitFor({ timeout: 60000 });
   assert.equal(requests.length, 1, 'only the explicit first send invokes the configured model');
-  await page.waitForFunction(() => !document.querySelector('.stop-button'));
+  await page.waitForFunction(async () => {
+    const value = await window.desktop.snapshot();
+    return !value.state?.isStreaming && value.messages.some(message => message.role === 'assistant'
+      && message.stopReason === 'stop' && JSON.stringify(message.content).includes('First-run loopback reply.'));
+  });
+  assert.equal((await snapshot()).state.model.id, 'first-run-alternative');
   await close();
   await launch(customRoot);
   await page.locator('.new-session').waitFor({ timeout: 60000 });

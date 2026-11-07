@@ -82,7 +82,7 @@ try {
   assert.match(await page.locator('[data-surface="main"]').innerText(), /verifyPermissions/);
   assert.match(await page.locator('.window-session-title').innerText(), /新会话/);
 
-  await page.goto(`${url}?open=1&stress=reading`);
+  await page.goto(`${url}?open=1&stress=reading&stream=manual`);
   const main = page.locator('[data-surface="main"]');
   const miniViewport = mini.locator('.conversation');
   const tool = mini.locator('.process-tool');
@@ -159,6 +159,8 @@ try {
   await main.getByRole('button', { name: '停止此轮', exact: true }).waitFor();
   await entry.click();
   assert.ok(Math.abs(await scrollTop(miniViewport) - 200) <= 2, 'reopening during a response keeps reading position');
+  await mini.getByRole('button', { name: '停止此轮', exact: true }).waitFor();
+  await page.evaluate(() => window.dispatchEvent(new Event('mini-preview-release')));
   await mini.getByRole('button', { name: '发送', exact: true }).waitFor();
   assert.equal(await mini.locator('.message.user').count(), 2, 'closing and reopening never duplicates a request');
   assert.ok(Math.abs(await scrollTop(miniViewport) - 200) <= 2, 'settling does not pull the reader to the tail');
@@ -182,6 +184,7 @@ try {
     'an upward gesture pauses following even within the old near-bottom threshold');
   await bottom.click();
   await atBottom('mini');
+  await page.evaluate(() => window.dispatchEvent(new Event('mini-preview-release')));
   await mini.getByRole('button', { name: '发送', exact: true }).waitFor();
   assert.ok(await miniViewport.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 2),
     'readers at the tail continue following new content');

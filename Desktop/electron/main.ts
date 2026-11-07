@@ -378,7 +378,7 @@ const miniMethods = new Set([
   'command', 'projectInstructions', 'branchSession', 'retryMessage', 'preferences',
   'chooseAttachments', 'importFile', 'importClipboardImage', 'imageAction', 'copyText', 'linkPreview',
   'fileOpen', 'fileOpenOptions', 'browserOpenLink', 'artifactFiles', 'artifactAction', 'backgroundAgents',
-  'updateState', 'summary', 'workflows',
+  'updateState', 'summary', 'workflows', 'themeScene', 'themePoster',
 ]);
 function requireComposerOwner(input: unknown): ComposerOwner {
   const owner = composers.owner(parseComposerOwner(input));

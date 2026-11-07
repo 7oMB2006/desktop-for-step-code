@@ -292,11 +292,17 @@ function Preview() {
   const floating = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; x: number; y: number; left: number; top: number } | null>(null);
   const timers = useRef(new Map<string, ReturnType<typeof setInterval>>());
+  const releaseStream = useRef(false);
   const recordRef = useRef(records); recordRef.current = records;
   const update = useCallback((id: string, patch: ConversationPatch) =>
     setRecords(value => ({ ...value, [id]: { ...value[id], ...(typeof patch === 'function' ? patch(value[id]) : patch) } })), []);
   useEffect(() => applyTheme(dark ? 'original-dark' : 'original-light', dark), [dark]);
   useEffect(() => () => { for (const timer of timers.current.values()) clearInterval(timer); }, []);
+  useEffect(() => {
+    const release = () => { releaseStream.current = true; };
+    window.addEventListener('mini-preview-release', release);
+    return () => window.removeEventListener('mini-preview-release', release);
+  }, []);
   const focus = (surface: 'main' | 'mini') => requestAnimationFrame(() =>
     document.querySelector<HTMLElement>(`[data-surface="${surface}"] .composer-input`)?.focus());
   const handoffReading = (from: 'main' | 'mini', to: 'main' | 'mini', id: string) => {
@@ -323,6 +329,7 @@ function Preview() {
   const send = (id: string) => {
     const record = recordRef.current[id];
     if (record.busy || !record.draft.trim() && !record.quotes.length) return;
+    releaseStream.current = false;
     const answerId = crypto.randomUUID();
     const sent: Message = { role: 'user', entryId: crypto.randomUUID(), timestamp: Date.now(), content: quotePrompt(record.draft, record.quotes, language) };
     const messages: Message[] = [...record.messages, sent, { role: 'assistant', entryId: answerId, timestamp: Date.now(), content: [{ type: 'text', text: '' }] }];
@@ -331,7 +338,9 @@ function Preview() {
       'I will add these checks first.\n\n1. Verify configuration sources and permission boundaries.\n2. Keep failure, cancellation and retry states distinct.\n3. Record the evidence in the release checklist.\n\n```ts\nawait verifyPermissions();\nawait verifyCancellation();\n```\n\nThen review whether the current candidate is ready to release.');
     let end = 0;
     const timer = setInterval(() => {
-      end = Math.min(answer.length, end + 6);
+      const limit = params.get('stream') === 'manual' && !releaseStream.current ? answer.length - 1 : answer.length;
+      if (end === limit) return;
+      end = Math.min(limit, end + 6);
       setRecords(value => ({ ...value, [id]: { ...value[id], busy: end < answer.length,
         messages: value[id].messages.map(message => message.entryId === answerId
           ? { ...message, content: [{ type: 'text', text: answer.slice(0, end) }] } : message) } }));

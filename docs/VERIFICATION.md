@@ -24,6 +24,10 @@ and the existing terminal process remains running.
 Repeated file and individual subagent handoffs also explicitly reveal their
 selected content; they do not inherit the main-window click-to-collapse behavior.
 Native verification opens the same real Markdown file and subagent record twice.
+MiniChat can read validated installed theme scenes and posters, but cannot mutate
+plugins. Native acceptance copies the repository's Stellar pack into its isolated
+profile, verifies both loaders, a ready scene or decoded poster, and rejected
+uninstalled themes and plugin changes.
 
 Windows startup now uses the same native `normal` topmost level as MiniChat;
 source startup acceptance verifies the actual OS topmost state and disposal.
@@ -38,6 +42,18 @@ before reload, using editor keyboard transactions rather than DOM-only clearing;
 the animation sample includes a complete greeting cycle.
 Command dispatch retains mouse submission coverage, using Enter while overlay
 inspectors may cover the send button on constrained native displays.
+First-run acceptance waits for an idle runtime and committed assistant response
+before relaunch, rather than an obsolete stop-button selector; its local provider
+deliberately separates visible text from the final completion frame.
+MiniChat resolves its temporary profile and session workspace before checking
+fixture-only file writes, preserving containment across platform path aliases.
+Fixture shutdown releases inherited launcher pipes only after the browser context
+has delivered its close event, all pages have closed and the launcher exited
+successfully. A merely closing context is insufficient; controller errors and
+shutdown timeouts remain failures.
+The browser-only MiniChat reading scenario holds its simulated completion until
+the verifier releases it, so close/reopen-during-streaming assertions do not
+depend on the machine finishing UI actions inside a short response timer.
 
 Local typecheck, production build, browser MiniChat, native MiniChat,
 new-session and appearance checks pass. All 28 draft/composer/greeting tests

@@ -2,14 +2,21 @@
 export function releaseExitedFixturePipes(app) {
   const child = app.process();
   const pages = app.windows();
+  const context = app.context();
+  let contextClosed = false;
   const release = () => {
-    if (child.exitCode !== 0 || app.windows().some(page => !page.isClosed())) return;
+    if (!contextClosed || child.exitCode !== 0 || app.windows().some(page => !page.isClosed())) return;
     for (const pipe of child.stdio ?? [child.stdout, child.stderr]) pipe?.destroy();
   };
+  // The launcher close disposes Playwright's context channel. Preserve its close
+  // event first; isClosed() also returns true while a context is merely closing.
+  const onContextClose = () => { contextClosed = true; release(); };
+  context.on('close', onContextClose);
   child.on('exit', release);
   for (const page of pages) page.on('close', release);
   release();
   return () => {
+    context.off('close', onContextClose);
     child.off('exit', release);
     for (const page of pages) page.off('close', release);
   };

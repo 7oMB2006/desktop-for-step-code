@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 
-const profile = await mkdtemp(join(tmpdir(), 'desktop-mini-chat-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-mini-chat-')));
 const root = join(profile, 'step-runtime'), workspace = join(profile, 'project');
 const output = resolve('test-results/mini-chat-native');
 await mkdir(join(root, 'sessions'), { recursive: true }); await mkdir(workspace); await mkdir(output, { recursive: true });
+await cp(resolve('../theme-marketplace/plugins/stellar-cruise'), join(root, 'plugins/stellar-cruise'), { recursive: true });
 const timestamp = new Date().toISOString();
 const subagentTask = { agent: 'review', task: 'Selected Mini subagent', status: 'completed', messages: [] };
 for (const id of ['one', 'two', 'three']) {
@@ -367,7 +368,7 @@ try {
   const afterDraft = await Promise.all([main.evaluate(() => window.desktop.snapshot()), mini.evaluate(() => window.desktop.snapshot())]);
   assert.equal(afterDraft[0].runtimeId, afterDraft[1].runtimeId);
   assert.equal(afterDraft[0].draftId, undefined);
-  const fileWorkspace = afterDraft[1].runtimes.find(runtime => runtime.runtimeId === afterDraft[1].runtimeId).cwd;
+  const fileWorkspace = await realpath(afterDraft[1].runtimes.find(runtime => runtime.runtimeId === afterDraft[1].runtimeId).cwd);
   const fixtureRelative = relative(profile, fileWorkspace);
   assert.ok(fixtureRelative && !fixtureRelative.startsWith('..') && !isAbsolute(fixtureRelative), 'Write only inside this isolated fixture');
   await writeFile(join(fileWorkspace, 'handoff.md'), '# MiniChat file handoff\n\nA real read-only file preview.');
@@ -453,9 +454,18 @@ try {
     return true;
   }), true, 'The complete composer focus outline stays inside clipping ancestors');
   await mini.screenshot({ path: join(output, 'native-light-narrow.png') });
+  await main.evaluate(() => window.desktop.preferences({ theme: 'plugin:stellar-cruise', themeMotion: false }));
+  await mini.waitForFunction(() => document.documentElement.dataset.palette === 'plugin:stellar-cruise');
+  assert.equal((await mini.evaluate(() => window.desktop.themeScene('plugin:stellar-cruise'))).dragons.groups.length, 2);
+  assert.match(await mini.evaluate(() => window.desktop.themePoster('plugin:stellar-cruise')), /^data:image\/png;base64,/);
+  await mini.waitForFunction(() => document.querySelector('.stellar-workspace-scene canvas')?.dataset.ready === 'true'
+    || document.querySelector('.stellar-workspace-scene .theme-stellar-poster')?.naturalWidth > 0);
+  await assert.rejects(mini.evaluate(() => window.desktop.themeScene('../../uninstalled')), /Theme unavailable/);
+  await assert.rejects(mini.evaluate(() => window.desktop.capabilityMutate({ action: 'plugin-remove', id: 'stellar-cruise' })), /main window/);
+  await mini.screenshot({ path: join(output, 'native-stellar-narrow.png') });
   assert.deepEqual(errors, []);
   await writeFile(join(output, 'result.json'), JSON.stringify({ profile, requests: requests.length, errors, verified: true }, null, 2));
-  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, repeated subagent/file handoff, web-link handoff/reopen with preserved draft and native browser, fullscreen bottom-terminal collapse with live PTY on workflow/todos/web handoff, deletion guard, draft promotion, pin, narrow light/en/focus.');
+  console.log('PASS native MiniChat: coalesced runtime, independent navigation, shared input/quotes/options, abandoned-send recovery, one send/sound, streaming/stop, real approval, hide/reload/return/restart, selected-workflow handoff/reopen versus bare catalog, repeated subagent/file handoff, web-link handoff/reopen with preserved draft and native browser, fullscreen bottom-terminal collapse with live PTY on workflow/todos/web handoff, deletion guard, draft promotion, pin, narrow light/en/focus, read-only Stellar scene/poster with decoded background and blocked plugin mutation.');
 } catch (error) {
   console.error('Native windows at failure', await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({
     title: window.getTitle(), url: window.webContents.getURL(),

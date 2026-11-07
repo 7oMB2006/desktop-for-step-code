@@ -192,7 +192,15 @@ try {
     await page.screenshot({ path: `test-results/background-replies/${theme}-narrow.png` });
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await editor.fill('');
+  // Playwright fill('') selects the draft but its delete step can lag the
+  // ProseMirror commit on slow packaged launches (macOS packaged acceptance
+  // captured the draft still selected with an enabled send button). Clear
+  // through the editor's real input path, then assert the same invariant once
+  // the composer state has settled: an empty draft must never be sendable.
+  await editor.click();
+  await editor.press('ControlOrMeta+a');
+  await editor.press('Delete');
+  await waitFor(async () => await editor.evaluate(element => element.value) === '');
   assert.equal(await send.isDisabled(), true);
   releases.get('REPLY-CONTINUE')(); releases.get('REPLY-CHILD-B')(); releases.get('REPLY-PARENT-HOLD')();
   await waitFor(async () => (await query()).lanes.every(lane => lane.status === 'completed' && !lane.settling));

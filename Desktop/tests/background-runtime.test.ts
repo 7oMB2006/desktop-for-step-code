@@ -1,18 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { SessionRuntimes } from '../electron/session-runtimes';
+import { SessionRuntimes, type RuntimeStartupDiagnostic } from '../electron/session-runtimes';
 import { isolatedEnvironment } from '../electron/runtime';
 import { quitReasons } from '../electron/quit-review';
 import type { RuntimeEvent } from '../src/contracts';
 import { BackgroundAgents } from '../electron/background-agents';
 import { backgroundSubagentStates, projectBackgroundSubagentStates } from '../src/conversation-presentation';
 
-for (const outcome of ['complete', 'suspend', 'control', 'reply', 'retry'] as const) {
-test(`pinned RPC background lane survives parent end and navigation: ${outcome}`, { timeout: outcome === 'retry' ? 90000 : 60000 }, async () => {
+for (const outcome of ['complete', 'suspend', 'control', 'reply', 'retry', 'plan'] as const) {
+test(`pinned RPC background lane survives parent end and navigation: ${outcome}`, { timeout: outcome === 'retry' ? 90000 : 60000 }, async t => {
   const profile = await mkdtemp(join(tmpdir(), 'desktop-background-runtime-'));
   const workspace = join(profile, 'workspace');
   await mkdir(workspace);
@@ -37,7 +38,13 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       for await (const chunk of req) raw += chunk;
       const body = JSON.parse(raw);
       modelRequests++;
-      const task = text(body.messages.findLast((message: any) => message.role === 'user'));
+      let task = text(body.messages.findLast((message: any) => message.role === 'user'));
+      if (outcome === 'plan') {
+        // Native mode announcements can follow the fixture's own user input.
+        const input = body.messages.findLast((message: any) => message.role === 'user'
+          && ['BACKGROUND-PLAN', 'BACKGROUND-PLAN-QUESTION'].includes(text(message)));
+        if (input) task = text(input);
+      }
       const toolReturned = body.messages.some((message: any) => message.role === 'tool');
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       const send = (delta: unknown, finish_reason: string | null = null) => res.write(`data: ${JSON.stringify({
@@ -74,6 +81,24 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
         await parentGate;
         if (res.destroyed) return;
         send({ content: 'PARENT-STILL-USABLE' }, 'stop');
+      } else if (task === 'BACKGROUND-PLAN') {
+        const context = [...body.messages.map(text).join('\n')
+          .matchAll(/<collaboration_mode>[\s\S]*?<\/collaboration_mode>/g)].at(-1)?.[0] ?? '';
+        assert.match(context, /# Plan Mode/);
+        assert.ok(!body.tools.some((tool: any) => tool.function?.name === 'enter_plan_mode'));
+        const path = /Write the plan to (.*) with write_file/.exec(context)?.[1];
+        assert.ok(path);
+        const written = body.messages.some((message: any) => message.tool_call_id === 'background-plan-write');
+        assert.ok(!body.messages.some((message: any) => message.tool_call_id === 'background-plan-review'),
+          'Dismissed review cannot cause another model turn');
+        send({ tool_calls: [{ index: 0, id: written ? 'background-plan-review' : 'background-plan-write',
+          type: 'function', function: { name: written ? 'exit_plan_mode' : 'write_file',
+            arguments: JSON.stringify(written ? {} : { path, content: '# Proposal\nWait for the user decision.' }) } }] }, 'tool_calls');
+      } else if (task === 'BACKGROUND-PLAN-QUESTION') {
+        const context = [...body.messages.map(text).join('\n')
+          .matchAll(/<collaboration_mode>[\s\S]*?<\/collaboration_mode>/g)].at(-1)?.[0] ?? '';
+        assert.match(context, /# Plan Mode/, 'An ordinary question after reopening is not approval');
+        send({ content: 'STILL-PLANNING' }, 'stop');
       } else if (task === 'BACKGROUND-PARENT' && !toolReturned) {
         assert.ok(body.tools.some((tool: any) => tool.function?.name === 'subagent'));
         send({ tool_calls: [{ index: 0, id: 'background-call', type: 'function',
@@ -116,19 +141,34 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
   } } }));
   const events: RuntimeEvent[] = [];
   const settlements: string[] = [];
+  const children = new Set<ChildProcessWithoutNullStreams>();
+  let startup: RuntimeStartupDiagnostic | undefined, observedAt = 0;
   const pool = new SessionRuntimes(event => {
     events.push(event);
     if (event.type === 'desktop_background_changed') for (const worker of pool.workers.values())
       settlements.push(...worker.backgroundLanes?.filter(lane => lane.status === 'settling').map(lane => lane.id) ?? []);
-  }, undefined, { idleLimit: () => 0 });
+  }, undefined, {
+    idleLimit: () => 0,
+    launch: () => ({ env: {}, args: outcome === 'plan' ? ['--desktop-plan-review', '--plan-review-surface'] : [] }),
+    startup: diagnostic => {
+      startup = diagnostic;
+      observedAt = performance.now();
+      const rpc = pool.workers.get(diagnostic.runtimeId)?.rpc;
+      const child = (rpc as { child?: ChildProcessWithoutNullStreams } | undefined)?.child;
+      if (child) children.add(child);
+      console.error(`background-runtime[${outcome}] startup=${JSON.stringify(diagnostic)}`);
+    },
+  });
   const node = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
   const entry = resolve('runtime/step/dist/bundle/step.js');
   const env = isolatedEnvironment(profile);
   const waitFor = async (predicate: () => boolean, deadlineMs = 25000) => {
     const until = Date.now() + deadlineMs;
     while (!predicate()) {
+      t.signal.throwIfAborted();
       assert.deepEqual(failures, []);
       for (const worker of pool.workers.values()) for (const request of worker.pendingUI.values()) {
+        if (outcome === 'plan' && request.method === 'select' && request.title?.startsWith('Desktop Plan review\n')) continue;
         assert.equal(request.method, 'confirm');
         assert.match(request.title ?? '', /subagent/i);
         pool.respondToRequest(worker, { id: request.id, confirmed: true });
@@ -137,7 +177,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       await new Promise(resolve => setTimeout(resolve, 20));
     }
   };
-  const PHASES = ['start', 'open', 'parent dispatched', 'child held', 'child released',
+  const PHASES = ['start', 'open', 'parent dispatched', 'child held', 'child released', 'review pending', 'review dismissed', 'restored',
     'ownership cleared', 'ack', 'idle', 'cleanup-server', 'runtime'] as const;
   let phase: typeof PHASES[number] = 'start';
   // Bounded, redacted progress output: only these allow-listed phase names ever
@@ -149,10 +189,23 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
   };
   const diagnostics = () => [
     `phase=${phase}`,
+    `startup=${startup ? JSON.stringify({ ...startup,
+      elapsedMs: Math.round(startup.elapsedMs + (startup.status === 'starting' ? performance.now() - observedAt : 0)),
+      phaseMs: Math.round(startup.phaseMs + (startup.status === 'starting' ? performance.now() - observedAt : 0)),
+    }) : 'none'}`,
     `workers=${[...pool.workers.values()].map(worker => `${worker.id}:${worker.status}:busy=${pool.isBusy(worker)}:bg=${worker.backgroundActive === true}:lanes=${worker.backgroundLanes?.length ?? '-'}`).join(',') || 'none'}`,
     `lastEvents=${events.map(event => event.type).slice(-15).join('>')}`,
     `child=${childRequested} other=${otherRequested} parent=${parentRequested} slots=${slots.size} failures=${failures.length}`,
   ].join(' | ');
+  let aborting: Promise<void> | undefined;
+  const abort = () => {
+    console.error(`background-runtime[${outcome}] aborted: ${diagnostics()}`);
+    // Node's test deadline can beat the RPC deadline. Capture evidence before
+    // disposal and interrupt pending requests instead of leaving a live child.
+    aborting = pool.stopAll();
+    void aborting.catch(() => {});
+  };
+  t.signal.addEventListener('abort', abort, { once: true });
   try {
     bump('open');
     const host = await pool.open(node, entry, workspace, env);
@@ -164,6 +217,46 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
     assert.equal(quitReasons(pool, false).runningTasks, 1);
     await assert.rejects(pool.assertAllIdle(), /background/i);
     assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+    if (outcome === 'plan') {
+      await host.rpc.request('prompt', { message: '/plan' });
+      await host.rpc.request('prompt', { message: 'BACKGROUND-PLAN' });
+      await waitFor(() => [...host.pendingUI.values()].some(request => request.title?.startsWith('Desktop Plan review\n')));
+      bump('review pending');
+      const review = [...host.pendingUI.values()].find(request => request.title?.startsWith('Desktop Plan review\n'))!;
+      const requests = modelRequests;
+      bump('child released');
+      releaseChild();
+      await waitFor(() => host.backgroundLanes?.some(lane => lane.status === 'settling') || !host.backgroundActive);
+      const snapshot = await pool.readBackground(host);
+      assert.equal(snapshot.lanes[0].status, 'completed');
+      assert.equal(modelRequests, requests, 'Background completion cannot start a model turn during review');
+      assert.equal(host.pendingUI.has(review.id), true);
+      assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+      pool.respondToRequest(host, { id: review.id, cancelled: true });
+      await waitFor(() => !host.runActive && !host.pendingUI.size);
+      bump('review dismissed');
+      const dismissed = [...host.messages].reverse().find(message => message.toolName === 'exit_plan_mode');
+      assert.equal(dismissed?.details?.outcome, 'dismissed');
+      assert.equal(dismissed?.details?.planModeExited, false);
+      assert.equal(modelRequests, requests, 'Cancellation cannot release the queued background wake-up');
+      const state = await host.rpc.request('get_state');
+      assert.ok(state.sessionFile);
+      await pool.stopAll();
+      const restored = await pool.open(node, entry, workspace, env, state.sessionFile);
+      bump('restored');
+      assert.equal(restored.state?.sessionId, state.sessionId);
+      assert.equal(restored.launch?.plan, true);
+      assert.equal(restored.pendingUI.size, 0, 'Restart does not recreate an approval or grant');
+      assert.equal(modelRequests, requests, 'Restoring the pending proposal does not auto-run it');
+      assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+      await restored.rpc.request('prompt', { message: 'BACKGROUND-PLAN-QUESTION' });
+      await waitFor(() => !restored.runActive && text(restored.messages.at(-1)) === 'STILL-PLANNING');
+      await pool.read(restored);
+      assert.equal(restored.launch?.plan, true);
+      assert.deepEqual(failures, []);
+      bump('idle');
+      return;
+    }
     if (outcome === 'retry') {
       const sessionId = host.state!.sessionId!;
       const controls = new BackgroundAgents(pool.workers, undefined, true, true);
@@ -329,6 +422,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
     console.error(`background-runtime[${outcome}] failed: ${diagnostics()}`);
     throw error;
   } finally {
+    t.signal.removeEventListener('abort', abort);
     bump('cleanup-server');
     releaseChild();
     releaseOther(); releaseParent(); releaseReply();
@@ -336,7 +430,10 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
     server.closeAllConnections();
     bump('runtime');
     try {
+      await aborting;
       await pool.stopAll();
+      for (const child of children)
+        assert.ok(child.exitCode !== null || child.signalCode !== null, 'Native host must exit before fixture cleanup completes');
     } finally {
       await new Promise<void>(resolve => server.close(() => resolve()));
     }

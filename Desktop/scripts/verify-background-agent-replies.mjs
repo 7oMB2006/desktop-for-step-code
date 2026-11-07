@@ -88,7 +88,7 @@ try {
     }
   };
   await waitFor(() => releases.has('REPLY-CHILD-A') && releases.has('REPLY-CHILD-B'));
-  await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await waitFor(async () => !(await page.evaluate(() => window.desktop.snapshot())).state.isStreaming);
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
   const query = () => page.evaluate(({ runtimeId, sessionId }) =>
     window.desktop.backgroundAgents(runtimeId, sessionId), { runtimeId: owner.runtimeId, sessionId: snapshot.state.sessionId });
@@ -192,16 +192,14 @@ try {
     await page.screenshot({ path: `test-results/background-replies/${theme}-narrow.png` });
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  // Playwright fill('') selects the draft but its delete step can lag the
-  // ProseMirror commit on slow packaged launches (macOS packaged acceptance
-  // captured the draft still selected with an enabled send button). Clear
-  // through the editor's real input path, then assert the same invariant once
-  // the composer state has settled: an empty draft must never be sendable.
-  await editor.click();
+  assert.equal(await send.isDisabled(), false, 'A nonempty draft remains sendable');
+  const beforeClear = await app.evaluate(() => globalThis.backgroundReplyFixture.requests.length);
   await editor.press('ControlOrMeta+a');
-  await editor.press('Delete');
-  await waitFor(async () => await editor.evaluate(element => element.value) === '');
+  await editor.press('Backspace');
+  await waitFor(() => editor.evaluate(element => element.value === '' && element.dataset.empty === 'true'));
   assert.equal(await send.isDisabled(), true);
+  assert.equal(await app.evaluate(() => globalThis.backgroundReplyFixture.requests.length), beforeClear,
+    'Clearing the draft never submits a follow-up');
   releases.get('REPLY-CONTINUE')(); releases.get('REPLY-CHILD-B')(); releases.get('REPLY-PARENT-HOLD')();
   await waitFor(async () => (await query()).lanes.every(lane => lane.status === 'completed' && !lane.settling));
   assert.equal(seen.filter(task => task === 'REPLY-CONTINUE').length, 1);

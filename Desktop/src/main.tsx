@@ -89,6 +89,7 @@ import { NewSession } from './NewSession';
 import { FirstRun } from './FirstRun';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
 import { AppearanceSettings } from './AppearanceSettings';
+import { CompactionSettings } from './CompactionSettings';
 import { InterfaceSettings } from './InterfaceSettings';
 import { normalizeInterfaceSettings } from './interface-presets';
 import { applyAppearance } from './appearance';
@@ -768,14 +769,14 @@ function App() {
         }) }));
         return;
       }
-      if (!event.desktopReviewPending && !event.desktopReviewContinuation && ['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_end', 'message_update', 'message_end', 'agent_end'].includes(event.type)
+      if (!event.desktopReviewPending && !event.desktopReviewContinuation && ['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_end', 'message_update', 'message_end', 'agent_end', 'agent_settled'].includes(event.type)
         || event.type === 'desktop_completion_review' && !reviewActive(event.review)) {
         const receivedAt = performance.now();
         const id = event.sessionId ?? view.current.sessionId;
         if (id) metricsBySession.current.set(id, updateRunMetrics(metricsBySession.current.get(id) ?? null,
           event.type === 'desktop_completion_review' ? { ...event, type: 'agent_end' } : event, receivedAt));
         if (!switching.current && (!event.runtimeId || event.runtimeId === viewId.current)) {
-          if (event.type === 'agent_start') setClock(receivedAt);
+          if (event.type === 'agent_start' && !event.desktopRecoveryContinuation) setClock(receivedAt);
           setRunMetrics(id ? metricsBySession.current.get(id) ?? null : null);
         }
       }
@@ -810,7 +811,7 @@ function App() {
       if (['live_context', 'auto_clm_end', 'agent_end', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
-      if (event.type === 'agent_end' && !event.desktopReviewPending
+      if ((event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled) && !event.desktopReviewPending
         || event.type === 'desktop_completion_review' && !reviewActive(event.review)) {
         setBusy(false); stoppingRef.current = false; setStopping(false); void run(refresh);
       }
@@ -825,7 +826,7 @@ function App() {
       if (event.type === 'desktop_error') setError(event.message);
       if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
       if (['message_start', 'message_end'].includes(event.type) && event.message && isUserMessage(event.message)) setArrivingUser(event.message);
-      if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'desktop_exit'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
+      if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'agent_settled', 'desktop_exit'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
       if (event.type === 'tool_execution_update' || event.type === 'tool_execution_end') {
         setData(d => ({ ...d, messages: applyToolResult(d.messages, event) }));
       }
@@ -2162,7 +2163,7 @@ function App() {
       </>}
       {tab === 'import' && bridge ? <SessionImportSettings bridge={bridge} language={data.preferences.language}
         onOpen={async id => { const session = (await bridge.sessions()).find(item => item.id === id); if (!session) throw new Error('Imported session is unavailable'); finishSettingsClose(); await navigateSession(session); }}/>
-      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <><h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
+      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <>{bridge && <CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/>}<h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
         onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
         onTest={(provider, modelId, key) => bridge!.testProvider(provider, modelId, key)}
         onCancelTest={() => bridge!.cancelProviderTest()}

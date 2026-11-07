@@ -1,0 +1,66 @@
+.compaction-settings { margin-top: 30px; max-width: 640px; padding: 4px; }
+.compaction-settings .appearance-heading { margin-bottom: 14px; }
+.settings-content .compaction-settings .appearance-heading h3 { margin: 0; }
+.compaction-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.compaction-fields:disabled :is(input, select) { opacity: .6; cursor: not-allowed; }
+.compaction-ratio-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.compaction-ratio-heading > label { margin: 0; font-weight: 500; }
+.compaction-description { margin: 7px 0 0; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.compaction-percent { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.compaction-percent input { width: 68px; padding: 7px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+.compaction-percent > span { color: var(--muted); font-size: 12px; }
+.compaction-slider { margin-top: 14px; padding: 4px; }
+.compaction-slider input { appearance: none; display: block; width: 100%; height: 24px; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; scroll-margin: 8px; }
+.compaction-slider input::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--primary) var(--compaction-fill), var(--border) var(--compaction-fill)); }
+.compaction-slider input::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; margin-top: -5px; border: 0; border-radius: 50%; background: var(--primary); }
+.compaction-slider input::-moz-range-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--primary) var(--compaction-fill), var(--border) var(--compaction-fill)); }
+.compaction-slider input::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--primary); }
+.compaction-scale { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.compaction-advanced { margin-top: 16px; border-top: 1px solid var(--border); }
+.compaction-advanced > summary { display: flex; align-items: center; gap: 8px; width: fit-content; padding: 14px 0; font-size: 12px; color: var(--muted); cursor: pointer; list-style: none; border-radius: 3px; scroll-margin: 8px; }
+.compaction-advanced > summary::-webkit-details-marker { display: none; }
+.compaction-advanced > summary:hover { color: var(--ink); }
+.compaction-advanced > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.compaction-advanced > summary > svg { transition: transform 240ms cubic-bezier(.215,.61,.355,1); }
+.compaction-advanced > summary[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.compaction-advanced-content { padding: 4px; }
+.compaction-limit { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; min-height: 36px; }
+.compaction-settings .checkbox { margin: 0; gap: 9px; line-height: 1.6; cursor: pointer; }
+.compaction-settings input[type="checkbox"] { accent-color: var(--primary); flex-shrink: 0; margin: 0; padding: 0; }
+.compaction-token-field { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
+.compaction-token-field input { width: 116px; max-width: 100%; padding: 7px 8px; font-variant-numeric: tabular-nums; }
+.compaction-token-field > span { color: var(--muted); font-size: 11px; }
+.compaction-model-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 14px; margin: 24px 0 8px; }
+.compaction-model-heading h4 { margin: 0; font-size: 13px; font-weight: 600; }
+.compaction-model-heading > span { font-size: 11px; color: var(--muted); }
+.compaction-model { padding: 14px 0; border-top: 1px solid var(--border); }
+.compaction-model:last-child { padding-bottom: 4px; }
+.compaction-model-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.compaction-model-identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.compaction-model-identity > span:last-child { font-size: 11px; color: var(--muted); }
+.compaction-model-name { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
+.compaction-model-row .appearance-select { width: 142px; flex-shrink: 0; }
+.compaction-model-row select { font-size: 12px; padding-top: 7px; padding-bottom: 7px; }
+.compaction-model-inherited { margin: 7px 0 0; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.compaction-model-ratio { display: flex; align-items: center; gap: 12px; margin: 14px 0 0; }
+.compaction-advanced-content > .appearance-select { margin: 14px 0 4px; width: min(260px, 100%); }
+.compaction-application { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 5px 0 0; }
+.compaction-save-status { min-height: 24px; padding-top: 7px; font-size: 11px; line-height: 1.7; color: var(--muted); }
+.compaction-save-status[role="alert"] { color: var(--danger); }
+.compaction-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 12px 0; font-size: 12px; line-height: 1.7; }
+.compaction-feedback button, .compaction-retry-actions button { font-size: 12px; }
+.compaction-retry-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 4px 4px; }
+.compaction-settings :is(input, select, button) { scroll-margin: 8px; }
+.compaction-settings :is(label, p, h3, h4, span) { overflow-wrap: anywhere; }
+.settings-content:has(.compaction-settings) { scroll-padding: 8px; }
+.compaction-loading { display: grid; gap: 14px; padding: 10px 0; }
+.compaction-loading > div { height: 20px; border-radius: 4px; background: var(--surface); }
+.compaction-loading > div:last-child { width: 70%; height: 10px; }
+@media (max-width: 520px) {
+  .compaction-ratio-heading { align-items: flex-start; gap: 10px; }
+  .compaction-ratio-heading > label { padding-top: 7px; }
+  .compaction-model-row { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .compaction-model-row .appearance-select { width: 100%; }
+  .compaction-model-heading { margin-top: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .compaction-advanced > summary > svg { transition: none; } }

@@ -56,7 +56,7 @@ function SubagentContent({ task, onBackground, ...props }: { task: SubagentDispl
   const description = redactSensitiveText(task.task);
   const model = task.model ? redactSensitiveText(task.model) : undefined;
   const settled = state === 'done' || state === 'failed' || state === 'stopped';
-  return <div className="subagent-body">
+  return <div className="subagent-body" data-agent-state={task.status}>
     <div className="subagent-head">
       <span className="lane-type">{agent || (zh ? '子代理' : 'Subagent')}</span>
       <span className="subagent-status" data-lane-state={task.status} role="img" aria-label={status}>

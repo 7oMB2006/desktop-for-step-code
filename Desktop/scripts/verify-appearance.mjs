@@ -28,7 +28,7 @@ async function launch() {
     const button = document.querySelector('.new-chat');
     return button && !button.disabled;
   });
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('region', { name: '文字与排版' }).waitFor();
   return page;
@@ -352,7 +352,7 @@ try {
     const button = document.querySelector('.new-chat');
     return button && !button.disabled;
   });
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 880));
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');

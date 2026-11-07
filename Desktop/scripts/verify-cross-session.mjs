@@ -77,7 +77,7 @@ try {
   const input = page.locator('.composer > .composer-input');
   const send = async text => { await input.fill(text); await input.press('Enter'); };
   const changeLanguage = async (from, to) => {
-    await page.locator('.sidebar-bottom > button').click();
+    await page.locator('.sidebar-settings').click();
     const settings = page.getByRole('dialog', { name: from === 'zh' ? '设置' : 'Settings', exact: true });
     await settings.getByRole('button', { name: from === 'zh' ? '通用' : 'General', exact: true }).click();
     await settings.getByLabel(/语言|Language/).selectOption(to);

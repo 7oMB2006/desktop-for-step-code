@@ -224,7 +224,7 @@ try {
   await git('branch', '-D', 'review-base');
   assert.equal(await git('status', '--porcelain'), statusBefore);
   assert.deepEqual(await readFile(join(repo, '.git', 'index')), index);
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();

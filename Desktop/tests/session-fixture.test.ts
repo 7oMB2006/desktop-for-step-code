@@ -2,7 +2,55 @@ import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 
-const { waitForSessionFixtureSnapshot } = await import(new URL('../scripts/session-fixture.mjs', import.meta.url).href);
+const { waitForNewSessionButton, waitForSessionFixtureSnapshot } = await import(new URL('../scripts/session-fixture.mjs', import.meta.url).href);
+
+test('new-session readiness polls through missing and disabled buttons after reload', async () => {
+  const buttons = [null, { disabled: true }, { disabled: false }];
+  const results: boolean[] = [];
+  const page = {
+    waitForFunction: async (callback: (theme?: string) => boolean, theme?: string) => {
+      for (const button of buttons) {
+        results.push(runInNewContext(`(${callback.toString()})(theme)`, {
+          theme,
+          document: {
+            querySelector: (selector: string) => {
+              assert.equal(selector, '.new-chat');
+              return button;
+            },
+          },
+        }));
+      }
+    },
+  };
+  await waitForNewSessionButton(page);
+  assert.deepEqual(results, [false, false, true]);
+});
+
+test('new-session readiness requires both an enabled button and the requested theme', async () => {
+  const states = [
+    { button: null, theme: 'light' },
+    { button: { disabled: true }, theme: 'light' },
+    { button: { disabled: false }, theme: 'dark' },
+    { button: { disabled: false }, theme: 'light' },
+  ];
+  const results: boolean[] = [];
+  const page = {
+    waitForFunction: async (callback: (theme?: string) => boolean, theme?: string) => {
+      assert.equal(theme, 'light');
+      for (const state of states) {
+        results.push(runInNewContext(`(${callback.toString()})(theme)`, {
+          theme,
+          document: {
+            querySelector: () => state.button,
+            documentElement: { dataset: { theme: state.theme } },
+          },
+        }));
+      }
+    },
+  };
+  await waitForNewSessionButton(page, 'light');
+  assert.deepEqual(results, [false, false, false, true]);
+});
 
 test('fixture polling awaits each IPC snapshot until the response has settled', async () => {
   const pending = { messages: [], state: { isStreaming: false } };

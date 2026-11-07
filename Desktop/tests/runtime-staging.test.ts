@@ -186,7 +186,7 @@ test('every documented pin matches the staging guard', async () => {
 
 test('runtime packaging and standalone worker helpers use the current integration manifest', async () => {
   for (const helper of [
-    'stage-runtime.mjs', 'verify-usage-worker.mjs', 'verify-macos-package.mjs',
+    'stage-runtime.mjs', 'build-remote-adapter.mjs', 'verify-usage-worker.mjs', 'verify-macos-package.mjs',
     'build-plugin-center-verification.mjs', 'package-plugin-center-preview.mjs',
     'verify-plugin-center-package.mjs',
   ]) {

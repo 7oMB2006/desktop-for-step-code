@@ -4,7 +4,7 @@ import { statusBuild } from './session-status';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, realpath, stat } from 'node:fs/promises';
 import { freemem, homedir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -41,12 +41,15 @@ import { PendingMessages, promptNeedsQueue } from './pending-messages';
 import { normalizeAppearance } from '../src/appearance';
 import { normalizePanelPreferences, panelPreferencePatch } from '../src/panel-preferences';
 import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
-import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch } from '../src/theme';
+import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch, registerPluginThemes } from '../src/theme';
+import { ThemePacks } from './theme-packs';
+import { themeBrightnessPatch } from '../src/theme-packs';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
 import { changeFavoriteModel, normalizeFavoriteModels } from '../src/model-favorites';
 import { AuthVault } from './auth-vault';
+import { RemoteStore } from './remote-store';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
 import { CapabilityService, assertPluginUnused } from './capability-service';
@@ -63,6 +66,8 @@ import { sessionSummary } from './session-summary';
 import { submittedInputContent } from '../src/template-input';
 import { clmSnapshot } from './clm';
 import { BackgroundAgents } from './background-agents';
+import { RemoteManager, parseRemoteAction } from './remote-manager';
+import { receiveRemoteImages, sendRemoteImage } from './remote-images';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { readWorkflowCatalog } from './workflow-catalog';
 import { workflowsFromMessages, workflowIsActive } from '../src/workflow-state';
@@ -102,7 +107,8 @@ if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplat
     { type: 'separator' }, { role: 'togglefullscreen' }] },
   { role: 'windowMenu' },
 ]));
-if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', resolve(process.env.DESKTOP_TEST_USER_DATA));
+// Native resolution also expands Windows 8.3 names, unlike the JS realpathSync implementation.
+if (process.env.DESKTOP_TEST_USER_DATA) app.setPath('userData', realpathSync.native(resolve(process.env.DESKTOP_TEST_USER_DATA)));
 const backgroundAcceptance = process.env.DESKTOP_TEST_NO_FOCUS === '1' && Boolean(process.env.DESKTOP_TEST_USER_DATA);
 const crashLog = installCrashLog();
 const workflowBindings = new WorkflowBindings(join(app.getPath('userData'), 'workflow-bindings'));
@@ -262,6 +268,16 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const firstRun = new FirstRun(app.getPath('userData'));
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
+const themePacks = new ThemePacks(join(dataRoot, 'plugins'));
+async function refreshThemePacks() {
+  await themePacks.refresh();
+  registerPluginThemes(themePacks.packs);
+  if (typeof preferences.theme === 'string' && preferences.theme.startsWith('plugin:') && normalizeTheme(preferences.theme) === 'system') {
+    preferences.theme = 'original-dark';
+    preferences.accentColor = null;
+    await savePreferences();
+  }
+}
 const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
   fetchRepository: (url, options) => net.fetch(url instanceof URL ? url.href : url, { ...options, credentials: 'omit' }),
   environment: () => isolatedEnvironment(dataRoot), validateImage: bytes => {
@@ -390,6 +406,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     if (queueWorker) btw.event(queueWorker, event);
     return;
   }
+  if (queueWorker) remote.runtimeEvent(queueWorker, event);
   const modelChanged = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
     && modelSelections.delivered(queueWorker, submittedInputContent(event.message), event.message.timestamp);
   const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
@@ -470,6 +487,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     return { ...launch, args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs')] };
   },
   dispose: worker => {
+    remote.dispose(worker);
     bvrBridge.detach(worker);
     btw.dispose(worker);
     conversationTiming.event(worker, { type: 'desktop_exit' });
@@ -488,9 +506,63 @@ const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
   runtimes.publish();
-}, (worker, error) => emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) }),
+}, (worker, error) => {
+  remote.queueFailed(worker);
+  emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) });
+},
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
-  (worker, message) => runtimes.preparePrompt(worker, message));
+  (worker, message) => runtimes.preparePrompt(worker, message),
+  (worker, id, event) => remote.queueEvent(worker, id, event));
+const remote = new RemoteManager({
+  language: () => preferences.language,
+  sessions: remoteSessions,
+  projects: remoteProjects,
+  refresh: async () => { await listSessions(); },
+  validateWorkspaces: async workspaces => {
+    for (const workspace of workspaces) {
+      if (!remoteProjects().some(project => project.workspace === workspace)
+        || pathKey(await workspaceDirectory(workspace)) !== pathKey(workspace))
+        throw new Error('Saved Remote project is no longer available');
+    }
+  },
+  prepare: sessionId => prepareRemoteSession(sessionId),
+  createSession: workspace => prepareRemoteSession(undefined, workspace),
+  worker: (runtimeId, sessionId) => {
+    const worker = runtimes.require(runtimeId);
+    if (worker.state?.sessionId !== sessionId) throw new Error('Remote session identity changed');
+    return worker;
+  },
+  submit: async (worker, message, accepted, images) => {
+    if (transition || sessionNavigation.busy || settingsMutation || undoBusy || quitting || quitPending || updateInstalling
+      || providerSettingsPending || worker.mutating || worker.stopping || worker.pendingUI.size
+      || worker.failed || worker.interrupted || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
+      throw new Error('Review the session on Desktop before sending');
+    const id = pendingMessages.enqueue(worker, message, { message, ...(images?.length ? { images } : {}) });
+    accepted(id);
+    pendingMessages.resumed(worker);
+    void pendingMessages.drain(worker);
+  },
+  withdraw: (worker, queueId) => pendingMessages.withdraw(worker, queueId),
+  queued: worker => pendingMessages.list(worker).filter(entry => !entry.sending).length,
+  loadImages: receiveRemoteImages,
+  sendImage: (channel, bindingId, sessionId, worker, path, valid, signal) =>
+    sendRemoteImage(channel, bindingId, sessionId, worker.cwd, path, valid, signal),
+  stop: async worker => { await handle('command', ['abort', {}, worker.id]); },
+  respond: (worker, answer) => {
+    if (quitting || quitPending || updateInstalling || settingsMutation) throw new Error('Desktop is unavailable');
+    runtimes.respondToRequest(worker, answer);
+    remote.runtimeEvent(worker, { type: 'desktop_ui_expired' });
+  },
+  open: url => shell.openExternal(url),
+}, receive => {
+  const channel = new RpcProcess(receive, 65536);
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env))
+    if (/^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HTTP_PROXY|HTTPS_PROXY|NO_PROXY)$/i.test(key)) env[key] = value;
+  env.NODE_USE_ENV_PROXY = '1';
+  channel.start(nodePath, join(runtimeRoot, 'remote-channel.mjs'), dataRoot, env);
+  return channel;
+}, state => emit({ type: 'desktop_remote', state }), Date.now, new RemoteStore(join(app.getPath('userData'), 'remote')));
 const runtimeManifest = JSON.parse(readFileSync(join(runtimeRoot, 'manifest.json'), 'utf8'));
 const backgroundAgents = new BackgroundAgents(runtimes.workers,
   () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending,
@@ -597,7 +669,9 @@ async function tryAutomaticCron(workspace?: string) {
   finally { transition = false; emit({ type: 'desktop_cron_changed' }); }
 }
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
-  (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
+  (worker, message) => { pendingMessages.enqueue(worker, message, { message }); },
+  { extensionPath: join(runtimeRoot, 'desktop-remote.mjs'),
+    sendImage: (worker, path, caption, signal) => remote.deliverImage(worker, path, caption, signal) });
 function recycleSessionRuntimes() {
   if (transition && !sessionNavigation.busy) return;
   void runtimes.recycle(worker => sessionNavigation.pending(worker.state?.sessionId))
@@ -675,6 +749,52 @@ function cachedSessions(): Session[] {
   }
   return [...sessions.values()];
 }
+function remoteSessions() {
+  return cachedSessions().filter(session => !isChildSession(session.id) && !preferences.archivedSessionIds?.includes(session.id))
+    .map(session => {
+      const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === session.id && worker.status === 'connected');
+      const workspace = worker?.cwd ?? session.cwd;
+      return { runtimeId: worker?.id, sessionId: session.id, name: session.name || session.firstMessage || 'Step Code',
+        workspace, workspaceName: preferences.workspaceNames?.[pathKey(session.workspacePath ?? workspace)] || basename(workspace) };
+    });
+}
+function remoteProjects() {
+  const sessions = remoteSessions();
+  return [...new Set([...preferences.workspaces, ...sessions.map(session => session.workspace)])].map(workspace => ({
+    workspace, name: preferences.workspaceNames?.[pathKey(workspace)]
+      || sessions.find(session => session.workspace === workspace)?.workspaceName || basename(workspace),
+  }));
+}
+async function prepareRemoteSession(sessionId?: string, workspace?: string) {
+  if (transition || sessionNavigation.busy || settingsMutation || undoBusy || deletingArchived || quitting || quitPending
+    || updateInstalling || providerSettingsPending) throw new Error('Desktop operation in progress');
+  transition = true;
+  try {
+    const target = sessionId ? remoteSessions().find(session => session.sessionId === sessionId) : undefined;
+    if (sessionId && !target) throw new Error('Session is unavailable');
+    if (target?.runtimeId) return runtimes.require(target.runtimeId);
+    if (sessionId && [...runtimes.workers.values()].some(worker => worker.state?.sessionId === sessionId && worker.status === 'connecting'))
+      throw new Error('Session is opening');
+    const saved = sessionId ? cachedSessions().find(session => session.id === sessionId) : undefined;
+    if (sessionId && !saved?.path) throw new Error('Session history is unavailable');
+    const cwd = target?.workspace ?? workspace;
+    if (!cwd || !remoteProjects().some(project => project.workspace === cwd)) throw new Error('Unknown Remote workspace');
+    const canonical = await workspaceDirectory(cwd);
+    if (pathKey(canonical) !== pathKey(cwd)) throw new Error('Open the canonical project locally before authorizing Remote');
+    const sessionPath = saved?.path ? await managedSessionFile(join(dataRoot, 'sessions'), saved.path) : undefined;
+    // Preparing never activates the worker or consumes the local composer draft.
+    // Cold/new remote hosts start in Ask; project trust remains a separate local decision.
+    // Preserve the exact granted spelling after verifying its canonical identity.
+    const worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd,
+      { ...authEnvironment(), ...movedSessionEnvironment() }, sessionPath);
+    if ((sessionId && worker.state?.sessionId !== sessionId) || worker.permissionPreset !== 'ask') {
+      await runtimes.remove(worker);
+      throw new Error('Could not verify the Remote session identity and Ask policy');
+    }
+    emit({ type: 'desktop_sessions_changed' });
+    return worker;
+  } finally { transition = false; }
+}
 async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = false, surface: Surface = 'main'): Promise<Snapshot> {
   const draft = ignoreDraft ? undefined : selectedDraft(surface);
   if (surface === 'mini' && !ignoreDraft) {
@@ -694,7 +814,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
     workspaceIssue: unavailableWorkspace,
-    preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, providerSettingsPending,
+    preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
       : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
@@ -716,7 +836,7 @@ async function guardIdle(options: { stopHost?: boolean } = {}) {
 function canApplyProviders() {
   return !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
     && [...runtimes.workers.values()].every(worker => worker.status !== 'connecting'
-      && !worker.operations && !worker.mutating && !worker.stopping);
+      && !worker.operations && !worker.mutating && !worker.stopping && !worker.remoteAttached);
 }
 function applyProviderSettings(): Promise<void> {
   if (providerApplication) return providerApplication;
@@ -732,6 +852,7 @@ function applyProviderSettings(): Promise<void> {
 async function performProviderSettings() {
   if (!providerSettingsPending || !canApplyProviders()) return;
   await guardIdle();
+  await capabilityService.recover();
   const workers = [...runtimes.workers.values()];
   const draft = sessionDraft;
   try {
@@ -837,6 +958,8 @@ async function prepareSession(id: string, signal: AbortSignal) {
     await delay(60, undefined, { signal });
     const canonical = await workspaceDirectory(target.cwd, signal);
     signal.throwIfAborted();
+    await capabilityService.recover();
+    signal.throwIfAborted();
     let opening = openingSessions.get(id);
     const resident = [...runtimes.workers.values()].find(item => item.state?.sessionId === id && item.status === 'connected');
     if (!opening && resident) return navigationSnapshot(resident);
@@ -875,6 +998,7 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
   try {
     const canonical = await workspaceDirectory(cwd);
     status = 'connecting';
+    await capabilityService.recover();
     const worker = await (surface === 'mini' ? runtimes.prepare.bind(runtimes) : runtimes.open.bind(runtimes))(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
       { ...authEnvironment(), ...(resetPermission ? movedSessionEnvironment() : {}) }, sessionPath);
     selectRuntime(surface, worker);
@@ -945,6 +1069,14 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
   if (surface === 'mini' && method === 'preferences'
     && (!args[0] || Object.keys(args[0]).some(key => key !== 'modelFavorite')))
     throw new Error('Shared preferences are edited in the main window');
+  if (method === 'remoteState') { await listSessions(); return remote.snapshot(); }
+  if (method === 'remoteAction') {
+    const action = parseRemoteAction(args[0]);
+    if (!['disconnect', 'unbind'].includes(action.type)
+      && (transition || settingsMutation || undoBusy || quitting || quitPending || updateInstalling || providerSettingsPending))
+      throw new Error('Desktop operation in progress');
+    return remote.action(action);
+  }
   if (updateInstalling && !['updateState', 'snapshot', 'systemTheme'].includes(method)) throw new Error('Update installation in progress');
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
@@ -1119,6 +1251,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
           await usageEstimates.flush();
           await terminals.stopAll();
           await sessionImports.close();
+          await remote.shutdown();
           await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
         });
         success = true;
@@ -1630,6 +1763,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
         const wasActive = sources.some(worker => worker.id === runtimes.activeId) && !sessionDraft;
         // Validate a new cwd-bound transport before changing the durable association.
         // Permissions and project trust from the source are not carried into it.
+        await capabilityService.recover();
         prepared = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
           { ...authEnvironment(), ...movedSessionEnvironment() }, path);
         prepared.mutating = true;
@@ -1717,6 +1851,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
         const copy = await admin.request('copy_session', { sessionPath: path, cwd });
         copyPath = await managedSessionFile(join(dataRoot, 'sessions'), copy.path);
         if (!copy.id || copy.id === target.id || source?.leafId && copy.sourceLeafId !== source.leafId) throw new Error('Session history changed; try again');
+        await capabilityService.recover();
         const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd, authEnvironment(),
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
@@ -1751,6 +1886,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
         const names = new Set(cachedSessions().map(session => session.name));
         let name = stem;
         for (let number = 2; names.has(name); number++) name = `${stem} ${number}`;
+        await capabilityService.recover();
         const worker = await (surface === 'mini' ? runtimes.prepare.bind(runtimes) : runtimes.open.bind(runtimes))(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), source.cwd, authEnvironment(),
           sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
             name });
@@ -1979,7 +2115,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
             answer.value = question ? serializeAnswers(question, JSON.parse(value)) : value;
             if (request.method === 'select' && !request.options?.includes(data.value)) throw new Error('Invalid selection');
           }
-          runtimes.respondToRequest(worker, answer); return null;
+          runtimes.respondToRequest(worker, answer);
+          remote.runtimeEvent(worker, { type: 'desktop_ui_expired' });
+          return null;
         }
         const allowed = ['prompt', 'abort', 'clear_queue', 'new_session', 'set_model', 'set_thinking_level', 'set_session_name', 'set_permission_preset', 'get_commands', 'get_available_thinking_levels', 'get_session_stats', 'compact'];
         if (type === 'queue_recover') {
@@ -2167,6 +2305,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
       await guardIdle({ stopHost: false });
       return stepPage.prepare((bundlePath, homePath) => admin.request('prepare_steppage', { bundlePath, homePath }));
     }
+    case 'compactionSettings': return admin.request('compaction_settings');
+    case 'saveCompactionSettings': return admin.request('save_compaction_settings', { update: args[0] });
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
     case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
     case 'cancelProviderTest': providerTestController?.abort(); return;
@@ -2282,11 +2422,19 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
       });
       return selected.canceled ? null : selected.filePaths[0] ?? null;
     }
+    case 'themeScene': {
+      // Installed, validated scenes are also available for read-only appearance previews.
+      return themePacks.scene(args[0]);
+    }
+    case 'themePoster': return themePacks.poster(args[0]);
     case 'capabilityMutate': {
       await guardIdle({ stopHost: false });
-      if (args[0]?.action === 'plugin-remove')
+      if (['plugin-remove', 'plugin-update'].includes(args[0]?.action))
         await assertPluginUnused(text(args[0].id, 128), runtimes.workers.values());
-      return capabilityService.mutate(args[0]);
+      const result = await capabilityService.mutate(args[0]);
+      await refreshThemePacks();
+      window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
+      return result;
     }
     case 'capabilityImportSkill': {
       await guardIdle({ stopHost: false });
@@ -2317,6 +2465,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
       const colorPatch = themePreferencePatch(patch);
       const favoriteModels = patch.modelFavorite === undefined ? undefined
         : changeFavoriteModel(preferences.favoriteModels, patch.modelFavorite);
+      const themeBrightness = themeBrightnessPatch(patch.themeBrightness);
+      if (patch.themeMotion !== undefined && typeof patch.themeMotion !== 'boolean') throw new Error('Invalid theme motion');
       if (patch.appearance !== undefined) {
         if (!patch.appearance || typeof patch.appearance !== 'object' || Array.isArray(patch.appearance)) throw new Error('Invalid appearance settings');
         preferences.appearance = normalizeAppearance({ ...preferences.appearance, ...patch.appearance });
@@ -2328,6 +2478,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
       }
       const sidebarPatch = validateSidebarPreferences(patch, cachedSessions(), preferences.workspaces, pathKey);
       Object.assign(preferences, colorPatch);
+      if (patch.themeMotion !== undefined) preferences.themeMotion = patch.themeMotion;
+      if (themeBrightness !== undefined) preferences.themeBrightness = themeBrightness;
       if (['zh', 'en'].includes(patch.language)) preferences.language = patch.language;
       if (patch.workspaceNames !== undefined) {
         if (!patch.workspaceNames || typeof patch.workspaceNames !== 'object' || Array.isArray(patch.workspaceNames)) throw new Error('Invalid workspace names');
@@ -2447,6 +2599,7 @@ app.on('before-quit', event => {
       await terminals.stopAll();
       await miniChat?.dispose();
       await sessionImports.close();
+      await remote.shutdown();
       await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
@@ -2474,6 +2627,7 @@ else app.whenReady().then(async () => {
   await firstRun.initialize();
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
+  await capabilityService.recover();
   await collaboration.start();
   await bvrBridge.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;
@@ -2491,7 +2645,10 @@ else app.whenReady().then(async () => {
   preferences.favoriteModels = normalizeFavoriteModels(preferences.favoriteModels);
   delete (preferences as Preferences & { recentModels?: unknown }).recentModels;
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
+  await refreshThemePacks();
   preferences.theme = normalizeTheme(preferences.theme);
+  try { preferences.themeBrightness = themeBrightnessPatch(preferences.themeBrightness) ?? 90; }
+  catch { preferences.themeBrightness = 90; }
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;
   preferences.updateChannel = preferences.updateChannel === 'stable' ? 'stable' : 'preview';
   preferences.autoCheckUpdates = preferences.autoCheckUpdates !== false;
@@ -2521,7 +2678,8 @@ else app.whenReady().then(async () => {
   ipcMain.on('desktop:resolved-theme', event => {
     const colors = resolvedColors();
     event.returnValue = { theme: colors.scheme, palette: colors.id, tokens: colors.tokens,
-      preference: preferences.theme, accentColor: preferences.accentColor, systemDark: nativeTheme.shouldUseDarkColors };
+      preference: preferences.theme, accentColor: preferences.accentColor, systemDark: nativeTheme.shouldUseDarkColors,
+      themePacks: themePacks.packs, themeMotion: preferences.themeMotion, themeBrightness: preferences.themeBrightness };
   });
   // The authoritative system value, re-read by the renderer after it subscribes
   // to theme events: a change that lands before that subscription is dropped,
@@ -2611,7 +2769,7 @@ else app.whenReady().then(async () => {
     if (method === 'quitRespond' || method === 'windowControl') return handle(method, args, surface);
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
-    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration'].includes(method);
+    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'saveCompactionSettings'].includes(method);
     const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
     if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
       throw new Error('Shared settings operation in progress');
@@ -2649,6 +2807,9 @@ else app.whenReady().then(async () => {
       }
     })();
   }
+  void startup.then(async () => {
+    if (!quitting && !quitPending && !updateInstalling) { await listSessions(); await remote.resume(); }
+  }).catch(() => {});
   void startup.then(() => tryAutomaticCron());
   if (process.env.DESKTOP_DEV_URL && !app.isPackaged) await window.loadURL(process.env.DESKTOP_DEV_URL);
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
@@ -2672,5 +2833,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
+  quitting = true; void Promise.all([remote.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
 });

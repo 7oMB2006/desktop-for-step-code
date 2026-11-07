@@ -88,7 +88,7 @@ try {
   const setTheme = async theme => {
     const hidden = await page.locator('.app').evaluate(element => element.classList.contains('sidebar-hidden'));
     if (hidden) await page.locator('.window-sidebar-toggle').click();
-    await page.locator('.sidebar-bottom > button').click();
+    await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
     await page.getByRole('button', { name: theme === 'dark' ? '暗' : '亮', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();

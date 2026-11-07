@@ -12,11 +12,15 @@ import exampleSchema from '../../../examples/plugins/config-starter/plugins/dfsc
 import type { BvrConfiguration } from '../../src/bvr-settings';
 import { applyTheme } from '../../src/theme';
 import bvrLogo from './plugin-center-assets/bvr.png?inline';
+import bvrUpdateLogo from './plugin-center-assets/bvr-update.png?inline';
+import { PluginUpdatePreviewControls, usePluginUpdatePreview } from './plugin-update-preview';
 import '../../src/style.css';
 import '../../src/layout.css';
 import '../../src/theme.css';
 
 applyTheme('light', false);
+const updatePreview = new URLSearchParams(location.search).get('updates') === '1';
+const nativeUpdates = new URLSearchParams(location.search).get('updates') === 'native';
 const presentations: Record<string, PluginPresentation & Pick<PluginPackage, 'categories' | 'keywords'>> = {
   'bilibili-video-research': {
     author: 'BVR contributors', maintainer: 'DFSC 社区', license: 'MIT',
@@ -138,10 +142,28 @@ for (const plugin of catalog.plugins) {
       en: { description: 'Research public videos using transcripts, audio and frames.', documentation: { readme: 'README.en.md' } },
     } : undefined };
 }
+if (updatePreview || nativeUpdates) {
+  const bvr = catalog.plugins.find(plugin => plugin.id === 'bilibili-video-research')!;
+  bvr.marketplace = 'dfsc-community';
+  bvr.installationSource = { status: 'recorded', marketplaces: ['dfsc-community'] };
+  catalog.available.unshift({ name: bvr.id, id: bvr.id, displayName: bvr.name, marketplace: 'dfsc-community',
+    version: '0.1.1', description: bvr.description, repository: bvr.repository, installed: true, installedId: bvr.id,
+    icon: { kind: 'png', dataUrl: bvrUpdateLogo }, package: bvr.package });
+  catalog.marketplaces.unshift({ name: 'dfsc-community', kind: 'git', origin: 'https://github.com/7oMB2006/dfsc-community-plugins' });
+  presentations[bvr.id].changelog = '## 0.1.1\n\n- 更换插件图标，去除外侧白边。\n- 研究能力与配置协议保持不变。\n\n'
+    + presentations[bvr.id].changelog;
+  if (nativeUpdates) {
+    catalog.pluginUpdates = true;
+    bvr.update = { status: 'available', version: '0.1.1', ref: 'fixture-update' };
+    for (const plugin of catalog.plugins) if (plugin !== bvr) plugin.update = { status: 'unavailable', reason: 'source' };
+  }
+}
 let configuration: BvrConfiguration = { revision: 'fixture-1', configured: true, mode: 'dfsc', runtimeDirectory: 'D:\\Tools\\BVR',
   apiBase: 'https://api.stepfun.com/v1', model: 'step-3.7-flash', hasApiKey: false, asrApiBase: 'https://api.stepfun.com/v1',
   asrModel: 'stepaudio-2.5-asr', hasAsrApiKey: false, cookieFile: '', proxy: '', downloadDirectory: '', preferCaptions: true };
 let saves = 0, restarts = 0, catalogReads = 0, preparationRefreshes = 0, repositoryReads = 0;
+let updateAttempts = 0, updateChecks = 0, updateApplied = 0, updateFailure = false, releaseUpdate: (() => void) | undefined;
+let updateCatalogHeld: Promise<void> | undefined, releaseUpdateCatalog: (() => void) | undefined;
 let releaseRepositories: (() => void) | undefined;
 const repositoriesHeld = new URLSearchParams(location.search).get('repositories') === 'held'
   ? new Promise<void>(resolve => { releaseRepositories = resolve; }) : undefined;
@@ -150,7 +172,7 @@ let exampleConfiguration: PluginConfiguration = { ref: 'fixture-config', revisio
   schema: JSON.parse(exampleSchema), values: { prefix: 'Note: ', uppercase: false, limit: 160 }, hasSecret: {} };
 let exampleFailure = false;
 const bridge: PluginCenterBridge = {
-  platform: 'win32', capabilityCatalog: async () => { catalogReads++; return structuredClone(catalog); },
+  platform: 'win32', capabilityCatalog: async () => { catalogReads++; await updateCatalogHeld; return structuredClone(catalog); },
   pluginRepositoryInfo: async input => {
     repositoryReads++;
     await repositoriesHeld;
@@ -182,6 +204,17 @@ const bridge: PluginCenterBridge = {
     return { path: input.path, text, images: {}, links: {} };
   },
   capabilityMutate: async input => {
+    if (input.action === 'plugin-check-updates') { updateChecks++; return { warnings: [] }; }
+    if (input.action === 'plugin-update') {
+      const plugin = catalog.plugins.find(item => item.id === input.id);
+      if (!nativeUpdates || plugin?.package?.ref !== input.ref || plugin.update?.ref !== input.candidate) throw new Error('capability:stale');
+      updateAttempts++;
+      await new Promise<void>(resolve => { releaseUpdate = resolve; });
+      if (updateFailure) { updateFailure = false; throw new Error('capability:resource-in-use'); }
+      plugin.version = '0.1.1'; plugin.update = { status: 'current' }; plugin.icon = { kind: 'png', dataUrl: bvrUpdateLogo };
+      updateApplied++;
+      return { warnings: [] };
+    }
     if (input.action === 'plugin-toggle') catalog.mcp.filter(server => server.pluginId === input.id).forEach(server => { server.enabled = input.enabled; });
     if (input.action === 'plugin-remove') catalog.plugins = catalog.plugins.filter(plugin => plugin.id !== input.id);
     if (input.action === 'marketplace-add') catalog.marketplaces.push({ name: 'new-market', kind: 'git', origin: input.source });
@@ -213,6 +246,11 @@ const bridge: PluginCenterBridge = {
 };
 Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone(configuration),
   counts: () => ({ saves, restarts, catalogReads, preparationRefreshes, repositoryReads }),
+  updateCounts: () => ({ attempts: updateAttempts, checks: updateChecks, applied: updateApplied }),
+  holdUpdateCatalog: () => { updateCatalogHeld = new Promise(resolve => { releaseUpdateCatalog = resolve; }); },
+  releaseUpdateCatalog: () => { releaseUpdateCatalog?.(); updateCatalogHeld = undefined; },
+  releaseUpdate: () => { releaseUpdate?.(); releaseUpdate = undefined; },
+  failUpdate: () => { updateFailure = true; },
   releaseRepositories: () => releaseRepositories?.(),
   language: (language: 'zh' | 'en') => dispatchEvent(new CustomEvent('plugin-center-language', { detail: language })),
   holdPreparationRefresh: () => { preparationRefresh = new Promise(resolve => { releasePreparationRefresh = resolve; }); },
@@ -236,6 +274,8 @@ function Fixture() {
   const [language, setLanguage] = useState<'zh' | 'en'>('zh');
   const [wide, setWide] = useState(() => matchMedia('(min-width: 1001px)').matches);
   const [message, setMessage] = useState('保留会话草稿');
+  const updateState = usePluginUpdatePreview({ readCatalog: () => catalog, replaceCatalog: value => { catalog = value; },
+    onRestart: async () => { restarts++; }, language });
   useEffect(() => {
     const change = (event: Event) => setLanguage((event as CustomEvent<'zh' | 'en'>).detail);
     addEventListener('plugin-center-language', change);
@@ -246,12 +286,15 @@ function Fixture() {
     const change = () => setWide(media.matches);
     media.addEventListener('change', change); return () => media.removeEventListener('change', change);
   }, []);
-  return <div className={`app pc-preview${wide ? ' pc-sidebar-open' : ''}`}><header className="pc-window">Desktop for Step Code<span className="pc-preview-label">插件文档预览</span></header>
+  return <div className={`app pc-preview${wide ? ' pc-sidebar-open' : ''}`}><header className="pc-window">Desktop for Step Code
+    <span className="pc-preview-label">{updatePreview || nativeUpdates ? language === 'zh' ? '插件更新预览 · 模拟数据' : 'Plugin updates · simulated data' : '插件文档预览'}</span>
+    {updatePreview && <PluginUpdatePreviewControls language={language} onLanguage={setLanguage} preview={updateState}/>}</header>
     <aside className="sidebar"><SidebarTaskActions selected={false} pluginsSelected={active} onNewSession={() => setActive(false)}
       onScheduledTasks={() => setActive(false)} onPlugins={() => setActive(value => !value)}/></aside>
-    <main><PluginCenter bridge={bridge} active={active} language={language} busy={false} runtimeId="fixture-runtime" settings={{ mcp: {} }}
+    <main><PluginCenter key={updatePreview ? updateState.revision : 'default'} bridge={bridge} active={active} language={language} busy={false}
+      updates={updatePreview ? updateState.updates : undefined} runtimeId="fixture-runtime" settings={{ mcp: {} }}
       onChanged={async () => { if (preparationRefresh) { preparationRefreshes++; await preparationRefresh; } }}
-      onRestart={async () => { restarts++; }} onManageMcp={() => {}} onBack={() => setActive(false)}/>
+      onRestart={updatePreview ? updateState.restart : async () => { restarts++; }} onManageMcp={() => {}} onBack={() => setActive(false)}/>
       <section hidden={active}><textarea aria-label="会话草稿" value={message} onChange={event => setMessage(event.target.value)}/></section>
     </main>
   </div>;

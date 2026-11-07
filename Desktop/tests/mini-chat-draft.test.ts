@@ -111,6 +111,7 @@ async function fixture() {
     emptyLaunch, draftLaunchChanges, emit: () => {}, savePreferences: async () => {},
     nodePath: 'fixture-node', runtimeRoot: 'fixture-runtime', independentRoot: 'fixture-independent', join,
     authEnvironment: () => ({}), movedSessionEnvironment: () => ({}), crashLog: { setPhase() {} },
+    capabilityService: { recover: async () => {} },
     bvrBridge: { detach() {} }, appliedAuthData: {},
     providerModelNames: (models: Model[]) => models,
     modelThinkingLevels: (value: Model) => value.thinkingLevels ?? [],

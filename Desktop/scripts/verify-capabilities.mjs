@@ -107,7 +107,7 @@ try {
         await page.locator('.window-sidebar-toggle').click();
         await page.waitForFunction(() => !document.querySelector('.sidebar')?.inert);
       }
-      await page.locator('.sidebar-bottom > button').click();
+      await page.locator('.sidebar-settings').click();
     }
     await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name, exact: true }).click();
   };
@@ -246,7 +246,7 @@ try {
   await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'zh' }));
   await page.reload();
   await page.getByRole('button', { name: '定时任务', exact: true }).waitFor();
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '插件', exact: true }).click();
   await page.getByRole('tab', { name: /^已安装/ }).waitFor();
   await page.getByRole('tab', { name: /^市场来源/ }).click();
@@ -275,11 +275,28 @@ try {
   await examplePanel.locator('.cap-plugin-icon img').waitFor();
   await page.waitForFunction(() => document.querySelector('.pc-plugin-row .cap-plugin-icon img')?.naturalWidth === 1);
   await writeFile(join(profile, 'step-runtime', 'plugins', 'example', 'logo.png'), iconPng.subarray(0, 33));
-  await page.getByRole('button', { name: '刷新插件目录', exact: true }).click();
+  await page.getByRole('button', { name: '检查插件更新', exact: true }).click();
   await examplePanel.locator('[data-icon-kind="fallback"]').waitFor();
   await writeFile(join(profile, 'step-runtime', 'plugins', 'example', 'logo.png'), iconPng);
-  await page.getByRole('button', { name: '刷新插件目录', exact: true }).click();
+  await page.getByRole('button', { name: '检查插件更新', exact: true }).click();
   await examplePanel.locator('.cap-plugin-icon img').waitFor();
+  const source = join(profile, 'step-runtime/marketplaces/fixture-market/example');
+  const candidateManifest = JSON.parse(await readFile(join(source, 'step.plugin.json'), 'utf8'));
+  const updatedIcon = await readFile('tests/fixtures/plugin-center-assets/bvr-update.png');
+  const switchesBefore = await readFile(join(profile, 'step-runtime/config.toml'));
+  const installedBefore = JSON.parse(await readFile(join(profile, 'step-runtime/desktop-plugins/installations.json'), 'utf8')).installations.find(item => item.id === 'example');
+  await writeFile(join(source, 'step.plugin.json'), JSON.stringify({ ...candidateManifest, version: '1.1.0' }));
+  await writeFile(join(source, 'logo.png'), updatedIcon);
+  await page.getByRole('button', { name: '检查插件更新', exact: true }).click();
+  await examplePanel.getByRole('button', { name: '更新 Example plugin 至 v1.1.0', exact: true }).click();
+  await examplePanel.getByRole('button', { name: '重启会话以应用 Example plugin 更新', exact: true }).waitFor();
+  assert.match(await examplePanel.locator('.pc-card-version').innerText(), /^v1.1.0/);
+  assert.equal(await examplePanel.locator('img').getAttribute('src'), `data:image/png;base64,${updatedIcon.toString('base64')}`);
+  assert.ok((await readFile(join(profile, 'step-runtime/config.toml'))).equals(switchesBefore));
+  const installedAfter = JSON.parse(await readFile(join(profile, 'step-runtime/desktop-plugins/installations.json'), 'utf8')).installations.find(item => item.id === 'example');
+  assert.equal(installedAfter.instance, installedBefore.instance);
+  assert.notEqual(installedAfter.fingerprint, installedBefore.fingerprint);
+  await page.screenshot({ path: 'test-results/capabilities-plugin-updated.png' });
   await page.getByRole('textbox', { name: '搜索插件' }).fill('');
   await page.locator('.pc-plugin-row').filter({ hasText: /steppage/i }).locator('.pc-card-settings').click();
   await page.locator('.steppage-settings').waitFor();
@@ -387,7 +404,7 @@ try {
   await page.screenshot({ path: 'test-results/capabilities-skills-light.png' });
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
   await page.reload();
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
   await page.getByText('local-review', { exact: true }).waitFor();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
@@ -398,6 +415,17 @@ try {
   await page.getByRole('button', { name: '删除 local-review', exact: true }).click();
   await page.getByRole('button', { name: '确认移除', exact: true }).click();
   await toggle.waitFor({ state: 'detached' });
+  await writeFile(join(source, 'step.plugin.json'), JSON.stringify({ ...candidateManifest, version: '1.2.0' }));
+  const blockedUpdate = await page.evaluate(async () => {
+    const plugin = (await window.desktop.capabilityCatalog()).plugins.find(item => item.id === 'example');
+    try {
+      await window.desktop.capabilityMutate({ action: 'plugin-update', id: plugin.id,
+        ref: plugin.package.ref, candidate: plugin.update.ref });
+      return 'unexpected success';
+    } catch (error) { return String(error); }
+  });
+  assert.match(blockedUpdate, /capability:resource-in-use/, 'A connected MCP must block package replacement');
+  assert.equal(JSON.parse(await readFile(join(profile, 'step-runtime/plugins/example/step.plugin.json'), 'utf8')).version, '1.1.0');
   await page.getByRole('button', { name: '插件', exact: true }).click();
   await removeExamplePlugin();
   await page.getByRole('alert').filter({ hasText: '插件仍被会话占用' }).waitFor();
@@ -449,9 +477,10 @@ try {
   await openCategory('插件');
   await page.getByRole('textbox', { name: '搜索插件', exact: true }).fill('');
   await page.getByRole('tab', { name: /^已安装/ }).click();
-  await page.getByRole('button', { name: '刷新插件目录', exact: true }).click();
+  await page.getByRole('button', { name: '检查插件更新', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="检查插件更新"]')?.disabled === false);
   await page.getByRole('button', { name: '查看 DFSC Example 使用说明', exact: true }).click();
-  await page.getByRole('heading', { name: 'DFSC Example', exact: true, level: 1 }).waitFor();
+  await page.getByRole('heading', { name: 'DFSC Example', exact: true, level: 2 }).waitFor();
   const installedImage = page.getByRole('img', { name: 'Installed resource capabilities', exact: true });
   await installedImage.waitFor();
   await installedImage.evaluate(image => image.decode());
@@ -481,7 +510,8 @@ try {
   await openCategory('插件');
   await page.getByRole('textbox', { name: '搜索插件', exact: true }).fill('');
   await page.getByRole('tab', { name: /^已安装/ }).click();
-  await page.getByRole('button', { name: '刷新插件目录', exact: true }).click();
+  await page.getByRole('button', { name: '检查插件更新', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="检查插件更新"]')?.disabled === false);
   await page.getByRole('button', { name: '配置 DFSC Configuration Example', exact: true }).click();
   await page.getByLabel('Prefix', { exact: true }).fill('Electron ');
   await page.getByLabel('Uppercase text', { exact: true }).check();

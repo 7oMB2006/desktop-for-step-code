@@ -4,6 +4,7 @@ import type { BtwBridge } from './btw';
 import type { LaunchState } from './launch-state';
 import type { BackgroundAgentClient } from './background-agents';
 import type { WindowConversationBridge, WindowPresentation } from './window-conversation';
+import type { RemoteBridge } from './remote';
 export interface Snapshot { windowPresentation?: WindowPresentation }
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
@@ -47,6 +48,8 @@ export interface Preferences { interfaceSettings?: import('./interface-presets')
 export type BackgroundLaneSummary = { id: string; status: 'running' | 'settling' };
 export type BackgroundLaneActivity = { status: 'known'; lanes: BackgroundLaneSummary[] } | { status: 'unavailable' };
 export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; backgroundCount?: number; background?: BackgroundLaneActivity; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
+export interface Preferences { themeMotion?: boolean; themeBrightness?: number }
+export interface Snapshot { themePacks?: import('./theme-packs').ThemePack[] }
 export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
@@ -102,7 +105,7 @@ export interface CronCreateInput { runtimeId: string; cron: string; prompt: stri
 export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
-export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge {
+export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge {
   projectInstructions(owner: import('./project-instructions').ProjectInstructionsOwner): Promise<import('./project-instructions').ProjectInstructionsStatus>;
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
@@ -111,6 +114,8 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   pluginConfiguration(input: { ref: string }): Promise<import('./capabilities').PluginConfiguration>;
   pluginSaveConfiguration(input: import('./capabilities').PluginConfigurationInput): Promise<import('./capabilities').PluginConfiguration>;
   pluginChoosePath(input: { ref: string; field: string }): Promise<string | null>;
+  themeScene(id: string): Promise<import('./theme-packs').StellarScene>;
+  themePoster(id: string): Promise<string | undefined>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;
   bvrConfiguration(): Promise<import('./bvr-settings').BvrConfiguration>;
@@ -194,6 +199,8 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   deleteArchivedSessions(ids: string[]): Promise<boolean>;
   restart(): Promise<Snapshot>;
   settings(): Promise<Settings>;
+  compactionSettings(): Promise<import('./compaction-settings').CompactionSettings>;
+  saveCompactionSettings(update: import('./compaction-settings').CompactionSettingsUpdate): Promise<import('./compaction-settings').CompactionSettings>;
   accountAllowance(refresh?: boolean): Promise<import('./account-allowance').AccountAllowance>;
   cancelAccountAllowance(): Promise<void>;
   estimateSettings(): Promise<import('./usage-estimates').EstimateSettings>;
@@ -273,6 +280,9 @@ export interface RepositoryFileDiff {
   reason?: 'binary' | 'too-large' | 'unsupported' | 'no-text-change' | 'changed' | 'sensitive';
 }
 export interface DesktopTheme {
+  themePacks?: import('./theme-packs').ThemePack[];
+  themeMotion?: boolean;
+  themeBrightness?: number;
   resolved: 'light' | 'dark';
   preference?: import('./theme').ThemePreference;
   accentColor?: string | null;

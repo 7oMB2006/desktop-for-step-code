@@ -848,6 +848,12 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .model-effort-list { flex: 1; min-height: 0; overflow-y: auto; padding-top: 5px; }
 .model-effort-list button { width: 100%; min-width: 0; justify-content: space-between; border: 0; background: transparent; text-align: left; }
 .model-effort-list button[aria-selected="true"] { background: var(--surface); }
+.model-effort-list button[aria-disabled="true"] { cursor: wait; }
+.model-effort-list button:focus-visible { outline-offset: -2px; }
+.model-option-spinner { flex-shrink: 0; animation: model-option-spin 1.1s linear infinite; }
+.model-effort-error { margin: 4px 0; padding: 4px; color: var(--danger); font-size: 11px; }
+@keyframes model-option-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .model-option-spinner { animation: none; } }
 .model-effort-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-tools > .icon-button { width: 28px; height: 28px; }
 .composer-tools > .composer-action-button {

@@ -81,7 +81,7 @@ try {
   await page.getByRole('button', { name: '返回会话', exact: true }).click();
   surface = 'conversation';
   await checkTheme('paper');
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: themes.find(theme => theme.id === 'jade').name[0], exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.palette === 'jade');

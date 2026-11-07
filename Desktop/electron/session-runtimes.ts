@@ -21,6 +21,8 @@ import { questionnaire } from '../src/questionnaire';
 import { cronState, hasScheduledCron, type CronState } from './cron-state';
 import { restoreSelectedModel, UnavailableModelError } from './model-preference';
 import { backgroundLaneStates, backgroundState, hasBackgroundWork, type BackgroundLaneState } from './background-work';
+import { taskOutcome } from './task-outcome';
+export { taskOutcome } from './task-outcome';
 import { completionReview, reviewActive } from '../src/completion-review';
 
 export interface WorkerTransport {
@@ -72,18 +74,11 @@ export interface SessionRuntime {
   backgroundLanes?: BackgroundLaneState[];
   cronScopeDirectory?: string;
   startupTiming?: RuntimeStartupTiming;
+  remoteAttached?: boolean;
 }
 export function firstUserText(messages: Message[]) {
   const message = messages.find(isUserMessage);
   return message ? visibleInputBlocks({ ...message, role: 'user' }).filter(block => block.type === 'text').map(block => block.text ?? '').join('\n').slice(0, 200) : '';
-}
-export function taskOutcome(messages: Message[]) {
-  const last = messages.at(-1);
-  if (last?.role !== 'assistant') return 'idle' as const;
-  if (last.incomplete) return 'interrupted' as const;
-  if (last.stopReason === 'stop') return 'completed' as const;
-  if (['error', 'aborted', 'length'].includes(last.stopReason ?? '')) return 'interrupted' as const;
-  return 'idle' as const;
 }
 function workspaceKey(cwd: string) {
   const path = resolve(cwd);
@@ -222,7 +217,7 @@ export class SessionRuntimes {
       const candidates = [...this.workers.values()].filter(worker =>
         workspaceKey(worker.cwd) === key && worker.status === 'connected' && worker.state?.sessionId &&
         !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !hasBackgroundWork(worker) && !worker.mutating &&
-        !worker.failed && !worker.interrupted && !this.hooks.retain?.(worker));
+        !worker.failed && !worker.interrupted && !worker.remoteAttached && !this.hooks.retain?.(worker));
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
         const transport = empty.rpc;
@@ -661,6 +656,7 @@ export class SessionRuntimes {
   }
   async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean } = {}) {
     const assertHost = () => {
+      if (worker.remoteAttached) throw new Error('Unbind Remote before changing this session runtime');
       if (worker.btwActive) throw new Error('Finish or cancel the side question first');
       if (hasBackgroundWork(worker)) throw new Error('Stop background agents before changing this session runtime');
       if (options.stopHost && hasScheduledCron(worker.cron)) throw new Error('Delete scheduled Cron jobs before restarting or changing this runtime; Cron state must be available');
@@ -844,7 +840,7 @@ export class SessionRuntimes {
   }
   async recycle(retain: (worker: SessionRuntime) => boolean = () => false) {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
-      !retain(worker) && !this.hooks.retain?.(worker) && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
+      !retain(worker) && !this.hooks.retain?.(worker) && !worker.remoteAttached && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
       !hasBackgroundWork(worker) &&
       worker.launch?.goal?.status !== 'active' &&
       !hasScheduledCron(worker.cron) &&

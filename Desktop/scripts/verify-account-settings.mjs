@@ -71,7 +71,7 @@ try {
   }
   assert.ok(initial.draftId, 'Account fixture requires a ready proposal before editing its draft');
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Keep this unsent draft through login');
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByText('UID fixture-user-1042', { exact: true }).waitFor();
   const account = await page.evaluate(async () => (await window.desktop.settings()).account);
   assert.equal(account.userId, 'fixture-user-1042');
@@ -186,7 +186,7 @@ try {
     `real RPC response uses cache-exclusive input and official USD rates: ${estimated.active.amount}`);
   assert.equal(requests.length, 2, 'both controlled prompts reach only the local fixture server');
   const nextDraft = await page.evaluate(() => window.desktop.beginSession());
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   assert.equal(await page.locator('.account-user-id').count(), 0);
   const apiAccount = await page.evaluate(async () => (await window.desktop.settings()).account);
   assert.equal(apiAccount.profile, 'platform_oversea');
@@ -246,10 +246,10 @@ try {
       return original(event, method, ...args);
     });
   });
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.locator('.account-channel.is-selected').filter({ hasText: 'Mainland China' }).waitFor();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.locator('.account-channel').nth(3).click();
   await page.getByLabel('API Key', { exact: true }).fill('overseas-race-fixture');
   await assert.doesNotReject(async () => {

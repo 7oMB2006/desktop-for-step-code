@@ -1,6 +1,7 @@
 import { normalizedWorkspaceKey } from './workspace-key';
 import { UsageOverviewPanel } from './UsageOverviewPanel';
-import { BarChart3, MessageCircleQuestion, Plug } from 'lucide-react';
+import { RemoteAccessPanel } from './RemoteAccessPanel';
+import { BarChart3, MessageCircleQuestion, Plug, Smartphone } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -73,6 +74,7 @@ import { SessionSearchPanel } from './SessionSearchPanel';
 import { ConversationSearchLocation } from './ConversationSearchLocation';
 import type { SearchLocation } from './fulltext-search';
 import { scrollSearchMessage } from './search-location';
+import { SessionSearchText } from './SessionSearchText';
 import './session-search.css';
 import { useSidebarReorder } from './use-sidebar-reorder';
 import { useSidebarMotion } from './use-sidebar-motion';
@@ -94,10 +96,15 @@ import { NewSession } from './NewSession';
 import { FirstRun } from './FirstRun';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
 import { AppearanceSettings } from './AppearanceSettings';
+import { CompactionSettings } from './CompactionSettings';
 import { InterfaceSettings } from './InterfaceSettings';
 import { normalizeInterfaceSettings } from './interface-presets';
 import { applyAppearance } from './appearance';
-import { applyTheme } from './theme';
+import { applyTheme, registerPluginThemes } from './theme';
+import { StellarWorkspace } from './StellarWorkspace';
+import { StellarEmblem } from './StellarEmblem';
+import { StellarLettering } from './StellarLettering';
+import { StellarBrand } from './StellarBrand';
 import { ThemeSettings } from './ThemeSettings';
 import { TerminalPanel } from './TerminalPanel';
 import { normalizePanelPreferences, type TerminalDock } from './panel-preferences';
@@ -130,10 +137,11 @@ import type { QuitReviewState } from './quit-confirmation';
 const bridge = window.desktop;
 const isMini = bridge?.surface === 'mini';
 document.documentElement.dataset.windowSurface = isMini ? 'mini' : 'main';
+registerPluginThemes(window.desktopTheme?.themePacks ?? []);
 // Seed the placeholder with the main-process-resolved theme so the first React
 // write matches the bootstrap instead of flipping to a system guess before the
 // real snapshot arrives.
-const initial: Snapshot = { preferences: { theme: window.desktopTheme?.preference ?? window.desktopTheme?.resolved ?? 'system', accentColor: window.desktopTheme?.accentColor, language: 'zh', workspaces: [] }, status: 'disconnected', messages: [], models: [], sessions: [] };
+const initial: Snapshot = { preferences: { theme: window.desktopTheme?.preference ?? window.desktopTheme?.resolved ?? 'system', themeMotion: window.desktopTheme?.themeMotion, themeBrightness: window.desktopTheme?.themeBrightness, accentColor: window.desktopTheme?.accentColor, language: 'zh', workspaces: [] }, themePacks: window.desktopTheme?.themePacks, status: 'disconnected', messages: [], models: [], sessions: [] };
 const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 const workspaceKey = (path: string) => normalizedWorkspaceKey(path, window.desktop?.platform ?? 'win32');
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
@@ -258,6 +266,8 @@ function App() {
   const [sidebar, setSidebar] = useState(true);
   const [sessionQuery, setSessionQuery] = useState('');
   const searchingSessions = Boolean(sessionQuery.trim());
+  const stellarSearchQuery = data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
+    ? sessionQuery : '';
   const filteredSessions = useMemo(() => filterSessions(data.sessions, data.preferences, sessionQuery, bridge?.platform),
     [data.sessions, data.preferences, sessionQuery]);
   const [compactSidebar, setCompactSidebar] = useState(() => window.innerWidth <= 760);
@@ -272,6 +282,7 @@ function App() {
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [remoteOpen, setRemoteOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [pluginsVisited, setPluginsVisited] = useState(false);
   const [fulltextOpen, setFulltextOpen] = useState(false);
@@ -507,23 +518,23 @@ function App() {
   useLayoutEffect(followLayout, [navigationTarget, followLayout]);
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
   const bottomTerminalExpanded = terminalDock === 'bottom' && bottomTerminalOpen && expandedRightPanel === 'terminal'
-    && !usageOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && !details;
-  const visibleRightPanel = isMini || usageOpen || scheduledOpen || pluginsOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+    && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && !details;
+  const visibleRightPanel = isMini || usageOpen || remoteOpen || scheduledOpen || pluginsOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = bottomTerminalExpanded || expandedRightPanel === visibleRightPanel && !details &&
     (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw');
-  const terminalOpen = !isMini && !usageOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && (terminalDock === 'bottom'
+  const terminalOpen = !isMini && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && (terminalDock === 'bottom'
     ? bottomTerminalOpen && (!inspectorExpanded || bottomTerminalExpanded)
     : visibleRightPanel === 'terminal' && !details);
   useEffect(() => {
     if (workflowCatalogRequest && (workflowCatalogRequest.runtimeId !== data.runtimeId
       || workflowCatalogRequest.sessionId !== data.state?.sessionId || navigationTarget || settingsOpen
-      || usageOpen || scheduledOpen || pluginsOpen || fulltextOpen || inspectorExpanded || removeProject || requests.length)) {
+      || usageOpen || remoteOpen || scheduledOpen || pluginsOpen || fulltextOpen || inspectorExpanded || removeProject || requests.length)) {
       setWorkflowCatalogRequest(null);
     }
   }, [workflowCatalogRequest, data.runtimeId, data.state?.sessionId, navigationTarget, settingsOpen,
-    usageOpen, scheduledOpen, pluginsOpen, fulltextOpen, inspectorExpanded, removeProject, requests.length]);
+    usageOpen, remoteOpen, scheduledOpen, pluginsOpen, fulltextOpen, inspectorExpanded, removeProject, requests.length]);
   useEffect(() => {
     if (bottomTerminalExpanded) return;
     if (!usageOpen && expandedRightPanel && (expandedRightPanel !== visibleRightPanel || details)) setExpandedRightPanel(null);
@@ -684,6 +695,7 @@ function App() {
   const installSnapshot = (value: Snapshot) => {
     acceptQuitReview(value.quitReview);
     if (!messageRevision.current.acceptSnapshot(value)) return false;
+    registerPluginThemes(value.themePacks ?? []);
     const previous = view.current;
     const changedOwner = composerKey(composerOwner(value)) !== composerKey(previous.draftId ? { draftId: previous.draftId }
       : previous.sessionId ? { sessionId: previous.sessionId } : undefined);
@@ -733,6 +745,7 @@ function App() {
     if (succeeded) void run(refresh);
   };
   const navigateSession = async (session: Session, cronRuntimeId?: string) => {
+    setRemoteOpen(false);
     setPluginsOpen(false);
     setFulltextOpen(false);
     setSearchLocation(undefined);
@@ -815,6 +828,11 @@ function App() {
         setData(value => ({ ...value, preferences: { ...event.preferences, workspace: value.preferences.workspace } })); return;
       }
       if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
+        if (!isMini && event.restorePresentation) {
+          finishSettingsClose();
+          setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false);
+          setPluginsOpen(false); setFulltextOpen(false); setDetails('');
+        }
         void run(async () => {
           rememberView(false);
           const value = await bridge.snapshot();
@@ -913,6 +931,10 @@ function App() {
         setData(d => ({ ...d, status: event.status }));
       }
       if (event.type === 'desktop_error') setError(event.message);
+      if (event.type === 'desktop_theme_packs') {
+        registerPluginThemes(event.packs);
+        setData(d => ({ ...d, themePacks: event.packs, preferences: event.preferences }));
+      }
       if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
       if (['message_start', 'message_end'].includes(event.type) && event.message && isUserMessage(event.message)) setArrivingUser(event.message);
       if (['desktop_completion_review', 'message_start', 'message_update', 'message_end', 'agent_end', 'agent_settled', 'desktop_exit'].includes(event.type)) setData(d => ({ ...d, messages: applyMessageEvent(d.messages, event) }));
@@ -1117,6 +1139,7 @@ function App() {
   };
   const openUsage = () => {
     if (isMini) { void run(() => handoff('usage')); return; }
+    setRemoteOpen(false);
     setFulltextOpen(false);
     finishSettingsClose();
     setPluginsOpen(false);
@@ -1127,13 +1150,18 @@ function App() {
   const openScheduled = () => {
     if (isMini) { void run(() => handoff('cron')); return; }
     if (!bridge) return;
+    setRemoteOpen(false);
     setFulltextOpen(false); setUsageOpen(false); setPluginsOpen(false); setDetails(''); setExpandedRightPanel(null);
     setScheduledOpen(true); setCompactSidebarOpen(false);
+  };
+  const openRemote = () => {
+    finishSettingsClose(); setFulltextOpen(false); setUsageOpen(false); setScheduledOpen(false); setPluginsOpen(false);
+    setDetails(''); setExpandedRightPanel(null); setCompactSidebarOpen(false); setRemoteOpen(true);
   };
   const openPlugins = (target?: CapabilityTarget) => {
     if (isMini) { void run(() => handoff('plugins', target)); return; }
     if (!bridge) return;
-    finishSettingsClose(); setFulltextOpen(false); setScheduledOpen(false); setUsageOpen(false);
+    finishSettingsClose(); setFulltextOpen(false); setScheduledOpen(false); setUsageOpen(false); setRemoteOpen(false);
     setDetails(''); setExpandedRightPanel(null); setCompactSidebarOpen(false);
     setCapabilityTarget(target); setPluginsVisited(true); setPluginsOpen(true);
     void bridge.settings().then(setSettings).catch(() => setError(t('无法读取插件设置', 'Could not read plugin settings')));
@@ -1497,9 +1525,9 @@ function App() {
     const label = activity === 'waiting' ? t('等待确认', 'Awaiting approval') : activity === 'failed' || activity === 'interrupted' ? t('任务已终止', 'Task interrupted') : activity === 'completed' ? t('有未读回复', 'Unread reply') : t('正在运行', 'Running');
     return <div key={s.id} data-reorder-id={s.id} data-reorder-kind="session" data-reorder-group={group} data-reorder-title={sessionTitle(s, t('新会话', 'New session'))}
       data-reorder-locked={!s.path || ['running', 'waiting'].includes(activity)}
-      className={`session-row ${!scheduledOpen && !pluginsOpen && !usageOpen && !fulltextOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'selected' : ''} ${sessionDrag?.id === s.id ? 'session-dragging' : ''} ${sessionDrag?.target === s.id ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`}
+      className={`session-row ${!scheduledOpen && !pluginsOpen && !remoteOpen && !usageOpen && !fulltextOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'selected' : ''} ${sessionDrag?.id === s.id ? 'session-dragging' : ''} ${sessionDrag?.target === s.id ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`}
       onContextMenu={e => showContext(e, 'session', s.id)}>
-      <button aria-current={!scheduledOpen && !pluginsOpen && !usageOpen && !fulltextOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
+      <button aria-current={!scheduledOpen && !pluginsOpen && !remoteOpen && !usageOpen && !fulltextOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
         disabled={!bridge || loading && !navigationTarget} onClick={() => void navigateSession(s)}
         aria-keyshortcuts={!searchingSessions && manualOrder && group !== '__archived__' ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
         onKeyDown={e => {
@@ -1512,8 +1540,8 @@ function App() {
         }}>
         <i className={`session-activity ${activity}`} role={activity === 'idle' ? undefined : 'img'} aria-hidden={activity === 'idle' ? true : undefined} aria-label={activity === 'idle' ? undefined : label}/>
         <span title={searchingSessions ? `${sessionTitle(s, t('新会话', 'New session'))}\n${s.firstMessage}\n${s.cwd}` : undefined}>
-          {sessionTitle(s, t('新会话', 'New session'))}
-          {searchingSessions && s.name && s.firstMessage && <small className="session-search-preview">{s.firstMessage}</small>}
+          <SessionSearchText text={sessionTitle(s, t('新会话', 'New session'))} query={stellarSearchQuery}/>
+          {searchingSessions && s.name && s.firstMessage && <small className="session-search-preview"><SessionSearchText text={s.firstMessage} query={stellarSearchQuery}/></small>}
         </span>
         {navigationSlow && navigationTarget?.session.id === s.id && <span className="session-navigation-spinner" role="status" aria-label={t('正在打开会话', 'Opening conversation')}/>}
       </button>
@@ -1536,14 +1564,15 @@ function App() {
   const toggleWorkspace = (key: string) => { void run(() => setWorkspaceExpanded(key)); };
   const independentExpanded = searchingSessions || !collapsedWorkspaces.has('__independent__');
   const createInWorkspace = async (path: string, _sessions: typeof data.sessions) => {
+    setRemoteOpen(false);
     setPluginsOpen(false);
     setUsageOpen(false);
     setScheduledOpen(false);
     await run(() => setWorkspaceExpanded(workspaceKey(path), true));
     await applySnapshot(() => bridge!.beginSession(path));
   };
-  const newSession = () => { setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace)); };
-  const openProject = () => { setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.chooseSessionProject()); };
+  const newSession = () => { setRemoteOpen(false); setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.beginSession(data.independent ? undefined : current?.workspacePath ?? data.preferences.workspace)); };
+  const openProject = () => { setRemoteOpen(false); setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); return applySnapshot(() => bridge!.chooseSessionProject()); };
   const repairProject = async (path: string) => {
     if (loading) return;
     setLoading(true);
@@ -1571,7 +1600,7 @@ function App() {
             const siblings = pinnedWorkspaces.has(key) ? [...pinnedWorkspaces] : [...workspaceGroups.keys()].filter(key => !pinnedWorkspaces.has(key));
             const target = siblings[siblings.indexOf(key) + (e.key === 'ArrowUp' ? -1 : 1)];
             if (target) reorderWorkspace(key, target, e.key === 'ArrowDown');
-          }}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span>{workspaceTitle(group.path)}</span></button>
+          }}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span><SessionSearchText text={workspaceTitle(group.path)} query={stellarSearchQuery}/></span></button>
         <IconButton title={t(`在 ${basename(group.path)} 新建会话`, `New session in ${basename(group.path)}`)} disabled={!bridge || loading} onClick={() => void createInWorkspace(group.path, group.sessions)}><Plus size={15}/></IconButton>
         <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'workspace', id: group.path, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
       </div>
@@ -1582,7 +1611,7 @@ function App() {
   };
   const menus: WindowMenu[] = [
     { id: 'file', label: t('文件', 'File'), items: [
-      { label: t('新建独立会话', 'New independent session'), disabled: !bridge || loading, action: () => { setPluginsOpen(false); setScheduledOpen(false); void applySnapshot(() => bridge!.beginSession()); } },
+      { label: t('新建独立会话', 'New independent session'), disabled: !bridge || loading, action: () => { setRemoteOpen(false); setPluginsOpen(false); setScheduledOpen(false); void applySnapshot(() => bridge!.beginSession()); } },
       { label: t('打开项目…', 'Open project...'), disabled: !bridge || loading, action: () => void openProject() },
       { label: t('打开会话文件夹', 'Open session folder'), disabled: !bridge || !data.runtimeId || loading, action: () => void run(() => bridge!.openSessionFolder()) },
       { label: t('退出应用', 'Quit application'), disabled: !bridge, action: () => void run(() => bridge!.windowControl('quit')) },
@@ -1694,6 +1723,10 @@ function App() {
       anchor: image.closest<HTMLButtonElement>('button') ?? image,
       x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
   }}>
+    <StellarWorkspace pack={data.themePacks?.find(pack => pack.id === data.preferences.theme)}
+      preferences={data.preferences} bridge={bridge} paused={settingsOpen}
+      activity={navigationTarget ? 'navigating' : requests.length ? 'waiting' : busy ? 'running' : 'idle'}
+      reading={Boolean(data.messages.length || navigationTarget || hasPendingReceipt)}/>
     <AppTooltip/>
     {!isMini && quitReview.request && <QuitConfirmation key={quitReview.request.id}
       reasons={quitReview.request.reasons} language={data.preferences.language}
@@ -1783,14 +1816,17 @@ function App() {
     {!isMini && compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
     {!isMini && <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
-          aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span></button>
+          aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span>
+        {bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1') &&
+          <StellarBrand motion={data.preferences.themeMotion !== false} paused={!sidebarVisible || settingsOpen || scheduledOpen || usageOpen}/>}
+      </button>
       <SidebarTaskActions selected={scheduledOpen} pluginsSelected={pluginsOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
         onSearchChange={setSessionQuery}
         fulltextOpen={fulltextOpen}
         onFulltextSearch={(text, anchor) => {
           fulltextAnchor.current = anchor;
           setFulltextRequest(previous => ({ id: (previous?.id ?? 0) + 1, text }));
-          setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); setFulltextOpen(true); setCompactSidebarOpen(false);
+          setRemoteOpen(false); setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); setFulltextOpen(true); setCompactSidebarOpen(false);
         }}
         onScheduledTasks={() => { if (scheduledOpen) setScheduledOpen(false); else openScheduled(); }}
         onPlugins={() => { if (pluginsOpen) setPluginsOpen(false); else openPlugins(); }}/>
@@ -1799,7 +1835,7 @@ function App() {
         {searchingSessions && <div className="session-search-status" role="status">{t(`找到 ${visibleSessions.length} 个会话`, `${visibleSessions.length} sessions found`)}</div>}
         {searchingSessions && !visibleSessions.length && <p className="list-empty">{t('没有匹配的会话', 'No matching sessions')}</p>}
         {(!searchingSessions || independentSessions.length > 0) && <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
-          <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} aria-disabled={searchingSessions || undefined} onClick={() => { if (!searchingSessions) toggleWorkspace('__independent__'); }}><MessageSquare size={15}/><span>{t('独立会话', 'Independent sessions')}</span><small>{independentSessions.length}</small></button></div>
+          <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} aria-disabled={searchingSessions || undefined} onClick={() => { if (!searchingSessions) toggleWorkspace('__independent__'); }}><MessageSquare size={15}/><span><SessionSearchText text={t('独立会话', 'Independent sessions')} query={stellarSearchQuery}/></span><small>{independentSessions.length}</small></button></div>
           <div className="workspace-disclosure" aria-hidden={!independentExpanded} inert={!independentExpanded}>
             <div className="workspace-sessions">{independentSessions.map(s => renderSession(s, '__independent__'))}</div>
           </div>
@@ -1812,7 +1848,13 @@ function App() {
         {[...workspaceGroups].filter(([key]) => !pinnedWorkspaces.has(key)).map(renderWorkspace)}
         {!searchingSessions && !workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void openProject()}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
       </nav>
-      <div className="sidebar-bottom"><button onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{t('设置', 'Settings')}<span className={updateAvailable ? 'update-indicator' : undefined}>{updateAvailable ? <><i/>{t('有更新', 'Update')}</> : appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</span></button><div className="connection"><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</div></div>
+      <div className="sidebar-bottom"><div className="sidebar-remote-utilities">
+        <button className="icon-button sidebar-settings" aria-label={updateAvailable ? t('设置，有更新', 'Settings, update available') : t('设置', 'Settings')}
+          data-tooltip={t('设置', 'Settings')} onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{updateAvailable && <i className="update-dot update-indicator"/>}</button>
+        <button className="icon-button remote-entry" aria-label={t('远程访问', 'Remote access')} data-tooltip={t('远程访问', 'Remote access')} disabled={!bridge}
+          aria-pressed={remoteOpen} onClick={() => remoteOpen ? setRemoteOpen(false) : openRemote()}><Smartphone size={17}/></button>
+      </div><div className="connection remote-footer-status"><span><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</span>
+        <small>{appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</small></div></div>
     </aside>}
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
     {scheduledOpen && bridge && <main inert={settingsOpen || Boolean(removeProject)}>
@@ -1862,8 +1904,13 @@ function App() {
           return opened;
         }} openImage={openImage}/>
     </main>}
+    {remoteOpen && bridge && <main inert={settingsOpen || Boolean(removeProject)}>
+      {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
+        <button onClick={() => { setRemoteOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
+      <RemoteAccessPanel bridge={bridge} language={data.preferences.language} onBack={() => setRemoteOpen(false)}/>
+    </main>}
     <ConversationDisclosureMemory.Provider value={navigationTarget ? undefined : disclosures}>
-    <main hidden={scheduledOpen || pluginsOpen || fulltextOpen} inert={scheduledOpen || pluginsOpen || fulltextOpen || settingsOpen || Boolean(removeProject)}
+    <main hidden={scheduledOpen || pluginsOpen || fulltextOpen || remoteOpen} inert={scheduledOpen || pluginsOpen || fulltextOpen || remoteOpen || settingsOpen || Boolean(removeProject)}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
@@ -1881,7 +1928,7 @@ function App() {
         </>}
         <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
       </div>}
-      <ConversationSearchLocation active={!navigationTarget && !usageOpen && !scheduledOpen && !fulltextOpen}
+      <ConversationSearchLocation active={!navigationTarget && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen}
         location={searchLocation} requestId={searchLocateRequest} sessionId={data.state?.sessionId}
         messages={data.messages} root={transcript} language={data.preferences.language}
         onLocate={locateSearchMessage} onRetry={() => setSearchLocateRequest(value => value + 1)}
@@ -1894,7 +1941,7 @@ function App() {
       <WorkflowCatalogPanel key={`${data.runtimeId ?? data.draftId}:${data.state?.sessionId}`}
         open={Boolean(workflowCatalogRequest && workflowCatalogRequest.runtimeId === data.runtimeId
           && workflowCatalogRequest.sessionId === data.state?.sessionId && !navigationTarget && !settingsOpen
-          && !usageOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && !inspectorExpanded && !removeProject && !requests.length)}
+          && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && !inspectorExpanded && !removeProject && !requests.length)}
         requestId={workflowCatalogRequest?.id ?? 0} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
         language={data.preferences.language} bridge={bridge} onClose={() => setWorkflowCatalogRequest(null)}/>
       <NoticeToast notice={notice} language={data.preferences.language} onDismiss={() => setNotice(null)}
@@ -1950,6 +1997,10 @@ function App() {
               onLayoutChange={followLayout} arrivingUser={null} onOpenSubagent={() => setError(t('请等待会话打开', 'Wait for the conversation to open'))}/>
           </div> : <div className="session-reading-placeholder" aria-hidden="true"><span/><span/><span/></div>
           : !data.messages.length && !hasPendingReceipt ? <NewSession language={data.preferences.language}
+            emblem={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
+              ? <StellarEmblem motion={data.preferences.themeMotion !== false} paused={settingsOpen || scheduledOpen}/> : undefined}
+            renderGreeting={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
+              ? text => <StellarLettering text={text} motion={data.preferences.themeMotion !== false} paused={settingsOpen || scheduledOpen}/> : undefined}
             workspace={data.independent ? undefined : data.preferences.workspace} workspaces={data.preferences.workspaces}
             title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
             onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
@@ -2088,10 +2139,10 @@ function App() {
     <QuoteAnnotations root={transcript} scope={quoteScope} language={data.preferences.language}
       remove={id => setQuotes(value => value.filter(item => item.id !== id))}
       focusedId={focusedQuoteId}
-      quotes={navigationTarget || settingsOpen || preview || requests.length || scheduledOpen || usageOpen || pluginsOpen || fulltextOpen ? [] : quotes}
+      quotes={navigationTarget || settingsOpen || preview || requests.length || scheduledOpen || usageOpen || remoteOpen || pluginsOpen || fulltextOpen ? [] : quotes}
       annotate={(id, annotation) => setQuotes(value => value.map(item => item.id === id ? { ...item, annotation } : item))}/>
     <SelectionToolbar root={transcript} scope={quoteScope} language={data.preferences.language}
-      enabled={!scheduledOpen && !usageOpen && !pluginsOpen && !fulltextOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
+      enabled={!scheduledOpen && !usageOpen && !remoteOpen && !pluginsOpen && !fulltextOpen && connected && !loading && !settingsOpen && !preview && !requests.length && !renaming}
       btwDisabled={!data.state?.sessionId || Boolean(data.state?.isCompacting) || Boolean(navigationTarget)}
       onBtw={quote => {
         if (navigationPending.current || !connected || !data.runtimeId || !data.state?.sessionId || data.state.isCompacting || firstSend.current) return false;
@@ -2123,9 +2174,9 @@ function App() {
         handleScrollIntent('backward');
         setQuotes(value => [...value, quote]); return true;
       }}/>
-    {details && !usageOpen && !pluginsOpen && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
+    {details && !usageOpen && !remoteOpen && !pluginsOpen && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
     {!isMini && <><ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
-      overlay={!summarySpace} turns={turns} language={data.preferences.language} onClose={closeRightPanel}
+      overlay={!summarySpace} turns={turns} scrollRef={scroll} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { handleScrollIntent('backward'); scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
     <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
       repositoryRequest={repositoryRequest?.runtimeId === data.runtimeId ? repositoryRequest?.sequence : undefined}
@@ -2219,6 +2270,7 @@ function App() {
             tasksRequest={tasksRequest?.runtimeId === data.runtimeId && tasksRequest?.sessionId === data.state?.sessionId
               && tasksRequest?.draftId === data.draftId ? tasksRequest?.sequence : undefined}
             onTasksRequestHandled={sequence => setTasksRequest(value => value?.sequence === sequence ? undefined : value)}
+            stellar={data.themePacks?.find(pack => pack.id === data.preferences.theme)?.renderer === 'stellar-v1'}
             messages={data.messages} backgroundActivity={backgroundActivity} busy={busy} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow} onClose={closeRightPanel}
             mcpBusy={anyBusy || busy || loading || !connected} capabilityRevision={capabilityRevision}
             onMcpChanged={async () => { setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1); }}
@@ -2242,7 +2294,7 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
-    <nav hidden={scheduledOpen || usageOpen || pluginsOpen || fulltextOpen} ref={rightRail} className="right-tool-rail" style={usageOpen || pluginsOpen || fulltextOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || pluginsOpen || fulltextOpen || Boolean(navigationTarget) || Boolean(removeProject)}
+    <nav hidden={scheduledOpen || usageOpen || remoteOpen || pluginsOpen || fulltextOpen} ref={rightRail} className="right-tool-rail" style={usageOpen || remoteOpen || pluginsOpen || fulltextOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || remoteOpen || pluginsOpen || fulltextOpen || Boolean(navigationTarget) || Boolean(removeProject)}
       onClickCapture={() => { if (bottomTerminalExpanded) setExpandedRightPanel(null); }}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
       <IconButton title={t('上下文', 'Context')} data-tooltip-side="left" aria-controls="context-panel" aria-pressed={!details && visibleRightPanel === 'context'} onClick={() => {
@@ -2308,7 +2360,7 @@ function App() {
       </div>
     </div>}
     {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['plugins', Plug, t('插件', 'Plugins')], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, 'Skills'], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['import', ArrowRightLeft, t('会话迁移', 'Session migration')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : ''}`} onClick={() => { if (id === 'plugins') { openPlugins(); return; } mcpEditRequestRevision.current++; setCapabilityTarget(undefined); setTab(id); }}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
-      {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <><ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} onChange={patch => void setPreference(patch)}/><AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/></> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
+      {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <><ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks} loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/><AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/></> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
         onOpen={id => { closeSettings(); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
         onRestore={id => run(() => updateArchive(id, true)).then(() => {})} onDelete={deleteArchived}/> : <>
@@ -2329,7 +2381,7 @@ function App() {
       </>}
       {tab === 'import' && bridge ? <SessionImportSettings bridge={bridge} language={data.preferences.language}
         onOpen={async id => { const session = (await bridge.sessions()).find(item => item.id === id); if (!session) throw new Error('Imported session is unavailable'); finishSettingsClose(); await navigateSession(session); }}/>
-      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <><h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
+      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <>{bridge && <CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/>}<h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
         onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
         onTest={(provider, modelId, key) => bridge!.testProvider(provider, modelId, key)}
         onCancelTest={() => bridge!.cancelProviderTest()}

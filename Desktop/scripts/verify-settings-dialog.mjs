@@ -32,7 +32,7 @@ try {
   });
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Unsent settings fixture');
   const draft = await page.evaluate(() => window.desktop.snapshot());
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.locator('.account-settings').waitFor();
   const dialog = page.locator('.settings-dialog');
   assert.equal(await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: 'MCP', exact: true }).locator('svg.lucide-mcp').count(), 1);
@@ -63,6 +63,26 @@ try {
     assert.equal(await page.locator('.settings-content').evaluate(element => element.scrollWidth > element.clientWidth), false);
     assert.equal(await page.getByRole('button', { name: title, exact: true }).getAttribute('aria-current'), 'page');
   }
+  {
+    await navigation.getByRole('button', { name: '通用', exact: true }).click();
+    const threshold = page.getByRole('spinbutton', { name: '触发比例百分比', exact: true });
+    await threshold.waitFor();
+    const before = await page.evaluate(() => window.desktop.compactionSettings());
+    await threshold.fill('80');
+    await threshold.press('Enter');
+    await page.getByRole('status').filter({ hasText: '已保存，现有会话未更改。' }).waitFor();
+    assert.equal((await page.evaluate(() => window.desktop.compactionSettings())).triggerRatio, .8);
+    const after = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(after.draftId, draft.draftId);
+    assert.equal(after.runtimeId, draft.runtimeId);
+    assert.equal(after.messages.length, draft.messages.length, 'Changing thresholds never sends a prompt');
+    await page.getByRole('button', { name: '恢复上下文整理默认值', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: '已保存，现有会话未更改。' }).waitFor();
+    assert.equal((await page.evaluate(() => window.desktop.compactionSettings())).triggerRatio, .9);
+    assert.equal(before.triggerRatio, .9);
+    await page.locator('.compaction-advanced summary').click();
+    await capture('settings-compaction-general-light');
+  }
   await navigation.getByRole('button', { name: '插件', exact: true }).click();
   const plugins = page.locator('.plugin-center');
   await plugins.waitFor();
@@ -74,7 +94,7 @@ try {
   assert.equal(returned.draftId, draft.draftId, 'Plugin navigation retains the current draft');
   assert.equal(returned.runtimeId, draft.runtimeId, 'Plugin navigation does not start or replace a worker');
   assert.equal(returned.messages.length, draft.messages.length);
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await dialog.waitFor();
   await settleLayout(page.locator('.settings-backdrop'));
   assert.deepEqual(await dialog.boundingBox(), baseline, 'Returning from Plugins preserves the settings shell');
@@ -114,7 +134,7 @@ try {
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.window-bar').evaluate(element => element.inert), false);
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Unsent settings fixture');
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await dialog.waitFor();
   await settleLayout(page.locator('.settings-backdrop'));
   assert.equal(await page.locator('.settings-backdrop.is-closing').count(), 0, 'Reopening resets exit state');

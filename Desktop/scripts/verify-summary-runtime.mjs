@@ -186,7 +186,7 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await board.locator('.sb-task-shell').first().evaluate(element => getComputedStyle(element).transitionDuration), '0s', 'Reduced motion disables task transitions');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '亮', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();

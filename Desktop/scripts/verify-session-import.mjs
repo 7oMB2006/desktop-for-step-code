@@ -78,7 +78,7 @@ try {
   await page.waitForFunction(() => window.desktop && document.querySelector('.new-chat')?.disabled === false);
   const before = await page.evaluate(() => window.desktop.snapshot());
   const openMigration = async () => {
-    await page.locator('.sidebar-bottom > button').click();
+    await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '会话迁移', exact: true }).click();
     await page.locator('.session-import-settings').waitFor();
   };

@@ -24,7 +24,7 @@ async function launch() {
 }
 const settings = page => page.getByRole('region', { name: '界面复杂度', exact: true });
 async function openSettings(page) {
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '界面复杂度', exact: true }).click();
   await settings(page).waitFor();
 }

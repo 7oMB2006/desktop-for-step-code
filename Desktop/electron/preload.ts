@@ -44,6 +44,8 @@ const bridge: DesktopBridge = {
   composerWrite: input => invoke('composerWrite', input),
   composerTake: (owner, revision) => invoke('composerTake', owner, revision),
   composerRestore: receipt => invoke('composerRestore', receipt),
+  remoteState: () => invoke('remoteState'),
+  remoteAction: action => invoke('remoteAction', action),
   projectInstructions: owner => invoke('projectInstructions', owner),
   finishFirstRun: outcome => invoke('finishFirstRun', outcome),
   btwAsk: input => invoke('btwAsk', input),
@@ -55,6 +57,8 @@ const bridge: DesktopBridge = {
   pluginConfiguration: input => invoke('pluginConfiguration', input),
   pluginSaveConfiguration: input => invoke('pluginSaveConfiguration', input),
   pluginChoosePath: input => invoke('pluginChoosePath', input),
+  themeScene: id => invoke('themeScene', id),
+  themePoster: id => invoke('themePoster', id),
   capabilityMutate: input => invoke('capabilityMutate', input),
   capabilityImportSkill: () => invoke('capabilityImportSkill'),
   bvrConfiguration: () => invoke('bvrConfiguration'),
@@ -147,6 +151,8 @@ const bridge: DesktopBridge = {
   cloneSession: id => invoke('cloneSession', id),
   retryMessage: (entryId, message, runtimeId) => invoke('retryMessage', entryId, message, runtimeId),
   deleteSession: id => invoke('deleteSession', id), restart: () => invoke('restart'), settings: () => invoke('settings'),
+  compactionSettings: () => invoke('compactionSettings'),
+  saveCompactionSettings: update => invoke('saveCompactionSettings', update),
   accountAllowance: refresh => invoke('accountAllowance', refresh),
   cancelAccountAllowance: () => invoke('cancelAccountAllowance'),
   estimateSettings: () => invoke('estimateSettings'),
@@ -176,6 +182,9 @@ const bridge: DesktopBridge = {
 };
 contextBridge.exposeInMainWorld('desktop', bridge);
 const theme: DesktopTheme = {
+  themePacks: resolvedTheme.themePacks,
+  themeMotion: resolvedTheme.themeMotion,
+  themeBrightness: resolvedTheme.themeBrightness,
   preference: resolvedTheme.preference,
   accentColor: resolvedTheme.accentColor,
   palette: resolvedTheme.palette,

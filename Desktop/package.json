@@ -19,6 +19,7 @@
     "package:mac": "pnpm build && pnpm stage:runtime && node scripts/package-macos.mjs"
   },
   "dependencies": {
+    "three": "0.180.0",
     "@number-flow/react": "0.6.2",
     "@xmldom/xmldom": "0.9.12",
     "@xterm/addon-fit": "0.11.0",
@@ -50,6 +51,7 @@
     "yauzl": "3.4.0"
   },
   "devDependencies": {
+    "@types/three": "0.180.0",
     "@resvg/resvg-js": "^2.6.2",
     "@types/mdast": "4.0.4",
     "@types/node": "24.10.0",

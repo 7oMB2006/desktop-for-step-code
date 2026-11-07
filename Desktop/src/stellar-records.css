@@ -1,0 +1,370 @@
+/* Host-owned reading surfaces. Existing controls, content and disclosure timing stay intact. */
+:root[data-theme-material=stellar] {
+  --stellar-record-ink: #e7e2d8;
+  --stellar-record-muted: #b5b1a8;
+  --stellar-record-paper: #161719;
+  --stellar-record-gutter: #202123;
+  --stellar-record-hairline: #bca9871a;
+}
+
+/* Scope prose to response text: tool output, diff tables and review forms keep their own semantics. */
+:root[data-theme-material=stellar] .response-text :is(h1, h2, h3) {
+  color: var(--stellar-record-ink); margin-block: 20px 10px;
+}
+:root[data-theme-material=stellar] .response-text > :is(h1, h2, h3):first-child { margin-top: 0; }
+:root[data-theme-material=stellar] .response-text :is(ul, ol) > li::marker { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .response-text blockquote {
+  margin-inline: 0; padding: 6px 14px; border: 0; border-left: 1px solid var(--stellar-rule);
+  background: transparent; color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .response-text blockquote > :first-child { margin-top: 0; }
+:root[data-theme-material=stellar] .response-text blockquote > :last-child { margin-bottom: 0; }
+:root[data-theme-material=stellar] .response-text :not(pre) > code:not(.hljs) {
+  color: var(--stellar-record-ink); background: var(--stellar-record-gutter);
+}
+:root[data-theme-material=stellar] .response-text pre {
+  background: var(--stellar-record-paper); border-color: transparent; border-radius: 2px; box-shadow: none;
+}
+:root[data-theme-material=stellar] .response-text .code-block > code {
+  background: transparent; padding: 0; color: var(--stellar-record-ink);
+}
+:root[data-theme-material=stellar] .response-text .code-header {
+  color: var(--stellar-metal); border-bottom-color: transparent;
+}
+:root[data-theme-material=stellar] .response-text table { background: transparent; }
+:root[data-theme-material=stellar] .response-text :is(th, td) {
+  border-color: transparent; border-bottom-color: var(--stellar-record-hairline);
+  background: transparent;
+}
+:root[data-theme-material=stellar] .response-text th {
+  color: var(--stellar-record-ink); border-bottom-color: var(--stellar-rule);
+  background: var(--stellar-record-paper);
+}
+:root[data-theme-material=stellar] .response-text tbody tr:last-child td { border-bottom-color: transparent; }
+:root[data-theme-material=stellar] .response-text .code-header .icon-button {
+  color: var(--stellar-record-muted); border-radius: 2px;
+}
+:root[data-theme-material=stellar] .response-text .code-header .icon-button:hover {
+  color: var(--ink); background: var(--stellar-record-gutter);
+}
+:root[data-theme-material=stellar] .response-text .code-header .icon-button:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+
+/* The spine is confined to an expanded process, never drawn through ordinary replies. */
+:root[data-theme-material=stellar] .process-tool-group:not([data-single=true]) > .tool-group-disclosure > div {
+  position: relative;
+}
+:root[data-theme-material=stellar] .process-tool-group:not([data-single=true]) > .tool-group-disclosure > div::before {
+  content: ""; position: absolute; pointer-events: none;
+  left: 6px; top: 1px; bottom: 17px; width: 1px; background: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] :is(.process-tool > summary, .thinking > summary, .tool-group-trigger) {
+  position: relative; color: var(--stellar-record-muted); border-radius: 2px;
+}
+:root[data-theme-material=stellar] .process-tool-group:not([data-single=true]) .process-tool > summary::before {
+  content: ""; position: absolute; pointer-events: none;
+  left: -12px; top: 50%; width: 9px; height: 1px; background: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] :is(.process-tool > summary, .thinking > summary) > svg:first-child {
+  color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] :is(.process-tool[data-expanded=true], .thinking[data-expanded=true]) > summary {
+  color: var(--stellar-record-ink);
+}
+:root[data-theme-material=stellar] :is(.process-tool > summary, .thinking > summary, .tool-group-trigger):hover {
+  color: var(--ink); background: #bca9870a;
+}
+:root[data-theme-material=stellar] :is(.process-tool > summary, .thinking > summary, .tool-group-trigger):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+:root[data-theme-material=stellar] .process-tool.running > summary > svg:first-child,
+:root[data-theme-material=stellar] .thinking[data-running=true] > summary > svg:first-child { color: var(--primary); }
+:root[data-theme-material=stellar] .process-tool.waiting > summary > svg:first-child { color: var(--stellar-gold); }
+:root[data-theme-material=stellar] .process-tool.failed > summary,
+:root[data-theme-material=stellar] .process-tool.failed > summary > svg:first-child { color: var(--danger); }
+:root[data-theme-material=stellar] .process-tool-content {
+  border-left-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .process-tool-meta {
+  color: var(--stellar-record-muted); border-bottom: 1px solid var(--stellar-record-hairline);
+}
+:root[data-theme-material=stellar] .process-tool-meta > code {
+  color: var(--stellar-metal); background: transparent; padding: 0;
+}
+:root[data-theme-material=stellar] .process-tool-status {
+  border-top: 1px solid transparent; color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .process-tool-status > svg { color: var(--green); }
+:root[data-theme-material=stellar] .process-tool.failed .process-tool-status { color: var(--danger); }
+:root[data-theme-material=stellar] :is(.tool-input, .tool-output) > summary {
+  color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .tool-output { background: transparent; }
+:root[data-theme-material=stellar] :is(.tool-input, .tool-output) pre {
+  border: 0; border-radius: 2px; background: var(--stellar-record-paper);
+  box-shadow: inset 0 1px var(--stellar-record-hairline);
+}
+:root[data-theme-material=stellar] .thinking-body {
+  color: var(--stellar-record-muted);
+  background: linear-gradient(var(--stellar-rule), var(--stellar-rule)) 6px 0 / 1px 100% no-repeat;
+}
+:root[data-theme-material=stellar] .thinking-body > * { margin-left: 20px; }
+:root[data-theme-material=stellar] :is(.thinking-preview, .process-group-preview) {
+  color: var(--stellar-record-muted); border-left-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .elapsed-label {
+  font-family: "Cascadia Code", Consolas, monospace; color: var(--stellar-record-muted);
+}
+
+/* Context is a measurement sheet. Capacity colors still come from the live warning scale. */
+:root[data-theme-material=stellar] .context-panel {
+  --context-input: #ddc498;
+  --context-cache: #97c9a6;
+  --context-output: var(--primary);
+}
+:root[data-theme-material=stellar] .context-identity strong { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .context-identity small {
+  font-family: "Cascadia Code", Consolas, monospace; color: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .context-section-title h3 { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .context-capacity {
+  padding-top: 12px; border-top: 1px solid var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .context-capacity-number > strong,
+:root[data-theme-material=stellar] .context-capacity-number > span,
+:root[data-theme-material=stellar] .context-usage-list dd {
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+:root[data-theme-material=stellar] .context-capacity-strip {
+  align-items: end; border-bottom: 1px solid var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .context-capacity-strip i {
+  height: 11px; border-radius: 0; background: var(--stellar-record-gutter);
+}
+:root[data-theme-material=stellar] .context-capacity-strip i:nth-child(5n + 1),
+:root[data-theme-material=stellar] .context-capacity-strip i:last-child { height: 16px; }
+:root[data-theme-material=stellar] .context-capacity-strip .is-used {
+  background: linear-gradient(to right, var(--capacity-color) var(--tick-fill), var(--stellar-record-gutter) var(--tick-fill));
+}
+:root[data-theme-material=stellar] :is(.context-session-totals, .context-message-section, .context-message) {
+  border-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .context-session-totals > div + div { border-left-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .context-usage-list { gap: 0; }
+:root[data-theme-material=stellar] .context-usage-list > div {
+  min-height: 34px; border-bottom: 1px solid #bca98717;
+}
+:root[data-theme-material=stellar] .context-usage-list dt > i { width: 4px; height: 4px; transform: rotate(45deg); }
+:root[data-theme-material=stellar] .context-usage-write dt > i { background: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .context-usage-output {
+  padding-top: 0; border-top: 0; border-bottom-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .context-usage-list dd { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .context-message-tabs { border-bottom-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .context-message-tabs > button[aria-selected=true] {
+  color: var(--stellar-record-ink); background: var(--stellar-record-gutter);
+  box-shadow: inset 0 -1px var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .context-message-number { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .context-message[open] > summary {
+  background: var(--stellar-record-paper); box-shadow: inset 2px 0 var(--stellar-metal);
+}
+:root[data-theme-material=stellar] .context-message[open] .context-message-number { color: var(--primary); }
+:root[data-theme-material=stellar] .context-message summary:focus-visible { outline-offset: -2px; }
+:root[data-theme-material=stellar] .context-json {
+  border-left: 1px solid var(--stellar-metal); background: var(--stellar-record-paper);
+}
+:root[data-theme-material=stellar] .context-json-tools { border-bottom: 1px solid var(--stellar-rule); }
+:root[data-theme-material=stellar] .context-json pre { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .context-response-extra,
+:root[data-theme-material=stellar] .context-message-preview { color: var(--stellar-record-muted); }
+
+/* A change sheet: filenames stay prominent, source locations and counts form the margins. */
+:root[data-theme-material=stellar] :is(.review-toolbar, .review-base, .review-scope) {
+  background: var(--stellar-record-paper);
+}
+:root[data-theme-material=stellar] .review-toolbar .review-select {
+  border-radius: 2px; background: var(--stellar-record-gutter); box-shadow: inset 0 0 0 1px var(--stellar-rule);
+}
+:root[data-theme-material=stellar] :is(.review-current-branch, .review-file-name small, .turn-file-name small,
+  .review-file-counts, .review-totals, .review-footer, .file-preview-footer) {
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+:root[data-theme-material=stellar] :is(.review-file-name b, .turn-file-name b) { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] :is(.review-file-name small, .turn-file-name small) { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .review-file-row > svg { color: var(--stellar-metal); stroke-width: 1.4; }
+:root[data-theme-material=stellar] .review-file:not(.is-open) > .review-file-row:hover { background: var(--stellar-record-paper); }
+:root[data-theme-material=stellar] :is(.review-file-row, .turn-change-row):is(:hover, :focus-visible) small { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .review-file.is-open > .review-file-row,
+:root[data-theme-material=stellar] .turn-change-row[aria-expanded=true] {
+  background: var(--stellar-record-gutter); box-shadow: inset 2px 0 var(--stellar-metal);
+}
+:root[data-theme-material=stellar] :is(.review-scope, .review-file, .review-footer, .turn-changes, .turn-change-file) {
+  border-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .review-status.status-M {
+  color: var(--stellar-metal); background: transparent; box-shadow: inset 0 0 0 1px var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .turn-diff { border-left-color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .turn-diff-toolbar {
+  background: var(--stellar-record-paper); border-bottom-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .turn-diff-table .diff-line-number {
+  color: var(--stellar-record-muted); box-shadow: inset -1px 0 #bca98717;
+}
+/* Table reading fills must not hide semantic colors, including split diff cell classes. */
+:root[data-theme-material=stellar] .turn-diff-table td { background: transparent; }
+:root[data-theme-material=stellar] .turn-diff-table :is(tr, td).diff-line-add { background: var(--diff-add-bg); }
+:root[data-theme-material=stellar] .turn-diff-table :is(tr, td).diff-line-remove { background: var(--diff-remove-bg); }
+:root[data-theme-material=stellar] .turn-diff-table :is(tr, td).diff-line-empty { background: var(--stellar-record-paper); }
+:root[data-theme-material=stellar] .turn-diff-table .diff-line-hunk { background: var(--stellar-record-gutter); }
+:root[data-theme-material=stellar] .turn-diff-table th {
+  background: var(--stellar-record-paper); color: var(--stellar-record-muted); border-color: var(--stellar-rule);
+}
+
+/* Files retain the native read-only view, with the same paper and syntax as tool records. */
+:root[data-theme-material=stellar] .file-preview-identity {
+  background: var(--stellar-record-gutter); border-bottom-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .file-preview-identity > svg { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .file-preview-identity strong { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .file-preview-identity span[title] {
+  font-family: "Cascadia Code", Consolas, monospace; color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] :is(.file-preview-toolbar, .file-preview-footer) {
+  background: var(--stellar-record-paper); border-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .file-preview-modes { border-color: var(--stellar-rule); border-radius: 2px; }
+:root[data-theme-material=stellar] .file-preview-toolbar button[aria-pressed=true] {
+  color: var(--stellar-record-ink); background: var(--stellar-record-gutter);
+  box-shadow: inset 0 -1px var(--stellar-metal); border-radius: 2px;
+}
+:root[data-theme-material=stellar] .file-preview-type { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .file-preview-source {
+  color: var(--stellar-record-ink); background: var(--stellar-record-paper);
+  box-shadow: inset 3px 0 var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .file-preview-scroll:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -3px;
+}
+:root[data-theme-material=stellar] .file-preview-markdown :is(h1, h2) {
+  padding-bottom: 10px; border-bottom: 1px solid var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .file-preview-markdown :is(h2, h3) { margin-top: 24px; margin-bottom: 12px; }
+:root[data-theme-material=stellar] .file-preview-markdown :is(ul, ol) > li::marker { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .file-preview-empty > svg { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .file-preview-empty > button { border-radius: 3px; border-color: var(--stellar-frame); }
+
+/* Quiet, normal empty states: leave errors, loading states and their actions alone. */
+:root[data-theme-material=stellar] :is(.review-empty, .file-preview-empty) {
+  position: relative;
+  color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] :is(.review-empty, .file-preview-empty)::after {
+  content: "";
+  position: absolute;
+  width: 38px;
+  height: 1px;
+  left: calc(50% - 19px);
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--stellar-rule) 24%, var(--stellar-rule) 76%, transparent);
+}
+:root[data-theme-material=stellar] .review-empty::after { bottom: 28px; }
+:root[data-theme-material=stellar] .file-preview-empty::after { top: calc(50% + 64px); }
+:root[data-theme-material=stellar] :is(.review-empty, .file-preview-empty) > svg {
+  color: var(--stellar-metal);
+  stroke-width: 1.2;
+  opacity: .8;
+}
+:root[data-theme-material=stellar] .sidebar :is(.list-empty, .workspace-empty) {
+  color: var(--stellar-record-muted);
+}
+
+/* Selection stays local to prose; code and semantic records keep native selection. */
+:root[data-theme-material=stellar] .response-text::selection,
+:root[data-theme-material=stellar] .response-text ::selection {
+  background: #625d53;
+  color: #fffaf0;
+}
+:root[data-theme-material=stellar] .response-text :is(pre, code, table, [role=alert], .warning, .error)::selection,
+:root[data-theme-material=stellar] .response-text :is(pre, code, table, [role=alert], .warning, .error) ::selection {
+  background: oklch(.42 0 0);
+  color: oklch(.97 0 0);
+}
+:root[data-theme-material=stellar] .response-text .message-link-label {
+  text-decoration-line: underline;
+  text-decoration-style: solid;
+  text-decoration-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .response-text .message-link:is(:hover, :focus-visible) .message-link-label {
+  text-decoration-color: currentColor;
+  text-decoration-style: solid;
+}
+
+/* Reuse the native success/reset lifecycle without changing action visibility. */
+:root[data-theme-material=stellar] .copy-button[data-copied=true] {
+  color: var(--stellar-record-ink);
+  background: #bca98712;
+}
+:root[data-theme-material=stellar] .copy-button[data-copied=true] > svg {
+  stroke-width: 1.5;
+  color: var(--stellar-metal);
+}
+
+/* Viewing chrome only: never tint, filter or resize the image itself. */
+:root[data-theme-material=stellar] .attachment-preview-backdrop {
+  background: rgb(6 7 8 / .92);
+}
+:root[data-theme-material=stellar] .attachment-preview-toolbar {
+  color: var(--stellar-record-ink);
+  box-shadow: inset 0 -1px var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .attachment-preview-toolbar .icon-button {
+  color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .attachment-preview-toolbar .icon-button:hover:not(:disabled) {
+  color: var(--stellar-record-ink);
+  background: #bca98712;
+}
+
+/* Terminal chrome stays separate from xterm's output and ANSI palette. */
+:root[data-theme-material=stellar] .terminal-tabs {
+  background: var(--stellar-record-paper);
+  border-bottom-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .terminal-tab > button[role=tab] {
+  color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .terminal-tab.is-active > button[role=tab] {
+  color: var(--stellar-record-ink);
+}
+:root[data-theme-material=stellar] .terminal-toolbar {
+  background: var(--stellar-record-paper);
+  box-shadow: inset 0 -1px var(--stellar-record-hairline);
+}
+:root[data-theme-material=stellar] .terminal-toolbar > span {
+  color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .terminal-footer {
+  border-top-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .terminal-footer > span:first-child {
+  color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] :is(.turn-diff-table, .file-preview-source) :is(.hljs-string, .hljs-attr) {
+  color: #b4d5b8;
+}
+:root[data-theme-material=stellar] :is(.turn-diff-table, .file-preview-source) :is(.hljs-keyword, .hljs-literal) {
+  color: #98d4d0;
+}
+:root[data-theme-material=stellar] :is(.turn-diff-table, .file-preview-source) :is(.hljs-number, .hljs-title) {
+  color: #e1c399;
+}
+
+@media (forced-colors: active) {
+  :root[data-theme-material=stellar] {
+    --stellar-record-ink: CanvasText; --stellar-record-muted: CanvasText;
+    --stellar-record-paper: Canvas; --stellar-record-gutter: Canvas;
+  }
+}

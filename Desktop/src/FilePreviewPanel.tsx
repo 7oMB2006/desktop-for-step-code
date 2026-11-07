@@ -51,7 +51,7 @@ export function FilePreviewPanel({ file, open, replaced, overlay, expanded, lang
         <button className="icon-button" {...label('关闭文件预览', 'Close file preview')} onClick={onClose}><X size={16}/></button>
       </header>
       {file ? <>
-        <div className="file-preview-identity"><FileText size={17}/><div><strong>{file.name}</strong><span title={file.path}>{file.path}</span></div>
+        <div className="file-preview-identity"><FileText size={17}/><div><strong title={file.name}>{file.name}</strong><span title={file.path}>{file.path}</span></div>
           <FileOpenButton target={{ grantId: file.id }} language={language} onError={onError}/></div>
         <div className="file-preview-toolbar">
           {file.mode === 'markdown' && <div className="file-preview-modes" role="group" aria-label={t('显示方式', 'View mode')}>

@@ -58,10 +58,14 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
 } } }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
+const executablePath = process.env.DESKTOP_VERIFY_EXE;
 let app, mini;
 const errors = [];
 try {
-  app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
+  app = await electron.launch({ ...(executablePath ? { executablePath } : {}),
+    args: [...(executablePath ? [] : [resolve('.')]), '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding', '--disable-features=CalculateNativeWinOcclusion'],
+    env, timeout: 60000 });
   const main = await app.firstWindow();
   main.setDefaultTimeout(30000); main.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -209,7 +213,11 @@ try {
       .find(article => article.getBoundingClientRect().bottom > top);
     return { index: article.dataset.messageIndex, offset: article.getBoundingClientRect().top - top };
   });
+  await main.getByRole('button', { name: '远程访问', exact: true }).click();
+  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor();
   await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
+  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
+  await main.locator('main .conversation').waitFor({ state: 'visible' });
   await main.waitForFunction(anchor => {
     const viewport = document.querySelector('.conversation');
     const article = viewport.querySelector(`article[data-message-index="${anchor.index}"]`);

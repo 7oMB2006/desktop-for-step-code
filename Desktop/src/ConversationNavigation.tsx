@@ -33,11 +33,36 @@ export function scrollToTurn(scroll: HTMLDivElement | null, index: number) {
   scroll.scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
 }
 
-export function ConversationNavigationPanel({ open, replaced, overlay, turns, language, onClose, onSelect }: {
+export function ConversationNavigationPanel({ open, replaced, overlay, turns, scrollRef, language, onClose, onSelect }: {
   open: boolean; replaced: boolean; overlay: boolean; turns: ConversationTurn[]; language: 'zh' | 'en';
+  scrollRef: RefObject<HTMLDivElement | null>;
   onClose: () => void; onSelect: (index: number) => void;
 }) {
   const [present, setPresent] = useState(open);
+  const [readingIndex, setReadingIndex] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    if (!open || !scroll || !turns.length) { setReadingIndex(null); return; }
+    let frame = 0;
+    let positions: { index: number; top: number }[] = [];
+    const update = () => setReadingIndex(readingTurn(positions, scroll.scrollTop + 48));
+    const measure = () => {
+      const top = scroll.getBoundingClientRect().top;
+      positions = turns.flatMap(turn => {
+        const element = scroll.querySelector<HTMLElement>(`[data-message-index="${turn.index}"]`);
+        return element ? [{ index: turn.index, top: element.getBoundingClientRect().top - top + scroll.scrollTop }] : [];
+      });
+      update();
+    };
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(scroll);
+    const content = scroll.querySelector('.messages');
+    if (content) observer.observe(content);
+    scroll.addEventListener('scroll', update, { passive: true });
+    schedule();
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); scroll.removeEventListener('scroll', update); };
+  }, [open, scrollRef, turns]);
   if (open && !present) setPresent(true);
   useLayoutEffect(() => {
     if (!open && matchMedia('(prefers-reduced-motion: reduce)').matches) setPresent(false);
@@ -57,7 +82,8 @@ export function ConversationNavigationPanel({ open, replaced, overlay, turns, la
         <button type="button" className="icon-button" aria-label={zh ? '关闭侧栏' : 'Close panel'}
           data-tooltip={zh ? '关闭侧栏' : 'Close panel'} onClick={onClose}><X size={16}/></button></header>
       <nav aria-label={zh ? '会话轮次' : 'Conversation turns'}>
-        {turns.map((turn, number) => <button key={turn.index} onClick={() => onSelect(turn.index)}>
+        {turns.map((turn, number) => <button key={turn.index} type="button"
+          aria-current={turn.index === readingIndex ? 'location' : undefined} onClick={() => onSelect(turn.index)}>
           <span className="nav-turn-number">{number + 1}</span><span className="nav-turn-content"><span className="nav-turn-preview">{turn.preview}</span>
             {turnTime(turn.timestamp, language) && <time className="nav-turn-time" dateTime={new Date(turn.timestamp!).toISOString()}>{turnTime(turn.timestamp, language)}</time>}
           </span>
@@ -69,6 +95,16 @@ export function ConversationNavigationPanel({ open, replaced, overlay, turns, la
 }
 
 export const RULER_STEP = 18;
+
+export function readingTurn(positions: { index: number; top: number }[], position: number): number | null {
+  if (!positions.length) return null;
+  let current = positions[0].index;
+  for (const entry of positions) {
+    if (entry.top > position) break;
+    current = entry.index;
+  }
+  return current;
+}
 
 export function rulerOpacity(distance: number): number {
   return Math.max(0, Math.min(1, (14 - distance) / 11));
@@ -140,6 +176,7 @@ export function ConversationMarkers({ scrollRef, turns, language, onNavigate }: 
     <div className="turn-marker-ruler">
       {visible.map(({ turn, number, top }) => <button key={turn.index} type="button"
         className={`turn-marker${number === Math.floor(ruler.cursor) ? ' active' : ''}`}
+        aria-current={number === Math.floor(ruler.cursor) ? 'location' : undefined}
         style={{ top, opacity: rulerOpacity(Math.abs(number - ruler.cursor)) }}
         aria-label={`${language === 'zh' ? '跳到会话' : 'Go to turn'}: ${turn.preview.slice(0, 80)}`}
         onPointerEnter={() => setHovered(turn.index)} onPointerLeave={() => setHovered(null)}
@@ -148,6 +185,8 @@ export function ConversationMarkers({ scrollRef, turns, language, onNavigate }: 
     </div>
     {selected && <div className="turn-marker-preview" style={{ top: `clamp(8px, ${top - 28}px, calc(100% - 104px))` }}>
       <strong>{selected.preview.slice(0, 70)}</strong>
+      {turnTime(selected.timestamp, language) && <time className="nav-turn-time"
+        dateTime={new Date(selected.timestamp!).toISOString()}>{turnTime(selected.timestamp, language)}</time>}
     </div>}
   </div>;
 }

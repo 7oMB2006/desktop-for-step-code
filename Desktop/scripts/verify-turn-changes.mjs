@@ -328,7 +328,7 @@ try {
     await report.getByRole('button', { name: `预览变更 ${path}`, exact: true }).click();
     assert.equal(await report.locator('.turn-diff').count(), 1);
   }
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();

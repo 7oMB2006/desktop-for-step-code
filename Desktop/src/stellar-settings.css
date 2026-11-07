@@ -1,0 +1,69 @@
+/* Theme materials only: keep native field geometry, focus clearance and motion. */
+/* Only existing modal scrims dim the scene; inline approval drawers stay contextual. */
+:root[data-theme-material=stellar] .modal-backdrop {
+  background: rgb(0 0 0 / .48);
+}
+:root[data-theme-material=stellar] .settings-backdrop {
+  background: rgb(0 0 0 / .52);
+}
+:root[data-theme-material=stellar] :is(.settings-dialog, .small-dialog) {
+  background: var(--stellar-record-paper); border-color: var(--stellar-frame);
+  box-shadow: 0 12px 36px #0006;
+}
+:root[data-theme-material=stellar] :is(.settings-dialog, .small-dialog) > header {
+  border-bottom-color: var(--stellar-section-rule);
+}
+:root[data-theme-material=stellar] .settings-dialog .settings-layout > nav {
+  background: var(--stellar-control); border-right-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .settings-dialog .settings-layout > nav button { border-radius: 3px; }
+:root[data-theme-material=stellar] .settings-dialog .settings-layout > nav button.selected {
+  background: var(--stellar-raised) !important; color: var(--stellar-record-ink);
+}
+:root[data-theme-material=stellar] .settings-dialog .settings-layout > nav button:hover:not(:disabled) {
+  background: var(--stellar-raised);
+}
+:root[data-theme-material=stellar] :is(.settings-dialog > header h2, .small-dialog > h2, .small-dialog > header h2,
+  .settings-content > h3, .appearance-heading h3, .interface-heading h3) {
+  color: var(--stellar-record-ink);
+}
+:root[data-theme-material=stellar] .appearance-settings > h4 { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] :is(.settings-content > label, .appearance-row > span:first-child) {
+  color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] :is(.settings-content > label > select, .appearance-row input,
+  .appearance-row select, .small-dialog > input, .small-dialog > textarea) {
+  color: var(--stellar-record-ink); background: var(--stellar-control);
+  border-color: var(--stellar-frame); border-radius: 3px;
+}
+:root[data-theme-material=stellar] :is(.appearance-row, .interface-option, .theme-settings) {
+  border-bottom-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .appearance-number > small { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] :is(.appearance-preview, .interface-preview) {
+  background: var(--stellar-control); border-color: var(--stellar-section-rule); border-radius: 3px;
+}
+:root[data-theme-material=stellar] :is(.appearance-preview-label, .interface-preview-label) {
+  color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .interface-presets {
+  background: var(--stellar-control); border-color: var(--stellar-frame); border-radius: 3px;
+}
+:root[data-theme-material=stellar] .settings-content .interface-presets button { border-radius: 2px; }
+:root[data-theme-material=stellar] .settings-content .interface-presets button[aria-pressed=true] {
+  background: var(--stellar-raised); color: var(--stellar-record-ink);
+  box-shadow: inset 0 0 0 1px var(--stellar-frame);
+}
+:root[data-theme-material=stellar] .small-dialog > .button-row > button {
+  border-radius: 3px;
+}
+:root[data-theme-material=stellar] .small-dialog > .button-row > button:not(.primary):not(.project-remove-confirm) {
+  background: var(--stellar-control); border-color: var(--stellar-frame);
+}
+:root[data-theme-material=stellar] .small-dialog > .button-row > button:not(.primary):hover:not(:disabled) {
+  background: var(--stellar-raised);
+}
+:root[data-theme-material=stellar] .project-removal-dialog > strong { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] :is(.project-removal-path, .project-removal-dialog > .muted) {
+  color: var(--stellar-record-muted);
+}

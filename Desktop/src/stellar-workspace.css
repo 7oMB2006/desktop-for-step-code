@@ -1,0 +1,193 @@
+/* Host-owned materials, scoped to a validated stellar renderer. Built-ins stay intact. */
+:root[data-theme-material=stellar] {
+  --stellar-gold: #e8c482;
+  --stellar-ice: #9de5dd;
+  /* Artwork carries the color; reading surfaces use opaque, matte graphite. */
+  --stellar-line: #ffffff14;
+  --stellar-edge: #ffffff25;
+  --stellar-hover: #ffffff09;
+  --stellar-selection-line: color-mix(in srgb, var(--primary) 28%, var(--border));
+  --stellar-panel-fill: var(--bg);
+  --stellar-raised: #1f2022;
+}
+:root[data-theme-material=stellar] .app { isolation: isolate; background: transparent; }
+.stellar-workspace-scene { position: fixed; inset: 0; z-index: -1; pointer-events: none; background: #05090c; }
+.stellar-workspace-scene .theme-welcome { min-height: 0; background: #05090c; }
+.stellar-workspace-scene .theme-welcome-content { display: none; }
+.stellar-workspace-scene::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, #070b100d, #070b1080 35%, #070b1080 66%, #070b101a),
+    linear-gradient(0deg, #05090c99, transparent 30%, transparent 85%, #05090c55);
+  opacity: .5; transition: opacity 700ms cubic-bezier(.22, 1, .36, 1);
+}
+.stellar-workspace-scene[data-reading=true]::after { opacity: 1; }
+:root[data-theme-material=stellar] :is(main, .main-content, .conversation-shell, .conversation) { background: transparent; }
+:root[data-theme-material=stellar] .window-bar {
+  background: #111214f5;
+  border-bottom: 1px solid var(--stellar-line); backdrop-filter: blur(16px);
+}
+:root[data-theme-material=stellar] .window-session-title { color: var(--ink); }
+:root[data-theme-material=stellar] .sidebar {
+  background: #131416d9;
+  border-right: 1px solid var(--stellar-line); box-shadow: none;
+}
+:root[data-theme-material=stellar] .brand { padding-block: 10px; }
+:root[data-theme-material=stellar] .sidebar .section-label { color: #d0bc94; }
+:root[data-theme-material=stellar] .workspace-heading { color: #e8ddc5; }
+:root[data-theme-material=stellar] .sidebar .session-row {
+  transition: background-color 180ms cubic-bezier(.22, 1, .36, 1), box-shadow 180ms cubic-bezier(.22, 1, .36, 1);
+}
+:root[data-theme-material=stellar] .sidebar .session-row.selected {
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  box-shadow: inset 2px 0 var(--primary);
+  color: var(--ink);
+}
+:root[data-theme-material=stellar] .sidebar .session-row:not(.selected):hover { background: var(--stellar-hover); }
+:root[data-theme-material=stellar] .sidebar .session-row.selected:hover {
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  box-shadow: inset 2px 0 var(--primary);
+}
+:root[data-theme-material=stellar] .sidebar .session-row > button:first-child:hover { background: transparent; }
+:root[data-theme-material=stellar] .workspace-toggle:hover { background: var(--stellar-hover); }
+:root[data-theme-material=stellar] .sidebar .new-chat {
+  border-color: var(--stellar-edge); color: var(--ink);
+  background: var(--stellar-raised);
+  box-shadow: none;
+}
+:root[data-theme-material=stellar] .sidebar .new-chat > svg { color: var(--primary); }
+:root[data-theme-material=stellar] .sidebar-bottom { border-top-color: var(--stellar-line); }
+:root[data-theme-material=stellar] .sidebar-bottom > button { background: transparent; }
+:root[data-theme-material=stellar] .new-session {
+  background: transparent; text-shadow: 0 2px 18px #000;
+}
+:root[data-theme-material=stellar] .new-session h1 {
+  color: #f7f1df; text-shadow: 0 0 22px #edd9aa38, 0 2px 16px #000;
+}
+.stellar-emblem { position: relative; display: block; width: 48px; height: 48px; }
+.stellar-emblem > :is(img, canvas) { position: absolute; display: block; }
+.stellar-emblem > img { inset: 0; width: 100%; height: 100%; }
+/* Preserve the original SVG's footprint; only the glow extends beyond it. */
+.stellar-emblem > canvas { left: 50%; top: 50%; width: calc(100% * 128 / 104); height: calc(100% * 128 / 104); transform: translate(-50%, -50%); visibility: hidden; }
+.stellar-emblem[data-ready=true] > img { visibility: hidden; }
+.stellar-emblem[data-ready=true] > canvas { visibility: visible; }
+.stellar-lettering { position: relative; display: inline-block; vertical-align: baseline; }
+.stellar-lettering > canvas { position: absolute; left: -4px; top: -4px; width: calc(100% + 8px); height: calc(100% + 8px); pointer-events: none; visibility: hidden; }
+.stellar-lettering[data-ready=true] > canvas { visibility: visible; }
+.stellar-lettering[data-ready=true] > .stellar-lettering-fallback { visibility: hidden; }
+:root[data-theme-material=stellar] .new-session .empty-symbol { font-size: 0; }
+:root[data-theme-material=stellar] .messages {
+  position: relative; isolation: isolate; background: transparent;
+}
+/* Fade the reading surface, never the text, controls or their focus indicators. */
+:root[data-theme-material=stellar] .messages::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: var(--stellar-reading-fill, linear-gradient(90deg, #070d1000, #070d10b8 10%, #070d10b8 90%, #070d1000));
+  mask-image: linear-gradient(180deg, transparent, #000 24px, #000 calc(100% - 80px), transparent);
+}
+:root[data-theme-material=stellar] .message-body :is(h1, h2, h3) { color: #ece7db; }
+:root[data-theme-material=stellar] .message.user .message-body {
+  border: 1px solid var(--stellar-edge);
+  background: #232426;
+  box-shadow: none;
+}
+:root[data-theme-material=stellar] .message-body :is(pre, table),
+:root[data-theme-material=stellar] .tool-output {
+  background: var(--code-bg); border-color: var(--stellar-line); text-shadow: none;
+}
+:root[data-theme-material=stellar] .message-body blockquote {
+  border-left-color: #bba882; color: var(--muted);
+}
+:root[data-theme-material=stellar] .code-header { color: var(--muted); border-bottom-color: var(--stellar-line); }
+:root[data-theme-material=stellar] .composer {
+  background: var(--stellar-raised);
+  border-color: var(--stellar-edge);
+  box-shadow: 0 8px 24px #00000040;
+  backdrop-filter: none;
+}
+:root[data-theme-material=stellar] .composer:focus-within {
+  border-color: var(--primary); box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent), 0 8px 24px #00000040;
+}
+:root[data-theme-material=stellar] :is(.composer-underlay, .composer-shell) { background: transparent; }
+:root[data-theme-material=stellar] .composer-wrap::before { display: none; }
+:root[data-theme-material=stellar] .composer-action-button:not(:disabled) {
+  background: var(--primary); color: var(--on-primary); border-color: var(--primary);
+  box-shadow: none;
+}
+:root[data-theme-material=stellar] .performance-bar { color: var(--muted); background: transparent; }
+:root[data-theme-material=stellar] .right-tool-rail {
+  background: #111214eb; border-left-color: var(--stellar-line); backdrop-filter: blur(12px);
+}
+:root[data-theme-material=stellar] .right-tool-rail .icon-button {
+  transition: background-color 180ms cubic-bezier(.22, 1, .36, 1), box-shadow 180ms cubic-bezier(.22, 1, .36, 1), color 180ms ease;
+}
+:root[data-theme-material=stellar] .right-tool-rail .icon-button:hover:not(:disabled) {
+  background: var(--stellar-hover); color: var(--ink);
+}
+:root[data-theme-material=stellar] .right-tool-rail .icon-button[aria-pressed=true] {
+  background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--stellar-selection-line);
+}
+:root[data-theme-material=stellar] :is(.summary-board, .context-panel, .review-panel, .details-panel,
+  .conversation-nav-panel, .subagent-panel, .file-preview-panel, .terminal-panel, .browser-panel) {
+  background: var(--stellar-panel-fill);
+  border-color: var(--stellar-edge); box-shadow: 0 8px 24px #00000040;
+  backdrop-filter: none;
+}
+:root[data-theme-material=stellar] :is(.right-panel-header, .summary-board > header) {
+  background: var(--stellar-raised);
+  border-bottom-color: var(--stellar-line);
+}
+:root[data-theme-material=stellar] :is(.summary-board, .conversation-nav-panel)
+  button:not(:disabled):hover { background-color: var(--stellar-hover); }
+:root[data-theme-material=stellar] .sb-step-trigger[aria-expanded=true] {
+  background-color: var(--stellar-hover); box-shadow: inset 0 0 0 1px var(--stellar-line);
+}
+/* Keep keyboard focus inside clipped rows and rails without changing their geometry. */
+:root[data-theme-material=stellar] :is(.sidebar, .right-tool-rail, .summary-board,
+  .right-inspector-surface, .conversation-nav-panel) :is(button, summary):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -3px;
+}
+:root[data-theme-material=stellar] .summary-board :is(header, section) { border-color: var(--stellar-line); }
+:root[data-theme-material=stellar] .sb-step.is-in_progress .sb-step-trigger {
+  background: var(--surface);
+}
+:root[data-theme-material=stellar] :is(.settings-dialog, .small-dialog) {
+  background: var(--stellar-panel-fill);
+  border: 1px solid var(--stellar-edge); box-shadow: 0 24px 80px #0009;
+}
+:root[data-theme-material=stellar] .settings-layout > nav {
+  background: var(--side); border-right-color: var(--stellar-line);
+}
+:root[data-theme-material=stellar] :is(.window-menu-popover, .app-menu, .model-effort-popover, .selection-toolbar, .new-session-project-picker) {
+  background: var(--stellar-raised); border-color: var(--stellar-edge); box-shadow: 0 8px 28px #0007;
+}
+:root[data-theme-material=stellar] .new-session-search {
+  margin: 4px 4px 8px; border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px;
+}
+:root[data-theme-material=stellar] .new-session-search:focus-within {
+  outline: 2px solid var(--primary); outline-offset: 2px;
+}
+:root[data-theme-material=stellar] .new-session-search input:focus { outline: none; box-shadow: none; }
+:root[data-theme-material=stellar] .approval-drawer {
+  background: var(--stellar-panel-fill);
+  border-color: var(--stellar-edge); box-shadow: 0 -12px 36px #0006;
+}
+:root[data-theme-material=stellar] :is(.approval-drawer-grip, .approval-drawer-heading) {
+  background: var(--stellar-raised);
+}
+:root[data-theme-material=stellar] :is(.plan-review-actions, .question-review-actions, .permission-approval > .button-row) {
+  background: var(--side); border-top-color: var(--stellar-line);
+}
+:root[data-theme-material=stellar] :is(.plan-review-content, .question-review-content) { padding-top: 6px; scroll-padding-block: 6px; }
+:root[data-theme-material=stellar] :is(.plan-review-content, .question-review-content) textarea:focus {
+  outline: 2px solid var(--primary); outline-offset: 2px; border-color: var(--primary);
+}
+@media (max-width: 800px) {
+  :root[data-theme-material=stellar] .messages { --stellar-reading-fill: #070e14d9; }
+  :root[data-theme-material=stellar] .sidebar { background: #131416f7; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stellar-workspace-scene::after,
+  :root[data-theme-material=stellar] .sidebar .session-row,
+  :root[data-theme-material=stellar] .right-tool-rail .icon-button { transition: none; }
+}

@@ -4,7 +4,8 @@ import type { SessionRuntime } from './session-runtimes';
 import { isUltracodeInput, ultracodeInput } from '../src/ultracode-input';
 import { isProjectInstructionsCommand } from '../src/project-instructions';
 
-interface Entry extends PendingMessage { payload: Record<string, unknown>; files: string[]; bytes: number }
+interface Entry extends PendingMessage { payload: Record<string, unknown>; files: string[]; bytes: number; dispatched?: boolean }
+export type QueueReceiptEvent = 'delivered' | 'removed' | 'dispatching' | 'unknown';
 export function promptNeedsQueue(worker: Pick<SessionRuntime, 'busy' | 'submissions' | 'state'>) {
   return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting);
 }
@@ -12,6 +13,7 @@ export function promptNeedsQueue(worker: Pick<SessionRuntime, 'busy' | 'submissi
 export class PendingMessages {
   private entries = new Map<SessionRuntime, Entry[]>();
   private paused = new Set<SessionRuntime>();
+  private revisions = new WeakMap<SessionRuntime, number>();
   private draining = new Set<SessionRuntime>();
   private steeredMessages = new WeakMap<SessionRuntime, Set<number>>();
   constructor(
@@ -19,6 +21,7 @@ export class PendingMessages {
     private failed: (worker: SessionRuntime, error: unknown) => void,
     private format: (message: string, files: string[]) => string = message => message,
     private beforePrompt: (worker: SessionRuntime, message: string) => Promise<void> = async () => {},
+    private receipt: (worker: SessionRuntime, id: string, event: QueueReceiptEvent) => void = () => {},
   ) {}
   list(worker: SessionRuntime): PendingMessage[] {
     return (this.entries.get(worker) ?? []).map(({ id, message, attachmentCount, version, sending, steered }) => ({ id, message, attachmentCount, version, sending, ...(steered ? { steered } : {}) }));
@@ -57,8 +60,18 @@ export class PendingMessages {
   remove(worker: SessionRuntime, id: string, version: number) {
     const entry = this.require(worker, id, version);
     this.entries.set(worker, this.entries.get(worker)!.filter(item => item !== entry)); this.publish(worker);
+    this.receipt(worker, entry.id, 'removed');
   }
-  pause(worker: SessionRuntime) { this.paused.add(worker); }
+  withdraw(worker: SessionRuntime, id: string) {
+    const entry = this.entries.get(worker)?.find(item => item.id === id);
+    if (!entry || entry.sending || entry.dispatched) return false;
+    this.remove(worker, id, entry.version);
+    return true;
+  }
+  pause(worker: SessionRuntime) {
+    this.paused.add(worker);
+    this.revisions.set(worker, (this.revisions.get(worker) ?? 0) + 1);
+  }
   // The caller must first clear upstream queues or confirm the child is gone.
   recover(worker: SessionRuntime) {
     if (worker.busy && worker.status === 'connected') throw new Error('Wait for the session to stop before recovering messages');
@@ -85,10 +98,16 @@ export class PendingMessages {
       this.entries.set(worker, this.entries.get(worker)!.filter(item => item !== entry));
       worker.queued = Boolean(this.entries.get(worker)?.length);
       if (notify) this.publish(worker);
+      this.receipt(worker, entry.id, 'delivered');
     }
     return Boolean(entry);
   }
-  clear(worker: SessionRuntime) { this.entries.delete(worker); this.paused.delete(worker); worker.queued = false; }
+  clear(worker: SessionRuntime) {
+    const entries = this.entries.get(worker) ?? [];
+    this.pause(worker);
+    this.entries.delete(worker); this.paused.delete(worker); worker.queued = false;
+    for (const entry of entries) this.receipt(worker, entry.id, 'removed');
+  }
   async steer(worker: SessionRuntime, id: string, version: number) {
     const entry = this.require(worker, id, version);
     if (worker.mutating || worker.stopping || worker.state?.isCompacting || worker.status !== 'connected') throw new Error('This session cannot send right now');
@@ -119,17 +138,33 @@ export class PendingMessages {
   }
   private async dispatch(worker: SessionRuntime, entry: Entry, steer: boolean) {
     this.assertQueueable(entry.message, entry.payload, entry.files);
+    const revision = this.revisions.get(worker), version = entry.version;
     entry.sending = true; entry.steered = steer && worker.busy; worker.submissions++; worker.operations++; this.publish(worker);
     try {
       if (!worker.busy) await this.beforePrompt(worker, String(entry.payload.message ?? ''));
+      // Preparation can outlive abort/recovery, clear, or a worker transition.
+      if (this.revisions.get(worker) !== revision || this.paused.has(worker)
+        || !this.entries.get(worker)?.includes(entry) || entry.version !== version || !entry.sending
+        || worker.stopping || worker.mutating || worker.state?.isCompacting || worker.status !== 'connected'
+        || !steer && (worker.busy || worker.interrupted || worker.failed)) {
+        if (entry.version === version) { entry.sending = false; entry.steered = false; }
+        return;
+      }
+      if (Array.isArray(entry.payload.images) && entry.payload.images.length && !worker.state?.model?.input?.includes('image'))
+        throw new Error('The selected model does not support images. The queued input was not sent; choose an image-capable model in Desktop.');
+      // Irreversible for remote withdrawal, even if the RPC later times out.
+      entry.dispatched = true;
+      this.receipt(worker, entry.id, 'dispatching');
       await worker.rpc.request('prompt', { ...entry.payload, ...(steer ? { streamingBehavior: 'steer' } : {}) }, 600000);
       // RPC success means accepted for delivery, not consumed by the agent.
       // Only the authoritative user message event releases the pending receipt.
     } catch (error) {
-      entry.sending = false; this.pause(worker); throw error;
+      entry.sending = false; this.pause(worker);
+      if (entry.dispatched) this.receipt(worker, entry.id, 'unknown');
+      throw error;
     } finally {
       worker.submissions--; worker.operations--; this.publish(worker);
-      if (!worker.busy && !worker.interrupted && !worker.failed && !this.paused.has(worker))
+      if (this.revisions.get(worker) === revision && !worker.busy && !worker.interrupted && !worker.failed && !this.paused.has(worker))
         setTimeout(() => void this.drain(worker), 0).unref();
     }
   }

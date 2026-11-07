@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, FolderOpen, MessageSquare, Plus, Search, Settings } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
@@ -6,6 +6,8 @@ import './new-session.css';
 import { nextGreeting, selectFirstGreeting } from './session-greetings';
 
 interface Props {
+  emblem?: ReactNode;
+  renderGreeting?: (text: string) => ReactNode;
   language: 'zh' | 'en';
   workspace?: string;
   workspaces: string[];
@@ -18,7 +20,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-export function NewSession({ language, workspace, workspaces, title, disabled, composing, onSelect, onOpenProject, onSettings, onOpenChange }: Props) {
+export function NewSession({ emblem, renderGreeting, language, workspace, workspaces, title, disabled, composing, onSelect, onOpenProject, onSettings, onOpenChange }: Props) {
   const zh = language === 'zh';
   const [text, setText] = useState(() => selectFirstGreeting(language));
   const greetingLanguage = useRef(language);
@@ -113,9 +115,9 @@ export function NewSession({ language, workspace, workspaces, title, disabled, c
   const choose = (path?: string) => { close(); onSelect(path); };
   const matches = workspaces.filter(path => `${title(path)} ${path}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   return <section className="new-session empty-state">
-    <div className="empty-symbol"><img src="./StepCode.svg" width="48" height="48" alt=""/></div>
+    <div className="empty-symbol">{emblem ?? <img src="./StepCode.svg" width="48" height="48" alt=""/>}</div>
     <h1 aria-label={text}><span className="terminal-heading" aria-hidden="true"><span className="terminal-line"><span className="terminal-heading-space">{text}</span>
-      <span className="terminal-heading-output">{text.slice(0, count)}<span className="terminal-cursor"/></span>
+      <span className="terminal-heading-output">{renderGreeting ? renderGreeting(text.slice(0, count)) : text.slice(0, count)}<span className="terminal-cursor"/></span>
     </span></span></h1>
     <div className="new-session-project" ref={root}>
       <button ref={trigger} type="button" className="new-session-project-trigger" disabled={disabled}

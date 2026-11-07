@@ -79,7 +79,7 @@ async function launch() {
 async function archives(page) {
   if (await page.locator('.right-panel-backdrop').isVisible()) await page.locator('.conversation-nav-panel header button').click();
   if (await page.locator('.app').evaluate(element => element.classList.contains('sidebar-hidden'))) await page.locator('.window-sidebar-toggle').click();
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '已归档', exact: true }).click();
   await page.locator('.archived-settings').waitFor();
 }
@@ -180,7 +180,7 @@ try {
   await page.reload();
   await page.getByText('Step Code connected', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
   await page.locator('.window-sidebar-toggle').click();
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: 'Archived', exact: true }).click();
   await page.getByRole('button', { name: 'Delete all', exact: true }).click();
   await page.getByText('No archived sessions', { exact: true }).waitFor();

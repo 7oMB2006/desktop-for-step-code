@@ -73,7 +73,7 @@ const chooseChannel = async (page, id) => {
 try {
   let page = await launch();
   assert.equal(await app.evaluate(() => globalThis.updateFixture.calls.length), 0, 'background acceptance cannot contact GitHub');
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   assert.equal(await page.getByRole('region', { name: '应用更新' }).count(), 0);
   await page.getByRole('button', { name: '版本更新', exact: true }).click();
@@ -137,7 +137,7 @@ try {
   const backgroundFailure = await page.evaluate(() => window.desktop.checkUpdates());
   assert.equal(backgroundFailure.status, 'error');
   await page.locator('.update-indicator').waitFor();
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await updates.waitFor();
   assert.equal(await page.getByRole('button', { name: '版本更新', exact: true }).getAttribute('class'), 'selected');
 

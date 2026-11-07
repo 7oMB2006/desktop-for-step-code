@@ -61,7 +61,7 @@ export function WorkflowOverview({ flow, selected, onSelect, language }: {
   const zh = language === 'zh';
   const groups = new Map<string, WorkflowAgent[]>();
   for (const agent of flow.agents) { const key = agent.phase ?? ''; groups.set(key, [...(groups.get(key) ?? []), agent]); }
-  return <div className="workflow-overview">
+  return <div className="workflow-overview" data-workflow-state={flow.status}>
     <div className="workflow-overview-heading"><SubagentStatusIcon state={workflowIcon(flow.status)} language={language}/>
       <strong>{flow.name === 'inline' ? zh ? '多代理协作' : 'Multi-agent workflow' : flow.name}</strong><span className="workflow-count">{workflowCount(flow)}</span></div>
     <div className="workflow-inline-meta"><span>Ultracode</span><WorkflowElapsed {...flow} running={workflowIsActive(flow.status)}/>
@@ -83,6 +83,7 @@ export function WorkflowOverview({ flow, selected, onSelect, language }: {
     {[...groups].map(([phase, agents]) => <section className="workflow-phase" key={phase}>
       {phase && <h3>{phase}</h3>}
       {agents.map(agent => <button type="button" key={agent.id} className={`workflow-agent${selected === agent.id ? ' is-selected' : ''}`}
+        data-agent-state={agent.status} aria-pressed={selected === agent.id}
         onClick={() => onSelect(agent)} aria-label={`${agent.label || agent.id}: ${agent.task}`}>
         <SubagentStatusIcon state={workflowIcon(agent.status)} language={language} detail={agent.status === 'unknown' ? zh ? '工作流已结束，代理最终状态未返回' : 'Workflow ended; final agent state unavailable' : agent.status === 'cached' ? zh ? '已复用缓存结果' : 'Cached result reused' : undefined}/>
         <span className="workflow-agent-copy"><strong>{agent.label || agent.id}</strong>{agent.task && <span>{agent.task}</span>}
@@ -101,7 +102,7 @@ export function WorkflowOverview({ flow, selected, onSelect, language }: {
 }
 export function WorkflowAgentDetail({ agent, language }: { agent: WorkflowAgent; language: 'zh' | 'en' }) {
   const zh = language === 'zh';
-  return <div className="subagent-body"><div className="subagent-head">
+  return <div className="subagent-body" data-agent-state={agent.status}><div className="subagent-head">
     <SubagentStatusIcon state={workflowIcon(agent.status)} language={language} detail={agent.status === 'unknown' ? zh ? '工作流已结束，代理最终状态未返回' : 'Workflow ended; final agent state unavailable' : undefined}/><strong>{agent.label || agent.id}</strong>
     <WorkflowElapsed {...agent} running={agent.status === 'running'}/></div>
     {agent.phase && <p className="workflow-detail-phase">{agent.phase}</p>}

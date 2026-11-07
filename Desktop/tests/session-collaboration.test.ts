@@ -21,7 +21,8 @@ class Transport implements WorkerTransport {
   respond() { throw new Error('Local approvals must not be sent to upstream'); }
   async stop() {}
 }
-async function fixture(beforePrompt?: (worker: import('../electron/session-runtimes').SessionRuntime, message: string) => Promise<void>) {
+async function fixture(beforePrompt?: (worker: import('../electron/session-runtimes').SessionRuntime, message: string) => Promise<void>,
+  remote?: ConstructorParameters<typeof SessionCollaboration>[4]) {
   const events: RuntimeEvent[] = [];
   const transports: Transport[] = [];
   const pool: SessionRuntimes = new SessionRuntimes(event => events.push(event), () => {
@@ -31,7 +32,7 @@ async function fixture(beforePrompt?: (worker: import('../electron/session-runti
   }, { beforePrompt, launch: worker => broker.attach(worker), dispose: worker => broker.detach(worker) });
   const queue = new PendingMessages(() => {}, () => {}, undefined, (worker, message) => pool.preparePrompt(worker, message));
   const broker: SessionCollaboration = new SessionCollaboration(pool, 'extension.mjs', () => 'zh',
-    (worker, message) => { queue.enqueue(worker, message, { message }); });
+    (worker, message) => { queue.enqueue(worker, message, { message }); }, remote);
   await broker.start();
   const a = await pool.open('node', 'step', 'workspace-a', {});
   const b = await pool.open('node', 'step', 'workspace-b', {});
@@ -178,5 +179,33 @@ test('loopback endpoint rejects browser origins and expired or invalid per-worke
     assert.ok(!(await response.text()).includes(token!));
     await f.pool.remove(f.a);
     assert.equal((await call(`Bearer ${token}`)).status, 403);
+  } finally { await f.close(); }
+});
+test('image broker derives the source worker from its token and never bypasses runtime tool permissions', async () => {
+  const calls: { worker: import('../electron/session-runtimes').SessionRuntime; path: string; caption?: string }[] = [];
+  const f = await fixture(undefined, { extensionPath: 'desktop-remote.mjs', sendImage: async (worker, path, caption) => {
+    calls.push({ worker, path, caption }); return { delivered: true, messageId: 'native-image' };
+  } });
+  try {
+    assert.ok(f.transports[0].args.includes('desktop-remote.mjs'));
+    for (const flag of ['--desktop-plan-review', '--plan-review-surface', '--desktop-clarification'])
+      assert.ok(f.transports[0].args.includes(flag), `Remote image workers retain ${flag}`);
+    assert.ok(!f.transports[0].args.some(value => value.startsWith('desktop_send_image=')));
+    const { DESKTOP_SESSION_URL: url, DESKTOP_SESSION_TOKEN: token } = f.transports[0].env;
+    const request = (data: unknown, auth = token) => fetch(url!, {
+      method: 'POST', headers: { authorization: `Bearer ${auth}` }, body: JSON.stringify(data),
+    });
+    assert.equal((await request({ action: 'remote-image', path: 'chart.png' }, 'forged')).status, 403);
+    assert.equal(calls.length, 0);
+    const reply = await request({ action: 'remote-image', path: 'chart.png', caption: 'Chart', sessionId: f.b.state!.sessionId });
+    assert.equal(reply.status, 200);
+    assert.deepEqual(await reply.json(), { delivered: true, messageId: 'native-image' });
+    assert.equal(calls[0].worker, f.a);
+    assert.equal(calls[0].caption, 'Chart');
+    assert.equal((await request({ action: 'remote-image', path: 'chart.png', caption: 'x'.repeat(501) })).status, 400);
+    assert.equal(calls.length, 1);
+    await f.pool.remove(f.a);
+    assert.equal((await request({ action: 'remote-image', path: 'chart.png' })).status, 403);
+    assert.equal(calls.length, 1);
   } finally { await f.close(); }
 });

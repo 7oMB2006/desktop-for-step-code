@@ -3,13 +3,13 @@ import { settleLayout } from './settle-layout.mjs';
 import { captureWaapi } from './capture-waapi.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fixtureRuntimeChildren } from './fixture-runtime-children.mjs';
 import { queueFixture } from './queue-demo-fixture.mjs';
 
-const profile = await mkdtemp(join(tmpdir(), 'step-send-queue-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-send-queue-')));
 const fixture = await queueFixture(profile, { duration: 120000 });
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;

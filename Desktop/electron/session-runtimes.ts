@@ -537,7 +537,8 @@ export class SessionRuntimes {
         this.hooks.dispose?.(worker);
         for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
       }
-      await transport.stop();
+      try { await transport.stop(); }
+      catch (stopError) { this.retainFailedStop(worker, transport); throw stopError; }
       if (this.workers.get(worker.id) === worker && worker.rpc === transport) this.workers.delete(worker.id);
       throw error;
     }
@@ -834,7 +835,8 @@ export class SessionRuntimes {
   }
   private retainFailedStop(worker: SessionRuntime, transport: WorkerTransport) {
     // Retain cleanup ownership, never activity or a newer worker's identity.
-    if (this.workers.has(worker.id) || worker.rpc !== transport) return;
+    const current = this.workers.get(worker.id);
+    if (current && current !== worker || worker.rpc !== transport) return;
     worker.status = 'disconnected'; worker.busy = false; worker.runActive = false; worker.failed = true;
     worker.cron = undefined; worker.backgroundActive = false; worker.backgroundLanes = undefined;
     if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };

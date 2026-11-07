@@ -245,6 +245,124 @@ for (const phase of ['launch', 'process', 'session', 'snapshot', 'model'] as con
   });
 }
 
+for (const phase of ['snapshot', 'model'] as const) {
+  test(`failed ${phase} startup and shutdown retain cleanup ownership without incomplete recovery activity`, async () => {
+    const events: RuntimeEvent[] = [];
+    const startupError = new Error('restoration failed'), stopError = new Error('termination failed');
+    let worker!: SessionRuntime, transport!: Transport, failStop = true, attempts = 0, disposed = 0;
+    const fail = () => {
+      transport.receive({ type: 'agent_start' });
+      transport.receive({ type: 'message_end', message: { role: 'assistant', content: [],
+        incomplete: 'no_visible_output', stopReason: 'stop' } });
+      transport.receive({ type: 'agent_end' });
+      transport.receive({ type: 'auto_compaction_start' });
+      transport.receive({ type: 'extension_ui_request', method: 'confirm', id: 'startup-request',
+        message: 'Confirm', timeout: 60000 });
+      worker.state = { ...worker.state!, pendingMessageCount: 1 };
+      worker.backgroundActive = true;
+      worker.backgroundLanes = [{ id: 'lane_12345678', status: 'running' }];
+      throw startupError;
+    };
+    const pool = new SessionRuntimes(event => events.push(event), receive => {
+      transport = new Transport(receive, 'startup-session');
+      const request = transport.request.bind(transport), stop = transport.stop.bind(transport);
+      transport.request = async (type, args) => {
+        if (phase === 'snapshot' && type === 'get_messages') fail();
+        return request(type, args);
+      };
+      transport.stop = async () => {
+        attempts++;
+        if (failStop) throw stopError;
+        await stop();
+      };
+      return transport;
+    }, {
+      launch: current => { worker = current; return { env: {}, args: [] }; },
+      initializeModel: async () => { if (phase === 'model') fail(); },
+      dispose: () => { disposed++; },
+    });
+    try {
+      await assert.rejects(pool.open('node', 'step', 'workspace', {}), error => error === stopError);
+      assert.equal(pool.workers.get(worker.id), worker);
+      assert.equal(worker.rpc, transport);
+      assert.equal(worker.status, 'disconnected');
+      assert.equal(worker.busy, false);
+      assert.equal(worker.runActive, false);
+      assert.equal(worker.failed, true);
+      assert.equal(worker.state?.isStreaming, false);
+      assert.equal(worker.state?.isCompacting, false);
+      assert.equal(worker.state?.pendingMessageCount, 0);
+      assert.equal(worker.backgroundActive, false);
+      assert.equal(worker.backgroundLanes, undefined);
+      assert.equal(worker.pendingUI.size, 0);
+      assert.equal(worker.uiTimers.size, 0);
+      assert.equal(disposed, 1);
+      assert.equal(pool.activeId, undefined);
+      assert.equal(pool.running, false);
+      await pool.assertAllIdle();
+      const revision = worker.revision;
+      transport.receive({ type: 'agent_settled' });
+      transport.receive({ type: 'agent_start' });
+      assert.equal(worker.revision, revision, 'Late recovery cannot revive a failed startup');
+      assert.equal(pool.running, false);
+      assert.ok(!events.some(event => event.type === 'desktop_task_completed'));
+      assert.equal(attempts, 1, 'Only explicit cleanup retries termination');
+      failStop = false;
+      await pool.stopAll();
+      assert.equal(attempts, 2);
+      assert.equal(transport.stopped, true);
+      assert.equal(pool.workers.size, 0);
+    } finally {
+      failStop = false;
+      await pool.stopAll();
+    }
+  });
+}
+
+for (const replacement of ['worker', 'transport'] as const) {
+  test(`failed startup cleanup cannot overwrite a newer ${replacement} owner`, async () => {
+    let worker!: SessionRuntime, transport!: Transport, entered!: () => void, release!: () => void;
+    const stopping = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const stopError = new Error('termination failed');
+    const pool = new SessionRuntimes(() => {}, receive => {
+      transport = new Transport(receive, 'startup-session');
+      transport.stop = async () => { entered(); await gate; throw stopError; };
+      return transport;
+    }, {
+      launch: current => { worker = current; return { env: {}, args: [] }; },
+      initializeModel: async () => { throw new Error('restoration failed'); },
+    });
+    const opening = pool.open('node', 'step', 'workspace', {});
+    const rejected = assert.rejects(opening, error => error === stopError);
+    try {
+      await stopping;
+      const nextTransport = new Transport(() => {}, 'replacement-session');
+      const next = replacement === 'worker' ? { ...worker } : worker;
+      next.rpc = nextTransport;
+      next.status = 'connected';
+      next.busy = true;
+      next.runActive = true;
+      next.failed = false;
+      pool.workers.set(worker.id, next);
+      release();
+      await rejected;
+      assert.equal(pool.workers.get(worker.id), next);
+      assert.equal(next.rpc, nextTransport);
+      assert.equal(next.status, 'connected');
+      assert.equal(next.busy, true);
+      assert.equal(next.runActive, true);
+      assert.equal(next.failed, false);
+    } finally {
+      release();
+      await Promise.allSettled([opening, rejected]);
+      transport.stop = async () => { transport.stopped = true; };
+      await transport.stop();
+      await pool.stopAll();
+    }
+  });
+}
+
 test('a failed diagnostic observer cannot fail or retain a healthy runtime', async () => {
   const { pool, open, transports } = fixture({ startup: () => { throw new Error('sink failed'); } });
   try {

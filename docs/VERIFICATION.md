@@ -80,6 +80,28 @@ are `Desktop/test-results/v017-regressions-main-sync-{build,tests,plan,policy}.l
 The complete 1089-case suite above predates this synchronization; it is not a
 current-combination full-suite or cloud/native macOS acceptance claim.
 
+### Local Review Follow-up
+
+Local review reproduced a combined failure: incomplete-response recovery leaves
+run ownership active during startup, then restoration and process termination
+both fail. The startup catch retained its disconnected cleanup handle without
+clearing that activity, blocking account and provider idle guards. Startup
+cleanup now shares the failed-stop normalization used by removal and stop-all,
+while preserving both worker and transport ownership checks.
+
+Four new regressions cover snapshot/model restoration plus failed termination,
+late recovery events, pending approval/timer cleanup, explicit later cleanup,
+and replacement worker/transport ownership. Both combined-failure cases fail
+before the fix; all four pass afterwards. Final-source typecheck, production
+build and the rebuilt isolated Electron Plan verifier pass again. No runtime
+restaging, installed application change or acceptance package is involved.
+
+The complete current-combination serial Desktop suite now finishes 1108 cases:
+1095 passed, 13 platform skips, zero failures or cancellations, in 423.9 seconds.
+Receipts are `Desktop/test-results/v017-startup-cleanup-{suite,build,plan}.log`.
+Current-head cloud/native macOS, packaged and real-account acceptance remain
+separate from these local checks.
+
 ## Upstream v0.1.7 Result Presentation (2026-11-07, Local Candidate)
 
 This stage leaves the runtime pin and patch manifests unchanged. Existing

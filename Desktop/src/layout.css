@@ -621,7 +621,13 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .process-tool-meta > code { flex-shrink: 0; }
 .process-tool-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .process-tool-status { display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding: 6px 0; color: var(--muted); font-size: 11px; }
+.process-tool-status > span { min-width: 0; overflow-wrap: anywhere; }
 .process-tool.failed .process-tool-status { color: var(--danger); }
+.process-tool.stopped > summary, .process-tool.unknown > summary { color: var(--muted); }
+.incomplete-response { margin: 12px 0; }
+.incomplete-response > svg { flex: 0 0 auto; }
+.incomplete-response > span { min-width: 0; overflow-wrap: anywhere; }
+.incomplete-response.is-failed { color: var(--danger); }
 .process-tool-content { margin: 2px 0 12px 19px; padding-left: 13px; border-left: 1px solid var(--border); min-width: 0; }
 .client-event-note { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 34px; margin: 0 0 12px; font-size: 13px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
 .client-event-note > svg { flex: 0 0 14px; }

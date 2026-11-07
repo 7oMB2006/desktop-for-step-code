@@ -1125,7 +1125,8 @@ export class RemoteManager {
   runtimeEvent(worker: SessionRuntime, event: RuntimeEvent) {
     const review = event.type === 'desktop_completion_review' ? completionReview(event.review) : undefined;
     const reviewEnded = review && review.sessionId === worker.state?.sessionId && !reviewActive(review);
-    const ended = event.type === 'agent_end' && !event.desktopReviewPending;
+    const ended = (event.type === 'agent_end' || event.desktopRecoverySettled)
+      && !event.desktopRecoveryPending && !event.desktopReviewPending;
     // Receipt ownership outlives forwarding, but settled detached inputs must not
     // pin deduplication entries forever.
     if (ended || reviewEnded || event.type === 'desktop_exit') {
@@ -1137,10 +1138,12 @@ export class RemoteManager {
     try { this.current(target); }
     catch { this.dispose(worker); return; }
     this.syncDecisions(worker);
-    if (event.type === 'agent_end' && event.desktopReviewPending) return;
-    const continuingReview = event.type === 'agent_start' && event.desktopReviewContinuation && target.runId;
-    if (!continuingReview) target.progress.update(event);
-    if (event.type === 'agent_start' && !continuingReview) {
+    if ((event.type === 'agent_end' || event.desktopRecoverySettled)
+      && (event.desktopRecoveryPending || event.desktopReviewPending)) return;
+    const continuingRun = event.type === 'agent_start'
+      && (event.desktopReviewContinuation || event.desktopRecoveryContinuation) && target.runId;
+    if (!continuingRun) target.progress.update(event);
+    if (event.type === 'agent_start' && !continuingRun) {
       target.runId = this.platform.uuid(); target.imageActive = true; this.imageScope(target);
       target.projection = ''; target.truncated = false; this.project(target, 'working');
     }

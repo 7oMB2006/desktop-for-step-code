@@ -702,6 +702,50 @@ test('completion review retains the original reply, image grant and reaction unt
   assert.equal(replies().at(-1).text, 'Reviewed answer');
   assert.equal(f.channels[0].calls.filter(call => call.type === 'reaction' && !call.args.active).length, 1);
 });
+for (const outcome of ['recovered', 'exhausted', 'cancelled'] as const) test(`incomplete recovery keeps the original Remote run until ${outcome} settlement`, async t => {
+  const f = fixture(); t.after(() => f.manager.disconnect()); await f.connect(); const bindingId = await f.bind();
+  await f.manager.action({ type: 'images', allowed: true });
+  const worker = f.workers[0];
+  f.receive('input', { bindingId, id: 'recovering', text: 'hello' }); await tick();
+  f.manager.runtimeEvent(worker, { type: 'agent_start' });
+  f.manager.queueEvent(worker, 'queue-1', 'delivered');
+  f.manager.runtimeEvent(worker, { type: 'tool_execution_start', toolName: 'read', toolCallId: 'read-one' });
+  f.manager.runtimeEvent(worker, { type: 'tool_execution_end', toolName: 'read', toolCallId: 'read-one' });
+  const replies = () => f.channels[0].calls.filter(call => call.type === 'card' && call.args.reply).map(call => call.args);
+  const key = replies().at(-1).key, before = f.channels[0].calls.length;
+  worker.messages = [{ role: 'assistant', content: [], stopReason: 'stop', incomplete: 'no_visible_output' }];
+  f.manager.runtimeEvent(worker, { type: 'agent_end', desktopRecoveryPending: true }); await tick();
+  assert.equal(f.channels[0].calls.slice(before).some(call => call.type === 'reaction' && !call.args.active), false);
+  assert.equal(f.channels[0].calls.slice(before).some(call => call.type === 'imageScope' && !call.args.active), false);
+  f.manager.runtimeEvent(worker, { type: 'agent_start', desktopRecoveryContinuation: true });
+  worker.messages = [{ role: 'assistant', content: outcome === 'recovered' ? 'Recovered answer' : [],
+    stopReason: outcome === 'cancelled' ? 'aborted' : 'stop',
+    ...(outcome === 'exhausted' ? { incomplete: 'no_visible_output' } : {}) }];
+  f.manager.runtimeEvent(worker, { type: 'message_end', message: worker.messages[0] });
+  f.manager.runtimeEvent(worker, { type: 'agent_end', desktopRecoveryPending: true }); await tick();
+  assert.equal(replies().at(-1).reply, 'working');
+  f.manager.runtimeEvent(worker, { type: 'agent_settled', desktopRecoverySettled: true });
+  if (outcome === 'recovered') f.manager.runtimeEvent(worker, { type: 'desktop_task_completed' });
+  await tick();
+  assert.ok(replies().every(reply => reply.key === key), 'Recovery must update the original card');
+  assert.equal(replies().at(-1).reply, outcome === 'recovered' ? 'completed' : 'interrupted');
+  assert.match(replies().at(-1).progress, /read/);
+  assert.equal(f.channels[0].calls.filter(call => call.type === 'reaction' && !call.args.active).length, 1);
+});
+test('a recovered turn retains Remote ownership while completion review is still pending', async t => {
+  const f = fixture(); t.after(() => f.manager.disconnect()); await f.connect(); const bindingId = await f.bind();
+  await f.manager.action({ type: 'images', allowed: true });
+  const worker = f.workers[0];
+  f.receive('input', { bindingId, id: 'recovered-review', text: 'hello' }); await tick();
+  f.manager.runtimeEvent(worker, { type: 'agent_start' });
+  f.manager.queueEvent(worker, 'queue-1', 'delivered');
+  const before = f.channels[0].calls.length;
+  f.manager.runtimeEvent(worker, { type: 'agent_settled', desktopRecoverySettled: true, desktopReviewPending: true }); await tick();
+  assert.equal(f.channels[0].calls.slice(before).some(call => call.type === 'reaction' && !call.args.active), false);
+  assert.equal(f.channels[0].calls.slice(before).some(call => call.type === 'imageScope' && !call.args.active), false);
+  f.manager.runtimeEvent(worker, { type: 'desktop_task_completed' }); await tick();
+  assert.equal(f.channels[0].calls.filter(call => call.type === 'reaction' && !call.args.active).length, 1);
+});
 for (const status of ['failed', 'cancelled'] as const) test(`a ${status} completion review ends its Remote reply without accepting foreign review events`, async t => {
   const f = fixture(); t.after(() => f.manager.disconnect()); await f.connect(); const bindingId = await f.bind();
   const worker = f.workers[0];

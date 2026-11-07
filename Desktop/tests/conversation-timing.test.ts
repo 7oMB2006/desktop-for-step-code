@@ -28,6 +28,24 @@ test('duration formatting covers zero, hours, and clock rollback', () => {
   assert.equal(elapsedTime({ startedAt: 2000 }, 1000), '0s');
 });
 
+test('incomplete recovery freezes timing only at settlement and persists the original start', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'step-incomplete-timing-'));
+  try {
+    const timing = new ConversationTiming(root), host = worker('incomplete-timing');
+    send(timing, host, { type: 'agent_start' }, 1000);
+    send(timing, host, { type: 'message_start', message: { role: 'assistant', timestamp: 1100, content: [] } }, 1100);
+    send(timing, host, { type: 'agent_end', desktopRecoveryPending: true }, 2000);
+    send(timing, host, { type: 'agent_start', desktopRecoveryContinuation: true }, 3000);
+    send(timing, host, { type: 'message_start', message: { role: 'assistant', timestamp: 3100, content: 'Recovered' } }, 3100);
+    send(timing, host, { type: 'agent_end', desktopRecoveryPending: true }, 4000);
+    assert.equal(host.messages[0].desktopTiming!.run.endedAt, undefined);
+    send(timing, host, { type: 'agent_settled', desktopRecoverySettled: true }, 5000);
+    for (const message of host.messages) assert.deepEqual(message.desktopTiming!.run, { startedAt: 1000, endedAt: 5000 });
+    await timing.flush();
+    assert.deepEqual(await new ConversationTiming(root).decorate(host.state!.sessionId!, host.messages), host.messages);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('completion review keeps one timing span across both native runs', async () => {
   const root = await mkdtemp(join(tmpdir(), 'step-review-timing-'));
   try {

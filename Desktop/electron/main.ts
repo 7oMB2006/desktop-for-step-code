@@ -327,7 +327,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     event.message = pendingMessages.decorate(queueWorker, event.message);
     queueWorker.messages = queueWorker.messages.map(message => pendingMessages.decorate(queueWorker, message));
   }
-  if (event.type === 'agent_end') {
+  if (event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled) {
     const worker = runtimes.workers.get(event.runtimeId);
     if (worker?.state?.sessionId && !worker.failed && !worker.interrupted) {
       const sessionId = worker.state.sessionId;

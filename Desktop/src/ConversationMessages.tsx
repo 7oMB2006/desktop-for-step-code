@@ -4,7 +4,7 @@ import { remarkCommandReferences } from './command-references';
 import type { ComposerCommand } from './composer-commands';
 import type { ComponentProps, Dispatch, ReactNode, SetStateAction } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
-import { ArrowLeft, ArrowRight, ArrowRightLeft, Bot, Brain, Check, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowRightLeft, Bot, Brain, Check, CircleAlert, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, ModelChange, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
 import { redactSensitiveText } from './subagent-redact';
@@ -42,6 +42,7 @@ import { cronMessage } from './cron-message';
 import { AutoResumeMessage } from './AutoResumeMessage';
 import { searchTextMatch, type SearchTextTarget } from './fulltext-search';
 import './auto-resume-message.css';
+import { incompleteResponse } from './incomplete-response';
 
 type Props = {
   interfaceSettings?: InterfacePreferences;
@@ -435,6 +436,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     onOpenWorkflow?: (id: string) => void;
   } & BodyProps) {
     const { content, text } = responsePresentation(items);
+    const incomplete = incompleteResponse(items.map(item => item.message), active, props.language);
     const liveThought = liveThinkingKey(content, active);
     const presentation = props.interfaceSettings?.compactProcess ? groupProcesses(content, active, props.awaitingToolCalls)
       : props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
@@ -504,6 +506,9 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
         : item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} {...props}>{onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}</ProcessGroup>
           : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} {...props}/>
             : renderItem(item))}</div>
+      {incomplete && <div className={`client-event-note incomplete-response${active ? '' : ' is-failed'}`} role="status">
+        <CircleAlert size={14} aria-hidden="true"/><span>{incomplete}</span>
+      </div>}
       {!active && <TurnArtifacts text={finalProse} outputPaths={outputPaths} language={props.language}/>}
       {!active && <TurnChanges changes={changes} runtimeId={runtimeId} language={props.language} onError={props.onError}/>}
     {actions && (settledStatus || execution) ? <div className="assistant-footer-row working working-idle">{actions}

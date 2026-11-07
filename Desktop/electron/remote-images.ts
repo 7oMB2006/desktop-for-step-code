@@ -159,12 +159,18 @@ async function workspaceImage(cwd: string, path: string, current: () => void) {
   const lexicalRoot = resolve(cwd), candidate = resolve(lexicalRoot, reference);
   const root = await realpath(lexicalRoot);
   current();
-  if (!inside(lexicalRoot, candidate) && !inside(root, candidate)) throw new ImageError(REMOTE_IMAGE_OUTSIDE_WORKSPACE);
-  const canonical = await realpath(candidate);
+  let canonical: string;
+  try { canonical = await realpath(candidate); }
+  catch (error) {
+    current();
+    if (!inside(lexicalRoot, candidate) && !inside(root, candidate)) throw new ImageError(REMOTE_IMAGE_OUTSIDE_WORKSPACE);
+    throw error;
+  }
   current();
+  // Parent directories can be aliases too; authorize the real file, not its spelling.
   if (!inside(root, canonical)) throw new ImageError(REMOTE_IMAGE_OUTSIDE_WORKSPACE);
   // Encode literal percent signs before artifactFile's reference decoder sees the path.
-  const artifact = await artifactFile(lexicalRoot, encodeURI(process.platform === 'win32' ? candidate.replaceAll('\\', '/') : candidate));
+  const artifact = await artifactFile(root, encodeURI(process.platform === 'win32' ? canonical.replaceAll('\\', '/') : canonical));
   current();
   if (!artifact.exists || artifact.path !== canonical || !inside(root, artifact.path))
     throw new ImageError('Remote image file changed or is unavailable');

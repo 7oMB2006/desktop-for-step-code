@@ -5,6 +5,8 @@ import { cronMessage, type CronNotice } from './cron-message';
 import { isAutoResumeMessage } from './auto-resume-message';
 import { subagentDisplayCall, subagentDisplayMessage } from './subagent-redact';
 import { isReviewInput, reviewResult, type CompletionReview } from './completion-review';
+import { commandOutcomePresentation, readCommandOutcome } from './command-outcome';
+import { parseToolPatch } from './turn-changes';
 
 export const messageBlocks = (message: Message): Content[] => visibleInputBlocks(subagentDisplayMessage(message));
 export const messageText = (message: Message): string => messageBlocks(message)
@@ -266,7 +268,7 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
   }));
 }
 
-export type ToolState = 'running' | 'done' | 'failed' | 'missing';
+export type ToolState = 'running' | 'done' | 'failed' | 'missing' | 'stopped' | 'unknown';
 type ToolKind = 'command' | 'read' | 'write' | 'edit' | 'search' | 'folder' | 'web' | 'sessions' | 'session-read' | 'session-send' | 'other';
 const toolKinds: Record<string, ToolKind> = {
   bash: 'command', powershell: 'command', run_command: 'command', exec_command: 'command',
@@ -292,12 +294,20 @@ const toolLabels: Record<ToolKind, [string, string, string, string, string, stri
   other: ['', '', '', '', '', ''],
 };
 
-export function thenRunStatus(name: string, result: Message | undefined): 'passed' | 'failed' | 'timed-out' | 'unavailable' | undefined {
-  if (!['write_file', 'edit_file'].includes(name) || !result || result.isError || result.desktopToolPending) return;
+export function thenRunStatus(name: string, result: Message | undefined): 'passed' | 'failed' | 'timed-out' | 'cancelled' | 'signaled' | 'unavailable' | undefined {
+  if (!['write_file', 'edit_file'].includes(name) || !result || result.desktopToolPending || result.desktopImported) return;
   const details = result.details?.thenRun;
   if (!details || typeof details !== 'object' || Array.isArray(details)) return;
   const check = details as Record<string, unknown>;
-  if (typeof check.command !== 'string' || !check.command.trim() || typeof check.timedOut !== 'boolean'
+  if (typeof check.command !== 'string' || !check.command.trim()) return;
+  if (check.invocationError) return 'unavailable';
+  const execution = readCommandOutcome(check.execution);
+  if (execution) return execution.status === 'exited' ? execution.exitCode === 0 ? 'passed' : 'failed'
+    : execution.status === 'timed_out' ? 'timed-out' : execution.status === 'canceled' ? 'cancelled'
+      : execution.status === 'signaled' ? 'signaled' : 'unavailable';
+  if (check.execution !== undefined) return 'unavailable';
+  if (result.isError) return;
+  if (typeof check.timedOut !== 'boolean'
     || check.exitCode !== null && !(typeof check.exitCode === 'number' && Number.isSafeInteger(check.exitCode) && check.exitCode >= 0)) return;
   return check.timedOut ? 'timed-out' : check.exitCode === 0 ? 'passed' : check.exitCode === null ? 'unavailable' : 'failed';
 }
@@ -309,18 +319,45 @@ export function toolPresentation(name: string, result: Message | undefined, acti
   const kind = Object.hasOwn(toolKinds, name) ? toolKinds[name] : 'other';
   const zh = language === 'zh';
   const labels = toolLabels[kind];
+  if (result && !result.desktopToolPending && !result.desktopImported) {
+    if (kind === 'command') {
+      const execution = readCommandOutcome(result.details?.execution);
+      const observed = execution ? commandOutcomePresentation(execution, language) : undefined;
+      if (observed && observed.state !== 'done') return { ...observed, kind, status: observed.label };
+      if (result.isError) {
+        const label = zh ? '命令工具异常' : 'Command tool error';
+        return { state: 'failed' as const, kind, label, status: observed ? `${label} · ${observed.label}` : label };
+      }
+      if (observed) return { ...observed, kind, status: observed.label };
+      if (result.details?.execution !== undefined) {
+        const label = zh ? '命令结果未知' : 'Command outcome unknown';
+        return { state: 'unknown' as const, kind, label, status: label };
+      }
+    }
+    const applied = result.isError && (kind === 'edit' || kind === 'write')
+      && (result.details?.changed === true || Boolean(parseToolPatch(result.details?.patch, 'receipt')));
+    if (result.isError && (kind === 'edit' || kind === 'write') && applied && !verification) {
+      const label = zh ? '文件已修改 · 后续处理未完成' : 'File changed · follow-up incomplete';
+      return { state, kind, label, status: label };
+    }
+  }
   const embedded = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>).then_run : undefined;
   // Cancellation can retain a mutation receipt but omit structured check details.
-  if (state === 'failed' && result?.isError && ['write_file', 'edit_file'].includes(name)
+  if (!verification && state === 'failed' && result?.isError && ['write_file', 'edit_file'].includes(name)
     && typeof embedded === 'string' && embedded.trim()) {
     const label = zh ? '文件修改或验证未完成' : 'File change or check incomplete';
     return { state, kind, label, status: label };
   }
   if (verification) {
-    const check = zh ? { passed: '验证通过', failed: '验证失败', 'timed-out': '验证超时', unavailable: '验证未完成' }[verification]
-      : { passed: 'check passed', failed: 'check failed', 'timed-out': 'check timed out', unavailable: 'check incomplete' }[verification];
+    const details = result?.details?.thenRun as Record<string, unknown>;
+    const observed = readCommandOutcome(details.execution);
+    const outcome = observed && !details.invocationError ? commandOutcomePresentation(observed, language, true) : undefined;
+    const check = outcome?.label ?? (details.invocationError ? zh ? '验证未能启动' : 'Check could not start'
+      : zh ? { passed: '验证通过', failed: '验证失败', 'timed-out': '验证超时', cancelled: '验证已取消', signaled: '验证被信号终止', unavailable: '验证未完成' }[verification]
+        : { passed: 'check passed', failed: 'check failed', 'timed-out': 'check timed out', cancelled: 'check cancelled', signaled: 'check terminated', unavailable: 'check incomplete' }[verification]);
     const mutation = result?.details?.changed === false ? zh ? '文件内容未变化' : 'File unchanged' : labels[zh ? 1 : 4];
-    return { state, kind, label: `${mutation} · ${check}`, status: `${mutation} · ${check}` };
+    return { state: result?.isError && outcome?.state === 'done' ? 'failed' as const : outcome?.state ?? state,
+      kind, label: `${mutation} · ${check}`, status: `${mutation} · ${check}` };
   }
   const label = kind === 'other'
     ? (zh ? (state === 'running' ? `正在调用 ${name}` : state === 'done' ? `调用了 ${name}`
@@ -331,7 +368,7 @@ export function toolPresentation(name: string, result: Message | undefined, acti
       : state === 'done' ? labels[zh ? 1 : 4]
         : state === 'failed' ? labels[zh ? 2 : 5]
           : `${labels[zh ? 0 : 3]}${zh ? '（未返回）' : ' (no result)'}`;
-  const status = zh ? ({ running: '等待结果', done: '完成', failed: '失败', missing: '未返回' }[state])
-    : ({ running: 'Pending', done: 'Done', failed: 'Failed', missing: 'No result' }[state]);
+  const status = zh ? ({ running: '等待结果', done: '完成', failed: '失败', missing: '未返回', stopped: '已取消', unknown: '结果未知' }[state])
+    : ({ running: 'Pending', done: 'Done', failed: 'Failed', missing: 'No result', stopped: 'Cancelled', unknown: 'Outcome unknown' }[state]);
   return { state, kind, label, status };
 }

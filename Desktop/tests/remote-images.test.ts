@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { MAX_IMAGE_BYTES } from '../electron/attachment-utils';
@@ -37,9 +37,16 @@ function receiver(bytes: Buffer, overrides?: (type: string, args: Record<string,
     throw new Error('Unexpected request');
   });
 }
-async function files() {
+async function files(aliasedParent = false) {
   const root = await mkdtemp(join(tmpdir(), 'desktop-remote-images-'));
-  const cwd = join(root, 'workspace'), outside = join(root, 'workspace-neighbor');
+  let parent = root;
+  if (aliasedParent) {
+    const physical = join(root, 'physical');
+    await mkdir(physical);
+    parent = join(root, 'parent-alias');
+    await symlink(physical, parent, process.platform === 'win32' ? 'junction' : 'dir');
+  }
+  const cwd = join(parent, 'workspace'), outside = join(parent, 'workspace-neighbor');
   await mkdir(cwd);
   await mkdir(outside);
   const path = join(cwd, 'result.png'), external = join(outside, 'private.png'), bytes = png(REMOTE_IMAGE_CHUNK_BYTES * 2 + 7);
@@ -294,6 +301,28 @@ test('outside paths, traversal and symlink escapes surface the explicit workspac
     await symlink(f.cwd, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
     await sendRemoteImage(uploader().channel, 'binding', 'session', linkedRoot, 'result.png', current);
     await sendRemoteImage(uploader().channel, 'binding', 'session', linkedRoot, f.path, current);
+  } finally { await f.close(); }
+});
+
+test('workspace parent aliases preserve absolute image paths without allowing neighboring files', async () => {
+  const f = await files(true);
+  try {
+    const linkedRoot = join(f.root, 'workspace-alias');
+    await symlink(f.cwd, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    for (const path of ['result.png', f.path, await realpath(f.path)]) {
+      const { channel, chunks } = uploader();
+      assert.deepEqual(await sendRemoteImage(channel, 'binding', 'session', linkedRoot, path, current),
+        { messageId: 'delivered-message' });
+      assert.deepEqual(Buffer.concat(chunks), f.bytes);
+    }
+    await symlink(f.outside, join(f.cwd, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+    for (const path of [f.external, await realpath(f.external), join(f.cwd, 'escape', 'private.png'),
+      join(f.root, 'not-in-workspace.png')]) {
+      const { channel } = uploader();
+      await assert.rejects(sendRemoteImage(channel, 'binding', 'session', linkedRoot, path, current),
+        { message: REMOTE_IMAGE_OUTSIDE_WORKSPACE });
+      assert.equal(channel.calls.length, 0);
+    }
   } finally { await f.close(); }
 });
 

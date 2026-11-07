@@ -6,7 +6,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
-import { verifyTooltipLayer } from './verify-tooltip-layer.mjs';
+import { verifyTooltipLayer } from './tooltip-layer-probe.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-mini-chat-')));
 const root = join(profile, 'step-runtime'), workspace = join(profile, 'project');

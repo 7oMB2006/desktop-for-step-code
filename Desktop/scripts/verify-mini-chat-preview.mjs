@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
-import { verifyTooltipLayer } from './verify-tooltip-layer.mjs';
+import { verifyTooltipLayer } from './tooltip-layer-probe.mjs';
 import { settleLayout } from './settle-layout.mjs';
 
 const output = process.env.MINI_CHAT_PREVIEW_OUTPUT || 'test-results/mini-chat-preview';

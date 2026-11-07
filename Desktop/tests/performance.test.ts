@@ -2,6 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cacheHitRate, displayedUsage, outputTokensPerSecond, updateRunMetrics } from '../src/performance';
 
+test('incomplete recovery keeps the original duration and usage until native settlement', () => {
+  let run = updateRunMetrics(null, { type: 'agent_start' }, 10);
+  run = updateRunMetrics(run, { type: 'message_end', message: { role: 'assistant', usage: { input: 12, output: 3 } } }, 20);
+  run = updateRunMetrics(run, { type: 'agent_end', desktopRecoveryPending: true }, 30);
+  assert.equal(run?.finishedAt, undefined);
+  run = updateRunMetrics(run, { type: 'agent_start', desktopRecoveryContinuation: true }, 40);
+  assert.equal(run?.startedAt, 10);
+  run = updateRunMetrics(run, { type: 'message_end', message: { role: 'assistant', usage: { input: 20, output: 7 } } }, 50);
+  run = updateRunMetrics(run, { type: 'agent_end', desktopRecoveryPending: true }, 60);
+  run = updateRunMetrics(run, { type: 'agent_settled', desktopRecoverySettled: true }, 70);
+  assert.equal(run?.finishedAt, 70);
+  assert.equal(run?.usage.input, 32);
+  assert.equal(run?.usage.output, 10);
+});
+
 test('run metrics accumulate finalized usage once across streaming updates and tool calls', () => {
   let run = updateRunMetrics(null, { type: 'agent_start' }, 1000);
   run = updateRunMetrics(run, { type: 'turn_start' }, 1100);

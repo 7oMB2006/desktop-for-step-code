@@ -103,7 +103,8 @@ export class PendingMessages {
   }
   runtimeEvent(worker: SessionRuntime, event: RuntimeEvent) {
     if (event.type === 'desktop_completion_review' && !['pending', 'reviewing'].includes(event.review?.status)
-      || ['agent_end', 'compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
+      || event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled
+      || ['compaction_end', 'auto_compaction_end', 'auto_clm_end'].includes(event.type)) this.completed(worker);
   }
   resumed(worker: SessionRuntime) { this.paused.delete(worker); }
   async drain(worker: SessionRuntime) {

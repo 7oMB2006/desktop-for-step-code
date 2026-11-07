@@ -39,6 +39,51 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   return { pool, transports, events, open };
 }
 
+for (const final of ['recovered', 'exhausted', 'cancelled', 'exit'] as const) {
+  test(`native incomplete recovery retains ownership until ${final} settlement`, async () => {
+    const { pool, transports, events, open } = fixture();
+    try {
+      const host = await open();
+      host.messages = [{ role: 'user', content: 'Task' }];
+      await open();
+      const receive = transports[0].receive;
+      receive({ type: 'agent_start' });
+      receive({ type: 'message_end', message: { role: 'assistant', content: [],
+        incomplete: 'no_visible_output', stopReason: 'stop' } });
+      receive({ type: 'agent_end' });
+      assert.equal(host.busy, true);
+      assert.equal(host.runActive, true);
+      assert.equal(events.find(event => event.type === 'agent_end')?.desktopRecoveryPending, true);
+      assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+      await pool.read(host);
+      assert.equal(host.busy, true, 'An idle snapshot in the recovery gap cannot release run ownership');
+      assert.equal(host.messages.at(-1)?.incomplete, 'no_visible_output');
+      if (final === 'exit') receive({ type: 'desktop_exit' });
+      else {
+        if (final === 'cancelled') host.interrupted = true;
+        receive({ type: 'agent_start' });
+        if (final === 'cancelled') assert.equal(host.interrupted, true, 'A late continuation cannot erase an explicit stop');
+        assert.equal(events.filter(event => event.type === 'agent_start').at(-1)?.desktopRecoveryContinuation, true);
+        receive({ type: 'message_end', message: { role: 'assistant',
+          content: final === 'recovered' ? 'Recovered answer' : [],
+          stopReason: final === 'cancelled' ? 'aborted' : 'stop',
+          ...(final === 'exhausted' ? { incomplete: 'no_visible_output' } : {}) } });
+        receive({ type: 'agent_end' });
+        assert.equal(host.busy, true);
+        assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+        receive({ type: 'agent_settled', ...(final === 'exhausted'
+          ? { failure: { kind: 'incomplete_turn', reason: 'no_visible_output', message: 'No valid answer' } } : {}) });
+        receive({ type: 'agent_settled' });
+      }
+      assert.equal(host.busy, false);
+      assert.equal(host.runActive, false);
+      assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, final === 'recovered' ? 1 : 0);
+      if (final === 'exhausted') assert.equal(pool.summaries().find(row => row.runtimeId === host.id)?.status, 'failed');
+      assert.equal(taskOutcome([{ role: 'assistant', content: [], stopReason: 'stop', incomplete: 'no_visible_output' }]), 'interrupted');
+    } finally { await pool.stopAll(); }
+  });
+}
+
 test('live background lanes retain their host without blocking foreground messages', async () => {
   const { pool, open, transports, events } = fixture({ idleLimit: () => 0 });
   try {

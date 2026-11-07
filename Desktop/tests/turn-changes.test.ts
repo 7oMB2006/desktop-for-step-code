@@ -63,11 +63,16 @@ test('turn boundaries prevent later edits from replacing previous records', () =
   assert.equal(turnChanges(responses[1].items).files[0].path, 'two.ts');
 });
 
-test('failed, unmatched, duplicated and read-only results do not invent changes', () => {
+test('applied patches survive errors while unmatched, duplicated and read-only results do not invent changes', () => {
   const messages = edit('src/main.ts', 'a\n', 'b\n');
   messages.push(messages[1], { ...messages[1], toolCallId: 'unknown' });
   assert.equal(turnChanges(indexed(messages)).files[0].edits.length, 1);
-  assert.equal(turnChanges(indexed([{ ...messages[0] }, { ...messages[1], isError: true }])).files.length, 0);
+  assert.equal(turnChanges(indexed([{ ...messages[0] }, { ...messages[1], isError: true }])).files.length, 1);
+  assert.equal(turnChanges(indexed([messages[0], { ...messages[1], isError: true, details: undefined }])).files.length, 0);
+  assert.equal(turnChanges(indexed([messages[0], { ...messages[1], desktopToolPending: true }])).files.length, 0);
+  assert.equal(turnChanges(indexed([messages[0], { ...messages[1], desktopImported: true }])).files.length, 0);
+  assert.equal(turnChanges(indexed([messages[0], { ...messages[1], details: { changed: false } }])).incomplete, false);
+  assert.equal(turnChanges(indexed([messages[0], { ...messages[1], isError: true, details: { changed: true } }])).incomplete, true);
   const read = messages.map(message => message.role === 'assistant' ?
     { ...message, content: [{ type: 'toolCall', name: 'read_file', id: 'edit-1', arguments: { path: 'src/main.ts' } }] } : message);
   assert.equal(turnChanges(indexed(read)).files.length, 0);

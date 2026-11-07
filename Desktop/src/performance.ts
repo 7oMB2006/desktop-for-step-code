@@ -48,7 +48,7 @@ export function outputTokensPerSecond(run: RunMetrics | null): number | undefine
 }
 
 export function updateRunMetrics(run: RunMetrics | null, event: RuntimeEvent, now: number): RunMetrics | null {
-  if (event.type === 'agent_start') return {
+  if (event.type === 'agent_start' && !event.desktopRecoveryContinuation) return {
     startedAt: now, phase: 'responding', turns: 0, tools: 0, toolTimeMs: 0, activeTools: {}, usage: emptyUsage(),
   };
   if (!run || run.finishedAt !== undefined) return run;
@@ -102,6 +102,10 @@ export function updateRunMetrics(run: RunMetrics | null, event: RuntimeEvent, no
         : run;
     }
     case 'agent_end':
+      if (event.desktopRecoveryPending) return run;
+      return { ...run, finishedAt: now, activeTools: {}, outputTiming: undefined };
+    case 'agent_settled':
+      if (!event.desktopRecoverySettled || event.desktopReviewPending) return run;
       return { ...run, finishedAt: now, activeTools: {}, outputTiming: undefined };
     default:
       return run;

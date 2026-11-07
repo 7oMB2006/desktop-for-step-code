@@ -35,6 +35,7 @@ export type PermissionPreset = 'ask' | 'approve-for-me' | 'full-access';
 export interface ElapsedTiming { startedAt: number; endedAt?: number }
 export interface MessageTiming { run: ElapsedTiming; thinking: Record<string, ElapsedTiming> }
 export interface Message { role: string; content: string | Content[]; customType?: string; display?: boolean; timestamp?: number; desktopTiming?: MessageTiming; desktopSteered?: boolean; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string; entryId?: string; provider?: string; model?: string; errorMessage?: string; summary?: string; command?: string; output?: string; excludeFromContext?: boolean; details?: { patch?: string; diff?: string; results?: unknown[]; [key: string]: unknown } }
+export interface Message { incomplete?: 'no_visible_output' | 'missing_tool_call' }
 export interface RuntimeState { desktopCompletionReview?: 1; isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
 export interface ModelSelection { model: Model; thinkingLevel?: string }
 export interface ModelChange { id: string; userTimestamp: number; from: Pick<Model, 'id' | 'provider' | 'name'>; to: Pick<Model, 'id' | 'provider' | 'name'> }

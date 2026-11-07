@@ -1,5 +1,45 @@
 # Verification
 
+## Upstream v0.1.7 Result Presentation (2026-11-07, Local Candidate)
+
+This stage leaves the runtime pin and patch manifests unchanged. Existing
+tool cards now distinguish command exit failure, timeout, signal termination,
+cancellation and unknown outcomes from invocation errors. Final applied diffs
+survive failed or cancelled follow-up validation; pending or imported records
+do not become applied changes. Native incomplete-response recovery retains
+run ownership until settlement, without premature completion notifications,
+queue delivery or timing finalization. Desktop does not add another retry.
+
+The initial implementation passes the complete serial Desktop suite:
+1086 cases, 1072 passed, 14 platform skips, zero failures or cancellations.
+After the final cancellation-precedence and recovery-race corrections,
+all 182 focused tests pass. These include two actual pinned-runtime tests:
+applied edits with failed/cancelled validation, and native empty-response
+recovery through a deterministic loopback provider, including exhaustion
+and cancellation. The complete suite was not rerun after those narrow fixes.
+
+Final-source Windows typechecking and production build pass. The new browser
+verifier passes 24 theme/language/preset/viewport combinations plus recovery
+and reduced-motion checks, using the actual transcript and diff components.
+Light desktop and dark narrow screenshots were inspected. Existing Electron
+then_run, completion-review, conversation-timing and general acceptance all
+pass against the same isolated current-source build. CI runner and platform
+policy tests pass 30 cases with one platform skip.
+
+QA uses physical directories under
+`D:/Desktop Runtime Builds/execution-outcomes-20261107/`, avoiding writes
+through the workspace's shared runtime, dist and test-results junctions.
+The v017 runtime includes the current project-instructions helper; an earlier
+QA copy lacked it and was corrected before the final Electron run. Existing
+then_run assertions were updated to require the structured exit/cancellation
+facts, including after reload, without removing diff or permission checks.
+Final receipts are in `acceptance/results.json` and the adjacent logs.
+
+Current-head cloud CI, native macOS, packaged application, installer upgrades
+and real-account/model acceptance remain unconfirmed. No commit, push, PR,
+package, installed-app change or historical-package deletion is part of
+this local implementation.
+
 ## Upstream v0.1.7 Local Migration (2026-11-06)
 
 The `codex/upstream-v017` worktree, based on main `1979ee7`, migrates the

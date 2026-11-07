@@ -49,6 +49,7 @@ export const acceptanceGroups = {
     'verify-theme-bootstrap.mjs',
     'verify-performance-matrix.mjs',
     'verify-auto-resume.mjs',
+    'verify-execution-outcomes.mjs',
   ],
   sessions: [
     'verify-new-session.mjs',

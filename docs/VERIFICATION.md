@@ -1,5 +1,35 @@
 # Verification
 
+## PR #194 Compaction Settings Main Synchronization (2026-11-07)
+
+Head `b735139` passes Windows run `42351838942` and macOS run `42351839100`,
+including both aggregate gates. Downloaded receipts validate the exact Windows
+inventories (47/19/31), both macOS inventories (48/20/30 per mode), native
+terminal success, merge commit `1b56f42014c3a213a570c60288d1fabc2669e6d7`
+and candidate SHA-256
+`b626b387d41bd36f6d5dfacaf9d7d1ab7d9f5f821f5cfccab1134d63df25311c`.
+The full local serial suite exits normally: 1,412 tests, 1,399 passed, thirteen
+platform skips, zero failures/cancellations, 382.4 seconds.
+
+Main then advances to `59953ca` (merged PR #207 compaction settings), producing
+another verification-document conflict. Both histories and implementations are
+retained. The narrow compaction bridge, management adapter, global configuration
+semantics and new interface verifier remain unchanged alongside Remote.
+The runtime pin and patch manifests are unchanged. The newer combination
+requires its own local and cloud checks; the preceding green runs do not prove
+it. No Windows installer, shortcut, installed profile or release is replaced.
+
+The synchronized combination passes typecheck, isolated production build and
+all 314 focused Remote, compaction, polling and staging cases. CI policy,
+inventory, runner and summary tests pass 39 cases with one platform skip.
+Real Windows source Electron Remote, settings-dialog, turn-undo and background
+reply acceptance pass; the production compaction settings browser matrix passes
+using installed Edge. The isolated runtime retains the unchanged v0.1.7 bundle
+and gains the current admin entry and bundled compaction configuration adapter,
+matching the new staging recipe without touching shared outputs or upstream.
+Evidence is under `test-results/ci-fix-main207-*` in the reused snapshot.
+Full serial and replacement cloud results remain pending at this receipt.
+
 ## PR #194 New-Session Reload Polling (2026-11-07)
 
 After main #208 synchronization, the full local serial suite exits normally:
@@ -608,6 +638,132 @@ Replacement cloud checks and the new Windows preview package are still pending.
 No real Feishu authorization, external user-content delivery, real callback or
 paid-model acceptance is established here.
 
+## PR #207 macOS Undo Acceptance
+
+Head `b1fe638` passes all Windows gates, but macOS run `42347395061` fails
+source sessions acceptance at the same-workspace running-peer undo assertion.
+The fixture's async browser predicates returned Promises instead of polling
+their resolved conditions, allowing undo to reach the RPC idle check before
+the busy peer was reflected in Desktop state.
+
+The fixture now reuses the Node-side IPC snapshot poll for settled edit
+captures and peer readiness. It verifies distinct runtime/session identities,
+the same workspace, an idle source and a running peer before retaining the
+strict workspace-busy rejection and unchanged file assertion. No production
+guard, error expectation, deadline or CI inventory is relaxed.
+
+The focused undo, runtime and polling suite passes 86 tests with three platform
+skips. Three Windows Electron undo replays pass, including the busy-peer guard
+and light/dark/narrow/English confirmation cases. New-head cloud and native
+macOS source/package acceptance remain required.
+
+### Runtime Stability Main Synchronization
+
+PR #207 also integrates main `7fdfc76` (merged PR #208). Only this verification
+document conflicted; both complete records are retained and the incoming
+startup/shutdown implementation and tests are unchanged.
+
+After synchronization, typecheck, production build and the focused runtime,
+background, undo, polling, composer and compaction suites pass: 158 passed,
+five platform skips and zero failures. Rebuilt Windows Electron undo,
+background-reply, settings-dialog and Plan-review acceptance also pass.
+These local source results do not establish new-head cloud, native macOS,
+packaged or real-account acceptance. The prepared runtime is not restaged.
+
+## PR #207 macOS Packaged Reply Acceptance
+
+Head `ba58e70` passes the Windows gates and macOS source runtime checks, but
+macOS run `42344506919` fails packaged runtime acceptance at the background-reply
+empty-draft assertion. The fixture used `fill('')` and immediately read the send
+button before confirming the controlled ProseMirror draft had cleared.
+
+The fixture now uses the editor's native select-all/Backspace transactions,
+waits for both model value and controlled empty state, and retains the disabled
+send assertion. It also checks that the nonempty draft was sendable and clearing
+it makes no follow-up request. The initial parent-idle poll now awaits the
+resolved IPC snapshot rather than a browser-side Promise. No production code,
+assertion requirement, deadline or CI inventory is removed or relaxed.
+
+All 31 focused background-agent, composer and snapshot-polling tests pass.
+Three Windows Electron reply replays and the composer-editing acceptance pass.
+Fresh macOS source/package and current-head cloud results remain required;
+the local Windows checks do not establish that the failing platform passed.
+
+## Compaction Settings Main Synchronization (2026-11-07)
+
+PR #207 integrates main `ff2f3b02`, including #206's execution-outcome and
+incomplete-response handling. Only TODO and verification records conflicted.
+Both implementation states and all complete verification sections from both
+parents are preserved. The incoming execution implementation is unchanged;
+compaction settings retain the explicit policy-migration retry fix.
+
+Typecheck, production build and all 169 focused configuration, execution,
+recovery, queue, timing and session tests pass. CI policy, inventory, runner
+and summary tests pass 39 cases with one platform skip. Browser acceptance
+passes the compaction settings matrix and all 24 execution-outcome cases.
+Real Windows Electron settings-dialog and then_run acceptance also pass,
+using isolated profiles and deterministic loopback providers.
+
+The existing prepared runtime is not restaged. These local checks do not
+establish new-head cloud CI, native macOS, packaged or real-account acceptance.
+No installer, installed-profile change or historical-package deletion occurs.
+
+## Context Maintenance Settings (2026-11-07, Local Implementation)
+
+Settings > General now edits the Desktop-owned global compaction thresholds
+through a narrow typed bridge and an isolated management-process adapter.
+The default ratio is 90%, bounded to 50-95%. Advanced settings expose one
+global token ceiling and per-model ratios keyed by `provider/id`; the pinned
+runtime does not support a separate token ceiling per model. Configured ratios
+remain distinct from effective thresholds and trusted project overrides.
+
+Writes use the pinned upstream TOML parser, lock and atomic update function.
+A revision checked inside that lock prevents stale threshold overwrites without
+rejecting unrelated MCP edits. Reset removes only this editor's three threshold
+fields. CLM/projection, enabled state, explicit reserves, permissions, credentials
+and unknown options remain untouched. Legacy policy migration is explicit;
+invalid TOML and linked Desktop roots fail closed. No raw document, private path
+or credential is projected to the renderer.
+
+Nine focused tests pass, including two real pinned management processes,
+persisted TOML consumed by the native settings manager, stale writers,
+provider-qualified model identities, trusted project overrides, reset isolation,
+invalid configuration and linked-profile rejection. Typecheck and production
+build pass. Browser acceptance uses the production component and checks
+auto-save, keyboard focus retention, model inheritance, defaults, failed reads
+and writes, conflicts, legacy policy, light/dark, Chinese/English, narrow windows,
+four-sided focus clearance and reduced motion. The new verifier is registered
+in the shared interface CI inventory.
+
+PR #207's save retry retains explicit legacy-to-ratio migration intent until
+the operation succeeds, settings are reloaded successfully, or another edit
+replaces it. Browser regression first reproduced the no-op retry, then passed
+for valid and invalid legacy thresholds, ordinary saves and reload without
+implicit migration. Typecheck, all nine focused tests, production build and
+the real Windows Electron settings-dialog acceptance pass again.
+
+The full serial Desktop suite passes 1068 cases with 14 platform skips,
+zero failures/cancellations, across 1082 cases in about 398 seconds.
+CI policy/inventory/runner/summary checks pass 39 cases with one platform skip.
+
+The existing Windows Electron settings-dialog acceptance also saves and reads
+the real configuration through preload, resets it and confirms the current
+draft/runtime/messages are unchanged. Existing settings navigation, themes,
+narrow windows and draft retention still pass. Tests use temporary profiles,
+without paid models or real account credentials.
+
+Runtime verification uses the existing prepared v0.1.7 bundle at pin `29eb460`
+through read-only runtime references, with current management helpers built into
+this worktree's physical runtime root. The source pin and upstream patches are
+unchanged; this is not a fresh complete source-staging or packaged acceptance.
+There is no threshold hot-update RPC at this pin. Saving never reloads or
+restarts resident workers, including reused empty workers; new runtime starts
+and explicit manual restarts read the saved global values. Installer,
+installed-profile changes and cloud acceptance are outside these local receipts.
+The local artifact audit, excluding junction targets, records about 10.1 MiB
+in `Desktop/dist`, 0.13 MiB in the physical runtime adapter root, 63.0 MiB
+in the terminal runtime and under 1 MiB of Electron screenshots. These are current
+development/verification inputs; no historical package is produced or deleted.
 ## Upstream v0.1.7 Runtime Stability (2026-11-07, Local Candidate)
 
 This candidate starts from main `4318d6e` (merged PR #203) and retains the

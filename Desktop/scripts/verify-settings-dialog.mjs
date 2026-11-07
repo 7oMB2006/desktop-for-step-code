@@ -63,6 +63,26 @@ try {
     assert.equal(await page.locator('.settings-content').evaluate(element => element.scrollWidth > element.clientWidth), false);
     assert.equal(await page.getByRole('button', { name: title, exact: true }).getAttribute('aria-current'), 'page');
   }
+  {
+    await navigation.getByRole('button', { name: '通用', exact: true }).click();
+    const threshold = page.getByRole('spinbutton', { name: '触发比例百分比', exact: true });
+    await threshold.waitFor();
+    const before = await page.evaluate(() => window.desktop.compactionSettings());
+    await threshold.fill('80');
+    await threshold.press('Enter');
+    await page.getByRole('status').filter({ hasText: '已保存，现有会话未更改。' }).waitFor();
+    assert.equal((await page.evaluate(() => window.desktop.compactionSettings())).triggerRatio, .8);
+    const after = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(after.draftId, draft.draftId);
+    assert.equal(after.runtimeId, draft.runtimeId);
+    assert.equal(after.messages.length, draft.messages.length, 'Changing thresholds never sends a prompt');
+    await page.getByRole('button', { name: '恢复上下文整理默认值', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: '已保存，现有会话未更改。' }).waitFor();
+    assert.equal((await page.evaluate(() => window.desktop.compactionSettings())).triggerRatio, .9);
+    assert.equal(before.triggerRatio, .9);
+    await page.locator('.compaction-advanced summary').click();
+    await capture('settings-compaction-general-light');
+  }
   await navigation.getByRole('button', { name: '插件', exact: true }).click();
   const plugins = page.locator('.plugin-center');
   await plugins.waitFor();

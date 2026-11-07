@@ -85,6 +85,8 @@ await cp(join(source, 'dist'), join(runtime, 'step/dist'), { recursive: true });
 for (const name of ['package.json', 'README.md']) await cp(join(source, name), join(runtime, 'step', name));
 for (const name of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) await cp(join(upstream, name), join(runtime, name));
 await cp('electron/admin.mjs', join(runtime, 'admin.mjs'));
+await build({ entryPoints: ['electron/compaction-configuration.ts'], outfile: join(runtime, 'compaction-configuration.mjs'),
+  bundle: true, platform: 'node', format: 'esm', target: 'node24' });
 await cp('electron/capability-admin.mjs', join(runtime, 'capability-admin.mjs'));
 await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.mjs'));
 await cp('electron/plugin-files.mjs', join(runtime, 'plugin-files.mjs'));

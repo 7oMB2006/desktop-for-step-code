@@ -10,6 +10,7 @@ export const acceptanceGroups = {
     'verify-native-update-download.mjs',
     'verify-appearance.mjs',
     'verify-interface-settings.mjs',
+    'verify-compaction-settings.mjs',
     'verify-interface-preferences.mjs',
     'verify-question-tool-layout.mjs',
     'verify-disclosure-summary.mjs',

@@ -45,6 +45,7 @@ import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
 import { changeFavoriteModel, normalizeFavoriteModels } from '../src/model-favorites';
 import { AuthVault } from './auth-vault';
+import { RemoteStore } from './remote-store';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
 import { CapabilityService, assertPluginUnused } from './capability-service';
@@ -61,6 +62,8 @@ import { sessionSummary } from './session-summary';
 import { submittedInputContent } from '../src/template-input';
 import { clmSnapshot } from './clm';
 import { BackgroundAgents } from './background-agents';
+import { RemoteManager, parseRemoteAction } from './remote-manager';
+import { receiveRemoteImages, sendRemoteImage } from './remote-images';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { readWorkflowCatalog } from './workflow-catalog';
 import { workflowsFromMessages, workflowIsActive } from '../src/workflow-state';
@@ -327,6 +330,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     if (queueWorker) btw.event(queueWorker, event);
     return;
   }
+  if (queueWorker) remote.runtimeEvent(queueWorker, event);
   const modelChanged = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
     && modelSelections.delivered(queueWorker, submittedInputContent(event.message), event.message.timestamp);
   const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
@@ -405,6 +409,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     return { ...launch, args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs')] };
   },
   dispose: worker => {
+    remote.dispose(worker);
     bvrBridge.detach(worker);
     btw.dispose(worker);
     conversationTiming.event(worker, { type: 'desktop_exit' });
@@ -423,9 +428,63 @@ const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
   runtimes.publish();
-}, (worker, error) => emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) }),
+}, (worker, error) => {
+  remote.queueFailed(worker);
+  emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) });
+},
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
-  (worker, message) => runtimes.preparePrompt(worker, message));
+  (worker, message) => runtimes.preparePrompt(worker, message),
+  (worker, id, event) => remote.queueEvent(worker, id, event));
+const remote = new RemoteManager({
+  language: () => preferences.language,
+  sessions: remoteSessions,
+  projects: remoteProjects,
+  refresh: async () => { await listSessions(); },
+  validateWorkspaces: async workspaces => {
+    for (const workspace of workspaces) {
+      if (!remoteProjects().some(project => project.workspace === workspace)
+        || pathKey(await workspaceDirectory(workspace)) !== pathKey(workspace))
+        throw new Error('Saved Remote project is no longer available');
+    }
+  },
+  prepare: sessionId => prepareRemoteSession(sessionId),
+  createSession: workspace => prepareRemoteSession(undefined, workspace),
+  worker: (runtimeId, sessionId) => {
+    const worker = runtimes.require(runtimeId);
+    if (worker.state?.sessionId !== sessionId) throw new Error('Remote session identity changed');
+    return worker;
+  },
+  submit: async (worker, message, accepted, images) => {
+    if (transition || sessionNavigation.busy || settingsMutation || undoBusy || quitting || quitPending || updateInstalling
+      || providerSettingsPending || worker.mutating || worker.stopping || worker.pendingUI.size
+      || worker.failed || worker.interrupted || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
+      throw new Error('Review the session on Desktop before sending');
+    const id = pendingMessages.enqueue(worker, message, { message, ...(images?.length ? { images } : {}) });
+    accepted(id);
+    pendingMessages.resumed(worker);
+    void pendingMessages.drain(worker);
+  },
+  withdraw: (worker, queueId) => pendingMessages.withdraw(worker, queueId),
+  queued: worker => pendingMessages.list(worker).filter(entry => !entry.sending).length,
+  loadImages: receiveRemoteImages,
+  sendImage: (channel, bindingId, sessionId, worker, path, valid, signal) =>
+    sendRemoteImage(channel, bindingId, sessionId, worker.cwd, path, valid, signal),
+  stop: async worker => { await handle('command', ['abort', {}, worker.id]); },
+  respond: (worker, answer) => {
+    if (quitting || quitPending || updateInstalling || settingsMutation) throw new Error('Desktop is unavailable');
+    runtimes.respondToRequest(worker, answer);
+    remote.runtimeEvent(worker, { type: 'desktop_ui_expired' });
+  },
+  open: url => shell.openExternal(url),
+}, receive => {
+  const channel = new RpcProcess(receive, 65536);
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env))
+    if (/^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HTTP_PROXY|HTTPS_PROXY|NO_PROXY)$/i.test(key)) env[key] = value;
+  env.NODE_USE_ENV_PROXY = '1';
+  channel.start(nodePath, join(runtimeRoot, 'remote-channel.mjs'), dataRoot, env);
+  return channel;
+}, state => emit({ type: 'desktop_remote', state }), Date.now, new RemoteStore(join(app.getPath('userData'), 'remote')));
 const runtimeManifest = JSON.parse(readFileSync(join(runtimeRoot, 'manifest.json'), 'utf8'));
 const backgroundAgents = new BackgroundAgents(runtimes.workers,
   () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending,
@@ -531,7 +590,9 @@ async function tryAutomaticCron(workspace?: string) {
   finally { transition = false; emit({ type: 'desktop_cron_changed' }); }
 }
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
-  (worker, message) => { pendingMessages.enqueue(worker, message, { message }); });
+  (worker, message) => { pendingMessages.enqueue(worker, message, { message }); },
+  { extensionPath: join(runtimeRoot, 'desktop-remote.mjs'),
+    sendImage: (worker, path, caption, signal) => remote.deliverImage(worker, path, caption, signal) });
 function recycleSessionRuntimes() {
   if (transition && !sessionNavigation.busy) return;
   void runtimes.recycle(worker => sessionNavigation.pending(worker.state?.sessionId))
@@ -609,6 +670,52 @@ function cachedSessions(): Session[] {
   }
   return [...sessions.values()];
 }
+function remoteSessions() {
+  return cachedSessions().filter(session => !isChildSession(session.id) && !preferences.archivedSessionIds?.includes(session.id))
+    .map(session => {
+      const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === session.id && worker.status === 'connected');
+      const workspace = worker?.cwd ?? session.cwd;
+      return { runtimeId: worker?.id, sessionId: session.id, name: session.name || session.firstMessage || 'Step Code',
+        workspace, workspaceName: preferences.workspaceNames?.[pathKey(session.workspacePath ?? workspace)] || basename(workspace) };
+    });
+}
+function remoteProjects() {
+  const sessions = remoteSessions();
+  return [...new Set([...preferences.workspaces, ...sessions.map(session => session.workspace)])].map(workspace => ({
+    workspace, name: preferences.workspaceNames?.[pathKey(workspace)]
+      || sessions.find(session => session.workspace === workspace)?.workspaceName || basename(workspace),
+  }));
+}
+async function prepareRemoteSession(sessionId?: string, workspace?: string) {
+  if (transition || sessionNavigation.busy || settingsMutation || undoBusy || deletingArchived || quitting || quitPending
+    || updateInstalling || providerSettingsPending) throw new Error('Desktop operation in progress');
+  transition = true;
+  try {
+    const target = sessionId ? remoteSessions().find(session => session.sessionId === sessionId) : undefined;
+    if (sessionId && !target) throw new Error('Session is unavailable');
+    if (target?.runtimeId) return runtimes.require(target.runtimeId);
+    if (sessionId && [...runtimes.workers.values()].some(worker => worker.state?.sessionId === sessionId && worker.status === 'connecting'))
+      throw new Error('Session is opening');
+    const saved = sessionId ? cachedSessions().find(session => session.id === sessionId) : undefined;
+    if (sessionId && !saved?.path) throw new Error('Session history is unavailable');
+    const cwd = target?.workspace ?? workspace;
+    if (!cwd || !remoteProjects().some(project => project.workspace === cwd)) throw new Error('Unknown Remote workspace');
+    const canonical = await workspaceDirectory(cwd);
+    if (pathKey(canonical) !== pathKey(cwd)) throw new Error('Open the canonical project locally before authorizing Remote');
+    const sessionPath = saved?.path ? await managedSessionFile(join(dataRoot, 'sessions'), saved.path) : undefined;
+    // Preparing never activates the worker or consumes the local composer draft.
+    // Cold/new remote hosts start in Ask; project trust remains a separate local decision.
+    // Preserve the exact granted spelling after verifying its canonical identity.
+    const worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd,
+      { ...authEnvironment(), ...movedSessionEnvironment() }, sessionPath);
+    if ((sessionId && worker.state?.sessionId !== sessionId) || worker.permissionPreset !== 'ask') {
+      await runtimes.remove(worker);
+      throw new Error('Could not verify the Remote session identity and Ask policy');
+    }
+    emit({ type: 'desktop_sessions_changed' });
+    return worker;
+  } finally { transition = false; }
+}
 async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = false): Promise<Snapshot> {
   const draft = ignoreDraft ? undefined : sessionDraft;
   if (draft) worker = undefined;
@@ -641,7 +748,7 @@ async function guardIdle(options: { stopHost?: boolean } = {}) {
 function canApplyProviders() {
   return !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
     && [...runtimes.workers.values()].every(worker => worker.status !== 'connecting'
-      && !worker.operations && !worker.mutating && !worker.stopping);
+      && !worker.operations && !worker.mutating && !worker.stopping && !worker.remoteAttached);
 }
 function applyProviderSettings(): Promise<void> {
   if (providerApplication) return providerApplication;
@@ -844,6 +951,14 @@ async function beginSession(workspace?: string) {
 }
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[]) {
+  if (method === 'remoteState') { await listSessions(); return remote.snapshot(); }
+  if (method === 'remoteAction') {
+    const action = parseRemoteAction(args[0]);
+    if (!['disconnect', 'unbind'].includes(action.type)
+      && (transition || settingsMutation || undoBusy || quitting || quitPending || updateInstalling || providerSettingsPending))
+      throw new Error('Desktop operation in progress');
+    return remote.action(action);
+  }
   if (updateInstalling && !['updateState', 'snapshot', 'systemTheme'].includes(method)) throw new Error('Update installation in progress');
   if (method === 'linkPreview') return linkPreview(args[0]);
   switch (method) {
@@ -958,6 +1073,7 @@ async function handle(method: string, args: any[]) {
           await usageEstimates.flush();
           await terminals.stopAll();
           await sessionImports.close();
+          await remote.shutdown();
           await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
         });
         success = true;
@@ -1784,7 +1900,9 @@ async function handle(method: string, args: any[]) {
             answer.value = question ? serializeAnswers(question, JSON.parse(value)) : value;
             if (request.method === 'select' && !request.options?.includes(data.value)) throw new Error('Invalid selection');
           }
-          runtimes.respondToRequest(worker, answer); return null;
+          runtimes.respondToRequest(worker, answer);
+          remote.runtimeEvent(worker, { type: 'desktop_ui_expired' });
+          return null;
         }
         const allowed = ['prompt', 'abort', 'clear_queue', 'new_session', 'set_model', 'set_thinking_level', 'set_session_name', 'set_permission_preset', 'get_commands', 'get_available_thinking_levels', 'get_session_stats', 'compact'];
         if (type === 'queue_recover') {
@@ -2261,6 +2379,7 @@ app.on('before-quit', event => {
       }
       await terminals.stopAll();
       await sessionImports.close();
+      await remote.shutdown();
       await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop()]);
       await conversationTiming.flush();
       await modelSelections.flush();
@@ -2444,6 +2563,9 @@ else app.whenReady().then(async () => {
       }
     })();
   }
+  void startup.then(async () => {
+    if (!quitting && !quitPending && !updateInstalling) { await listSessions(); await remote.resume(); }
+  }).catch(() => {});
   void startup.then(() => tryAutomaticCron());
   if (process.env.DESKTOP_DEV_URL && !app.isPackaged) await window.loadURL(process.env.DESKTOP_DEV_URL);
   else await window.loadFile(join(__dirname, 'renderer/index.html'));
@@ -2467,5 +2589,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
+  quitting = true; void Promise.all([remote.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
 });

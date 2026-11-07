@@ -1,5 +1,643 @@
 # Verification
 
+## PR #194 Compaction Settings Main Synchronization (2026-11-07)
+
+Head `b735139` passes Windows run `42351838942` and macOS run `42351839100`,
+including both aggregate gates. Downloaded receipts validate the exact Windows
+inventories (47/19/31), both macOS inventories (48/20/30 per mode), native
+terminal success, merge commit `1b56f42014c3a213a570c60288d1fabc2669e6d7`
+and candidate SHA-256
+`b626b387d41bd36f6d5dfacaf9d7d1ab7d9f5f821f5cfccab1134d63df25311c`.
+The full local serial suite exits normally: 1,412 tests, 1,399 passed, thirteen
+platform skips, zero failures/cancellations, 382.4 seconds.
+
+Main then advances to `59953ca` (merged PR #207 compaction settings), producing
+another verification-document conflict. Both histories and implementations are
+retained. The narrow compaction bridge, management adapter, global configuration
+semantics and new interface verifier remain unchanged alongside Remote.
+The runtime pin and patch manifests are unchanged. The newer combination
+requires its own local and cloud checks; the preceding green runs do not prove
+it. No Windows installer, shortcut, installed profile or release is replaced.
+
+The synchronized combination passes typecheck, isolated production build and
+all 314 focused Remote, compaction, polling and staging cases. CI policy,
+inventory, runner and summary tests pass 39 cases with one platform skip.
+Real Windows source Electron Remote, settings-dialog, turn-undo and background
+reply acceptance pass; the production compaction settings browser matrix passes
+using installed Edge. The isolated runtime retains the unchanged v0.1.7 bundle
+and gains the current admin entry and bundled compaction configuration adapter,
+matching the new staging recipe without touching shared outputs or upstream.
+Evidence is under `test-results/ci-fix-main207-*` in the reused snapshot.
+Full serial and replacement cloud results remain pending at this receipt.
+
+## PR #194 New-Session Reload Polling (2026-11-07)
+
+After main #208 synchronization, the full local serial suite exits normally:
+1,410 tests, 1,397 passed, thirteen platform skips, zero failures, 390.4 seconds.
+Cloud macOS run `42350348035` then exposes a new-session verifier race: its
+post-reload predicate reads `.disabled` before `.new-chat` has mounted. The
+failure screenshot shows the app subsequently rendered, not a renderer crash.
+
+All seven new-session readiness waits now share a predicate requiring an
+existing, enabled button and, when requested, the matching theme. Two browser
+predicate regressions reproduce the null dereference before the fix and pass
+afterward; all six fixture tests and typecheck pass. Full source Electron
+new-session acceptance passes at normal and constrained native window heights.
+No product code, runtime pin, timeout or
+acceptance inventory changes. Evidence is under `test-results/ci-fix-new-session-*`
+in the reused isolated snapshot. Replacement current-head cloud results remain
+a separate gate; the accepted Beta package and shortcut are unchanged.
+
+## PR #194 Post-CI Main Synchronization (2026-11-07)
+
+Head `ae5103b` passes current-head Windows run `42346309477` and macOS run
+`42346309483`, including both aggregate gates. Downloaded reports validate the
+exact Windows inventories (47/19/31), both macOS inventories (48/20/30 per
+mode), native terminal success, common merge commit `f053898` and candidate
+SHA-256 `415e5ede1960dd879a5c010944a4644f4d8d6353708eecf427d0e60a91d91fba`.
+These are not receipts for a later source combination.
+
+Main subsequently advances to `7fdfc76` (PR #208 startup/shutdown ownership).
+This synchronization preserves its guards and diagnostics alongside Remote.
+Only this verification document conflicts; both histories are retained.
+The runtime pin, integration manifests, renderer bridge and Remote behavior
+are not separately changed. Current-combination local and cloud results
+remain separate gates; the accepted `e5918c2` package is not replaced.
+
+After synchronization, typecheck and isolated production build pass. All 204
+focused lifecycle/Remote cases finish: 202 passed, two platform skips, zero
+failures. Source Electron Remote, Plan and completion-review acceptance pass
+again, including actual Remote quit/relaunch recovery. Evidence is under the
+same isolated snapshot's `test-results/ci-fix-main208-*`; the full serial suite
+and replacement current-head cloud checks remain pending at this receipt.
+
+## PR #194 CI Path Aliases And Recovery Integration (2026-11-07)
+
+The three Windows groups and macOS preparation all failed the same image
+workspace-alias test at `e5918c2`, not separate build or renderer failures.
+An absolute image path can retain an aliased temporary parent while the
+selected workspace resolves to its physical parent. Remote now authorizes the
+canonical file against the canonical workspace before reading/uploading it.
+Outside, missing-outside and escaping-symlink paths retain the explicit error;
+the open-file identity, mutation, revocation and transfer-budget checks remain.
+A new parent-alias fixture fails before the fix and passes afterward.
+
+Main `ff2f3b02` is merged without rewriting either branch. Both sides' tests
+and verification history are retained. The shared task-outcome helper preserves
+main's incomplete-answer classification. Remote retains the original reply,
+reaction, image grant and compact tool history across native recovery, until
+authoritative completion or interrupted settlement; pending completion review
+does not prematurely settle that reply. Recovery regression cases cover
+success, exhaustion, cancellation and the subsequent review boundary.
+The v0.1.7 runtime pin and patch manifests are unchanged.
+
+Local checks pass: typecheck, isolated production build, 418 focused tests,
+nineteen policy/summary checks, and twenty runner/inventory checks with one
+platform skip. Actual source Electron Remote acceptance passes questions,
+Plan, image delivery, queues, routing and quit/relaunch recovery. A concurrent
+local supplement stalled during process cleanup and was stopped only within
+its identified verifier process trees; the affected timing and runner cases
+then passed independently. The stopped invocation is not counted as a pass.
+
+Evidence is in the reused isolated snapshot
+`D:\Desktop Runtime Builds\remote-pr194-main-sync-20261107\Desktop\test-results`
+under `ci-fix-*`. Full-suite, replacement cloud/macOS and updated packaged
+acceptance remain separate gates. The already delivered `e5918c2` package and
+desktop shortcut are not silently replaced by this CI repair.
+
+The complete local suite subsequently exits normally: 1,390 tests, 1,376
+passed, fourteen platform skips, zero failures, 419.1 seconds. Source Electron
+Plan review, completion review and general window/RPC/isolation acceptance also
+pass. The execution-outcome visual matrix passes all twenty-four cases using
+installed Edge; the local bundled Chromium is unavailable.
+
+Replacement cloud runs pass the image tests and expose two later fixture
+assumptions. The Windows Remote restart fixture creates an empty project under
+an aliased temporary parent, which the unchanged canonical-project guard
+correctly rejects. Canonicalize its profile before creating projects. A local
+junction-parent invocation reproduces the same restart failure before this
+change, then passes the full source Remote fixture after it, including actual
+quit/relaunch recovery. On macOS, the step-column hit probe can run outside the scrolled
+viewport; reveal the actual navigation and await shared layout settlement
+before measuring it. The fixture explicitly visits its footer first and keeps
+all width, padding, marker alignment and hit-target assertions. No product
+authorization guard or CI inventory is relaxed. Replacement cloud results
+remain a separate gate.
+
+## PR #194 Main And v0.1.7 Synchronization (2026-11-07)
+
+Merge main `4318d6e` into the Remote Beta without rewriting either branch.
+The integration uses main's v0.1.7 pin `29eb460` and unchanged patch manifests;
+Remote does not introduce a separate runtime upgrade. All thirteen conflicting
+paths retain both sides' capabilities, typed bridges, queue protections and
+verification history. The merged TODO keeps Remote pending and main's plugin
+completion rather than restoring the obsolete plugin-in-progress entry.
+
+The Remote adapter builder now reads the same v017 manifest as staging, and
+the staging regression covers that selector. Workers retain both native Plan
+review flags and the permission-gated Remote image extension. The Remote
+native fixture reads the latest collaboration-mode announcement and the actual
+user image input, not a later native mode announcement. Settings verifiers use
+the explicit settings control. Remote and the retained plugin center are
+mutually exclusive without discarding the local conversation draft.
+
+Three red/green regressions cover completion-review integration: intermediate
+end events keep the original reaction and image scope, continuation updates
+the same reply card, and failed/cancelled review settles it as interrupted.
+Malformed and foreign-session review events cannot end the reply. Successful
+completion still requires the existing authoritative task-completed event.
+
+Current local checks pass:
+
+- Typecheck, all 418 focused Remote/queue/session/review/project tests, six
+  runtime-staging tests and the seven cross-session broker tests.
+- CI inventory, policy and runner checks: thirty passed, one platform skip.
+- Isolated production build and Remote adapter bundling against the unchanged
+  v0.1.7 upstream adapter and SDK 1.76.0. The reused runtime matches all 47
+  manifest postimages and the staged Node executable's SHA-256.
+- Real Windows source Electron Remote, settings-dialog, Plan-review and
+  completion-review verifiers. Remote covers native question answers, Plan
+  refinements/approval, images, queues, exact recall, disconnect/relaunch
+  recovery and two-way plugin navigation. Light/dark and narrow Remote
+  screenshots were inspected.
+- All 1,045 tracked inputs match the isolated verification snapshot by SHA-256
+  before this receipt-only documentation addition.
+
+Evidence is under
+`D:\Desktop Runtime Builds\remote-pr194-main-sync-20261107\Desktop\test-results`.
+The first isolated assembly lacked the new generated project-instructions
+extension; after building that extension, the next run exposed the old image
+fixture selecting a mode announcement. The fixture was corrected to assert
+the actual user image bytes, and the final Remote run passes without weaker
+assertions. These failures remain recorded in their original logs.
+
+The rebuildable isolated runtime, dist, terminal runtime and evidence total
+approximately 200 MiB. No installer is generated; the running application,
+shortcut, shared outputs and personal upstream checkout remain unchanged.
+Cloud CI, native macOS, packaged and real Feishu-account acceptance remain
+separate gates. No merge of the PR or release is performed.
+
+## Remote Questions, Plan And Markdown (2026-11-07)
+
+Remote now distinguishes permission to ask from the subsequent structured
+answer form. Known questions retain their original IDs and opaque option
+values; custom answers are limited to 1,000 characters. Plan review preserves
+approval, refinement and continued planning as separate decisions. Full pending
+request/tool-call identity, first-response ownership and expiry are rechecked;
+unknown, stale, malformed or oversized actionable content remains local.
+
+Assistant replies use JSON 2.0 Markdown components rather than legacy
+`div.text.lark_md`, with native tables, inline/fenced code and a separate
+plain-text source footer. Model-supplied platform tags, embedded images and
+unsafe links do not acquire platform behavior. The helper bundles its Markdown
+parser for offline loading; the upstream pin and adapter remain unchanged.
+
+Local checks passed:
+
+- Typecheck, `git diff --check` and all 192 focused Remote tests.
+- Complete unit coverage in two explicit groups: the three background-runtime
+  cases and the remaining 1,169 tests. Total: 1,158 passed, fourteen skipped,
+  zero failed. Logs are `background-runtime-question-markdown-rerun.log` and
+  `full-tests-question-markdown-final-shard.log` in the reused isolated snapshot.
+- Isolated production build, adapter staging and offline helper imports.
+- Source Electron acceptance through the actual patched runtime: permission to
+  ask, grouped selected/custom answers, Plan refinement and explicit approval,
+  alongside existing Remote, image, queue and quit/relaunch recovery checks.
+- Edge chat-simulation acceptance: shared outgoing card documents, question
+  forms, Plan decisions, Markdown tables/code, light/dark 320-1440px layouts,
+  focus and reduced motion, with no external requests. Generated screenshots
+  were inspected.
+
+The source workspace's shared runtime has an older BTW patch hash and still
+fails its newer tool-rejection test; it was not overwritten. The isolated
+runtime matches the current manifest and passes that test. A later
+single-invocation suite stalled after three passing background-runtime cases
+because its child processes remained alive. Only that verifier's process tree
+was stopped; both explicit groups then exited normally without force-exit flags
+or weakened assertions. A pristine single-invocation full run is not claimed.
+
+The existing isolated artifacts total approximately 218 MiB across runtime,
+dist, terminal runtime and acceptance evidence. No artifact was deleted.
+No installer, installed application, shortcut, shared output, upstream pin,
+commit or remote PR was changed. Real Feishu rendering/callbacks, packaged,
+macOS and current-head cloud acceptance remain separate gates.
+
+## Remote Overview Readability (2026-11-06)
+
+The `/tasks` payload now has a bounded structured presentation shared by the
+helper and chat simulation, rather than a generic bilingual plain-text notice.
+It follows the Desktop language, separates the input target from attention and
+in-progress groups, retains complete rows and exact saved-handle commands, and
+uses a concise empty state. Session names/status remain literal, never Markdown
+or approval actions; malformed, oversized and action-bearing overview payloads
+are rejected at the helper boundary. Omitted rows are explicitly counted.
+
+Typecheck, 374 focused Remote/media/queue/session tests, the isolated production
+build, source Electron Remote acceptance and Edge simulation acceptance pass.
+Empty/populated light/dark cards and 320-1440px layouts were inspected. Logs
+are `Desktop/test-results/remote-overview-focused.log` and the isolated
+snapshot's `test-results/remote-overview-{build,native,preview}.log`;
+card screenshots are under its `test-results/remote-chat-preview/`.
+
+This narrowly scoped follow-up does not rerun or relabel the full-suite result
+below, does not build an installer or push, and does not establish actual
+Feishu rendering, packaged/macOS or cloud acceptance.
+
+## Remote Reliable Interaction And Images (2026-11-06)
+
+The PR #194 follow-up implements the approved Remote [IV] scope: selection
+failure barriers, distinct queue receipts, exact queued-only recall, visible
+approval expiry and exact-request refresh, `/tasks`, `/sharing`, `/detach`,
+typed attention states, explicit tail truncation, and separate socket/restart
+recovery notices without offline replay. Tool activity is coalesced into one
+category/count line on the original reply card, never raw arguments, results
+or thinking.
+
+Images require a separate saved opt-in and an image-capable model. Native
+input and the ordinary permission-gated `desktop_send_image` tool use bounded
+transfers through the main-owned broker/helper. SDK 1.76.0 contract tests cover
+the actual image upload `{image_key}` response, cancellable HTTP deadlines,
+run/grant revocation, shared memory reservations and no automatic resend after
+uncertain delivery. Optional captions follow only confirmed image delivery.
+No Markdown/path auto-export or arbitrary file download is introduced.
+
+Independent review findings were fixed and regression-tested: late selection
+cannot undo a local detach, failed legacy selection cannot fall back to the
+previous target, image delivery cannot outlive its captured grant/run, queued
+preparation cannot issue a prompt after abort/recovery/clear, and a remote
+detach followed by explicit selection preserves ordered routing.
+
+Current local checks passed:
+
+- Typecheck and 370 focused Remote, media, queue, broker and session tests,
+  with no failures or skips.
+- All 21 CI policy, inventory and runner tests.
+- Production build in the reused isolated snapshot
+  `D:\Desktop Runtime Builds\remote-reactions-pr194-20261106`.
+- Source Electron acceptance through the actual staged runtime: image bytes
+  reach the model input; `desktop_send_image` requests ordinary permission and
+  receives a native-image delivery acknowledgement; captions follow it.
+  Queue counts, exact recall, failed selection, detach preserving local work,
+  encrypted image grants and actual quit/relaunch are also covered.
+- Edge chat-simulation acceptance through the production manager core:
+  tasks/recall, compact structured tool activity, image opt-in, decoded fixture
+  PNGs, light/dark 320-1440px layouts, focus and reduced motion, without external
+  requests. The production image checkbox and forwarding list were checked in
+  narrow light/dark Electron layouts. Screenshots were inspected.
+- SHA-256 comparison found no differences across all 40 changed Desktop
+  source files in the accepted snapshot; all five staged helper/extension
+  files match their source.
+
+The final serial suite ran 1,153 tests: 1,138 passed, fourteen skipped and one
+failed in 246.8 seconds. The unchanged `tests/btw-runtime.test.ts:143` still
+expects `error` for an unsupported side-question tool, but the staged runtime
+returns `done`. An independent rerun reproduces it. This pre-existing failure
+is not weakened or counted as a pass; the full suite is not green.
+Logs are `Desktop/test-results/remote-beta-focused.log`,
+`remote-beta-final-unit.log` and `remote-beta-btw-baseline.log`. Build/native/UI
+logs and screenshots are retained in the isolated snapshot's `test-results/`.
+
+No installer, installed app, shared runtime/dist, upstream pin or upstream
+checkout was changed. No commit, push, real Feishu authorization, current-head
+cloud CI, packaged/macOS acceptance or release readiness is claimed. Actual
+Feishu image scopes, recall/reconnect events and platform rendering remain
+explicit manual gates in `docs/REMOTE.md`. The isolated reusable artifacts are
+approximately 213 MiB including runtime, terminal runtime, dist and evidence;
+no historical package or other artifact was deleted.
+
+## Remote Review Hardening (2026-11-06)
+
+The editable chat simulation now runs the production Remote manager core with
+synthetic host/channel boundaries instead of a second command/routing reducer.
+Session handles are saved with the encrypted connection, retained across
+recovery and never recycled for removed conversations. Newly allocated handles
+are not advertised or accepted until saved; injected failures cover ordinary
+writes, initial binding, delayed saves, worker exit and same-process reconnect.
+Existing confirmed mappings survive failed writes and later storage recovery.
+
+Known projects are independent of visible sessions, allowing an authorized
+empty project to survive restart and create its first conversation. Project
+filters use separate pagination snapshots; subsequent pages do not reorder
+with the live catalog. Current-target headers, renamed sessions, duplicate
+project names and navigation hints remain explicit. Maximum-size legal lists
+fit the 5,000-character system-card budget without clipping the header or rows.
+
+Current local checks passed:
+
+- Typecheck and all 222 focused Remote, queue and session-runtime tests.
+- All 15 CI policy, inventory and runner tests.
+- Production build in the reused isolated snapshot
+  `D:\Desktop Runtime Builds\remote-reactions-pr194-20261106`.
+- Source Electron Remote acceptance, including actual quit/relaunch,
+  stable-handle recovery, empty-project scope and first-session creation,
+  selection without inference, local draft/focus preservation, approvals,
+  receipts, targeted stop and explicit disconnect.
+- Edge simulation acceptance across light/dark 320/390/700/1440px layouts,
+  focus, reduced motion, real-core slash routing, pairing-to-chat continuity,
+  independent parallel sessions, FIFO, pending-input rejection and stale
+  approval invalidation, with no external requests. Desktop/narrow project-tree
+  screenshots under `Desktop/test-results/remote-chat-preview/` were inspected.
+- `git diff --check`.
+
+The final serial suite ran 1,011 tests: 996 passed, fourteen skipped and one
+failed in 229.8 seconds. The unchanged `tests/btw-runtime.test.ts:143` expects
+unsupported side-question tool output to terminate as `error`, but the staged
+runtime returns `done`; an independent rerun also reproduces it. That test
+imports the unchanged runtime transport, not Remote. The full suite is not
+green; this unrelated gap is retained, not weakened or relabeled as a pass.
+The full log is `Desktop/test-results/remote-review-hardening-unit.log`.
+
+No installer, shared runtime/dist, installed application, shortcut, upstream
+pin or upstream checkout changed. No commit, push, real Feishu authorization,
+current-head cloud CI, packaged acceptance or release readiness is claimed.
+The existing loopback preview remains available.
+
+## Remote Project And Session Tree (2026-11-06)
+
+The private-chat session list and editable simulation now share a bounded
+project-to-session text formatter. Project headings use the Desktop display
+name where available, retain distinct `p` handles and show total session counts;
+their child `s` handles and current marker remain stable through grouping and
+pagination. Display metadata does not change the exact authorized workspace
+paths or imply recursive access. The preview adds a three-project scenario and
+keeps newly created sessions under their selected project.
+
+Local type checking and all 63 focused formatter, simulation, command and
+manager tests pass. The Edge browser verifier passes cross-project selection
+and creation, grouped lists in light/dark 320/390/700/1440px layouts, and its
+existing reply, reaction, approval, pairing, interruption, focus and reduced
+motion cases with no external requests. Desktop and narrow tree screenshots
+were inspected under `Desktop/test-results/remote-chat-preview/`.
+`git diff --check` passes. This follow-up does not claim a new production build,
+native Electron, real Feishu rendering, cloud-CI or packaged acceptance run.
+The loopback preview was restarted; no installed app or shared runtime changed.
+
+## PR #194 Beta Main Synchronization (2026-11-06)
+
+The Remote Beta changes are committed as `bb13f67`. Main `7c349b7` is merged
+without rewriting history. The main-process conflict retains both Remote queue
+receipts/recovery and the subagent runtime redaction capability gate. Both
+verification histories and the current TODO ownership/acceptance boundaries
+are retained. The upstream pin and patch manifest are unchanged from main.
+
+Post-merge type checking passes, along with all 201 focused Remote command,
+store, channel, manager, chat simulation, pending-queue, session-runtime,
+background-control and BTW tests. CI policy/inventory/runner checks pass
+39 tests with one native-platform skip; `git diff --check` passes.
+The full-suite, production-build and source Electron receipts below predate
+this main synchronization. They are not relabeled as a new combined-runtime
+or packaged acceptance run. Current-head cloud CI, real Feishu acceptance and
+a newly requested package remain separate gates. No package, installed app,
+desktop shortcut or shared runtime is changed in this PR update.
+
+## Local Feishu Chat Simulation (2026-11-06)
+
+The editable chat fixture adds a Feishu-like host shell with normal, empty,
+interrupted, approval and pairing scenarios, original-message reactions,
+same-card updates, playback controls and an old-layout comparison.
+`remote-card.mjs` is extracted unchanged from the helper's outgoing card
+construction and staged alongside it. Production and preview share that
+document builder; Feishu's actual typography, Markdown subset and reaction
+assets are not reproduced or certified by the HTML approximation.
+
+Local checks passed: typecheck; all 101 focused queue, Remote command/channel/
+manager and simulation tests; 15 CI inventory/policy/runner tests; and source
+Electron Remote acceptance after rebuilding only the isolated Remote adapter.
+The staged helper loads the extracted module and retains actual quit/relaunch
+recovery and explicit-disconnect checks. The browser fixture passed new/old
+comparison, reaction removal, single-card updates, slash help/listing,
+single-use approvals, partial interruption, pending-confirmation pairing,
+light/dark 320/390/700/1440px layouts, full textarea focus gutters, reduced
+motion and menu Escape focus return. No external browser requests occurred.
+
+The local preview serves this worktree read-only on loopback with a separate
+cache under `Desktop/test-results/remote-chat-preview/`; screenshots are in the
+same ignored directory. No installer, installed app, shortcut, real Feishu
+connection, paid-model request or current-head cloud result is included.
+The complete-suite receipt below predates this fixture follow-up; this section
+claims focused and native regression checks, not a new full-suite run.
+
+## Remote Message Feedback And Reply Presentation (2026-11-06)
+
+Accepted model input now receives a processing reaction on the original
+private-chat message instead of a Received card. Main tracks the exact pending
+queue ID, so finishing one input does not clear a later queued input. Removal,
+dispatch failure, interruption, worker disposal and orderly disconnect release
+the corresponding indicators. A slow reaction POST is removed by its exact
+returned ID if completion or unbind arrived first. Reaction failures remain
+best-effort delivery failures and never retry model work.
+
+A matched pairing code receives an acknowledgment reaction, with a literal
+pending-confirmation fallback if reactions fail. This does not authorize chat
+access before local confirmation. Working cards no longer expose an automatic
+Stop button; `/stop` and `/stop s1` retain the original-run guard. Bare `/session`
+and `/help` are covered as local commands without inference.
+
+Normal replies update one Markdown card with a small plain-text session source,
+without Working or Completed headings. Explicit reply status drives presentation
+rather than matching title strings. Empty working/final replies remain distinct;
+interruption retains partial text and an explicit footer. Approval and system
+cards retain literal text, meaningful headings and their existing token gates.
+
+Final Windows source verification passed:
+
+- Typecheck and production build.
+- All 170 focused Remote, pending-queue and session-runtime tests.
+- Complete serial suite: 940 tests, 926 passed, fourteen platform skips, zero
+  failures and clean automatic exit in 233.9 seconds.
+- CI policy/inventory/runner tests: 39 passed and one native-platform skip.
+  The first policy invocation in the non-Git verification snapshot could not
+  read HEAD; the same unchanged tests passed from the actual Git checkout.
+- Real source Electron Remote acceptance with the staged SDK/helper offline
+  smoke, isolated fake transport and loopback provider. It covers input reactions,
+  slash help/listing, cold/new session routing without inference, local draft
+  preservation, original-session stopping, approvals and actual quit/relaunch
+  recovery with no old task replay or reconnect after explicit disconnect.
+- Source/snapshot and staged helper hash checks, plus `git diff --check`.
+
+Build/runtime output is isolated under
+`D:/Desktop Runtime Builds/remote-reactions-pr194-20261106/`: approximately
+10 MiB dist, 123 MiB runtime and 63 MiB terminal runtime. Narrow acceptance
+evidence remains alongside the logs; no old outputs were deleted. No shared
+runtime, existing package, installed app or desktop shortcut was replaced.
+The upstream pin remains `81e79bc4b699148d6823fedde9b5e70d9a80255f`.
+Real Feishu reaction permissions, Markdown appearance, authorization, callbacks
+and SDK reconnection remain manual gates. No installer, paid-model, native
+macOS, current-head cloud-CI, commit, push or release acceptance is claimed.
+
+## Remote Recovery And Step Hit Areas (2026-11-05)
+
+Desktop now keeps a separate `safeStorage`-encrypted Remote snapshot under
+`userData/remote/connection.dpapi`. Only the bot credentials/identity, confirmed
+private chat, exact project grants and current session ID are persisted. Normal
+quit/update preserves it; explicit Disconnect deletes it; Unbind removes chat
+access but keeps the bot. Recovery validates the bot and canonical known
+projects, creates a fresh binding and opens only the saved target in Ask without
+inference, local navigation or task replay. Missing sessions are not replaced;
+invalid projects lose chat access. Tokens, runs, queues, callback readiness,
+cards and attached runtime identities are not restored.
+
+The three setup steps now have equal-width hit targets, symmetric padding and
+vertically centered markers. Hover, the active underline and the unweakened
+shared focus outline follow the same bounds without changing layout.
+
+Local Windows checks passed:
+
+- Typecheck and production build in an isolated source snapshot.
+- Complete serial suite: 927 tests, 913 passed, fourteen platform skips, zero
+  failures and clean automatic exit in 326.9 seconds.
+- CI policy/inventory/runner tests: 39 passed and one native-platform skip.
+- Real Electron Remote acceptance, including actual quit/relaunch against the
+  same isolated profile, encrypted bytes, current-session recovery, no automatic
+  inference, stale approval/Stop rejection and no reconnect after explicit
+  disconnect. Startup interception is confined to the source test launcher;
+  the product has no fake-transport switch. The packaged verifier retains its
+  normal entry point and does not claim source-only restart coverage.
+- Production desktop/narrow hit-target geometry, first-step hover and full
+  focus gutters in light/dark, Chinese/English, plus reduced motion.
+- The existing browser Remote preview acceptance passed with Microsoft Edge.
+
+The build and current screenshots are isolated under
+`D:/Desktop Runtime Builds/remote-persistence-pr194-20261105/`.
+No installed app, shared runtime, shortcut or existing installer was replaced.
+These deterministic source tests do not establish real Feishu authorization,
+platform credential renewal, native macOS, packaged recovery, cloud CI or
+release acceptance. The user must pair once in the first persistence-enabled
+build; credentials already lost by the older memory-only build cannot be
+recovered.
+
+## Remote Multi-session Beta (2026-11-05)
+
+The Desktop follow-up separates the authorized private chat, explicitly granted
+projects and current remote session. Its shared command set provides help,
+paged session lists, selection, creation, project/current/status inspection,
+targeted stop and disconnect. Unknown slash commands never become model input.
+The fixed upstream pin, adapter sources and SDK remain unchanged; upstream
+contributions are outside this Beta implementation.
+
+Final local Windows source checks pass:
+
+- Typecheck and production build.
+- Clean complete serial suite: 910 tests, 896 passed, fourteen platform skips
+  and no failures; automatic exit in 240.3 seconds. The final repeat adds
+  `--test-timeout=180000` to bound each test file, without relaxing assertions.
+- All 120 focused Remote command, manager, channel and session-runtime tests.
+- All 15 CI policy, acceptance inventory and runner tests.
+- The registered `verify-remote-access.mjs` acceptance with isolated profiles,
+  a fake channel transport and loopback model provider: explicit project grants,
+  help/history listing, cold selection and headless creation without inference,
+  local focus/draft preservation, denied out-of-scope selection, exact-request
+  approval, old-session task stopping, deduplication, disconnect and helper exit.
+- Production light/dark narrow layouts, shared select and checkbox focus gutters,
+  and reduced motion. Five current screenshots remain under
+  `Desktop/test-results/remote-access/`.
+
+Regression coverage includes ordered input across blocked submissions and local
+selection, session handles surviving catalog reordering, read-only cold status,
+revocation during preparation, worker exit without losing chat authorization,
+independent concurrent Stop capabilities and existing resident-task observation
+without transcript backfill. Project grants are bounded to twenty and runtime
+attachments to eight; active targets cannot be evicted and an over-capacity
+operation is rejected before preparing or creating another runtime.
+
+An added native equivalent-path fixture first reproduced a cold-session failure:
+canonical preparation changed the workspace spelling and lost the original
+grant match. Preparation now validates the real directory before startup but
+retains the exact granted spelling. The same fixture passes through cold
+selection, new-session creation and the first later model request. Redirected
+canonical targets remain rejected rather than extending the grant.
+
+One intermediate full-suite repeat reported 896 passes and fourteen platform
+skips, but stalled after the runtime tests while twelve fixture-owned RPC
+children remained alive. A system process query also failed during diagnosis.
+Only descendants of the verified test runner were inspected and terminated;
+the later explicit `taskkill` retries succeeded. This manually assisted run is
+not counted as a clean termination receipt, and the original cause of those
+unsuccessful stop attempts was not captured. A read-only process-audit helper
+remains in `Desktop/test-results/remote-beta-process-audit.ps1`.
+The subsequent complete serial repeat above exits without manual cleanup;
+this does not establish that the earlier intermittent OS cleanup cause was
+repaired.
+
+The staged SDK/helper check is an offline loading and gate smoke test; helper
+changes are covered by source unit tests. This does not establish a newly staged
+or packaged helper. No real Feishu authorization, external user-content delivery,
+platform callback/reconnect, paid-model, installer, native macOS or current-head
+cloud-CI acceptance is claimed. No new package or desktop shortcut was created,
+and the previously delivered `db523d1` preview does not contain this Beta.
+Only the current Desktop dist and narrow source-acceptance evidence were rebuilt;
+the user's app, existing preview server and older packages were left alone.
+
+## PR #194 First-run Main Synchronization (2026-11-05)
+
+Main advanced to `d0a1009` (PR #192 production first-run onboarding) while the
+Remote preview was being verified. The follow-up merge preserves Remote and
+first-run bridge methods and contracts, both verification records, the
+independent bootstrap and all acceptance registrations. The runtime pin and
+patch manifest are unchanged. Validation and a refreshed combined package
+remain pending; the earlier `1b28642` preview is not relabeled as this build.
+
+## PR #194 Native Sidebar Drag Target (2026-11-05)
+
+At `1b28642`, all three Windows cloud groups pass, as do macOS source/package
+sessions and runtime. macOS interface still fails on the second pinned-project
+drag: the new insertion-marker check catches the missing target before release.
+
+The checksum-verified native failure screenshot places the drag preview over
+the independent group instead of the intended pinned project. The scroll tree
+is at its upper limit and the target project has moved below the stationary
+pointer. The helper's `Locator.hover` aims only 8px inside a whole project,
+which can fall inside the tree's intentional 32px edge-autoscroll zone after
+scrolling a drag source into view. Autoscroll then moves the target out from
+under the pointer. Layout settling alone does not prevent this interaction.
+
+The verifier now moves the real pointer in steps to a visible point within
+the intended before/after half, at least 40px inside the scroll viewport.
+It still requires the insertion marker and the exact final order; no timeout,
+product behavior or acceptance inventory is relaxed. Pointer, hit-target and
+scroll diagnostics supplement the existing failure screenshot.
+The complete local source verifier passes at its normal size and with a
+1024-by-684 content viewport. A smaller scrolled Windows fixture reproduces
+the old helper's pinned-project insertion-marker timeout; matching the macOS
+viewport alone does not reproduce that failure on Windows.
+The new helper also passes the complete fixture with the project-drag phase
+at 1024 by 600 and pinned targets deliberately scrolled toward the upper edge.
+
+The unsigned Windows preview built from `1b28642` passes package-content hashes
+and actual executable Remote, sidebar, BTW, general Electron, settings, updates
+and native PowerShell terminal acceptance. The complete combined serial suite
+passes 865 of 879 tests with 14 platform skips. Its backed-up desktop shortcut
+now targets the new preview without terminating the user's old app.
+Real Feishu authorization, callback/reconnect behavior and installer upgrade
+remain manual gates. Replacement cloud acceptance for this verifier follow-up
+is still required.
+
+## PR #194 Stop Capability And Main Integration (2026-11-05)
+
+The first Remote head passed all three Windows groups and macOS sessions/runtime
+source/package acceptance. macOS interface failed in `verify-sidebar-order.mjs`
+while waiting for two pinned projects to reorder. Its final gate correctly
+remained failed.
+
+Streaming Working-card revisions now retain their current run-scoped, single-use
+Stop capability. A delayed or failed card update no longer invalidates the
+button that is still displayed. Completion, the next run, unbinding and expiry
+still revoke the old capability. Four added regression cases cover in-flight
+updates, failed delivery, failed final delivery and run/binding invalidation.
+All 101 focused Remote/helper/session-runtime tests pass.
+
+Latest main was merged without dropping either Remote or BTW runtime ownership,
+preload methods, typed contracts or CI registrations. BTW-only events remain
+outside Remote projection. Typecheck and production build pass. The sidebar
+verifier now uses shared rendered-layout settling and requires the intended
+workspace insertion marker before releasing the pointer. Final order assertions
+and deadlines are unchanged; failure screenshots and geometry are retained.
+The complete Windows source sidebar acceptance passes after this change.
+
+Replacement cloud checks and the new Windows preview package are still pending.
+No real Feishu authorization, external user-content delivery, real callback or
+paid-model acceptance is established here.
+
 ## StepPage Storage Boundary (2026-11-07, local candidate)
 
 This candidate starts from main `4318d6e` after the v0.1.7 pin migration. The
@@ -257,7 +895,6 @@ The local artifact audit, excluding junction targets, records about 10.1 MiB
 in `Desktop/dist`, 0.13 MiB in the physical runtime adapter root, 63.0 MiB
 in the terminal runtime and under 1 MiB of Electron screenshots. These are current
 development/verification inputs; no historical package is produced or deleted.
-
 ## Upstream v0.1.7 Runtime Stability (2026-11-07, Local Candidate)
 
 This candidate starts from main `4318d6e` (merged PR #203) and retains the
@@ -2666,6 +3303,53 @@ reduced motion, light/dark assets, keyboard focus and narrow English layouts.
 External requests are blocked and must remain absent. This does not establish
 real sign-in, native Electron directory dialogs, persistence, upgrade behavior,
 first-run detection, model acceptance or release readiness.
+
+## Desktop-hosted Feishu Remote MVP (2026-11-05)
+
+The Remote design preview is now wired into the real Desktop main process and
+typed preload bridge. Scope and manual acceptance are in [REMOTE.md](REMOTE.md).
+This is a Desktop-hosted, single-private-chat/single-session channel, not the
+planned independent Web service. This work changed neither the upstream pin nor
+the upstream sources.
+The staged adapter reuses the unchanged pinned `lark-adapter` and locked SDK
+1.76.0, with the helper and dependency license notices included in runtime
+resources. No new Desktop dependency or lockfile change is required.
+
+Typecheck, production build and the 97 focused manager/helper/session-runtime
+tests pass. The final complete serial suite finishes with 864 tests: 850 pass,
+14 platform skips and zero failures (`Desktop/test-results/remote-unit-suite.log`).
+The expanded source Electron Remote acceptance passes using an
+isolated profile, loopback model provider and injected fake channel helper;
+the real staged SDK exports, upstream inbound gate and helper protocol are also
+smoke-tested without authorization or network calls. It covers explicit binding,
+cross-session routing, duplicate rejection, slash-command rejection, real native
+permission confirmations and first-response-wins, callback probes, stopping,
+unbind/disconnect, actual helper exit and draft preservation. Light/dark
+420px screenshots and ancestor-clipping checks verify the production session
+selector's complete focus outline; reduced motion is checked separately.
+Actionable approvals contain the exact recovered, redacted tool parameters;
+unrecoverable or oversized details remain local. Changed displayed parameters
+invalidate an existing card. Length-truncated responses finish Interrupted,
+not Working or Completed.
+
+The sidebar Settings locator was migrated to its stable `.sidebar-settings`
+class after the footer became icon-only. Existing update-indicator assertions
+remain intact. General Electron, fixed Settings dialog and application-update
+acceptance pass, as do all 15 CI policy/inventory/runner tests. The fixture
+preview verifier also passed after sharing the production stylesheet/icon.
+These are local Windows source results, not a cloud CI result.
+
+Rebuildable output inventory: `Desktop/dist` is approximately 9.8 MiB and the
+staged `Desktop/runtime/remote` adapter/notices approximately 6.0 MiB.
+Remote production and preview screenshots total approximately 1.9 MiB. No new
+installer was created and no existing packages or unrelated artifacts were
+deleted.
+
+Real Feishu authorization, platform callback configuration, actual SDK
+reconnection, paid-model behavior, installer contents/native execution, macOS
+acceptance and cloud CI have not been exercised. No credentials or user
+conversation content were sent to a real bot, and no installer, commit, push,
+PR or release is included in this goal.
 
 ## PR #187 launch acceptance synchronization (2026-11-03)
 

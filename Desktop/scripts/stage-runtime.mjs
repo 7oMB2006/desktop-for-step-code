@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import { assertStagingNodeVersion } from './staging-node-version.mjs';
+import { buildRemoteAdapter } from './build-remote-adapter.mjs';
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve('runtime');
 if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
@@ -95,9 +96,11 @@ await cp('electron/session-search.mjs', join(runtime, 'session-search.mjs'));
 await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
+await cp('electron/desktop-remote.mjs', join(runtime, 'desktop-remote.mjs'));
 await build({ entryPoints: ['electron/project-instructions-extension.ts'], outfile: join(runtime, 'project-instructions.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node24' });
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));
+await buildRemoteAdapter(upstream, runtime);
 const require = createRequire(join(source, 'package.json'));
 async function resolvePackageDirectory(name) {
   let directory = dirname(require.resolve(name));

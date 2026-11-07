@@ -255,7 +255,7 @@ try {
   streams[1].end(chunk({}, 'stop') + 'data: [DONE]\n\n');
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   checkpoint('dark narrow layout and reopen');
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('button', { name: '通用', exact: true }).click();

@@ -397,7 +397,7 @@ try {
   }
   await page.waitForTimeout(300);
   assert.ok((await viewState()).some(view => view.visible && view.url === url));
-  await page.locator('.sidebar-bottom button').click();
+  await page.locator('.sidebar-settings').click();
   await page.waitForTimeout(100);
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0, 'settings hides the native surface');
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();

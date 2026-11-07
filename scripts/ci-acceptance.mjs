@@ -98,6 +98,7 @@ export const acceptanceGroups = {
     'verify-usage-overview-runtime.mjs',
     'verify-background-subagents.mjs',
     'verify-background-agent-controls.mjs',
+    'verify-remote-access.mjs',
     'verify-background-agent-replies.mjs',
     'verify-background-history-liveness.mjs',
     'verify-btw-electron.mjs',
@@ -165,6 +166,9 @@ export const localOnly = [
   'verify-fulltext-search-preview.mjs',
   // Standalone visual fixture; production startup coverage is in verify-first-run.
   'verify-first-run-preview.mjs',
+  // Isolated Remote UI only; this check starts its own Vite server and uses no real channels.
+  'verify-remote-access-preview.mjs',
+  'verify-remote-chat-preview.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

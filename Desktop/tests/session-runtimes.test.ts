@@ -39,6 +39,39 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   return { pool, transports, events, open };
 }
 
+test('Remote retains its host, rejects history mutation and does not reuse an attached empty session', async () => {
+  const f = fixture({ idleLimit: () => 0 });
+  try {
+    const host = await f.open('remote-workspace');
+    host.remoteAttached = true;
+    const next = await f.open('remote-workspace');
+    assert.notEqual(host.id, next.id);
+    host.messages = [{ role: 'assistant', content: 'Saved', stopReason: 'stop' }];
+    host.touched = 0;
+    await f.pool.recycle();
+    assert.equal(f.transports[0].stopped, false);
+    await assert.rejects(f.pool.assertIdle(host), /Unbind Remote/);
+    host.remoteAttached = false;
+    await f.pool.assertIdle(host);
+    await f.pool.recycle();
+    assert.equal(f.transports[0].stopped, true);
+  } finally { await f.pool.stopAll(); }
+});
+
+test('headless Remote preparation creates a new worker without moving local focus or clearing unread sessions', async () => {
+  const f = fixture();
+  try {
+    const active = await f.open();
+    f.pool.unreadSessionIds.add(active.state!.sessionId!);
+    const remote = await f.pool.prepare('node', 'step', 'remote-project', { STEP_PERMISSION_PRESET: 'ask' });
+    assert.notEqual(remote.id, active.id);
+    assert.equal(f.pool.activeId, active.id);
+    assert.equal(f.pool.unreadSessionIds.has(active.state!.sessionId!), true);
+    assert.equal(f.transports[1].startEnv.STEP_PERMISSION_PRESET, 'ask');
+    assert.equal(f.transports[1].calls.includes('new_session'), true);
+    assert.equal(f.transports[1].calls.includes('prompt'), false);
+  } finally { await f.pool.stopAll(); }
+});
 for (const final of ['recovered', 'exhausted', 'cancelled', 'exit'] as const) {
   test(`native incomplete recovery retains ownership until ${final} settlement`, async () => {
     const { pool, transports, events, open } = fixture();

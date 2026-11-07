@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
+import { waitForNewSessionButton } from './session-fixture.mjs';
 
 const nativeHeightLimit = process.env.DESKTOP_NEW_SESSION_TEST_MAX_HEIGHT ? Number(process.env.DESKTOP_NEW_SESSION_TEST_MAX_HEIGHT) : undefined;
 if (nativeHeightLimit !== undefined) assert.ok(Number.isSafeInteger(nativeHeightLimit) && nativeHeightLimit >= 540, 'Invalid native test window height limit');
@@ -44,7 +45,7 @@ try {
   }, nativeHeightLimit);
   const heading = page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ });
   await heading.waitFor();
-  await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
+  await waitForNewSessionButton(page);
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
   const waitState = async predicate => {
     const until = Date.now() + 60000;
@@ -136,7 +137,7 @@ try {
   assert.deepEqual(await readdir(join(profile, 'step-runtime', 'sessions')), historyBefore);
   await page.reload();
   await heading.waitFor();
-  await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
+  await waitForNewSessionButton(page);
   const openingText = await heading.getAttribute('aria-label');
   await page.waitForFunction(text => document.querySelector('.terminal-heading-output')?.textContent === text, openingText);
   const frames = await page.evaluate(() => window.headingFrames);
@@ -182,7 +183,7 @@ try {
   const beforeCancel = (await snapshot()).draftId;
   await selector.click();
   await picker.getByRole('button', { name: '打开新项目…' }).click();
-  await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
+  await waitForNewSessionButton(page);
   assert.equal((await snapshot()).draftId, beforeCancel);
   assert.equal((await snapshot()).sessions.length, 1);
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, fresh);
@@ -197,7 +198,7 @@ try {
   assert.equal(selectedFresh.preferences.workspace, canonicalFresh);
   await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
   await page.reload();
-  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light' && !document.querySelector('.new-chat').disabled);
+  await waitForNewSessionButton(page, 'light');
   await page.waitForTimeout(1050);
   await selector.click();
   await page.waitForTimeout(220);
@@ -216,7 +217,7 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.reload();
   await heading.waitFor();
-  await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
+  await waitForNewSessionButton(page);
   assert.equal(await heading.locator('.terminal-heading-output').textContent(), await heading.getAttribute('aria-label'));
   assert.equal(await heading.locator('.terminal-cursor').evaluate(element => getComputedStyle(element).animationName), 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -224,7 +225,7 @@ try {
   // Select the known local provider project and submit via the real composer.
   await selector.click();
   await picker.getByRole('button', { name: 'Desktop for Step Code', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
+  await waitForNewSessionButton(page);
   assert.equal((await snapshot()).runtimeId, undefined);
   await input.fill('FIRST-SEND 验证首次创建');
   await input.press('Enter');
@@ -245,7 +246,7 @@ try {
     window.independentForDraftTest = state.state.sessionId;
   });
   await page.reload();
-  await page.waitForFunction(() => !document.querySelector('.new-chat').disabled);
+  await waitForNewSessionButton(page);
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await waitState(value => value.draftId);
   assert.equal((await snapshot()).independent, true);

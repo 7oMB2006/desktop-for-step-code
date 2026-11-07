@@ -113,7 +113,7 @@ try {
     ['原版深色', '青强调色', 'original-dark-cyan'],
     ['原版浅色', '玫红强调色', 'original-light-rose'],
   ]) {
-    await page.locator('.sidebar-bottom > button').click();
+    await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
     await page.getByRole('button', { name: theme, exact: true }).click();
     await page.getByRole('button', { name: accent, exact: true }).click();

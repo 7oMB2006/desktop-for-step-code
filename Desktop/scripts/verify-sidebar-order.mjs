@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, writeFile, utimes, rename, stat } f
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
+import { settleLayout } from './settle-layout.mjs';
 
 // Windows runner TEMP can use an 8.3 alias; match the main process's canonical paths.
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-desktop-sidebar-')));
@@ -28,6 +29,7 @@ let app;
 const errors = [];
 let phase = 'fixture setup';
 let closing = false;
+let dragDestination;
 const mark = value => { phase = value; console.log(`Sidebar acceptance: ${phase}`); };
 process.on('exit', code => {
   if (code !== 0) console.error(`Sidebar acceptance exited (${code}) during ${phase}`);
@@ -68,20 +70,30 @@ const settle = locator => locator.evaluate(async element => {
     .map(animation => animation.finished.catch(() => {})));
 });
 async function drag(page, from, to, after = false, cancel = false) {
-  await page.evaluate(async () => {
-    await new Promise(requestAnimationFrame);
-    await Promise.all(document.querySelector('.workspace-tree').getAnimations({ subtree: true })
-      .filter(animation => animation.effect?.getTiming().iterations !== Infinity)
-      .map(animation => animation.finished.catch(() => {})));
-  });
+  await settleLayout(page.locator('.workspace-tree'));
   await from.hover({ position: { x: 65, y: 17 } });
   await page.mouse.down();
-  await page.waitForTimeout(340);
   await page.locator('.session-drag-preview').waitFor();
+  await settleLayout(page.locator('.workspace-tree'));
   // Re-resolve the target after the hold; native/package layout can settle meanwhile.
   const target = await to.boundingBox();
   assert.ok(target, 'the drag destination is visible');
-  await to.hover({ position: { x: 65, y: after ? target.height - 8 : 8 } });
+  const tree = await page.locator('.workspace-tree').boundingBox();
+  assert.ok(tree, 'the sidebar scroll area is visible');
+  // Locator.hover can scroll a project to the edge and trigger edge-autoscroll.
+  // Keep the pointer in the visible destination half, outside the 32px edge zones.
+  const top = Math.max(target.y + (after ? target.height / 2 + 2 : 8), tree.y + 40);
+  const bottom = Math.min(target.y + (after ? target.height - 8 : target.height / 2 - 2), tree.y + tree.height - 40);
+  assert.ok(top <= bottom, 'the intended drop half has a visible area away from edge-autoscroll');
+  dragDestination = { target: await to.getAttribute('data-reorder-id'), after,
+    x: target.x + Math.min(65, target.width / 2), y: (top + bottom) / 2, bounds: target, tree };
+  await page.mouse.move(dragDestination.x, dragDestination.y, { steps: 8 });
+  if (await to.getAttribute('data-reorder-kind') === 'workspace') {
+    await page.waitForFunction(({ id, after }) =>
+      [...document.querySelectorAll('[data-reorder-kind="workspace"]')].some(row =>
+        row.dataset.reorderId === id && row.classList.contains(after ? 'drop-after' : 'drop-before')),
+    { id: await to.getAttribute('data-reorder-id'), after });
+  }
   if (cancel) await page.keyboard.press('Escape');
   else await page.screenshot({ path: 'test-results/sidebar-dragging.png' });
   await page.mouse.up();
@@ -127,7 +139,7 @@ try {
   await page.locator('.sidebar').screenshot({ path: 'test-results/sidebar-order-light-detail.png' });
 
   mark('sorting settings');
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   const sort = page.getByLabel('会话排序', { exact: true });
   assert.equal(await sort.inputValue(), 'manual');
@@ -148,7 +160,7 @@ try {
   await waitOrder(page, [key(projects[0]), key(projects[1]), key(projects[2])]);
   await drag(page, project(page, 1).locator('.workspace-toggle'), project(page, 0));
   await waitOrder(page, [key(projects[1]), key(projects[0]), key(projects[2])]);
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await sort.selectOption('manual');
   await page.waitForFunction(() => document.querySelector('[data-reorder-id="sidebar-2"]').parentElement.firstElementChild.dataset.reorderId === 'sidebar-2');
@@ -395,6 +407,21 @@ try {
   console.log('Sidebar: reorder, pins, sorting, missing-path repair, retained session identity/history, warning layering, removal/cancel, hover controls, reload and reduced motion passed.');
 } catch (error) {
   console.error(`Sidebar acceptance failed during ${phase}`);
+  const page = await app?.firstWindow().catch(() => undefined);
+  if (page) {
+    await page.screenshot({ path: 'test-results/sidebar-order-failure.png' }).catch(() => {});
+    console.error('Sidebar pointer diagnostic', dragDestination, await page.evaluate(point => {
+      const tree = document.querySelector('.workspace-tree'), preview = document.querySelector('.session-drag-preview');
+      const hit = point && document.elementFromPoint(point.x, point.y)?.closest('[data-reorder-id]');
+      return { scrollTop: tree?.scrollTop, preview: preview?.getBoundingClientRect().toJSON(),
+        hit: hit && { id: hit.dataset.reorderId, group: hit.dataset.reorderGroup } };
+    }, dragDestination).catch(() => undefined));
+    console.error('Sidebar drag diagnostic', await page.evaluate(() =>
+      [...document.querySelectorAll('[data-reorder-id]')].map(row => ({
+        id: row.dataset.reorderId, group: row.dataset.reorderGroup, classes: row.className,
+        bounds: row.getBoundingClientRect().toJSON(),
+      }))).catch(() => undefined));
+  }
   throw error;
 } finally {
   closing = true;

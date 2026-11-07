@@ -33,6 +33,8 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  remoteState: () => invoke('remoteState'),
+  remoteAction: action => invoke('remoteAction', action),
   projectInstructions: owner => invoke('projectInstructions', owner),
   finishFirstRun: outcome => invoke('finishFirstRun', outcome),
   btwAsk: input => invoke('btwAsk', input),

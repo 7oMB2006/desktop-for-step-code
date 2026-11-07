@@ -49,7 +49,7 @@ try {
         await page.locator('.window-sidebar-toggle').click();
         await page.waitForFunction(() => !document.querySelector('.sidebar')?.inert);
       }
-      await page.locator('.sidebar-bottom > button').click();
+      await page.locator('.sidebar-settings').click();
     }
     await page.getByRole('navigation', { name: /设置分类|Settings categories/ }).getByRole('button', { name, exact: true }).click();
   };
@@ -79,7 +79,7 @@ try {
   await page.reload();
   await page.locator('.app').waitFor();
   // Exercise the actual settings entry rather than installing through a fixture hook.
-  await page.locator('.sidebar-bottom button').filter({ hasText: /设置|Settings/ }).click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click();
   await openStepPage();
   const setup = page.getByRole('button', { name: /安装并准备|Install and prepare/ });
@@ -114,7 +114,7 @@ try {
   await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
   await page.reload();
   await page.locator('.app').waitFor();
-  await page.locator('.sidebar-bottom button').filter({ hasText: 'Settings' }).click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: /^Plugins$/ }).click();
   await openStepPage();
   await page.getByRole('status').filter({ hasText: 'Files ready' }).waitFor();

@@ -1,0 +1,257 @@
+import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { chromium } from 'playwright';
+import { createServer } from 'vite';
+
+const output = resolve('test-results/remote-access-preview');
+await mkdir(output, { recursive: true });
+let server, browser;
+try {
+  server = await createServer({ root: resolve('.'), server: { host: '127.0.0.1', port: 0, strictPort: true } });
+  await server.listen();
+  const base = server.resolvedUrls.local[0];
+  browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || undefined });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+  const errors = [], external = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => {
+    if (!['127.0.0.1', 'localhost'].includes(new URL(request.url()).hostname)) external.push(request.url());
+  });
+  page.setDefaultTimeout(10000);
+  const button = name => page.getByRole('button', { name, exact: true });
+  const tab = name => page.getByRole('tab', { name, exact: true });
+  const choose = async (label, option) => {
+    await button(label).click();
+    await page.getByRole('menuitemradio', { name: option, exact: true }).click();
+  };
+  const screenshot = async name => {
+    await page.locator('.remote-channel-detail,.remote-setup-stage').evaluateAll(elements =>
+      Promise.all(elements.flatMap(element => element.getAnimations().map(animation => animation.finished.catch(() => {})))));
+    await page.screenshot({ path: join(output, `${name}.png`), fullPage: true });
+  };
+  const noOverflow = async () => {
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    const overflow = await page.locator('.remote-page,.remote-tabs,.remote-channel-options,.remote-channel-option,.remote-channel-flow,.remote-setup-steps,.remote-channel-detail,.remote-properties > div,.remote-authorized-row,.remote-preview-toolbar')
+      .evaluateAll(elements => elements.filter(element => element.getClientRects().length
+        && element.scrollWidth > element.clientWidth + 1).map(element => element.className));
+    assert.deepEqual(overflow, [], 'Remote surfaces must fit without horizontal overflow');
+  };
+  const checkFocus = async locator => {
+    await locator.evaluate(async element => {
+      const animations = [];
+      for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) animations.push(...ancestor.getAnimations());
+      await Promise.all(animations.map(animation => animation.finished.catch(() => {})));
+    });
+    await page.keyboard.press('Tab');
+    await locator.scrollIntoViewIfNeeded();
+    await locator.focus();
+    const issues = await locator.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const gutter = parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset));
+      const issues = [];
+      if (style.outlineStyle === 'none' || gutter < 4) issues.push('Missing shared focus indicator');
+      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        const clip = getComputedStyle(ancestor);
+        const rect = ancestor.getBoundingClientRect();
+        if (/(auto|scroll|hidden|clip)/.test(clip.overflowX)
+          && (bounds.left - gutter < rect.left - 1 || bounds.right + gutter > rect.right + 1)) issues.push(`Horizontal clip: ${ancestor.className}`);
+        if (/(auto|scroll|hidden|clip)/.test(clip.overflowY)
+          && (bounds.top - gutter < rect.top - 1 || bounds.bottom + gutter > rect.bottom + 1)) issues.push(`Vertical clip: ${ancestor.className}`);
+      }
+      return issues;
+    });
+    assert.deepEqual(issues, [], 'Focus outline must remain visible on all four sides');
+  };
+  await page.goto(`${base}tests/fixtures/remote-access.html`);
+  await page.getByRole('heading', { name: '远程访问', exact: true }).waitFor();
+  assert.equal(await page.locator('.remote-entry').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('.remote-entry').innerText(), '', 'Sidebar entry is a phone icon without a text label');
+  const settings = page.locator('.remote-preview-settings');
+  assert.equal(await settings.innerText(), '', 'Settings is icon-only');
+  assert.equal(await settings.getAttribute('aria-label'), '设置');
+  const settingsBox = await settings.boundingBox(), remoteBox = await page.locator('.remote-entry').boundingBox();
+  assert.ok(remoteBox.x >= settingsBox.x + settingsBox.width, 'Remote sits immediately to the right of Settings');
+  assert.ok(remoteBox.x - settingsBox.x - settingsBox.width <= 8, 'Utility icons remain adjacent');
+  const stateBox = await page.locator('.remote-preview-status > span:first-child').boundingBox();
+  const versionBox = await page.locator('.remote-preview-version').boundingBox();
+  assert.ok(Math.abs(versionBox.y - stateBox.y) < 2 && versionBox.x > stateBox.x + stateBox.width,
+    'Version shares the connection-status row and is right aligned');
+  assert.match(await page.locator('.remote-preview-status').innerText(), /Step Code 已连接/);
+  const verifyFeishuIcons = async expected => {
+    const icons = page.locator('.remote-feishu-icon');
+    assert.equal(await icons.count(), expected);
+    assert.ok(await icons.evaluateAll(elements => elements.every(element =>
+      element.complete && element.naturalWidth > 0 && new URL(element.currentSrc).hostname === location.hostname)),
+    'Official Feishu assets render locally without external requests');
+  };
+  await verifyFeishuIcons(1);
+  assert.equal(await page.locator('.remote-channel-detail').count(), 0, 'Channel overview must not show configuration inline');
+  assert.equal(await page.getByRole('textbox', { name: '连接名称', exact: true }).count(), 0);
+  await screenshot('01-channel-overview-light');
+  await noOverflow();
+  await button('配置飞书').click();
+  assert.equal(await page.locator('.remote-channel-overview').count(), 0, 'Configuration replaces the channel overview');
+  await verifyFeishuIcons(1);
+  await page.getByRole('heading', { name: '连接飞书', exact: true }).waitFor();
+  const alias = page.getByRole('textbox', { name: '连接名称', exact: true });
+  await alias.fill('我的桌面');
+  await button('保存名称').click();
+  await screenshot('02-channel-connection-light');
+  await button('继续').click();
+  await page.getByRole('heading', { name: '选择绑定的会话', exact: true }).waitFor();
+  assert.equal(await alias.count(), 0, 'Connection fields do not crowd the binding step');
+  await button('上一步').click();
+  assert.equal(await alias.inputValue(), '我的桌面', 'Going back preserves connection details');
+  await button('继续').click();
+  await screenshot('03-channel-binding-light');
+  await button('就绪检查').click();
+  assert.equal(await page.locator('.remote-stages [data-ready=true]').count(), 3, 'Connected transport does not prove approval readiness');
+  await screenshot('04-channel-readiness-light');
+  await noOverflow();
+  await button('会话绑定').click();
+  await button('更换绑定').click();
+  await choose('目标会话', '整理发布说明');
+  await button('保存绑定').click();
+  assert.equal(await page.locator('.remote-binding strong').innerText(), '整理发布说明');
+  await button('返回会话').click();
+  assert.equal(await page.getByRole('textbox', { name: '消息草稿' }).innerText(), '顺便核对一下切换会话时的隔离边界。');
+  await page.getByRole('textbox', { name: '消息草稿' }).fill('远程面板打开后保留此草稿');
+  await page.locator('.remote-entry').click();
+  await button('配置飞书').click();
+  await button('会话绑定').click();
+  assert.equal(await page.locator('.remote-binding strong').innerText(), '整理发布说明', 'Opening the local conversation does not rebind the remote channel');
+  await button('就绪检查').click();
+  await button('模拟审批回调验证').click();
+  assert.equal(await page.locator('.remote-stages [data-ready=true]').count(), 4);
+  await button('用量统计').click();
+  await page.getByRole('heading', { name: '用量', exact: true }).waitFor();
+  await page.locator('.remote-entry').click();
+  await button('配置飞书').click();
+  await button('就绪检查').click();
+  await button('断开连接').click();
+  const confirm = page.getByRole('group', { name: '确认连接操作', exact: true });
+  await confirm.waitFor();
+  await page.waitForFunction(() => document.activeElement?.textContent === '取消');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('.remote-confirmation').open);
+  assert.equal(await button('断开连接').evaluate(element => element === document.activeElement), true);
+  await button('断开连接').click();
+  await button('确认断开').click();
+  assert.match(await page.locator('.remote-feedback').innerText(), /任务继续运行/);
+  assert.equal(await page.locator('.remote-stages').count(), 0);
+  await tab(/^已授权连接/).click();
+  await verifyFeishuIcons(1);
+  assert.match(await page.locator('.remote-authorized-row').innerText(), /已离线/);
+  await button('解除绑定').click();
+  await button('确认解绑').click();
+  await page.getByRole('heading', { name: '暂无已授权连接', exact: true }).waitFor();
+  await screenshot('05-unbound-connections');
+  await button('查看接入渠道').click();
+  await button('配置飞书').click();
+  await button('重新连接').click();
+  assert.equal(await button('就绪检查').isDisabled(), true, 'Binding is required before review');
+  await button('继续').click();
+  await button('绑定会话').click();
+  await checkFocus(button('目标会话'));
+  await button('保存绑定').click();
+  await button('继续').click();
+  assert.equal(await page.locator('.remote-stages [data-ready=true]').count(), 3, 'Binding does not validate approvals');
+  await button('完成').click();
+  assert.equal(await button('配置飞书').evaluate(element => element === document.activeElement), true, 'Completion returns focus to the channel');
+  await tab('运行状态').click();
+  assert.match(await page.locator('.remote-runtime').innerText(), /独立常驻服务未接入/);
+  await screenshot('06-host-status');
+  await tab('运行状态').focus();
+  await page.keyboard.press('Home');
+  assert.equal(await tab('接入渠道').getAttribute('aria-selected'), 'true');
+  await button('查看浏览器访问').click();
+  assert.equal(await page.locator('.remote-channel-detail button').count(), 0, 'Planned Web access must not offer working-looking controls');
+  assert.equal(await page.locator('.remote-channel-detail a').count(), 0, 'No fabricated public URL is created');
+  await screenshot('07-planned-web');
+  await button('返回接入渠道').click();
+  assert.equal(await button('查看浏览器访问').evaluate(element => element === document.activeElement), true);
+  await choose('预览状态', '未配置');
+  await button('配置飞书').click();
+  assert.equal(await button('继续').isDisabled(), true);
+  assert.equal(await button('会话绑定').isDisabled(), true);
+  await screenshot('08-unconfigured-connection');
+  await button('连接飞书').click();
+  await page.getByText('等待飞书授权', { exact: true }).waitFor();
+  assert.equal(await page.locator('.remote-stages').count(), 0);
+  assert.equal(await button('继续').isDisabled(), true);
+  await button('取消配对').click();
+  await button('连接飞书').click();
+  await button('模拟授权完成').click();
+  await button('继续').click();
+  assert.match(await page.locator('.remote-empty-binding').innerText(), /尚未绑定会话/, 'Authorization does not imply chat binding');
+  assert.equal(await button('继续').isDisabled(), true);
+  await choose('预览状态', '连接异常');
+  await button('配置飞书').click();
+  await page.getByRole('alert').waitFor();
+  await screenshot('09-connection-error');
+  await button('重新连接').click();
+  await checkFocus(page.getByRole('textbox', { name: '连接名称', exact: true }));
+  await screenshot('10-focused-settings-light');
+  await button('切换主题').click();
+  await checkFocus(page.getByRole('textbox', { name: '连接名称', exact: true }));
+  await screenshot('11-focused-settings-dark');
+  await choose('预览状态', '已连接');
+  await screenshot('12-channel-overview-dark');
+  await button('配置飞书').click();
+  await button('就绪检查').click();
+  await screenshot('13-readiness-dark');
+  await tab(/^已授权连接/).click();
+  await screenshot('14-authorized-connections-dark');
+  await noOverflow();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await tab('接入渠道').click();
+  await noOverflow();
+  await screenshot('15-phone-overview-dark');
+  await button('配置飞书').click();
+  await checkFocus(page.getByRole('textbox', { name: '连接名称', exact: true }));
+  await screenshot('16-phone-focus-dark');
+  await button('切换主题').click();
+  await checkFocus(page.getByRole('textbox', { name: '连接名称', exact: true }));
+  await screenshot('17-phone-focus-light');
+  await button('切换语言').click();
+  await noOverflow();
+  await screenshot('18-phone-english');
+  await page.setViewportSize({ width: 320, height: 740 });
+  await noOverflow();
+  await screenshot('19-small-phone-english');
+  await button('Binding').click();
+  await button('Change binding').click();
+  await checkFocus(button('Target session'));
+  await noOverflow();
+  await screenshot('20-small-phone-binding');
+  await button('Cancel').click();
+  await button('Readiness').click();
+  await noOverflow();
+  await screenshot('21-small-phone-readiness');
+  await button('Done').click();
+  await noOverflow();
+  for (const state of ['Not configured', 'Awaiting authorization', 'Connection error', 'Disconnected']) {
+    await choose('Preview state', state);
+    await noOverflow();
+    await button('Configure Feishu').click();
+    await noOverflow();
+    await checkFocus(page.getByRole('textbox', { name: 'Connection name', exact: true }));
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await button('Back to channels').click();
+  await button('Configure Feishu').click();
+  assert.equal(await page.locator('.remote-channel-detail').evaluate(element => getComputedStyle(element).animationName), 'none');
+  await tab('Host status').click();
+  assert.equal(await page.locator('.remote-access-view').evaluate(element => getComputedStyle(element).animationName), 'none');
+  await screenshot('22-reduced-motion');
+  await button('Back to conversation').click();
+  assert.equal(await page.getByRole('textbox', { name: 'Message draft' }).innerText(), '远程面板打开后保留此草稿');
+  assert.deepEqual(errors, []);
+  assert.deepEqual(external, [], 'The preview must not contact an external service');
+  console.log(`Remote access preview passed. Screenshots: ${output}`);
+} finally {
+  await browser?.close();
+  await server?.close();
+}

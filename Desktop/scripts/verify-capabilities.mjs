@@ -107,7 +107,7 @@ try {
         await page.locator('.window-sidebar-toggle').click();
         await page.waitForFunction(() => !document.querySelector('.sidebar')?.inert);
       }
-      await page.locator('.sidebar-bottom > button').click();
+      await page.locator('.sidebar-settings').click();
     }
     await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name, exact: true }).click();
   };
@@ -246,7 +246,7 @@ try {
   await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'zh' }));
   await page.reload();
   await page.getByRole('button', { name: '定时任务', exact: true }).waitFor();
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '插件', exact: true }).click();
   await page.getByRole('tab', { name: /^已安装/ }).waitFor();
   await page.getByRole('tab', { name: /^市场来源/ }).click();
@@ -387,7 +387,7 @@ try {
   await page.screenshot({ path: 'test-results/capabilities-skills-light.png' });
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
   await page.reload();
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
   await page.getByText('local-review', { exact: true }).waitFor();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');

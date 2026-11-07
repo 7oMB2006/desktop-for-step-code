@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CapabilityService } from '../electron/capability-service';
@@ -8,7 +8,9 @@ import { isolatedEnvironment } from '../electron/runtime';
 import { ThemePacks } from '../electron/theme-packs';
 
 test('real marketplace management installs and removes the declarative stellar theme', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'dfsc-theme-market-'));
+  // Match native plugin fixtures: macOS /var and Windows short TMP aliases
+  // must not become the capability service's canonical storage boundary.
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-theme-market-')));
   await mkdir(join(root, 'agent'));
   const runtime = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
   const service = new CapabilityService({ root, runtime,

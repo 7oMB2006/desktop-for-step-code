@@ -94,7 +94,8 @@ export class ThemePacks {
           || raw.schemaVersion !== 1 || raw.renderer !== 'stellar-v1' || raw.scene !== 'scene.json'
           || typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 80 || /[\u0000-\u001f]/u.test(raw.name)
           || typeof manifest.version !== 'string' || manifest.version.length > 32
-          || !record(raw.colors) || !['light', 'dark'].includes(raw.scheme)) continue;
+          // Stellar's host-owned graphite surfaces only support dark palettes.
+          || !record(raw.colors) || raw.scheme !== 'dark') continue;
         const colors: Record<string, string> = {};
         for (const key of ['bg', 'side', 'surface', 'ink', 'muted', 'border', 'code', 'accent']) {
           if (typeof raw.colors[key] !== 'string' || !color.test(raw.colors[key])) throw new Error('Invalid theme color');

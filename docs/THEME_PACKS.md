@@ -1,5 +1,17 @@
 # DFSC Theme Packs: First Local Version
 
+## PR #210 审查与 CI 修复（2026-11-07）
+
+- Windows 三组与 macOS 准备任务均在主题市场安装测试报
+  `capability:invalid-path`。测试的临时资料目录现在先通过 `realpath`
+  规范化，与现有原生插件测试一致；兼容 Windows 短路径和 macOS `/var`
+  别名，不放宽正式插件存储路径校验。
+- `stellar-v1` 暂时只接受 `scheme: "dark"`。宿主石墨材质尚不支持浅色，
+  不能仅凭声明色板的对比度校验放行浅色主题。
+- 新回归使用有效的原版浅色色板，修复前复现错误接纳，修复后确认拒绝、
+  清除旧场景／封面、移除主题注册与阻止选择。主题及真实市场专项共 13 项通过。
+- 当前提交的云端检查需单独确认，本地结果不代替原生 macOS 或打包验收。
+
 ## Current-main integration (2026-11-07)
 
 The host integration is isolated on `codex/stellar-theme-host`, based on main

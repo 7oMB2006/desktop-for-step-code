@@ -29,7 +29,9 @@ visualization is included.
 - `scene.json`: numeric point-cloud data for the host-owned `stellar-v1` renderer.
 
 Only `stellar-v1` is implemented. This is **not** a generic HTML, shader or JS
-extension API. The host ignores executable entries and never evaluates data as
+extension API. Its host-owned graphite surfaces currently support only
+`scheme: "dark"`; light packs are rejected until scheme-aware materials exist.
+The host ignores executable entries and never evaluates data as
 code. Theme packages have no Node, network, filesystem or IPC access. The main
 process reads bounded JSON files from the Desktop-owned plugin directory,
 rejects symlinks and invalid geometry, validates text contrast, and returns only

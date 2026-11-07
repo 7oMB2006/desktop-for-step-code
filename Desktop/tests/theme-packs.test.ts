@@ -47,6 +47,28 @@ test('brightness patches accept bounded integers only', () => {
   for (const value of [40, 65, 90, 120]) assert.equal(themeBrightnessPatch(value), value);
   for (const value of [null, '90', NaN, Infinity, 39, 121, 90.5]) assert.throws(() => themeBrightnessPatch(value));
 });
+test('stellar materials reject readable light palettes and clear previously loaded data', async () => fixture(async (root, service) => {
+  const { readFile } = await import('node:fs/promises');
+  const path = join(root, 'stellar-cruise', 'dfsc.theme.json');
+  const good = JSON.parse(await readFile(path, 'utf8'));
+  await service.refresh();
+  assert.equal(service.packs.length, 1);
+  registerPluginThemes(service.packs);
+  assert.equal(normalizeTheme('plugin:stellar-cruise'), 'plugin:stellar-cruise');
+  const light = resolveTheme('original-light', false);
+  await writeFile(path, JSON.stringify({ ...good, scheme: 'light', colors: {
+    bg: light.tokens['--bg'], side: light.tokens['--side'], surface: light.tokens['--surface'],
+    ink: light.tokens['--ink'], muted: light.tokens['--muted'], border: light.tokens['--border'],
+    code: light.tokens['--code-bg'], accent: light.tokens['--primary'],
+  } }));
+  await service.refresh();
+  assert.equal(service.packs.length, 0);
+  registerPluginThemes(service.packs);
+  assert.equal(normalizeTheme('plugin:stellar-cruise'), 'system');
+  assert.throws(() => themePreferencePatch({ theme: 'plugin:stellar-cruise' }));
+  assert.throws(() => service.scene('plugin:stellar-cruise'));
+  assert.throws(() => service.poster('plugin:stellar-cruise'));
+}));
 test('bad or missing covers do not disable a valid theme', async () => fixture(async (root, service) => {
   const { readFile } = await import('node:fs/promises');
   const path = join(root, 'stellar-cruise', 'dfsc.theme.json');

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, lstat, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, lstat, readFile, realpath, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
 import type { StepPagePreparation } from '../src/contracts';
 
@@ -18,6 +18,53 @@ class PreparationError extends Error {
   constructor(readonly reason: Failure) { super(reason); }
 }
 
+const samePath = (left: string, right: string) => process.platform === 'win32'
+  ? left.toLowerCase() === right.toLowerCase() : left === right;
+
+async function redirectedDirectory(path: string) {
+  const parent = dirname(path);
+  if (parent === path) return false;
+  const entries = await readdir(parent, { withFileTypes: true });
+  const matches = entries.filter(entry => samePath(entry.name, basename(path)));
+  if (matches.length) return matches.some(entry => entry.isSymbolicLink() || !entry.isDirectory());
+  const [canonical, canonicalParent] = await Promise.all([realpath(path), realpath(parent)]);
+  if (!samePath(dirname(canonical), canonicalParent)) return true;
+  const target = entries.find(entry => samePath(entry.name, basename(canonical)));
+  if (!target || !target.isDirectory() || target.isSymbolicLink()) return true;
+  for (const entry of entries) {
+    if (!entry.isSymbolicLink()) continue;
+    let destination;
+    try { destination = await realpath(join(parent, entry.name)); }
+    catch (error: any) { if (error.code === 'ENOENT') continue; throw error; }
+    if (samePath(destination, canonical)) return true;
+  }
+  return false;
+}
+
+async function checkDirectory(path: string, boundary: string, allowMissing: boolean) {
+  let current = resolve(path);
+  const limit = resolve(boundary);
+  for (;;) {
+    let info;
+    try { info = await lstat(current); }
+    catch (error: any) { if (!allowMissing || error.code !== 'ENOENT') throw error; }
+    if (info && (info.isSymbolicLink() || !info.isDirectory() || await redirectedDirectory(current)))
+      throw new PreparationError('storage');
+    if (samePath(current, limit)) return;
+    const parent = dirname(current);
+    if (parent === current) throw new PreparationError('storage');
+    current = parent;
+  }
+}
+
+async function checkFile(path: string, root: string, boundary: string) {
+  await checkDirectory(dirname(path), boundary, false);
+  const [canonicalRoot, canonicalFile, info] = await Promise.all([realpath(root), realpath(path), lstat(path)]);
+  const offset = relative(canonicalRoot, canonicalFile);
+  if (!offset || offset.startsWith('..') || isAbsolute(offset) || info.isSymbolicLink() || !info.isFile())
+    throw new PreparationError('storage');
+}
+
 /** Download only on an explicit user action; never execute an unverified artifact. */
 export class StepPagePreparer {
   readonly bundlePath: string;
@@ -30,21 +77,23 @@ export class StepPagePreparer {
     this.homePath = join(root, 'steppage', 'home');
   }
   private async directories(create: boolean) {
-    for (const path of [join(this.root, 'steppage'), join(this.root, 'steppage', 'bin'), this.homePath]) {
-      if (create) await mkdir(path, { recursive: true });
-      try {
-        const info = await lstat(path);
-        if (info.isSymbolicLink() || !info.isDirectory()) throw new PreparationError('storage');
-      } catch (error: any) {
-        if (!create && error.code === 'ENOENT') continue;
-        throw error;
-      }
+    const boundary = dirname(this.root);
+    const paths = [join(this.root, 'steppage'), join(this.root, 'steppage', 'bin'), this.homePath];
+    if (!create) {
+      for (const path of paths) await checkDirectory(path, boundary, true);
+      return;
+    }
+    for (const path of paths) {
+      await checkDirectory(path, boundary, true);
+      await mkdir(path, { recursive: true });
+      await checkDirectory(path, boundary, false);
     }
   }
   private async verified(path: string) {
     try {
       const info = await lstat(path);
       if (!info.isFile() || info.isSymbolicLink() || info.size > limit) return false;
+      await checkFile(path, join(this.root, 'steppage'), dirname(this.root));
       return createHash('sha256').update(await readFile(path)).digest('hex') === this.artifact.sha256;
     } catch (error: any) {
       if (error.code === 'ENOENT') return false;
@@ -91,6 +140,8 @@ export class StepPagePreparer {
           throw new PreparationError('integrity');
         temporary = join(this.root, 'steppage', 'bin', `download-${randomUUID()}.mjs`);
         await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
+        await this.directories(false);
+        if (!await this.verified(temporary)) throw new PreparationError('storage');
         await this.probe(temporary);
         // Same-profile races install the same fingerprint; no unverified bytes become live.
         await this.directories(false);

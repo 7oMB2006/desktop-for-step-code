@@ -638,6 +638,137 @@ Replacement cloud checks and the new Windows preview package are still pending.
 No real Feishu authorization, external user-content delivery, real callback or
 paid-model acceptance is established here.
 
+## StepPage Storage Boundary (2026-11-07, local candidate)
+
+This candidate starts from main `4318d6e` after the v0.1.7 pin migration. The
+open Remote/Linux branches do not touch the StepPage preparer or unit tests. It
+does not modify the new pin, patches or Plan integration.
+
+A real Windows junction reproduces the storage guard failure: its directory entry
+is a link and realpath resolves outside the owned root, while lstat reports an
+ordinary directory. The old preparer therefore downloads a deterministic,
+hash-pinned local ESM fixture into the outside target, executes its version probe,
+calls apply and reports ready/installed. All bytes and markers stay under a new
+isolated test directory; no official artifact, account, model or personal profile
+is used.
+
+Formal tests fail on the old implementation because redirected storage is not
+rejected before download/apply/outside creation. The fix checks owned directory
+entries plus canonical parent identity before mkdir and again afterwards. Bundles
+must remain within the owned StepPage root before hashing, reuse or probing; the
+newly written temporary is rechecked and rehashed before execution. Dangling
+storage cannot recreate its target. The walk stops at the StepPage root's direct
+parent so macOS system links such as `/var` and `/tmp` are not rejected. Test
+cleanup removes only each created link entry with a platform-appropriate API.
+The check/use interval remains; this does not claim to eliminate adversarial
+concurrent replacement or every reparse type.
+
+On pre-v0.1.7 main, typecheck/build, seven formal StepPage tests, 22 focused tests
+and the real Electron preparation/MCP/Cron-host/tampered-bundle matrix pass after
+the review corrections. The complete bounded suite executes 148 files: 143 pass
+and five fail; the former StepPage linked-storage failure passes. Those results
+are historical input only after main moved.
+
+On this v0.1.7 candidate the exact locked dependencies are installed offline from
+the local pnpm store after removing only this tree's dependency junctions, whose
+final targets were verified before removal. The v0.1.7 runtime rebuilds offline
+and stages from clean pin `29eb460` with Node 24.16.0 into a physical directory:
+20 patch files, 47 source postimages and 23 runtime capability IDs match the
+current manifest. The earlier 20-file staging attempt that reused a dependency
+junction failed at the CLI typecheck and is retained only as evidence that mixed
+dependencies do not build; none of its results are used. The application build
+and the focused StepPage/error/plugin suite pass 22 tests. The real Electron
+verifier passes official fixed-integrity download, actual MCP handshake, protected
+Cron host, tampered-bundle rejection/no execution, repair and relaunch disable
+retention and Desktop-owned HOME. CI runner/inventory/receipt tests pass 30 cases
+with one platform skip. Complete bounded per-file verification executes 151 files:
+147 pass and four fail. Capabilities exceeds the 180-second file deadline;
+project-trust junction cleanup, linked-undo classification and workflow-catalog
+junction cleanup fail with their previously observed signatures. The former
+StepPage and template-input failures pass on this baseline. Full local acceptance
+is not green, and this does not establish the causes or safety of the remaining
+failures.
+
+A bounded independent review identified and then rechecked three issues before
+the final result: the path walk originally extended through unowned macOS system
+ancestors, POSIX link cleanup incorrectly used rmdir, and the downloaded temporary
+was probed before a final storage/hash recheck. No native macOS source/package
+acceptance or real-account validation is claimed. This local candidate contains
+no commit, push, PR, installer, shortcut, release or version change.
+
+## PR #205 First CI Failure Forensics and Acceptance Robustness (2026-11-07)
+
+Head `0871aa5`'s first CI run keeps every StepPage gate green: macOS source and
+packaged `verify-steppage-registration`, all StepPage unit tests inside the
+Windows protocol run, interface and sessions groups on both platforms. Two
+failures occur in background scenarios this PR does not touch.
+
+Windows runtime protocol tests fail one case: the background-runtime retry
+scenario times out waiting for all eight capacity slots, with `slots=7`,
+`failures=0` and the parent turn settled — one of eight concurrently spawned
+cold children did not complete its first model request inside the 25-second
+fixture budget. The same head passes this scenario locally five times and it
+passed in earlier CI runs.
+
+macOS packaged runtime fails `verify-background-agent-replies.mjs:196`: the
+failure screenshot in the diagnostics artifact shows the multiline draft still
+present and selection-highlighted with an enabled send button — Playwright
+`fill('')` selected the draft but its delete step did not reach the ProseMirror
+commit on the slow packaged launch. The same script's source run passed on the
+same head minutes earlier, and the verifier passes locally on Windows with the
+#201 selection setters. #201's composer diff only adds selection accessors and
+does not change disabled/value semantics.
+
+Both are timing-sensitive acceptance mechanics, not introduced by this PR. No
+evidence supports a flake label, an automatic rerun, or attributing them to the
+StepPage change, so no assertion is weakened or removed. The fixes are test-only:
+
+- The replies verifier clears the draft through the editor's real input path
+  (select-all and Delete keys, ProseMirror's actual key handling) and then
+  asserts the original invariant through a bounded 30-second condition wait: an
+  empty draft must never be sendable. A genuinely uncleared editor or an enabled
+  send button still fails the test. The failure screenshot remains.
+- The background-runtime wait helper accepts an explicit deadline. Only the two
+  waits that depend on concurrently cold-starting children (eight slots, and the
+  respawned retry child) use a 45-second mechanics budget with an explanatory
+  comment, and the timeout message carries the actual budget. The default 25
+  seconds and every capacity, dedup, identity and retry assertion are unchanged.
+
+Main moved while this branch was out (`59953ca`, adding #206/#207/#208). The
+merge adopts main's equivalent reply-clearing fix (`b1fe638`), which supersedes
+this branch's interim replies change with the same keyboard-clearing approach
+plus stronger assertions (a nonempty draft remains sendable, and clearing never
+submits a follow-up); the background-runtime spawn budget from this branch is
+retained, since main's helper still carries the original 25-second deadline for
+those waits. The runtime pin is unchanged (`29eb460`, 20 patches, 47
+postimages), so the staged physical runtime remains valid for the merged tree.
+
+Local verification on the v0.1.7 physical runtime: the background-runtime suite
+passes seven of seven and typecheck passes; the replies verifier passes end to
+end with the keyboard clearing. The CI-side timing distribution (runner load
+during child startup) is still not fully located; if a failure recurs beyond the
+new budget, the diagnosis continues into the runtime child startup path with the
+recorded phases. No product code, pin, patch or acceptance inventory changes in
+this follow-up.
+
+## PR #205 Plugin-Center Subpixel Assertion (2026-11-07)
+
+The second CI run's Windows interface group fails only
+`verify-plugin-center.mjs` at the icon height assertion: the wrapper box
+measures 72.00001525878906 instead of exactly 72. `getBoundingClientRect()`
+values are layout-rounded on some runners, and the same function already
+compares the media measurements with a `.1` tolerance; only the wrapper
+assertions used strict equality. The script's last change predates this branch
+(owner PR #204), and the first CI run of head `0871aa5` passed this exact
+Windows interface group, so the failure is runner rendering variance, not this
+branch's change. The fix aligns the wrapper width/height assertions with the
+existing `.1` tolerance and a comment; the `flexBasis` computed-style string
+stays exact, and the logo-must-not-shrink invariant is unchanged. Local
+verification on the merged mirror with the host Edge browser passes the full
+plugin-center acceptance (cold-cache lookups, installation sources, localized
+tags, keyword search, late StepPage preparation preserving navigation and the
+BVR draft). This is a test-only robustness change; no product code is modified.
+
 ## PR #207 macOS Undo Acceptance
 
 Head `b1fe638` passes all Windows gates, but macOS run `42347395061` fails
@@ -905,6 +1036,7 @@ Current-head cloud CI, native macOS, packaged application, installer upgrades
 and real-account/model acceptance remain unconfirmed. No commit, push, PR,
 package, installed-app change or historical-package deletion is part of
 this local implementation.
+
 
 ## Upstream v0.1.7 Local Migration (2026-11-06)
 

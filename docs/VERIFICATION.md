@@ -1,5 +1,24 @@
 # Verification
 
+## PR #207 macOS Undo Acceptance
+
+Head `b1fe638` passes all Windows gates, but macOS run `42347395061` fails
+source sessions acceptance at the same-workspace running-peer undo assertion.
+The fixture's async browser predicates returned Promises instead of polling
+their resolved conditions, allowing undo to reach the RPC idle check before
+the busy peer was reflected in Desktop state.
+
+The fixture now reuses the Node-side IPC snapshot poll for settled edit
+captures and peer readiness. It verifies distinct runtime/session identities,
+the same workspace, an idle source and a running peer before retaining the
+strict workspace-busy rejection and unchanged file assertion. No production
+guard, error expectation, deadline or CI inventory is relaxed.
+
+The focused undo, runtime and polling suite passes 86 tests with three platform
+skips. Three Windows Electron undo replays pass, including the busy-peer guard
+and light/dark/narrow/English confirmation cases. New-head cloud and native
+macOS source/package acceptance remain required.
+
 ## PR #207 macOS Packaged Reply Acceptance
 
 Head `ba58e70` passes the Windows gates and macOS source runtime checks, but

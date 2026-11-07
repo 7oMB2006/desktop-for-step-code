@@ -15,6 +15,19 @@ the focus extent against clipping ancestors, not just the input's border box.
 
 ## Existing Components
 
+Context maintenance belongs in Settings > General, not its own category or the
+Context inspector. The main percentage is global; the shared animated advanced
+disclosure contains a global token ceiling and provider-qualified per-model ratio
+overrides. Reuse theme focus treatment, the downward disclosure chevron and
+reduced-motion behavior. The configured ratio is not a promise of the actual
+trigger threshold: the model window, reply headroom, token ceiling, explicit
+reserves and trusted project overrides may trigger earlier. Auto-save commits
+completed edits, retains keyboard focus and reports read/save/conflict failures.
+Reset touches only these thresholds, not CLM, automatic-maintenance enablement,
+permissions or credentials. Legacy policy changes require explicit confirmation.
+Saved values apply when a session runtime next starts; existing or reused
+workers are not reloaded or restarted automatically.
+
 Expanded slash templates retain a versioned runtime record of the original input.
 Transcript rendering, copy/edit text and navigation previews use that record;
 the model and canonical history retain the expanded content. Never infer command

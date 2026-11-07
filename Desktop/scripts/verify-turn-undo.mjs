@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
@@ -150,15 +150,15 @@ try {
       checkpoint(`edit ${text}`);
       await page.locator('.composer > .composer-input').fill(text);
       await page.locator('.composer > .composer-input').press('Enter');
-      await page.waitForFunction(async ({ runtimeId, ids }) => {
-        try { return (await window.desktop.turnUndo(runtimeId, ids, 'status')).state === 'available'; } catch { return false; }
-      }, { runtimeId: next.runtimeId, ids }, { timeout: 60000 });
-      await page.waitForFunction(async runtimeId => {
-        const current = await window.desktop.snapshot();
-        return current.runtimeId === runtimeId && !current.state?.isStreaming && !current.state?.isCompacting
-          && !current.state?.pendingMessageCount && current.messages.at(-1)?.role === 'assistant'
-          && current.messages.at(-1)?.stopReason === 'stop';
-      }, next.runtimeId, { timeout: 60000 });
+      await waitForSessionFixtureSnapshot(page, async current => {
+        if (current.runtimeId !== next.runtimeId || current.state?.isStreaming || current.state?.isCompacting
+          || current.state?.pendingMessageCount || current.messages.at(-1)?.role !== 'assistant'
+          || current.messages.at(-1)?.stopReason !== 'stop') return false;
+        try {
+          return (await page.evaluate(({ runtimeId, ids }) => window.desktop.turnUndo(runtimeId, ids, 'status'),
+            { runtimeId: next.runtimeId, ids })).state === 'available';
+        } catch { return false; }
+      }, `${text} settled with an available undo capture`, 60000);
     }
     await writeFile(join(next.preferences.workspace, 'src/retry.ts'), 'export const retryLimit = 5;\n');
     return page.evaluate(() => window.desktop.snapshot());
@@ -250,10 +250,15 @@ try {
   await page.evaluate(({ runtimeId }) => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, runtimeId), { runtimeId: next.runtimeId });
   checkpoint('clone same-workspace peer');
   const peer = await page.evaluate(id => window.desktop.cloneSession(id), next.state.sessionId);
+  assert.notEqual(peer.runtimeId, next.runtimeId);
+  assert.notEqual(peer.state.sessionId, next.state.sessionId);
+  assert.equal(peer.preferences.workspace, next.preferences.workspace);
   await page.evaluate(id => window.desktop.switchSession(id), next.state.sessionId);
   await page.evaluate(({ runtimeId }) => { void window.desktop.command('prompt', { message: 'KEEP-BUSY' }, runtimeId).catch(() => {}); }, { runtimeId: peer.runtimeId });
-  await page.waitForFunction(async runtimeId => (await window.desktop.snapshot()).runtimes.some(runtime =>
-    runtime.runtimeId === runtimeId && runtime.status === 'running'), peer.runtimeId);
+  await waitForSessionFixtureSnapshot(page, current => current.runtimeId === next.runtimeId
+    && current.runtimes.some(runtime => runtime.runtimeId === next.runtimeId && ['idle', 'completed'].includes(runtime.status))
+    && current.runtimes.some(runtime => runtime.runtimeId === peer.runtimeId && runtime.status === 'running'),
+    'a running workspace peer while the undo source remains idle');
   checkpoint('verify busy-peer undo exclusion');
   const prepared = await page.evaluate(({ runtimeId }) =>
     window.desktop.turnUndo(runtimeId, ['fixture-status-1', 'fixture-status-2'], 'prepare'), { runtimeId: next.runtimeId });

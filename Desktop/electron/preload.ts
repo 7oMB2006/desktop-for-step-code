@@ -136,6 +136,8 @@ const bridge: DesktopBridge = {
   cloneSession: id => invoke('cloneSession', id),
   retryMessage: (entryId, message, runtimeId) => invoke('retryMessage', entryId, message, runtimeId),
   deleteSession: id => invoke('deleteSession', id), restart: () => invoke('restart'), settings: () => invoke('settings'),
+  compactionSettings: () => invoke('compactionSettings'),
+  saveCompactionSettings: update => invoke('saveCompactionSettings', update),
   accountAllowance: refresh => invoke('accountAllowance', refresh),
   cancelAccountAllowance: () => invoke('cancelAccountAllowance'),
   estimateSettings: () => invoke('estimateSettings'),

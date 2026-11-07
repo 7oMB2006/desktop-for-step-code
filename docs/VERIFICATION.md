@@ -1,5 +1,23 @@
 # Verification
 
+## PR #194 New-Session Reload Polling (2026-11-07)
+
+After main #208 synchronization, the full local serial suite exits normally:
+1,410 tests, 1,397 passed, thirteen platform skips, zero failures, 390.4 seconds.
+Cloud macOS run `42350348035` then exposes a new-session verifier race: its
+post-reload predicate reads `.disabled` before `.new-chat` has mounted. The
+failure screenshot shows the app subsequently rendered, not a renderer crash.
+
+All seven new-session readiness waits now share a predicate requiring an
+existing, enabled button and, when requested, the matching theme. Two browser
+predicate regressions reproduce the null dereference before the fix and pass
+afterward; all six fixture tests and typecheck pass. Full source Electron
+new-session acceptance passes at normal and constrained native window heights.
+No product code, runtime pin, timeout or
+acceptance inventory changes. Evidence is under `test-results/ci-fix-new-session-*`
+in the reused isolated snapshot. Replacement current-head cloud results remain
+a separate gate; the accepted Beta package and shortcut are unchanged.
+
 ## PR #194 Post-CI Main Synchronization (2026-11-07)
 
 Head `ae5103b` passes current-head Windows run `42346309477` and macOS run

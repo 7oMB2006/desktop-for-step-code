@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
 
+export async function waitForNewSessionButton(page, theme) {
+  await page.waitForFunction(theme => document.querySelector('.new-chat')?.disabled === false
+    && (theme === undefined || document.documentElement.dataset.theme === theme), theme);
+}
+
 // Playwright's browser-side polling treats a Promise itself as truthy.
 // Poll IPC snapshots in Node so each resolved value is actually checked.
 export async function waitForSessionFixtureSnapshot(page, predicate, label, timeoutMs = 30000) {

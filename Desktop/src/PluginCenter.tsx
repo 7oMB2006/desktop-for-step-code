@@ -10,6 +10,7 @@ import { ScrollThumb } from './ConversationScrollThumb';
 import { StepPageSettings } from './StepPageSettings';
 import { PluginDocumentation, PluginDocumentReader, PluginStars } from './PluginDocumentation';
 import { pluginCategoryLabel, pluginClassificationText, pluginPresentation, pluginSourceLabel } from './plugin-presentation';
+import { PluginUpdateAction, PluginUpdateBadge, PluginUpdateRow, pluginUpdatePending, type PluginUpdatesPresentation, type PluginUpdateState } from './PluginUpdatePresentation';
 import './capability-settings.css';
 import './plugin-center.css';
 
@@ -34,9 +35,10 @@ function ProjectLink({ entry, language }: { entry: Entry; language: string }) {
     aria-label={language === 'zh' ? `打开 ${entry.name} GitHub 项目` : `Open ${entry.name} on GitHub`}>
     <span className="pc-github-mark" aria-hidden="true"/></a>;
 }
-export function PluginCenter({ bridge, language, busy, active, runtimeId, settings, target, onChanged, onRestart, onManageMcp, onBack }: {
+export function PluginCenter({ bridge, language, busy, active, runtimeId, settings, target, updates: previewUpdates, onChanged, onRestart, onManageMcp, onBack }: {
   bridge: PluginCenterBridge; language: string; busy: boolean; active: boolean; runtimeId?: string;
   settings?: { mcp: Record<string, McpServer> }; target?: CapabilityTarget;
+  updates?: PluginUpdatesPresentation;
   onChanged(): Promise<void>; onRestart(): Promise<void>; onManageMcp(name?: string): void; onBack(): void;
 }) {
   const t = (cn: string, en: string) => language === 'zh' ? cn : en;
@@ -57,7 +59,11 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   const [bvrState, setBvrState] = useState({ dirty: false, pending: false, ready: false });
   const [confirmation, setConfirmation] = useState<{ title: string; action(): void }>();
   const [live, setLive] = useState<{ runtimeId: string; servers: SessionSummary['mcp'] }>();
+  const [updateStates, setUpdateStates] = useState<Record<string, PluginUpdateState>>({});
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
   const operation = useRef(false);
+  const updateOperation = useRef(false);
   const alive = useRef(true);
   const dialog = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -107,9 +113,63 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     } catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
     finally { if (alive.current) setRepositoryPending(false); }
   };
+  const updates: PluginUpdatesPresentation | undefined = previewUpdates ?? (catalog?.pluginUpdates ? {
+    items: Object.fromEntries(catalog.plugins.map(plugin => {
+      const state = plugin.update;
+      const saved = updateStates[plugin.id];
+      const applicable = saved?.phase === 'updated' ? saved.version === plugin.version && state?.status !== 'available'
+        : saved && saved.version === state?.version;
+      const reason = state?.reason === 'version'
+        ? t('版本号不是有效的语义化版本，不能自动比较。', 'Versions cannot be compared as semantic versions.')
+        : state?.reason === 'conflict' ? t('包名或来源有冲突，请先核对市场。', 'Package or source conflicts; review the marketplaces.')
+          : t('无法确认原安装来源。请核对市场来源，旧版保持不变。', 'Original source is unconfirmed. Review marketplaces; the installed version is unchanged.');
+      return [plugin.id, applicable ? saved : { phase: state?.status ?? 'unavailable',
+        version: state?.version ?? plugin.version ?? '', error: state?.status === 'unavailable' ? reason : undefined }];
+    })),
+    checking: checkingUpdates,
+    onCheck: async () => {
+      if (operation.current || updateOperation.current || busy || bvrState.pending) return;
+      operation.current = true; setCheckingUpdates(true); setError('');
+      try {
+        const result = await bridge.capabilityMutate({ action: 'plugin-check-updates' });
+        const next = await bridge.capabilityCatalog();
+        if (alive.current) {
+          setWarnings(result.warnings); acceptCatalog(next);
+          setUpdateStates(current => Object.fromEntries(Object.entries(current).filter(([, state]) => state.phase === 'updated')));
+          repositoryQueries.current.clear(); setRepositoryRevision(value => value + 1);
+        }
+      } finally { operation.current = false; if (alive.current) setCheckingUpdates(false); }
+    },
+    onUpdate: async pluginId => {
+      const plugin = catalog.plugins.find(item => item.id === pluginId), candidate = plugin?.update;
+      if (!plugin?.package || candidate?.status !== 'available' || !candidate.ref || !candidate.version) return false;
+      const version = candidate.version;
+      setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'applying', version } }));
+      try {
+        const result = await bridge.capabilityMutate({ action: 'plugin-update', id: pluginId,
+          ref: plugin.package.ref, candidate: candidate.ref });
+        try { const next = await bridge.capabilityCatalog(); if (alive.current) acceptCatalog(next); }
+        catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
+        if (alive.current) {
+          setWarnings(result.warnings);
+          setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'updated', version, restartRequired: Boolean(runtimeId) } }));
+        }
+        return true;
+      } catch (error) {
+        if (alive.current) setUpdateStates(current => ({ ...current, [pluginId]: {
+          phase: 'failed', version, error: capabilityErrorText(error, language === 'zh'),
+        } }));
+        // A rejected native operation may invalidate opaque package references.
+        // Rebind retry to a fresh catalog without discarding the failure message.
+        try { const next = await bridge.capabilityCatalog(); if (alive.current) acceptCatalog(next); } catch {}
+        return false;
+      }
+    },
+  } : undefined);
   const isBvr = entry?.installed?.id === 'bilibili-video-research';
   const isStepPage = entry?.installed?.id === 'steppage';
-  const locked = busy || pending || loading || bvrState.pending;
+  const updating = Boolean(updates && Object.values(updates.items).some(pluginUpdatePending));
+  const locked = busy || pending || loading || bvrState.pending || updating || updateBusy || Boolean(updates?.checking);
   const configurationPackage = entry?.installed?.package;
   const hasConfigurationForm = Boolean(isBvr || configurationPackage?.configurationAvailable);
   const canEditBvr = Boolean(hasConfigurationForm && bvrState.ready);
@@ -165,7 +225,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   }, [confirmation]);
   useEffect(() => { if (!active) setConfirmation(undefined); }, [active]);
   const navigate = (action: () => void) => {
-    if (pending || bvrState.pending) return;
+    if (pending || bvrState.pending || updating || updateBusy || checkingUpdates) return;
     if (hasConfigurationForm && bvrState.dirty) setConfirmation({ title: t('放弃未保存的插件配置？', 'Discard unsaved plugin configuration?'), action });
     else action();
   };
@@ -199,7 +259,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   const restart = async () => {
     if (operation.current || locked || !runtimeId) throw new Error('Session restart unavailable');
     operation.current = true; setPending(true); setError('');
-    try { await onRestart(); if (alive.current) { setChanged(false); setLive(undefined); } }
+    try { await onRestart(); if (alive.current) { setChanged(false); setLive(undefined); setUpdateStates({}); } }
     finally { operation.current = false; if (alive.current) setPending(false); }
   };
   const stepPagePrepared = async () => {
@@ -255,6 +315,17 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     return () => { valid = false; };
   }, [active, bridge, repositoryKey, repositoryRevision]);
   const back = () => navigate(() => { setSelected(undefined); setBvrState({ dirty: false, pending: false, ready: false }); });
+  const updatePlugin = (pluginId: string) => navigate(() => {
+    if (!updates || locked || updateOperation.current) return;
+    updateOperation.current = true; setUpdateBusy(true);
+    void updates.onUpdate(pluginId).then(async success => {
+      if (!success || !alive.current) return;
+      setChanged(true);
+      if (previewUpdates) await refresh();
+      await onChanged();
+    }).catch(error => { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); })
+      .finally(() => { updateOperation.current = false; if (alive.current) setUpdateBusy(false); });
+  });
   const tabs: [PluginTab, string][] = [['installed', t('已安装', 'Installed')], ['discover', t('发现', 'Discover')], ['sources', t('市场来源', 'Marketplaces')]];
   const detailTabs = [['about', t('使用说明', 'Guide')], ['config', t('配置', 'Configuration')], ['capabilities', t('能力', 'Capabilities')],
     ...(entry?.package?.documentation.changelog ? [['updates', t('更新记录', 'Changelog')]] : [])];
@@ -272,8 +343,12 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   return <section className="plugin-center pc-center" aria-label={t('插件中心', 'Plugin center')} data-level={entry ? 'detail' : 'catalog'} hidden={!active}>
     <header className="pc-page-header" hidden={Boolean(entry)}><div><button className="icon-button" aria-label={t('返回会话', 'Back to conversation')} onClick={onBack}><ArrowLeft size={18}/></button>
       <Plug size={23}/><h1>{t('插件', 'Plugins')}</h1><span className="pc-count">{catalog?.plugins.length ?? ''}</span></div>
-      <button type="button" className="icon-button" aria-label={t('刷新插件目录', 'Refresh plugins')} disabled={pending || loading}
-        onClick={() => void refresh(true)}><RefreshCw size={16} className={loading ? 'pc-spin' : undefined}/></button></header>
+      {updates ? <button type="button" className="pc-check-updates" disabled={locked || updates.checking}
+        aria-label={t('检查插件更新', 'Check plugin updates')} onClick={() => navigate(() => void updates.onCheck()
+          .catch(error => { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }))}>
+        <RefreshCw size={14} className={updates.checking ? 'pc-spin' : undefined}/>{updates.checking ? t('正在检查', 'Checking') : t('检查更新', 'Check updates')}</button>
+        : <button type="button" className="icon-button" aria-label={t('刷新插件目录', 'Refresh plugins')} disabled={pending || loading}
+          onClick={() => void refresh(true)}><RefreshCw size={16} className={loading ? 'pc-spin' : undefined}/></button>}</header>
     {pending && <p className="cap-pending" role="status"><LoaderCircle size={14} className="pc-spin"/>{t('正在处理', 'Working')}</p>}
     {error && <div className="cap-error" role="alert">{error}</div>}
     {!!warnings.length && <ul className="cap-notes">{warnings.map((value, index) => <li key={index}>{value}</li>)}</ul>}
@@ -306,7 +381,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
           </div> : <div className="pc-plugin-list">
             <div className="pc-plugin-grid">{shown.map(item => <article className="pc-plugin-row" key={item.key}>
               <button className="pc-card-open" aria-label={t(`查看 ${item.name} 使用说明`, `Read ${item.name} guide`)} onClick={event => choose(item, event.currentTarget, 'about')}>
-                <span className="pc-card-heading"><CapabilityPluginIconView icon={item.icon}/><span><strong>{item.name}</strong><span>{item.version ? `v${item.version}` : item.installed?.id ?? item.available?.name}</span></span></span>
+                <span className="pc-card-heading"><CapabilityPluginIconView icon={item.icon}/><span><strong>{item.name}</strong>
+                  <span className="pc-card-version">{item.installed?.version || item.version ? `v${item.installed?.version ?? item.version}` : item.installed?.id ?? item.available?.name}
+                    <PluginUpdateBadge state={item.installed && updates?.items[item.installed.id]} language={language}/></span></span></span>
                 <span className="pc-card-description">{item.description}</span>
                 <PluginCategoryTags pkg={item.package} language={language} compact/>
                 <span className="pc-card-meta"><span>{item.source}</span>
@@ -316,7 +393,11 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
               <footer className="pc-card-footer"><div className="pc-card-state">{item.installed ? <>{toggle(item.installed)}<span className="pc-status">{status(item.installed)}</span></>
                 : <button disabled={locked || item.available?.installed || item.available?.blocked} onClick={() => item.available && void perform({ action: 'plugin-install', name: item.available.name, marketplace: item.available.marketplace, ref: item.package?.ref })}>
                   {item.available?.installed ? <Check size={14}/> : <ArrowDownToLine size={14}/>} {item.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div>
-                <div className="pc-card-actions"><ProjectLink entry={item} language={language}/>
+                <div className="pc-card-actions">
+                  {item.installed && <PluginUpdateAction state={updates?.items[item.installed.id]} name={item.name}
+                    language={language} disabled={locked} onUpdate={() => updatePlugin(item.installed!.id)}
+                    onRestart={runtimeId ? () => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh'))) : undefined}/>}
+                  <ProjectLink entry={item} language={language}/>
                   <button className="icon-button pc-card-settings" aria-label={t(`配置 ${item.name}`, `Configure ${item.name}`)} onClick={event => choose(item, event.currentTarget)}><Settings size={16}/></button></div></footer>
             </article>)}</div>
             {!shown.length && <div className="pc-list-empty">{t('没有匹配的插件', 'No matching plugins')}{tab === 'installed' && <button onClick={() => { setTab('discover'); setQuery(''); }}>{t('浏览插件', 'Browse plugins')}</button>}</div>}
@@ -333,7 +414,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         <button className="icon-button" aria-label={t('返回会话', 'Back to conversation')} onClick={onBack}><X size={16}/></button></div>
       <div className="pc-detail-workspace"><div ref={scroll} id={`${id}-scroll`} className="pc-detail-scroll"><div className="pc-detail-document">
         <header className="pc-plugin-header"><div className="pc-plugin-identity"><CapabilityPluginIconView icon={entry.icon}/><div className="pc-plugin-title">
-          <h2 ref={heading} tabIndex={-1}>{entry.name}</h2><p><span>{entry.version ? `v${entry.version}` : ''}</span><span>{entry.source}</span></p>
+          <h2 ref={heading} tabIndex={-1}>{entry.name}</h2><p><span>{entry.installed?.version || entry.version ? `v${entry.installed?.version ?? entry.version}` : ''}</span>
+            <PluginUpdateBadge state={entry.installed && updates?.items[entry.installed.id]} language={language}/><span>{entry.source}</span></p>
           {entry.package?.author && <p className="pc-plugin-byline">{entry.package.author}</p>}</div></div>
           <div className="pc-plugin-summary"><p>{entry.description}</p><PluginCategoryTags pkg={entry.package} language={language}/>
             {entry.installed && <span className="pc-status">{status(entry.installed)}</span>}</div>
@@ -345,6 +427,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
                 action: () => void perform({ action: 'plugin-remove', id: entry.installed!.id }) }))}><Trash2 size={16}/></button></>
             : <button className="primary" disabled={locked || entry.available?.installed || entry.available?.blocked} onClick={() => entry.available && void perform({ action: 'plugin-install', name: entry.available.name, marketplace: entry.available.marketplace, ref: entry.package?.ref })}>
               <ArrowDownToLine size={15}/>{entry.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div></header>
+        {entry.installed && <PluginUpdateRow state={updates?.items[entry.installed.id]} name={entry.name} currentVersion={entry.installed.version}
+          language={language} disabled={locked} onUpdate={() => updatePlugin(entry.installed!.id)}
+          onRestart={runtimeId ? () => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh'))) : undefined}/>}
         {entry.package?.stars && ['stale', 'limited', 'unavailable'].includes(entry.package.stars.status) && <p className="pc-hint" role="status">
           {entry.package.stars.status === 'stale' ? t('仓库信息为旧快照，查询时间见 Star。', 'Repository information is a previous snapshot; see its timestamp.')
             : entry.package.stars.status === 'limited' ? t('GitHub 查询受限，请稍后重试。', 'GitHub requests are limited. Retry later.')
@@ -359,12 +444,12 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         </div>
         <div className="pc-detail-content" key={entry.key}>
           <div id={`${id}-config-panel`} role="tabpanel" aria-labelledby={`${id}-detail-config`} hidden={detailTab !== 'config'}>
-            {isBvr ? <BvrConfigurationForm bridge={bridge} language={language} busy={busy || pending} formId={formId} visible={active && detailTab === 'config'}
+            {isBvr ? <BvrConfigurationForm bridge={bridge} language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
               onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>
               : isStepPage ? <StepPageSettings bridge={bridge} language={language} config={settings?.mcp.steppage__steppage} busy={locked}
                 onPrepared={stepPagePrepared} onRestart={restart}/>
                 : configurationPackage?.configurationAvailable ? <PluginConfigurationForm key={configurationPackage.ref} bridge={bridge} pkg={configurationPackage}
-                  language={language} busy={busy || pending} formId={formId} visible={active && detailTab === 'config'}
+                  language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
                   onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>
                 : <section className="pc-form-section"><h3>{t('服务配置', 'Service configuration')}</h3><p className="pc-body-copy">
                   {entry.installed ? t('此插件暂未提供专用配置表单。MCP 启动参数与环境变量可在 MCP 设置中管理。', 'This plugin has no dedicated form. Manage MCP launch options and environment variables in MCP settings.')

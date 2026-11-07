@@ -29,6 +29,156 @@ function focusClips(element) {
   return clips;
 }
 try {
+  const updates = await browser.newPage({ viewport: { width: 1440, height: 980 } });
+  const updateErrors = [];
+  updates.on('pageerror', error => updateErrors.push(error.message));
+  try {
+    await updates.goto(`${base}/tests/fixtures/plugin-center-live.html?updates=1`);
+    const card = updates.locator('.pc-plugin-row').filter({ has: updates.locator('.pc-card-heading strong', { hasText: /^Bilibili Video Research$/ }) });
+    const action = card.locator('.pc-update-action');
+    await action.waitFor();
+    await updates.locator('.pc-catalog-page').evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => {}))));
+    assert.match(await card.locator('.pc-card-meta').innerText(), /市场 · dfsc-community/);
+    assert.equal(await updates.locator('.pc-plugin-row .pc-update-row').count(), 0, 'Cards do not reserve a separate update row');
+    assert.equal(await updates.locator('.pc-update-action').count(), 1);
+    assert.equal(await action.locator('..').getAttribute('class'), 'pc-card-actions', 'Update uses the existing footer actions');
+    assert.equal(await action.getByRole('button').innerText(), '更新', 'The update action has a visible text label');
+    const oldIcon = await card.locator('img').getAttribute('src');
+    const initialHeight = (await card.boundingBox()).height;
+    const initialFooterHeight = (await card.locator('.pc-card-footer').boundingBox()).height;
+    const originalConfiguration = await updates.evaluate(() => window.pluginCenterTest.configuration());
+    await updates.screenshot({ path: `${output}/updates-light-desktop.png` });
+    await updates.getByRole('button', { name: '检查插件更新', exact: true }).click();
+    assert.match(await updates.getByRole('button', { name: '检查插件更新', exact: true }).innerText(), /正在检查/);
+    await updates.waitForFunction(() => !window.pluginUpdateTest.snapshot().checking);
+    await updates.getByRole('switch', { name: '启用 Bilibili Video Research 服务', exact: true }).click();
+    await updates.waitForFunction(() => document.querySelector('[aria-label="启用 Bilibili Video Research 服务"]')?.getAttribute('aria-checked') === 'false');
+    await updates.getByRole('button', { name: '更新 Bilibili Video Research 至 v0.1.1', exact: true }).dblclick();
+    await action.getByRole('progressbar').waitFor();
+    assert.equal(await action.getByRole('button').innerText(), '更新中');
+    assert.equal((await card.boundingBox()).height, initialHeight, 'Downloading does not increase card height');
+    assert.equal(await action.getByRole('progressbar').evaluate(element => {
+      const progress = element.getBoundingClientRect(), footer = element.closest('.pc-card-footer').getBoundingClientRect();
+      return progress.height === 2 && Math.abs(progress.bottom - footer.bottom) < 1;
+    }), true, 'Progress is a thin line at the existing footer edge');
+    assert.equal(await updates.evaluate(() => window.pluginUpdateTest.snapshot().attempts), 1, 'Repeated clicks start one simulated update');
+    assert.equal(await card.locator('img').getAttribute('src'), oldIcon, 'Downloading does not prematurely replace the installed icon');
+    await updates.screenshot({ path: `${output}/updates-downloading.png` });
+    await updates.waitForFunction(() => window.pluginUpdateTest.snapshot().items['bilibili-video-research'].phase === 'updated');
+    await updates.waitForFunction(() => document.querySelector('.pc-card-version')?.textContent.includes('v0.1.1'));
+    assert.notEqual(await card.locator('img').getAttribute('src'), oldIcon);
+    assert.equal(await card.getByRole('switch').getAttribute('aria-checked'), 'false', 'Updating keeps the saved service switch');
+    assert.deepEqual(await updates.evaluate(() => window.pluginCenterTest.configuration()), originalConfiguration);
+    assert.equal((await card.boundingBox()).height, initialHeight, 'Update phases keep card height stable');
+    assert.equal((await card.locator('.pc-card-footer').boundingBox()).height, initialFooterHeight, 'Update actions do not enlarge the footer');
+    assert.equal(await action.getByRole('button').innerText(), '重启');
+    await updates.screenshot({ path: `${output}/updates-complete.png` });
+    await action.getByRole('button', { name: '重启会话以应用 Bilibili Video Research 更新', exact: true }).click();
+    await updates.waitForFunction(() => window.pluginUpdateTest.snapshot().items['bilibili-video-research'].restartRequired === false);
+    assert.equal(await updates.evaluate(() => window.pluginCenterTest.counts().restarts), 1);
+    assert.equal(await action.count(), 0, 'Applied updates do not leave a redundant action');
+
+    await updates.getByRole('button', { name: '更新结果', exact: true }).click();
+    await updates.getByRole('menuitemradio', { name: '首次失败', exact: true }).click();
+    await updates.getByRole('button', { name: '更新 Bilibili Video Research 至 v0.1.1', exact: true }).click();
+    await updates.waitForFunction(() => window.pluginUpdateTest.snapshot().items['bilibili-video-research'].phase === 'failed');
+    assert.equal(await card.locator('img').getAttribute('src'), oldIcon);
+    assert.match(await card.locator('.pc-card-version').innerText(), /^v0.1.0/);
+    assert.match(await card.locator('.pc-update-badge').innerText(), /更新失败/);
+    assert.match(await action.getByRole('button').getAttribute('title'), /重试更新/);
+    assert.equal(await action.getByRole('button').innerText(), '重试');
+    assert.equal((await card.boundingBox()).height, initialHeight, 'Failure does not add another card row');
+    assert.deepEqual(await updates.evaluate(() => window.pluginCenterTest.configuration()), originalConfiguration);
+    await updates.screenshot({ path: `${output}/updates-failed.png` });
+    await action.getByRole('button', { name: '重试更新 Bilibili Video Research', exact: true }).click();
+    await updates.waitForFunction(() => window.pluginUpdateTest.snapshot().items['bilibili-video-research'].phase === 'updated');
+    assert.equal(await updates.evaluate(() => window.pluginUpdateTest.snapshot().attempts), 2);
+
+    await updates.getByRole('button', { name: '更新结果', exact: true }).click();
+    await updates.getByRole('menuitemradio', { name: '更新成功', exact: true }).click();
+    await updates.getByRole('button', { name: '查看 Bilibili Video Research 使用说明', exact: true }).click();
+    await updates.locator('.pc-detail .pc-update-row').waitFor();
+    await updates.locator('.pc-detail').evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => {}))));
+    assert.match(await updates.locator('.pc-detail .pc-update-versions').innerText(), /v0.1.0[\s\S]*v0.1.1/);
+    await updates.screenshot({ path: `${output}/updates-detail.png` });
+    await updates.getByRole('button', { name: '全部插件', exact: true }).click();
+    await updates.emulateMedia({ reducedMotion: 'reduce' });
+    for (const theme of ['light', 'dark']) {
+      if (theme === 'dark') await updates.getByRole('button', { name: '切换明暗主题', exact: true }).click();
+      for (const [width, height] of [[1440, 980], [740, 820], [390, 844]]) {
+        await updates.setViewportSize({ width, height });
+        assert.equal(await updates.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+        assert.deepEqual(await updates.locator('.pc-update-action,.pc-card-version,.pc-card-footer,.pc-window').evaluateAll(elements =>
+          elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.className)), []);
+        assert.equal(await action.getByRole('button').evaluate(element => {
+          const style = getComputedStyle(element);
+          return style.backgroundColor !== 'transparent' && style.backgroundColor !== 'rgba(0, 0, 0, 0)'
+            && style.borderTopWidth === '1px' && style.borderTopStyle === 'solid'
+            && style.borderRadius === '4px' && style.color !== style.backgroundColor;
+        }), true, `${theme}/${width}: update has a filled button surface, not plain text`);
+        await action.getByRole('button').focus();
+        assert.deepEqual(await action.getByRole('button').evaluate(focusClips), [], `${theme}/${width}: update button focus`);
+        await updates.screenshot({ path: `${output}/updates-${theme}-${width}.png` });
+      }
+    }
+    await updates.getByRole('button', { name: '切换为英文', exact: true }).click();
+    await updates.getByRole('button', { name: 'Update Bilibili Video Research to v0.1.1', exact: true }).waitFor();
+    assert.equal(await action.getByRole('button').innerText(), 'Update');
+    for (const width of [1190, 1008, 390]) {
+      await updates.setViewportSize({ width, height: 844 });
+      assert.deepEqual(await updates.locator('.pc-card-version,.pc-card-footer,.pc-update-trigger').evaluateAll(elements =>
+        elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.className)), [],
+      `English/${width}: text update actions fit the existing footer`);
+      await action.getByRole('button').focus();
+      assert.deepEqual(await action.getByRole('button').evaluate(focusClips), [], `English/${width}: text update focus`);
+    }
+    await updates.screenshot({ path: `${output}/updates-dark-english-mobile.png` });
+    assert.equal(await action.getByRole('button').evaluate(element => element.getAnimations().length), 0);
+    assert.deepEqual(updateErrors, []);
+    console.log('Plugin update presentation preview passed; installation operations are simulated.');
+  } finally { await updates.close(); }
+  const native = await browser.newPage({ viewport: { width: 1440, height: 980 } });
+  try {
+    await native.goto(`${base}/tests/fixtures/plugin-center-live.html?updates=native`);
+    const card = native.locator('.pc-plugin-row').filter({ has: native.locator('.pc-card-heading strong', { hasText: /^Bilibili Video Research$/ }) });
+    const action = card.locator('.pc-update-action');
+    await native.getByRole('tab', { name: '发现', exact: true }).click();
+    assert.match(await card.locator('.pc-card-version').innerText(), /^v0.1.0[\s\S]*v0.1.1/,
+      'Discover compares the installed version to the candidate, not the candidate to itself');
+    await native.getByRole('tab', { name: /^已安装/ }).click();
+    await native.getByRole('button', { name: '检查插件更新', exact: true }).click();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().checks === 1);
+    await native.getByRole('button', { name: '更新 Bilibili Video Research 至 v0.1.1', exact: true }).waitFor({ state: 'visible' });
+    await native.evaluate(() => window.pluginCenterTest.failUpdate());
+    await native.getByRole('button', { name: '更新 Bilibili Video Research 至 v0.1.1', exact: true }).dblclick();
+    await action.getByRole('progressbar').waitFor();
+    assert.equal(await action.getByRole('progressbar').getAttribute('aria-valuenow'), null, 'Native Promise work does not invent percentages');
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 1);
+    assert.equal(await card.getByRole('switch').isDisabled(), true);
+    await native.screenshot({ path: `${output}/updates-native-pending.png` });
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await action.getByRole('button', { name: '重试更新 Bilibili Video Research', exact: true }).waitFor();
+    await card.getByRole('button', { name: '查看 Bilibili Video Research 使用说明', exact: true }).click();
+    assert.match(await native.locator('.pc-update-row').innerText(), /再更新或卸载/);
+    await native.evaluate(() => window.pluginCenterTest.holdUpdateCatalog());
+    await native.getByRole('button', { name: '重试更新 Bilibili Video Research', exact: true }).click();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 2);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().applied === 1);
+    assert.equal(await native.locator('.pc-update-badge').getAttribute('data-phase'), 'applying',
+      'A completed mutation is not presented as updated before its catalog arrives');
+    assert.match(await native.locator('.pc-plugin-title').innerText(), /v0.1.0/);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdateCatalog());
+    await native.getByRole('button', { name: '重启会话以应用 Bilibili Video Research 更新', exact: true }).waitFor();
+    assert.match(await native.locator('.pc-plugin-title').innerText(), /v0.1.1/);
+    await native.screenshot({ path: `${output}/updates-native-success.png` });
+    await native.getByRole('button', { name: '重启会话以应用 Bilibili Video Research 更新', exact: true }).click();
+    await native.waitForFunction(() => window.pluginCenterTest.counts().restarts === 1);
+    await native.waitForFunction(() => !document.querySelector('.pc-update-row'));
+    await native.getByRole('button', { name: '全部插件', exact: true }).click();
+    assert.equal(await card.locator('.pc-update-action').count(), 0);
+    console.log('Plugin update native presentation adapter passed against the typed bridge fixture.');
+  } finally { await native.close(); }
   const metadata = await browser.newPage({ viewport: { width: 1440, height: 980 } });
   try {
     await metadata.goto(`${base}/tests/fixtures/plugin-center-live.html?repositories=held`);

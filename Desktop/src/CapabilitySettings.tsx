@@ -36,7 +36,9 @@ export function capabilityErrorText(error: unknown, zh: boolean) {
     'too-large': ['来源文件过多或过大，未完成导入。', 'The source contains too many files or is too large.'],
     'marketplace-failed': ['市场操作失败，请检查来源、网络和 Git 环境。', 'Marketplace operation failed. Check the source, network and Git environment.'],
     'profile-isolation': ['无法确认 Desktop 独立配置，操作已阻止。', 'Desktop profile isolation could not be verified.'],
-    'resource-in-use': ['插件仍被会话占用或无法确认已释放。请先在 MCP 中停用其服务并重启相关会话，再卸载。', 'The plugin is still in use or its release could not be verified. Disable its MCP servers and restart the relevant sessions before uninstalling.'],
+    'resource-in-use': ['插件仍被会话占用或无法确认已释放。请先在 MCP 中停用其服务并重启相关会话，再更新或卸载。', 'The plugin is still in use or its release could not be verified. Disable its MCP servers and restart the relevant sessions before updating or uninstalling.'],
+    'update-capabilities-changed': ['新版的服务结构或默认开关已变化，需要迁移确认；本次未替换旧版。', 'Service declarations or defaults changed and require migration review; the installed version was not replaced.'],
+    'update-recovery-required': ['插件更新恢复未完成。请停止使用该插件并保留现场，不要重装覆盖；需要检查恢复记录。', 'Plugin update recovery needs attention. Stop using this plugin and preserve its files; do not overwrite it by reinstalling.'],
   };
   return messages[code ?? '']?.[zh ? 0 : 1]
     ?? (zh ? '操作未完成，请检查资源及运行状态后重试。' : 'The operation did not complete. Check the resource and session state, then retry.');

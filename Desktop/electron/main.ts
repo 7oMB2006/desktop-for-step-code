@@ -645,6 +645,7 @@ function applyProviderSettings(): Promise<void> {
 async function performProviderSettings() {
   if (!providerSettingsPending || !canApplyProviders()) return;
   await guardIdle();
+  await capabilityService.recover();
   const workers = [...runtimes.workers.values()];
   const draft = sessionDraft;
   try {
@@ -745,6 +746,8 @@ const sessionNavigation = new SessionNavigation(async (id: string, signal) => {
     await delay(60, undefined, { signal });
     const canonical = await workspaceDirectory(target.cwd, signal);
     signal.throwIfAborted();
+    await capabilityService.recover();
+    signal.throwIfAborted();
     worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
       { ...authEnvironment(), ...(preferences.workspaceSessionRedirects?.[id] ? movedSessionEnvironment() : {}) }, target.path);
     if (worker.state?.sessionId !== id) {
@@ -768,6 +771,7 @@ async function connect(cwd: string, sessionPath?: string, rememberProject = true
   try {
     const canonical = await workspaceDirectory(cwd);
     status = 'connecting';
+    await capabilityService.recover();
     const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
       { ...authEnvironment(), ...(resetPermission ? movedSessionEnvironment() : {}) }, sessionPath);
     sessionDraft = undefined;
@@ -1436,6 +1440,7 @@ async function handle(method: string, args: any[]) {
         const wasActive = sources.some(worker => worker.id === runtimes.activeId) && !sessionDraft;
         // Validate a new cwd-bound transport before changing the durable association.
         // Permissions and project trust from the source are not carried into it.
+        await capabilityService.recover();
         prepared = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
           { ...authEnvironment(), ...movedSessionEnvironment() }, path);
         prepared.mutating = true;
@@ -1522,6 +1527,7 @@ async function handle(method: string, args: any[]) {
         const copy = await admin.request('copy_session', { sessionPath: path, cwd });
         copyPath = await managedSessionFile(join(dataRoot, 'sessions'), copy.path);
         if (!copy.id || copy.id === target.id || source?.leafId && copy.sourceLeafId !== source.leafId) throw new Error('Session history changed; try again');
+        await capabilityService.recover();
         const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), cwd, authEnvironment(),
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
@@ -1556,6 +1562,7 @@ async function handle(method: string, args: any[]) {
         const names = new Set(cachedSessions().map(session => session.name));
         let name = stem;
         for (let number = 2; names.has(name); number++) name = `${stem} ${number}`;
+        await capabilityService.recover();
         const worker = await runtimes.open(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), source.cwd, authEnvironment(),
           sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
             name });
@@ -2075,7 +2082,7 @@ async function handle(method: string, args: any[]) {
     }
     case 'capabilityMutate': {
       await guardIdle({ stopHost: false });
-      if (args[0]?.action === 'plugin-remove')
+      if (['plugin-remove', 'plugin-update'].includes(args[0]?.action))
         await assertPluginUnused(text(args[0].id, 128), runtimes.workers.values());
       return capabilityService.mutate(args[0]);
     }
@@ -2262,6 +2269,7 @@ else app.whenReady().then(async () => {
   await firstRun.initialize();
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
+  await capabilityService.recover();
   await collaboration.start();
   await bvrBridge.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;

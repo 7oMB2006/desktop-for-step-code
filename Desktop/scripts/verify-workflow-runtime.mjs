@@ -1,13 +1,13 @@
 import { terminateFixtureTree } from './fixture-runtime-children.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readdir, readFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 
 // Exercise actual workflow RPC children, not injected renderer status records.
-const profile = await mkdtemp(join(tmpdir(), 'desktop-workflow-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-workflow-')));
 const workspace = join(profile, 'workspace');
 await mkdir(workspace, { recursive: true });
 await mkdir(join(profile, 'step-runtime'), { recursive: true });

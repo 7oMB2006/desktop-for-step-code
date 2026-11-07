@@ -346,6 +346,101 @@ renderer-only shortcut. Excluding junction targets, current QA inputs occupy
 10.13 MiB in `dist`, 62.96 MiB in `terminal-runtime`, 0.10 MiB in the runtime
 facade and 2.60 MiB in `test-results`; no historical package is deleted.
 
+## CrashLog Latest-Main Synchronization (2026-11-07, local candidate)
+
+The previous CrashLog candidate starts at `a8533cf`. This combination starts at
+main `e419143`, after #210 themes, #194 Remote and #209 explicit plugin updates.
+The full main diff leaves the CrashLog writer and existing startup verifier
+unchanged. The implementation and disk regressions are carried forward without
+rewriting owner code; this document preserves all owner verification histories.
+The standalone acceptance entry remains `verify-crash-log.mjs`. Its imported
+helper is named `crash-record-fixture.mjs`, matching other non-entry helpers rather
+than creating an unregistered `verify-*.mjs` entry.
+
+The log boundary redacts structured sensitive fields before traversal, including
+decoded authentication containers. Text filters cover labelled credentials,
+authentication headers and HTTP(S) URL authentication data, including userinfo
+or quoted values cut off before their terminator. Accessors, custom serializers
+and Proxy traps are not invoked. Projection limits remain 256 nodes per detail,
+eight levels, 64 top-level fields and 16,000 characters per text input. Own-key
+enumeration precedes the field cap; this is not constant-memory enumeration of
+arbitrarily large objects. Final output, including its marker, is at most 64 KiB
+UTF-8 without splitting a multibyte character. Arbitrary unlabelled secrets,
+every encoding/authentication convention and replaced built-in APIs are outside
+this guarantee.
+
+Ordinary error descriptions, credential-conflict explanations, exit codes and
+safe frames remain useful. A synchronous trusted V8 formatter avoids the global
+`Error.prepareStackTrace` callback and restores its exact descriptor. Reading a
+native lazy stack may cache diagnostic frames on the Error; message and details
+stay unchanged. Immutable formatters and untrusted stack accessors fail closed.
+UUID temporary writes, rename, never-throwing record and exit semantics remain.
+
+Historical verification at `a8533cf`: original eight actual disk tests produced
+six failures and two passes; the final implementation passed 18 disk cases and
+57 focused projection/staging tests, typecheck and production build. Exact
+staging verified pin `29eb460`, 47 postimages, 23 capability IDs and Node 24.16.0
+SHA-256. Real Windows Electron main disk and production startup-conflict
+acceptance passed with an external local `--no-sandbox` copy. The unmodified
+executable's default-sandbox launch exited before inspector initialization.
+No checked-in script or product sandbox setting changed. Those receipts do not
+prove this later main combination.
+
+The historical bounded all-file run executed 156 files: 150 passed, six failed.
+An unmodified same-base control reproduced compaction linked-root rejection,
+native `then_run` null versus exit 7 (same staged runtime), project-trust junction
+cleanup, turn-undo linked classification and workflow-catalog cleanup. The
+capabilities timeout control lacked its default runtime, so was not equivalent;
+the timeout cause remains unknown. The complete result was not green and none
+of these failures is labelled flaky or silently filtered.
+
+Current-combination focused checks pass 184 cases (including 18 actual disk
+cases and the new Remote session/queue boundaries), typecheck and production
+build. CI policy/inventory/runner checks pass 39 cases with one platform skip.
+The current staging recipe rebuilds from pin `29eb460` with all 47 postimages,
+23 capability IDs and Node 24.16.0 hash verified; Remote/Lark notices, SDK license
+and plugin-update/configuration adapters are present. The underlying pin is not
+changed. Real Windows source Electron disk, vault migration and startup conflict
+acceptance pass against this tree's rebuilt `dist/main.cjs`, using the already
+installed executable of the exact locked Electron 44.4.5. Only the external local
+acceptance copy adds `--no-sandbox`; no product/checked-in setting changes.
+
+Locked normal dependency installation completes successfully: 508 packages,
+postinstall scripts enabled, frozen lockfile unchanged. Initial installs used a
+different local pnpm store and missed the 72.5 MB app-builder archive; the existing
+store had that package but denied new writes. Sixteen existing content-addressed
+cache entries were copied to the writable store only after SHA-512 and size
+verification. The final offline normal install exits zero. Earlier timed-out and
+`--ignore-scripts` diagnostics are not counted as successful installation. The
+first all-file run was contaminated by a diagnostic rebuilding node_modules
+while a test loaded tsx; it is retained but not a stable-input complete receipt.
+A fresh complete run uses stable dependencies and executes all 175 files:
+166 pass, nine fail. The unmodified `e419143` control
+has identity-checked access to the exact same dependencies and staged runtime;
+it reproduces the capabilities 180-second file timeout, compaction linked-root
+failure, native `then_run` null-versus-7 assertion, project-trust cleanup, turn-
+undo classification and workflow-catalog cleanup. Separate control checks also
+reproduce the new native plugin Git-marketplace failure and theme linked-plugin
+cleanup failure; session-fixture passes, unlike its dependency-disrupted earlier
+result. These observations do not establish the causes or safety of those
+failures, and no unrelated owner implementation is changed. The ninth failure,
+turn-artifacts mapped-workspace link cleanup, reports ENOTEMPTY in the candidate
+complete run but passes one exact focused run on each unchanged tree. A later
+local-only investigation preserves the original dangling escape junction and
+uses fresh fixtures to separate access assertions from cleanup. Controlled
+removal of its target reproduces the same ENOTEMPTY/residue in both trees;
+explicit link-entry removal before recursive cleanup succeeds and preserves live
+target markers. This establishes a dangling-junction cleanup mechanism, not the
+original trigger order or proof that every original assertion had passed.
+A separate `test/artifact-junction-cleanup` tree contains only test cleanup and
+three regression cases; its artifact/cleanup/StepPage checks pass 19 cases and
+typecheck. It is not merged into this CrashLog candidate. The original nine
+full-run failures and non-green result remain intact. Investigation evidence is
+in the local `artifact-cleanup-investigation.md`; no native POSIX/macOS,
+packaged/installer, default-sandbox or real-account acceptance is claimed.
+This work contains no commit, push, PR, version change, installer, shortcut
+change or old-tree cleanup.
+
 ## PR #194 Compaction Settings Main Synchronization (2026-11-07)
 
 Head `b735139` passes Windows run `42351838942` and macOS run `42351839100`,

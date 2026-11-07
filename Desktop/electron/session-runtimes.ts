@@ -30,6 +30,14 @@ export interface WorkerTransport {
   respond(value: Record<string, unknown>): void;
   stop(): Promise<void>;
 }
+export interface RuntimeStartupDiagnostic {
+  runtimeId: string;
+  phase: 'launch' | 'process' | 'session' | 'snapshot' | 'model';
+  status: 'starting' | 'ready' | 'failed';
+  pid?: number;
+  elapsedMs: number;
+  phaseMs: number;
+}
 export interface SessionRuntime {
   id: string;
   cwd: string;
@@ -111,6 +119,7 @@ export class SessionRuntimes {
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
+      startup?: (diagnostic: RuntimeStartupDiagnostic) => void;
       idleLimit?: () => number; backgroundAvailable?: () => boolean;
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
@@ -216,7 +225,9 @@ export class SessionRuntimes {
         !worker.failed && !worker.interrupted);
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
+        const transport = empty.rpc;
         await this.hooks.initializeModel?.(empty, false);
+        this.assertStartupOwner(empty, transport);
         this.activate(empty);
         return empty;
       }
@@ -232,6 +243,10 @@ export class SessionRuntimes {
   prepare(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath: string) {
     return this.openWorker(node, entry, cwd, env, sessionPath, undefined, false);
   }
+  private assertStartupOwner(worker: SessionRuntime, transport: WorkerTransport) {
+    if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected')
+      throw new Error('Session runtime stopped during startup');
+  }
   private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation, activate = true, existing?: SessionRuntime) {
     const worker: SessionRuntime = existing ?? {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
@@ -239,6 +254,7 @@ export class SessionRuntimes {
     };
     worker.cronScopeDirectory = env.DESKTOP_CRON_SCOPE_DIR ?? existing?.cronScopeDirectory;
     worker.status = 'connecting';
+    worker.startupTiming = undefined;
     this.invalidateBackground(worker);
     this.backgroundReads.delete(worker);
     worker.cron = undefined;
@@ -432,49 +448,76 @@ export class SessionRuntimes {
     });
     worker.rpc = transport;
     this.workers.set(worker.id, worker);
+    const startedAt = performance.now();
+    let phase: RuntimeStartupDiagnostic['phase'] = 'launch', phaseStartedAt = startedAt;
+    const progress = (next: RuntimeStartupDiagnostic['phase'], status: RuntimeStartupDiagnostic['status'] = 'starting') => {
+      const now = performance.now();
+      if (phase !== next) { phase = next; phaseStartedAt = now; }
+      // Observers receive only lifecycle fields, never errors, paths or RPC data.
+      // A diagnostic sink must not turn a healthy startup into a failed one.
+      try {
+        this.hooks.startup?.({ runtimeId: worker.id, phase, status,
+          pid: Number.isSafeInteger(transport.pid) && transport.pid! > 0 ? transport.pid : undefined,
+          elapsedMs: now - startedAt, phaseMs: now - phaseStartedAt });
+      } catch {}
+    };
+    progress('launch');
     try {
       const launch = this.hooks.launch?.(worker);
-      const startedAt = performance.now();
+      const request = async (type: string, args?: Record<string, unknown>, timeout?: number) => {
+        this.assertStartupOwner(worker, transport);
+        const result = await transport.request(type, args, timeout);
+        this.assertStartupOwner(worker, transport);
+        return result;
+      };
+      this.assertStartupOwner(worker, transport);
       worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env, DESKTOP_CRON_SCOPE_DIR: worker.cronScopeDirectory,
         STEPCODE_DESKTOP_BRANCH_SOURCE: branch && branch.kind !== 'open-copy' && sessionPath ? resolve(sessionPath) : undefined,
       }, ['--include-live-events', '--append-system-prompt', desktopSystemPolicy(cwd),
         ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);
-      await worker.rpc.request('get_state', {}, 60000);
+      progress('process');
+      await request('get_state', {}, 60000);
       const processReadyAt = performance.now();
+      progress('session');
       const result = existing && !sessionPath ? { cancelled: false }
-        : await worker.rpc.request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath, cwdOverride: cwd } : {}, 60000);
+        : await request(sessionPath ? 'switch_session' : 'new_session', sessionPath ? { sessionPath, cwdOverride: cwd } : {}, 60000);
       if (result.cancelled) throw new Error('Session operation cancelled');
       if (branch) {
-        const sourceState = await worker.rpc.request('get_state');
+        const sourceState = await request('get_state');
         if (branch.kind === 'open-copy') {
           if (sourceState.sessionId !== branch.sessionId) throw new Error('Copied session identity changed');
         } else {
-          const history = await worker.rpc.request('get_entries');
+          const history = await request('get_entries');
           if (history.leafId !== branch.leafId) throw new Error('Session history changed; reopen it and try again');
           const selected = activeHistory(history.entries, history.leafId).find(item => item.id === branch.entryId);
           if (selected?.type !== 'message' || selected.message?.role !== (branch.kind === 'fork' ? 'user' : 'assistant')) throw new Error('Invalid branch point');
-          const response = await worker.rpc.request(branch.kind, branch.kind === 'fork' ? { entryId: branch.entryId } : {}, 60000);
+          const response = await request(branch.kind, branch.kind === 'fork' ? { entryId: branch.entryId } : {}, 60000);
           if (response.cancelled) throw new Error('Session operation cancelled');
-          const nextState = await worker.rpc.request('get_state');
+          const nextState = await request('get_state');
           if (!nextState.sessionId || nextState.sessionId === sourceState.sessionId) throw new Error('Runtime did not create a new session');
         }
         const permissionPreset = branch.permissionPreset ?? worker.permissionPreset;
         if (permissionPreset && permissionPreset !== 'full-access') {
-          const { commands } = await worker.rpc.request('get_commands');
+          const { commands } = await request('get_commands');
           if (!commands?.some((command: { name: string; source: string }) => command.name === 'permissions' && command.source === 'extension')) throw new Error('Cannot preserve session permissions');
-          await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
+          await request('prompt', { message: `/permissions ${permissionPreset}` });
         }
-        if (branch.name) await worker.rpc.request('set_session_name', { name: branch.name });
+        if (branch.name) await request('set_session_name', { name: branch.name });
       }
+      this.assertStartupOwner(worker, transport);
       const sessionRestoredAt = performance.now();
+      progress('snapshot');
       worker.status = 'connected';
-      worker.state = await worker.rpc.request('get_state');
+      worker.state = await request('get_state');
       await this.read(worker);
+      this.assertStartupOwner(worker, transport);
       const snapshotAt = performance.now();
+      progress('model');
       // Recovery is already explicitly confirmed with its own model, and refresh
       // below restores the captured live selection rather than a global default.
       if (!existing && env.DESKTOP_CRON_RECOVERY !== '1')
         await this.hooks.initializeModel?.(worker, Boolean(sessionPath || branch));
+      this.assertStartupOwner(worker, transport);
       const modelRestoredAt = performance.now();
       worker.startupTiming = {
         processReadyMs: processReadyAt - startedAt,
@@ -483,13 +526,20 @@ export class SessionRuntimes {
         modelRestoreMs: modelRestoredAt - snapshotAt,
         totalMs: modelRestoredAt - startedAt,
       };
+      progress('model', 'ready');
       if (activate) this.activate(worker);
       else this.publish();
       return worker;
     } catch (error) {
-      this.hooks.dispose?.(worker);
-      this.workers.delete(worker.id);
-      await worker.rpc.stop();
+      progress(phase, 'failed');
+      if (this.workers.get(worker.id) === worker && worker.rpc === transport) {
+        worker.status = 'disconnected';
+        this.hooks.dispose?.(worker);
+        for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
+      }
+      try { await transport.stop(); }
+      catch (stopError) { this.retainFailedStop(worker, transport); throw stopError; }
+      if (this.workers.get(worker.id) === worker && worker.rpc === transport) this.workers.delete(worker.id);
       throw error;
     }
   }
@@ -774,12 +824,23 @@ export class SessionRuntimes {
     this.publish();
   }
   async remove(worker: SessionRuntime) {
+    const transport = worker.rpc;
     this.hooks.dispose?.(worker);
     this.workers.delete(worker.id);
     if (this.activeId === worker.id) this.activeId = undefined;
     for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
-    await worker.rpc.stop();
-    this.publish();
+    try { await transport.stop(); }
+    catch (error) { this.retainFailedStop(worker, transport); throw error; }
+    finally { this.publish(); }
+  }
+  private retainFailedStop(worker: SessionRuntime, transport: WorkerTransport) {
+    // Retain cleanup ownership, never activity or a newer worker's identity.
+    const current = this.workers.get(worker.id);
+    if (current && current !== worker || worker.rpc !== transport) return;
+    worker.status = 'disconnected'; worker.busy = false; worker.runActive = false; worker.failed = true;
+    worker.cron = undefined; worker.backgroundActive = false; worker.backgroundLanes = undefined;
+    if (worker.state) worker.state = { ...worker.state, isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
+    this.workers.set(worker.id, worker);
   }
   async recycle(retain: (worker: SessionRuntime) => boolean = () => false) {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
@@ -797,11 +858,17 @@ export class SessionRuntimes {
   }
   async stopAll() {
     const workers = [...this.workers.values()];
+    const transports = workers.map(worker => worker.rpc);
     this.workers.clear(); this.activeId = undefined;
     for (const worker of workers) {
       this.hooks.dispose?.(worker);
       for (const id of worker.pendingUI.keys()) this.clearRequest(worker, id);
     }
-    await Promise.all(workers.map(worker => worker.rpc.stop()));
+    const stopped = await Promise.allSettled(transports.map(transport => transport.stop()));
+    stopped.forEach((result, index) => {
+      if (result.status === 'rejected') this.retainFailedStop(workers[index], transports[index]);
+    });
+    const failed = stopped.find(result => result.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
   }
 }

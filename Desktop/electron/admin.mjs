@@ -9,6 +9,7 @@ import { reconcileStepPageServers, prepareStepPageServers } from './steppage-con
 import { readSessionHistory } from './session-history.mjs';
 import { createDesktopSessionSearch } from './session-search.mjs';
 import { projectInstructionsInput, projectInstructionsSnippetCandidate } from './project-instructions.mjs';
+import { createCompactionConfiguration } from './compaction-configuration.mjs';
 
 // Management lives in a separate process so Step globals never enter Electron.
 const root = dirname(fileURLToPath(import.meta.url));
@@ -17,6 +18,7 @@ const upstream = await import(pathToFileURL(join(root, 'step/dist/bundle/index.j
 const authPath = process.env.STEPCODE_AUTH_PATH;
 const sessions = process.env.STEP_CODING_AGENT_SESSION_DIR;
 const agentDir = process.env.STEP_CODING_AGENT_DIR;
+const compactionConfiguration = createCompactionConfiguration(upstream, process.env.STEPCODE_STORAGE_ROOT_DIR, process.env);
 const sessionSearch = createDesktopSessionSearch(upstream, { storageRoot: process.env.STEPCODE_STORAGE_ROOT_DIR, agentDir, sessions,
   projectInput: projectInstructionsInput, projectedSnippet: projectInstructionsSnippetCandidate });
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
@@ -28,6 +30,8 @@ const safeMcp = servers => Object.fromEntries(Object.entries(servers).map(([name
 }]));
 async function dispatch(message) {
   switch (message.type) {
+    case 'compaction_settings': return compactionConfiguration.read();
+    case 'save_compaction_settings': return compactionConfiguration.save(message.update);
     case 'session_search': return sessionSearch.query(message.query);
     case 'cancel_session_search': sessionSearch.cancel(message.queryId); return null;
     case 'prepare_steppage':
@@ -208,5 +212,9 @@ async function dispatch(message) {
 createInterface({ input: process.stdin }).on('close', () => { void sessionSearch.close(); }).on('line', async line => {
   let request;
   try { request = JSON.parse(line); const data = await dispatch(request); send({ id: request.id, type: 'response', success: true, data }); }
-  catch { send({ id: request?.id, type: 'response', success: false, error: `Management operation failed: ${request?.type ?? 'invalid request'}` }); }
+  catch (error) {
+    const code = error instanceof Error && /^compaction:(invalid|conflict|legacy|profile|unavailable)$/u.test(error.message)
+      ? error.message : `Management operation failed: ${request?.type ?? 'invalid request'}`;
+    send({ id: request?.id, type: 'response', success: false, error: code });
+  }
 });

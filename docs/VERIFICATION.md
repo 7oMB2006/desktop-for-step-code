@@ -1,5 +1,365 @@
 # Verification
 
+## StepPage Storage Boundary (2026-11-07, local candidate)
+
+This candidate starts from main `4318d6e` after the v0.1.7 pin migration. The
+open Remote/Linux branches do not touch the StepPage preparer or unit tests. It
+does not modify the new pin, patches or Plan integration.
+
+A real Windows junction reproduces the storage guard failure: its directory entry
+is a link and realpath resolves outside the owned root, while lstat reports an
+ordinary directory. The old preparer therefore downloads a deterministic,
+hash-pinned local ESM fixture into the outside target, executes its version probe,
+calls apply and reports ready/installed. All bytes and markers stay under a new
+isolated test directory; no official artifact, account, model or personal profile
+is used.
+
+Formal tests fail on the old implementation because redirected storage is not
+rejected before download/apply/outside creation. The fix checks owned directory
+entries plus canonical parent identity before mkdir and again afterwards. Bundles
+must remain within the owned StepPage root before hashing, reuse or probing; the
+newly written temporary is rechecked and rehashed before execution. Dangling
+storage cannot recreate its target. The walk stops at the StepPage root's direct
+parent so macOS system links such as `/var` and `/tmp` are not rejected. Test
+cleanup removes only each created link entry with a platform-appropriate API.
+The check/use interval remains; this does not claim to eliminate adversarial
+concurrent replacement or every reparse type.
+
+On pre-v0.1.7 main, typecheck/build, seven formal StepPage tests, 22 focused tests
+and the real Electron preparation/MCP/Cron-host/tampered-bundle matrix pass after
+the review corrections. The complete bounded suite executes 148 files: 143 pass
+and five fail; the former StepPage linked-storage failure passes. Those results
+are historical input only after main moved.
+
+On this v0.1.7 candidate the exact locked dependencies are installed offline from
+the local pnpm store after removing only this tree's dependency junctions, whose
+final targets were verified before removal. The v0.1.7 runtime rebuilds offline
+and stages from clean pin `29eb460` with Node 24.16.0 into a physical directory:
+20 patch files, 47 source postimages and 23 runtime capability IDs match the
+current manifest. The earlier 20-file staging attempt that reused a dependency
+junction failed at the CLI typecheck and is retained only as evidence that mixed
+dependencies do not build; none of its results are used. The application build
+and the focused StepPage/error/plugin suite pass 22 tests. The real Electron
+verifier passes official fixed-integrity download, actual MCP handshake, protected
+Cron host, tampered-bundle rejection/no execution, repair and relaunch disable
+retention and Desktop-owned HOME. CI runner/inventory/receipt tests pass 30 cases
+with one platform skip. Complete bounded per-file verification executes 151 files:
+147 pass and four fail. Capabilities exceeds the 180-second file deadline;
+project-trust junction cleanup, linked-undo classification and workflow-catalog
+junction cleanup fail with their previously observed signatures. The former
+StepPage and template-input failures pass on this baseline. Full local acceptance
+is not green, and this does not establish the causes or safety of the remaining
+failures.
+
+A bounded independent review identified and then rechecked three issues before
+the final result: the path walk originally extended through unowned macOS system
+ancestors, POSIX link cleanup incorrectly used rmdir, and the downloaded temporary
+was probed before a final storage/hash recheck. No native macOS source/package
+acceptance or real-account validation is claimed. This local candidate contains
+no commit, push, PR, installer, shortcut, release or version change.
+
+## PR #205 First CI Failure Forensics and Acceptance Robustness (2026-11-07)
+
+Head `0871aa5`'s first CI run keeps every StepPage gate green: macOS source and
+packaged `verify-steppage-registration`, all StepPage unit tests inside the
+Windows protocol run, interface and sessions groups on both platforms. Two
+failures occur in background scenarios this PR does not touch.
+
+Windows runtime protocol tests fail one case: the background-runtime retry
+scenario times out waiting for all eight capacity slots, with `slots=7`,
+`failures=0` and the parent turn settled — one of eight concurrently spawned
+cold children did not complete its first model request inside the 25-second
+fixture budget. The same head passes this scenario locally five times and it
+passed in earlier CI runs.
+
+macOS packaged runtime fails `verify-background-agent-replies.mjs:196`: the
+failure screenshot in the diagnostics artifact shows the multiline draft still
+present and selection-highlighted with an enabled send button — Playwright
+`fill('')` selected the draft but its delete step did not reach the ProseMirror
+commit on the slow packaged launch. The same script's source run passed on the
+same head minutes earlier, and the verifier passes locally on Windows with the
+#201 selection setters. #201's composer diff only adds selection accessors and
+does not change disabled/value semantics.
+
+Both are timing-sensitive acceptance mechanics, not introduced by this PR. No
+evidence supports a flake label, an automatic rerun, or attributing them to the
+StepPage change, so no assertion is weakened or removed. The fixes are test-only:
+
+- The replies verifier clears the draft through the editor's real input path
+  (select-all and Delete keys, ProseMirror's actual key handling) and then
+  asserts the original invariant through a bounded 30-second condition wait: an
+  empty draft must never be sendable. A genuinely uncleared editor or an enabled
+  send button still fails the test. The failure screenshot remains.
+- The background-runtime wait helper accepts an explicit deadline. Only the two
+  waits that depend on concurrently cold-starting children (eight slots, and the
+  respawned retry child) use a 45-second mechanics budget with an explanatory
+  comment, and the timeout message carries the actual budget. The default 25
+  seconds and every capacity, dedup, identity and retry assertion are unchanged.
+
+Main moved while this branch was out (`59953ca`, adding #206/#207/#208). The
+merge adopts main's equivalent reply-clearing fix (`b1fe638`), which supersedes
+this branch's interim replies change with the same keyboard-clearing approach
+plus stronger assertions (a nonempty draft remains sendable, and clearing never
+submits a follow-up); the background-runtime spawn budget from this branch is
+retained, since main's helper still carries the original 25-second deadline for
+those waits. The runtime pin is unchanged (`29eb460`, 20 patches, 47
+postimages), so the staged physical runtime remains valid for the merged tree.
+
+Local verification on the v0.1.7 physical runtime: the background-runtime suite
+passes seven of seven and typecheck passes; the replies verifier passes end to
+end with the keyboard clearing. The CI-side timing distribution (runner load
+during child startup) is still not fully located; if a failure recurs beyond the
+new budget, the diagnosis continues into the runtime child startup path with the
+recorded phases. No product code, pin, patch or acceptance inventory changes in
+this follow-up.
+
+## PR #205 Plugin-Center Subpixel Assertion (2026-11-07)
+
+The second CI run's Windows interface group fails only
+`verify-plugin-center.mjs` at the icon height assertion: the wrapper box
+measures 72.00001525878906 instead of exactly 72. `getBoundingClientRect()`
+values are layout-rounded on some runners, and the same function already
+compares the media measurements with a `.1` tolerance; only the wrapper
+assertions used strict equality. The script's last change predates this branch
+(owner PR #204), and the first CI run of head `0871aa5` passed this exact
+Windows interface group, so the failure is runner rendering variance, not this
+branch's change. The fix aligns the wrapper width/height assertions with the
+existing `.1` tolerance and a comment; the `flexBasis` computed-style string
+stays exact, and the logo-must-not-shrink invariant is unchanged. Local
+verification on the merged mirror with the host Edge browser passes the full
+plugin-center acceptance (cold-cache lookups, installation sources, localized
+tags, keyword search, late StepPage preparation preserving navigation and the
+BVR draft). This is a test-only robustness change; no product code is modified.
+
+## PR #207 macOS Undo Acceptance
+
+Head `b1fe638` passes all Windows gates, but macOS run `42347395061` fails
+source sessions acceptance at the same-workspace running-peer undo assertion.
+The fixture's async browser predicates returned Promises instead of polling
+their resolved conditions, allowing undo to reach the RPC idle check before
+the busy peer was reflected in Desktop state.
+
+The fixture now reuses the Node-side IPC snapshot poll for settled edit
+captures and peer readiness. It verifies distinct runtime/session identities,
+the same workspace, an idle source and a running peer before retaining the
+strict workspace-busy rejection and unchanged file assertion. No production
+guard, error expectation, deadline or CI inventory is relaxed.
+
+The focused undo, runtime and polling suite passes 86 tests with three platform
+skips. Three Windows Electron undo replays pass, including the busy-peer guard
+and light/dark/narrow/English confirmation cases. New-head cloud and native
+macOS source/package acceptance remain required.
+
+### Runtime Stability Main Synchronization
+
+PR #207 also integrates main `7fdfc76` (merged PR #208). Only this verification
+document conflicted; both complete records are retained and the incoming
+startup/shutdown implementation and tests are unchanged.
+
+After synchronization, typecheck, production build and the focused runtime,
+background, undo, polling, composer and compaction suites pass: 158 passed,
+five platform skips and zero failures. Rebuilt Windows Electron undo,
+background-reply, settings-dialog and Plan-review acceptance also pass.
+These local source results do not establish new-head cloud, native macOS,
+packaged or real-account acceptance. The prepared runtime is not restaged.
+
+## PR #207 macOS Packaged Reply Acceptance
+
+Head `ba58e70` passes the Windows gates and macOS source runtime checks, but
+macOS run `42344506919` fails packaged runtime acceptance at the background-reply
+empty-draft assertion. The fixture used `fill('')` and immediately read the send
+button before confirming the controlled ProseMirror draft had cleared.
+
+The fixture now uses the editor's native select-all/Backspace transactions,
+waits for both model value and controlled empty state, and retains the disabled
+send assertion. It also checks that the nonempty draft was sendable and clearing
+it makes no follow-up request. The initial parent-idle poll now awaits the
+resolved IPC snapshot rather than a browser-side Promise. No production code,
+assertion requirement, deadline or CI inventory is removed or relaxed.
+
+All 31 focused background-agent, composer and snapshot-polling tests pass.
+Three Windows Electron reply replays and the composer-editing acceptance pass.
+Fresh macOS source/package and current-head cloud results remain required;
+the local Windows checks do not establish that the failing platform passed.
+
+## Compaction Settings Main Synchronization (2026-11-07)
+
+PR #207 integrates main `ff2f3b02`, including #206's execution-outcome and
+incomplete-response handling. Only TODO and verification records conflicted.
+Both implementation states and all complete verification sections from both
+parents are preserved. The incoming execution implementation is unchanged;
+compaction settings retain the explicit policy-migration retry fix.
+
+Typecheck, production build and all 169 focused configuration, execution,
+recovery, queue, timing and session tests pass. CI policy, inventory, runner
+and summary tests pass 39 cases with one platform skip. Browser acceptance
+passes the compaction settings matrix and all 24 execution-outcome cases.
+Real Windows Electron settings-dialog and then_run acceptance also pass,
+using isolated profiles and deterministic loopback providers.
+
+The existing prepared runtime is not restaged. These local checks do not
+establish new-head cloud CI, native macOS, packaged or real-account acceptance.
+No installer, installed-profile change or historical-package deletion occurs.
+
+## Context Maintenance Settings (2026-11-07, Local Implementation)
+
+Settings > General now edits the Desktop-owned global compaction thresholds
+through a narrow typed bridge and an isolated management-process adapter.
+The default ratio is 90%, bounded to 50-95%. Advanced settings expose one
+global token ceiling and per-model ratios keyed by `provider/id`; the pinned
+runtime does not support a separate token ceiling per model. Configured ratios
+remain distinct from effective thresholds and trusted project overrides.
+
+Writes use the pinned upstream TOML parser, lock and atomic update function.
+A revision checked inside that lock prevents stale threshold overwrites without
+rejecting unrelated MCP edits. Reset removes only this editor's three threshold
+fields. CLM/projection, enabled state, explicit reserves, permissions, credentials
+and unknown options remain untouched. Legacy policy migration is explicit;
+invalid TOML and linked Desktop roots fail closed. No raw document, private path
+or credential is projected to the renderer.
+
+Nine focused tests pass, including two real pinned management processes,
+persisted TOML consumed by the native settings manager, stale writers,
+provider-qualified model identities, trusted project overrides, reset isolation,
+invalid configuration and linked-profile rejection. Typecheck and production
+build pass. Browser acceptance uses the production component and checks
+auto-save, keyboard focus retention, model inheritance, defaults, failed reads
+and writes, conflicts, legacy policy, light/dark, Chinese/English, narrow windows,
+four-sided focus clearance and reduced motion. The new verifier is registered
+in the shared interface CI inventory.
+
+PR #207's save retry retains explicit legacy-to-ratio migration intent until
+the operation succeeds, settings are reloaded successfully, or another edit
+replaces it. Browser regression first reproduced the no-op retry, then passed
+for valid and invalid legacy thresholds, ordinary saves and reload without
+implicit migration. Typecheck, all nine focused tests, production build and
+the real Windows Electron settings-dialog acceptance pass again.
+
+The full serial Desktop suite passes 1068 cases with 14 platform skips,
+zero failures/cancellations, across 1082 cases in about 398 seconds.
+CI policy/inventory/runner/summary checks pass 39 cases with one platform skip.
+
+The existing Windows Electron settings-dialog acceptance also saves and reads
+the real configuration through preload, resets it and confirms the current
+draft/runtime/messages are unchanged. Existing settings navigation, themes,
+narrow windows and draft retention still pass. Tests use temporary profiles,
+without paid models or real account credentials.
+
+Runtime verification uses the existing prepared v0.1.7 bundle at pin `29eb460`
+through read-only runtime references, with current management helpers built into
+this worktree's physical runtime root. The source pin and upstream patches are
+unchanged; this is not a fresh complete source-staging or packaged acceptance.
+There is no threshold hot-update RPC at this pin. Saving never reloads or
+restarts resident workers, including reused empty workers; new runtime starts
+and explicit manual restarts read the saved global values. Installer,
+installed-profile changes and cloud acceptance are outside these local receipts.
+The local artifact audit, excluding junction targets, records about 10.1 MiB
+in `Desktop/dist`, 0.13 MiB in the physical runtime adapter root, 63.0 MiB
+in the terminal runtime and under 1 MiB of Electron screenshots. These are current
+development/verification inputs; no historical package is produced or deleted.
+
+## Upstream v0.1.7 Runtime Stability (2026-11-07, Local Candidate)
+
+This candidate starts from main `4318d6e` (merged PR #203) and retains the
+`29eb460780489801ce8afc8bffc1a2efae7cbded` runtime pin. It does not implement
+the parallel command-result presentation or automatic-compaction settings.
+
+Startup now checks worker and transport ownership after asynchronous RPC,
+snapshot and model restoration, including reuse of an empty worker. Closing
+during startup cannot reactivate the removed session. An optional main-only
+diagnostic hook distinguishes launch, process, session, snapshot and model
+phases. The native background fixture preserves these observations before
+cleanup, including on timeout. Diagnostics contain only a runtime UUID, validated
+PID and timing/status fields, never paths, prompts, errors or environment values.
+
+Windows shutdown no longer silently accepts an unsuccessful process-tree
+termination helper or falls back to stopping only the parent. Helper success
+must be followed by observing the captured child's exit. Exit code 128 is
+accepted only when that exact child exits, covering the natural-exit race.
+A failed shutdown retains a disconnected cleanup handle for explicit later
+cleanup, both for single-worker removal and stop-all; it does not retry,
+reactivate the worker or prevent peers from stopping. POSIX termination
+semantics remain unchanged. Failure-injection and startup/close-interleaving
+tests reproduce the defects before the fixes and pass afterwards.
+
+The pinned native RPC fixture also covers a held background child completing
+during Plan review: its result remains available without another parent model
+turn or a premature completion notification. Cancelling the review keeps Plan
+mode and does not release the background wake-up. Closing/reopening the session
+restores Plan without restoring an approval or starting a request; an ordinary
+follow-up remains a question in Plan, not an approval.
+
+Typecheck and production build pass. The final serial Desktop suite completes
+1089 cases: 1076 passed, 13 platform skips, zero failures or cancellations,
+in 383.3 seconds. CI policy, inventory, runner, summary and motion-helper
+tests pass 54 cases with one platform skip; 22 upstream Plan approval,
+barrier and storage tests also pass. The rebuilt isolated real Electron Plan
+verifier passes approval snapshots, drag dismissal, refinement, cancellation,
+stale proposals, restart, expiry and fresh review. All nine native hosts
+recorded by the background fixture have exited after the suite.
+
+Final receipts are under this worktree's `Desktop/test-results/`:
+`v017-regressions-suite-verified.log`,
+`v017-regressions-build-verified.log`,
+`v017-regressions-ci-policy-verified.log` and
+`v017-regressions-plan-electron-verified.log`.
+
+The first Electron attempt fails before a model call because the borrowed
+runtime lacks main's Desktop-owned `project-instructions.mjs` extension.
+The corrected local acceptance directory copies current Desktop adapters and
+builds that extension, while linking the unchanged upstream bundle and Node
+read-only. No shared runtime is restaged. This QA setup correction is not a
+product fix or evidence about the historical macOS failure.
+
+Excluding junction targets, this worktree owns 10.12 MiB of application build
+output, 62.96 MiB of terminal runtime, 0.10 MiB of Desktop runtime adapters and
+about 1 MiB of verification logs/screenshots. These remain current QA inputs
+and evidence, not historical installers; no existing package is removed.
+
+The earlier macOS background-runtime timeout still has no established root
+cause; its successful rerun and the new diagnostics do not establish a fix.
+Fresh cloud/native macOS execution, packaged/installer acceptance and real
+account/model checks remain pending. All local native/GUI checks use isolated
+temporary profiles and deterministic loopback models. No installed application,
+shortcut, renderer contract, public release or version is changed.
+
+### Main Synchronization Before PR
+
+This branch now integrates main `ff2f3b02` (merged PR #206). Only this document
+conflicted; both verification records are preserved. Incoming incomplete-turn
+recovery and result presentation remain unchanged alongside the startup and
+shutdown guards.
+
+After synchronization, typecheck, production build and all 201 focused cases
+complete: 199 passed, two platform skips, zero failures or cancellations.
+The rebuilt Electron Plan verifier passes again; CI policy, inventory, runner,
+summary and motion-helper tests pass 54 cases with one platform skip. Receipts
+are `Desktop/test-results/v017-regressions-main-sync-{build,tests,plan,policy}.log`.
+The complete 1089-case suite above predates this synchronization; it is not a
+current-combination full-suite or cloud/native macOS acceptance claim.
+
+### Local Review Follow-up
+
+Local review reproduced a combined failure: incomplete-response recovery leaves
+run ownership active during startup, then restoration and process termination
+both fail. The startup catch retained its disconnected cleanup handle without
+clearing that activity, blocking account and provider idle guards. Startup
+cleanup now shares the failed-stop normalization used by removal and stop-all,
+while preserving both worker and transport ownership checks.
+
+Four new regressions cover snapshot/model restoration plus failed termination,
+late recovery events, pending approval/timer cleanup, explicit later cleanup,
+and replacement worker/transport ownership. Both combined-failure cases fail
+before the fix; all four pass afterwards. Final-source typecheck, production
+build and the rebuilt isolated Electron Plan verifier pass again. No runtime
+restaging, installed application change or acceptance package is involved.
+
+The complete current-combination serial Desktop suite now finishes 1108 cases:
+1095 passed, 13 platform skips, zero failures or cancellations, in 423.9 seconds.
+Receipts are `Desktop/test-results/v017-startup-cleanup-{suite,build,plan}.log`.
+Current-head cloud/native macOS, packaged and real-account acceptance remain
+separate from these local checks.
+
 ## Upstream v0.1.7 Result Presentation (2026-11-07, Local Candidate)
 
 This stage leaves the runtime pin and patch manifests unchanged. Existing

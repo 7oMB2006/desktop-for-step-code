@@ -1,0 +1,7 @@
+.compaction-preview-launcher { min-height: 100dvh; display: flex; align-items: center; justify-content: center; gap: 20px; }
+.compaction-preview-actions { display: flex; gap: 6px; }
+.compaction-general { max-width: 648px; padding: 4px; }
+.compaction-general > section + section { margin-top: 30px; }
+.compaction-general .appearance-row { border-bottom: 0; padding: 0; }
+.compaction-general h3 { margin-bottom: 14px; }
+@media (max-width: 520px) { .settings-dialog .settings-content:has(.compaction-general) { padding: 16px 12px; } }

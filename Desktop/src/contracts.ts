@@ -192,6 +192,8 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   deleteArchivedSessions(ids: string[]): Promise<boolean>;
   restart(): Promise<Snapshot>;
   settings(): Promise<Settings>;
+  compactionSettings(): Promise<import('./compaction-settings').CompactionSettings>;
+  saveCompactionSettings(update: import('./compaction-settings').CompactionSettingsUpdate): Promise<import('./compaction-settings').CompactionSettings>;
   accountAllowance(refresh?: boolean): Promise<import('./account-allowance').AccountAllowance>;
   cancelAccountAllowance(): Promise<void>;
   estimateSettings(): Promise<import('./usage-estimates').EstimateSettings>;

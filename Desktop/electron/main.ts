@@ -1968,6 +1968,8 @@ async function handle(method: string, args: any[]) {
       await guardIdle({ stopHost: false });
       return stepPage.prepare((bundlePath, homePath) => admin.request('prepare_steppage', { bundlePath, homePath }));
     }
+    case 'compactionSettings': return admin.request('compaction_settings');
+    case 'saveCompactionSettings': return admin.request('save_compaction_settings', { update: args[0] });
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
     case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
     case 'cancelProviderTest': providerTestController?.abort(); return;
@@ -2393,7 +2395,7 @@ else app.whenReady().then(async () => {
     if (method === 'quitRespond' || method === 'windowControl') return handle(method, args);
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
-    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration'].includes(method);
+    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'saveCompactionSettings'].includes(method);
     const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
     if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
       throw new Error('Shared settings operation in progress');

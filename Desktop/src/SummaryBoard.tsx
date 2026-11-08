@@ -66,8 +66,9 @@ function TaskHistory({ plans, partial, language }: { plans: SummaryPlan[]; parti
 }
 
 export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], backgroundActivity, busy = false, stellar = false, onOpenSubagent, onOpenWorkflow, onClose,
-  mcpBusy = busy, capabilityRevision, onMcpChanged, onRestart, onManageMcp }: {
+  mcpBusy = busy, capabilityRevision, onMcpChanged, onRestart, onManageMcp, tasksRequest, onTasksRequestHandled }: {
   runtimeId?: string; sessionId?: string; language: 'zh' | 'en'; onOpenChanges: () => void;
+  tasksRequest?: number; onTasksRequestHandled?: (sequence: number) => void;
   messages?: Message[]; backgroundActivity?: import('./contracts').BackgroundLaneActivity; busy?: boolean; onOpenSubagent?: (task: SubagentDisplayTask) => void; onOpenWorkflow?: (id: string) => void; onClose?: () => void;
   mcpBusy?: boolean; capabilityRevision?: number; onMcpChanged?: () => Promise<void>; onRestart?: () => Promise<void>; onManageMcp?: () => void;
   stellar?: boolean;
@@ -80,9 +81,16 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
   const [routeTarget, setRouteTarget] = useState<{ id: string }>();
   const previous = useRef(new Map<string, string>());
   const hasSnapshot = useRef(false);
+  const taskHeading = useRef<HTMLHeadingElement>(null);
   const taskView = useMemo(() => summaryTasks(model, messages), [model, messages]);
   const tasks = taskView.tasks;
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
+  useLayoutEffect(() => {
+    if (tasksRequest === undefined || !taskHeading.current) return;
+    taskHeading.current.focus({ preventScroll: true });
+    taskHeading.current.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    onTasksRequestHandled?.(tasksRequest);
+  }, [tasksRequest, onTasksRequestHandled]);
   useEffect(() => {
     if (!runtimeId || !sessionId || !window.desktop) return;
     let live = true;
@@ -164,7 +172,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
         <span>{repository.truncated ? '≥ ' : ''}{repository.files.length} {t('个文件', 'files')}</span></div>
     </section>}
     <section className="sb-steps" aria-label={t('推进清单', 'Task plan')}>
-      <div className="sb-section-heading"><h4>{t('推进清单', 'Task plan')}</h4>{(!model || !!tasks.length) && <span className="sb-step-count">{model ? <><strong>{done.length}</strong> / {tasks.length}</> : '--'}</span>}</div>
+      <div className="sb-section-heading"><h4 ref={taskHeading} tabIndex={-1}>{t('推进清单', 'Task plan')}</h4>{(!model || !!tasks.length) && <span className="sb-step-count">{model ? <><strong>{done.length}</strong> / {tasks.length}</> : '--'}</span>}</div>
       {stellar && model && <StellarTaskRoute tasks={tasks} language={language} onReveal={task => {
         if (task.status === 'completed') setCompletedOpen(true);
         setRouteTarget({ id: `${model.plan?.id ?? ''}:${task.id}` });

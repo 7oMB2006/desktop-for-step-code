@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, symlink, utimes } from 'node:f
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readWorkflowCatalog } from '../electron/workflow-catalog';
+import { removeLinkEntry } from './fixtures/artifact-cleanup';
 
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const root = await mkdtemp(join(tmpdir(), 'desktop-workflows-'));
@@ -86,19 +87,24 @@ test('projects with no workflow storage return empty without creating directorie
 test('directory junctions cannot escape the project or Desktop storage roots', async t => {
   const f = await fixture(t);
   const outside = join(f.root, 'outside');
-  await mkdir(outside);
-  await writeFile(join(outside, 'private.js'), 'secret');
-  await rm(f.saved, { recursive: true });
-  await symlink(outside, f.saved, process.platform === 'win32' ? 'junction' : 'dir');
-  await rm(f.global, { recursive: true });
-  await symlink(outside, f.global, process.platform === 'win32' ? 'junction' : 'dir');
-  await symlink(outside, join(f.runs, 'wf_escape'), process.platform === 'win32' ? 'junction' : 'dir');
-  const result = await readWorkflowCatalog(f.cwd, f.desktop);
-  assert.deepEqual(result.saved, []);
-  assert.deepEqual(result.runs, []);
-  assert.deepEqual(result.issues, [
-    { section: 'project', reason: 'unavailable' }, { section: 'desktop', reason: 'unavailable' },
-  ]);
+  // The fixture teardown removes the tree recursively; dangling junction
+  // entries make that rm fail on Windows, so each link is removed explicitly.
+  const links = [f.saved, f.global, join(f.runs, 'wf_escape')];
+  try {
+    await mkdir(outside);
+    await writeFile(join(outside, 'private.js'), 'secret');
+    await rm(f.saved, { recursive: true });
+    await symlink(outside, f.saved, process.platform === 'win32' ? 'junction' : 'dir');
+    await rm(f.global, { recursive: true });
+    await symlink(outside, f.global, process.platform === 'win32' ? 'junction' : 'dir');
+    await symlink(outside, links[2], process.platform === 'win32' ? 'junction' : 'dir');
+    const result = await readWorkflowCatalog(f.cwd, f.desktop);
+    assert.deepEqual(result.saved, []);
+    assert.deepEqual(result.runs, []);
+    assert.deepEqual(result.issues, [
+      { section: 'project', reason: 'unavailable' }, { section: 'desktop', reason: 'unavailable' },
+    ]);
+  } finally { for (const link of links) await removeLinkEntry(link); }
 });
 
 test('a missing project is unavailable, not a successful empty catalog', async t => {

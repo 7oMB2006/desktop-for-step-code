@@ -47,6 +47,20 @@ test('preparation failures and missing reports do not claim acceptance ran or pa
   assert.doesNotMatch(result.markdown, /complete: true/);
 });
 
+test('native-prebuild failures are identified before installation or acceptance starts', () => {
+  const result = summarizeWindows({
+    group: 'runtime',
+    steps: steps({ native_prebuild: 'failure', upstream_build: 'skipped', desktop_install: 'skipped', acceptance: 'skipped' }),
+  });
+  assert.match(result.markdown, /Failed stages: Prepare verified official canvas prebuild/);
+  assert.match(result.markdown, /No acceptance report was produced/);
+  assert.deepEqual(result.annotations, ['Windows runtime: Prepare verified official canvas prebuild failed.']);
+  const workflow = readFileSync(new URL('../.github/workflows/windows-integration.yml', import.meta.url), 'utf8');
+  for (const id of Object.keys(stages)) {
+    assert.ok(workflow.includes(`"${id}": "\${{ steps.${id}.outcome }}"`));
+  }
+});
+
 test('a script interrupted before recording its result is not misdiagnosed as a timeout', () => {
   const receipt = report();
   receipt.complete = false;

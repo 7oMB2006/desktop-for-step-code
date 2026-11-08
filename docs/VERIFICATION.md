@@ -1,5 +1,23 @@
 # Verification
 
+## Capability Worker Temporary-Path CI Repair (2026-11-08)
+
+PR #219's first Windows run `42461106594` and macOS run `42461106591`
+failed the same 15 new VM harness scenarios before packaged acceptance.
+The fixture used an uncanonicalized temporary profile, which existing linked
+path guards correctly rejected. A differently cased Windows temporary path
+reproduced the same `capability:invalid-path` failure locally.
+
+Only the test harness changes: canonicalize its owned temporary profile and
+parent cleanup boundary, preserve the platform's `TMPDIR`, and exercise reads,
+initialization, theme replacement and cleanup through a real temporary-directory
+alias. The new regression fails before the correction and passes afterwards.
+All 28 worker/library tests pass, including rejection of aliased product file
+access, and all 16 worker tests pass with differently cased Windows temporary
+paths. Typecheck passes. No product path guard, runtime source, assertion or CI
+workflow is weakened or skipped. Cloud Windows/macOS acceptance still requires
+a successful run on the repaired head; these local results do not establish it.
+
 ## Capability Management Main Synchronization (2026-11-08)
 
 The closeout combines the local capability-management and Remote cleanup

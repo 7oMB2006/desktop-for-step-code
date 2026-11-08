@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, readdir, realpath, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +20,8 @@ import { SourceTextModule, SyntheticModule, createContext } from 'node:vm';
 
 const scenario = process.argv[2], repository = process.argv[3];
 const { basename, dirname, join, relative, resolve, sep } = path;
-const root = await fs.mkdtemp(join(tmpdir(), 'dfsc-worker-phase1-'));
+const temporary = await fs.realpath(tmpdir());
+const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'dfsc-worker-phase1-')));
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const journalPath = join(root, 'desktop-plugins/update-transaction.json');
 const mutations = [], hooks = {};
@@ -418,16 +422,18 @@ try {
   else if (scenario.startsWith('theme-remove-')) await themeRemoval();
   else assert.fail('unknown scenario');
 } finally {
-  assert.equal(dirname(root), resolve(tmpdir()));
+  assert.equal(dirname(root), temporary);
   assert.ok(basename(root).startsWith('dfsc-worker-phase1-'));
   await fs.rm(root, { recursive: true, force: true, maxRetries: 3 });
 }
 `;
 
-function verify(scenario: string) {
+function verify(scenario: string, temporaryDirectory?: string) {
   const env: NodeJS.ProcessEnv = {};
-  for (const key of ['SystemRoot', 'WINDIR', 'PATH', 'Path', 'TEMP', 'TMP'])
+  for (const key of ['SystemRoot', 'WINDIR', 'PATH', 'Path', 'TEMP', 'TMP', 'TMPDIR'])
     if (process.env[key] !== undefined) env[key] = process.env[key];
+  if (temporaryDirectory)
+    for (const key of ['TEMP', 'TMP', 'TMPDIR']) env[key] = temporaryDirectory;
   const result = spawnSync(process.execPath,
     ['--experimental-vm-modules', '--input-type=module', '-', scenario, repository],
     { cwd: repository, env, input: harness, encoding: 'utf8', timeout: 20_000, maxBuffer: 1024 * 1024 });
@@ -451,3 +457,20 @@ test('worker rejects a non-theme staged candidate even when update hashes match'
 test('theme remove rejects executable declarations even with a matching ordinary hash', () => verify('theme-remove-invalid'));
 test('theme remove rechecks proof after a package changes during receipt preflight', () => verify('theme-remove-race'));
 test('theme remove accepts a proven data-only package', () => verify('theme-remove-valid'));
+
+test('worker fixtures canonicalize aliased temporary directories and clean up their owned profiles', async t => {
+  const temporary = await realpath(tmpdir());
+  const root = await realpath(await mkdtemp(join(temporary, 'dfsc-worker-temp-alias-')));
+  t.after(async () => {
+    assert.equal(dirname(root), temporary);
+    assert.ok(basename(root).startsWith('dfsc-worker-temp-alias-'));
+    await rm(root, { recursive: true, force: true, maxRetries: 3 });
+  });
+  const physical = join(root, 'physical'), alias = join(root, 'alias');
+  await mkdir(physical);
+  await symlink(physical, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.notEqual(alias, await realpath(alias));
+  for (const scenario of ['read-purity', 'initialization', 'worker-update'])
+    verify(scenario, alias);
+  assert.deepEqual(await readdir(physical), []);
+});

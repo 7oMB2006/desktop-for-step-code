@@ -76,22 +76,38 @@ test('actual main retains its runtime barrier after an unconfirmed executable wr
 const ipcCall = find(node => ts.isCallExpression(node) && node.expression.getText(file) === 'ipcMain.handle'
   && node.arguments[0]?.getText(file) === "'desktop'") as ts.CallExpression;
 const ipcSource = ipcCall.arguments[1].getText(file);
+const miniMethods = find(node => ts.isVariableDeclaration(node) && node.name.getText(file) === 'miniMethods') as ts.VariableDeclaration;
 
-function ipcFixture(handler: (method: string) => unknown = method => method) {
-  const webContents = { mainFrame: {} };
-  const state = { applications: 0 };
-  const create = new Function('window', 'applyProviderSettings', 'handle', 'capabilityFailureDetails', javascript(`
+function ipcFixture(handler: (method: string, args: unknown[], surface: 'main' | 'mini',
+  mark?: (phase: string) => void) => unknown = method => method) {
+  const webContents = { id: 1, mainFrame: {} }, miniContents = { id: 2, mainFrame: {} };
+  const state = { applications: 0, submissions: 0, generation: 1, reloadOnApply: false, miniBusy: false };
+  const create = new Function('window', 'miniContents', 'state', 'applyProviderSettings', 'handle', 'capabilityFailureDetails', javascript(`
     let settingsMutation = false;
     const providerApplication = undefined, providerSettingsPending = true, undoBusy = false, transition = false;
     const updateInstalling = false, quitting = false, quitPending = false;
     const capabilityGate = { active: false }, capabilityService = { available: true, runtimeAvailable: true };
+    const miniChat = { owns: event => event.sender === miniContents && event.senderFrame === miniContents.mainFrame };
+    const miniMethods = ${miniMethods.initializer!.getText(file)};
+    const rendererGenerations = { get: () => state.generation };
+    const miniNavigation = { get busy() { return state.miniBusy; } };
+    const runtimes = { workers: new Map() }, selectedRuntime = () => undefined, text = value => value;
+    const composers = { submit: async (_receipt, _owner, execute) => { state.submissions++; return execute(); } };
     const canApplyProviders = () => true;
     const diagnoseCapabilityMutation = async (_method, _input, action) => action(() => {});
     const crashLog = { record: async () => {} };
     return ${ipcSource};
   `));
-  const invoke = create({ webContents }, async () => { state.applications++; }, handler, capabilityFailureDetails);
-  return { state, read: (method: string) => invoke({ sender: webContents, senderFrame: webContents.mainFrame }, method) };
+  const invoke = create({ webContents }, miniContents, state, async () => {
+    state.applications++;
+    if (state.reloadOnApply) state.generation++;
+  }, handler, capabilityFailureDetails);
+  return {
+    state,
+    read: (method: string, ...args: unknown[]) => invoke({ sender: webContents, senderFrame: webContents.mainFrame }, method, ...args),
+    miniRead: (method: string, ...args: unknown[]) => invoke({ sender: miniContents, senderFrame: miniContents.mainFrame }, method, ...args),
+    untrustedRead: (method: string) => invoke({ sender: miniContents, senderFrame: {} }, method),
+  };
 }
 
 test('actual main passive capability reads never trigger pending provider application or recovery', async () => {
@@ -103,6 +119,52 @@ test('actual main passive capability reads never trigger pending provider applic
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');
   assert.equal(f.state.applications, 1);
+});
+
+test('merged IPC preserves MiniChat theme reads and refuses management or untrusted frames before dispatch', async () => {
+  const calls: string[] = [];
+  const f = ipcFixture((method, _args, surface, mark) => {
+    assert.equal(typeof mark, 'function');
+    calls.push(`${surface}:${method}`);
+    return method;
+  });
+  for (const method of ['themeScene', 'themePoster'])
+    assert.equal(await f.miniRead(method), method);
+  assert.equal(f.state.applications, 0);
+  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration'])
+    await assert.rejects(f.miniRead(method), /Return to the main window/);
+  await assert.rejects(f.untrustedRead('themeScene'), /Untrusted sender/);
+  assert.deepEqual(calls, ['mini:themeScene', 'mini:themePoster']);
+  assert.equal(f.state.applications, 0);
+});
+
+test('merged IPC retains surface and phase marker through exactly one composer submission', async () => {
+  const calls: string[] = [];
+  const f = ipcFixture((method, args, surface, mark) => {
+    assert.equal(method, 'command');
+    assert.equal(args[0], 'prompt');
+    assert.equal(typeof mark, 'function');
+    calls.push(surface);
+    return surface;
+  });
+  assert.equal(await f.read('command', 'prompt', { composerReceipt: 'main-receipt' }), 'main');
+  assert.equal(await f.miniRead('command', 'prompt', { composerReceipt: 'mini-receipt' }), 'mini');
+  assert.deepEqual(calls, ['main', 'mini']);
+  assert.equal(f.state.submissions, 2);
+});
+
+test('merged IPC rechecks renderer generation and keeps MiniChat navigation guards for shared settings', async () => {
+  let calls = 0;
+  const f = ipcFixture(method => { calls++; return method; });
+  f.state.reloadOnApply = true;
+  await assert.rejects(f.read('beginSession'), /Window reloaded/);
+  assert.equal(calls, 0);
+  f.state.reloadOnApply = false;
+  f.state.miniBusy = true;
+  await assert.rejects(f.read('saveMcp'), /MiniChat conversation is opening/);
+  assert.equal(calls, 0);
+  assert.equal(await f.read('capabilityMutate'), 'capabilityMutate');
+  assert.equal(calls, 1);
 });
 
 test('actual main IPC rewrap retains only allowlisted Git failure metadata for capability mutations', async () => {

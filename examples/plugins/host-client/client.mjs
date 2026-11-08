@@ -61,7 +61,7 @@ export function createHostClient({ pluginId, consumer, environment = process.env
       if (signal?.aborted) fail('CANCELLED');
       if (controller.signal.aborted) fail('TIMEOUT');
       if (error instanceof HostClientError) throw error;
-      fail();
+      fail('HOST_UNAVAILABLE');
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);

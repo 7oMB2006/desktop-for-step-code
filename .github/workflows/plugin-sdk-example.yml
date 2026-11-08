@@ -6,6 +6,12 @@ on:
       - 'examples/plugins/host-client/**'
       - 'examples/plugins/sdk-host-starter/**'
       - 'docs/plugin-schemas/dfsc.host.schema.json'
+      - 'Desktop/electron/plugin-host-*.ts'
+      - 'Desktop/electron/plugin-host-contract.*'
+      - 'Desktop/electron/plugin-files.*'
+      - 'Desktop/electron/plugin-configuration.*'
+      - 'Desktop/electron/step-model-account.ts'
+      - 'Desktop/tests/fixtures/plugin-host-service.ts'
       - '.github/workflows/plugin-sdk-example.yml'
       - '.gitattributes'
   workflow_dispatch:

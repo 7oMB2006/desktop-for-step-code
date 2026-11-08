@@ -14,6 +14,7 @@ package.json / pnpm-lock.yaml     作者开发依赖，含官方 MCP SDK
 src/server.mjs                   使用 McpServer / StdioServerTransport / Zod
 scripts/build.mjs                作者侧 esbuild 打包与许可证归集
 test/bundle.test.mjs              Schema 与无依赖目录真实 MCP 验收
+test/broker.test.mjs              实际主进程 broker 与 Step adapter 的隔离集成
 plugins/dfsc-host-example/        唯一可安装快照
   step.plugin.json
   dfsc.plugin.json
@@ -47,6 +48,11 @@ lockfile 锁定官方 MCP SDK 1.27.1，与当前固定 runtime 的 SDK 主线一
 测试将可安装目录复制到全新的临时目录，从其外部启动入口，
 使用真正的官方 MCP client 握手及调用；该目录没有 `node_modules`。
 依赖许可证、无 Key 跟随、授权前拒绝、撤销和后代不继承分别验证。
+当前共有 7 项测试，其中 2 项把实际主进程 broker 和 Step provider 编译到临时目录，
+再由真正 SDK 子进程跨 HTTP 调用，验证确认、固定渠道、拒绝后不重弹及撤销。
+这些测试的账户、确认回调、原生消费者核验和 provider fetch 仍是假数据，
+没有连接真实账户或证明正式启动链已接入。服务边界见
+`docs/PLUGIN_HOST_BROKER.md`（仓库根目录）。
 这不是作者仓库到社区固定提交同步或正式客户端验收，后两者仍需另做。
 
 ## 安装与依赖

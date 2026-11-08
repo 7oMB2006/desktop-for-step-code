@@ -9208,3 +9208,30 @@ See [the implementation contract](COMPLETION_REVIEW.md).
 本轮未运行完整 Desktop/Electron 验收，未生成安装包、更新桌面快捷方式，
 也未修改用户账户或日用 profile。本地检查不替代新 PR 的云端 CI、
 原生 macOS 验收、市场固定 SHA 同步或真实模型/计费验收。
+
+## 插件宿主代理服务与实际 SDK 子进程 (2026-11-08)
+
+本轮在协议候选上增加独立的主进程 `PluginHostBroker` 和 Step adapter，
+没有将它们接入生产 `main.ts`、启动器、preload 或 renderer。
+服务说明见 [插件宿主模型代理服务](PLUGIN_HOST_BROKER.md)。
+BVR 仅提取并共用原有官方账户路由选择器，仍使用旧桥。
+
+本地 Windows 源码验证通过：
+
+- 75 项插件相关测试全部通过，其中 19 项 broker 测试覆盖逐能力确认、
+  独立模式不读宿主账户、真实账户/模型修订检查、异步读取期间 runtime 变更、
+  Origin/Host/路由拒绝、并发上限、跨租约取消隔离、撤销/过期、
+  排队/确认/provider 截止时间、输入输出上限及进行中关闭。
+- 官方 SDK 示例 7 项测试全部通过；新增 2 项使用真正 SDK 子进程、
+  无依赖安装副本、实际 broker/Step adapter 和隔离 fetch，
+  验证固定 Plan 路由、明确同意/拒绝、撤销及不回显账户 Key 或租约 token。
+- 连续两次作者构建的 bundle 和第三方许可证 SHA-256 相同；
+  SDK 安装快照仍是自包含单文件和 8 份依赖许可证记录。
+- Desktop 类型检查、生产构建通过；CI 策略和平台 runner 测试
+  39 项通过、1 项平台跳过；SDK 工作流 YAML 结构已解析检查。
+
+所有账户、模型响应和消费者核验均为测试 fixture；没有发送真实付费请求。
+本轮没有正式消费者发现/启动身份验证、管理队列或生命周期主动失效接线、
+生产确认 UI、TTS 适配和真实账户权益验收，不宣称完整计划 [Ⅱ]/[Ⅲ] 已完成。
+未运行完整 Desktop/Electron 验收，未生成安装包、修改桌面入口或用户 profile；
+本地检查不替代新 PR 的云端 CI、原生 macOS 或市场发布验收。

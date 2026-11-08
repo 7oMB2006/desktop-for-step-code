@@ -19,13 +19,14 @@ function fixture(t) {
 }
 
 test('CI selects the official pinned canvas release and native architecture', () => {
-  for (const [platform, arch, sha256] of [
-    ['win32', 'x64', 'ba953cc8c38303ab94cc83461c7561506a5a3af37d6c678de4a47914d2d0bb48'],
-    ['darwin', 'arm64', '38c296c9d81c05598db849fb8103543d6649fec7246c35197d9be8199c75116f'],
+  for (const [platform, arch, id, sha256] of [
+    ['win32', 'x64', '385205827', 'ba953cc8c38303ab94cc83461c7561506a5a3af37d6c678de4a47914d2d0bb48'],
+    ['darwin', 'arm64', '385200420', '38c296c9d81c05598db849fb8103543d6649fec7246c35197d9be8199c75116f'],
   ]) {
     const asset = canvasPrebuild(platform, arch);
     assert.equal(asset.filename, `canvas-v3.2.3-napi-v7-${platform}-${arch}.tar.gz`);
     assert.equal(asset.url, `https://github.com/Automattic/node-canvas/releases/download/v3.2.3/${asset.filename}`);
+    assert.equal(asset.apiUrl, `https://api.github.com/repos/Automattic/node-canvas/releases/assets/${id}`);
     assert.equal(asset.sha256, sha256);
   }
   for (const [platform, arch] of [['win32', 'arm64'], ['darwin', 'x64'], ['linux', 'x64']]) {
@@ -35,27 +36,44 @@ test('CI selects the official pinned canvas release and native architecture', ()
 
 test('downloads retain HTTPS, finite deadlines, retries and visible failures', () => {
   let call;
-  downloadReleaseAsset('https://github.com/fixture', 'fixture.download', (...args) => { call = args; });
+  const asset = canvasPrebuild('win32', 'x64');
+  downloadReleaseAsset(asset, 'fixture.download', (...args) => { call = args; });
   assert.equal(call[0], 'curl');
   for (const flag of ['--fail', '--location', '--show-error', '--retry-all-errors']) assert.ok(call[1].includes(flag));
   for (const [flag, value] of [
     ['--proto', '=https'], ['--proto-redir', '=https'], ['--connect-timeout', '15'],
     ['--max-time', '120'], ['--retry', '2'], ['--retry-max-time', '240'],
+    ['--header', 'Accept: application/octet-stream'],
     ['--output', 'fixture.download'],
   ]) assert.equal(call[1][call[1].indexOf(flag) + 1], value);
-  assert.equal(call[1].at(-1), 'https://github.com/fixture');
+  assert.equal(call[1].at(-1), asset.url);
   assert.equal(call[2].timeout, 360000);
   assert.equal(call[2].windowsHide, true);
   assert.deepEqual(call[2].stdio, ['ignore', 'inherit', 'inherit']);
-  const failure = new Error('HTTP 504');
-  assert.throws(() => downloadReleaseAsset('https://github.com/fixture', 'fixture.download', () => { throw failure; }),
-    error => error === failure);
+});
+
+test('failed Release downloads use only the identical official API asset and preserve final errors', () => {
+  const asset = canvasPrebuild('darwin', 'arm64');
+  const requests = [], logs = [];
+  downloadReleaseAsset(asset, 'fixture.download', (_command, args) => {
+    requests.push(args.at(-1));
+    if (requests.length === 1) throw new Error('HTTP 504');
+  }, message => logs.push(message));
+  assert.deepEqual(requests, [asset.url, asset.apiUrl]);
+  assert.equal(logs.length, 1);
+  const failure = new Error('API also unavailable');
+  let attempts = 0;
+  assert.throws(() => downloadReleaseAsset(asset, 'fixture.download', () => {
+    attempts++;
+    throw failure;
+  }, () => {}), error => error === failure);
+  assert.equal(attempts, 2);
 });
 
 test('a complete verified prebuild is published under its unchanged installer filename', t => {
   const { directory, bytes, asset, destination } = fixture(t);
-  const result = preparePrebuild(directory, asset, (url, pending) => {
-    assert.equal(url, asset.url);
+  const result = preparePrebuild(directory, asset, (selected, pending) => {
+    assert.equal(selected, asset);
     assert.equal(existsSync(destination), false);
     writeFileSync(pending, bytes);
   });

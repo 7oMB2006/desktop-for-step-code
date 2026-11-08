@@ -8,10 +8,12 @@ import { pathToFileURL } from 'node:url';
 export const canvasPrebuilds = Object.freeze({
   'win32-x64': Object.freeze({
     filename: 'canvas-v3.2.3-napi-v7-win32-x64.tar.gz',
+    apiUrl: 'https://api.github.com/repos/Automattic/node-canvas/releases/assets/385205827',
     sha256: 'ba953cc8c38303ab94cc83461c7561506a5a3af37d6c678de4a47914d2d0bb48',
   }),
   'darwin-arm64': Object.freeze({
     filename: 'canvas-v3.2.3-napi-v7-darwin-arm64.tar.gz',
+    apiUrl: 'https://api.github.com/repos/Automattic/node-canvas/releases/assets/385200420',
     sha256: '38c296c9d81c05598db849fb8103543d6649fec7246c35197d9be8199c75116f',
   }),
 });
@@ -25,14 +27,23 @@ export function canvasPrebuild(platform = process.platform, arch = process.arch)
   };
 }
 
-export function downloadReleaseAsset(url, destination, execute = execFileSync) {
-  execute('curl', [
-    '--fail', '--location', '--silent', '--show-error',
-    '--proto', '=https', '--proto-redir', '=https',
-    '--connect-timeout', '15', '--max-time', '120',
-    '--retry', '2', '--retry-delay', '2', '--retry-max-time', '240',
-    '--retry-all-errors', '--output', destination, url,
-  ], { timeout: 360000, windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'] });
+export function downloadReleaseAsset(asset, destination, execute = execFileSync, log = console.warn) {
+  for (const url of [asset.url, asset.apiUrl]) {
+    try {
+      execute('curl', [
+        '--fail', '--location', '--silent', '--show-error',
+        '--proto', '=https', '--proto-redir', '=https',
+        '--header', 'Accept: application/octet-stream',
+        '--connect-timeout', '15', '--max-time', '120',
+        '--retry', '2', '--retry-delay', '2', '--retry-max-time', '240',
+        '--retry-all-errors', '--output', destination, url,
+      ], { timeout: 360000, windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'] });
+      return;
+    } catch (error) {
+      if (url === asset.apiUrl) throw error;
+      log('Official Release download failed; trying the same asset through the GitHub API.');
+    }
+  }
 }
 
 export function verifyPrebuild(file, sha256) {
@@ -49,7 +60,7 @@ export function preparePrebuild(directory, asset, download = downloadReleaseAsse
   mkdirSync(resolve(directory), { recursive: true });
   const pending = `${destination}.${process.pid}.download`;
   try {
-    download(asset.url, pending);
+    download(asset, pending);
     verifyPrebuild(pending, asset.sha256);
     renameSync(pending, destination);
     return destination;

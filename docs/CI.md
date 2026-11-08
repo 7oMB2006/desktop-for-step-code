@@ -50,11 +50,14 @@ node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs scripts/windo
 Windows x64 and macOS ARM64 prepare the existing pinned `canvas@3.2.3`
 official Release archive before installing the frozen upstream dependencies.
 `scripts/ci-canvas-prebuild.mjs` restricts the platform selection, downloads
-only from Automattic/node-canvas's GitHub Release, and verifies the asset's
-recorded SHA-256 before atomically publishing the local archive. An existing
+only from Automattic/node-canvas's GitHub Release or the same asset's official
+GitHub API endpoint, and verifies the asset's recorded SHA-256 before atomically
+publishing the local archive. An existing
 archive is also checked before reuse. Downloads have finite deadlines and at
-most two retries; HTTP errors, interrupted downloads and checksum mismatches
+most two retries per endpoint; HTTP errors, interrupted downloads and checksum mismatches
 fail preparation rather than becoming successful installation evidence.
+The API fallback uses the fixed official asset ID and the same digest, without
+credentials or a third-party mirror. It runs only after Release download fails.
 
 The original `prebuild-install` lifecycle consumes this archive through its
 supported `npm_config_canvas_local_prebuilds` setting. It still installs the

@@ -10,7 +10,11 @@ install site does not establish the underlying reason for their failed
 retrieval, and this is not evidence of a global GitHub outage.
 
 Both CI setups now prepare the same official archive with finite HTTPS
-download deadlines, two retries and the official asset's pinned SHA-256.
+download deadlines, two retries per endpoint and the official asset's pinned SHA-256.
+The `585b359` cloud attempt explicitly confirmed repeated Release HTTP 504
+on macOS. A fallback uses the same fixed official GitHub API asset ID and
+digest, not a mirror; both API assets were independently downloaded locally
+and matched the original digests.
 The original frozen-lockfile install and its normal native installation
 lifecycle use the supported local-prebuild directory. A corrupt cache,
 failed download or mismatched checksum fails preparation. Dependencies,
@@ -18,7 +22,7 @@ runtime pins, mirrors and acceptance requirements are unchanged; Windows
 diagnostics name this preparation stage.
 
 Local policy, runner, receipt, diagnostic and preparation regressions pass
-46 tests with one existing POSIX-only skip. Both official archives were
+47 tests with one existing POSIX-only skip. Both official archives were
 downloaded and their SHA-256 values verified. A separate Windows fixture
 using the actual `prebuild-install@7.1.3` installed from this archive without
 an HTTP request, loaded `canvas@3.2.3`, rendered the exact expected RGBA pixel

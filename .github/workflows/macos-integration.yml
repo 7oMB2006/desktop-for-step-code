@@ -10,6 +10,7 @@ on:
       - 'scripts/apply-step-code-desktop-patch.mjs'
       - 'scripts/ci-macos*'
       - 'scripts/ci-canvas-prebuild*'
+      - 'scripts/ci-electron-prebuild*'
       - 'scripts/ci-acceptance.mjs'
       - 'scripts/ci-windows*'
       - '.github/workflows/macos-*.yml'
@@ -64,7 +65,7 @@ jobs:
       - name: CI runner and motion helper regressions
         working-directory: Desktop
         run: |
-          node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs ../scripts/ci-macos-policy.test.mjs ../scripts/ci-canvas-prebuild.test.mjs
+          node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs ../scripts/ci-macos-policy.test.mjs ../scripts/ci-canvas-prebuild.test.mjs ../scripts/ci-electron-prebuild.test.mjs
           node --test scripts/motion-helpers.test.mjs
       - name: Package unsigned preview and verify resources
         working-directory: Desktop

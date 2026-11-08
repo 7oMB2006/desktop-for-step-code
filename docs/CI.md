@@ -42,7 +42,7 @@ request. The runner tests also run on each Windows job, including owned-process
 tree cancellation. Run them locally without installing Desktop dependencies:
 
 ```sh
-node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs scripts/ci-canvas-prebuild.test.mjs
+node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs scripts/ci-canvas-prebuild.test.mjs scripts/ci-electron-prebuild.test.mjs
 ```
 
 ## Native Canvas Prebuilds
@@ -73,6 +73,21 @@ version change or weaker test gate. Updating the pinned dependency requires
 reviewing the official assets and digests again. Windows failure summaries
 include preparation as a named stage. Local checksum and Windows native
 rendering checks do not replace cloud installation or macOS native acceptance.
+
+## Electron Download Preparation
+
+After the normal Desktop dependency install, `scripts/ci-electron-prebuild.mjs`
+prepares the unchanged `electron@44.4.5` archive in a runner-owned
+`electron_config_cache`. It uses the installed `@electron/get` cache
+implementation instead of duplicating its layout. The installed Electron
+package's published `checksums.json` supplies the required digest. The same
+bounded official-Release/API downloader verifies the archive before caching it.
+
+The normal `node node_modules/electron/install.js` still extracts and validates
+Electron. No checksum checks or install steps are bypassed. A future Electron
+version or another platform requires reviewing the official asset IDs; a
+missing checksum fails preparation. This is an isolated CI cache, not an
+application/runtime upgrade or a change to the author's running package.
 
 ## Acceptance Inventory
 

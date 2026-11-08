@@ -36,8 +36,11 @@ runs:
     - name: Install Desktop and test browser
       shell: bash
       working-directory: Desktop
+      env:
+        electron_config_cache: ${{ runner.temp }}/dfsc-electron-cache
       run: |
         corepack pnpm install --frozen-lockfile
+        node ../scripts/ci-electron-prebuild.mjs "$electron_config_cache"
         node node_modules/electron/install.js
         corepack pnpm exec playwright install chromium ffmpeg
     - name: Build and stage native runtime

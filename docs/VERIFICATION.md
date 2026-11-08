@@ -1,5 +1,33 @@
 # Verification
 
+## CI Electron Download Preparation (2026-11-08)
+
+On `32cd89a`, both platforms passed canvas preparation and normal upstream
+installation. macOS's candidate job passed all upstream tests, typecheck,
+protocol tests, packaging and resource checks. This is not a complete macOS
+acceptance: its separate runtime acceptance job failed while freshly
+downloading Electron with HTTP 504. Windows sessions stopped at the same
+Electron download; the other Windows groups passed protocol tests and started
+their Electron acceptance.
+
+The next CI-only correction prepares the unchanged Electron 44.4.5 official
+archive through the same finite Release/API downloader. It reads the installed
+package's checksums and uses the actual `@electron/get` cache implementation,
+then keeps the original installer and its checksum validation enabled.
+No dependency version, mirror, product behavior or acceptance gate changes.
+
+The combined local CI/preparation regressions pass 49 tests with one existing
+POSIX-only skip. YAML parsing and whitespace checks pass. An initial local
+fresh-download probe encountered unauthenticated API rate limiting. After the
+observed reset, a new official API download into an isolated Windows cache
+matched the published package checksum. The real `@electron/get` validates and
+returns that cache entry without another downloader call. This does not
+establish fresh cloud download, archive extraction or app acceptance. Evidence is in
+`Desktop/test-results/host-closeout-electron-prebuild.log`,
+`Desktop/test-results/host-closeout-electron-cache-smoke.log` and
+`Desktop/test-results/host-closeout-ci-prebuild-regression.log`.
+Both platforms must still complete acceptance on the newly pushed head.
+
 ## CI Official Canvas Prebuild Preparation (2026-11-08)
 
 The repaired #219 head's two cloud attempts stopped before protocol tests:

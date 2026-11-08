@@ -91,10 +91,13 @@ try {
   await page.getByRole('button', { name: '进度条声画验收', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false'
     && !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
-  await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
+  await page.locator('.composer > .composer-input').fill('/todos');
+  await page.locator('.composer > .composer-input').press('Escape');
+  await page.locator('.composer > .composer-input').press('Enter');
   const board = page.getByRole('complementary', { name: '摘要', exact: true });
   const progress = board.getByRole('progressbar');
   await progress.waitFor();
+  assert.equal(await board.getByRole('heading', { name: '推进清单', exact: true }).evaluate(element => element === document.activeElement), true);
   assert.equal(await progress.getAttribute('aria-valuenow'), '1');
   await board.evaluate(boardRoot => {
     window.progressAudio = [];
@@ -137,6 +140,16 @@ try {
   assert.equal(typeof finishTaskAnswer, 'function');
   assert.equal(taskUpdateRequests, 1, 'The task command runs once regardless of auxiliary requests');
   assert.equal(taskSummaryRequests, 1, 'Only the post-tool answer is held for completion');
+  await page.locator('.composer > .composer-input').fill('/todos');
+  await page.locator('.composer > .composer-input').press('Escape');
+  await page.locator('.composer > .composer-input').press('Enter');
+  const inspected = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(inspected.pendingMessages?.length ?? 0, 0, 'Inspecting tasks while running never queues model input');
+  assert.equal(inspected.messages.some(message => message.role === 'user'
+    && (typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).includes('/todos')), false,
+  'The local shortcut is not written into the native conversation or task history');
+  assert.equal(await progress.getAttribute('data-phase'), 'running', 'Inspection cannot settle or restart completion motion');
+  assert.equal(await page.evaluate(() => window.progressAudio.length), 0);
   const impact = await captureWaapi(page, '.sb-task-progress', () => {
     finishTaskAnswer();
     finishTaskAnswer = undefined;

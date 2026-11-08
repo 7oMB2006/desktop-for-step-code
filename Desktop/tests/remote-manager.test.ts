@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { RemoteManager, parseRemoteAction, remoteDecision, type RemoteHost } from '../electron/remote-manager';
 import type { SessionRuntime } from '../electron/session-runtimes';
 import type { RuntimeEvent, UIRequest } from '../src/contracts';
-import { remoteWorkspaceLimit, type RemoteSession } from '../src/remote';
+import { remoteWorkspaceLimit, type RemoteSession, type RemoteSnapshot } from '../src/remote';
 import type { RemotePersistence, SavedRemote } from '../electron/remote-store';
 import { QUESTION_TITLE } from '../src/questionnaire';
 import { submitAnswer, cancelAnswer } from '../electron/remote-form.mjs';
@@ -27,7 +27,7 @@ function fixture(store?: RemotePersistence) {
     busy: false, submissions: 0, operations: 0, pendingUI: new Map(), messages: [], rpc: {},
   } as unknown as SessionRuntime));
   const inputs: [string, string][] = [], answers: Record<string, unknown>[] = [], stops: string[] = [], opened: string[] = [];
-  const saved: RemoteSession[] = [];
+  const saved: RemoteSession[] = [], snapshots: RemoteSnapshot[] = [];
   const host: RemoteHost = {
     sessions: () => [...workers.map(worker => ({ runtimeId: worker.id, sessionId: worker.state!.sessionId!, workspace: worker.cwd, name: worker.state!.sessionName! })),
       ...saved.filter(session => !workers.some(worker => worker.state?.sessionId === session.sessionId))],
@@ -61,18 +61,19 @@ function fixture(store?: RemotePersistence) {
     },
     open: async url => { opened.push(url); },
   };
-  const channels: { receive: (event: RuntimeEvent) => void; stopped: boolean; calls: { type: string; args: any }[] }[] = [];
+  const channels: { receive: (event: RuntimeEvent) => void; stopped: boolean; stopCalls: number;
+    stop(): Promise<void>; calls: { type: string; args: any }[] }[] = [];
   let operation = async (type: string, _args: any): Promise<any> =>
     type === 'snapshot' ? { identity, peer: { actor: 'human', chat: 'chat' } } : undefined;
   let now = Date.now();
   const manager = new RemoteManager(host, receive => {
-    const channel = { receive, stopped: false, calls: [] as { type: string; args: any }[] };
+    const channel = { receive, stopped: false, stopCalls: 0, stop: async () => {}, calls: [] as { type: string; args: any }[] };
     channels.push(channel);
     return {
       request: async (type, args) => { channel.calls.push({ type, args }); return await operation(type, args); },
-      stop: async () => { channel.stopped = true; },
+      stop: async () => { channel.stopCalls++; await channel.stop(); channel.stopped = true; },
     };
-  }, () => {}, () => now, store);
+  }, state => { snapshots.push(state); }, () => now, store);
   const receive = (kind: string, fields = {}) => channels.at(-1)!.receive({ type: 'remote_channel', kind, ...fields });
   const connect = async () => {
     await manager.action({ type: 'connect' });
@@ -87,7 +88,7 @@ function fixture(store?: RemotePersistence) {
     await manager.action({ type: 'bind', candidateId: 'candidate', runtimeId: worker.id, sessionId: worker.state!.sessionId!, workspaces });
     return channels.at(-1)!.calls.slice().reverse().find(call => call.type === 'bind')!.args.bindingId;
   };
-  return { manager, host, saved, workers, channels, inputs, answers, stops, opened, receive, connect, bind,
+  return { manager, host, saved, snapshots, workers, channels, inputs, answers, stops, opened, receive, connect, bind,
     now: (value: number) => { now = value; }, operation: (value: typeof operation) => { operation = value; } };
 }
 function approval(worker: SessionRuntime, id = 'approval'): UIRequest {
@@ -534,6 +535,175 @@ test('explicit disconnect forgets saved credentials and does not reconnect after
   assert.equal(p.read(), undefined);
   const next = fixture(p.store); await next.manager.resume();
   assert.equal(next.channels.length, 0);
+});
+for (const method of ['disconnect', 'shutdown'] as const) {
+  test(`${method} retries the same failed transport before allowing another connection`, async t => {
+    const p = persistence(), f = fixture(p.store);
+    await f.connect(); await f.bind();
+    const channel = f.channels[0], failure = new Error('Stop not confirmed');
+    t.after(async () => { channel.stop = async () => {}; await f.manager.shutdown(); });
+    channel.stop = async () => { if (channel.stopCalls === 1) throw failure; };
+    await assert.rejects(f.manager[method](), error => error === failure);
+    assert.equal(channel.stopCalls, 1); assert.equal(channel.stopped, false);
+    assert.equal(f.manager.snapshot().status, 'error'); assert.equal(f.manager.snapshot().stage, 'transport');
+    assert.equal(Boolean(f.manager.snapshot().storageError), false);
+    assert.equal(Boolean(f.manager.snapshot().saved), method === 'shutdown');
+    assert.deepEqual(f.snapshots.at(-1), f.manager.snapshot());
+    assert.equal(Boolean(p.read()), method === 'shutdown');
+    await assert.rejects(f.manager.action({ type: 'connect' }), /cleanup is incomplete/);
+    await f.manager[method]();
+    assert.equal(channel.stopCalls, 2); assert.equal(channel.stopped, true);
+    assert.equal(f.manager.snapshot().status, 'idle'); assert.equal(f.manager.snapshot().stage, undefined);
+    assert.deepEqual(f.snapshots.at(-1), f.manager.snapshot());
+    await f.manager.shutdown();
+    assert.equal(channel.stopCalls, 2);
+    await f.connect();
+    assert.equal(f.channels.length, 2);
+    assert.equal(f.channels[1].stopCalls, 0);
+  });
+}
+test('persistent stop failure guards connect and resume and revokes old inputs and approvals', async t => {
+  const p = persistence(), f = fixture(p.store);
+  await f.connect(); const bindingId = await f.bind();
+  const worker = f.workers[0], request = approval(worker), channel = f.channels[0];
+  f.manager.runtimeEvent(worker, request); await tick();
+  const token = channel.calls.find(call => call.type === 'card' && call.args.actions)!.args.actions.token;
+  const failure = new Error('Stop not confirmed');
+  t.after(async () => { channel.stop = async () => {}; await f.manager.shutdown(); });
+  channel.stop = async () => { throw failure; };
+  let loads = 0;
+  const load = p.store.load;
+  p.store.load = async () => { loads++; return load(); };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await assert.rejects(f.manager.disconnect(false), error => error === failure);
+    assert.equal(channel.stopCalls, attempt);
+    await assert.rejects(f.manager.action({ type: 'connect' }), /cleanup is incomplete/);
+    await assert.rejects(f.manager.action({ type: 'armBinding' }), /cleanup is incomplete/);
+    await f.manager.resume();
+    assert.equal(loads, 0); assert.equal(f.channels.length, 1);
+  }
+  const calls = channel.calls.length;
+  f.receive('connected');
+  f.receive('health', { status: 'connected' });
+  f.receive('input', { bindingId, id: 'late-input', text: 'must not deliver' });
+  f.receive('input', { bindingId, id: 'late-new', text: '/new' });
+  f.receive('decision', { bindingId, token, option: 'Allow once / 允许一次' });
+  f.receive('error', { stage: 'transport' }); await tick();
+  assert.equal(channel.calls.length, calls); assert.equal(channel.stopCalls, 3);
+  assert.equal(f.manager.snapshot().status, 'error');
+  assert.equal(f.manager.snapshot().stage, 'transport');
+  assert.equal(f.manager.snapshot().binding, undefined);
+  assert.equal(f.manager.snapshot().authorized, undefined);
+  assert.equal(f.manager.snapshot().approvalReady, false);
+  assert.deepEqual(f.manager.snapshot().sharing, []);
+  assert.equal(worker.remoteAttached, false);
+  assert.equal(worker.pendingUI.get(request.id), request);
+  assert.deepEqual(f.inputs, []); assert.deepEqual(f.answers, []); assert.deepEqual(f.stops, []);
+  assert.equal(f.workers.length, 2); assert.ok(p.read()?.access);
+});
+for (const reject of [false, true]) {
+  test(`concurrent shutdown and disconnect share one ${reject ? 'failed' : 'confirmed'} transport stop`, async t => {
+    const p = persistence(), f = fixture(p.store);
+    await f.connect(); await f.bind();
+    const channel = f.channels[0], hold = deferred(), failure = new Error('Stop not confirmed');
+    channel.stop = () => hold.promise;
+    const shutdown = f.manager.shutdown(), disconnect = f.manager.disconnect();
+    const settled = Promise.allSettled([shutdown, disconnect]);
+    t.after(async () => {
+      hold.resolve(); channel.stop = async () => {};
+      await settled; await f.manager.shutdown();
+    });
+    await tick();
+    assert.equal(channel.stopCalls, 1);
+    await assert.rejects(f.manager.action({ type: 'connect' }), /cleanup is incomplete/);
+    await f.manager.resume();
+    assert.equal(f.channels.length, 1);
+    if (reject) hold.reject(failure); else hold.resolve();
+    const results = await settled;
+    for (const result of results) {
+      assert.equal(result.status, reject ? 'rejected' : 'fulfilled');
+      if (result.status === 'rejected') assert.equal(result.reason, failure);
+    }
+    assert.equal(channel.stopCalls, 1); assert.equal(p.read(), undefined);
+    assert.equal(f.manager.snapshot().status, reject ? 'error' : 'idle');
+    assert.equal(f.manager.snapshot().stage, reject ? 'transport' : undefined);
+    if (reject) {
+      await assert.rejects(f.manager.action({ type: 'connect' }), /cleanup is incomplete/);
+      channel.stop = async () => {};
+      await f.manager.shutdown();
+    }
+    assert.equal(channel.stopCalls, reject ? 2 : 1);
+    assert.equal(f.manager.snapshot().status, 'idle'); assert.equal(f.manager.snapshot().stage, undefined);
+    await f.connect();
+    assert.equal(f.channels.length, 2);
+  });
+}
+test('shutdown quarantines an in-flight connect and its late acknowledgment cannot restore routing', async t => {
+  const p = persistence(), f = fixture(p.store), handshake = deferred(), stop = deferred();
+  f.operation(async type => {
+    if (type === 'connect') await handshake.promise;
+    if (type === 'snapshot') return { identity };
+  });
+  const connecting = f.manager.action({ type: 'connect' });
+  const channel = f.channels[0], failure = new Error('Stop not confirmed');
+  channel.stop = () => stop.promise;
+  const shutdown = f.manager.shutdown(), rejected = assert.rejects(shutdown, error => error === failure);
+  t.after(async () => {
+    handshake.resolve(); stop.resolve(); channel.stop = async () => {};
+    await Promise.allSettled([connecting, rejected]); await f.manager.shutdown();
+  });
+  await tick();
+  assert.equal(channel.stopCalls, 1);
+  await assert.rejects(f.manager.action({ type: 'connect' }), /cleanup is incomplete/);
+  await f.manager.resume();
+  handshake.resolve(); await connecting;
+  f.receive('connected'); await tick();
+  assert.equal(f.manager.snapshot().status, 'idle');
+  assert.equal(channel.calls.some(call => call.type === 'snapshot'), false);
+  stop.reject(failure); await rejected;
+  assert.equal(f.manager.snapshot().status, 'error'); assert.equal(f.manager.snapshot().stage, 'transport');
+  await assert.rejects(f.manager.action({ type: 'connect' }), /cleanup is incomplete/);
+  assert.equal(f.channels.length, 1);
+  channel.stop = async () => {};
+  await f.manager.shutdown();
+  assert.equal(channel.stopCalls, 2);
+  assert.equal(f.manager.snapshot().status, 'idle'); assert.equal(f.manager.snapshot().stage, undefined);
+});
+test('a delayed resume cannot replace a transport whose concurrent shutdown failed', async t => {
+  const p = persistence(), f = fixture(p.store), hold = deferred();
+  p.store.load = async () => { await hold.promise; return { version: 1, identity }; };
+  const resuming = f.manager.resume();
+  await f.connect(); await f.bind();
+  const channel = f.channels[0], failure = new Error('Stop not confirmed');
+  t.after(async () => {
+    hold.resolve(); channel.stop = async () => {};
+    await resuming; await f.manager.shutdown();
+  });
+  channel.stop = async () => { throw failure; };
+  await assert.rejects(f.manager.shutdown(), error => error === failure);
+  hold.resolve(); await resuming; await f.manager.resume();
+  assert.equal(f.channels.length, 1); assert.equal(channel.stopCalls, 1);
+  assert.equal(f.manager.snapshot().binding, undefined);
+  assert.equal(f.manager.snapshot().status, 'error');
+  assert.equal(f.manager.snapshot().stage, 'transport');
+  await assert.rejects(f.manager.action({ type: 'connect' }), /cleanup is incomplete/);
+});
+test('confirmed transport stop still blocks reconnect until disconnect persistence settles', async t => {
+  const p = persistence(), f = fixture(p.store), hold = deferred();
+  await f.connect(); await f.bind();
+  const channel = f.channels[0], save = p.store.save;
+  p.store.save = async value => { await hold.promise; await save(value); };
+  const disconnect = f.manager.disconnect();
+  t.after(async () => { hold.resolve(); await disconnect; await f.manager.shutdown(); });
+  await tick();
+  assert.equal(channel.stopped, true); assert.equal(channel.stopCalls, 1);
+  await assert.rejects(f.manager.action({ type: 'connect' }), /cleanup is incomplete/);
+  await f.manager.resume();
+  assert.equal(f.channels.length, 1);
+  hold.resolve(); await disconnect;
+  assert.equal(p.read(), undefined);
+  await f.connect();
+  assert.equal(f.channels.length, 2);
 });
 test('removed saved sessions do not select another session or send inference', async t => {
   const p = persistence({ version: 1, identity,
@@ -1006,7 +1176,9 @@ test('authorization links stay main-owned and are origin-checked; errors and old
   assert.doesNotMatch(JSON.stringify(f.manager.snapshot()), /SECRET/);
   await f.manager.action({ type: 'openAuthorization' }); assert.equal(f.opened.length, 1);
   const old = f.channels[0]; old.receive({ type: 'desktop_exit' });
-  assert.equal(f.manager.snapshot().status, 'error'); assert.equal(old.stopped, true);
+  assert.equal(f.manager.snapshot().status, 'error');
+  await assert.rejects(f.manager.action({ type: 'connect' }), /cleanup is incomplete/);
+  await tick(); assert.equal(old.stopped, true);
   await f.connect(); old.receive({ type: 'desktop_exit' });
   assert.equal(f.manager.snapshot().status, 'connected');
 });

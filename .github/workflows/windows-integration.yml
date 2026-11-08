@@ -80,9 +80,18 @@ jobs:
           git -C $upstream diff --check
           if ($LASTEXITCODE -ne 0) { throw 'Step Code integration changes contain whitespace errors' }
 
+      - name: Prepare verified official canvas prebuild
+        id: native_prebuild
+        shell: pwsh
+        run: |
+          node scripts/ci-canvas-prebuild.mjs "$env:RUNNER_TEMP/dfsc-canvas-prebuilds"
+          if ($LASTEXITCODE -ne 0) { throw 'Canvas prebuild preparation failed' }
+
       - name: Install and build Step Code
         id: upstream_build
         working-directory: Step-Code
+        env:
+          npm_config_canvas_local_prebuilds: ${{ runner.temp }}/dfsc-canvas-prebuilds
         run: |
           corepack pnpm install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { throw 'Step Code install failed' }
@@ -92,9 +101,13 @@ jobs:
       - name: Install Desktop dependencies
         id: desktop_install
         working-directory: Desktop
+        env:
+          electron_config_cache: ${{ runner.temp }}/dfsc-electron-cache
         run: |
           corepack pnpm install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { throw 'Desktop install failed' }
+          node ../scripts/ci-electron-prebuild.mjs "$env:electron_config_cache"
+          if ($LASTEXITCODE -ne 0) { throw 'Electron prebuild preparation failed' }
           node node_modules/electron/install.js
           if ($LASTEXITCODE -ne 0) { throw 'Electron install failed' }
 
@@ -198,6 +211,7 @@ jobs:
               "validate": "${{ steps.validate.outcome }}",
               "upstream_fetch": "${{ steps.upstream_fetch.outcome }}",
               "upstream_patch": "${{ steps.upstream_patch.outcome }}",
+              "native_prebuild": "${{ steps.native_prebuild.outcome }}",
               "upstream_build": "${{ steps.upstream_build.outcome }}",
               "desktop_install": "${{ steps.desktop_install.outcome }}",
               "upstream_plan": "${{ steps.upstream_plan.outcome }}",

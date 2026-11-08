@@ -1,5 +1,141 @@
 # Verification
 
+## Artifact Fixture Link Cleanup (2026-11-07, separate local candidate)
+
+Main synchronization note (2026-11-08): this branch now merges main `6995910`,
+which landed the CrashLog redaction as #213; the sections below keep each
+candidate's own verification history. The complete-run receipt in this section
+describes the pre-merge combination on `e419143`; CI reruns on the merged
+combination and its receipt covers exactly that.
+
+This test-only candidate starts at main `e419143`. It does not contain the local
+CrashLog patch or change product artifact access, runtime, dependencies or owner
+MiniChat work. Product assertions remain intact. The original full-run failure
+left a dangling Windows junction at a test-owned workspace/escape path: parent
+Dirent classified it as a link, PowerShell identified the junction and its deleted
+target, while lstat/realpath reported ENOENT. The original residue is preserved.
+
+Fresh diagnostic fixtures execute the actual artifactFile helper from candidate
+and unmodified main. All access assertions pass. Controlled target-first removal
+then reproduces ENOTEMPTY with the same residue in both trees; explicit link-entry
+removal before recursive fixture cleanup succeeds while preserving live target
+marker files. This confirms a dangling-junction cleanup mechanism, not the
+original trigger ordering or proof that every original assertion had passed.
+A finally cleanup error could mask an earlier failure.
+
+The mapped-workspace test now records only successfully created links and removes
+escape before the workspace alias. Windows uses rmdir for junction entries;
+POSIX uses non-recursive rm for symlinks. Only ENOENT is tolerated. No retry,
+blanket catch, timeout increase, failure filter or relaxed access assertion is
+introduced. The fixture helper is not a general-purpose deletion/security API.
+
+The original recursive-only behavior fails the dangling-link regression. Current
+checks cover live target preservation, non-link error visibility, the actual
+two-link topology after moving its target away, and interruption after only one
+alias was created. The latter retains the exact primary error after successful
+cleanup. All 21 artifact/cleanup/StepPage focused tests pass and typecheck passes;
+a bounded independent review finds no blocking issue.
+
+The separate candidate's complete serial run executes 175 files: 167 pass and
+eight fail. Its five cleanup regressions and nine original artifact tests pass.
+The remaining failures are capabilities (180-second file timeout), compaction
+linked-root rejection, native execution-outcomes (`null` versus exit 7), plugin
+Git-marketplace update, project-trust cleanup, theme linked-plugin cleanup,
+turn-undo linked classification and workflow-catalog cleanup. Their signatures
+match the preceding unmodified-main observations; their causes are not resolved
+by this patch. All results and nonzero suite exit are retained, without filtering.
+Runtime and dependencies are identity-checked against the validated latest-main
+tree; no concurrent installation or staging occurs during this run.
+
+The theme-packs failure is then traced to its own cleanup ordering, not product
+access: an exact fixed-input run fails identically on the candidate and the
+unmodified control, the preserved residue is a junction whose target the test
+itself deletes first, and the fixture's recursive rm then fails on the dangling
+entry. The linked test now removes its link entry before deleting the target,
+tracking only successful creation; Windows rmdir and POSIX non-recursive rm
+semantics come from the shared fixture helper. Product refresh/lstat assertions
+are unchanged.
+
+The same evidence pattern resolves the remaining non-environment failures. The
+capabilities file's 180-second timeout stalled in fixture cleanup on its own
+junctions (a step probe shows all product operations finishing in six seconds);
+both junction sites now remove their link entries and the file completes. The
+DFSC icon read, the linked-skills rejection, the turn-undo classification and
+the compaction linked-root guard all share one machine-level lstat blindness
+(probe: Dirent classifies the junction, lstatSync does not). Product path
+classification is strengthened additively with the parent-Dirent signal in
+`capability-settings.mjs` (`plainPath`, `rejectLinks`), `turn-undo.ts`
+(`guardedPath`) and `compaction-configuration.ts` (`checkProfile`, with a new
+linked `config.toml` test). Only rejections are added; no assertion is relaxed
+and no allowlist is introduced. The staged runtime's verbatim copy of
+capability-settings.mjs is refreshed to match the staging recipe before the
+focused run; that copy step is recorded here and is not a release artifact.
+
+Two failures are machine environment boundaries with direct probes: every msys
+process spawned from node crashes with `NtCreateDirectoryObject(msys-2.0S5):
+0xC0000022` (consistent with the local security software), so node-spawned
+`git clone` and `bash` cannot run on this machine. This explains and retains
+the Git-marketplace failures (capabilities, plugin-skeleton-native) and the
+native `then_run` `exitCode: null`. The upstream's detailed git warning is
+discarded by the service layer when converting to `marketplace-failed`; that
+diagnosability gap is documented, not changed.
+
+Focused suites (artifact/cleanup/theme/workflow/trust/capabilities/steppage)
+pass 61 of 62; the single failure is the msys Git marketplace boundary.
+Typecheck and production build pass.
+
+A bounded independent review of the three product files and six test files
+finds no blocking item: all prior lstat checks are retained, rejection sets
+only grow, no legitimate alias (casing, 8.3) can newly be rejected, error
+types and ENOENT tolerances are preserved, no owner assertion was weakened,
+and the Dirent walks handle single-component and nested paths correctly. Its
+one actionable residual gap is closed with evidence: `marketplace-add` did
+not classify the marketplace source root itself, so a junctioned source was
+read before failing later; a new test first fails with the read-through
+signature (`capability:marketplace-failed`), then passes with the upfront
+`capability:invalid-path` rejection after `plainPath` classifies the root.
+The staged runtime copies are refreshed with the staging recipe's exact steps
+verbatim for capability-settings.mjs and the same esbuild step for
+compaction-configuration.mjs; a direct probe of the staged compiled module
+rejects a linked root with `compaction:profile`. These are test-environment
+refreshes, not release artifacts.
+
+The final complete serial run executes 175 files; its counts come from actual
+output only. The suite exit is nonzero; no full-green claim is made. No native
+POSIX/macOS, package, installer, real-account or release acceptance is claimed.
+No commit, push, PR, merge, old-tree cleanup or personal-profile operation is
+performed.
+
+## Windows CI Workflow Failure Forensics (2026-11-08)
+
+The first CI run of this branch failed once in the Windows runtime group at
+`verify-workflow-runtime.mjs`: the child-B model stream failed client-side
+before reaching the fixture (the fixture's `childHeld` flag is set the moment
+a child-B request arrives, so the failure means the request never arrived),
+FINAL then asserted with a null output, and the one-slot wait timed out. The
+same commit passes the identical verifier on macOS source and package
+acceptance, the same Windows group passes for #211 and #213 on the same base,
+and the verifier plus workflow runtime are untouched by this diff. Local
+verification on this machine required restoring the shared node_modules'
+missing Electron 44.4.5 binary (a local install artifact that had triggered
+a binary download) and an assertion-preserving external `--no-sandbox` copy,
+because the unmodified executable's default-sandbox launch exits on this
+machine. With those local-only provisions the verifier passes end to end:
+parallel/chain, restart, stop/drain/resume, content-addressed replay,
+forced-crash recovery, partial failure with selective retry, structured
+errors and real HTTP 429 recovery, with both child requests served.
+
+The evidence supports a single runner-environment or timing failure, not a
+regression from this branch: no assertion is relaxed, no deadline is extended
+and the verifier is unchanged. This documentation update retriggers CI.
+
+The preceding CrashLog result (175 files, 166 pass/nine fail) remains intact.
+These equal file counts are different inventories: this separate tree adds
+artifact-cleanup.test.ts and does not contain the uncommitted crash-log.test.ts.
+No native POSIX/macOS, package, installer, real-account or release acceptance is
+claimed. No commit, push, PR, merge, old-tree cleanup or personal-profile operation
+is performed. Exact receipts are retained in the local artifact-cleanup evidence.
+
 ## CrashLog Latest-Main Synchronization (2026-11-07, local candidate)
 
 The previous CrashLog candidate starts at `a8533cf`. This combination starts at

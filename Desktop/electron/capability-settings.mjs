@@ -84,8 +84,13 @@ export function createCapabilitySettings(upstream, options) {
     if ((await lstat(current)).isSymbolicLink()) throw new CapabilityError('invalid-path');
     for (const part of rel.split(sep)) {
       current = join(current, part);
-      try { if ((await lstat(current)).isSymbolicLink()) throw new CapabilityError('invalid-path'); }
-      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      try {
+        // lstat can classify a Windows junction as a plain directory; the
+        // parent directory entry classifies the same reparse point reliably.
+        const linked = (await readdir(dirname(current), { withFileTypes: true }))
+          .some(entry => entry.name === part && entry.isSymbolicLink());
+        if ((await lstat(current)).isSymbolicLink() || linked) throw new CapabilityError('invalid-path');
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
     return target;
   }
@@ -572,6 +577,9 @@ export function createCapabilitySettings(upstream, options) {
         if (isAbsolute(source) || source.startsWith('.') || source.startsWith('file:')) {
           const { fileURLToPath } = await import('node:url');
           const path = source.startsWith('file:') ? fileURLToPath(source) : resolve(source);
+          // rejectLinks walks children; the source root itself must also be
+          // classified before anything under it is read.
+          await plainPath(path, dirname(path));
           await rejectLinks(path);
         }
         const result = await upstream.addMarketplaceSource({ source, marketplacesDir, signal });
@@ -678,5 +686,10 @@ async function rejectLinks(root, budget = { files: 0, bytes: 0 }) {
   if (info.isSymbolicLink()) throw new CapabilityError('invalid-path');
   if (++budget.files > 10000 || (budget.bytes += info.isFile() ? info.size : 0) > 128 * 1024 * 1024)
     throw new CapabilityError('too-large');
-  if (info.isDirectory()) for (const entry of await readdir(root)) await rejectLinks(join(root, entry), budget);
+  if (info.isDirectory()) for (const entry of await readdir(root, { withFileTypes: true })) {
+    // lstat can classify a Windows junction as a plain directory, so the
+    // directory entry itself decides before descending.
+    if (entry.isSymbolicLink()) throw new CapabilityError('invalid-path');
+    await rejectLinks(join(root, entry.name), budget);
+  }
 }

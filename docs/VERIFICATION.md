@@ -1,5 +1,70 @@
 # Verification
 
+## Custom Background MVP (2026-11-09)
+
+The optional host-adapter package now opens a real local PNG/JPEG editor.
+The host owns import, normalized private storage, bounded revisions and renderer
+lifecycle. Themes still decide whether image replacement is accepted. Existing
+integrated Stellar themes remain closed; incompatible themes retain the saved
+personal image without running its renderer.
+
+The first version supports fit, position, zoom, brightness, background blur,
+weak mouse parallax, disable/restore, reset and confirmed deletion. UI material
+and panel opacity are unchanged. Video, HTML, arbitrary CSS/JavaScript and WebP
+are not supported. The existing opaque welcome/conversation surfaces deliberately
+remain opaque, so personal media is most visible in the surrounding workspace.
+
+Local verification:
+
+- Store, gate and actual-main boundary suites: 77 passes and one Windows
+  file-symlink privilege skip. Directory-junction and directory-replacement
+  rejection cases run. The boundary suite includes cached passive reads during
+  import, pre/post installation proof, shutdown during a pending picker proof,
+  storage-failure startup fallback and failed-uninstall reconciliation.
+- Theme/image/adapter/library/policy suites: 79 passes and one Windows
+  file-symlink privilege skip. Additional foundation/worker suites: 40 passes.
+- Runtime-backed theme, Remote ownership, idle-race, diagnostics and real
+  marketplace suites: 132 passes.
+- Production settings browser verifier: 12 cases. Production background
+  renderer: six cases and four desktop/mobile bitmap checks, with no page or
+  console errors. The existing foundation browser matrix also passes ten cases.
+  Desktop and 390-pixel light/dark screenshots were inspected for overlap,
+  horizontal overflow and four-sided focus clipping.
+- Final isolated Electron build `custom-background-20261109-verification-r3`:
+  12 lifecycle checks pass, with no page errors or remaining test Electron
+  processes. This includes real recorded marketplace installation, native
+  PNG/JPEG normalization, cancel/invalid input retention, all adjustments,
+  theme compatibility, orderly restart, MiniChat read-only propagation,
+  uninstall/reinstall activation safety and confirmed removal. Concurrent
+  state polling during PNG import does not interrupt the write.
+- Typecheck, production build, verifier inventory and whitespace checks pass.
+
+The combined CI-policy/runner local suite has 20 passes and one failure:
+the existing Windows descendant-cancellation test receives `taskkill` error
+"call cancelled" on this host. Its four exact fixture processes were identified
+by PID, parent and command line and stopped with PowerShell. No runner source
+or cancellation assertion was weakened.
+
+Foundation PR #222 cloud review reports no findings, but its Windows protocol
+jobs and macOS ARM64 preparation fail because the isolated native-plugin fixture
+does not copy the new `theme-composition.mjs` dependency. Both platforms report
+the same nine native-plugin startup failures. The narrow fixture correction was
+proposed and awaits owner approval; cloud CI is not green. This is separate from
+the local product acceptance above.
+
+Final native evidence is in
+`D:\Desktop For Step Code\output\custom-background-20261109\electron-final`.
+Browser evidence is under
+`D:\Desktop For Step Code\output\playwright\custom-background-settings` and
+`custom-background-rendering`. Earlier failed fixture attempts remain separate
+from `electron-final/results.json`.
+
+Three isolated builds contain approximately 7.4-7.5 MiB of owned files each,
+plus three immutable runtime-directory links per build. No installer was
+produced and no historical package was deleted. The owner's checkout, running
+client, profile, Remote binding and shortcut remain unchanged. This evidence
+does not establish native macOS, installer, real-model or release acceptance.
+
 ## Theme Composition Foundation (2026-11-09)
 
 The version 2 source contract separates host-owned UI adapters from default

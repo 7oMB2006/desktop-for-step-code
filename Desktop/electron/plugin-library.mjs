@@ -1,9 +1,45 @@
 import { randomUUID } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve, sep, posix } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep, posix } from 'node:path';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
-import { digest, object, optionalFile, packageFingerprint, packagePath, plainFile, PluginFileError } from './plugin-files.mjs';
+import { digest, object, optionalFile, packageFingerprint, packagePath, plainFile, PluginFileError, readReceipts, scanInstalled } from './plugin-files.mjs';
+
+const backgroundPluginId = 'custom-background';
+const backgroundProvider = 'custom-background-v1';
+async function backgroundContext(root, descriptor, ref) {
+  const stale = () => { throw new PluginFileError('stale'); };
+  if (descriptor.id !== backgroundPluginId || descriptor.kind !== 'installed'
+    || descriptor.provenance !== 'recorded' || !descriptor.instance) stale();
+  const receipts = await readReceipts(root);
+  const matches = receipts.installations.filter(item => item.id === backgroundPluginId);
+  if (matches.length !== 1) stale();
+  const receipt = matches[0];
+  if (receipt.state !== 'installed' || receipt.instance !== descriptor.instance
+    || receipt.folder !== descriptor.name || receipt.fingerprint !== descriptor.fingerprint
+    || receipt.source !== descriptor.source || receipt.marketplace !== descriptor.marketplace
+    || resolve(descriptor.root) !== join(root, 'plugins', receipt.folder)) stale();
+  const installed = (await scanInstalled(root)).filter(item => item.id === backgroundPluginId);
+  if (installed.length !== 1 || installed[0].folder !== receipt.folder) stale();
+  if (await packageFingerprint(descriptor.root) !== descriptor.fingerprint) stale();
+  const marker = JSON.parse((await plainFile(descriptor.root, 'dfsc.appearance.json', 4096)).toString('utf8'));
+  const manifest = JSON.parse((await plainFile(descriptor.root, 'step.plugin.json', 32768)).toString('utf8'));
+  const metadata = new Set(['id', 'name', 'version', 'description', 'icon', 'repository']);
+  const resources = new Set(['skills', 'commands', 'agents']);
+  if (!object(marker) || Object.keys(marker).length !== 2 || marker.schemaVersion !== 1
+    || marker.provider !== backgroundProvider || !object(manifest) || manifest.id !== backgroundPluginId
+    || typeof manifest.name !== 'string' || !manifest.name.trim()
+    || typeof manifest.version !== 'string' || !manifest.version.trim()
+    || [...resources].some(key => !Array.isArray(manifest[key]) || manifest[key].length !== 0)
+    || Object.entries(manifest).some(([key, value]) => metadata.has(key) ? typeof value !== 'string'
+      : resources.has(key) ? !Array.isArray(value) || value.length !== 0
+      : key === 'mcpServers' ? !object(value) || Object.keys(value).length !== 0 : true)) stale();
+  const finalInstalled = (await scanInstalled(root)).filter(item => item.id === backgroundPluginId);
+  if (finalInstalled.length !== 1 || finalInstalled[0].folder !== receipt.folder
+    || await packageFingerprint(descriptor.root) !== descriptor.fingerprint
+    || JSON.stringify(await readReceipts(root)) !== JSON.stringify(receipts)) stale();
+  return { ref, instance: receipt.instance };
+}
 
 const bounded = (value, max = 160) => {
   if (typeof value !== 'string' || !value.trim() || value.length > max || /[\u0000-\u001f]/u.test(value))
@@ -112,6 +148,7 @@ export class PluginLibrary {
   invalidate() { this.references.clear(); }
   async project(catalog) {
     const current = new Set();
+    const uniqueBackground = catalog.plugins.filter(plugin => plugin.id === backgroundPluginId).length === 1;
     const project = async plugin => {
       const { packageDescriptor: descriptor, ...publicPlugin } = plugin;
       if (!descriptor) return publicPlugin;
@@ -143,9 +180,17 @@ export class PluginLibrary {
             if (!await fileExists(root, path)) delete documentation[kind];
             else reference.allowed.add(path);
           }
+        let hostConfiguration;
+        if (uniqueBackground && descriptor.id === backgroundPluginId) {
+          try {
+            await this.customBackgroundContext(reference.ref);
+            hostConfiguration = backgroundProvider;
+          } catch { /* An unproven package cannot expose host-owned appearance controls. */ }
+        }
         return { ...publicPlugin, package: { ...metadata, warnings, ref: reference.ref, provenance: descriptor.provenance,
           configurationAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
-            && await fileExists(root, 'dfsc.settings.json') } };
+            && await fileExists(root, 'dfsc.settings.json'),
+          ...(hostConfiguration ? { hostConfiguration } : {}) } };
       } catch { return publicPlugin; }
     };
     const plugins = [];
@@ -164,6 +209,12 @@ export class PluginLibrary {
       if (await packageFingerprint(value.descriptor.root) !== value.descriptor.fingerprint) throw new PluginFileError('stale');
     } catch { this.references.delete(ref); throw new PluginFileError('stale'); }
     return value;
+  }
+  async customBackgroundContext(ref) {
+    try {
+      const { descriptor } = await this.reference(ref);
+      return await backgroundContext(this.root, descriptor, ref);
+    } catch { throw new PluginFileError('stale'); }
   }
   async document(input) {
     if (!object(input) || typeof input.path !== 'string') throw new PluginFileError('invalid-input');

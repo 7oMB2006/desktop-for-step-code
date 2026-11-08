@@ -108,6 +108,7 @@ import { StellarEmblem } from './StellarEmblem';
 import { StellarLettering } from './StellarLettering';
 import { StellarBrand } from './StellarBrand';
 import { ThemeSettings } from './ThemeSettings';
+import { BackgroundStatus } from './BackgroundStatus';
 import { TerminalPanel } from './TerminalPanel';
 import { normalizePanelPreferences, type TerminalDock } from './panel-preferences';
 import { BrowserPanel } from './BrowserPanel';
@@ -143,7 +144,7 @@ registerPluginThemes(window.desktopTheme?.themePacks ?? []);
 // Seed the placeholder with the main-process-resolved theme so the first React
 // write matches the bootstrap instead of flipping to a system guess before the
 // real snapshot arrives.
-const initial: Snapshot = { preferences: { theme: window.desktopTheme?.preference ?? window.desktopTheme?.resolved ?? 'system', themeMotion: window.desktopTheme?.themeMotion, themeBrightness: window.desktopTheme?.themeBrightness, accentColor: window.desktopTheme?.accentColor, language: 'zh', workspaces: [] }, themePacks: window.desktopTheme?.themePacks, status: 'disconnected', messages: [], models: [], sessions: [] };
+const initial: Snapshot = { preferences: { theme: window.desktopTheme?.preference ?? window.desktopTheme?.resolved ?? 'system', themeMotion: window.desktopTheme?.themeMotion, themeBrightness: window.desktopTheme?.themeBrightness, accentColor: window.desktopTheme?.accentColor, language: 'zh', workspaces: [] }, themePacks: window.desktopTheme?.themePacks, customBackground: window.desktopTheme?.customBackground, status: 'disconnected', messages: [], models: [], sessions: [] };
 const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 const workspaceKey = (path: string) => normalizedWorkspaceKey(path, window.desktop?.platform ?? 'win32');
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
@@ -295,6 +296,7 @@ function App() {
   const [searchLocateRequest, setSearchLocateRequest] = useState(0);
   const [tab, setTab] = useState('account');
   const [capabilityTarget, setCapabilityTarget] = useState<CapabilityTarget>();
+  const [customBackgroundRequest, setCustomBackgroundRequest] = useState(0);
   const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
@@ -829,6 +831,9 @@ function App() {
       if (event.type === 'desktop_mini_chat') { setMiniState(event.state); return; }
       if (event.type === 'desktop_preferences') {
         setData(value => ({ ...value, preferences: { ...event.preferences, workspace: value.preferences.workspace } })); return;
+      }
+      if (event.type === 'desktop_custom_background') {
+        setData(value => ({ ...value, customBackground: event.state })); return;
       }
       if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
         if (!isMini && event.restorePresentation) {
@@ -1736,7 +1741,7 @@ function App() {
       x: e.clientX || rect.left + rect.width / 2, y: e.clientY || rect.top + rect.height / 2 });
   }}>
     <StellarWorkspace pack={data.themePacks?.find(pack => pack.id === data.preferences.theme)}
-      preferences={data.preferences} bridge={bridge} paused={settingsOpen}
+      preferences={data.preferences} bridge={bridge} paused={settingsOpen} customBackground={data.customBackground}
       activity={navigationTarget ? 'navigating' : requests.length ? 'waiting' : busy ? 'running' : 'idle'}
       reading={Boolean(data.messages.length || navigationTarget || hasPendingReceipt)}/>
     <AppTooltip/>
@@ -1882,6 +1887,8 @@ function App() {
         <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
       <PluginCenter bridge={bridge} language={data.preferences.language} active={pluginsOpen} busy={anyBusy || busy || loading}
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
+        themePack={data.themePacks?.find(pack => pack.id === data.preferences.theme)}
+        customBackgroundRequest={customBackgroundRequest} customBackgroundState={data.customBackground}
         onBack={() => setPluginsOpen(false)} onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}
         onManageMcp={name => {
           setCapabilityTarget(undefined); setTab('mcp');
@@ -2376,7 +2383,17 @@ function App() {
       </div>
     </div>}
     {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['plugins', Plug, t('插件', 'Plugins')], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, 'Skills'], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['import', ArrowRightLeft, t('会话迁移', 'Session migration')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : ''}`} onClick={() => { if (id === 'plugins') { openPlugins(); return; } mcpEditRequestRevision.current++; setCapabilityTarget(undefined); setTab(id); }}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
-      {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <><ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks} loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/><AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/></> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
+      {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
+        <ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks}
+          loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/>
+        {!isMini && bridge && <BackgroundStatus state={data.customBackground} language={data.preferences.language}
+          pack={data.themePacks?.find(pack => pack.id === data.preferences.theme)} onConfigure={() => {
+            if (data.customBackground?.available) {
+              setCustomBackgroundRequest(value => value + 1); void openPlugins();
+            } else void openPlugins({ page: 'plugins', tab: 'discover', query: 'custom-background' });
+          }}/>}
+        <AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/>
+      </> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
         onOpen={id => { closeSettings(); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
         onRestore={id => run(() => updateArchive(id, true)).then(() => {})} onDelete={deleteArchived}/> : <>

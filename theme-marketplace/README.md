@@ -1,8 +1,10 @@
 # DFSC Theme Marketplace (Local Preview)
 
-This is a local-first marketplace fixture for the new DFSC theme host. Existing
-released clients can install its files but cannot activate the theme. It is not
-an upstream terminal theme, MCP service, or executable plugin.
+This is a local-first marketplace fixture for the DFSC appearance host. It
+contains the Stellar Cruise theme and the host-owned Custom Background adapter.
+Older clients can install their files without supporting their appearance
+features. Neither package is an upstream terminal theme, MCP service, or
+executable frontend plugin.
 
 ## Try It
 
@@ -10,6 +12,14 @@ Use a DFSC build containing this change. In Plugins > Marketplaces, add the
 absolute path of this `theme-marketplace` directory. In Discover, install
 `stellar-cruise`, then select 星辰巡航 under Appearance > Theme packs.
 Installation never changes the selected theme automatically.
+
+Alternatively, install `custom-background` and open its plugin configuration
+to import a local PNG or JPEG image. Installation alone does not enable a
+background. Built-in themes accept it; theme packages must explicitly accept
+`image-v1` in their background slot. The original Stellar Cruise package keeps
+its integrated scene and does not accept replacement. See the
+[Custom Background package guide](plugins/custom-background/README.md) for the
+host capability, retained user data and supported formats.
 
 The workspace shares one scene across welcome and conversations. Conversation
 entry lowers its brightness, speed and parallax without remounting it. Host-owned

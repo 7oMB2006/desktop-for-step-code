@@ -8,6 +8,9 @@ import { capabilityWarningText } from './capability-errors';
 import { CapabilityDisclosure, CapabilityPluginIconView, capabilityErrorText, type CapabilityBridge } from './CapabilitySettings';
 import { BvrConfigurationForm, type BvrSettingsBridge } from './BvrConfigurationForm';
 import { PluginConfigurationForm } from './PluginConfigurationForm';
+import { CustomBackgroundSettings, type CustomBackgroundBridge } from './CustomBackgroundSettings';
+import type { CustomBackgroundState } from './custom-background';
+import type { ThemePack } from './theme-packs';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { StepPageSettings } from './StepPageSettings';
 import { PluginDocumentation, PluginDocumentReader, PluginStars } from './PluginDocumentation';
@@ -17,7 +20,7 @@ import './capability-settings.css';
 import './plugin-center.css';
 
 export type PluginCenterBridge = CapabilityBridge & BvrSettingsBridge & Pick<import('./contracts').DesktopBridge,
-  'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'>;
+  'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'> & Partial<CustomBackgroundBridge>;
 type Entry = { key: string; name: string; description?: string; version?: string; repository?: string;
   icon?: CapabilityPlugin['icon']; source?: string; installed?: CapabilityPlugin; available?: MarketplacePlugin; package?: PluginPackage };
 function PluginCategoryTags({ pkg, language, compact = false }: { pkg?: PluginPackage; language: string; compact?: boolean }) {
@@ -37,10 +40,12 @@ function ProjectLink({ entry, language }: { entry: Entry; language: string }) {
     aria-label={language === 'zh' ? `打开 ${entry.name} GitHub 项目` : `Open ${entry.name} on GitHub`}>
     <span className="pc-github-mark" aria-hidden="true"/></a>;
 }
-export function PluginCenter({ bridge, language, busy, active, runtimeId, settings, target, updates: previewUpdates, onChanged, onRestart, onManageMcp, onBack }: {
+export function PluginCenter({ bridge, language, busy, active, runtimeId, settings, target, updates: previewUpdates,
+  themePack, customBackgroundRequest, customBackgroundState, onChanged, onRestart, onManageMcp, onBack }: {
   bridge: PluginCenterBridge; language: string; busy: boolean; active: boolean; runtimeId?: string;
   settings?: { mcp: Record<string, McpServer> }; target?: CapabilityTarget;
   updates?: PluginUpdatesPresentation;
+  themePack?: ThemePack; customBackgroundRequest?: number; customBackgroundState?: CustomBackgroundState;
   onChanged(): Promise<void>; onRestart(): Promise<void>; onManageMcp(name?: string): void; onBack(): void;
 }) {
   const t = (cn: string, en: string) => language === 'zh' ? cn : en;
@@ -59,6 +64,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   const [repositoryPending, setRepositoryPending] = useState(false);
   const [repositoryRevision, setRepositoryRevision] = useState(0);
   const [bvrState, setBvrState] = useState({ dirty: false, pending: false, ready: false });
+  const [backgroundState, setBackgroundState] = useState(customBackgroundState);
+  const [backgroundPending, setBackgroundPending] = useState(false);
   const [confirmation, setConfirmation] = useState<{ title: string; action(): void }>();
   const [live, setLive] = useState<{ runtimeId: string; servers: SessionSummary['mcp'] }>();
   const [updateStates, setUpdateStates] = useState<Record<string, PluginUpdateState>>({});
@@ -75,6 +82,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   const repositoryQueries = useRef(new Map<string, Promise<PluginStarSnapshot>>());
   const repositorySnapshots = useRef(new Map<string, PluginStarSnapshot>());
   const id = useId();
+  const backgroundRequest = useRef<number | undefined>(undefined);
+  const backgroundBridge = bridge.customBackgroundState && bridge.customBackgroundImage && bridge.customBackgroundImport
+    && bridge.customBackgroundSave && bridge.customBackgroundRemove ? bridge as CustomBackgroundBridge : undefined;
   const formId = `${id}-bvr`;
   const installed: Entry[] = (catalog?.plugins ?? []).map(raw => {
     const plugin = pluginPresentation(raw, language);
@@ -173,8 +183,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   } : undefined);
   const isBvr = entry?.installed?.id === 'bilibili-video-research';
   const isStepPage = entry?.installed?.id === 'steppage';
+  const isCustomBackground = entry?.installed?.package?.hostConfiguration === 'custom-background-v1';
   const updating = Boolean(updates && Object.values(updates.items).some(pluginUpdatePending));
-  const operationLocked = pending || loading || bvrState.pending || updating || updateBusy || Boolean(updates?.checking);
+  const operationLocked = pending || loading || bvrState.pending || backgroundPending || updating || updateBusy || Boolean(updates?.checking);
   const locked = busy || operationLocked;
   const mutationLocked = (input: CapabilityMutation) => operationLocked || busy && capabilityNeedsIdle(input, catalog);
   const installLocked = (item: Entry) => !item.available || mutationLocked({ action: 'plugin-install',
@@ -199,6 +210,16 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     finally { operation.current = false; if (alive.current) setLoading(false); }
   };
   useEffect(() => { alive.current = true; void refresh(); return () => { alive.current = false; }; }, [bridge]);
+  useEffect(() => { if (customBackgroundState) setBackgroundState(customBackgroundState); }, [customBackgroundState]);
+  useEffect(() => {
+    if (!active || !backgroundBridge || !catalog?.plugins.some(plugin => plugin.package?.hostConfiguration === 'custom-background-v1')) return;
+    let valid = true;
+    void backgroundBridge.customBackgroundState().then(value => { if (valid) setBackgroundState(value); }).catch(() => {});
+    const unsubscribe = backgroundBridge.onEvent?.(event => {
+      if (valid && event.type === 'desktop_custom_background' && event.state) setBackgroundState(event.state as CustomBackgroundState);
+    });
+    return () => { valid = false; unsubscribe?.(); };
+  }, [active, backgroundBridge, catalog?.plugins.length]);
   useEffect(() => {
     // MCP edits can happen in Settings while this view retains its local draft.
     if (active && catalog) void refresh();
@@ -237,7 +258,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   }, [confirmation]);
   useEffect(() => { if (!active) setConfirmation(undefined); }, [active]);
   const navigate = (action: () => void) => {
-    if (pending || bvrState.pending || updating || updateBusy || checkingUpdates) return;
+    if (pending || bvrState.pending || backgroundPending || updating || updateBusy || checkingUpdates) return;
     if (hasConfigurationForm && bvrState.dirty) setConfirmation({ title: t('放弃未保存的插件配置？', 'Discard unsaved plugin configuration?'), action });
     else action();
   };
@@ -246,6 +267,13 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     setSelected(item.key); setDetailTab(page);
     setBvrState({ dirty: false, pending: false, ready: false });
   });
+  useEffect(() => {
+    if (!active || !customBackgroundRequest || backgroundRequest.current === customBackgroundRequest || !catalog) return;
+    const plugin = installed.find(item => item.installed?.package?.hostConfiguration === 'custom-background-v1');
+    if (!plugin) return;
+    backgroundRequest.current = customBackgroundRequest;
+    choose(plugin);
+  }, [active, customBackgroundRequest, catalog]);
   const perform = async (input: CapabilityMutation) => {
     if (operation.current || mutationLocked(input)) return;
     operation.current = true; setPending(true); setError(''); setWarnings([]);
@@ -286,6 +314,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   };
   const servers = (plugin: CapabilityPlugin) => catalog?.mcp.filter(server => server.pluginId === plugin.id) ?? [];
   const toggle = (plugin: CapabilityPlugin) => {
+    if (plugin.package?.hostConfiguration === 'custom-background-v1') return null;
     const owned = servers(plugin);
     return <button type="button" role="switch" className={`cap-switch${owned.length && owned.every(server => server.enabled) ? ' on' : ''}`}
       aria-label={t(`启用 ${plugin.name} 服务`, `Enable ${plugin.name} services`)}
@@ -294,6 +323,10 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
       onClick={() => void perform({ action: 'plugin-toggle', id: plugin.id, enabled: !owned.every(server => server.enabled) })}><span/></button>;
   };
   const status = (plugin: CapabilityPlugin) => {
+    if (plugin.package?.hostConfiguration === 'custom-background-v1')
+      return !backgroundState?.available ? t('本机外观', 'Local appearance') : backgroundState.issue ? t('图片不可用', 'Image unavailable')
+        : !backgroundState.image ? t('尚未选择图片', 'No image selected')
+          : backgroundState.options.enabled ? t('背景已启用', 'Background enabled') : t('跟随主题', 'Following theme');
     const owned = servers(plugin);
     return !owned.length ? t('无 MCP 服务', 'No MCP services') : owned.every(server => server.enabled) ? t('服务已启用', 'Services enabled')
       : owned.every(server => !server.enabled) ? t('服务已停用', 'Services disabled') : t('部分服务启用', 'Some services enabled');
@@ -344,11 +377,13 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
       .finally(() => { updateOperation.current = false; if (alive.current) setUpdateBusy(false); });
   });
   const tabs: [PluginTab, string][] = [['installed', t('已安装', 'Installed')], ['discover', t('发现', 'Discover')], ['sources', t('市场来源', 'Marketplaces')]];
-  const detailTabs = [['about', t('使用说明', 'Guide')], ['config', t('配置', 'Configuration')], ['capabilities', t('能力', 'Capabilities')],
+  const detailTabs = [['about', t('使用说明', 'Guide')], ['config', t('配置', 'Configuration')],
+    ...(!isCustomBackground ? [['capabilities', t('能力', 'Capabilities')]] : []),
     ...(entry?.package?.documentation.changelog ? [['updates', t('更新记录', 'Changelog')]] : [])];
   useEffect(() => {
     if (detailTab === 'updates' && !entry?.package?.documentation.changelog) setDetailTab('about');
-  }, [entry?.package?.documentation.changelog, detailTab]);
+    if (detailTab === 'capabilities' && isCustomBackground) setDetailTab('config');
+  }, [entry?.package?.documentation.changelog, detailTab, isCustomBackground]);
   const tabKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'));
@@ -427,7 +462,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
           </div>}
       </div>
     </div> : <section className="pc-detail">
-      <div className="pc-detail-navigation"><button onClick={back} disabled={pending || bvrState.pending}><ArrowLeft size={15}/>{t('全部插件', 'All plugins')}</button><span>/</span><span>{entry.name}</span>
+      <div className="pc-detail-navigation"><button onClick={back} disabled={pending || bvrState.pending || backgroundPending}><ArrowLeft size={15}/>{t('全部插件', 'All plugins')}</button><span>/</span><span>{entry.name}</span>
         <button className="icon-button" aria-label={t('返回会话', 'Back to conversation')} onClick={onBack}><X size={16}/></button></div>
       <div className="pc-detail-workspace"><div ref={scroll} id={`${id}-scroll`} className="pc-detail-scroll"><div className="pc-detail-document">
         <header className="pc-plugin-header"><div className="pc-plugin-identity"><CapabilityPluginIconView icon={entry.icon}/><div className="pc-plugin-title">
@@ -461,7 +496,11 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         </div>
         <div className="pc-detail-content" key={entry.key}>
           <div id={`${id}-config-panel`} role="tabpanel" aria-labelledby={`${id}-detail-config`} hidden={detailTab !== 'config'}>
-            {isBvr ? <BvrConfigurationForm bridge={bridge} language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
+            {isCustomBackground && backgroundBridge && configurationPackage ? <CustomBackgroundSettings key={configurationPackage.ref}
+              bridge={backgroundBridge} packageRef={configurationPackage.ref} language={language} themePack={themePack}
+              visible={active && detailTab === 'config'} busy={pending || loading || updating || updateBusy || Boolean(updates?.checking)}
+              onChanged={setBackgroundState} onPending={setBackgroundPending}/>
+              : isBvr ? <BvrConfigurationForm bridge={bridge} language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
               onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>
               : isStepPage ? <StepPageSettings bridge={bridge} language={language} config={settings?.mcp.steppage__steppage} busy={locked}
                 onPrepared={stepPagePrepared} onRestart={restart}/>
@@ -504,7 +543,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         </div>
       </div></div><ScrollThumb scrollRef={scroll} language={language === 'zh' ? 'zh' : 'en'} sessionId={`${entry.key}-${detailTab}`} messageCount={1}
         scrollId={`${id}-scroll`} label={t('插件详情滚动', 'Scroll plugin details')} className="pc-detail-scroll-track" contentSelector=".pc-detail-document" compact/></div>
-      <footer className="pc-detail-footer" hidden={['about', 'updates'].includes(detailTab) && !bvrState.dirty && !changed}><span className="pc-save-state" role="status">{hasConfigurationForm && bvrState.dirty ? t('有未保存的更改', 'Unsaved changes')
+      <footer className="pc-detail-footer" hidden={isCustomBackground || ['about', 'updates'].includes(detailTab) && !bvrState.dirty && !changed}><span className="pc-save-state" role="status">{hasConfigurationForm && bvrState.dirty ? t('有未保存的更改', 'Unsaved changes')
         : changed ? t('已保存，现有会话需重启后应用', 'Saved; restart existing sessions to apply') : t('Desktop 独立配置', 'Desktop profile')}</span>
         <div>{hasConfigurationForm && detailTab === 'config' && <button className="primary" type="submit" form={formId} disabled={!canEditBvr || !bvrState.dirty || locked}><Save size={14}/>{t('保存配置', 'Save configuration')}</button>}
           <button disabled={locked || !runtimeId || bvrState.dirty} onClick={() => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh')))}><RotateCcw size={14}/>{t('重启当前会话', 'Restart current session')}</button></div></footer>

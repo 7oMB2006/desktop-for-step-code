@@ -194,6 +194,25 @@ export class CapabilityService {
       throw new Error('capability:configuration-consumer-conflict');
     return save ? this.configurations.save(context, save) : current;
   }); }
+  customBackgroundContext(ref?: string): Promise<{ ref: string; instance: string } | undefined> {
+    if (ref !== undefined && (typeof ref !== 'string' || !ref || ref.length > 128))
+      return Promise.reject(new Error('capability:invalid-input'));
+    return this.enqueue(async () => {
+      const catalog = await this.readCatalog();
+      const matches = catalog.plugins.filter(plugin => plugin.id === 'custom-background');
+      const current = matches.length === 1 && matches[0].package?.hostConfiguration === 'custom-background-v1'
+        ? matches[0].package.ref : undefined;
+      if (!current || ref !== undefined && current !== ref) {
+        if (ref !== undefined) throw new Error('capability:stale');
+        return;
+      }
+      try { return await this.library.customBackgroundContext(current); }
+      catch {
+        if (ref !== undefined) throw new Error('capability:stale');
+        return;
+      }
+    });
+  }
   mutate(input: CapabilityMutation, guard?: CapabilityGuard): Promise<CapabilityResult> {
     if (!input || typeof input !== 'object' || Array.isArray(input)
       || JSON.stringify(input).length > 150000) throw new Error('capability:invalid-input');

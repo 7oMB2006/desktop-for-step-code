@@ -27,6 +27,9 @@ for (const name of await readdir(runtime, { withFileTypes: true })) {
 }
 for (const name of ['plugin-files.mjs', 'theme-composition.mjs', 'marketplace-refresh.mjs'])
   await copyFile(resolve('electron', name), join(output, 'runtime', name));
+await mkdir(join(output, 'build'));
+for (const name of ['icon.ico', 'icon.png', 'tray.png'])
+  await copyFile(resolve('build', name), join(output, 'build', name));
 const define = { DESKTOP_USAGE_OVERVIEW_PREVIEW: 'false' };
 await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts'],
   outdir: output, outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], define });

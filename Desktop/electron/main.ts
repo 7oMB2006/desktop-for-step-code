@@ -43,6 +43,8 @@ import { normalizePanelPreferences, panelPreferencePatch } from '../src/panel-pr
 import { normalizeInterfaceSettings, validateInterfaceSettings } from '../src/interface-presets';
 import { normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch, registerPluginThemes } from '../src/theme';
 import { ThemePacks } from './theme-packs';
+import { CustomBackgroundStore } from './custom-background';
+import type { CustomBackgroundState } from '../src/custom-background';
 import { themeBrightnessPatch } from '../src/theme-packs';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
@@ -272,12 +274,15 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const firstRun = new FirstRun(app.getPath('userData'));
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
-const themePacks = new ThemePacks(join(dataRoot, 'plugins'), bytes => {
+const decodeThemeImage = (bytes: Buffer) => {
   const image = nativeImage.createFromBuffer(bytes);
   if (image.isEmpty()) throw new Error('Invalid theme image');
   const { width, height } = image.getSize();
   return { bytes: image.toPNG(), width, height };
-});
+};
+const themePacks = new ThemePacks(join(dataRoot, 'plugins'), decodeThemeImage);
+const customBackground = new CustomBackgroundStore(app.getPath('userData'), decodeThemeImage);
+let backgroundState: CustomBackgroundState = { ...customBackground.state(), available: false };
 async function refreshThemePacks() {
   await themePacks.refresh();
   registerPluginThemes(themePacks.packs);
@@ -303,6 +308,46 @@ const capabilityService = new CapabilityService({ root: dataRoot, runtime: runti
     const image = nativeImage.createFromBuffer(bytes), size = image.getSize();
     return !image.isEmpty() && size.width <= 4096 && size.height <= 4096;
   } });
+function publishCustomBackground(context?: { ref: string }, issue?: 'storage') {
+  const stored = customBackground.state();
+  const next: CustomBackgroundState = { ...stored, available: Boolean(context),
+    ...(issue ? { options: { ...stored.options, enabled: false }, issue } : {}),
+    ...(context ? { ref: context.ref } : {}) };
+  if (JSON.stringify(next) !== JSON.stringify(backgroundState)) {
+    backgroundState = next;
+    emit({ type: 'desktop_custom_background', state: next });
+  }
+  return next;
+}
+async function syncCustomBackground() {
+  let context: { ref: string; instance: string } | undefined;
+  try {
+    context = await capabilityService.customBackgroundContext();
+    await customBackground.bind(context?.instance);
+    return publishCustomBackground(context);
+  } catch {
+    // Optional appearance storage must never prevent the workspace from opening.
+    return publishCustomBackground(context, 'storage');
+  }
+}
+async function changeCustomBackground(ref: unknown, change: () => Promise<unknown>, expected?: string) {
+  return capabilityGate.run(async () => {
+    if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending || !capabilityService.available)
+      throw new Error('Shared settings operation in progress');
+    try {
+      const context = await capabilityService.customBackgroundContext(text(ref, 256));
+      if (!context || expected !== undefined && expected !== context.instance) throw new Error('capability:stale');
+      await customBackground.bind(context.instance);
+      await change();
+      const current = await capabilityService.customBackgroundContext(context.ref);
+      if (!current || current.instance !== context.instance) throw new Error('capability:stale');
+      return publishCustomBackground(current);
+    } catch (error) {
+      await syncCustomBackground();
+      throw error;
+    }
+  });
+}
 const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-import.mjs'), dataRoot,
   () => emit({ type: 'desktop_sessions_changed' }), async sessionIds => {
     const independent = pathKey(await realpath(independentRoot).catch(() => independentRoot));
@@ -399,6 +444,7 @@ const miniMethods = new Set([
   'chooseAttachments', 'importFile', 'importClipboardImage', 'imageAction', 'copyText', 'linkPreview',
   'fileOpen', 'fileOpenOptions', 'browserOpenLink', 'artifactFiles', 'artifactAction', 'backgroundAgents',
   'updateState', 'summary', 'workflows', 'themeScene', 'themePoster', 'themeImage',
+  'customBackgroundState', 'customBackgroundImage',
 ]);
 function requireComposerOwner(input: unknown): ComposerOwner {
   const owner = composers.owner(parseComposerOwner(input));
@@ -834,7 +880,8 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
     workspaceIssue: unavailableWorkspace,
-    preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs, providerSettingsPending,
+    preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs,
+    customBackground: backgroundState, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
       : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
@@ -1264,7 +1311,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         buttons: zh ? ['稍后', '重启并安装'] : ['Later', 'Restart and install'], defaultId: 0, cancelId: 0,
       });
       if (confirmation.response !== 1) return;
-      const busy = () => sessionImports.busy || runtimes.running || transition || settingsMutation || deletingArchived || quitPending || providerTestController || providerApplication || undoBusy
+      const busy = () => capabilityGate.active || sessionImports.busy || runtimes.running || transition || settingsMutation || deletingArchived || quitPending || providerTestController || providerApplication || undoBusy
         || terminals.list().some(terminal => terminal.status === 'running' || terminal.status === 'starting')
         || [...runtimes.workers.values()].some(worker => runtimes.isBusy(worker) || worker.operations || worker.mutating
           || worker.stopping || worker.queued || worker.status === 'connecting' || pendingMessages.list(worker).length);
@@ -2392,8 +2439,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return null;
     }
     case 'capabilityCatalog': {
-      if (settingsMutation) throw new Error('Shared settings operation in progress');
-      return capabilityService.catalog();
+      if (settingsMutation || updateInstalling || quitting || quitPending) throw new Error('Shared settings operation in progress');
+      const catalog = await capabilityService.catalog();
+      if (!capabilityGate.active && !updateInstalling && !quitting && !quitPending) await capabilityGate.run(syncCustomBackground);
+      return catalog;
     }
     case 'pluginDocument': {
       if (settingsMutation) throw new Error('capability:busy');
@@ -2456,37 +2505,71 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'themePoster': return themePacks.poster(args[0]);
     case 'themeImage': return themePacks.image(args[0]);
+    case 'customBackgroundState': return backgroundState;
+    case 'customBackgroundImage': {
+      try { return await customBackground.image(args[0]); }
+      catch (error) {
+        if (!capabilityGate.active)
+          publishCustomBackground(backgroundState.available && backgroundState.ref ? { ref: backgroundState.ref } : undefined);
+        throw error;
+      }
+    }
+    case 'customBackgroundImport': {
+      if (updateInstalling || quitting || quitPending) throw new Error('Shared settings operation in progress');
+      const ref = text(args[0], 256);
+      const context = await capabilityService.customBackgroundContext(ref);
+      if (!context) throw new Error('capability:stale');
+      if (updateInstalling || quitting || quitPending) throw new Error('Shared settings operation in progress');
+      const selected = await dialog.showOpenDialog(window, {
+        title: preferences.language === 'zh' ? '选择背景图片' : 'Choose background image',
+        properties: ['openFile'], filters: [{ name: 'PNG / JPEG', extensions: ['png', 'jpg', 'jpeg'] }],
+      });
+      if (selected.canceled || !selected.filePaths[0]) return null;
+      if (selected.filePaths.length !== 1) throw new Error('Invalid background selection');
+      return changeCustomBackground(ref, () => customBackground.importFile(selected.filePaths[0]), context.instance);
+    }
+    case 'customBackgroundSave': {
+      const input = args[0];
+      if (!input || typeof input !== 'object' || Array.isArray(input)
+        || Object.keys(input).some(key => !['ref', 'patch'].includes(key))) throw new Error('Invalid background settings');
+      return changeCustomBackground(input.ref, () => customBackground.save(input.patch));
+    }
+    case 'customBackgroundRemove': return changeCustomBackground(args[0], () => customBackground.remove());
     case 'capabilityMutate': {
       return capabilityGate.run(async () => {
         markCapabilityPhase?.('idle-check');
         let refreshThemes = false;
-        const result = await capabilityService.mutate(args[0], async policy => {
-          refreshThemes = policy.scope === 'theme'
-            || ['plugin-install', 'plugin-remove', 'plugin-update'].includes(args[0]?.action);
-          const release = await capabilityGate.guard(policy, {
-            assertAvailable: () => {
-              if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending)
-                throw new Error('Shared settings operation in progress');
-            },
-            acquireRuntime: () => {
-              settingsMutation = true;
-              return () => { settingsMutation = !capabilityService.runtimeAvailable; };
-            },
-            assertIdle: () => guardIdle({ stopHost: false, resources: true }),
-            assertResource: async id => {
-              markCapabilityPhase?.('resource-check');
-              await assertPluginUnused(id, runtimes.workers.values());
-            },
+        try {
+          const result = await capabilityService.mutate(args[0], async policy => {
+            refreshThemes = policy.scope === 'theme'
+              || ['plugin-install', 'plugin-remove', 'plugin-update'].includes(args[0]?.action);
+            const release = await capabilityGate.guard(policy, {
+              assertAvailable: () => {
+                if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending)
+                  throw new Error('Shared settings operation in progress');
+              },
+              acquireRuntime: () => {
+                settingsMutation = true;
+                return () => { settingsMutation = !capabilityService.runtimeAvailable; };
+              },
+              assertIdle: () => guardIdle({ stopHost: false, resources: true }),
+              assertResource: async id => {
+                markCapabilityPhase?.('resource-check');
+                await assertPluginUnused(id, runtimes.workers.values());
+              },
+            });
+            markCapabilityPhase?.('mutation');
+            return release;
           });
-          markCapabilityPhase?.('mutation');
-          return release;
-        });
-        if (refreshThemes) {
-          markCapabilityPhase?.('theme-refresh');
-          await refreshThemePacks();
-          window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
+          if (refreshThemes) {
+            markCapabilityPhase?.('theme-refresh');
+            await refreshThemePacks();
+            window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
+          }
+          return result;
+        } finally {
+          if (refreshThemes) await syncCustomBackground();
         }
-        return result;
       });
     }
     case 'capabilityImportSkill': {
@@ -2649,6 +2732,7 @@ app.on('before-quit', event => {
           if (result.response !== 1) { quitPending = false; return; }
         } else if (!await quitReview.ask(reasons)) { quitPending = false; return; }
       }
+      await capabilityGate.whenIdle();
       await terminals.stopAll();
       await miniChat?.dispose();
       await sessionImports.close();
@@ -2682,6 +2766,8 @@ else app.whenReady().then(async () => {
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
   await capabilityService.recover();
   await capabilityService.initialize();
+  await customBackground.initialize();
+  await syncCustomBackground();
   await collaboration.start();
   await bvrBridge.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;
@@ -2733,7 +2819,8 @@ else app.whenReady().then(async () => {
     const colors = resolvedColors();
     event.returnValue = { theme: colors.scheme, palette: colors.id, tokens: colors.tokens,
       preference: preferences.theme, accentColor: preferences.accentColor, systemDark: nativeTheme.shouldUseDarkColors,
-      themePacks: themePacks.packs, themeMotion: preferences.themeMotion, themeBrightness: preferences.themeBrightness };
+      themePacks: themePacks.packs, customBackground: backgroundState,
+      themeMotion: preferences.themeMotion, themeBrightness: preferences.themeBrightness };
   });
   // The authoritative system value, re-read by the renderer after it subscribes
   // to theme events: a change that lands before that subscription is dropped,
@@ -2825,7 +2912,9 @@ else app.whenReady().then(async () => {
       if (providerApplication) await providerApplication;
       const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'saveCompactionSettings'].includes(method);
       const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration',
-        'pluginChoosePath', 'themeScene', 'themePoster', 'themeImage', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
+        'pluginChoosePath', 'themeScene', 'themePoster', 'themeImage', 'customBackgroundState', 'customBackgroundImage',
+        'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
+        'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.
       const shared = capabilityMutation && method !== 'capabilityMutate'

@@ -176,6 +176,8 @@ function remoteAnswer(request: UIRequest, parsed: NonNullable<ReturnType<typeof 
 // Main owns routing and approvals. The network helper never owns an agent or transcript.
 export class RemoteManager {
   private channel?: RemoteChannel;
+  private cleanup?: { channel: RemoteChannel; stopping?: Promise<void> };
+  private disconnecting = 0;
   private generation = 0;
   private setupBusy = false;
   private binding?: Binding;
@@ -204,6 +206,7 @@ export class RemoteManager {
   constructor(private host: RemoteHost, private create: (receive: (event: RuntimeEvent) => void) => RemoteChannel,
     private changed: (state: RemoteSnapshot) => void, private now: () => number, private persistence: RemotePersistence | undefined,
     private platform: RemotePlatform) {}
+  private get cleanupPending() { return this.disconnecting > 0 || Boolean(this.cleanup); }
   snapshot(): RemoteSnapshot {
     return structuredClone({ ...this.state, binding: this.binding?.current ? this.metadata(this.binding.current) : undefined,
       targetUnconfirmed: this.binding?.unconfirmed || undefined, imagesAllowed: this.binding?.imagesAllowed || false,
@@ -251,11 +254,11 @@ export class RemoteManager {
     return saved;
   }
   async resume() {
-    if (!this.persistence || this.channel || this.setupBusy) return;
+    if (!this.persistence || this.channel || this.setupBusy || this.cleanupPending) return;
     const generation = ++this.generation;
     try {
       const value = await this.persistence.load();
-      if (generation !== this.generation || this.channel || this.setupBusy) return;
+      if (generation !== this.generation || this.channel || this.setupBusy || this.cleanupPending) return;
       if (!value) return;
       this.remembered = savedRemote(value); this.state.saved = true;
       await this.action({ type: 'connect' });
@@ -481,6 +484,7 @@ export class RemoteManager {
   }
   async action(action: RemoteAction): Promise<RemoteSnapshot> {
     if (action.type === 'disconnect') { await this.disconnect(); return this.snapshot(); }
+    if (this.cleanupPending) throw new Error('Remote cleanup is incomplete. Retry disconnect before connecting.');
     if (this.recovering) throw new Error('Remote connection is still being restored');
     if (action.type === 'unbind') {
       const bindingId = this.binding?.id, armId = this.armId;
@@ -652,22 +656,40 @@ export class RemoteManager {
     return this.snapshot();
   }
   async disconnect(forget = true) {
-    ++this.generation;
-    const channel = this.channel; this.channel = undefined;
-    this.recovery = undefined; this.recovering = false;
-    const cleanup = this.clearBinding(channel);
-    this.processed.clear(); this.authorizationUrl = undefined; this.callbackUrl = undefined;
-    this.state = { revision: this.state.revision, status: 'idle', approvalReady: false,
-      saved: this.state.saved, storageError: this.state.storageError }; this.publish();
-    const saved = forget ? this.save(undefined) : this.writes.then(() => true);
-    if (cleanup) {
-      let timer: NodeJS.Timeout | undefined;
-      try { await Promise.race([cleanup, new Promise(resolve => { timer = setTimeout(resolve, 2000); })]); }
-      finally { clearTimeout(timer); }
+    this.disconnecting++;
+    try {
+      ++this.generation;
+      const channel = this.channel; this.channel = undefined;
+      // Routing is revoked immediately; cleanup ownership survives a failed stop.
+      if (channel) this.cleanup = { channel };
+      this.recovery = undefined; this.recovering = false;
+      const cleanup = this.clearBinding(channel);
+      this.processed.clear(); this.authorizationUrl = undefined; this.callbackUrl = undefined;
+      this.state = { revision: this.state.revision, status: 'idle', approvalReady: false,
+        saved: this.state.saved, storageError: this.state.storageError }; this.publish();
+      const saved = forget ? this.save(undefined) : this.writes.then(() => true);
+      if (cleanup) {
+        let timer: NodeJS.Timeout | undefined;
+        try { await Promise.race([cleanup, new Promise(resolve => { timer = setTimeout(resolve, 2000); })]); }
+        finally { clearTimeout(timer); }
+      }
+      const pending = this.cleanup;
+      if (pending) {
+        pending.stopping ??= Promise.resolve().then(() => pending.channel.stop()).then(() => {
+          if (this.cleanup === pending) this.cleanup = undefined;
+        }).finally(() => { pending.stopping = undefined; });
+        try { await pending.stopping; }
+        catch (error) {
+          if (this.cleanup === pending) {
+            this.state.status = 'error'; this.state.stage = 'transport'; this.publish();
+          }
+          throw error;
+        }
+      }
+      if (!await saved) throw new Error('Could not remove the saved Remote connection. Retry disconnect before quitting.');
+    } finally {
+      this.disconnecting--;
     }
-    // Killing the isolated helper also cancels a hung handshake or HTTP request.
-    if (channel) await channel.stop();
-    if (!await saved) throw new Error('Could not remove the saved Remote connection. Retry disconnect before quitting.');
   }
   shutdown() { return this.disconnect(false); }
   private fail(stage: RemoteSnapshot['stage']) {

@@ -116,7 +116,7 @@ test('actual main passive capability reads never trigger pending provider applic
   const f = ipcFixture();
   for (const method of [
     'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginChoosePath',
-    'themeScene', 'themePoster', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
+    'themeScene', 'themePoster', 'themeImage', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
   ]) assert.equal(await f.read(method), method);
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');
@@ -130,13 +130,14 @@ test('merged IPC preserves MiniChat theme reads and refuses management or untrus
     calls.push(`${surface}:${method}`);
     return method;
   });
-  for (const method of ['themeScene', 'themePoster'])
+  for (const method of ['themeScene', 'themePoster', 'themeImage'])
     assert.equal(await f.miniRead(method), method);
   assert.equal(f.state.applications, 0);
   for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration'])
     await assert.rejects(f.miniRead(method), /Return to the main window/);
-  await assert.rejects(f.untrustedRead('themeScene'), /Untrusted sender/);
-  assert.deepEqual(calls, ['mini:themeScene', 'mini:themePoster']);
+  for (const method of ['themeScene', 'themePoster', 'themeImage'])
+    await assert.rejects(f.untrustedRead(method), /Untrusted sender/);
+  assert.deepEqual(calls, ['mini:themeScene', 'mini:themePoster', 'mini:themeImage']);
   assert.equal(f.state.applications, 0);
 });
 

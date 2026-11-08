@@ -23,12 +23,18 @@ visualization is included.
 
 ## Format, Version 1
 
+The sample below retains its original version 1 composition and does not opt
+into background replacement. New hosts also support the
+[version 2 composition contract](../docs/THEME_COMPOSITION.md); its
+[authoring schema](../docs/plugin-schemas/dfsc.theme.schema.json) separates
+host-owned UI adapters from bounded background renderers.
+
 - `.step-plugin/marketplace.json`: existing marketplace catalog format.
 - `step.plugin.json`: existing plugin identity, version, description and PNG icon.
 - `dfsc.theme.json`: DFSC-only schema version, display name, renderer, palette and scene filename.
 - `scene.json`: numeric point-cloud data for the host-owned `stellar-v1` renderer.
 
-Only `stellar-v1` is implemented. This is **not** a generic HTML, shader or JS
+Version 1 uses only `stellar-v1`. This is **not** a generic HTML, shader or JS
 extension API. Its host-owned graphite surfaces currently support only
 `scheme: "dark"`; light packs are rejected until scheme-aware materials exist.
 The host ignores executable entries and never evaluates data as

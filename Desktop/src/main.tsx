@@ -103,6 +103,7 @@ import { normalizeInterfaceSettings } from './interface-presets';
 import { applyAppearance } from './appearance';
 import { applyTheme, registerPluginThemes } from './theme';
 import { StellarWorkspace } from './StellarWorkspace';
+import { hasStellarUi } from './theme-packs';
 import { StellarEmblem } from './StellarEmblem';
 import { StellarLettering } from './StellarLettering';
 import { StellarBrand } from './StellarBrand';
@@ -267,7 +268,7 @@ function App() {
   const [sidebar, setSidebar] = useState(true);
   const [sessionQuery, setSessionQuery] = useState('');
   const searchingSessions = Boolean(sessionQuery.trim());
-  const stellarSearchQuery = data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
+  const stellarSearchQuery = data.themePacks?.some(pack => pack.id === data.preferences.theme && hasStellarUi(pack))
     ? sessionQuery : '';
   const filteredSessions = useMemo(() => filterSessions(data.sessions, data.preferences, sessionQuery, bridge?.platform),
     [data.sessions, data.preferences, sessionQuery]);
@@ -1830,7 +1831,7 @@ function App() {
     {!isMini && <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
           aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span>
-        {bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1') &&
+        {bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && hasStellarUi(pack)) &&
           <StellarBrand motion={data.preferences.themeMotion !== false} paused={!sidebarVisible || settingsOpen || scheduledOpen || usageOpen}/>}
       </button>
       <SidebarTaskActions selected={scheduledOpen} pluginsSelected={pluginsOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
@@ -2010,9 +2011,9 @@ function App() {
               onLayoutChange={followLayout} arrivingUser={null} onOpenSubagent={() => setError(t('请等待会话打开', 'Wait for the conversation to open'))}/>
           </div> : <div className="session-reading-placeholder" aria-hidden="true"><span/><span/><span/></div>
           : !data.messages.length && !hasPendingReceipt ? <NewSession language={data.preferences.language}
-            emblem={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
+            emblem={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && hasStellarUi(pack))
               ? <StellarEmblem motion={data.preferences.themeMotion !== false} paused={settingsOpen || scheduledOpen}/> : undefined}
-            renderGreeting={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
+            renderGreeting={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && hasStellarUi(pack))
               ? text => <StellarLettering text={text} motion={data.preferences.themeMotion !== false} paused={settingsOpen || scheduledOpen}/> : undefined}
             workspace={data.independent ? undefined : data.preferences.workspace} workspaces={data.preferences.workspaces}
             title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
@@ -2285,7 +2286,7 @@ function App() {
             tasksRequest={tasksRequest?.runtimeId === data.runtimeId && tasksRequest?.sessionId === data.state?.sessionId
               && tasksRequest?.draftId === data.draftId ? tasksRequest?.sequence : undefined}
             onTasksRequestHandled={sequence => setTasksRequest(value => value?.sequence === sequence ? undefined : value)}
-            stellar={data.themePacks?.find(pack => pack.id === data.preferences.theme)?.renderer === 'stellar-v1'}
+            stellar={hasStellarUi(data.themePacks?.find(pack => pack.id === data.preferences.theme))}
             messages={data.messages} backgroundActivity={backgroundActivity} busy={busy} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow} onClose={closeRightPanel}
             mcpBusy={anyBusy || busy || loading || !connected} capabilityRevision={capabilityRevision}
             onMcpChanged={async () => { setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1); }}

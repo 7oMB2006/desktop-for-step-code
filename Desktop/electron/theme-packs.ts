@@ -1,7 +1,11 @@
 import { lstat, open, readdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join, resolve, relative, isAbsolute, sep } from 'node:path';
-import type { StellarScene, ThemePack } from '../src/theme-packs';
+import type { StellarScene, ThemeImage, ThemePack } from '../src/theme-packs';
 import { contrastRatio } from '../src/theme';
+import { parseThemeComposition } from './theme-composition.mjs';
+import { plainFile } from './plugin-files.mjs';
+import { MAX_THEME_IMAGE_BYTES, validateThemeImage, type ThemeImageDecoder } from './theme-images';
 
 const safeName = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/;
 const color = /^#[0-9a-f]{6}$/i;
@@ -77,25 +81,29 @@ export class ThemePacks {
   packs: ThemePack[] = [];
   private scenes = new Map<string, StellarScene>();
   private covers = new Map<string, string>();
-  constructor(private root: string) { this.root = resolve(root); }
+  private images = new Map<string, ThemeImage>();
+  constructor(private root: string, private decodeImage?: ThemeImageDecoder) { this.root = resolve(root); }
   async refresh() {
     const packs: ThemePack[] = [], scenes = new Map<string, StellarScene>(), covers = new Map<string, string>();
+    const images = new Map<string, ThemeImage>();
+    let retainedImageBytes = 0;
     let entries;
     try {
       if ((await lstat(this.root)).isSymbolicLink()) throw new Error('Invalid plugins directory');
       entries = await readdir(this.root, { withFileTypes: true });
-    } catch { this.packs = []; this.scenes.clear(); this.covers.clear(); return; }
+    } catch { this.packs = []; this.scenes.clear(); this.covers.clear(); this.images.clear(); return; }
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 128)) {
       if (!entry.isDirectory() || !safeName.test(entry.name)) continue;
       try {
         const manifest = await json(this.root, `${entry.name}/step.plugin.json`, 32768);
         const raw = await json(this.root, `${entry.name}/dfsc.theme.json`, 32768);
         if (!record(manifest) || typeof manifest.id !== 'string' || !safeName.test(manifest.id) || !record(raw)
-          || raw.schemaVersion !== 1 || raw.renderer !== 'stellar-v1' || raw.scene !== 'scene.json'
           || typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 80 || /[\u0000-\u001f]/u.test(raw.name)
           || typeof manifest.version !== 'string' || manifest.version.length > 32
-          // Stellar's host-owned graphite surfaces only support dark palettes.
-          || !record(raw.colors) || raw.scheme !== 'dark') continue;
+          || !record(raw.colors) || !['light', 'dark'].includes(raw.scheme)) continue;
+        const composition = parseThemeComposition(raw);
+        // This is a material restriction, not a restriction on the background.
+        if (composition.ui === 'stellar-v1' && raw.scheme !== 'dark') continue;
         const colors: Record<string, string> = {};
         for (const key of ['bg', 'side', 'surface', 'ink', 'muted', 'border', 'code', 'accent']) {
           if (typeof raw.colors[key] !== 'string' || !color.test(raw.colors[key])) throw new Error('Invalid theme color');
@@ -103,19 +111,31 @@ export class ThemePacks {
         }
         for (const fg of ['ink', 'muted']) for (const bg of ['bg', 'side', 'surface', 'code'])
           if (contrastRatio(colors[fg], colors[bg]) < 4.5) throw new Error('Unreadable theme palette');
-        const scene = validateScene(await json(this.root, `${entry.name}/scene.json`, 6 * 1024 * 1024));
+        const scene = composition.background.renderer === 'stellar-v1'
+          ? validateScene(await json(this.root, `${entry.name}/scene.json`, 6 * 1024 * 1024)) : undefined;
+        let image: ThemeImage | undefined;
+        if (composition.background.renderer === 'image-v1') {
+          if (!this.decodeImage) throw new Error('Image decoder unavailable');
+          const filename = composition.background.source!;
+          const bytes = await plainFile(join(this.root, entry.name), filename, MAX_THEME_IMAGE_BYTES);
+          image = validateThemeImage(bytes, filename, this.decodeImage);
+          if (retainedImageBytes + image.dataUrl.length > 48 * 1024 * 1024) throw new Error('Theme image budget exceeded');
+        }
         const id = `plugin:${entry.name}` as const;
         const cover = await readCover(this.root, entry.name, raw.cover);
         if (cover) covers.set(id, cover);
         const author = typeof raw.author === 'string' && raw.author.length <= 80
           && !/[\u0000-\u001f]/u.test(raw.author) ? raw.author.trim() : undefined;
-        packs.push({ id, name: raw.name, version: manifest.version, renderer: 'stellar-v1',
+        const revision = createHash('sha256').update(JSON.stringify([composition, scene]))
+          .update(image?.dataUrl ?? '').update(cover ?? '').digest('hex');
+        packs.push({ id, name: raw.name, version: manifest.version, revision, renderer: composition.background.renderer, composition,
           author, hasCover: Boolean(cover),
           palette: { bg: colors.bg, side: colors.side, surface: colors.surface, ink: colors.ink,
             muted: colors.muted, border: colors.border, code: colors.code, accent: colors.accent,
             id, scheme: raw.scheme, group: 'plugin',
             name: [raw.name, raw.name], title: [raw.name, raw.name], mood: ['', ''] } });
-        scenes.set(id, scene);
+        if (scene) scenes.set(id, scene);
+        if (image) { images.set(id, image); retainedImageBytes += image.dataUrl.length; }
         // Bound total retained geometry as well as each individual file.
         if (packs.length >= 8) break;
       } catch { /* A malformed pack must not prevent Desktop startup. */ }
@@ -123,10 +143,15 @@ export class ThemePacks {
     this.packs = packs;
     this.scenes = scenes;
     this.covers = covers;
+    this.images = images;
   }
   poster(id: unknown) {
-    if (typeof id !== 'string' || !this.scenes.has(id)) throw new Error('Theme unavailable');
-    return this.covers.get(id);
+    if (typeof id !== 'string' || !this.packs.some(pack => pack.id === id)) throw new Error('Theme unavailable');
+    return this.covers.get(id) ?? this.images.get(id)?.dataUrl;
+  }
+  image(id: unknown) {
+    if (typeof id !== 'string' || !this.images.has(id)) throw new Error('Theme image unavailable');
+    return this.images.get(id)!;
   }
   scene(id: unknown) {
     if (typeof id !== 'string' || !this.scenes.has(id)) throw new Error('Theme unavailable');

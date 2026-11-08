@@ -1,5 +1,49 @@
 # Verification
 
+## Theme Composition Foundation (2026-11-09)
+
+The version 2 source contract separates host-owned UI adapters from default
+backgrounds and declares opt-in image replacement. Version 1 remains a closed
+Stellar composition; the published Stellar package is unchanged. This phase
+supports packaged static PNG/JPEG backgrounds and an internal replacement slot,
+not the personal image-import/editor plugin. WebP was excluded after a native
+Electron probe returned an empty image for both buffer and data-URL decoding.
+No HTML, JavaScript, custom CSS or arbitrary engine execution is introduced.
+
+Local typecheck and the isolated production build pass. The 11 focused
+contract, loader, image, theme, worker, race and IPC test files report 103 passes
+and one Windows file-symlink privilege skip, with no failures. A real directory
+junction rejection test still runs. The final runtime-backed Remote and
+marketplace suites pass all 76 cases; CI inventory/policy tests pass all 15.
+The authoring Schema accepts seven valid examples and rejects 14 invalid ones.
+
+The new browser verifier passes ten behavior cases, including closed v1,
+scene replacement/disposal/restoration with retained UI and layout, stale async
+loads, same-ID resource updates, static-theme controls, reduced motion and
+cleanup. Desktop and 390-pixel canvas/image checks are nonblank and chromatic;
+1440, 760 and 390-pixel screenshots were inspected. The isolated Electron
+verifier passes actual PNG/JPEG decoding, first-frame selection, theme switching,
+Stellar UI with image/solid backgrounds, motion preference persistence, invalid
+ID rejection, restart and missing-pack fallback, without renderer errors.
+
+The unchanged legacy composition verifier had one initial reduced-motion
+pixel-equality failure. An independent full rerun and two instrumented final
+motion workflows passed. Both instrumented screenshot pairs were pixel-identical
+and background draw counts remained fixed. No deterministic defect or cause for
+the initial failure has been established; it remains an intermittent observation.
+
+Machine-local evidence is under
+`D:\Desktop For Step Code\output\theme-composition-20261109`
+(`electron-final/results.json`, `runtime-regressions.log` and
+`legacy-review/diagnostic`) and
+`D:\Desktop For Step Code\output\playwright\theme-composition-contract`.
+The two isolated verification builds under the shared D: release directory
+each contain about 7.37 MiB of owned files and link three immutable runtime
+directories. No installer was produced and no existing artifact was deleted.
+The owner's checkout, running package, profile, Remote binding and shortcuts
+are unchanged. These checks do not establish cloud CI, native macOS, installer,
+real-model or release acceptance.
+
 ## 管理 worker 异常退出后的应用关闭回归（2026-11-08）
 
 PR #219 的 P2 已复现：管理 worker 缺少有效 shutdown 确认时，

@@ -143,11 +143,13 @@ export const localOnly = [
   'verify-stellar-brand.mjs',
   'verify-stellar-emblem.mjs',
   'verify-theme-composition.mjs',
+  'verify-theme-background-composition.mjs',
   'verify-theme-finishing.mjs',
   'verify-theme-idle.mjs',
   'verify-theme-navigation.mjs',
   'verify-theme-packs.mjs',
   'verify-theme-workspace.mjs',
+  'verify-theme-composition-electron.mjs',
   // Requires an explicitly prepared isolated Electron build and runtime.
   'verify-theme-pack-electron.mjs',
   'verify-stellar-pencil.mjs',

@@ -518,7 +518,34 @@ try {
   });
   await main.getByRole('button', { name: '远程访问', exact: true }).click();
   await main.getByRole('region', { name: '远程访问', exact: true }).waitFor();
-  await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
+  // A slow snapshot must not let blur/scroll saves replace the transferred anchor.
+  await app.evaluate(({ ipcMain }, windowId) => {
+    const handler = ipcMain._invokeHandlers.get('desktop');
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    globalThis.miniPresentationGate = { handler, release, saves: [] };
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      if (event.sender.id === windowId && method === 'snapshot') await gate;
+      if (event.sender.id === windowId && method === 'windowPresentation')
+        globalThis.miniPresentationGate.saves.push(args[1].position);
+      return handler(event, method, ...args);
+    });
+  }, await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).webContents.id, mainWindowId));
+  try {
+    await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
+    await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
+    await main.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await main.evaluate(() => window.desktop.miniChatState());
+    assert.deepEqual(await app.evaluate(() => globalThis.miniPresentationGate.saves), [],
+      'Presentation saves stay suspended until the transferred snapshot is installed');
+  } finally {
+    await app.evaluate(({ ipcMain }) => {
+      const { handler, release } = globalThis.miniPresentationGate;
+      ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', handler);
+      release(); delete globalThis.miniPresentationGate;
+    });
+  }
   await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
   await main.locator('main .conversation').waitFor({ state: 'visible' });
   await main.waitForFunction(anchor => {
@@ -712,6 +739,17 @@ try {
     title: window.getTitle(), url: window.webContents.getURL(),
   }))).catch(() => []));
   for (const [index, page] of (app?.windows() ?? []).entries()) {
+    console.error(`window ${index} reading geometry`, await page.evaluate(async () => {
+      const viewport = document.querySelector('.conversation');
+      return {
+        position: (await window.desktop.snapshot()).windowPresentation?.position,
+        hidden: viewport?.closest('main')?.hidden, top: viewport?.scrollTop,
+        height: viewport?.clientHeight, scrollHeight: viewport?.scrollHeight,
+        articles: viewport ? [...viewport.querySelectorAll('.messages > article[data-message-index]')].slice(0, 4)
+          .map(article => ({ index: article.dataset.messageIndex,
+            offset: article.getBoundingClientRect().top - viewport.getBoundingClientRect().top })) : [],
+      };
+    }).catch(() => undefined));
     await page.screenshot({ path: join(output, `failure-${index}.png`) }).catch(() => {});
     console.error(`window ${index}`, await page.locator('body').innerText().catch(() => ''), errors);
   }

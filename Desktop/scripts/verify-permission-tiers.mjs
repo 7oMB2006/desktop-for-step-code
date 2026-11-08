@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, realpath, readFile, writeFile, stat } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import assert from 'node:assert/strict';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 let modelCalls = 0;
 const results = [];
@@ -45,6 +46,8 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 let app;
+let phase = 'open isolated application';
+let failure;
 const errors = [];
 const open = async () => {
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
@@ -59,8 +62,8 @@ const open = async () => {
   return page;
 };
 const close = async () => {
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
-  await app.close();
+  await closeDesktopFixtureAndWait(app);
+  app = undefined;
 };
 try {
   let page = await open();
@@ -138,14 +141,19 @@ try {
   assert.equal(await readFile(join(canonical, 'permission-proof.txt'), 'utf8'), 'VERIFY-WRITE-AUTO');
   assert.equal(await page.getByRole('dialog').count(), 0, 'Routine writes need no approval in Approve for Me');
   await mkdir(join(canonical, 'permission-fixture-empty'));
+  phase = 'request hazardous command approval';
   await send('VERIFY-RISK-REJECTED');
   const approval = page.locator('.permission-approval');
   await approval.waitFor();
+  phase = 'inspect hazardous command approval';
   assert.match(await approval.textContent(), /高风险/);
+  phase = 'deny hazardous command';
   await approval.getByRole('button', { name: '拒绝本次操作', exact: true }).click();
+  phase = 'wait for denied command to settle';
   await settled('VERIFY-RISK-REJECTED');
   assert.equal((await stat(join(canonical, 'permission-fixture-empty'))).isDirectory(), true, 'Denied dangerous call does not execute');
 
+  phase = 'grant session-only full access';
   await choose('完全访问');
   await risk().waitFor();
   await risk().getByRole('button', { name: '仅本会话启用', exact: true }).click();
@@ -165,6 +173,7 @@ try {
   await page.waitForFunction(async () => (await window.desktop.snapshot()).permissionPreset === 'full-access');
   await close();
 
+  phase = 'verify session-only grant is not persisted';
   page = await open();
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload();
@@ -186,6 +195,7 @@ try {
   await english.getByRole('button', { name: 'Enable and remember', exact: true }).click();
   await page.waitForFunction(async () => (await window.desktop.snapshot()).permissionPreset === 'full-access');
   await close();
+  phase = 'verify remembered full access';
   page = await open();
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload();
@@ -194,6 +204,8 @@ try {
   assert.deepEqual(errors, []);
   console.log('Permission tiers passed: native RPC/SSE, legacy reset, three-entry menu, draft consent before sending, cancel restores input, routine writes, hazardous deny/full access, session-only/remembered grants, reload, Chinese/English and narrow layouts.');
 } catch (error) {
+  failure = error;
+  console.error(`Permission fixture failed during ${phase}:`, error);
   const page = await app?.firstWindow().catch(() => undefined);
   if (page) {
     await page.screenshot({ path: 'test-results/permission-tiers-failure.png' }).catch(() => {});
@@ -201,6 +213,13 @@ try {
   }
   throw error;
 } finally {
-  if (app) await close().catch(() => {});
-  await new Promise(resolve => server.close(resolve));
+  try {
+    if (app) await close();
+  } catch (error) {
+    if (!failure) throw error;
+    console.error('Permission fixture shutdown failed:', error);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
 }

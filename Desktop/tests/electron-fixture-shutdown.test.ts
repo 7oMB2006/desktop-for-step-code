@@ -91,6 +91,39 @@ test('orderly fixture shutdown answers existing and changed quit reviews without
   assert.equal(child.listenerCount('exit'), 0);
 });
 
+test('bounded shutdown completes while a failed acceptance leaves an approval pending', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  const context = new EventEmitter();
+  let onEvent: (event: unknown) => void = () => {};
+  let acceptQuit!: () => void;
+  const reviewed = new Promise<void>(resolve => { acceptQuit = resolve; });
+  const desktop = {
+    onEvent: (listener: typeof onEvent) => { onEvent = listener; },
+    snapshot: async () => ({ requests: [{ id: 'pending-tool', method: 'confirm' }] }),
+    quitRespond: async (id: string, approved: boolean) => {
+      assert.equal(id, 'quit-with-pending-approval');
+      assert.equal(approved, true);
+      acceptQuit();
+    },
+  };
+  const page = Object.assign(new EventEmitter(), {
+    closed: false, isClosed() { return this.closed; },
+    evaluate: async (callback: () => void) => runInNewContext(`(${callback.toString()})()`, { window: { desktop } }),
+  });
+  await closeDesktopFixtureAndWait({
+    process: () => child, windows: () => [page], context: () => context,
+    close: async () => {
+      onEvent({ type: 'desktop_quit_review', state: { request: { id: 'quit-with-pending-approval', phase: 'review' } } });
+      await reviewed;
+      child.exitCode = 0; child.emit('exit', 0);
+      page.closed = true; page.emit('close'); context.emit('close');
+    },
+  }, 1000);
+  assert.equal(child.listenerCount('exit'), 0);
+  assert.equal(page.listenerCount('close'), 0);
+  assert.equal(context.listenerCount('close'), 0);
+});
+
 test('orderly fixture shutdown releases inherited pipes only after successful exit and closed pages', async () => {
   const { child, page, context, dispose } = fixture();
   dispose();

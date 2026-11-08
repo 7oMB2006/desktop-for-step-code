@@ -218,6 +218,7 @@ function App() {
   const { setDraft, setQuotes, setAttachments } = composer;
   const [miniState, setMiniState] = useState({ open: false, pinned: false });
   const savePresentationRef = useRef<() => void>(() => {});
+  const presentationRestores = useRef(0);
   const disclosuresByOwner = useRef(new Map<string, ConversationDisclosureState>());
   const [disclosures, setDisclosures] = useState<ConversationDisclosureState>(() => new Map());
   const [workflowCatalogRequest, setWorkflowCatalogRequest] = useState<{ runtimeId?: string; sessionId?: string; id: number } | null>(null);
@@ -653,7 +654,7 @@ function App() {
     disclosures: [...(disclosuresByOwner.current.get(composerKey(composerOwner(latestData.current))) ?? disclosures)].slice(-512),
   });
   const saveWindowPresentation = () => {
-    if (navigationPending.current || switching.current) return;
+    if (navigationPending.current || switching.current || presentationRestores.current) return;
     const owner = composerOwner(latestData.current);
     if (owner && bridge?.windowPresentation) void bridge.windowPresentation(owner, currentPresentation()).catch(() => {});
   };
@@ -830,16 +831,24 @@ function App() {
         setData(value => ({ ...value, preferences: { ...event.preferences, workspace: value.preferences.workspace } })); return;
       }
       if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
+        if (event.restorePresentation) presentationRestores.current++;
         if (!isMini && event.restorePresentation) {
           finishSettingsClose();
           setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false);
           setPluginsOpen(false); setFulltextOpen(false); setDetails(''); setExpandedRightPanel(null);
         }
         void run(async () => {
-          rememberView(false);
-          const value = await bridge.snapshot();
-          installSnapshot(value);
-          if (event.restorePresentation) restoreWindowPresentation(value);
+          try {
+            rememberView(false);
+            const value = await bridge.snapshot();
+            if (event.restorePresentation) {
+              // Do not persist the previous viewport while the handoff is in flight.
+              flushSync(() => { installSnapshot(value); restoreWindowPresentation(value); });
+              followLayout();
+            } else installSnapshot(value);
+          } finally {
+            if (event.restorePresentation) presentationRestores.current--;
+          }
         }); return;
       }
       if (event.type === 'desktop_draft_created' && event.draftId === view.current.draftId && !switching.current) {

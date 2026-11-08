@@ -42,8 +42,34 @@ request. The runner tests also run on each Windows job, including owned-process
 tree cancellation. Run them locally without installing Desktop dependencies:
 
 ```sh
-node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs
+node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs scripts/ci-canvas-prebuild.test.mjs
 ```
+
+## Native Canvas Prebuilds
+
+Windows x64 and macOS ARM64 prepare the existing pinned `canvas@3.2.3`
+official Release archive before installing the frozen upstream dependencies.
+`scripts/ci-canvas-prebuild.mjs` restricts the platform selection, downloads
+only from Automattic/node-canvas's GitHub Release, and verifies the asset's
+recorded SHA-256 before atomically publishing the local archive. An existing
+archive is also checked before reuse. Downloads have finite deadlines and at
+most two retries; HTTP errors, interrupted downloads and checksum mismatches
+fail preparation rather than becoming successful installation evidence.
+
+The original `prebuild-install` lifecycle consumes this archive through its
+supported `npm_config_canvas_local_prebuilds` setting. It still installs the
+native module; no lifecycle scripts or dependencies are skipped. This avoids
+falling back to unrelated native compilation when the installer's single
+30-second download attempt fails. That installer can report a non-200
+download response as "No prebuilt binaries found"; this message alone does not
+prove that a matching platform asset is absent.
+
+Each runner has its own temporary prebuild directory. Nothing is shared with
+user profiles or across jobs, and there is no mirror, dependency/runtime
+version change or weaker test gate. Updating the pinned dependency requires
+reviewing the official assets and digests again. Windows failure summaries
+include preparation as a named stage. Local checksum and Windows native
+rendering checks do not replace cloud installation or macOS native acceptance.
 
 ## Acceptance Inventory
 

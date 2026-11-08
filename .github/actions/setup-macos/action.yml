@@ -22,9 +22,14 @@ runs:
         git -C Step-Code checkout --detach FETCH_HEAD
         test "$(git -C Step-Code rev-parse HEAD)" = 29eb460780489801ce8afc8bffc1a2efae7cbded
         node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v017/step-code-desktop.patch
+    - name: Prepare verified official canvas prebuild
+      shell: bash
+      run: node scripts/ci-canvas-prebuild.mjs "$RUNNER_TEMP/dfsc-canvas-prebuilds"
     - name: Build pinned Step Code
       shell: bash
       working-directory: Step-Code
+      env:
+        npm_config_canvas_local_prebuilds: ${{ runner.temp }}/dfsc-canvas-prebuilds
       run: |
         corepack pnpm install --frozen-lockfile
         corepack pnpm build:offline

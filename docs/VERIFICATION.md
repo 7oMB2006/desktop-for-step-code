@@ -1,5 +1,36 @@
 # Verification
 
+## CI Official Canvas Prebuild Preparation (2026-11-08)
+
+The repaired #219 head's two cloud attempts stopped before protocol tests:
+the installer did not obtain `canvas@3.2.3` prebuilts, then native fallback
+failed on Windows Visual Studio discovery and missing macOS `pangocairo`.
+The matching official Windows x64 and macOS ARM64 assets exist. The
+install site does not establish the underlying reason for their failed
+retrieval, and this is not evidence of a global GitHub outage.
+
+Both CI setups now prepare the same official archive with finite HTTPS
+download deadlines, two retries and the official asset's pinned SHA-256.
+The original frozen-lockfile install and its normal native installation
+lifecycle use the supported local-prebuild directory. A corrupt cache,
+failed download or mismatched checksum fails preparation. Dependencies,
+runtime pins, mirrors and acceptance requirements are unchanged; Windows
+diagnostics name this preparation stage.
+
+Local policy, runner, receipt, diagnostic and preparation regressions pass
+46 tests with one existing POSIX-only skip. Both official archives were
+downloaded and their SHA-256 values verified. A separate Windows fixture
+using the actual `prebuild-install@7.1.3` installed from this archive without
+an HTTP request, loaded `canvas@3.2.3`, rendered the exact expected RGBA pixel
+and encoded a PNG. Evidence is in
+`Desktop/test-results/host-closeout-ci-prebuild-regression.log` and
+`Desktop/test-results/host-closeout-canvas-smoke-20261108.log`.
+
+This establishes local preparation and Windows native loading only, not
+fresh cloud installation, macOS execution, full protocol or package acceptance.
+Those must pass on the new pushed commit. The owner's application, shortcut,
+real configuration and Remote binding are untouched; no installer is built.
+
 ## Capability Management MiniChat Main Synchronization (2026-11-08)
 
 Main advanced to `35e2322` with #211 while the temporary-path repair was being

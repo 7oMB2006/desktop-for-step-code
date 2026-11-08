@@ -9235,3 +9235,60 @@ BVR 仅提取并共用原有官方账户路由选择器，仍使用旧桥。
 生产确认 UI、TTS 适配和真实账户权益验收，不宣称完整计划 [Ⅱ]/[Ⅲ] 已完成。
 未运行完整 Desktop/Electron 验收，未生成安装包、修改桌面入口或用户 profile；
 本地检查不替代新 PR 的云端 CI、原生 macOS 或市场发布验收。
+
+## 插件宿主原生启动绑定与生命周期 (2026-11-08)
+
+本轮基于代理服务候选 `6203e1b`，接通生产主进程的能力门控启动链，
+没有增加用户模式选择界面或升级 pin。运行时仍固定
+`29eb460780489801ce8afc8bffc1a2efae7cbded`。
+只有声明了宿主消费者、安装 receipt/包指纹/模式有效、真实原生记录唯一，
+并且会话和实际模型恢复完毕时才签发；上下文只注入这一次 stdio 启动。
+没有模式或存在全局覆盖、来源冲突时保持延后，不默认继承账户授权。
+
+账户持久化、实际模型应用、transport 退出、插件/配置管理和全局 MCP 保存
+均主动撤销。供应商、登录及额度凭据刷新事务结束后只恢复等待中的新启动；
+中途门控再次关闭可以继续等待，已签发后失败或撤销的记录不透明重签。
+原生关闭等待进行中的延后启动；单个失败只释放自己的租约。
+私有 RPC 未进入 preload/renderer allowlist，超时迟到和未匹配响应直接丢弃，
+hosted 初始化/目录失败不回显原始 launch 上下文。
+
+本地 Windows 源码验收：
+
+- Desktop 全量串行回归 1,530 项：1,517 通过、13 项平台跳过，
+  零失败、零取消，耗时 974.2 秒。日志：
+  `Desktop/test-results/plugin-host-launch-full-20261108.log`。
+- launcher 与原生 SDK 集成 12 项全部通过，使用真实固定 runtime、原生发现、
+  私有 RPC、安装 receipt、管理目录及自包含 SDK 子进程。
+  测试专用 MCP proxy 调用同一子进程工具，provider 为隔离 fixture；
+  验证门控释放、逐能力确认、实际 broker 调用、账户撤销、全局覆盖、
+  初始化错误回显隔离及关闭 opt-in 的兼容行为，不向模型发送 prompt。
+- 原生 `desktop-plugin-host.test.ts` 和 `src/step/mcp.test.ts` 共 22 项通过，
+  包括来源/策略/声明变化、重复启动、session 变化和关闭交错。
+  五份改动原生文件 Biome 检查、原生根目录及 coding-agent 构建配置的
+  `tsgo --noEmit`、`check-no-secret-leak` 通过；没有声称执行完整根 `check`。
+- Desktop 类型检查、最终生产构建通过。最终构建上的真实 Electron
+  基础启动及模型切换验收通过，使用隔离 profile 和假模型返回；
+  覆盖真实 RPC、renderer 无 Node 权限、设置、窄窗口、重载、
+  会话独立模型、队列换模及缺失模型保护。日志：
+  `plugin-host-launch-electron-20261108.log`、`plugin-host-launch-models-20261108.log`。
+- CI 策略、清单及 runner 40 项：39 通过、1 项平台跳过。
+  Windows/macOS 工作流已纳入原生 22 项回归，YAML 解析通过。
+- 隔离源码和全新补丁重放后像匹配：共享 53 项、Darwin 组合 54 项；
+  所有补丁哈希、staging 源码哈希和 Node 24.16.0 SHA-256 匹配，
+  staged manifest 含 25 个能力标记。Darwin 补丁重放不是原生 macOS 执行。
+
+调试中曾以假 Key 命中上游接口并收到 401；最终集成不再走该模型驱动路径。
+没有使用个人账户或验证付费权益，不能将调试过程描述为全程无外连。
+现有 Step provider 路由单独由 broker/SDK 隔离测试覆盖，原生集成的假 provider
+不证明真实 Step 权益。生产 IPC 中连续设置事务、多消费者交错及付费确认
+尚缺完整端到端覆盖；基础 Electron 验收不能替代这一点。
+
+模式/授权设置界面、未来模式写入的管理队列接入、真实账户权益、
+TTS、BVR 旧桥迁移、Cron 恢复自动接线、实包和跨仓库发布仍未交付。
+本轮未打包、修改快捷方式、重启日用应用或更改用户 profile。
+新 PR 的云端 CI 与原生 macOS 结果分别确认，不把本地通过写成云端通过。
+
+可重建产物已盘点，未删除：本工作树 `Desktop/runtime` 约 124 MiB、
+`Desktop/dist` 约 12 MiB，隔离源码的 coding-agent/CLI dist 合计约 29 MiB；
+`D:\Desktop Runtime Builds\plugin-host-launch-20261108` 下保留源码、
+新补丁重放目录及必要验收证据。没有生成或囤积新的安装包。

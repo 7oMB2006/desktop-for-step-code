@@ -140,6 +140,11 @@ export class PluginHostBroker {
   invalidate(worker?: SessionRuntime) {
     for (const lease of this.leases.values()) if (!worker || lease.worker === worker) this.revoke(lease);
   }
+  release(launch: LaunchContext) {
+    if (launch.mode !== 'follow') return;
+    const lease = this.leases.get(launch.broker.token);
+    if (lease?.launch.launchId === launch.launchId) this.revoke(lease);
+  }
   private sameRuntime(worker: SessionRuntime, rpc: SessionRuntime['rpc'], sessionId: string) {
     return this.options.pool.workers.get(worker.id) === worker && worker.rpc === rpc
       && worker.status === 'connected' && !worker.stopping && !worker.mutating

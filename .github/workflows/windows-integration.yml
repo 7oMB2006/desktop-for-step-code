@@ -135,6 +135,12 @@ jobs:
           corepack pnpm exec vitest run test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts test/session-import.test.ts test/session-manager/build-context.test.ts test/compaction-serialization.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream automatic CLM tests failed' }
 
+      - name: Native plugin host launch regressions
+        working-directory: Step-Code/packages/coding-agent
+        run: |
+          corepack pnpm exec vitest run test/desktop-plugin-host.test.ts src/step/mcp.test.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Native plugin host launch regressions failed' }
+
       - name: Upstream Workflow stability tests
         id: upstream_workflow
         working-directory: Step-Code/packages/coding-agent

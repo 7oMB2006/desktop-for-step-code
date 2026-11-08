@@ -38,6 +38,49 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   const open = (cwd = `workspace-${transports.length}`) => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+test('host plugins are attached only after model restore and never for gated Cron preparation', async () => {
+  const steps: string[] = [];
+  const f = fixture({ initializeModel: async worker => {
+    steps.push('model');
+    worker.state!.model = { provider: 'step', id: 'restored', name: 'Restored' };
+  }, pluginsReady: async worker => {
+    assert.equal(worker.state?.model?.id, 'restored');
+    assert.equal(worker.mutating, false);
+    steps.push('plugins');
+  } });
+  try {
+    await f.open();
+    assert.deepEqual(steps, ['model', 'plugins']);
+    await f.pool.prepare('node', 'step', 'cron-workspace', { DESKTOP_CRON_RECOVERY: '1' });
+    assert.deepEqual(steps, ['model', 'plugins']);
+  } finally { await f.pool.stopAll(); }
+});
+test('host plugins on refresh wait for the restored live model and released mutation lock', async () => {
+  const original = { id: 'original', provider: 'fixture', name: 'Original' };
+  const fallback = { id: 'fallback', provider: 'fixture', name: 'Fallback' };
+  let launches = 0, attachments = 0;
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'same-session');
+    let model = ++launches === 1 ? original : fallback;
+    const request = transport.request.bind(transport);
+    transport.request = async (type, args) => {
+      if (type === 'set_model') { model = original; return {}; }
+      if (type === 'get_state') return { sessionId: 'same-session', model, isStreaming: false };
+      if (type === 'get_available_models') return { models: [original, fallback] };
+      return request(type, args);
+    };
+    return transport;
+  }, { pluginsReady: async worker => {
+    assert.equal(worker.mutating, false);
+    assert.equal(worker.state?.model?.id, 'original');
+    attachments++;
+  } });
+  try {
+    const worker = await pool.open('node', 'step', 'workspace', {});
+    await pool.refresh(worker, 'node', 'step', {});
+    assert.equal(attachments, 2);
+  } finally { await pool.stopAll(); }
+});
 
 test('Remote retains its host, rejects history mutation and does not reuse an attached empty session', async () => {
   const f = fixture({ idleLimit: () => 0 });

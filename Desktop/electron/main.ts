@@ -26,6 +26,8 @@ import { messagesWithEntryIds } from './session-branching';
 import { SessionCollaboration } from './session-collaboration';
 import { BvrBridge } from './bvr-bridge';
 import { BvrSettings } from './bvr-settings';
+import { PluginHostLauncher } from './plugin-host-launcher';
+import { StepPluginHostProvider } from './plugin-host-step';
 import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
 import { hasScheduledCron } from './cron-state';
@@ -113,7 +115,8 @@ let cronHistoryFailed = false;
 const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 'conversation-timing'),
   error => { void crashLog.record('conversation-timing', error); });
 const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model-changes'),
-  worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); });
+  worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); },
+  worker => pluginHosts.invalidate(worker));
 let window: BrowserWindow;
 let startupWindow: StartupWindow | undefined;
 let browser: BrowserTabs | undefined;
@@ -244,6 +247,7 @@ async function refreshThemePacks() {
   }
 }
 const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
+  beforePluginMutation: () => pluginHosts.invalidate(),
   fetchRepository: (url, options) => net.fetch(url instanceof URL ? url.href : url, { ...options, credentials: 'omit' }),
   environment: () => isolatedEnvironment(dataRoot), validateImage: bytes => {
     const image = nativeImage.createFromBuffer(bytes), size = image.getSize();
@@ -290,7 +294,7 @@ const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
     try {
       await persistAuth({ ...authData, step: next });
       appliedAuthData = { ...appliedAuthData, step: next };
-    } finally { settingsMutation = false; }
+    } finally { settingsMutation = false; await pluginHosts.resumeDeferred(); }
   });
 let providerSettingsPending = false;
 let providerApplyFailed = false;
@@ -309,6 +313,7 @@ const movedSessionEnvironment = () => ({
 });
 async function persistAuth(next: Record<string, unknown>) {
   bvrBridge.invalidate();
+  pluginHosts.invalidate();
   try { await vault.save(next); }
   catch (error) {
     await admin.stop();
@@ -396,22 +401,28 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     return decorateSessionMessages(worker.state.sessionId, worker.cwd, messages);
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
+  pluginsReady: worker => pluginHosts.attach(worker),
   // Keep at most two extra idle children when Windows has ample free memory.
   // This is a retention budget, never permission to speculatively start agents.
   idleLimit: () => process.platform === 'win32' && freemem() >= 3 * 1024 ** 3 ? 4 : 2,
   initializeModel: async (worker, restoring) => {
     const history = restoring ? await worker.rpc.request('get_entries') : undefined;
     const expected = history ? savedSessionModel(history.entries ?? [], history.leafId ?? null) : preferences.preferredModel;
+    if (expected && (worker.state?.model?.provider !== expected.provider || worker.state.model.id !== expected.id))
+      pluginHosts.invalidate(worker);
     await restoreSelectedModel(worker, expected, preferences.language);
   },
   launch: worker => {
     usageEstimates.attach(worker);
     const launch = collaboration.attach(worker);
-    return { ...launch, args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs')] };
+    return { ...launch, env: { ...launch.env,
+      ...(runtimeManifest.patches?.includes('desktop-plugin-host-launch') ? { DFSC_RUNTIME_HOST_V1: '1' } : {}) },
+      args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs')] };
   },
   dispose: worker => {
     remote.dispose(worker);
     bvrBridge.detach(worker);
+    pluginHosts.invalidate(worker);
     btw.dispose(worker);
     conversationTiming.event(worker, { type: 'desktop_exit' });
     usageEstimates.detach(worker);
@@ -424,6 +435,13 @@ const bvrBridge = new BvrBridge(dataRoot, runtimes, () => appliedAuthData,
   () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
   () => preferences.language, (input, init) => net.fetch(input instanceof URL ? input.href : String(input), init));
 const bvrSettings = new BvrSettings(dataRoot, () => bvrBridge.invalidate());
+const pluginHosts = new PluginHostLauncher({ root: dataRoot, pool: runtimes, capabilities: capabilityService,
+  provider: new StepPluginHostProvider(runtimes, () => appliedAuthData,
+    () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
+    (input, init) => net.fetch(input instanceof URL ? input.href : String(input), init)),
+  language: () => preferences.language,
+  available: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true
+    && !settingsMutation && !providerSettingsPending && !providerApplyFailed && !quitting && !quitPending });
 const btw = new BtwRequests(runtimes, emit);
 const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
@@ -759,7 +777,10 @@ function applyProviderSettings(): Promise<void> {
   providerApplication = performProviderSettings().catch(error => {
     providerApplyFailed = true;
     throw error;
-  }).finally(() => { settingsMutation = alreadyMutating; providerApplication = undefined; });
+  }).finally(async () => {
+    settingsMutation = alreadyMutating; providerApplication = undefined;
+    await pluginHosts.resumeDeferred();
+  });
   return providerApplication;
 }
 async function performProviderSettings() {
@@ -1079,7 +1100,7 @@ async function handle(method: string, args: any[]) {
           await terminals.stopAll();
           await sessionImports.close();
           await remote.shutdown();
-          await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop()]);
+          await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), pluginHosts.close()]);
         });
         success = true;
       } finally { if (!success) updateInstalling = false; }
@@ -1576,6 +1597,7 @@ async function handle(method: string, args: any[]) {
         if (prepared.state?.sessionId !== id || prepared.permissionPreset !== 'ask')
           throw new Error('Could not verify the destination conversation and approval policy');
         await runtimes.assertBackgroundIdle(prepared);
+        pluginHosts.invalidate(prepared);
         await restoreSelectedModel(prepared, source?.state?.model, preferences.language);
         if (source?.state?.thinkingLevel) {
           const { levels } = await prepared.rpc.request('get_available_thinking_levels');
@@ -2247,6 +2269,7 @@ async function handle(method: string, args: any[]) {
       }
       const secrets: Record<string, string> = {};
       if (args[2]) for (const [k, v] of Object.entries(args[2])) { if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) throw new Error('Invalid environment name'); secrets[k] = text(v, 8192); }
+      pluginHosts.invalidate();
       await admin.request('mcp', { name, config, secrets }); return null;
     }
     case 'preferences': {
@@ -2388,7 +2411,7 @@ app.on('before-quit', event => {
       await terminals.stopAll();
       await sessionImports.close();
       await remote.shutdown();
-      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop()]);
+      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
       await conversationTiming.flush();
       await modelSelections.flush();
       await usageEstimates.flush();
@@ -2418,6 +2441,7 @@ else app.whenReady().then(async () => {
   await capabilityService.recover();
   await collaboration.start();
   await bvrBridge.start();
+  if (runtimeManifest.patches?.includes('desktop-plugin-host-launch')) await pluginHosts.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;
   // vault.load() also migrates and removes a legacy plaintext auth.json. safeStorage
   // requires the ready state, which whenReady provides.
@@ -2556,7 +2580,9 @@ else app.whenReady().then(async () => {
     if (shared) settingsMutation = true;
     try { return await handle(method, args); }
     catch (error) { throw new Error(error instanceof Error ? error.message : 'Desktop operation failed'); }
-    finally { if (shared) settingsMutation = false; }
+    finally {
+      if (shared) { settingsMutation = false; await pluginHosts.resumeDeferred(); }
+    }
   });
   {
     startup = (async () => {
@@ -2598,5 +2624,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([remote.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll()]).finally(() => app.quit());
+  quitting = true; void Promise.all([remote.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()]).finally(() => app.quit());
 });

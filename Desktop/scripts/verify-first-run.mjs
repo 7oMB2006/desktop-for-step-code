@@ -7,6 +7,7 @@ import { createServer } from 'node:http';
 import { assertFocusVisible } from './assert-focus-visible.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 
 const output = resolve('test-results/first-run-native');
 await mkdir(output, { recursive: true });
@@ -309,13 +310,13 @@ try {
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await page.getByText('First-run loopback reply.', { exact: true }).waitFor({ timeout: 60000 });
   assert.equal(requests.length, 1, 'only the explicit first send invokes the configured model');
-  await page.waitForFunction(async () => {
-    const value = await window.desktop.snapshot();
-    return window.firstRunCompletion?.settled && window.firstRunCompletion.runtimeId === value.runtimeId && !value.state?.isStreaming
+  await page.waitForFunction(() => window.firstRunCompletion?.settled);
+  const completion = await page.evaluate(() => window.firstRunCompletion);
+  const completed = await waitForSessionFixtureSnapshot(page, value =>
+    completion.runtimeId === value.runtimeId && !value.state?.isStreaming
       && value.messages.some(message => message.role === 'assistant'
-      && message.stopReason === 'stop' && JSON.stringify(message.content).includes('First-run loopback reply.'));
-  });
-  const completed = await snapshot();
+      && message.stopReason === 'stop' && JSON.stringify(message.content).includes('First-run loopback reply.')),
+  'the first completed onboarding reply');
   assert.equal(completed.state.model.id, 'first-run-alternative');
   const saved = (await readFile(completed.state.sessionFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(saved[0].id, completed.state.sessionId, 'the completed session has a durable header');
@@ -338,7 +339,7 @@ try {
   assert.equal((await snapshot()).state.model.id, 'first-run-alternative');
   await page.getByRole('button', { name: '访问权限', exact: true }).click();
   await page.getByRole('menuitemradio', { name: /请求批准/ }).click();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).permissionPreset === 'ask');
+  await waitForSessionFixtureSnapshot(page, value => value.permissionPreset === 'ask', 'restored Ask permissions');
   assert.equal(requests.length, 1, 'restoring runtime controls does not send another model request');
   await close();
 

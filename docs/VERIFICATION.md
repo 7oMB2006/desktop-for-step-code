@@ -1,5 +1,31 @@
 # Verification
 
+## PR #211 First-Run IPC Polling (2026-11-08)
+
+Head `95997df` passes the Windows runtime and sessions groups, but macOS
+interface job `128660255985` still reads the first session before it exists.
+The event ordering predicate alone was insufficient: Playwright 1.60 browser
+polling treats its async callback's Promise as truthy and resolves even when
+the eventual predicate result is false. The awaited event condition therefore
+was not actually being polled.
+
+First-run acceptance now waits for the completed run with a synchronous browser
+predicate and uses the existing `waitForSessionFixtureSnapshot` Node poller for
+resolved IPC state, both before reading the saved reply and when restoring Ask
+permissions. No sleep, file-read retry, weakened history assertion or expanded
+timeout is added. A TypeScript-AST regression rejects async browser pollers in
+this verifier and requires awaited snapshot polls. The existing helper tests
+cover false async results, delayed snapshots, timeout and IPC failure.
+
+All 35 focused shutdown/onboarding/polling tests pass. The immediately preceding
+full suite on Node 24.16.0 with `CI=true` reports 1,511 passes and 19 platform or
+resource skips, with zero failures; the added AST guard has separate evidence.
+The corrected first-run verifier passes three consecutive native Windows runs
+through `runGroup` / `executeScript`, with the same Node version and `CI=true`
+(81.19, 79.51 and 74.83 seconds). Each includes durable reply, exact restored
+session identity, permissions and the remaining onboarding scenarios.
+Replacement cloud checks remain required for the final commit.
+
 ## PR #211 Windows Shutdown Wait Cycle (2026-11-08)
 
 The first lifecycle repair did not resolve Windows run `42454598542`.

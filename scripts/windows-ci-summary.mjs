@@ -7,6 +7,7 @@ export const stages = Object.freeze({
   validate: 'Validate acceptance group',
   upstream_fetch: 'Fetch pinned Step Code',
   upstream_patch: 'Apply integration patch',
+  native_prebuild: 'Prepare verified official canvas prebuild',
   upstream_build: 'Install and build Step Code',
   desktop_install: 'Install Desktop dependencies',
   upstream_plan: 'Upstream Plan tests',

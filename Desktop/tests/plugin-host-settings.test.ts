@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CapabilityService } from '../electron/capability-service';
 import { PluginHostBindingStore } from '../electron/plugin-host-contract.mjs';
@@ -118,6 +118,37 @@ test('old hosts can inspect declarations but cannot save or silently enable host
   await assert.rejects(f.save({ revision: 'unconfigured', mode: 'follow' }), /host-unavailable/);
   assert.equal(f.invalidations(), 0);
 });
+
+test('pending recovery blocks both host mode writes without revocation or changing recovery evidence', async t => {
+  const f = await fixture(t);
+  const directory = join(f.root, 'desktop-plugins');
+  await mkdir(directory, { recursive: true });
+  const journal = join(directory, 'update-transaction.json'), bytes = '{"unfinished":"preserve"}';
+  await writeFile(journal, bytes);
+  for (const input of [
+    { revision: 'unconfigured', mode: 'follow' as const },
+    { revision: 'unconfigured', mode: 'independent' as const,
+      configuration: { ref: f.ref, revision: 'unconfigured', values: {},
+        secrets: { key: { action: 'replace' as const, value: 'never-saved-key' } } } },
+  ]) await assert.rejects(f.save(input), /update-recovery-required/);
+  assert.equal(f.invalidations(), 0);
+  assert.equal(await readFile(journal, 'utf8'), bytes);
+  assert.equal((await f.store.current(f.descriptor)).revision, 'unconfigured');
+  assert.equal((await f.service.hostSettings({ ref: f.ref })).independent?.configured, false);
+});
+
+test('quarantined management or runtime cannot commit host mode pointers or revoke a launch', async t => {
+  for (const property of ['quarantined', 'runtimeQuarantined'] as const) {
+    const f = await fixture(t);
+    const internals = f.service as unknown as { quarantined: boolean; runtimeQuarantined: boolean };
+    internals[property] = true;
+    await assert.rejects(f.save({ revision: 'unconfigured', mode: 'follow' }),
+      property === 'quarantined' ? /management-unavailable/ : /update-recovery-required/);
+    assert.equal(f.invalidations(), 0);
+    assert.equal((await f.store.current(f.descriptor)).revision, 'unconfigured');
+  }
+});
+
 test('service disablement does not hide saved mode, but source changes invalidate opaque references', async t => {
   const f = await fixture(t);
   f.raw.mcp[0].enabled = false;

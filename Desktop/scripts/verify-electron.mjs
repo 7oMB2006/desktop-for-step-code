@@ -278,7 +278,9 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('menu', { name: process.platform === 'darwin' ? '应用菜单' : '文件' }).count(), 0);
   if (process.platform === 'darwin') {
-    assert.equal(await page.locator('.window-controls').count(), 0);
+    assert.equal(await page.locator('.window-controls > button:not([aria-label="MiniChat"])').count(), 0,
+      'macOS keeps native traffic lights rather than Windows window controls');
+    assert.equal(await page.locator('.window-controls').getByRole('button', { name: 'MiniChat', exact: true }).count(), 1);
     assert.equal(await page.locator('.window-bar-macos').count(), 1);
     assert.deepEqual(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getWindowButtonPosition()), { x: 20, y: 19 });
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreenable()), true);

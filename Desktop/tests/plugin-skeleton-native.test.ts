@@ -17,7 +17,7 @@ async function fixture() {
   const runtime = join(folder, 'runtime'), cached = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
   await mkdir(runtime);
   for (const name of ['step', 'node']) await symlink(join(cached, name), join(runtime, name), process.platform === 'win32' ? 'junction' : 'dir');
-  for (const name of ['capability-admin.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs'])
+  for (const name of ['capability-admin.mjs', 'capability-failure.mjs', 'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs'])
     await copyFile(resolve('electron', name), join(runtime, name));
   const service = new CapabilityService({ root, runtime, node: join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'),
     environment: () => isolatedEnvironment(root) });

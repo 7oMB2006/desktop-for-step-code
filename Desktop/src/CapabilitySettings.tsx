@@ -10,6 +10,9 @@ import { DisclosureChevron } from './DisclosureChevron';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
 import { StepPlatformIcon } from './ProviderBrand';
 import './capability-settings.css';
+export { capabilityErrorText } from './capability-errors';
+import { capabilityErrorText, capabilityWarningText } from './capability-errors';
+import { capabilityNeedsIdle } from './capability-locks';
 
 export type { CapabilityPage, CapabilityTarget } from './capability-command';
 export type CapabilityBridge = Pick<DesktopBridge, 'platform' | 'capabilityCatalog' | 'capabilityMutate'
@@ -19,33 +22,6 @@ function IconButton({ title, ...props }: ButtonHTMLAttributes<HTMLButtonElement>
   return <button type="button" className="icon-button" aria-label={title} data-tooltip={title} {...props}/>;
 }
 
-export function capabilityErrorText(error: unknown, zh: boolean) {
-  const code = /capability:([a-z-]+)/u.exec(String(error instanceof Error ? error.message : error))?.[1];
-  const messages: Record<string, [string, string]> = {
-    'invalid-input': ['输入无效，请检查名称、来源和内容。', 'Invalid input. Check the name, source and content.'],
-    'already-exists': ['同名资源已存在，未覆盖已有内容。', 'This resource already exists. Existing files were not replaced.'],
-    'not-found': ['资源已变化或不存在，请刷新后重试。', 'The resource changed or no longer exists. Refresh and retry.'],
-    'stale': ['插件内容已变化，请刷新目录后重新打开。', 'The plugin changed. Refresh the catalog and reopen it.'],
-    'plugin-conflict': ['插件名称或运行时 ID 冲突，请检查市场来源和已安装副本。', 'Plugin name or runtime ID conflict. Check marketplace sources and installed copies.'],
-    'invalid-configuration': ['配置或字段声明无效，未应用更改。', 'Invalid configuration or field declaration. No changes were applied.'],
-    'stale-configuration': ['配置已被其他操作更新。当前草稿已保留，请重新载入后核对。', 'Configuration changed elsewhere. Your draft is retained; reload and review it.'],
-    'configuration-schema-changed': ['插件配置格式已变化，旧配置未自动转换。', 'The plugin configuration schema changed. Existing settings were not converted.'],
-    'configuration-consumer-conflict': ['MCP 设置覆盖了插件服务，请先检查该服务的启动配置。', 'MCP settings override this plugin service. Review its launch configuration first.'],
-    'host-unavailable': ['当前运行时或插件安装不支持宿主模型设置。请更新宿主并核对安装来源。', 'This runtime or installation does not support host model settings. Update the host and check the installation source.'],
-    'invalid-host-declaration': ['插件的宿主能力声明无效或版本不受支持，未授予模型访问。', 'The host capability declaration is invalid or unsupported. Model access was not granted.'],
-    'host-selection-incomplete': ['独立配置已保存，但模式提交结果未确认。旧启动已失效，请重新载入后核对并保存。', 'Independent settings were saved, but the mode commit could not be confirmed. Previous launches are invalid; reload, review and save again.'],
-    'invalid-path': ['路径包含链接或超出允许范围，操作已阻止。', 'The path contains links or is outside the allowed location.'],
-    'read-only': ['此资源由插件或运行时管理，不能单独修改。', 'This resource is managed by its plugin or runtime.'],
-    'too-large': ['来源文件过多或过大，未完成导入。', 'The source contains too many files or is too large.'],
-    'marketplace-failed': ['市场操作失败，请检查来源、网络和 Git 环境。', 'Marketplace operation failed. Check the source, network and Git environment.'],
-    'profile-isolation': ['无法确认 Desktop 独立配置，操作已阻止。', 'Desktop profile isolation could not be verified.'],
-    'resource-in-use': ['插件仍被会话占用或无法确认已释放。请先在 MCP 中停用其服务并重启相关会话，再更新或卸载。', 'The plugin is still in use or its release could not be verified. Disable its MCP servers and restart the relevant sessions before updating or uninstalling.'],
-    'update-capabilities-changed': ['新版的服务结构或默认开关已变化，需要迁移确认；本次未替换旧版。', 'Service declarations or defaults changed and require migration review; the installed version was not replaced.'],
-    'update-recovery-required': ['插件更新恢复未完成。请停止使用该插件并保留现场，不要重装覆盖；需要检查恢复记录。', 'Plugin update recovery needs attention. Stop using this plugin and preserve its files; do not overwrite it by reinstalling.'],
-  };
-  return messages[code ?? '']?.[zh ? 0 : 1]
-    ?? (zh ? '操作未完成，请检查资源及运行状态后重试。' : 'The operation did not complete. Check the resource and session state, then retry.');
-}
 function Switch({ checked, disabled, label, onChange }: {
   checked: boolean; disabled: boolean; label: string; onChange(): void;
 }) {
@@ -105,7 +81,9 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
   const alive = useRef(true);
   const operation = useRef(false);
   const id = useId();
-  const locked = busy || pending || loading;
+  const operationLocked = pending || loading;
+  const locked = busy || operationLocked;
+  const mutationLocked = (input: CapabilityMutation) => operationLocked || busy && capabilityNeedsIdle(input, catalog);
   const search = (value: string) => !query || value.toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const refresh = async () => {
     if (operation.current) return;
@@ -135,8 +113,8 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
     const timer = setInterval(() => void poll(), 3000);
     return () => { active = false; clearInterval(timer); };
   }, [bridge, runtimeId, page]);
-  const perform = async (work: () => Promise<CapabilityResult | null>, applies = true) => {
-    if (operation.current || busy) return;
+  const perform = async (work: () => Promise<CapabilityResult | null>, applies = true, requiresIdle = true) => {
+    if (operation.current || busy && requiresIdle) return;
     operation.current = true; setPending(true); setError(''); setResultWarnings([]);
     try {
       const result = await work();
@@ -149,7 +127,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
     finally { operation.current = false; if (alive.current) setPending(false); }
   };
   const mutate = (input: CapabilityMutation) => perform(() => bridge.capabilityMutate(input),
-    !input.action.startsWith('marketplace-'));
+    capabilityNeedsIdle(input, catalog), capabilityNeedsIdle(input, catalog));
   const restart = async () => {
     if (operation.current || busy) return;
     operation.current = true; setPending(true); setError('');
@@ -158,8 +136,8 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
     finally { operation.current = false; if (alive.current) setPending(false); }
   };
   const confirm = (key: string) => confirmation?.key === key && <div className="cap-confirm" role="group" aria-label={confirmation.label}>
-    <span>{confirmation.label}</span><button type="button" disabled={locked} onClick={() => setConfirmation(undefined)}>{t('取消', 'Cancel')}</button>
-    <button type="button" className="cap-danger" disabled={locked} onClick={() => void mutate(confirmation.input)}><Trash2 size={13}/>{t('确认移除', 'Remove')}</button>
+    <span>{confirmation.label}</span><button type="button" disabled={operationLocked} onClick={() => setConfirmation(undefined)}>{t('取消', 'Cancel')}</button>
+    <button type="button" className="cap-danger" disabled={mutationLocked(confirmation.input)} onClick={() => void mutate(confirmation.input)}><Trash2 size={13}/>{t('确认移除', 'Remove')}</button>
   </div>;
   const heading = page === 'plugins' ? t('插件', 'Plugins') : page === 'mcp' ? 'MCP' : 'Skills';
   const tabs: [PluginTab, string][] = [['installed', t('已安装', 'Installed')], ['discover', t('发现', 'Discover')], ['sources', t('市场来源', 'Marketplaces')]];
@@ -182,7 +160,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
         <IconButton title={t('导入 Skill', 'Import Skill')} disabled={locked} onClick={() => void perform(() => bridge.capabilityImportSkill())}><FolderInput size={16}/></IconButton>
         <IconButton title={t('新建 Skill', 'Create Skill')} disabled={locked} onClick={() => setForm(form === 'skill' ? null : 'skill')}><Plus size={17}/></IconButton>
       </>}
-      {page === 'plugins' && tab === 'sources' && <IconButton title={t('添加市场', 'Add marketplace')} disabled={locked} onClick={() => setForm(form === 'market' ? null : 'market')}><Plus size={17}/></IconButton>}
+      {page === 'plugins' && tab === 'sources' && <IconButton title={t('添加市场', 'Add marketplace')} disabled={operationLocked} onClick={() => setForm(form === 'market' ? null : 'market')}><Plus size={17}/></IconButton>}
     </div></header>
     {page === 'plugins' && <div className="cap-tabs" role="tablist" aria-label={t('插件分类', 'Plugin categories')}
       onKeyDown={event => {
@@ -207,10 +185,10 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
     <div className="cap-body" id={`${id}-panel`} role={page === 'plugins' ? 'tabpanel' : undefined}
       aria-labelledby={page === 'plugins' ? `${id}-${tab}` : undefined}>
       {form === 'market' && <form className="cap-form" onSubmit={event => { event.preventDefault(); void mutate({ action: 'marketplace-add', source }); }}>
-        <label>{t('市场来源', 'Marketplace source')}<input autoFocus required value={source} disabled={locked}
+        <label>{t('市场来源', 'Marketplace source')}<input autoFocus required value={source} disabled={operationLocked}
           placeholder="owner/repo" onChange={event => setSource(event.target.value)}/></label>
         <div><button type="button" disabled={pending} onClick={() => setForm(null)}>{t('取消', 'Cancel')}</button>
-          <button className="primary" disabled={locked || !source.trim()}><Plus size={14}/>{t('添加市场', 'Add marketplace')}</button></div>
+          <button className="primary" disabled={operationLocked || !source.trim()}><Plus size={14}/>{t('添加市场', 'Add marketplace')}</button></div>
       </form>}
       {form === 'skill' && <form className="cap-form" onSubmit={event => { event.preventDefault(); void mutate({ action: 'skill-create', ...skill }); }}>
         <label>{t('名称', 'Name')}<input autoFocus required maxLength={64} pattern="[a-z0-9]+(-[a-z0-9]+)*" value={skill.name} disabled={locked}
@@ -220,7 +198,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
         <div><button type="button" disabled={pending} onClick={() => setForm(null)}>{t('取消', 'Cancel')}</button>
           <button className="primary" disabled={locked || !skill.name.trim() || !skill.description.trim()}><Plus size={14}/>{t('创建 Skill', 'Create Skill')}</button></div>
       </form>}
-      {resultWarnings.length > 0 && <Notes values={resultWarnings}/>}
+      {resultWarnings.length > 0 && <Notes values={resultWarnings.map(value => capabilityWarningText(value, language === 'zh'))}/>}
       {loading && !catalog ? <div className="cap-empty" role="status">{t('加载中', 'Loading')}</div> : !catalog ? <button type="button" onClick={() => void refresh()}>{t('重试', 'Retry')}</button> : <>
         {page === 'plugins' && tab === 'installed' && <>
           {catalog.plugins.filter(plugin => search(`${plugin.name} ${plugin.id} ${plugin.description}`)).map(plugin => <div className="cap-row-wrap" key={plugin.id}>
@@ -229,7 +207,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
               <div className="cap-details"><dl><dt>ID</dt><dd>{plugin.id}</dd><dt>MCP</dt><dd>{plugin.mcpServers.join(', ') || '—'}</dd>
                 {plugin.icon?.kind === 'png' && <><dt>{t('图标', 'Icon')}</dt><dd>DFSC Beta</dd></>}</dl>
                 <Notes values={plugin.warnings}/>
-                <button type="button" className="cap-danger" disabled={locked} onClick={() => setConfirmation({ key: plugin.id,
+                <button type="button" className="cap-danger" disabled={mutationLocked({ action: 'plugin-remove', id: plugin.id })} onClick={() => setConfirmation({ key: plugin.id,
                   label: t(`移除插件 ${plugin.name}？`, `Remove plugin ${plugin.name}?`), input: { action: 'plugin-remove', id: plugin.id } })}><Trash2 size={13}/>{t('卸载插件', 'Uninstall plugin')}</button>
               </div>
             </CapabilityDisclosure>{confirm(plugin.id)}
@@ -242,7 +220,8 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
           {catalog.available.filter(plugin => search(`${plugin.name} ${plugin.description} ${plugin.marketplace}`)).map(plugin => <div className="cap-row" key={`${plugin.marketplace}/${plugin.name}`}>
             <CapabilityPluginIconView icon={plugin.icon}/><div><strong>{plugin.name}</strong><small>{plugin.description}</small><small>{plugin.marketplace}</small></div>
             {plugin.installed ? <span className="cap-installed"><Check size={13}/>{t('已安装', 'Installed')}</span>
-              : <IconButton title={t(`安装 ${plugin.name}`, `Install ${plugin.name}`)} disabled={locked} onClick={() => void mutate({ action: 'plugin-install', name: plugin.name, marketplace: plugin.marketplace })}><Download size={16}/></IconButton>}
+              : <IconButton title={t(`安装 ${plugin.name}`, `Install ${plugin.name}`)} disabled={mutationLocked({ action: 'plugin-install', name: plugin.name, marketplace: plugin.marketplace, ref: plugin.package?.ref })}
+                onClick={() => void mutate({ action: 'plugin-install', name: plugin.name, marketplace: plugin.marketplace, ref: plugin.package?.ref })}><Download size={16}/></IconButton>}
           </div>)}
           {!catalog.available.some(plugin => search(`${plugin.name} ${plugin.description} ${plugin.marketplace}`)) && <div className="cap-empty">{t('没有匹配的插件', 'No matching plugins')}</div>}
         </>}
@@ -250,8 +229,8 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
           <div className="cap-row"><Globe size={18}/><div><strong>{source.name}</strong><small>{source.origin || t('随运行时提供', 'Provided by runtime')}</small>
             <small>{source.kind === 'builtin' ? t('内置', 'Built-in') : source.kind === 'git' ? 'Git' : t('本地', 'Local')}</small></div>
             {source.kind !== 'builtin' && <>
-              <IconButton title={t(`更新市场 ${source.name}`, `Update marketplace ${source.name}`)} disabled={locked} onClick={() => void mutate({ action: 'marketplace-update', name: source.name })}><RefreshCw size={15}/></IconButton>
-              <IconButton title={t(`移除市场 ${source.name}`, `Remove marketplace ${source.name}`)} disabled={locked} onClick={() => setConfirmation({ key: source.name,
+              <IconButton title={t(`更新市场 ${source.name}`, `Update marketplace ${source.name}`)} disabled={operationLocked} onClick={() => void mutate({ action: 'marketplace-update', name: source.name })}><RefreshCw size={15}/></IconButton>
+              <IconButton title={t(`移除市场 ${source.name}`, `Remove marketplace ${source.name}`)} disabled={operationLocked} onClick={() => setConfirmation({ key: source.name,
                 label: t(`移除市场 ${source.name}？已安装插件将保留。`, `Remove marketplace ${source.name}? Installed plugins will be kept.`),
                 input: { action: 'marketplace-remove', name: source.name } })}><Trash2 size={15}/></IconButton>
             </>}

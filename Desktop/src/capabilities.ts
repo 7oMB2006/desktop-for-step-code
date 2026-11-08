@@ -13,6 +13,7 @@ export interface PluginPackage {
   stars?: PluginStarSnapshot;
   configurationAvailable?: boolean;
   hostSettingsAvailable?: boolean;
+  dataOnlyTheme?: boolean;
   locales?: Partial<Record<'zh' | 'en', PluginLocale>>;
 }
 export interface PluginConfigurationField {
@@ -84,6 +85,7 @@ export interface CapabilityCatalog {
   plugins: CapabilityPlugin[]; available: MarketplacePlugin[]; marketplaces: CapabilityMarketplace[];
   mcp: CapabilityMcp[]; skills: CapabilitySkill[]; warnings: string[];
   pluginUpdates?: boolean;
+  recovery?: { required: true; pluginId?: string };
 }
 export type CapabilityMutation =
   | { action: 'plugin-install'; name: string; marketplace: string; ref?: string }

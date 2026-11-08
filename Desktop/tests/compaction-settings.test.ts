@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCompactionConfiguration } from '../electron/compaction-configuration';
 import { defaultCompactionConfiguration, validateCompactionUpdate } from '../src/compaction-settings';
+import { removeLinkEntry } from './fixtures/artifact-cleanup';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'desktop-compaction-'));
@@ -134,6 +135,21 @@ test('linked Desktop roots fail closed before touching the configuration', async
     assert.throws(() => api.read(), /compaction:profile/);
     assert.throws(() => api.save({ revision: 'a'.repeat(64), configuration: defaultCompactionConfiguration() }), /compaction:profile/);
   } finally { await rm(parent, { recursive: true, force: true }); }
+});
+test('a linked configuration file also fails closed before reading', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'desktop-compaction-config-link-'));
+  const linked = join(parent, 'root', 'config.toml');
+  try {
+    const root = join(parent, 'root');
+    const outside = join(parent, 'outside');
+    await mkdir(root); await mkdir(outside);
+    await symlink(outside, linked, process.platform === 'win32' ? 'junction' : 'dir');
+    const api = createCompactionConfiguration({
+      readGlobalStepConfig: () => { throw new Error('must not read'); },
+      updateGlobalStepConfig: () => { throw new Error('must not write'); },
+    }, root, { STEPCODE_STORAGE_ROOT_DIR: root, STEP_CODING_AGENT_DIR: join(root, 'agent') });
+    assert.throws(() => api.read(), /compaction:profile/);
+  } finally { await removeLinkEntry(linked); await rm(parent, { recursive: true, force: true }); }
 });
 test('profile mismatch and malformed compaction tables fail closed', async () => {
   const f = await fixture();

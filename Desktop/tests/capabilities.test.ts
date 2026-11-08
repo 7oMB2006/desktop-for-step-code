@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import { CapabilityService } from '../electron/capability-service';
 import { isolatedEnvironment } from '../electron/runtime';
@@ -42,8 +43,13 @@ async function marketplace(folder: string, options: { id?: string; link?: boolea
   return source;
 }
 
-test('capability catalog uses Desktop storage and materializes only the built-in market', async t => {
+test('explicit initialization materializes the built-in market; catalog reads never initialize storage', async t => {
   const { root, service } = await fixture(t);
+  const empty = await service.catalog();
+  assert.deepEqual(empty.marketplaces, []);
+  await assert.rejects(readFile(join(root, 'config.toml')), { code: 'ENOENT' });
+  await service.initialize();
+  await assert.rejects(readFile(join(root, 'config.toml')), { code: 'ENOENT' });
   const first = await service.catalog();
   assert.ok(first.marketplaces.some(source => source.kind === 'builtin'));
   assert.deepEqual(first.plugins, []);
@@ -75,6 +81,38 @@ test('marketplace install, plugin resources, and uninstall follow upstream folde
   assert.equal((await service.catalog()).plugins.length, 0);
   await assert.rejects(readFile(join(root, 'plugins', 'example', 'step.plugin.json')));
 });
+
+for (const target of ['plugin', 'marketplace'] as const) {
+  test(`Windows ${target} directory in use reports a filesystem failure and permits retry after release`,
+    { skip: process.platform !== 'win32' }, async t => {
+      const { folder, service, root } = await fixture(t);
+      const source = await marketplace(folder);
+      await service.mutate({ action: 'marketplace-add', source });
+      const catalog = await service.catalog();
+      const market = catalog.marketplaces.find(item => item.kind === 'local')!;
+      const entry = catalog.available.find(item => item.name === 'example')!;
+      await service.mutate({ action: 'plugin-install', name: entry.name, marketplace: entry.marketplace });
+      const directory = join(root, target === 'plugin' ? 'plugins' : 'marketplaces',
+        target === 'plugin' ? entry.name : market.name);
+      const holder = spawn(process.execPath, ['-e', 'process.stdout.write("ready\\n");process.stdin.resume()'],
+        { cwd: directory, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      const ended = once(holder, 'exit');
+      const release = async () => { holder.stdin.end(); await ended; };
+      try {
+        await Promise.race([once(holder.stdout, 'data'), once(holder, 'error').then(([error]) => Promise.reject(error))]);
+        const input: CapabilityMutation = target === 'plugin' ? { action: 'plugin-remove', id: 'example' }
+          : { action: 'marketplace-remove', name: market.name };
+        await assert.rejects(service.mutate(input),
+          /capability:(?:operation-denied|file-in-use|directory-not-empty)/);
+        await release();
+        await service.mutate(input);
+        if (target === 'plugin') assert.equal((await service.catalog()).plugins.length, 0);
+        else assert.equal((await service.catalog()).marketplaces.some(item => item.name === market.name), false);
+      } finally {
+        if (holder.exitCode === null) await release();
+      }
+    });
+}
 
 test('DFSC Beta PNG icons survive installation while invalid paths and files fall back', async t => {
   const { folder, service, root } = await fixture(t);
@@ -110,6 +148,7 @@ test('DFSC Beta PNG icons survive installation while invalid paths and files fal
 
 test('built-in plugin placeholders use Step branding, not a third-party matching id', async t => {
   const { service, root } = await fixture(t);
+  await service.initialize();
   const entry = (await service.catalog()).available.find(plugin => plugin.name === 'playwright')!;
   assert.deepEqual(entry.icon, { kind: 'step' });
   await service.mutate({ action: 'plugin-install', name: entry.name, marketplace: entry.marketplace });

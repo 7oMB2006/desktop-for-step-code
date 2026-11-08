@@ -2,10 +2,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, realpath, readdir, rename, rm, cp, writeFile, open } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { installationReceipt, object, optionalFile, packageFingerprint, plainFile, readReceipts, scanInstalled,
+import { dataOnlyThemeFingerprint, installationReceipt, object, optionalFile, packageFingerprint, plainFile, readReceipts, scanInstalled,
   sourceIdentity, writePrivateData, writePrivateJson, writeReceipts } from './plugin-files.mjs';
-import { applyPluginUpdate, recoverPluginUpdate, updateBinding } from './plugin-update.mjs';
+import { applyPluginUpdate, inspectPluginUpdate, updateBinding } from './plugin-update.mjs';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
+import { capabilityFailureCode, capabilityFailureDetails, marketplaceFailureCode } from './capability-failure.mjs';
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -65,8 +66,18 @@ export function createCapabilitySettings(upstream, options) {
   const pluginsDir = join(root, 'plugins');
   const marketplacesDir = join(root, 'marketplaces');
   const settingsManager = () => upstream.createStepSettingsManager(root, agentDir, { configDirName: '.stepcode' });
-  const packageManager = () => {
-    const settings = settingsManager();
+  const packageManager = async (writable = false) => {
+    let settings;
+    if (writable) settings = settingsManager();
+    else {
+      const documents = { global: await readConfig(join(root, 'config.toml')),
+        project: await readConfig(join(root, '.stepcode', 'config.toml')) };
+      // Keep upstream migrations and scope merging, without creating files or locks.
+      settings = upstream.SettingsManager.fromStorage({ withLock(scope, read) {
+        const { mcp_servers: ignored, ...value } = documents[scope];
+        if (read(JSON.stringify(value)) !== undefined) throw new CapabilityError('read-only');
+      } });
+    }
     return { settings, packages: new upstream.DefaultPackageManager({
       cwd: root, agentDir, configDirName: '.stepcode', settingsManager: settings,
     }) };
@@ -88,6 +99,21 @@ export function createCapabilitySettings(upstream, options) {
       catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
     return target;
+  }
+  async function readConfig(path) {
+    await plainPath(path);
+    try { return upstream.readStepConfig(path); }
+    catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
+  }
+  async function assertNoPendingUpdate() {
+    if (await optionalFile(root, 'desktop-plugins/update-transaction.json', 65536))
+      throw new CapabilityError('update-recovery-required');
+  }
+  async function initialize() {
+    await assertNoPendingUpdate();
+    await plainPath(marketplacesDir);
+    const builtin = await upstream.ensureBuiltinMarketplace({ marketplacesDir });
+    return { warnings: warnings(builtin.warnings) };
   }
   async function boundedFile(path, container, limit) {
     const file = await open(await plainPath(path, container), 'r');
@@ -209,10 +235,10 @@ export function createCapabilitySettings(upstream, options) {
       return { root: directory, fingerprint: await packageFingerprint(directory), ...fields };
     } catch { return undefined; }
   }
-  async function userSkills() {
+  async function userSkills(writable = false) {
     await plainPath(join(agentDir, 'settings.json'));
     await plainPath(join(agentDir, 'skills'));
-    const { settings, packages } = packageManager();
+    const { settings, packages } = await packageManager(writable);
     const resolved = await packages.resolve(async () => 'skip');
     const skills = [];
     for (const resource of resolved.skills) {
@@ -248,8 +274,7 @@ export function createCapabilitySettings(upstream, options) {
     return { skills, warnings: discovered.warnings };
   }
   async function mcpEntries(plugins) {
-    await plainPath(join(root, 'config.toml'));
-    const configured = upstream.readGlobalStepConfig(process.env).mcp_servers ?? {};
+    const configured = (await readConfig(join(root, 'config.toml'))).mcp_servers ?? {};
     const result = [];
     const userNames = new Set();
     for (const [key, value] of Object.entries(configured)) {
@@ -290,9 +315,12 @@ export function createCapabilitySettings(upstream, options) {
     return result;
   }
   async function catalog() {
-    await recoverPluginUpdate(root);
+    let recovery;
+    try {
+      const pending = await inspectPluginUpdate(root);
+      if (pending) recovery = { required: true, pluginId: pending.id };
+    } catch { recovery = { required: true }; }
     await plainPath(marketplacesDir);
-    const builtin = await upstream.ensureBuiltinMarketplace({ marketplacesDir });
     let receiptWarning = false;
     const [list, markets, skills, raw, receipts] = await Promise.all([
       installed(), sources(), userSkills(), scanInstalled(root), readReceipts(root).catch(() => {
@@ -330,7 +358,8 @@ export function createCapabilitySettings(upstream, options) {
         && builtinFingerprints.get(basename(plugin.rootPath)) === presentation.fingerprint;
       const receipt = receipts.installations.find(item => item.folder === basename(plugin.rootPath) && item.id === plugin.id);
       const descriptor = await packageDescriptor(plugin.rootPath, { kind: 'installed', id: plugin.id, name: basename(plugin.rootPath) });
-      const provenance = duplicateIds.has(plugin.id) ? 'conflict'
+      const recoveryBlocked = recovery?.required && (!recovery.pluginId || recovery.pluginId === plugin.id);
+      const provenance = duplicateIds.has(plugin.id) ? 'conflict' : recoveryBlocked ? 'unknown'
         : receipt?.state === 'installed' && descriptor?.fingerprint === receipt.fingerprint ? 'recorded' : 'unknown';
       // A byte-identical market copy is display evidence, not an installation receipt.
       const matchingMarkets = descriptor ? [...new Set(availablePlugins.filter(entry =>
@@ -354,13 +383,16 @@ export function createCapabilitySettings(upstream, options) {
       entry.installed = false; entry.installedId = undefined; entry.blocked = true;
     }
     return {
+      ...(recovery ? { recovery } : {}),
       plugins, available: availablePlugins,
       marketplaces: markets.map(source => ({ name: source.name, kind: source.kind,
         origin: source.origin ? capabilityText(source.origin) : null })),
       mcp: await mcpEntries(list.plugins),
       skills: [...skills.map(({ resource, settings, owned, ...skill }) => skill), ...pluginSkills.skills]
         .sort((a, b) => a.name.localeCompare(b.name)),
-      warnings: warnings([...builtin.warnings, ...list.warnings, ...available.warnings, ...pluginSkills.warnings,
+      warnings: warnings([
+        ...(recovery ? ['Incomplete plugin update; explicit recovery is required. Configuration is unavailable for affected installations.'] : []),
+        ...list.warnings, ...available.warnings, ...pluginSkills.warnings,
         ...[...available.conflicts].map(id => `Duplicate marketplace package: ${id}`),
         ...[...duplicateIds].map(id => `Conflicting installed plugin ID: ${id}`),
         ...(receiptWarning ? ['Installation records unavailable; sources remain unconfirmed.'] : []),
@@ -372,7 +404,7 @@ export function createCapabilitySettings(upstream, options) {
     if (settings.drainErrors().length) throw new CapabilityError('storage');
   }
   async function skillById(id) {
-    const skill = (await userSkills()).find(item => item.id === id);
+    const skill = (await userSkills(true)).find(item => item.id === id);
     if (!skill) throw new CapabilityError('not-found');
     return skill;
   }
@@ -386,25 +418,37 @@ export function createCapabilitySettings(upstream, options) {
     await flush(settings);
   }
   async function sourceOutcome(result) {
-    if (!result.source) throw new CapabilityError('marketplace-failed');
+    if (!result.source) throw new CapabilityError(marketplaceFailureCode(result.warnings));
     return { warnings: warnings(result.warnings) };
+  }
+  async function refreshSource(source, signal) {
+    await plainPath(source.path, marketplacesDir);
+    if (source.kind === 'git' && options.refreshMarketplace) {
+      await options.refreshMarketplace(source.path, signal);
+      return { source, warnings: [] };
+    }
+    const result = await upstream.updateMarketplaceSource({ name: source.name, marketplacesDir, signal });
+    await sourceOutcome(result);
+    return result;
   }
   async function mutate(input, signal) {
     if (!record(input)) throw new CapabilityError('invalid-input');
-    await recoverPluginUpdate(root);
+    await assertNoPendingUpdate();
     switch (input.action) {
       case 'plugin-check-updates': {
-        const notes = [];
+        const notes = [], failures = [];
         for (const source of await sources()) {
           if (source.kind !== 'git') continue;
           signal?.throwIfAborted();
           try {
-            const result = await upstream.updateMarketplaceSource({ name: source.name, marketplacesDir, signal });
-            if (!result.source) throw new CapabilityError('marketplace-failed');
+            const result = await refreshSource(source, signal);
             notes.push(...warnings(result.warnings));
-          } catch { notes.push(`Marketplace refresh failed: ${capabilityText(source.name, 80)}`); }
+          } catch (error) {
+            if (signal?.aborted) throw error;
+            failures.push({ code: capabilityFailureCode(error), details: capabilityFailureDetails(error) });
+          }
         }
-        return { warnings: notes };
+        return { warnings: notes, ...(failures.length ? { failures } : {}) };
       }
       case 'plugin-update': {
         const id = text(input.id, 128), requested = name(text(input.name, 80)), market = name(text(input.marketplace, 80));
@@ -463,7 +507,7 @@ export function createCapabilitySettings(upstream, options) {
           signal?.throwIfAborted();
           await rename(snapshot, join(transactionRoot, 'candidate'));
           const notes = await applyPluginUpdate(root, { transaction, previous,
-            next: { ...previous, fingerprint }, binding });
+            next: { ...previous, fingerprint }, binding }, { preserveRuntime: input.preserveRuntime === true });
           finalized = true;
           return { warnings: [...warnings(result.warnings), ...notes] };
         } finally {
@@ -478,7 +522,6 @@ export function createCapabilitySettings(upstream, options) {
         const requested = name(text(input.name, 80));
         const market = name(text(input.marketplace, 80));
         await plainPath(marketplacesDir); await plainPath(pluginsDir);
-        await upstream.ensureBuiltinMarketplace({ marketplacesDir });
         const available = await marketEntries(await sources());
         const entry = available.entries.find(item => item.name === requested && item.marketplace === market);
         if (!entry) throw new CapabilityError('not-found');
@@ -498,6 +541,9 @@ export function createCapabilitySettings(upstream, options) {
           const checked = await upstream.readStepPluginManifest(snapshot);
           if (!checked.manifest || checked.errors.length) throw new CapabilityError('invalid-input');
           const fingerprint = await packageFingerprint(snapshot);
+          if (input.preserveRuntime === true && (!input.expectedFingerprint || !input.expectedSource
+            || await dataOnlyThemeFingerprint(snapshot, checked.manifest.id) !== input.expectedFingerprint))
+            throw new CapabilityError('stale');
           const currentSource = (await sources()).find(source => source.name === entry.desktopSource.name);
           if (!currentSource || sourceIdentity(currentSource) !== sourceIdentity(entry.desktopSource)
             || input.expectedFingerprint && input.expectedFingerprint !== fingerprint
@@ -536,10 +582,17 @@ export function createCapabilitySettings(upstream, options) {
         await plainPath(plugin.rootPath, pluginsDir);
         const folder = basename(plugin.rootPath);
         if (targets.length && targets[0].folder !== folder) throw new CapabilityError('stale');
+        if (input.expectedFingerprint && await packageFingerprint(plugin.rootPath) !== input.expectedFingerprint)
+          throw new CapabilityError('stale');
         const receipts = await readReceipts(root);
         // Bind revocation to the unique on-disk installation, not every receipt with this runtime ID.
         const receipt = receipts.installations.find(item => item.folder === folder);
         if (receipt && receipt.id !== id) throw new CapabilityError('stale');
+        const recheckTheme = async () => {
+          if (input.preserveRuntime === true && (typeof input.expectedFingerprint !== 'string'
+            || await dataOnlyThemeFingerprint(plugin.rootPath, id) !== input.expectedFingerprint))
+            throw new CapabilityError('stale');
+        };
         if (receipt) {
           const path = `desktop-plugins/bindings/${receipt.folder}.json`;
           const bytes = await optionalFile(root, path, 65536);
@@ -550,11 +603,13 @@ export function createCapabilitySettings(upstream, options) {
               throw new CapabilityError('stale-configuration');
           }
           if (JSON.stringify(await readReceipts(root)) !== JSON.stringify(receipts)) throw new CapabilityError('stale');
+          await recheckTheme();
           receipt.state = 'removing';
           await writeReceipts(root, receipts);
           await writePrivateData(root, path, { version: 1, instance: receipt.instance, id: receipt.id, revoked: true });
         }
         // Keep the removing receipt and revocation if native deletion fails.
+        await recheckTheme();
         await upstream.uninstallPlugin(pluginsDir, folder);
         receipts.installations = receipts.installations.filter(item => item !== receipt);
         await writeReceipts(root, receipts);
@@ -589,7 +644,7 @@ export function createCapabilitySettings(upstream, options) {
         if (!source || source.kind === 'builtin') throw new CapabilityError('read-only');
         await plainPath(source.path, marketplacesDir);
         const result = input.action === 'marketplace-update'
-          ? await upstream.updateMarketplaceSource({ name: sourceName, marketplacesDir })
+          ? await refreshSource(source, signal)
           : await upstream.removeMarketplaceSource({ name: sourceName, marketplacesDir });
         if (result.source && input.action === 'marketplace-remove') {
           const records = await sourceRecords();
@@ -657,6 +712,7 @@ export function createCapabilitySettings(upstream, options) {
     return { warnings: [] };
   }
   async function importSkill(source) {
+    await assertNoPendingUpdate();
     const path = await realpath(source);
     await rejectLinks(path);
     const file = join(path, 'SKILL.md');
@@ -670,7 +726,7 @@ export function createCapabilitySettings(upstream, options) {
     await cp(path, target, { recursive: true, force: false, errorOnExist: true });
     return { warnings: [] };
   }
-  return { catalog, mutate, importSkill };
+  return { catalog, initialize, mutate, importSkill };
 }
 
 async function rejectLinks(root, budget = { files: 0, bytes: 0 }) {

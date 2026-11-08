@@ -19,6 +19,7 @@ export const acceptanceGroups = {
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',
     'verify-capabilities.mjs',
+    'verify-capability-diagnostics.mjs',
     'verify-plugin-center.mjs',
     'verify-plugin-input-mcp.mjs',
     'verify-desktop-tray.mjs',

@@ -74,7 +74,7 @@ assert.equal(runtimeManifest.commit, pin.commit);
 assert.deepEqual(runtimeManifest.patchedSourceHashes, patchedSources);
 assert.equal(hash(await readFile(join(desktop, 'runtime/node/node.exe'))), runtimeManifest.nodeSha256);
 const helpers = {};
-for (const name of new Set([...(await readdir(sharedRuntime)), 'plugin-files.mjs'])) {
+for (const name of new Set([...(await readdir(sharedRuntime)), 'plugin-files.mjs', 'marketplace-refresh.mjs'])) {
   if (!name.endsWith('.mjs')) continue;
   const bytes = await readFile(join(source, 'Desktop/electron', name));
   await writeFile(join(desktop, 'runtime', name), bytes);

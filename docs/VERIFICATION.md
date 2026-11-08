@@ -1,5 +1,301 @@
 # Verification
 
+## Marketplace Refresh Failure Evidence (2026-11-08)
+
+The owner's earlier `marketplace-update` diagnostic `6ad7692a50bd` identifies
+the mutation phase but predates structured Git diagnostics. Its underlying
+cause remains unknown. Later terminal, worker-environment and actual-app
+refreshes succeeded; that does not establish whether the original failure
+was connectivity, locking, permissions or another transient condition.
+
+Git discovery refresh now retains fixed failure categories for network, DNS,
+proxy, certificate, authentication, unavailable source, missing Git, cache
+permissions, locks, non-fast-forward/local-change conflicts, timeouts,
+cancellation and output limits. Unknown output stays generic. The Desktop
+worker executes the existing `git -C <cache> pull --ff-only --quiet` command
+with its 120-second deadline and bounded output. It neither retries
+automatically nor changes proxy settings, credentials or the runtime pin.
+Callback completion alone cannot release a cancelled child: actual process
+close is required, including when the abort callback arrives first.
+
+Only allowlisted metadata crosses the worker/main diagnostic boundary:
+operation, integer elapsed milliseconds, actual Git exit code, permitted
+signal and permitted system code. Raw subprocess output is used locally for
+classification, not sent to the renderer or capability logger. Main rewraps
+errors without losing these validated fields. Existing crash-log application
+paths and stack metadata are unchanged; this is not a claim that every field
+in the existing crash format is anonymous.
+
+Single-market failures retain a localized message and correlated diagnostic
+ID. Check-all continues refreshing healthy sources, logs each failed source
+separately and replaces its internal failure payload with a localized warning
+and diagnostic ID. Installed plugin packages are not updated by either
+discovery operation. Remote/runtime ownership, journal protections and
+management-worker shutdown barriers remain in force.
+
+Typecheck and the isolated production build pass. The final serial focused
+suite passes 439 tests with two POSIX skips (441 total), covering native
+market/plugin management, Remote ownership, staged-copy races, process
+shutdown, classification, privacy and RPC/main transport. It includes real
+missing-Git, child exit/timeout/cancel, local Git fast-forward, dirty-worktree
+preservation and held-index-lock cases. The exact main IPC rewrap has a
+regression for validated metadata retention and rejection of extra fields.
+The final log is `Desktop/test-results/marketplace-refresh-focused.log`.
+CI policy, inventory and platform-runner self-tests pass 39 cases with one
+native-platform skip; this is local CI-tooling verification, not a cloud run.
+
+The source Electron verifier passes all 12 scenarios with no renderer errors
+and confirmed exit of every owned fixture process. A deliberately unavailable
+local Git source produces localized diagnostics for both single refresh and
+check-all; their logged exit code matches the independently observed Git
+status, not an assumed 128. The healthy source advances, installed theme bytes
+remain unchanged, and an explicit refresh succeeds after restoring the source.
+The native and Remote child objects, PIDs, session/model/permission identity
+and single binding remain intact through failures and subsequent streaming
+management operations. Unrelated executable removal is still refused.
+Desktop and narrow screenshots are inspected. Evidence is
+`Desktop/test-results/marketplace-refresh-source/results.json`.
+
+Verification uses an isolated source build, temporary profiles, local Git
+repositories, a loopback model and synthetic Remote transport. The running
+owner package and real profile are not switched or rewritten. These source
+changes are not yet in the owner's running r2 package; no new package,
+shortcut update, push, cloud CI, native macOS or real-account acceptance is
+claimed.
+
+## Independent Capability Management Phase 1 (2026-11-08)
+
+This section supersedes the source-policy and temporary host-blocker statements
+in the earlier 2026-11-08 entries below. Controlled Windows child-process probes
+can terminate successfully, but packaged acceptance also observed an intermittent
+process-tree termination failure recorded below. No host service was changed.
+
+The host selects an exhaustive trusted action policy. Marketplace discovery
+maintenance and independently proven data-only theme install/update/remove use
+a management lease without acquiring the global runtime settings lock or
+requiring idle sessions. Executable plugins, runtime settings and unknown
+capabilities retain conservative idle, Remote and resource-usage checks.
+Renderer hints never authorize an exception. The native worker revalidates the
+complete package; updates require proof for both installed and candidate copies.
+Builtin-market initialization no longer creates or flushes runtime configuration.
+
+Catalog, document and configuration reads do not initialize or recover storage,
+nor trigger pending provider application. Recovery is separately guarded for
+the actual journal owner, rechecks idle after asynchronous resource observation
+and binds writes to the exact journal digest. Market discovery does not refresh
+theme packs or persist appearance fallback. Management-worker shutdown requires
+both a matching acknowledgment and observed clean exit; unconfirmed cleanup
+quarantines further management operations. An uncertain executable writer or
+unfinished admitted runtime recovery also retains the runtime barrier for the
+rest of this process, including when its worker has exited normally. Recovery
+failure is not permission to retry blindly or continue runtime input.
+
+Typecheck and the isolated production build pass. The final focused run passes
+164 policy, gate, asynchronous-race, worker-proof, lifecycle, finalization,
+read-only, document, snapshot, usage, error and staging tests. The separate native
+capability-management and Remote-preservation run passes 91 tests, including
+Windows directory locks, busy-state matrices and a proven theme update retaining
+worker/RPC/session and installation identity. Earlier broader session, background,
+Goal, side-question, Remote and settings regressions also pass.
+
+Source Electron acceptance passes all nine scenarios, with no renderer errors
+and confirmed cleanup of every owned fixture process. It installs a theme and
+reads its guide with Remote bound, refreshes both discovery paths without
+updating the installed package, then performs UI market refresh/removal and
+theme removal/reinstallation while the original peer streams. Executable
+plugin removal remains disabled and the backend independently refuses it.
+Windows directory locks report a bounded diagnostic and permit retry after
+release. The original native/Remote child objects, PIDs, native generation,
+session, model, permission and single binding remain unchanged, and Remote
+subsequently submits a new loopback task. Desktop and narrow screenshots are
+checked; the report is
+`Desktop/test-results/capability-phase1-source/results.json`.
+
+The fixture uses a temporary profile, a local Git market, a loopback provider
+and synthetic Remote transport; it cannot establish real-account Feishu
+permissions or cloud-platform behavior.
+
+The unsigned, unpublished Windows directory package
+`Desktop/release/capability-management-phase1-20261108-preview-r2/` now contains
+these changes. Its 107 bundled files pass build-time verification; all 1,427
+resource files and the executable pass hash verification again after acceptance.
+The actual packaged executable passes the same nine scenarios with no renderer
+errors and confirmed fixture cleanup. Packaged terminal acceptance also passes
+real PowerShell/ConPTY, Chinese paths, environment isolation, light/dark/narrow
+screenshots, motion and owned child-process cleanup. The package contains
+`source-receipt.json`, `SHA256SUMS.txt` and `acceptance/summary.json`.
+
+The predecessor package's first attempt completed all nine functional scenarios,
+but failed cleanup when `taskkill` for its synthetic Remote helper exited with
+code 1. Its failed report is preserved, and identity-checked retry followed by
+orderly fixture exit was confirmed. Investigation exposed a separate ownership
+defect: Remote discarded its helper reference before stop confirmation. Remote
+now revokes authorization immediately but retains cleanup ownership after a
+failed stop, retries that same transport, and blocks replacement pairing/resume
+until cleanup and disconnect persistence finish. Failure publishes
+`error/transport` without restoring the binding, keeping the existing runtime
+status page's disconnect retry reachable. In-flight stop calls are joined.
+The final Remote/quit regression run passes 309 tests, including deterministic
+stop rejection, repeated failure, concurrent shutdown, late input/approval and
+delayed persistence cases. Another focused management run passes 137 tests.
+This does not claim to fix Windows' intermittent process-tree termination
+failure. The final r2 packaged run completes cleanup on its first attempt.
+
+No installer, shortcut change, real-profile mutation or owner-application
+restart was performed. This independent repair package does not include
+MiniChat PR #211. Cloud CI, native macOS, installer and real-account Remote
+acceptance remain unestablished.
+
+## Remote-Preserving Theme Installation (2026-11-08, Pending Native Acceptance)
+
+Owner diagnostic `3ac953dbd02a` is `plugin-install`, refused as
+`remote-attached` at `idle-check` by the refresh preview. It is not a repeated
+market-refresh failure, nor evidence of a filesystem error.
+
+The source now classifies an issued, recorded available-package reference
+using the same bounded data-only theme proof as removal. The source and
+fingerprint are frozen before the guard; the management worker rechecks the
+staged copy before writing receipts or publishing the installation. Missing
+references, unknown/executable declarations and pending recovery fail closed.
+An interrupted update appearing after the guard is refused without catalog
+recovery. Existing all-session idle checks are retained.
+
+The plugin detail reader is unmounted during its own mutations and reloaded
+afterward. A failed mutation also refreshes the catalog without clearing its
+diagnostic, since a management failure may invalidate document references.
+The owner's screenshot alone does not establish the document failure's cause.
+
+Typecheck, the isolated production build and 42 focused classification,
+diagnostics, usage and synthetic-filesystem snapshot regressions pass. The
+native staged-copy snapshot test also exercises runtime-preserving pure-theme
+installation and refusal of executable, non-theme and replaced candidates.
+Native process regressions currently cannot complete: the host's
+`taskkill.exe /PID <controlled-child> /T /F` returns exit 1 with an operation
+canceled error even for a synthetic child. Tests fail during management-worker
+termination, not a confirmed theme classification assertion. Only identified
+task-owned test processes are stopped; the owner's running app, real profile,
+Remote binding, shortcuts and host services remain untouched. This source
+change is not yet packaged or accepted for handoff.
+
+## Remote-Preserving Market Refresh (2026-11-08)
+
+The next owner diagnostic is `marketplace-update`, refused as `remote-attached`
+at `idle-check` by the preceding removal-only preview. Market refresh was
+omitted from that preview; this is not evidence of a filesystem failure.
+
+The Remote-preserving classification now includes explicit market add,
+refresh, removal and check-all-updates actions. None installs a candidate or
+restarts a session. The existing all-session idle and shared-settings guards
+remain. Pending, unreadable or ambiguous plugin-update recovery state denies
+the exception; the native worker also refuses recovery that appears after
+the guard, before changing any installation. Renderer-supplied flags do not
+authorize executable plugin mutations.
+
+Typecheck, 98 distinct focused tests, production build and source Electron
+acceptance pass. The isolated
+native fixture uses an offline Git market, binds Remote, verifies both explicit
+refresh and check-all advance the discovery copy without changing the installed
+theme, then retains the existing removal, file-lock, busy-session and subsequent
+Remote-input coverage. Renderer errors are empty. The owner's current app,
+profile and shortcut are untouched. These additions are not yet repackaged
+or integrated into the separately running MiniChat preview; the earlier
+portable package must not be presented as containing this refresh correction.
+
+Subsequently, the unsigned, unpublished independent Windows directory package
+`Desktop/release/remote-market-refresh-20261108-preview/` is built from this
+repair checkout. Its 107 bundled files and 1,427 resource files pass integrity
+checks. The same verifier passes against the actual packaged executable with
+`app.isPackaged === true`, including both Remote-bound market refresh paths,
+the removal checks and subsequent Remote submission through the same worker.
+Renderer errors are empty. Acceptance uses a temporary profile, an offline Git
+market and a loopback provider, not a real account. This package does not
+include MiniChat PR #211. No shortcut is changed, no owner application is
+restarted, and no real profile or Remote binding is modified. Cloud CI, native
+macOS, installer and real-account Remote acceptance remain unestablished.
+
+## Remote-Preserving Theme Removal (2026-11-07)
+
+The owner's diagnostic build identifies both failed actions (`plugin-remove`
+and `marketplace-remove`) as `remote-attached` at `idle-check`, before resource
+checks or filesystem mutation. This establishes the current refusal's cause;
+the earlier controlled Windows directory lock was not its diagnosis.
+
+Capability mutations now retain Remote only when removing a marketplace
+discovery copy or a uniquely identified, data-only `stellar-v1` theme. The theme
+proof reads bounded, link-free files, rejects executable, nonempty resource and
+unknown declarations, and freezes the package fingerprint. The management
+worker revalidates that fingerprint before revocation or deletion. The guard
+and mutation share the capability-service queue and the existing main-process
+shared-settings lock; incoming Remote submissions cannot start during it.
+No runtime is restarted or detached. Host-stopping operations cannot opt out
+of Remote ownership, and ordinary plugin changes remain protected.
+
+Task, queue, approval, background, side-question, Goal and MCP-observation
+guards remain in force. Focused regressions cover those negative cases,
+ambiguous installations, links, stale files and renderer-supplied flags.
+Typecheck, production build and portable package integrity checks pass.
+The actual packaged Electron verifier binds an isolated offline Remote,
+refuses unrelated resource changes and busy-session deletion, exercises real
+Windows file-lock failures and retries, removes both resources without
+dropping the binding, then receives a new Remote input through the same worker
+and a loopback model. Renderer errors are empty.
+
+The unsigned, unpublished replacement is
+`Desktop/release/plugin-removal-remote-fix-20261107/`; evidence and source
+receipt accompany it. The owner's application, binding, profile and shortcut
+are untouched. Real-account Remote, current cloud CI and macOS acceptance are
+not established by these local results.
+
+## Plugin Removal Failure Diagnostics (2026-11-07)
+
+Capability mutations retain the existing trusted-sender, shared-settings,
+all-session idle and plugin-resource guards. Failures now expose allowlisted
+blocker or filesystem codes and a diagnostic ID instead of collapsing every
+refusal into the same generic message. Correlated local logs contain a fresh
+sanitized error, the allowlisted action, operation phase and code; original
+errors, plugin inputs, source URLs, credentials and session content are not
+forwarded to the logger. Existing crash-log metadata is unchanged.
+
+Local Windows verification passes typecheck, an isolated production build and
+172 distinct focused tests covering diagnostics, native capability management,
+session ownership, plugin configuration, races, marketplace themes and runtime
+staging. The staged runtime includes the new failure classifier. No upstream
+runtime pin or patch manifest changes.
+
+The production Electron verifier uses a temporary profile and a loopback
+provider. A task in another session disables both removal buttons; direct IPC
+removal requests are still refused and correlate with local diagnostics.
+Windows child processes holding plugin or marketplace directories reproduce
+filesystem failures through the real management worker and UI. Both operations
+succeed after releasing the holder, and removing a marketplace preserves its
+installed theme. Desktop and settled narrow-window screenshots, text bounds,
+diagnostic correlation and zero renderer errors pass. The verifier is assigned
+to the shared interface CI group.
+
+Evidence is under `Desktop/test-results/native-build/Desktop/test-results/`
+`capability-diagnostics/` in the isolated repair checkout. The full suite,
+current cloud CI, native macOS and installer acceptance are not established.
+The owner's live profile and running preview are unchanged. Its earlier removal
+failure remains unexplained: controlled reproduction of a directory lock does
+not identify the cause in that profile. The running build needs a separately
+authorized update before it can produce these diagnostics.
+
+An unsigned, unpublished Windows portable diagnostic preview is subsequently
+built from `e419143435dc` plus the uncommitted repair changes. Its 107 bundled
+files and 1,427 resource files pass package integrity checks against the
+isolated source build. The fixed upstream runtime and reviewed manifest are
+reused, and Desktop management adapters are synchronized with this checkout.
+The same diagnostics verifier passes against the actual packaged executable
+with `app.isPackaged === true`, a temporary profile and a loopback provider.
+Package evidence is in `acceptance/capability-diagnostics/` beside its source
+receipt. This is not a full release or proof of the owner's earlier failure.
+The packaged native PowerShell terminal verifier also exits successfully,
+including its light/dark/narrow and motion checks. CI policy and inventory
+regressions pass 39 cases with one native-platform skip.
+The running application, primary shortcut and real profile are not switched
+or modified. Manual launch without the test override uses the normal profile;
+the temporary-profile guarantee applies only to automated acceptance.
+
 ## PR #194 Compaction Settings Main Synchronization (2026-11-07)
 
 Head `b735139` passes Windows run `42351838942` and macOS run `42351839100`,

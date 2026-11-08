@@ -37,6 +37,8 @@ try {
   const save = page.getByRole('button', { name: '保存配置', exact: true });
   assert.equal(await save.isDisabled(), true);
   await form.getByRole('button', { name: '跟随 DFSC 会话', exact: true }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('button')]
+    .some(button => button.textContent === '保存配置' && !button.disabled));
   assert.equal(await save.isEnabled(), true);
   await page.screenshot({ path: `${output}/follow-unsaved.png` });
   await save.click();
@@ -107,6 +109,7 @@ try {
   assert.equal(await form.getByLabel('API Key', { exact: true }).inputValue(), 'preview-private-key', 'Failed save preserves the secret draft');
   await save.click();
   await page.waitForFunction(() => window.pluginHostTest.snapshot().value.mode === 'independent');
+  await page.waitForFunction(() => document.querySelector('.pc-host-form input[type=password]')?.value === '');
   assert.equal(await form.getByLabel('API Key', { exact: true }).inputValue(), '', 'Saved keys are not loaded into renderer inputs');
   assert.equal(await form.getByLabel('API Key', { exact: true }).getAttribute('placeholder'), '已保存，留空保留');
 

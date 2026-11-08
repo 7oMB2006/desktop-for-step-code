@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { PluginHostBroker, type HostProvider } from './plugin-host-broker';
 import { plainFile } from './plugin-files.mjs';
-import type { HostBinding } from './plugin-host-contract.mjs';
+import type { HostBinding, UnconfiguredHostBinding } from './plugin-host-contract.mjs';
+import type { PluginHostRuntime } from '../src/capabilities';
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
 import type { CapabilityService } from './capability-service';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
@@ -13,7 +14,7 @@ interface NativeRecord {
   executionHash: string; conflict: boolean; phase: 'pending' | 'starting' | 'connected' | 'failed';
   declarationHash: string;
 }
-type Attachment = { record: NativeRecord; rpc: SessionRuntime['rpc']; launch?: LaunchContext };
+type Attachment = { record: NativeRecord; rpc: SessionRuntime['rpc']; launch?: LaunchContext; started?: boolean };
 function nativeRecord(value: unknown): value is NativeRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const item = value as NativeRecord;
@@ -106,6 +107,7 @@ export class PluginHostLauncher {
             const result = await rpc.request('desktop_plugin_host',
               { action: 'start', requestId: record.requestId, context: JSON.stringify(launch) }, 30000);
             if (!current() || result?.started !== true) throw new Error('Plugin launch failed');
+            attachment.started = true;
           });
         } catch {
           if (attachment.launch) {
@@ -120,7 +122,25 @@ export class PluginHostLauncher {
       if (identityCurrent() && !this.options.available()) this.deferred.set(worker, rpc);
     }
   }
-  private async validate(descriptor: ConfigurationDescriptor, binding: HostBinding, worker: SessionRuntime) {
+  async status(descriptor: ConfigurationDescriptor, binding: HostBinding | UnconfiguredHostBinding): Promise<PluginHostRuntime> {
+    if (!this.options.available()) return { status: 'unavailable' };
+    const worker = this.options.pool.workers.get(this.options.pool.activeId ?? '');
+    if (!worker || worker.status !== 'connected' || !worker.state?.sessionId || worker.stopping || worker.mutating)
+      return { status: 'no-session' };
+    if (!('mode' in binding)) return { status: 'unconfigured' };
+    if (!binding.configurationCurrent) return { status: 'restart-required' };
+    const attachment = [...this.attachments.get(worker)?.values() ?? []].find(item =>
+      item.launch?.pluginId === binding.pluginId && item.launch.revision === binding.revision
+      && item.launch.instance === binding.instance && item.rpc === worker.rpc && item.started);
+    if (!attachment?.launch || !await this.validate(descriptor, binding, worker, true))
+      return { status: 'restart-required' };
+    const status = attachment.launch.mode === 'follow' ? await this.broker.status(attachment.launch)
+      : { status: 'connected' as const };
+    if (this.options.pool.activeId !== worker.id || this.attachments.get(worker)?.get(attachment.record.requestId) !== attachment)
+      return { status: 'unavailable' };
+    return status;
+  }
+  private async validate(descriptor: ConfigurationDescriptor, binding: HostBinding, worker: SessionRuntime, connected = false) {
     const matches = [...this.attachments.get(worker)?.values() ?? []].filter(item =>
       item.record.pluginId === binding.pluginId && item.record.consumer === binding.consumer
       && item.record.root === resolve(descriptor.root) && item.rpc === worker.rpc
@@ -132,7 +152,7 @@ export class PluginHostLauncher {
       if (!this.options.available()) return false;
       const inspected: unknown = await attachment.rpc.request('desktop_plugin_host',
         { action: 'inspect', requestId: attachment.record.requestId }, 10000);
-      if (!nativeRecord(inspected) || inspected.conflict || inspected.phase === 'failed'
+      if (!nativeRecord(inspected) || inspected.conflict || inspected.phase === 'failed' || connected && inspected.phase !== 'connected'
         || Object.entries(attachment.record).some(([key, value]) =>
           key !== 'phase' && inspected[key as keyof NativeRecord] !== value)) return false;
       const manifest = JSON.parse((await plainFile(descriptor.root, 'step.plugin.json')).toString('utf8'));

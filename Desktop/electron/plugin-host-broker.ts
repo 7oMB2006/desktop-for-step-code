@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { PluginHostBindingStore, type HostBinding } from './plugin-host-contract.mjs';
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
+import type { PluginHostRuntime } from '../src/capabilities';
 import { HostClientError, LIMITS, boundedJson, keys, parseContext, parseInvoke, parseResult } from '../../examples/plugins/host-client/protocol.mjs';
 import type { Capability, FollowLaunch, HostContext, Invocation, LaunchContext, ModelSelection, Results } from '../../examples/plugins/host-client/protocol.mjs';
 
@@ -145,12 +146,27 @@ export class PluginHostBroker {
     const lease = this.leases.get(launch.broker.token);
     if (lease?.launch.launchId === launch.launchId) this.revoke(lease);
   }
+  async status(launch: FollowLaunch): Promise<PluginHostRuntime> {
+    const lease = this.leases.get(launch.broker.token);
+    if (!lease || lease.launch.launchId !== launch.launchId) return { status: 'restart-required' };
+    try { await this.current(lease, false); }
+    catch {
+      return { status: lease.controller.signal.aborted || Date.now() >= lease.launch.broker.expiresAt
+        || !this.sameRuntime(lease.worker, lease.rpc, lease.launch.sessionId) ? 'restart-required' : 'unavailable' };
+    }
+    return { status: 'connected', capabilities: lease.snapshot.capabilities
+      .filter(item => launch.capabilities.includes(item.id)).map(item => ({
+        id: item.id, available: item.available,
+        ...(item.available ? { model: item.model, channel: item.channel, region: item.region } : {}),
+        authorization: !item.available ? 'unavailable' : lease.grants.has(item.id) ? 'approved' : 'required',
+      })) };
+  }
   private sameRuntime(worker: SessionRuntime, rpc: SessionRuntime['rpc'], sessionId: string) {
     return this.options.pool.workers.get(worker.id) === worker && worker.rpc === rpc
       && worker.status === 'connected' && !worker.stopping && !worker.mutating
       && worker.state?.sessionId === sessionId;
   }
-  private async current(lease: Lease) {
+  private async current(lease: Lease, revokeOnFailure = true) {
     const worker = lease.worker;
     try {
       if (lease.controller.signal.aborted || Date.now() >= lease.launch.broker.expiresAt
@@ -163,7 +179,7 @@ export class PluginHostBroker {
       if (snapshot.revision !== lease.snapshot.revision || lease.controller.signal.aborted
         || !this.sameRuntime(worker, lease.rpc, lease.launch.sessionId)) fail('STALE_CONTEXT');
     } catch {
-      this.revoke(lease);
+      if (revokeOnFailure) this.revoke(lease);
       fail('STALE_CONTEXT');
     }
   }

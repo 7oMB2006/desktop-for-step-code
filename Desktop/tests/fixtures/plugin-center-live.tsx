@@ -5,7 +5,7 @@ import { PluginCenter, type PluginCenterBridge } from '../../src/PluginCenter';
 import type { PluginPresentation } from '../../src/PluginDocumentation';
 import { SidebarTaskActions } from '../../src/ScheduledTasks';
 import type { CapabilityCatalog, PluginPackage } from '../../src/capabilities';
-import type { PluginConfiguration } from '../../src/capabilities';
+import type { PluginConfiguration, PluginHostSettings } from '../../src/capabilities';
 import exampleReadme from '../../../examples/plugins/config-starter/plugins/dfsc-config-example/README.md?raw';
 import exampleConsumer from '../../../examples/plugins/config-starter/plugins/dfsc-config-example/docs/consumer.md?raw';
 import exampleSchema from '../../../examples/plugins/config-starter/plugins/dfsc-config-example/dfsc.settings.json?raw';
@@ -21,6 +21,7 @@ import '../../src/theme.css';
 applyTheme('light', false);
 const updatePreview = new URLSearchParams(location.search).get('updates') === '1';
 const nativeUpdates = new URLSearchParams(location.search).get('updates') === 'native';
+const hostPreview = new URLSearchParams(location.search).get('host') === '1';
 const presentations: Record<string, PluginPresentation & Pick<PluginPackage, 'categories' | 'keywords'>> = {
   'bilibili-video-research': {
     author: 'BVR contributors', maintainer: 'DFSC 社区', license: 'MIT',
@@ -171,6 +172,41 @@ let preparationRefresh: Promise<void> | undefined, releasePreparationRefresh: ((
 let exampleConfiguration: PluginConfiguration = { ref: 'fixture-config', revision: 'example-1', configured: false,
   schema: JSON.parse(exampleSchema), values: { prefix: 'Note: ', uppercase: false, limit: 160 }, hasSecret: {} };
 let exampleFailure = false;
+let hostSaves = 0, hostReads = 0, hostFailure = false, hostReadFailure = false, hostAfterCommitFailure = false;
+let hostHeld: Promise<void> | undefined, releaseHost: (() => void) | undefined;
+let hostConfiguration: PluginHostSettings = {
+  ref: 'fixture-host', revision: 'unconfigured', mode: null, consumer: 'example',
+  capabilities: ['model.text', 'model.video', 'model.asr', 'model.tts'], models: {}, configurationCurrent: false,
+  runtime: { status: 'unconfigured' },
+  independent: { ref: 'fixture-host', revision: 'unconfigured', configured: false, values: { endpoint: 'https://api.stepfun.com/v1', model: 'step-5-preview' },
+    hasSecret: {}, schema: { schemaVersion: 1, consumer: { kind: 'json-file-v1', server: 'example' }, groups: [
+      { id: 'connection', title: '独立模型连接', fields: [
+        { id: 'endpoint', label: '接口地址', type: 'text', required: true, maxLength: 2048 },
+        { id: 'model', label: '模型', type: 'text', required: true, maxLength: 160 },
+        { id: 'key', label: 'API Key', type: 'secret', required: true, maxLength: 2048 },
+      ] },
+      { id: 'advanced', title: '高级设置', fields: [
+        { id: 'path', label: '工作目录', type: 'path', selection: 'directory', required: false, maxLength: 2048 },
+      ] },
+    ] } },
+};
+if (hostPreview) {
+  catalog.plugins.unshift({ id: 'dfsc-host-example', name: '宿主模型示例', version: '0.1.0', description: '宿主模型与独立配置的通用示例。',
+    mcpServers: ['example'], warnings: [], icon: { kind: 'step' }, installationSource: { status: 'recorded', marketplaces: ['fixture-community'] },
+    package: { ref: 'fixture-host', provenance: 'recorded', documentation: {}, hostSettingsAvailable: true, configurationAvailable: true,
+      tutorials: [], links: [], warnings: [], author: 'DFSC 示例作者', categories: ['development'] } });
+  catalog.mcp.unshift({ name: 'dfsc-host-example__example', source: 'plugin', pluginId: 'dfsc-host-example',
+    transport: 'stdio', enabled: true, configurable: true });
+}
+const hostConnected = () => {
+  hostConfiguration.runtime = hostConfiguration.mode === 'independent' ? { status: 'connected' }
+    : { status: 'connected', capabilities: hostConfiguration.capabilities.map(id => ({
+      id, available: id !== 'model.tts', ...(id !== 'model.tts' ? {
+        model: id === 'model.asr' ? hostConfiguration.models['model.asr'] ?? 'stepaudio-2.5-asr' : 'step-5-preview',
+        channel: 'plan' as const, region: 'cn' as const,
+      } : {}), authorization: id === 'model.tts' ? 'unavailable' as const : 'required' as const,
+    })) };
+};
 const bridge: PluginCenterBridge = {
   platform: 'win32', capabilityCatalog: async () => { catalogReads++; await updateCatalogHeld; return structuredClone(catalog); },
   pluginRepositoryInfo: async input => {
@@ -191,6 +227,32 @@ const bridge: PluginCenterBridge = {
       hasSecret: Object.fromEntries(Object.entries(input.secrets).map(([key, intent]) => [key,
         intent.action === 'replace' ? Boolean(intent.value) : intent.action === 'delete' ? false : exampleConfiguration.hasSecret[key] === true])) };
     return structuredClone(exampleConfiguration);
+  },
+  pluginHostSettings: async input => {
+    hostReads++;
+    const value = structuredClone(hostConfiguration);
+    await hostHeld;
+    if (hostReadFailure) { hostReadFailure = false; throw new Error('capability:host-unavailable'); }
+    if (input.ref !== hostConfiguration.ref) throw new Error('capability:stale');
+    return value;
+  },
+  pluginSaveHostSettings: async input => {
+    hostSaves++;
+    if (hostFailure) {
+      hostFailure = false; hostConfiguration.runtime = { status: 'restart-required' };
+      throw new Error('capability:host-selection-incomplete');
+    }
+    if (input.revision !== hostConfiguration.revision) throw new Error('capability:stale-configuration');
+    if (input.mode === 'independent') {
+      if (!input.configuration || !hostConfiguration.independent) throw new Error('capability:invalid-configuration');
+      const config = input.configuration;
+      hostConfiguration.independent = { ...hostConfiguration.independent, revision: `config-${hostSaves}`, configured: true,
+        values: { ...config.values }, hasSecret: { key: config.secrets.key?.action === 'replace' || hostConfiguration.independent.hasSecret.key === true } };
+    }
+    hostConfiguration = { ...hostConfiguration, mode: input.mode, models: input.models ?? {},
+      revision: `host-${hostSaves}`, configurationCurrent: true, runtime: { status: 'restart-required' } };
+    if (hostAfterCommitFailure) { hostAfterCommitFailure = false; throw new Error('capability:host-selection-incomplete'); }
+    return structuredClone(hostConfiguration);
   },
   pluginChoosePath: async () => 'D:\\Chosen\\Example',
   pluginDocument: async input => {
@@ -215,7 +277,10 @@ const bridge: PluginCenterBridge = {
       updateApplied++;
       return { warnings: [] };
     }
-    if (input.action === 'plugin-toggle') catalog.mcp.filter(server => server.pluginId === input.id).forEach(server => { server.enabled = input.enabled; });
+    if (input.action === 'plugin-toggle') {
+      catalog.mcp.filter(server => server.pluginId === input.id).forEach(server => { server.enabled = input.enabled; });
+      if (input.id === 'dfsc-host-example') hostConfiguration.runtime = { status: input.enabled ? 'restart-required' : 'disabled' };
+    }
     if (input.action === 'plugin-remove') catalog.plugins = catalog.plugins.filter(plugin => plugin.id !== input.id);
     if (input.action === 'marketplace-add') catalog.marketplaces.push({ name: 'new-market', kind: 'git', origin: input.source });
     if (input.action === 'plugin-install') {
@@ -269,11 +334,27 @@ Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone
   },
   theme: (theme: 'light' | 'dark') => applyTheme(theme, false),
   stale: () => { configuration.revision = 'changed-externally'; } } });
+Object.assign(window, { pluginHostTest: {
+  snapshot: () => ({ value: structuredClone(hostConfiguration), saves: hostSaves, reads: hostReads, restarts }),
+  connected: hostConnected,
+  approve: () => { for (const capability of hostConfiguration.runtime.capabilities ?? [])
+    if (capability.available) capability.authorization = 'approved'; },
+  fail: () => { hostFailure = true; },
+  failAfterCommit: () => { hostAfterCommitFailure = true; },
+  failRead: () => { hostReadFailure = true; },
+  status: (status: PluginHostSettings['runtime']['status']) => { hostConfiguration.runtime = { status }; },
+  stale: () => { hostConfiguration.revision = 'changed-elsewhere'; },
+  noIndependent: () => { hostConfiguration.independent = undefined; },
+  hold: () => { hostHeld = new Promise(resolve => { releaseHost = resolve; }); },
+  release: () => { releaseHost?.(); hostHeld = undefined; },
+  session: (id: string) => dispatchEvent(new CustomEvent('plugin-host-session', { detail: id })),
+} });
 function Fixture() {
   const [active, setActive] = useState(true);
   const [language, setLanguage] = useState<'zh' | 'en'>('zh');
   const [wide, setWide] = useState(() => matchMedia('(min-width: 1001px)').matches);
   const [message, setMessage] = useState('保留会话草稿');
+  const [hostRuntime, setHostRuntime] = useState('fixture-runtime');
   const updateState = usePluginUpdatePreview({ readCatalog: () => catalog, replaceCatalog: value => { catalog = value; },
     onRestart: async () => { restarts++; }, language });
   useEffect(() => {
@@ -282,19 +363,27 @@ function Fixture() {
     return () => removeEventListener('plugin-center-language', change);
   }, []);
   useEffect(() => {
+    const change = (event: Event) => setHostRuntime((event as CustomEvent<string>).detail);
+    addEventListener('plugin-host-session', change);
+    return () => removeEventListener('plugin-host-session', change);
+  }, []);
+  useEffect(() => {
     const media = matchMedia('(min-width: 1001px)');
     const change = () => setWide(media.matches);
     media.addEventListener('change', change); return () => media.removeEventListener('change', change);
   }, []);
   return <div className={`app pc-preview${wide ? ' pc-sidebar-open' : ''}`}><header className="pc-window">Desktop for Step Code
-    <span className="pc-preview-label">{updatePreview || nativeUpdates ? language === 'zh' ? '插件更新预览 · 模拟数据' : 'Plugin updates · simulated data' : '插件文档预览'}</span>
+    <span className="pc-preview-label">{hostPreview ? language === 'zh' ? '宿主模型设置 · 模拟数据' : 'Host model settings · simulated data'
+      : updatePreview || nativeUpdates ? language === 'zh' ? '插件更新预览 · 模拟数据' : 'Plugin updates · simulated data' : '插件文档预览'}</span>
+    {hostPreview && <div className="pc-theme-select"><button type="button" onClick={() => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', false)}>
+      {language === 'zh' ? '切换明暗主题' : 'Toggle theme'}</button><button type="button" onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}>{language === 'zh' ? 'English' : '中文'}</button></div>}
     {updatePreview && <PluginUpdatePreviewControls language={language} onLanguage={setLanguage} preview={updateState}/>}</header>
     <aside className="sidebar"><SidebarTaskActions selected={false} pluginsSelected={active} onNewSession={() => setActive(false)}
       onScheduledTasks={() => setActive(false)} onPlugins={() => setActive(value => !value)}/></aside>
     <main><PluginCenter key={updatePreview ? updateState.revision : 'default'} bridge={bridge} active={active} language={language} busy={false}
-      updates={updatePreview ? updateState.updates : undefined} runtimeId="fixture-runtime" settings={{ mcp: {} }}
+      updates={updatePreview ? updateState.updates : undefined} runtimeId={hostRuntime} settings={{ mcp: {} }}
       onChanged={async () => { if (preparationRefresh) { preparationRefreshes++; await preparationRefresh; } }}
-      onRestart={updatePreview ? updateState.restart : async () => { restarts++; }} onManageMcp={() => {}} onBack={() => setActive(false)}/>
+      onRestart={updatePreview ? updateState.restart : async () => { restarts++; if (hostPreview) hostConnected(); }} onManageMcp={() => {}} onBack={() => setActive(false)}/>
       <section hidden={active}><textarea aria-label="会话草稿" value={message} onChange={event => setMessage(event.target.value)}/></section>
     </main>
   </div>;

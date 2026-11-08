@@ -338,6 +338,7 @@ try {
   assert.equal(await page.locator('.first-run-next').isDisabled(), true);
   await assert.rejects(page.evaluate(() => window.desktop.finishFirstRun('skipped')), /settings operation in progress/);
   await assert.rejects(page.evaluate(() => window.desktop.pluginSaveConfiguration({})), /settings operation in progress/);
+  await assert.rejects(page.evaluate(() => window.desktop.pluginSaveHostSettings({})), /settings operation in progress/);
   await assert.rejects(page.evaluate(() => window.desktop.bvrSaveConfiguration({})), /settings operation in progress/);
   await page.getByRole('button', { name: '取消授权', exact: true }).click();
   await page.getByRole('alert').waitFor();

@@ -181,6 +181,24 @@
 .pc-generic-fields .scheduled-select { display: block; }
 .pc-generic-fields .scheduled-select > button { width: 100%; justify-content: space-between; }
 .pc-generic-label { display: block; font-size: 12px; margin-bottom: 8px; }
+.pc-host-form { padding: 0 4px 8px; }
+.pc-host-speech { max-width: 420px; padding: 4px; margin: 12px -4px 0; }
+.pc-host-observation { margin-top: 4px; padding-inline: 4px; }
+.pc-host-runtime { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; line-height: 1.7; margin: 0 0 12px; }
+.pc-host-runtime > span { color: var(--muted); font-size: 10px; }
+.pc-host-capabilities { list-style: none; padding: 0; margin: 0; }
+.pc-host-capabilities > li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px 24px; padding: 13px 0; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.7; }
+.pc-host-capabilities > li > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.pc-host-capabilities > li > div:last-child { text-align: right; }
+.pc-host-capabilities strong { font-size: 12px; font-weight: 500; }
+.pc-host-capabilities span { color: var(--muted); }
+.pc-host-capabilities .pc-host-approved { color: var(--green); }
+.pc-host-form .pc-reload-review { padding: 8px 4px; font-size: 12px; }
+.pc-host-form .pc-reload-review button + button { margin-left: 8px; }
+@media (max-width: 480px) {
+  .pc-host-capabilities > li { flex-direction: column; gap: 5px; }
+  .pc-host-capabilities > li > div:last-child { text-align: left; }
+}
 @media (max-width: 640px) { .pc-generic-fields { grid-template-columns: minmax(0,1fr); } }
 .pc-document-reader { min-width: 0; padding: 4px; }
 .pc-document-reader > button { margin-bottom: 12px; }

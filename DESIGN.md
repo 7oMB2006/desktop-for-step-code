@@ -55,6 +55,16 @@ plugin frontends are not executed. Package Markdown and images are read on deman
 through opaque references, never renderer filesystem access. Tutorials and
 authorship remain author declarations; GitHub Stars are host-queried snapshots.
 
+Host-model plugins reuse this same detail form and save/restart footer. An
+unconfigured installation has no selected source: Follow DFSC and Independent
+are explicit choices, not authorization. Independent fields reuse the author's
+validated schema; stored secrets never return to the renderer. The unframed
+connection/authorization list is a query snapshot, not a balance or success
+guarantee. Show actual session model, channel, region and per-capability approval
+only when confirmed. Saving, failed saves, management changes and session/restart
+changes invalidate the observation without discarding unsaved fields. Do not
+restart a session, grant access or renew a lease from this form.
+
 Plugin authoring, fixed layout, control/copy conventions and the BVR mapping
 are documented in `docs/PLUGIN_AUTHORING.md`. `examples/plugins` separates a
 native-installable resource starter from a host-owned React field template;

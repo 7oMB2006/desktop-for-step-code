@@ -6,9 +6,10 @@ export interface HostBinding {
   consumer: string; mode: 'follow' | 'independent'; configurationRevision: string | null;
   declaration: HostDeclaration; configurationCurrent: boolean; models: ModelSelection;
 }
+export interface UnconfiguredHostBinding { revision: 'unconfigured'; declaration: HostDeclaration }
 export class PluginHostBindingStore {
   constructor(root: string);
-  current(descriptor: ConfigurationDescriptor): Promise<HostBinding | { revision: 'unconfigured' }>;
+  current(descriptor: ConfigurationDescriptor): Promise<HostBinding | UnconfiguredHostBinding>;
   select(descriptor: ConfigurationDescriptor, input: {
     revision: string; mode: 'follow' | 'independent'; configurationRevision?: string; models?: ModelSelection;
   }): Promise<HostBinding>;

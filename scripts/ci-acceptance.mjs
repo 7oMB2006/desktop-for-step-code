@@ -20,6 +20,8 @@ export const acceptanceGroups = {
     'verify-settings-dialog.mjs',
     'verify-capabilities.mjs',
     'verify-plugin-center.mjs',
+    'verify-plugin-host-settings-ui.mjs',
+    'verify-plugin-host-settings-electron.mjs',
     'verify-plugin-input-mcp.mjs',
     'verify-desktop-tray.mjs',
     'verify-composer-menu.mjs',

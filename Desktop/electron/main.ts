@@ -246,8 +246,10 @@ async function refreshThemePacks() {
     await savePreferences();
   }
 }
-const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
+const capabilityService: CapabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
   beforePluginMutation: () => pluginHosts.invalidate(),
+  hostAvailable: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true,
+  hostStatus: (descriptor, binding) => pluginHosts.status(descriptor, binding),
   fetchRepository: (url, options) => net.fetch(url instanceof URL ? url.href : url, { ...options, credentials: 'omit' }),
   environment: () => isolatedEnvironment(dataRoot), validateImage: bytes => {
     const image = nativeImage.createFromBuffer(bytes), size = image.getSize();
@@ -2210,6 +2212,13 @@ async function handle(method: string, args: any[]) {
       await capabilityService.configuration(input);
       return result.filePaths[0] ?? null;
     }
+    case 'pluginHostSettings':
+    case 'pluginSaveHostSettings': {
+      if (method === 'pluginHostSettings' && settingsMutation) throw new Error('capability:busy');
+      if (method === 'pluginSaveHostSettings') await guardIdle({ stopHost: false });
+      try { return await capabilityService.hostSettings(args[0], method === 'pluginSaveHostSettings' ? args[0] : undefined); }
+      catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
+    }
     case 'bvrConfiguration':
     case 'bvrSaveConfiguration':
     case 'bvrCheckEnvironment': {
@@ -2566,7 +2575,7 @@ else app.whenReady().then(async () => {
     if (method === 'quitRespond' || method === 'windowControl') return handle(method, args);
     // Reads must not observe the admin transport halfway through an idle reload.
     if (providerApplication) await providerApplication;
-    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'saveCompactionSettings'].includes(method);
+    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
     const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
     if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
       throw new Error('Shared settings operation in progress');

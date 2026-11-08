@@ -64,6 +64,59 @@ test('launcher issues only inside native receipt resolution and deduplicates con
   f.launcher.invalidate(f.worker);
   await assert.rejects(client.context(), /STALE_CONTEXT/);
 });
+test('safe launcher observations distinguish first-use approval, approval and revocation without issuing or invoking', async t => {
+  const f = await fixture(t);
+  const binding = await f.store.current(f.descriptor);
+  assert.equal((await f.launcher.status(f.descriptor, binding)).status, 'restart-required');
+  await f.launcher.attach(f.worker);
+  const first = await f.launcher.status(f.descriptor, binding);
+  assert.equal(first.status, 'connected');
+  assert.equal(first.capabilities?.[0].authorization, 'required');
+  assert.equal(f.state.confirmations.length, 0);
+  assert.equal(f.calls.length, 0);
+  const client = f.client(); t.after(() => client.close());
+  const context = await client.context();
+  await client.invoke({ requestId: randomUUID(), revision: context.revision, capability: 'model.text',
+    input: { messages: [{ role: 'user', content: 'fixture' }] } });
+  const approved = await f.launcher.status(f.descriptor, binding);
+  assert.equal(approved.capabilities?.[0].authorization, 'approved');
+  assert.doesNotMatch(JSON.stringify(approved), /broker|token|launchId|revision|instance|fingerprint|requestId/);
+  f.launcher.invalidate();
+  assert.equal((await f.launcher.status(f.descriptor, binding)).status, 'restart-required');
+  assert.equal(f.launchState.starts.length, 1);
+});
+test('an observation finishing after a session switch cannot expose the previous session state', async t => {
+  const f = await fixture(t);
+  await f.launcher.attach(f.worker);
+  const binding = await f.store.current(f.descriptor);
+  const read = f.provider.read.bind(f.provider);
+  f.provider.read = async (...args) => {
+    const snapshot = await read(...args);
+    f.pool.activeId = 'other-runtime';
+    return snapshot;
+  };
+  assert.equal((await f.launcher.status(f.descriptor, binding)).status, 'unavailable');
+  assert.equal(f.calls.length, 0);
+});
+test('an observation crossing a cancelled settings gate cannot revoke a healthy lease', async t => {
+  const f = await fixture(t);
+  await f.launcher.attach(f.worker);
+  const binding = await f.store.current(f.descriptor);
+  const request = f.worker.rpc.request.bind(f.worker.rpc);
+  let inspections = 0;
+  f.worker.rpc.request = async (...args) => {
+    const result = await request(...args);
+    if (args[0] === 'desktop_plugin_host' && args[1]?.action === 'inspect' && ++inspections === 2)
+      f.launchState.available = false;
+    return result;
+  };
+  assert.equal((await f.launcher.status(f.descriptor, binding)).status, 'unavailable');
+  f.launchState.available = true;
+  const client = f.client(); t.after(() => client.close());
+  await client.context();
+  assert.equal(f.launchState.starts.length, 1, 'No replacement launch is issued');
+  assert.equal(f.calls.length, 0);
+});
 test('unconfigured, conflicting, unexpected or disabled native consumers get no startup context', async t => {
   for (const change of [
     (f: Awaited<ReturnType<typeof fixture>>) => { f.launchState.allowed = false; },

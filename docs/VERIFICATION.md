@@ -9292,3 +9292,52 @@ TTS、BVR 旧桥迁移、Cron 恢复自动接线、实包和跨仓库发布仍�
 `Desktop/dist` 约 12 MiB，隔离源码的 coding-agent/CLI dist 合计约 29 MiB；
 `D:\Desktop Runtime Builds\plugin-host-launch-20261108` 下保留源码、
 新补丁重放目录及必要验收证据。没有生成或囤积新的安装包。
+
+## 插件宿主通用设置与授权观察 (2026-11-08)
+
+基于原生启动候选 `a65a0a5` 增加插件中心通用模式设置，
+并以 `f0ff40b` 将 macOS 构建 Node 对齐示例要求的 24.16.0。
+不升级 Step Code pin，不修改 BVR 旧桥、插件发布物或用户 profile。
+有效宿主声明的已记录消费者可选择跟随；兼容的独立 schema 复用现有字段。
+默认未选择，不把保存、安装、服务开关或 Full Access 当作付费授权。
+
+模式写入复用管理队列和共享 IPC 门控。独立配置与模式指针不是同一原子提交，
+第二步或回读失败必须报告结果未确认，旧启动失效，草稿保留。
+主进程只投影实际会话的连接、模型、地区、Plan/API 和逐能力授权快照，
+不向 renderer 提供 worker 选择、私有 RPC、receipt、路径或租约。
+状态观察不因临时设置门控永久撤销健康租约，也不签发或续租。
+保存失败、管理操作、重启和会话切换清除旧观察；迟到响应不恢复旧授权。
+
+本地 Windows 源码验收通过：
+
+- 宿主协议/设置/代理/launcher/实际原生 runtime、配置与资源 76 项；
+  其中 4 项实际固定 runtime/SDK 集成，provider 为隔离 fixture。
+- 插件设置/快照竞态、文档与展示 36 项；自包含 SDK 示例另 7 项。
+- CI 策略、清单和 Windows/macOS runner 31 项：30 通过、1 项平台跳过。
+- 类型检查、最终生产构建、`git diff --check`。
+- 新通用设置浏览器验收：未选择、跟随无需 Key、独立秘密不回读、
+  保存失败及提交后回读失败、revision 冲突、草稿保留、开关失效、
+  跨会话迟到响应、读失败不循环、host-only/不支持宿主、亮暗窄窗、
+  完整焦点边界及减少动态效果。使用实际 React 组件和模拟桥。
+- 既有生产 Plugin Center 浏览器验收通过，覆盖抽出的共用配置字段。
+- 真实 Electron 宿主设置验收：receipt-backed typed IPC、读/保存不创建 worker、
+  并发 writer 门控、独立 SDK 原生启动、切跟随后撤销且不自动重启。
+- 基础 Electron 完整运行含末尾 profile 重开检查通过，日志
+  `Desktop/test-results/plugin-host-settings-core-20261108.log`；
+  此前一次只打印主体通过后以 1 退出，不能视为通过，也未宣称查明该次根因。
+  首次启动生产验收另已通过，包含新保存 IPC 的共享设置门控，日志
+  `Desktop/test-results/plugin-host-settings-first-run-20261108.log`。
+  宿主设置日志为 `Desktop/test-results/plugin-host-settings-electron-20261108.log`，
+  浏览器截图位于 `Desktop/test-results/plugin-host-settings-ui/`。
+
+云端边界：#218 初次 macOS 失败源于 24.15.0 与 SDK 的最低 24.16.0 不匹配；
+修正后两项 SDK 原生启动通过。重跑记录 `42461995514` 首次尝试仍因
+`background-runtime.test.ts` 的 complete 场景在 process 阶段 60 秒超时取消：
+1,530 项中 1,522 通过、7 跳过、1 取消。已保留证据并对同提交重跑，
+不把重跑成功当作该偶发原生启动问题的根因修复；云端结果单独确认。
+
+本轮没有真实账户或付费请求、完整生产付费确认、安装器/实包体验，
+不证明 TTS、Cron 自动接线、BVR 迁移、市场同步或组合发布完成。
+预览只模拟状态，不能据此宣称模型权益可用。未生成安装包或更新快捷方式。
+可重建产物盘点：本工作树 `Desktop/runtime` 124.17 MiB、`Desktop/dist`
+11.82 MiB、新界面截图 0.42 MiB；均保留，未删除旧包或修改其他预览服务。

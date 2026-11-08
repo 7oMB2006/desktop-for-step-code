@@ -5,6 +5,8 @@ import ts from 'typescript';
 import { CapabilityGate } from '../electron/capability-gate';
 import type { CapabilityPolicy } from '../electron/capability-policy';
 import { capabilityFailureDetails } from '../electron/capability-failure.mjs';
+import { CapabilityService } from '../electron/capability-service';
+import { RpcManagementStopError, type RpcProcess } from '../electron/runtime';
 
 const file = ts.createSourceFile('main.ts', readFileSync(new URL('../electron/main.ts', import.meta.url), 'utf8'),
   ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -206,3 +208,52 @@ test('actual main recovery rechecks idle after asynchronous resource observation
   assert.equal(observations, 2);
   assert.equal(value.locked(), false);
 });
+
+const beforeQuit = find(node => ts.isCallExpression(node) && node.expression.getText(file) === 'app.on'
+  && node.arguments[0]?.getText(file) === "'before-quit'") as ts.CallExpression;
+
+for (const exitConfirmed of [true, false]) {
+  test(`actual before-quit ${exitConfirmed ? 'quits after exited' : 'retains live'} quarantined management worker`, { timeout: 10000 }, async () => {
+    const service = new CapabilityService({
+      root: 'unused-fixture', runtime: 'unused-fixture', node: 'never-spawn', environment: () => ({}),
+      createWorker: () => ({
+        start() {},
+        async request() { return {}; },
+        async stopManagement() {
+          throw new RpcManagementStopError('Management shutdown unconfirmed', false, exitConfirmed);
+        },
+      }) as unknown as RpcProcess,
+    });
+    await assert.rejects(service.initialize(), /management-committed/);
+    let settle!: () => void;
+    const settled = new Promise<void>(resolve => { settle = resolve; });
+    const create = new Function('capabilityService', 'settle', javascript(`
+      let quitting = false, quitPending = false;
+      const sessionEnding = false, transition = false, window = undefined;
+      const state = { quits: 0, errors: 0, prevented: 0 };
+      const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
+      const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
+      const collaboration = stop, bvrBridge = stop, conversationTiming = stop, modelSelections = stop;
+      const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, browser = undefined;
+      const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
+      const preferences = { language: 'zh' }, quitReview = { reset() {} };
+      const emit = () => { state.errors++; settle(); };
+      const app = { quit() { state.quits++; settle(); } };
+      const handler = ${beforeQuit.arguments[1].getText(file)};
+      return {
+        state, start: () => handler({ preventDefault() { state.prevented++; } }),
+        quitting: () => quitting, pending: () => quitPending,
+      };
+    `));
+    const f = create(service, settle);
+    f.start();
+    await settled;
+    assert.equal(f.state.prevented, 1);
+    assert.equal(f.state.quits, exitConfirmed ? 1 : 0);
+    assert.equal(f.state.errors, exitConfirmed ? 0 : 1);
+    assert.equal(f.quitting(), exitConfirmed);
+    assert.equal(f.pending(), exitConfirmed);
+    assert.equal(service.available, false);
+    await assert.rejects(service.initialize(), /management-unavailable/);
+  });
+}

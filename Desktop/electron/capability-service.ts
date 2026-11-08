@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { RpcProcess } from './runtime';
+import { RpcManagementStopError, RpcProcess } from './runtime';
 import { PluginLibrary } from './plugin-library.mjs';
 import { PluginRepositoryInfo } from './plugin-repository.mjs';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
@@ -259,6 +259,11 @@ export class CapabilityService {
     return this.request('import', { path }, true);
   }); }
   async stop() { await Promise.all([...this.workers].map(async worker => {
-    await worker.stopManagement(); this.workers.delete(worker);
+    try { await worker.stopManagement(); }
+    catch (error) {
+      // Shutdown needs confirmed exit, not write-safety proof; quarantine stays intact.
+      if (!(error instanceof RpcManagementStopError) || !error.exitConfirmed) throw error;
+    }
+    this.workers.delete(worker);
   })); }
 }

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { CapabilityService } from '../electron/capability-service';
 import { capabilityPolicy, type CapabilityPolicy } from '../electron/capability-policy';
 import { packageFingerprint } from '../electron/plugin-files.mjs';
-import type { RpcProcess } from '../electron/runtime';
+import { RpcManagementStopError, type RpcProcess } from '../electron/runtime';
 import type { CapabilityMutation } from '../src/capabilities';
 
 const actions: CapabilityMutation['action'][] = [
@@ -194,6 +194,49 @@ test('an unconfirmed executable writer quarantines runtime access as well as fut
   await f.service.stop();
   assert.equal(f.service.runtimeAvailable, false, 'cleanup alone cannot reconcile a partially written executable package');
 });
+
+for (const protectsRuntime of [false, true]) {
+  test(`shutdown releases an exited management worker without lifting quarantine (runtime=${protectsRuntime})`, async t => {
+    const f = await fixture(t);
+    await f.service.initialize();
+    const failure = new RpcManagementStopError('Management worker exited without shutdown acknowledgment', false, true);
+    f.setStop(async () => { throw failure; });
+    const input: CapabilityMutation = protectsRuntime
+      ? { action: 'skill-create', name: 'fixture', description: 'Fixture', instructions: 'Never execute.' }
+      : { action: 'marketplace-remove', name: 'fixture' };
+    await assert.rejects(f.service.mutate(input), /management-committed/);
+    const workers = f.workers(), stops = f.stops();
+    await f.service.stop();
+    assert.equal(f.stops(), stops + 1);
+    await f.service.stop();
+    assert.equal(f.stops(), stops + 1, 'an exited worker is released exactly once');
+    assert.equal(f.service.available, false);
+    assert.equal(f.service.runtimeAvailable, !protectsRuntime);
+    await assert.rejects(f.service.mutate(input), /management-unavailable/);
+    assert.equal(f.workers(), workers, 'shutdown cannot authorize a replacement management worker');
+  });
+}
+
+for (const failure of [
+  new RpcManagementStopError('Management worker is still running', true, false),
+  Object.assign(new Error('Unverified exit claim'), { exitConfirmed: true }),
+]) {
+  test(`shutdown retains an unconfirmed management owner: ${failure.message}`, async t => {
+    const f = await fixture(t);
+    await f.service.initialize();
+    f.setStop(async () => { throw failure; });
+    await assert.rejects(f.service.mutate({ action: 'marketplace-remove', name: 'fixture' }), /management-committed/);
+    const stops = f.stops();
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await assert.rejects(f.service.stop(), error => error === failure);
+      assert.equal(f.stops(), stops + attempt, 'failed shutdown keeps ownership available for retry');
+    }
+    assert.equal(f.service.available, false);
+    f.setStop(async () => {});
+    await f.service.stop();
+    assert.equal(f.service.available, false);
+  });
+}
 
 test('a rejected operation with confirmed cleanup does not poison later management writes', async t => {
   const f = await fixture(t);

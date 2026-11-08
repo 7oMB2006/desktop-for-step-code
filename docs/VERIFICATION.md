@@ -1,5 +1,23 @@
 # Verification
 
+## 管理 worker 异常退出后的应用关闭回归（2026-11-08）
+
+PR #219 的 P2 已复现：管理 worker 缺少有效 shutdown 确认时，
+即便进程已经退出，后续 `CapabilityService.stop()` 仍会失败，
+导致 `before-quit` 无法执行 `app.quit()`。
+
+仅在服务关闭路径接受 `RpcManagementStopError.exitConfirmed === true`，
+释放已退出 worker 的所有权；不改严格的 `stopManagement()` 确认规则，
+不清除管理写入隔离或 runtime 保护。仍存活、退出未确认或仅伪造同名字段
+的错误继续阻止关闭，并保留所有权以便重试。
+
+退出、管理策略、Remote 保持、主题证明、诊断与运行时门禁共
+9 个测试文件的 203 项回归全部通过，类型检查及空白检查通过。
+真实隔离 Node 子进程覆盖意外退出、错误确认 ID、无确认、非零退出，
+以及错误确认后仍存活、随后实际退出再重试的场景。
+这是本地源码证据，不代表新提交的云端 CI、打包客户端或真实账号验收；
+未改作者运行包、档案、Remote 绑定和快捷方式。
+
 ## CI Electron Download Preparation (2026-11-08)
 
 On `32cd89a`, both platforms passed canvas preparation and normal upstream

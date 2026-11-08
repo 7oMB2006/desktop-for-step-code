@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { isolatedEnvironment, RpcCommandError, RpcManagementStopError, RpcProcess } from '../electron/runtime';
 import { diagnoseCapabilityMutation } from '../electron/capability-diagnostics';
+import { CapabilityService } from '../electron/capability-service';
 
 async function bounded<T>(promise: Promise<T>, milliseconds = 3000): Promise<T> {
   let timer: NodeJS.Timeout;
@@ -33,6 +34,7 @@ input.on('line', line => {
     return;
   }
   if (request.type === 'exit-now') { reply({}); end(0); return; }
+  if (request.type === 'initialize' && scenario === 'unexpected') { end(0); return; }
   if (request.type !== 'shutdown') { reply({ pid: process.pid }); return; }
   const ack = () => reply({ shutdown: true });
   if (scenario === 'linger') { ack(); return; }
@@ -176,6 +178,66 @@ test('a worker that exited before stop is not mistaken for acknowledged cleanup'
     });
   });
 });
+
+for (const scenario of ['unexpected', 'wrong-id', 'no-ack', 'nonzero', 'bad-ack']) {
+  test(`service shutdown releases a real ${scenario} worker but preserves management quarantine`, { timeout: 10000 }, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'capability-shutdown-')));
+    const children: ChildProcessWithoutNullStreams[] = [];
+    const closed: Promise<unknown>[] = [];
+    const workers: RpcProcess[] = [];
+    class ObservedWorker extends RpcProcess {
+      override start(...args: Parameters<RpcProcess['start']>) {
+        super.start(...args);
+        const child = (this as unknown as { child: ChildProcessWithoutNullStreams }).child;
+        children.push(child);
+        closed.push(once(child, 'close'));
+      }
+    }
+    const service = new CapabilityService({
+      root, runtime: root, node: process.execPath,
+      environment: () => ({ ...isolatedEnvironment(root), FIXTURE_SCENARIO: scenario }),
+      createWorker: () => {
+        const worker = new ObservedWorker(() => {});
+        workers.push(worker);
+        return worker;
+      },
+    });
+    try {
+      await writeFile(join(root, 'capability-admin.mjs'),
+        `import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\n${fixture}`);
+      await assert.rejects(service.initialize(), scenario === 'unexpected' ? /management-uncertain/ : /management-committed/);
+      if (scenario === 'bad-ack') {
+        await assert.rejects(service.stop(), error => {
+          assert.ok(error instanceof RpcManagementStopError);
+          assert.equal(error.exitConfirmed, false);
+          return true;
+        });
+        children[0].stdin.write('{"type":"fixture-release"}\n');
+      }
+      await bounded(Promise.all(closed));
+      assert.equal(children.length, 1);
+      assert.ok(children[0].exitCode !== null);
+      await assert.rejects(workers[0].stopManagement(), error => {
+        assert.ok(error instanceof RpcManagementStopError);
+        assert.equal(error.exitConfirmed, true);
+        return true;
+      });
+      await bounded(Promise.all([service.stop(), service.stop()]));
+      await service.stop();
+      assert.equal(service.available, false);
+      assert.equal(service.runtimeAvailable, true);
+      await assert.rejects(service.initialize(), /management-unavailable/);
+      assert.equal(workers.length, 1);
+      await assert.rejects(workers[0].stopManagement(), RpcManagementStopError);
+    } finally {
+      for (const child of children) {
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+      }
+      await bounded(Promise.all(closed));
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('ordinary Windows stop still rejects a failed tree helper', {
   skip: process.platform !== 'win32', timeout: 10000,

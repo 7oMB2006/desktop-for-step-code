@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capabilityFailureCode } from '../electron/capability-failure.mjs';
 import { diagnoseCapabilityMutation, type CapabilityPhase } from '../electron/capability-diagnostics';
+import { crashDetails } from '../electron/crash-log-format';
 import { capabilityErrorText, capabilityWarningText } from '../src/capability-errors';
 import { SessionRuntimes, type WorkerTransport, type SessionRuntime } from '../electron/session-runtimes';
 
@@ -85,6 +86,28 @@ test('Git diagnostics retain validated numeric fields, never raw output or calle
     operation: 'marketplace-refresh', elapsedMs: 120, gitExitCode: 128, gitSignal: null, gitSystemCode: null,
   });
   assert.doesNotMatch(JSON.stringify(records), /private|TOKEN|stderr|env/);
+});
+
+test('main crash-log redaction preserves correlated Git diagnostics without private payloads', async () => {
+  let log = '', diagnosticId = '';
+  const details = {
+    operation: 'marketplace-refresh', elapsedMs: 313, gitExitCode: 1, gitSignal: null, gitSystemCode: null,
+    stderr: 'Bearer private-token', source: 'https://user:private-password@example.invalid',
+  };
+  await assert.rejects(diagnoseCapabilityMutation('capabilityMutate', { action: 'marketplace-update' }, async mark => {
+    mark('mutation');
+    throw Object.assign(new Error('capability:marketplace-network'), { details });
+  }, async (_error, safeDetails) => {
+    diagnosticId = safeDetails.diagnosticId;
+    log = crashDetails(safeDetails).join('\n');
+  }), error => String(error).includes(`diagnostic:${diagnosticId}`));
+  assert.match(log, new RegExp(`diagnosticId: ${diagnosticId}`));
+  assert.match(log, /operationPhase: mutation/);
+  assert.match(log, /code: marketplace-network/);
+  assert.match(log, /elapsedMs: 313/);
+  assert.match(log, /gitExitCode: 1/);
+  assert.doesNotMatch(log, /private|Bearer|stderr|source|example\.invalid/);
+  assert.equal(details.stderr, 'Bearer private-token');
 });
 
 test('partial update checks log each failure and replace internal payloads with diagnostic IDs', async () => {

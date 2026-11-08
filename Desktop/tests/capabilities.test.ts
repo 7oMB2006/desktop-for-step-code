@@ -8,6 +8,7 @@ import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import { CapabilityService } from '../electron/capability-service';
 import { isolatedEnvironment } from '../electron/runtime';
+import { removeLinkEntry } from './fixtures/artifact-cleanup';
 import type { CapabilityMutation } from '../src/capabilities';
 
 const runtime = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
@@ -139,11 +140,19 @@ test('DFSC Beta PNG icons survive installation while invalid paths and files fal
     assert.equal((await service.catalog()).plugins[0].icon, undefined);
   }
   const external = join(folder, 'external-images');
-  await mkdir(external);
-  await writeFile(join(external, 'logo.png'), iconPng);
-  await symlink(external, join(directory, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
-  await writeFile(join(directory, 'step.plugin.json'), JSON.stringify({ ...manifest, icon: 'linked/logo.png' }));
-  assert.equal((await service.catalog()).plugins[0].icon, undefined);
+  const linked = join(directory, 'linked');
+  let created = false;
+  try {
+    await mkdir(external);
+    await writeFile(join(external, 'logo.png'), iconPng);
+    await symlink(external, linked, process.platform === 'win32' ? 'junction' : 'dir');
+    created = true;
+    await writeFile(join(directory, 'step.plugin.json'), JSON.stringify({ ...manifest, icon: 'linked/logo.png' }));
+    assert.equal((await service.catalog()).plugins[0].icon, undefined);
+  } finally {
+    // A dangling junction stalls the fixture's recursive rm on Windows.
+    if (created) await removeLinkEntry(linked);
+  }
 });
 
 test('built-in plugin placeholders use Step branding, not a third-party matching id', async t => {
@@ -320,13 +329,39 @@ test('invalid actions, path traversal, invalid booleans, and credential URLs are
   ]) await assert.rejects(service.mutate(input as CapabilityMutation), /capability:/);
 });
 
+test('a marketplace source that is itself a link is rejected before reading', async t => {
+  const { folder, service } = await fixture(t);
+  const source = await marketplace(folder);
+  const outside = await mkdtemp(join(tmpdir(), 'desktop-capabilities-market-'));
+  const linked = join(folder, 'linked-market');
+  let created = false;
+  try {
+    await symlink(outside, linked, process.platform === 'win32' ? 'junction' : 'dir');
+    created = true;
+    await assert.rejects(service.mutate({ action: 'marketplace-add', source: linked }), /capability:invalid-path/);
+    const after = await service.catalog();
+    assert.equal(after.marketplaces.some(market => market.origin !== null && market.origin.endsWith('linked-market')), false);
+  } finally {
+    if (created) await removeLinkEntry(linked);
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
 test('management refuses symbolic links and never deletes a linked external skill', async t => {
   const { folder, root, service } = await fixture(t);
   const outside = join(folder, 'outside');
-  await mkdir(outside);
-  await writeFile(join(outside, 'SKILL.md'), '---\nname: external\ndescription: External fixture\n---\nKeep.');
-  await mkdir(join(root, 'agent', 'skills'), { recursive: true });
-  await symlink(outside, join(root, 'agent', 'skills', 'external'), process.platform === 'win32' ? 'junction' : 'dir');
-  await assert.rejects(service.catalog(), /invalid-path/);
-  assert.match(await readFile(join(outside, 'SKILL.md'), 'utf8'), /Keep/);
+  const linked = join(root, 'agent', 'skills', 'external');
+  let created = false;
+  try {
+    await mkdir(outside);
+    await writeFile(join(outside, 'SKILL.md'), '---\nname: external\ndescription: External fixture\n---\nKeep.');
+    await mkdir(join(root, 'agent', 'skills'), { recursive: true });
+    await symlink(outside, linked, process.platform === 'win32' ? 'junction' : 'dir');
+    created = true;
+    await assert.rejects(service.catalog(), /invalid-path/);
+    assert.match(await readFile(join(outside, 'SKILL.md'), 'utf8'), /Keep/);
+  } finally {
+    // A dangling junction stalls the fixture's recursive rm on Windows.
+    if (created) await removeLinkEntry(linked);
+  }
 });

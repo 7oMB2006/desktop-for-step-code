@@ -2241,19 +2241,19 @@ async function handle(method: string, args: any[], markCapabilityPhase?: Capabil
           refreshThemes = policy.scope === 'theme'
             || ['plugin-install', 'plugin-remove', 'plugin-update'].includes(args[0]?.action);
           const release = await capabilityGate.guard(policy, {
-          assertAvailable: () => {
-            if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending)
-              throw new Error('Shared settings operation in progress');
-          },
-          acquireRuntime: () => {
-            settingsMutation = true;
-            return () => { settingsMutation = !capabilityService.runtimeAvailable; };
-          },
-          assertIdle: () => guardIdle({ stopHost: false, resources: true }),
-          assertResource: async id => {
-            markCapabilityPhase?.('resource-check');
-            await assertPluginUnused(id, runtimes.workers.values());
-          },
+            assertAvailable: () => {
+              if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending)
+                throw new Error('Shared settings operation in progress');
+            },
+            acquireRuntime: () => {
+              settingsMutation = true;
+              return () => { settingsMutation = !capabilityService.runtimeAvailable; };
+            },
+            assertIdle: () => guardIdle({ stopHost: false, resources: true }),
+            assertResource: async id => {
+              markCapabilityPhase?.('resource-check');
+              await assertPluginUnused(id, runtimes.workers.values());
+            },
           });
           markCapabilityPhase?.('mutation');
           return release;
